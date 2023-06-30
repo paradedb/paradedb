@@ -12,7 +12,7 @@ services:
       - install
       - --no-cache-dir
       - -r
-      - /app/cli/requirements.txt
+      - /app/requirements.txt
 
   resync:
     image: python:3.9-slim

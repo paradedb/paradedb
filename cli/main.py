@@ -15,11 +15,15 @@ def cli():
 @cli.command()
 def init():
     # Create config.yaml file
+    # Challenge is figuring out an extensible config.yaml format that can handle
+    # multiple sources, sinks, and mappings between sources and sinks
+    # I haven't figured out the best way to do this yet
     pass
 
 
 @cli.command()
 def watch():
+    # TODO (Phil): Read this in from a config.yaml file
     dbname = "postgres"
     user = "postgres"
     host = "postgres-instance-1.chqsp2e4eplp.us-east-2.rds.amazonaws.com"

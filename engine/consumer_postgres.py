@@ -63,11 +63,13 @@ class PostgresConsumer(object):
         self.queue.put({"type": PGOutput.UPDATE, "message": diff_dict})
 
     def _handle_insert(self, message):
-        # TODO
+        # TODO (Phil) - On INSERT, emit the inserted row (see handle_update)
+        # Insert() class already written in pgoutput.py
         self.queue.put({"type": PGOutput.INSERT, "message": "decoded_message_here"})
 
     def _handle_delete(self, message):
-        # TODO
+        # TODO (Phil) - On DELETE, emit the deleted row (see handle_update)
+        # Delete() class already written in pgoutput.py
         self.queue.put({"type": PGOutput.DELETE, "message": "decoded_message_here"})
 
     def _format_tuple(self, tuple_data, relation_id):

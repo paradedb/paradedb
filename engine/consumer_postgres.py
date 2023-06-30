@@ -63,9 +63,15 @@ class PostgresConsumer(object):
         self.queue.put({"type": PGOutput.UPDATE, "message": diff_dict})
 
     def _handle_insert(self, message):
-        # TODO (Phil) - On INSERT, emit the inserted row (see handle_update)
-        # Insert() class already written in pgoutput.py
-        self.queue.put({"type": PGOutput.INSERT, "message": "decoded_message_here"})
+        decoded_message = Insert(message.payload)
+        relation_id = decoded_message.relation_id
+
+        old_dict = dict()
+        new_dict = self._format_tuple(decoded_message.new_tuple, relation_id)
+
+        diff_dict = self._diff_dicts(old_dict, new_dict)
+
+        self.queue.put({"type": PGOutput.INSERT, "message": diff_dict})
 
     def _handle_delete(self, message):
         # TODO (Phil) - On DELETE, emit the deleted row (see handle_update)
@@ -83,6 +89,10 @@ class PostgresConsumer(object):
         return output
 
     def _diff_dicts(self, dict1, dict2):
+        # If either dict is empty, this is an insert or delete operation and shouldn't compare keys
+        if dict1 == dict() or dict2 == dict():
+            return {"before": dict1, "after": dict2}
+
         before = dict()
         after = dict()
 

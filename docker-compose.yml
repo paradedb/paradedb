@@ -22,7 +22,8 @@ services:
     working_dir: /app
     entrypoint:
       - python
-      - /app/cli/main.py
+      - -m
+      - cli.main
 
 volumes:
   python-deps:

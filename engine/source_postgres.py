@@ -6,7 +6,7 @@ import queue
 
 from psycopg2.extras import LogicalReplicationConnection
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from consumer import PostgresConsumer
+from engine.consumer_postgres import PostgresConsumer
 
 
 class PostgresCDC:

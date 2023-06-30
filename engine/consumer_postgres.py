@@ -1,6 +1,7 @@
-from pgoutput import Relation, Update, Insert, Delete
 from typing import Dict, List
 from pydantic import BaseModel
+
+from engine.pgoutput import Relation, Update, Insert, Delete
 
 
 class PGOutput:
@@ -80,8 +81,8 @@ class PostgresConsumer(object):
         return output
 
     def _diff_dicts(self, dict1, dict2):
-        before = {}
-        after = {}
+        before = dict()
+        after = dict()
 
         for key in dict1.keys() & dict2.keys():
             if dict1[key] != dict2[key]:

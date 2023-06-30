@@ -2,10 +2,7 @@
 
 ## Overview
 Retake Connect is an open-source Extract, Transform, Load (ETL) library designed to connect SQL databases to embeddings databases in real-time. 
-Existing "real time" change data capture (CDC) libraries like Debezium incure 10s+ latency per update and require complex setup; Connect is
-10x faster and more performant.
-
-![RealTime ETLer Banner](banner.png)
+Existing "real time" change data capture (CDC) libraries like Debezium incur 10s+ latency per update and require complex setup; Connect is 10x faster and more performant.
 
 ## Table of Contents
 - [Features](#features)

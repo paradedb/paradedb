@@ -1,0 +1,10 @@
+# TODO: Change the values below to match your environment // move to env vars for secrets
+dbname: postgres
+user: postgres
+host: postgres-instance-1.chqsp2e4eplp.us-east-2.rds.amazonaws.com
+password: Password123!
+table: ecoinvent_with_types
+slot_name: resync_slot
+port: 5432
+output_plugin: pgoutput
+publication_name: test_pub

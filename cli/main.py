@@ -23,16 +23,19 @@ def init():
 
 @cli.command()
 def watch():
-    # TODO (Phil): Read this in from a config.yaml file
-    dbname = "postgres"
-    user = "postgres"
-    host = "postgres-instance-1.chqsp2e4eplp.us-east-2.rds.amazonaws.com"
-    password = "Password123!"
-    table = "ecoinvent_with_types"
-    slot_name = "resync_slot"
-    port = 5432
-    output_plugin = "pgoutput"
-    publication_name = "test_pub"
+    # Read in config.yaml file
+    with open("config.yml", "r") as file:
+        config = yaml.safe_load(file)
+
+    dbname = config["dbname"]
+    user = config["user"]
+    host = config["host"]
+    password = config["password"]
+    table = config["table"]
+    slot_name = config["slot_name"]
+    port = config["port"]
+    output_plugin = config["output_plugin"]
+    publication_name = config["publication_name"]
 
     # Run Python listener
     try:

@@ -1,0 +1,28 @@
+version: "3.9"
+
+services:
+  deps:
+    image: python:3.9-slim
+    volumes:
+      - .:/app
+      - python-deps:/usr/local/lib/python3.9/site-packages
+    working_dir: /app
+    command:
+      - pip
+      - install
+      - --no-cache-dir
+      - -r
+      - /app/cli/requirements.txt
+
+  resync:
+    image: python:3.9-slim
+    volumes:
+      - .:/app
+      - python-deps:/usr/local/lib/python3.9/site-packages
+    working_dir: /app
+    entrypoint:
+      - python
+      - /app/cli/main.py
+
+volumes:
+  python-deps:

@@ -74,9 +74,15 @@ class PostgresConsumer(object):
         self.queue.put({"type": PGOutput.INSERT, "message": diff_dict})
 
     def _handle_delete(self, message):
-        # TODO (Phil) - On DELETE, emit the deleted row (see handle_update)
-        # Delete() class already written in pgoutput.py
-        self.queue.put({"type": PGOutput.DELETE, "message": "decoded_message_here"})
+        decoded_message = Delete(message.payload)
+        relation_id = decoded_message.relation_id
+
+        old_dict = self._format_tuple(decoded_message.old_tuple, relation_id)
+        new_dict = dict()
+
+        diff_dict = self._diff_dicts(old_dict, new_dict)
+
+        self.queue.put({"type": PGOutput.DELETE, "message": diff_dict})
 
     def _format_tuple(self, tuple_data, relation_id):
         table_schema = self.table_schemas[relation_id]

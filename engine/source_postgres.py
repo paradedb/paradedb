@@ -61,7 +61,7 @@ class PostgresCDC:
         )
         if not self.cursor.fetchone():
             self.cursor.execute(
-                f"SELECT * FROM pg_create_logical_replication_slot('{slot_name}', 'pgoutput')"
+                f"SELECT * FROM pg_create_logical_replication_slot('{self.slot_name}', 'pgoutput')"
             )
             self.connection.commit()
 
@@ -99,8 +99,7 @@ class PostgresCDC:
         temp_cursor.close()
         temp_conn.close()
 
-        # Wait for the process to terminate
-        self.watch_thread.join()
+        print("Replication slot dropped")
 
     def __iter__(self):
         return self

@@ -35,18 +35,25 @@ def watch():
     publication_name = "test_pub"
 
     # Run Python listener
-    cdc = PostgresCDC(
-        publication_name=publication_name,
-        slot_name=slot_name,
-        database=dbname,
-        host=host,
-        user=user,
-        password=password,
-        port=port,
-    )
+    try:
+        print("Listening for changes...")
+        cdc = PostgresCDC(
+            publication_name=publication_name,
+            slot_name=slot_name,
+            database=dbname,
+            host=host,
+            user=user,
+            password=password,
+            port=port,
+        )
 
-    for event in cdc:
-        print(event)
+        for event in cdc:
+            print(event)
+
+    except KeyboardInterrupt:
+        print("Tearing down...")
+        cdc.teardown()
+        print("Teardown successful.")
 
     pass
 

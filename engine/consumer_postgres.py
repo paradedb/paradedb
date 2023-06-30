@@ -51,10 +51,41 @@ class PostgresConsumer(object):
         )
 
     def _handle_update(self, message):
-        self.queue.put({"type": PGOutput.UPDATE, "message": "decoded_message_here"})
+        decoded_message = Update(message.payload)
+        relation_id = decoded_message.relation_id
+
+        old_dict = self._format_tuple(decoded_message.old_tuple, relation_id)
+        new_dict = self._format_tuple(decoded_message.new_tuple, relation_id)
+
+        diff_dict = self._diff_dicts(old_dict, new_dict)
+
+        self.queue.put({"type": PGOutput.UPDATE, "message": diff_dict})
 
     def _handle_insert(self, message):
+        # TODO
         self.queue.put({"type": PGOutput.INSERT, "message": "decoded_message_here"})
 
     def _handle_delete(self, message):
+        # TODO
         self.queue.put({"type": PGOutput.DELETE, "message": "decoded_message_here"})
+
+    def _format_tuple(self, tuple_data, relation_id):
+        table_schema = self.table_schemas[relation_id]
+        output = dict()
+
+        for index, column in enumerate(tuple_data.column_data):
+            column_name = table_schema.columns[index]
+            output[column_name] = column.col_data
+
+        return output
+
+    def _diff_dicts(self, dict1, dict2):
+        before = {}
+        after = {}
+
+        for key in dict1.keys() & dict2.keys():
+            if dict1[key] != dict2[key]:
+                before[key] = dict1[key]
+                after[key] = dict2[key]
+
+        return {"before": before, "after": after}

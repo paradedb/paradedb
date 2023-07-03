@@ -1,2 +1,4 @@
+# Automatically generated folders
 __pycache__/
-config.yaml
+dist/
+build/

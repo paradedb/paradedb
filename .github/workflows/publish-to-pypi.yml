@@ -1,0 +1,41 @@
+name: Publish Python Package
+
+on:
+  push:
+    branches:
+      - dev
+      - staging
+      - prod
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: "3.x"
+      - name: Set Environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "::set-output name=environment::dev"
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "::set-output name=environment::staging"
+          elif [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
+            echo "::set-output name=environment::prod"
+          fi
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install setuptools wheel twine
+      - name: Build and publish to PyPI
+        env:
+          TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
+          TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+          PACKAGE_VERSION: "1.0.0"
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+        working-directory: scripts
+        run: |
+          python build.py sdist bdist_wheel
+          twine upload dist/*

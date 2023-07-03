@@ -8,6 +8,11 @@ from psycopg2.extras import LogicalReplicationConnection
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 from engine.consumer_postgres import PostgresConsumer
 
+# Server A: CDC Server -> some way of receiving source/transform/embedding/collection name
+
+# Server A receives "Source: Postrgres (...) Transform (...) Embedding (...) Collection (...)"
+# Server A stores this in memory
+# Server A starts CDC on the source
 
 class PostgresCDC:
     def __init__(

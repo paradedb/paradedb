@@ -37,5 +37,5 @@ jobs:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
         working-directory: scripts
         run: |
-          python setup.py sdist bdist_wheel
+          python build.py sdist bdist_wheel
           twine upload dist/*

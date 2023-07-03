@@ -5,7 +5,7 @@ class PostgresTransform(BaseModel):
     relation: str
     primary_key: str
     columns: list
-    optional_transform: callable = None
+    transform_func: callable
     optional_metadata: callable = None
 
 
@@ -16,13 +16,13 @@ class Transform:
         relation: str,
         primary_key: str,
         columns: list,
-        optional_transform: callable = None,
+        transform_func: callable = None,
         optional_metadata: callable = None,
     ) -> PostgresTransform:
         return PostgresTransform(
             relation=relation,
             primary_key=primary_key,
             columns=columns,
-            optional_transform=optional_transform,
+            transform_func=transform_func,
             optional_metadata=optional_metadata,
         )

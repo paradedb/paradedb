@@ -51,7 +51,7 @@ def watch():
             print(event)
 
     except KeyboardInterrupt:
-        print("Tearing down...")
+        print("\nTearing down...")
         cdc.teardown()
         print("Teardown successful.")
 

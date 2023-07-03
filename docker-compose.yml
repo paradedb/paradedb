@@ -14,16 +14,14 @@ services:
       - -r
       - /app/requirements.txt
 
-  resync:
+  run-cdc:
     image: python:3.9-slim
     volumes:
       - .:/app
       - python-deps:/usr/local/lib/python3.9/site-packages
     working_dir: /app
     entrypoint:
-      - python
-      - -m
-      - cli.main
+      - INSERT_HERE
 
 volumes:
   python-deps:

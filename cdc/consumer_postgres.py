@@ -1,7 +1,7 @@
 from typing import Dict, List
 from pydantic import BaseModel
 
-from engine.pgoutput import Relation, Update, Insert, Delete
+from cdc.pgoutput import Relation, Update, Insert, Delete
 
 
 class PGOutput:

@@ -14,14 +14,16 @@ services:
       - -r
       - /app/requirements.txt
 
-  run-cdc:
+  cdc:
     image: python:3.9-slim
     volumes:
       - .:/app
       - python-deps:/usr/local/lib/python3.9/site-packages
     working_dir: /app
     entrypoint:
-      - INSERT_HERE
+      - python
+      - -m
+      - cdc.run
 
 volumes:
   python-deps:

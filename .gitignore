@@ -2,3 +2,7 @@
 __pycache__/
 dist/
 build/
+*.egg-info
+
+# Virtualenv
+env/

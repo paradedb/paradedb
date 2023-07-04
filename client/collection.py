@@ -1,16 +1,23 @@
 from pydantic import BaseModel
 from typing import Union, Tuple
 
-from core.transform.embeddings import OpenAI
+from core.transform.embedding import OpenAI
 from core.extract.postgres import PostgresReader
 from core.load.opensearch import OpenSearch
+from client.embedding import OpenAI
+from client.source import PostgresSource
+from client.transform import PostgresTransform
+
+Source = Union[PostgresSource]
+Transform = Union[PostgresTransform]
+Embedding = Union[OpenAI]
 
 
 class Collection(BaseModel):
     name: str
-    source: Union[PostgresSource]
-    transform: Union[PostgresTransform]
-    model: Union[OpenAIModel]
+    source: Source
+    transform: Transform
+    model: Embedding
 
 
 class Collection:

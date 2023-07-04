@@ -1,17 +1,27 @@
-from setuptools import setup, find_packages
 import os
+import shutil
+
+from setuptools import setup, find_packages
 
 version = os.environ.get("PACKAGE_VERSION")
 environment = os.environ.get("ENVIRONMENT")
-package_name = f"retake-connect-{a}" if a in ["dev", "staging"] else "retake-connect"
+base_package_name = "retake"
+package_name = (
+    f"{base_package_name}_{environment}"
+    if environment in ["dev", "staging"]
+    else base_package_name
+)
 
 package_dir = dict()
-package_dir[package_name] = "../interface"
+package_dir[package_name] = "interface"
+
+if os.path.exists("dist"):
+    shutil.rmtree("dist")
 
 setup(
     version=version,
     name=package_name,
     package_dir=package_dir,
-    packages=[package_name],
-    install_requires=["pydantic==2.0", "psycopg2-binary==2.9.6"],
+    packages=find_packages(),
+    install_requires=["pydantic", "psycopg2-binary", "openai"],
 )

@@ -35,7 +35,6 @@ jobs:
           TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
           PACKAGE_VERSION: "1.0.0"
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
-        working-directory: scripts
         run: |
-          python build.py sdist bdist_wheel
+          python scripts/build.py sdist bdist_wheel
           twine upload dist/*

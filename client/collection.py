@@ -2,7 +2,7 @@ from pydantic import BaseModel
 from typing import Union, Tuple
 
 from core.transform.embedding import OpenAI
-from core.extract.postgres import PostgresReader
+from core.extract.postgres import PostgresExtractor
 from core.load.opensearch import OpenSearch
 from client.embedding import OpenAI
 from client.source import PostgresSource
@@ -45,7 +45,7 @@ class Collection:
 
     def create(self):
         # Connect to DB
-        postgres = PostgresReader(self.source.dsn)
+        postgres = PostgresExtractor(self.source.dsn)
         # Initialize DB loader
         opensearch = OpenSearch()
         # Extract, transform, and load chunks as embeddings

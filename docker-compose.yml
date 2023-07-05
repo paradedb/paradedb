@@ -8,11 +8,15 @@ services:
       - python-deps:/usr/local/lib/python3.9/site-packages
     working_dir: /app
     command:
-      - pip
-      - install
-      - --no-cache-dir
-      - -r
-      - /app/requirements.txt
+      - /bin/bash
+      - -c
+      - |
+        apt-get update &&
+        apt-get install -y curl &&
+        curl -sSL https://install.python-poetry.org | python - &&
+        export PATH="/root/.local/bin:$PATH" &&
+        poetry config virtualenvs.create false &&
+        poetry install
 
   cdc:
     image: python:3.9-slim

@@ -1,34 +1,35 @@
-from pydantic import BaseModel
 from typing import Union, Tuple
 
-from core.transform.embedding import OpenAI
-from core.extract.postgres import PostgresExtractor
-from core.load.opensearch import OpenSearch
-from client.embedding import OpenAI
-from client.source import PostgresSource
-from client.transform import PostgresTransform
+from retake.embedding import OpenAI
+from retake.source import PostgresSource
+from retake.transform import PostgresTransform
+from retake.sink import ElasticSearchSink
+from retake.target import ElasticSearchTarget
+from core.load.elasticsearch import ElasticSearchLoader
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
 Embedding = Union[OpenAI]
+Sink = Union[ElasticSearchSink]
+Target = Union[ElasticSearchTarget]
 
 
-class Collection(BaseModel):
-    name: str
-    source: Source
-    transform: Transform
-    model: Embedding
-
-
-class Collection:
+class Pipeline:
     def _init__(
-        self, name: str, source: Source, transform: Transform, embedding: Embedding
+        self,
+        name: str,
+        source: Source,
+        transform: Transform,
+        embedding: Embedding,
+        sink: Sink,
+        target: Target,
     ):
         self.name = name
         self.source = source
         self.transform = transform
         self.embedding = embedding
-        self.cdc = None
+        self.sink = sink
+        self.target = target
 
     def _create_embedding(self, document: str):
         model = OpenAI(api_key=self.embedding.api_key, model=self.embedding.model)
@@ -43,11 +44,11 @@ class Collection:
         else:
             return None
 
-    def create(self):
+    def sync_once(self):
         # Connect to DB
         postgres = PostgresExtractor(self.source.dsn)
         # Initialize DB loader
-        opensearch = OpenSearch()
+        loader = ElasticSearchLoader()
         # Extract, transform, and load chunks as embeddings
         for chunk in postgres.fetch_rows(
             self.transform.relation, self.transform.columns
@@ -56,4 +57,7 @@ class Collection:
                 document = self._apply_transform(row)
                 metadata = self._create_metadata(row)
                 embedding = self._create_embedding(transformed)
-                opensearch.insert(embedding, row[self.transform.primary_key], metadata)
+                # loader.upsert_embedding(embedding, row[self.transform.primary_key], metadata)
+
+    def sync_real_time(self, cdc_server_url: str, optional_webhook: str = None):
+        pass

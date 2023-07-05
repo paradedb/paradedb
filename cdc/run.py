@@ -1,5 +1,6 @@
 from cdc.source_postgres import PostgresCDC
 
+## TODO: Pipe these into the CDC server
 dbname = "postgres"
 user = "postgres"
 host = "postgres-instance-1.chqsp2e4eplp.us-east-2.rds.amazonaws.com"
@@ -26,5 +27,5 @@ try:
         print(event)
 
 except KeyboardInterrupt:
-    print("KeyboardInterrupt caught, tearing down...")
+    print("\nKeyboardInterrupt caught, tearing down...")
     cdc.teardown()

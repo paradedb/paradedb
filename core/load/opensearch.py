@@ -1,17 +1,14 @@
 from typing import List
 
-# TODO (Phil): Implement OpenSearch interface
+# TODO: Implement OpenSearch interface
 
 
-class OpenSearch:
+class OpenSearchLoader:
     def __init__(self):
         pass
 
-    def insert(self, embedding: List[float], id: str, metadata: dict = None):
+    def upsert_embedding(self):
         pass
 
-    def delete(self, id: str):
-        pass
-
-    def query(self, document: str):
+    def bulk_upsert_embeddings(self):
         pass

@@ -12,7 +12,7 @@ class ConnectionError(Exception):
     pass
 
 
-class PostgresReader:
+class PostgresExtractor:
     def __init__(self, dsn: str):
         self.dsn = dsn
         self.connection = None

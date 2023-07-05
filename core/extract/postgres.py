@@ -6,18 +6,20 @@ import queue
 
 from psycopg2.extras import LogicalReplicationConnection
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+from typing import List
+
+from core.extract.base import Extractor
 
 
 class ConnectionError(Exception):
     pass
 
 
-class PostgresExtractor:
+class PostgresExtractor(Extractor):
     def __init__(self, dsn: str):
         self.dsn = dsn
         self.connection = None
         self.cursor = None
-        self.chunk_size = 1000
 
         self._connect(dsn)
 
@@ -33,23 +35,30 @@ class PostgresExtractor:
 
         self.cursor = self.connection.cursor()
 
-    def disconnect(self):
+    def teardown(self):
+        self.cursor.close()
         self.connection.close()
 
-    def fetch_rows(self, table, columns):
+    def count(self, relation: str):
+        self.cursor.execute(f"SELECT COUNT(*) FROM {relation}")
+        return self.cursor.fetchone()[0]
+
+    def extract_all(
+        self, relation: str, columns: List[str], primary_key: str, chunk_size: int
+    ):
         offset = 0
         columns_str = ", ".join(columns)
 
         while True:
             self.cursor.execute(
                 f"""
-                SELECT {columns_str}
-                FROM {table}
-                ORDER BY id
+                SELECT {columns_str}, {primary_key}
+                FROM {relation}
+                ORDER BY {primary_key}
                 LIMIT %s
                 OFFSET %s
             """,
-                (self.chunk_size, offset),
+                (chunk_size, offset),
             )
 
             rows = self.cursor.fetchall()
@@ -57,5 +66,11 @@ class PostgresExtractor:
             if not rows:
                 break
 
-            yield rows
-            offset += self.chunk_size
+            # Extract primary keys from rows
+            primary_keys = [row[-1] for row in rows]
+
+            # Remove primary keys from rows
+            rows = [row[:-1] for row in rows]
+
+            yield {"rows": rows, "primary_keys": primary_keys}
+            offset += chunk_size

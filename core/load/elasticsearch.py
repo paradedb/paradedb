@@ -1,12 +1,14 @@
+from abc import ABC, abstractmethod
 from elasticsearch import Elasticsearch, helpers
 from typing import Dict, List, Union
+from core.load.base import Loader
 
 
 class FieldTypeError(Exception):
     pass
 
 
-class ElasticSearchLoader:
+class ElasticSearchLoader(Loader):
     def __init__(
         self,
         host: str = None,
@@ -32,7 +34,7 @@ class ElasticSearchLoader:
     def _check_index_exists(self, index_name: str):
         return self.es.indices.exists(index=index_name)
 
-    def _create_index(cls, index_name: str, field_name: str, num_dimensions: int):
+    def _create_index(replace, index_name: str, field_name: str, num_dimensions: int):
         if _check_index_exists(index_name=index_name):
             raise IndexAlreadyExistsError(f"Index {index_name} already exists")
 
@@ -50,13 +52,13 @@ class ElasticSearchLoader:
             }
         }
 
-        cls.es.indices.create(index=index_name, body=mapping)
+        replace.es.indices.create(index=index_name, body=mapping)
 
     def _check_and_setup_index(
-        cls, index_name: str, field_name: str, num_dimensions: int
+        self, index_name: str, field_name: str, num_dimensions: int
     ):
-        if not _check_index_exists(index_name=index_name):
-            _create_index(
+        if not self._check_index_exists(index_name=index_name):
+            self._create_index(
                 index_name=index_name,
                 field_name=field_name,
                 num_dimensions=num_dimensions,

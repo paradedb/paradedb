@@ -19,10 +19,13 @@ class Sink:
         ssl_assert_fingerprint: str = None,
         cloud_id: str = None,
     ) -> ElasticSearchSink:
-        return ElasticSearchSink(
-            host=host,
-            user=user,
-            password=password,
-            ssl_assert_fingerprint=ssl_assert_fingerprint,
-            cloud_id=cloud_id,
-        )
+        params = {
+            "host": host,
+            "user": user,
+            "password": password,
+            "ssl_assert_fingerprint": ssl_assert_fingerprint,
+            "cloud_id": cloud_id,
+        }
+        # Remove keys with None values
+        params = {k: v for k, v in params.items() if v is not None}
+        return ElasticSearchSink(**params)

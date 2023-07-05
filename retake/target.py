@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 
 class ElasticSearchTarget(BaseModel):
-    index: str
+    index_name: str
     field_name: str
 
 
@@ -10,10 +10,10 @@ class Target:
     @classmethod
     def ElasticSearch(
         cls,
-        index: str,
+        index_name: str,
         field_name: str,
     ) -> ElasticSearchTarget:
         return ElasticSearchTarget(
-            index=index,
+            index_name=index_name,
             field_name=field_name,
         )

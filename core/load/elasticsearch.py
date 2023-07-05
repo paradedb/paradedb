@@ -6,9 +6,26 @@ class FieldTypeError(Exception):
     pass
 
 
-class BaseElasticSearchLoader:
-    def __init__(self):
-        self.es = None
+class ElasticSearchLoader:
+    def __init__(
+        self,
+        host: str = None,
+        user: str = None,
+        password: str = None,
+        ssl_assert_fingerprint: str = None,
+        cloud_id: str = None,
+    ):
+        kwargs = {
+            "hosts": [host] if host else None,
+            "basic_auth": (user, password) if user and password else None,
+            "ssl_assert_fingerprint": ssl_assert_fingerprint
+            if ssl_assert_fingerprint
+            else None,
+            "verify_certs": True if host else None,
+            "cloud_id": cloud_id if cloud_id else None,
+        }
+
+        self.es = Elasticsearch(**{k: v for k, v in kwargs.items() if v is not None})
 
     ### Private Methods ###
 
@@ -137,22 +154,3 @@ class BaseElasticSearchLoader:
         ]
 
         helpers.bulk(self.es, actions)
-
-
-class ElasticSearchLoader:
-    class Local(BaseElasticSearchLoader):
-        def __init__(
-            self, host: str, user: str, password: str, ssl_assert_fingerprint: str
-        ):
-            super().__init__()
-            self.es = Elasticsearch(
-                hosts=[host],
-                basic_auth=(user, password),
-                ssl_assert_fingerprint=ssl_assert_fingerprint,
-                verify_certs=True,
-            )
-
-    class Cloud(BaseElasticSearchLoader):
-        def __init__(self, cloud_id: str):
-            super().__init__()
-            self.es = Elasticsearch(cloud_id=cloud_id)

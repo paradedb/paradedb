@@ -8,6 +8,8 @@ packages = [{include = "retake"}, {include = "core"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
+psycopg2-binary = "^2.9.6"
+pydantic = "^2.0.2"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

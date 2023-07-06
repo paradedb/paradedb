@@ -165,8 +165,24 @@ class Pipeline:
         cdc_server_url: str,
         on_success: Callable[..., Any],
         on_error: Callable[..., Any],
-    ) -> None:
-        raise NotImplementedError("TODO: Implement real-time sync with CDC server")
+    ):
+        print(self.source)
+        print(self.transform)
+        print(self.embedding)
+
+        # call realtime package to create source connector/start cdc server
+        conn = self.source.parse_connection_string()
+        create_pg_connector(self.transform.schema_name, self.transform.relation)
+
+        # send request to ksql to merge streams
+        create_collection_stream(
+            schema_name,
+            relation,
+            self.embedding,
+            self.transform,
+            self.sink,
+            self.target,
+        )
 
     def teardown(self) -> None:
         self.extractor.teardown()

@@ -4,6 +4,14 @@ from pydantic import BaseModel
 class PostgresSource(BaseModel):
     dsn: str
 
+    def parse_connection_string(self):
+        fields = {}
+        pairs = self.dsn.split(" ")
+        for pair in pairs:
+            key, value = pair.split("=")
+            fields[key] = value
+        return fields
+
 
 class Source:
     @classmethod

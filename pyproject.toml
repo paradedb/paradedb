@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "retake"
-version = "0.1.2-dev"
+version = "0.1.6-dev"
 description = "Real-time pipelines for vectors"
 authors = ["Ming Ying <ming.ying.nyc@gmail.com>"]
 readme = "README.md"
@@ -10,6 +10,8 @@ packages = [{include = "retake"}, {include = "core"}]
 python = "^3.9"
 psycopg2-binary = "^2.9.6"
 pydantic = "^2.0.2"
+sentence-transformers = "^2.2.2"
+tqdm = "^4.65.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

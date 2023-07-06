@@ -16,6 +16,10 @@ types-psycopg2 = "^2.9.21.10"
 types-tqdm = "^4.65.0.1"
 pinecone-client = "^2.2.2"
 elasticsearch = "^8.8.2"
+openai = "^0.27.8"
+faust-streaming = "^0.10.14"
+confluent-kafka = "^2.1.1"
+flask = "^2.3.2"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

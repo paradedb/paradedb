@@ -16,7 +16,12 @@ class ElasticSearchLoader(Loader):
         password: str = None,
         ssl_assert_fingerprint: str = None,
         cloud_id: str = None,
+        index: bool = False,
+        similarity: str = None,
     ):
+        if index and similarity is None:
+            raise ValueError("Similarity must be provided if index is True")
+
         kwargs = {
             "hosts": [host] if host else None,
             "basic_auth": (user, password) if user and password else None,
@@ -28,14 +33,16 @@ class ElasticSearchLoader(Loader):
         }
 
         self.es = Elasticsearch(**{k: v for k, v in kwargs.items() if v is not None})
+        self.index = index
+        self.similarity = similarity
 
     ### Private Methods ###
 
     def _check_index_exists(self, index_name: str):
         return self.es.indices.exists(index=index_name)
 
-    def _create_index(replace, index_name: str, field_name: str, num_dimensions: int):
-        if _check_index_exists(index_name=index_name):
+    def _create_index(self, index_name: str, field_name: str, num_dimensions: int):
+        if self._check_index_exists(index_name=index_name):
             raise IndexAlreadyExistsError(f"Index {index_name} already exists")
 
         mapping = {
@@ -46,13 +53,18 @@ class ElasticSearchLoader(Loader):
                     field_name: {
                         "type": "dense_vector",
                         "dims": num_dimensions,
-                        "index": True,
+                        "index": self.index,
                     }
                 },
             }
         }
 
-        replace.es.indices.create(index=index_name, body=mapping)
+        if self.similarity is not None:
+            mapping["mappings"]["properties"][field_name][
+                "similarity"
+            ] = self.similarity
+
+        self.es.indices.create(index=index_name, body=mapping)
 
     def _check_and_setup_index(
         self, index_name: str, field_name: str, num_dimensions: int
@@ -74,7 +86,7 @@ class ElasticSearchLoader(Loader):
                     raise FieldTypeError(
                         f"Field '{field_name}' exists but is not a dense_vector field"
                     )
-                if field_mapping["dims"] != len(embedding):
+                if field_mapping["dims"] != num_dimensions:
                     raise FieldTypeError(
                         f"Field '{field_name}' expects {field_mapping['dims']} dimensions but the embedding has {len(embedding)}"
                     )
@@ -84,7 +96,7 @@ class ElasticSearchLoader(Loader):
                     "properties": {
                         field_name: {
                             "type": "dense_vector",
-                            "dims": len(embedding),
+                            "dims": num_dimensions,
                             "index": True,
                         }
                     }

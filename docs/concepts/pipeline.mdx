@@ -1,0 +1,53 @@
+---
+title: "Pipeline"
+---
+
+`Pipeline` defines the entire pipeline, from source to sink.
+
+## Definition
+
+```bash
+pipeline = Pipeline(
+    source=source,
+    transform=transform,
+    embedding=model,
+    sink=sink,
+    target=target,
+)
+```
+
+**Parameters**
+
+<ParamField body="source" type="Source" required>
+  A `Source` object
+</ParamField>
+<ParamField body="transform" type="Transform" required>
+  A `Transform` object
+</ParamField>
+<ParamField body="embedding" type="Embedding" required>
+  A `Embedding` object
+</ParamField>
+<ParamField body="sink" type="Sink" required>
+  A `Sink` object
+</ParamField>
+<ParamField body="target" type="Target" required>
+  A `Target` object
+</ParamField>
+
+## Methods
+
+### pipe_once
+
+```bash
+pipeline.pipe_once(verbose = True)
+```
+
+**Parameters**
+
+<ParamField body="verbose" type="boolean" default="True">
+  Will print a progress bar if set to `True`
+</ParamField>
+
+### pipe_real_time
+
+Details coming soon!

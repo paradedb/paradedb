@@ -1,0 +1,48 @@
+---
+title: "Source"
+---
+
+`Source` is the database where inputs/documents are stored. Retake provides lightweight wrappers around
+all supported sources.
+
+## Postgres
+
+**Usage**
+
+```bash
+source = Source.Postgres(
+    user="username",
+    database="dbname",
+    host="host"
+    password="***",
+    port=5432
+)
+```
+
+**Parameters**
+
+<ParamField body="user" type="string" required>
+  Postgres username
+</ParamField>
+<ParamField body="database" type="string" required>
+  Postgres database name
+</ParamField>
+<ParamField body="password" type="string" required>
+  Postgres password
+</ParamField>
+<ParamField body="host" type="string" required>
+  Postgres host name
+</ParamField>
+<ParamField body="port" type="number" required>
+  Postgres port number
+</ParamField>
+
+## MySQL
+
+Coming soon by August 2023.
+
+## Other Sources
+
+Please see the [roadmap]() for other sources we are building.
+
+###

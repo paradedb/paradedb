@@ -1,0 +1,47 @@
+---
+title: "Embedding"
+---
+
+`Embedding` specifies the embedding model we wish to use. Retake provides lightweight wrappers for
+most popular embedding models and allows you to provide your own model.
+
+## Sentence Transformers
+
+**Usage**
+
+```bash
+embedding = Embedding.SentenceTransformer(model="all-MiniLM-L6-v2")
+```
+
+**Parameters**
+
+<ParamField body="model" type="string" default="all-MiniLM-L6-v2">
+  SentenceTransformer model name
+</ParamField>
+
+## OpenAI
+
+**Usage**
+
+```bash
+embedding = Embedding.SentenceTransformer(
+    api_key="***",
+    model="text-embedding-ada-002"
+)
+```
+
+**Parameters**
+
+<ParamField body="api_key" type="string" required>
+  Your OpenAI API key
+</ParamField>
+<ParamField body="model" type="string" required>
+  OpenAI model name
+</ParamField>
+
+## Other Models
+
+We're quickly adding wrappers around other popular models and releasing the ability to provide your own
+embedding function.
+
+###

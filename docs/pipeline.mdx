@@ -1,0 +1,145 @@
+---
+title: "Create Your First Pipeline"
+description: "Build your first vector pipeline in under five minutes"
+---
+
+<Info>
+  **Prerequisite** Before proceeding, please ensure that your source databases
+  are [properly configured](/setup).
+</Info>
+
+In this Quickstart we will build a pipeline to sync documents stored in AWS Aurora Postgres with their embeddings,
+stored in ElasticSearch. As you will see, Retake supports a variety of sources and sinks and
+you can substitute any source or sink with a few lines of code.
+
+For this example, let's imagine that we are a developer building a chatbot at Babylon, an e-commerce website. In Postgres, we have a table called
+`faqs`, which contains two columns: `questions` and `answers`. We wish to combine each question and answer, embed it, and store it in ElasticSearch.
+
+### Installation
+
+<Info>
+  **Prerequisite** You should have installed Python (version 3.8 or higher).
+</Info>
+
+<CodeGroup>
+
+```bash terminal
+pip install retake
+```
+
+</CodeGroup>
+
+### Import SDK
+
+In a new Python file, we import the Retake SDK and all necessary classes:
+
+```bash main.py
+from retake import Source, Transform, Embedding, Sink, Target, Pipeline
+```
+
+### Create a `Source`
+
+`Source` is the database where inputs/documents are stored.
+In this example, `Source` is our AWS Aurora Postgres database.
+You can find a list of all available sources [here]().
+
+```bash main.py
+# Replace with your database connection credentials
+source = Source.Postgres(
+    user="username",
+    database="dbname",
+    host="host"
+    password="***",
+    port=5432
+)
+```
+
+### Create a `Transform`
+
+`Transform` specifies which table and columns contain our inputs and how we want to transform our inputs before embedding them.
+In this example, we wish to concatenate `question` and `answer`. Other `Source` classes may have different function signatures, which
+are documented [here]().
+
+```bash main.py
+from typing import Union, Dict
+
+
+def transform_func(question: Union[str, None], answer: Union[str, None]) -> str:
+    return (question or "") + (answer or "")
+
+
+def optional_metadata(
+    question: Union[str, None], answer: Union[str, None]
+) -> Dict[str, str]:
+    return {"any_key": "any_value"}
+
+
+transform = Transform.Postgres(
+    # Note: Your table must have a primary key
+    # In this example, Retake uses the primary key as the
+    # ElasticSearch document ID by default
+    primary_key="id",
+    relation="faqs",
+    columns=["questions", "answers"],
+    transform_func=transform_func,
+    optional_metadata=optional_metadata,
+)
+```
+
+### Create an `Embedding`
+
+`Embedding` specifies the embedding model we wish to use. Retake provides wrappers around most popular embedding models
+and you can also bring your own — documentation [here]().
+
+```bash main.py
+embedding = Embedding.SentenceTransformer(model="all-MiniLM-L6-v2")
+```
+
+### Create a `Sink`
+
+`Sink` specifies where we want to store our vectors. In this example, `Sink` is ElasticSearch. You can find
+a list of all available sinks [here]().
+
+```bash main.py
+# Replace with your sink connection credentials
+sink = Sink.ElasticSearch(
+    cloud_id="cloud_id"
+)
+```
+
+### Create a `Target`
+
+`Target` specifies the index or collection within our sink where we want to store our vectors. You can find
+a list of all available targets [here]().
+
+```bash main.py
+target = Target.ElasticSearch(
+    index_name="faqs",
+    field_name="question_answer_embedding",
+    # Note: If an index with index_name does not already exist
+    # in ElasticSearch, a new index will be created with the below
+    # properties for field_name. If the index already exists,
+    # these properties will be ignored.
+    should_index=True,
+    similarity="cosine",
+)
+```
+
+### Create a `Pipeline`
+
+`Pipeline` defines your entire vector data stream, from source to sink. You can read more [here]().
+
+```bash main.py
+pipeline = Pipeline(
+    source=source,
+    transform=transform,
+    embedding=model,
+    sink=sink,
+    target=target,
+)
+```
+
+That's it! Now that your pipeline is created, continue to the next section to see how to send batch and
+real-time updates through your pipeline.
+
+###

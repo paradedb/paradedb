@@ -12,8 +12,8 @@ your inputs/sources of truth and vectors are always in sync without the time, co
 
 ## Why Retake
 
-With the growing popularity of vector databases, there’s ongoing debate around using dedicated vector stores or keeping vectors in the main database using extensions
-like `pgvector`. While each approach has its merits, we've seen many larger-scale companies opt for separate vector stores to isolate the resources used by vector
+With the growing popularity of vector databases, there’s ongoing debate around using dedicated vector stores vs. keeping vectors in the main database using extensions
+like `pgvector`. While each approach has its merits, many larger-scale companies opt for separate vector stores to isolate the resources used by vector
 operations from the rest of their database operations. In situations like this, it's important to have resilient and
 horizontally scalable infrastructure in place for handling vector data streams and keeping vectors in sync with their sources of truth.
 

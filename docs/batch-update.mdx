@@ -1,0 +1,19 @@
+---
+title: "Send a Batch Update"
+---
+
+A batch update reads every single row or document from your source, embeds it, and upserts it into your sink. This is an
+expensive and time-consuming operation and should only be run at scheduled intervals. If your embeddings use a third-party
+API like OpenAI, please be cognizant of query limits.
+
+A batch update will not delete any documents in your sink, but if there is a document with the same ID and field name in
+your sink, it will be overriden with the new value.
+
+Running a batch update is a single line of code:
+
+```bash main.py
+# This could take a while, depending on your table size and embedding model
+pipeline.pipe_once(verbose=True)
+```
+
+###

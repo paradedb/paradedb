@@ -11,7 +11,7 @@ from core.load.pinecone import PineconeLoader
 from core.extract.postgres import PostgresExtractor
 from core.transform.embedding import OpenAIEmbedding as OpenAI
 from core.transform.embedding import SentenceTransformerEmbedding as SentenceTransformer
-from realtime.connector import create_pg_connector, create_collection_stream
+from realtime.app import start_worker
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
@@ -146,29 +146,59 @@ class Pipeline:
 
         progress_bar.close()
 
+    def _create_pg_connector(self):
+        conn = self.source.parse_connection_string()
+        schema_name = self.transform.schema_name
+        relation = self.transform.relation
+
+        try:
+            requests.post(connect, json_dumps({
+            'connector.class' : 'io.debezium.connector.postgresql.PostgresConnector',
+            'plugin.name' : 'pgoutput',
+            'database.hostname' : f'{conn["host"]}',
+            'database.port' : f'{conn["port"]}',
+            'database.user' : f'{conn["user"]}',
+            'database.password' : f'{conn["password"]}',
+            'database.dbname' : f'{conn["dbname"]}',
+            'table.include.list' : f'{schema_name}.{relation}',
+            'transforms' : 'unwrap',
+            'transforms.unwrap.type' : 'io.debezium.transforms.ExtractNewRecordState',
+            'transforms.unwrap.drop.tombstones' : 'false',
+            'transforms.unwrap.delete.handling.mode' : 'rewrite',
+            'topic.prefix' : f'{relation}'
+            }))
+        except Exception as e:
+            # TODO: handle
+            print(e)
+
     def pipe_real_time(
         self,
         cdc_server_url: str,
         on_success: Callable[..., Any],
         on_error: Callable[..., Any],
     ):
-        print(self.source)
-        print(self.transform)
-        print(self.embedding)
+        self._create_pg_connector()
+        register_agents(self.embedding, self.transform)
+        start_worker()
 
-        # call realtime package to create source connector/start cdc server
-        conn = self.source.parse_connection_string()
-        create_pg_connector(self.transform.schema_name, self.transform.relation)
+        # self._create_pg_connector()
+        # print(self.source)
+        # print(self.transform)
+        # print(self.embedding)
 
-        # send request to ksql to merge streams
-        create_collection_stream(
-            schema_name,
-            relation,
-            self.embedding,
-            self.transform,
-            self.sink,
-            self.target,
-        )
+        # # start the collection stream
+        # create_collection_stream(
+        #     schema_name,
+        #     relation,
+        #     self.embedding,
+        #     self.transform,
+        #     self.sink,
+        #     self.target,
+        # )
+
+        # # call realtime package to create source connector/start cdc server
+        # conn = self.source.parse_connection_string()
+        # create_pg_connector(self.transform.schema_name, self.transform.relation)
 
     def teardown(self) -> None:
         self.extractor.teardown()

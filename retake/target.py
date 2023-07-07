@@ -11,7 +11,7 @@ class Similarity(Enum):
 class ElasticSearchTarget(BaseModel):
     index_name: str
     field_name: str
-    index_field: bool
+    should_index: bool
     similarity: Similarity = None
 
 
@@ -21,12 +21,12 @@ class Target:
         cls,
         index_name: str,
         field_name: str,
-        index_field: bool = True,
+        should_index: bool = True,
         similarity: Similarity = None,
     ) -> ElasticSearchTarget:
         return ElasticSearchTarget(
             index_name=index_name,
             field_name=field_name,
-            index_field=index_field,
+            should_index=should_index,
             similarity=similarity,
         )

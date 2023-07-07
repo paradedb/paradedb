@@ -12,13 +12,18 @@ your inputs/sources of truth and vectors are always in sync without the time, co
 
 ## Why Retake
 
-With the growing popularity of vector databases, there’s considerable debate around whether it’s preferable to use dedicated vector stores or to keep vectors in the main database using extensions
+With the growing popularity of vector databases, there’s ongoing debate around using dedicated vector stores or keeping vectors in the main database using extensions
 like `pgvector`. While each approach has its merits, we've seen many larger-scale companies opt for separate vector stores to isolate the resources used by vector
-operations from the rest of their database operations. In situations like this, it's important to have reliable and
-horizontally scalable infrastructure in place for handling vector data streams.
+operations from the rest of their database operations. In situations like this, it's important to have resilient and
+horizontally scalable infrastructure in place for handling vector data streams and keeping vectors in sync with their sources of truth.
 
-If you store inputs and vectors separately and want a standalone process that updates vectors in response to input changes in
-your source database, then Retake is a good fit. For instance, if your inputs are documents stored in a SQL table and your vectors are
+Retake is a good fit for you if you:
+
+- Store inputs and vectors separately
+- Want a standalone process that updates vectors in response to input changes in
+  your source database.
+
+For instance, if your inputs are documents stored in a SQL table and your vectors are
 stored in a search engine or a vector database.
 
 ## Key Features
@@ -31,8 +36,8 @@ excluding variable model inference time.
 
 ### Extensible Python SDK
 
-You can configure any source, sink, transformation, and embedding model directly in code. Joining and filtering tables
-or and adding metadata are easily done from Python functions.
+You can configure any source, sink, transformation, and embedding model as code. Joining and filtering tables
+or adding metadata is easily done from Python functions.
 
 ### Deploy Anywhere
 

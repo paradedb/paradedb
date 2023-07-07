@@ -3,8 +3,7 @@ title: "Send a Batch Update"
 ---
 
 A batch update reads every single row or document from your source, embeds it, and upserts it into your sink. This is an
-expensive and time-consuming operation and should only be run at scheduled intervals. If your embeddings use a third-party
-API like OpenAI, please be cognizant of query limits.
+expensive and time-consuming operation and may be bottlenecked by query limits if a third-party embedding API is used.
 
 A batch update will not delete any documents in your sink, but if there is a document with the same ID and field name in
 your sink, it will be overriden with the new value.

@@ -40,8 +40,8 @@ from retake import Source, Transform, Embedding, Sink, Target, Pipeline
 ### Create a `Source`
 
 `Source` is the database where inputs/documents are stored.
-In this example, `Source` is our AWS Aurora Postgres database.
-You can find a list of all available sources [here]().
+In this example, `Source` is an AWS Aurora Postgres database. You can find
+other sources [here](/concepts/source).
 
 ```bash main.py
 # Replace with your database connection credentials
@@ -57,8 +57,7 @@ source = Source.Postgres(
 ### Create a `Transform`
 
 `Transform` specifies which table and columns contain our inputs and how we want to transform our inputs before embedding them.
-In this example, we wish to concatenate `question` and `answer`. Other `Source` classes may have different function signatures, which
-are documented [here]().
+In this example, we wish to concatenate `question` and `answer`. Other `Source` classes may have [different function signatures](/concepts/transform).
 
 ```bash main.py
 from typing import Union, Dict
@@ -88,8 +87,8 @@ transform = Transform.Postgres(
 
 ### Create an `Embedding`
 
-`Embedding` specifies the embedding model we wish to use. Retake provides wrappers around most popular embedding models
-and you can also bring your own — documentation [here]().
+`Embedding` specifies the embedding model we wish to use. Retake [provides wrappers](/concepts/embedding) around most popular embedding models
+and you can also bring your own.
 
 ```bash main.py
 embedding = Embedding.SentenceTransformer(model="all-MiniLM-L6-v2")
@@ -98,7 +97,7 @@ embedding = Embedding.SentenceTransformer(model="all-MiniLM-L6-v2")
 ### Create a `Sink`
 
 `Sink` specifies where we want to store our vectors. In this example, `Sink` is ElasticSearch. You can find
-a list of all available sinks [here]().
+a list of all available sinks [here](/concepts/sink).
 
 ```bash main.py
 # Replace with your sink connection credentials
@@ -110,7 +109,7 @@ sink = Sink.ElasticSearch(
 ### Create a `Target`
 
 `Target` specifies the index or collection within our sink where we want to store our vectors. You can find
-a list of all available targets [here]().
+a list of all available targets [here](/concepts/target).
 
 ```bash main.py
 target = Target.ElasticSearch(
@@ -127,7 +126,7 @@ target = Target.ElasticSearch(
 
 ### Create a `Pipeline`
 
-`Pipeline` defines your entire vector data stream, from source to sink. You can read more [here]().
+`Pipeline` defines your entire vector data stream, from source to sink.
 
 ```bash main.py
 pipeline = Pipeline(
@@ -141,5 +140,3 @@ pipeline = Pipeline(
 
 That's it! Now that your pipeline is created, continue to the next section to see how to send batch and
 real-time updates through your pipeline.
-
-###

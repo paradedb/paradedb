@@ -22,12 +22,15 @@
   "navigation": [
     {
       "group": "Welcome",
+      "pages": ["introduction"]
+    },
+    {
+      "group": "Quick Start",
       "pages": [
-        "introduction",
-        "setup",
-        "pipeline",
-        "batch-update",
-        "real-time-update"
+        "quickstart/setup",
+        "quickstart/pipeline",
+        "quickstart/batch-update",
+        "quickstart/real-time-update"
       ]
     },
     {

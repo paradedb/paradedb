@@ -1,41 +1,42 @@
-name: Python CI
+name: Publish Python Package
 
 on:
-  pull_request:
-    branches: [dev, staging, main]
+  push:
+    branches:
+      - dev
+      - staging
+      - main
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [3.9]
-
     steps:
       - uses: actions/checkout@v2
-
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v2
         with:
-          python-version: ${{ matrix.python-version }}
-
+          python-version: "3.x"
+      - name: Set Environment
+        id: env
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
+            echo "::set-output name=environment::dev"
+          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
+            echo "::set-output name=environment::staging"
+          elif [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
+            echo "::set-output name=environment::prod"
+          fi
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python -
-
       - name: Configure Poetry
         run: |
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
-
-      - name: Install dependencies
+      - name: Build and publish to PyPI
+        env:
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
         run: |
-          poetry install
-
-      - name: Run Black
-        run: |
-          poetry run black --check .
-
-      - name: Run mypy
-        run: |
-          poetry run mypy core/ retake/
+          poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
+          poetry build
+          poetry publish

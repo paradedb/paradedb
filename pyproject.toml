@@ -20,7 +20,6 @@ cohere = "^4.12.0"
 openai = "^0.27.8"
 faust-streaming = "^0.10.14"
 confluent-kafka = "^2.1.1"
-flask = "^2.3.2"
 requests = "^2.31.0"
 
 [tool.poetry.group.dev.dependencies]

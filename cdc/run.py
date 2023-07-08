@@ -1,47 +1,31 @@
 from cdc.source_postgres import PostgresCDC
-from flask import Flask, request
 
-app = Flask(__name__)
+## TODO: Pipe these into the CDC server
+dbname = "postgres"
+user = "postgres"
+host = "postgres-instance-1.chqsp2e4eplp.us-east-2.rds.amazonaws.com"
+password = "Password123!"
+table = "ecoinvent_with_types"
+slot_name = "resync_slot"
+port = 5432
+output_plugin = "pgoutput"
+publication_name = "test_pub"
 
-def start(conn):
-    try:
-        print("Starting...")
-        print(conn)
-        cdc = PostgresCDC(
-            publication_name=conn['publication_name'],
-            slot_name=conn['slot_name'],
-            database=conn['dbname'],
-            host=conn['host'],
-            user=conn['user'],
-            password=conn['password'],
-            port=conn['port'],
-        )
-        
-        for event in cdc:
-            print(event)
+try:
+    print("Starting...")
+    cdc = PostgresCDC(
+        publication_name=publication_name,
+        slot_name=slot_name,
+        database=dbname,
+        host=host,
+        user=user,
+        password=password,
+        port=port,
+    )
 
-    except Exception as e:
-        if e is KeyboardInterrupt:
-            print("\nException caught, tearing down...")
-            cdc.teardown()
-        else:
-            print(e)
+    for event in cdc:
+        print(event)
 
-
-@app.route('/source', methods=['GET', 'POST'])
-def handle_source():
-    if request.method == 'POST':
-        data = request.get_json()
-        if data is not None:
-            start(data)
-        return "OK"
-
-def parse_json(data):
-    # Implement your parsing logic here
-    # Example: assuming data is in JSON format
-    import json
-    parsed_data = json.loads(data)
-    return parsed_data
-
-if __name__ == '__main__':
-    app.run()
+except KeyboardInterrupt:
+    print("\nKeyboardInterrupt caught, tearing down...")
+    cdc.teardown()

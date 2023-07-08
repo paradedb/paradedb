@@ -160,59 +160,31 @@ class Pipeline:
 
         progress_bar.close()
 
-    def _create_pg_connector(self):
-        conn = self.source.parse_connection_string()
-        schema_name = self.transform.schema_name
-        relation = self.transform.relation
-
-        try:
-            requests.post(connect, json_dumps({
-            'connector.class' : 'io.debezium.connector.postgresql.PostgresConnector',
-            'plugin.name' : 'pgoutput',
-            'database.hostname' : f'{conn["host"]}',
-            'database.port' : f'{conn["port"]}',
-            'database.user' : f'{conn["user"]}',
-            'database.password' : f'{conn["password"]}',
-            'database.dbname' : f'{conn["dbname"]}',
-            'table.include.list' : f'{schema_name}.{relation}',
-            'transforms' : 'unwrap',
-            'transforms.unwrap.type' : 'io.debezium.transforms.ExtractNewRecordState',
-            'transforms.unwrap.drop.tombstones' : 'false',
-            'transforms.unwrap.delete.handling.mode' : 'rewrite',
-            'topic.prefix' : f'{relation}'
-            }))
-        except Exception as e:
-            # TODO: handle
-            print(e)
-
     def pipe_real_time(
         self,
         cdc_server_url: str,
         on_success: Callable[..., Any],
         on_error: Callable[..., Any],
     ):
-        self._create_pg_connector()
-        register_agents(self.embedding, self.transform)
+        source_conn = self.source.parse_connection_string()
+        sink_conn = self.sink.dict()
+        index = self.target.index_name
+        schema_name = self.transform.schema_name
+        relation = self.transform.relation
+        topic = f"{relation}.{schema_name}.{relation}"
+
+        create_source_connector(source_conn, schema_name, relation)
+        create_sink_connector(sink_conn, index)
+        schema_id = register_sink_value_schema(index)
+        register_agents(
+            topic,
+            index,
+            schema_id,
+            self.model.create_embeddings,
+            self.transform.transform_func,
+            self.transform.optional_metadata,
+        )
         start_worker()
 
-        # self._create_pg_connector()
-        # print(self.source)
-        # print(self.transform)
-        # print(self.embedding)
-
-        # # start the collection stream
-        # create_collection_stream(
-        #     schema_name,
-        #     relation,
-        #     self.embedding,
-        #     self.transform,
-        #     self.sink,
-        #     self.target,
-        # )
-
-        # # call realtime package to create source connector/start cdc server
-        # conn = self.source.parse_connection_string()
-        # create_pg_connector(self.transform.schema_name, self.transform.relation)
-
-    def teardown(self) -> None:
+    def teardown(self):
         self.extractor.teardown()

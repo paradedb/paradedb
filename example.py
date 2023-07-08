@@ -20,7 +20,7 @@ my_source = Source.Postgres(
 
 # Define Transformations
 my_transform = Transform.Postgres(
-    relation="benchmark",
+    relation="customers",
     primary_key="id",
     columns=["id", "name"],
     transform_func=optional_transform,

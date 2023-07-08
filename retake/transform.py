@@ -1,13 +1,13 @@
 from pydantic import BaseModel
-from typing import Callable, Any
+from typing import Callable, Any, List, Optional
 
 
 class PostgresTransform(BaseModel):
     relation: str
     primary_key: str
-    columns: list
+    columns: List[str]
     transform_func: Callable[..., Any]
-    optional_metadata: Callable[..., Any] = None
+    optional_metadata: Optional[Callable[..., Any]]
 
 
 class Transform:
@@ -16,9 +16,9 @@ class Transform:
         cls,
         relation: str,
         primary_key: str,
-        columns: list,
-        transform_func: Callable[..., Any] = None,
-        optional_metadata: Callable[..., Any] = None,
+        columns: List[str],
+        transform_func: Callable[..., Any],
+        optional_metadata: Optional[Callable[..., Any]] = None,
     ) -> PostgresTransform:
         return PostgresTransform(
             relation=relation,

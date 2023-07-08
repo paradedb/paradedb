@@ -1,23 +1,24 @@
 from pydantic import BaseModel
+from typing import Optional
 
 
 class ElasticSearchSink(BaseModel):
-    host: str = None
-    user: str = None
-    password: str = None
-    ssl_assert_fingerprint: str = None
-    cloud_id: str = None
+    host: Optional[str]
+    user: Optional[str]
+    password: Optional[str]
+    ssl_assert_fingerprint: Optional[str]
+    cloud_id: Optional[str]
 
 
 class Sink:
     @classmethod
     def ElasticSearch(
         cls,
-        host: str = None,
-        user: str = None,
-        password: str = None,
-        ssl_assert_fingerprint: str = None,
-        cloud_id: str = None,
+        host: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        ssl_assert_fingerprint: Optional[str] = None,
+        cloud_id: Optional[str] = None,
     ) -> ElasticSearchSink:
         params = {
             "host": host,

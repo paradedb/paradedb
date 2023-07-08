@@ -5,7 +5,7 @@ on:
     branches:
       - dev
       - staging
-      - prod
+      - main
 
 jobs:
   deploy:
@@ -28,12 +28,11 @@ jobs:
           fi
       - name: Install Poetry
         run: |
-          apt-get update &&
-          apt-get install -y curl &&
-          curl -sSL https://install.python-poetry.org | python - &&
-          export PATH="/root/.local/bin:$PATH" &&
-          poetry config virtualenvs.create false &&
-          poetry install
+          curl -sSL https://install.python-poetry.org | python -
+      - name: Configure Poetry
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
       - name: Build and publish to PyPI
         env:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}

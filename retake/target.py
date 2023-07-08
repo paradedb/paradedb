@@ -1,5 +1,6 @@
 from pydantic import BaseModel
 from enum import Enum
+from typing import Optional
 
 
 class Similarity(Enum):
@@ -12,7 +13,7 @@ class ElasticSearchTarget(BaseModel):
     index_name: str
     field_name: str
     should_index: bool
-    similarity: Similarity = None
+    similarity: Optional[Similarity]
 
 
 class Target:
@@ -22,7 +23,7 @@ class Target:
         index_name: str,
         field_name: str,
         should_index: bool = True,
-        similarity: Similarity = None,
+        similarity: Optional[Similarity] = None,
     ) -> ElasticSearchTarget:
         return ElasticSearchTarget(
             index_name=index_name,

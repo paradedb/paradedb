@@ -12,6 +12,8 @@ psycopg2-binary = "^2.9.6"
 pydantic = "^2.0.2"
 sentence-transformers = "^2.2.2"
 tqdm = "^4.65.0"
+types-psycopg2 = "^2.9.21.10"
+types-tqdm = "^4.65.0.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

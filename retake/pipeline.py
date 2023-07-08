@@ -1,5 +1,5 @@
 from tqdm import tqdm
-from typing import Union, Tuple, Callable, Any
+from typing import Union, Tuple, Callable, Any, Optional, Dict, cast
 
 from retake.embedding import OpenAIEmbedding, SentenceTransformerEmbedding
 from retake.source import PostgresSource
@@ -16,6 +16,9 @@ Transform = Union[PostgresTransform]
 Embedding = Union[OpenAIEmbedding, SentenceTransformerEmbedding]
 Sink = Union[ElasticSearchSink]
 Target = Union[ElasticSearchTarget]
+Extractor = Union[PostgresExtractor]
+Loader = Union[ElasticSearchLoader]
+Model = Union[OpenAI, SentenceTransformer]
 
 
 class Pipeline:
@@ -37,13 +40,13 @@ class Pipeline:
         self.loader = self._get_loader()
         self.model = self._get_model()
 
-    def _get_extractor(self):
+    def _get_extractor(self) -> Extractor:
         if isinstance(self.source, PostgresSource):
             return PostgresExtractor(self.source.dsn)
         else:
             raise ValueError("Invalid Source type")
 
-    def _get_loader(self):
+    def _get_loader(self) -> Loader:
         if isinstance(self.target, ElasticSearchTarget):
             return ElasticSearchLoader(
                 host=self.sink.host,
@@ -55,7 +58,7 @@ class Pipeline:
         else:
             raise ValueError("Invalid Target type")
 
-    def _get_model(self):
+    def _get_model(self) -> Model:
         if isinstance(self.embedding, OpenAIEmbedding):
             return OpenAI(api_key=self.embedding.api_key, model=self.embedding.model)
         elif isinstance(self.embedding, SentenceTransformerEmbedding):
@@ -63,16 +66,16 @@ class Pipeline:
         else:
             raise ValueError("Invalid Embedding type")
 
-    def _apply_transform(self, row: Tuple[str, ...]):
-        return self.transform.transform_func(*row)
+    def _apply_transform(self, row: Tuple[str, ...]) -> str:
+        return cast(str, self.transform.transform_func(*row))
 
-    def _create_metadata(self, row: Tuple[str, ...]):
+    def _create_metadata(self, row: Tuple[str, ...]) -> Dict[str, Any]:
         if self.transform.optional_metadata:
-            return self.transform.optional_metadata(*row)
+            return cast(Dict[str, Any], self.transform.optional_metadata(*row))
         else:
-            return None
+            raise ValueError("_create_metadata called when optional_metadata is None")
 
-    def pipe_once(self, verbose=True):
+    def pipe_once(self, verbose: bool = True) -> None:
         total_rows = self.extractor.count(self.transform.relation)
         chunk_size = 1000
 
@@ -91,16 +94,21 @@ class Pipeline:
             rows = chunk.get("rows")
             primary_keys = chunk.get("primary_keys")
 
-            documents = [self._apply_transform(row) for row in rows]
-            metadata_list = [self._create_metadata(row) for row in rows]
-            embeddings = self.model.create_embeddings(documents)
-            self.loader.bulk_upsert_embeddings(
-                index_name=self.target.index_name,
-                embeddings=embeddings,
-                ids=primary_keys,
-                field_name=self.target.field_name,
-                metadata=metadata_list,
-            )
+            if rows and primary_keys:
+                documents = [self._apply_transform(row) for row in rows]
+                metadata_list = (
+                    [self._create_metadata(row) for row in rows]
+                    if self.transform.optional_metadata
+                    else None
+                )
+                embeddings = self.model.create_embeddings(documents)
+                self.loader.bulk_upsert_embeddings(
+                    index_name=self.target.index_name,
+                    embeddings=embeddings,
+                    ids=primary_keys,
+                    field_name=self.target.field_name,
+                    metadata=metadata_list,
+                )
 
             progress_bar.update(chunk_size)
 
@@ -111,8 +119,8 @@ class Pipeline:
         cdc_server_url: str,
         on_success: Callable[..., Any],
         on_error: Callable[..., Any],
-    ):
+    ) -> None:
         raise NotImplementedError("TODO: Implement real-time sync with CDC server")
 
-    def teardown(self):
+    def teardown(self) -> None:
         self.extractor.teardown()

@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from elasticsearch import Elasticsearch, helpers
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Optional, Any, cast
 from core.load.base import Loader
 
 
@@ -11,14 +11,14 @@ class FieldTypeError(Exception):
 class ElasticSearchLoader(Loader):
     def __init__(
         self,
-        host: str = None,
-        user: str = None,
-        password: str = None,
-        ssl_assert_fingerprint: str = None,
-        cloud_id: str = None,
-        index: bool = False,
-        similarity: str = None,
-    ):
+        host: Optional[str],
+        user: Optional[str],
+        password: Optional[str],
+        ssl_assert_fingerprint: Optional[str],
+        cloud_id: Optional[str],
+        index: Optional[bool] = False,
+        similarity: Optional[str] = None,
+    ) -> None:
         if index and similarity is None:
             raise ValueError("Similarity must be provided if index is True")
 
@@ -38,26 +38,31 @@ class ElasticSearchLoader(Loader):
 
     ### Private Methods ###
 
-    def _check_index_exists(self, index_name: str):
-        return self.es.indices.exists(index=index_name)
+    def _check_index_exists(self, index_name: str) -> bool:
+        return cast(bool, self.es.indices.exists(index=index_name))
 
-    def _create_index(self, index_name: str, field_name: str, num_dimensions: int):
+    def _create_index(
+        self, index_name: str, field_name: str, num_dimensions: int
+    ) -> None:
         if self._check_index_exists(index_name=index_name):
-            raise IndexAlreadyExistsError(f"Index {index_name} already exists")
+            raise ValueError(f"Index {index_name} already exists")
 
-        mapping = {
-            "mappings": {
-                "dynamic": True,
-                "_source": {"enabled": True},
-                "properties": {
-                    field_name: {
-                        "type": "dense_vector",
-                        "dims": num_dimensions,
-                        "index": self.index,
-                    }
-                },
-            }
-        }
+        mapping = cast(
+            Dict[str, Any],
+            {
+                "mappings": {
+                    "dynamic": True,
+                    "_source": {"enabled": True},
+                    "properties": {
+                        field_name: {
+                            "type": "dense_vector",
+                            "dims": num_dimensions,
+                            "index": self.index,
+                        }
+                    },
+                }
+            },
+        )
 
         if self.similarity is not None:
             mapping["mappings"]["properties"][field_name][
@@ -68,7 +73,7 @@ class ElasticSearchLoader(Loader):
 
     def _check_and_setup_index(
         self, index_name: str, field_name: str, num_dimensions: int
-    ):
+    ) -> None:
         if not self._check_index_exists(index_name=index_name):
             self._create_index(
                 index_name=index_name,
@@ -88,7 +93,7 @@ class ElasticSearchLoader(Loader):
                     )
                 if field_mapping["dims"] != num_dimensions:
                     raise FieldTypeError(
-                        f"Field '{field_name}' expects {field_mapping['dims']} dimensions but the embedding has {len(embedding)}"
+                        f"Field '{field_name}' expects {field_mapping['dims']} dimensions but the embedding has {num_dimensions}"
                     )
             else:
                 # The field does not exist, create it
@@ -111,8 +116,8 @@ class ElasticSearchLoader(Loader):
         embedding: List[float],
         id: Union[str, int],
         field_name: str,
-        metadata: Dict[str, any] = None,
-    ):
+        metadata: Optional[Dict[str, Any]],
+    ) -> None:
         self._check_and_setup_index(
             index_name=index_name,
             field_name=field_name,
@@ -135,12 +140,16 @@ class ElasticSearchLoader(Loader):
         embeddings: List[List[float]],
         ids: List[Union[str, int]],
         field_name: str,
-        metadata: List[Dict[str, any]] = None,
-    ):
+        metadata: Optional[List[Dict[str, Any]]],
+    ) -> None:
         num_dimensions = len(embeddings[0])
+        num_embeddings = len(embeddings)
 
         if not all(len(embedding) == num_dimensions for embedding in embeddings):
             raise ValueError("Not all embeddings have the same number of dimensions")
+
+        if not len(ids) == num_embeddings:
+            raise ValueError("Number of ids does not match number of embeddings")
 
         self._check_and_setup_index(
             index_name=index_name,
@@ -149,7 +158,7 @@ class ElasticSearchLoader(Loader):
         )
 
         if metadata is None:
-            metadata = [{}] * len(ids)
+            metadata = [{}] * num_embeddings
 
         docs = [
             {"_id": doc_id, "_source": {**{field_name: embedding}, **meta}}

@@ -1,14 +1,29 @@
-from typing import List
+from typing import List, Union, Optional, Dict, Any
+from core.load.base import Loader
 
 # TODO: Implement OpenSearch interface
 
 
-class OpenSearchLoader:
-    def __init__(self):
+class OpenSearchLoader(Loader):
+    def __init__(self) -> None:
         pass
 
-    def upsert_embedding(self):
+    def upsert_embedding(
+        self,
+        index_name: str,
+        embedding: List[float],
+        id: Union[str, int],
+        field_name: str,
+        metadata: Optional[Dict[str, Any]],
+    ) -> None:
         pass
 
-    def bulk_upsert_embeddings(self):
+    def bulk_upsert_embeddings(
+        self,
+        index_name: str,
+        embeddings: List[List[float]],
+        ids: List[Union[str, int]],
+        field_name: str,
+        metadata: Optional[List[Dict[str, Any]]],
+    ) -> None:
         pass

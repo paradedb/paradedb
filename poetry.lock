@@ -1458,6 +1458,28 @@ video = ["av (==9.2.0)", "decord (==0.6.0)"]
 vision = ["Pillow"]
 
 [[package]]
+name = "types-psycopg2"
+version = "2.9.21.10"
+description = "Typing stubs for psycopg2"
+optional = false
+python-versions = "*"
+files = [
+    {file = "types-psycopg2-2.9.21.10.tar.gz", hash = "sha256:c2600892312ae1c34e12f145749795d93dc4eac3ef7dbf8a9c1bfd45385e80d7"},
+    {file = "types_psycopg2-2.9.21.10-py3-none-any.whl", hash = "sha256:918224a0731a3650832e46633e720703b5beef7693a064e777d9748654fcf5e5"},
+]
+
+[[package]]
+name = "types-tqdm"
+version = "4.65.0.1"
+description = "Typing stubs for tqdm"
+optional = false
+python-versions = "*"
+files = [
+    {file = "types-tqdm-4.65.0.1.tar.gz", hash = "sha256:972dd871b6b2b8ff32f1f0f6fdfdf5a4ba2b0b848453689391bec8bd858fb1c4"},
+    {file = "types_tqdm-4.65.0.1-py3-none-any.whl", hash = "sha256:4894fe2b1581374ce9bca3f23d53729e4409d69b352e3d5db5829fa19482962c"},
+]
+
+[[package]]
 name = "typing-extensions"
 version = "4.7.1"
 description = "Backported and Experimental Type Hints for Python 3.7+"
@@ -1488,4 +1510,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "43c17da09ba4b19e3e986b2d92fe9202d58d63d11b3ba5b66f9f1db33a0eb6fa"
+content-hash = "08a099b93c6a768df241589e81ca05850e50c3e47089ff51763e8ccf19ce8127"

@@ -6,9 +6,9 @@ import queue
 
 from psycopg2.extras import LogicalReplicationConnection
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from typing import List
+from typing import List, Generator, Dict, Any, Optional, cast
 
-from core.extract.base import Extractor
+from core.extract.base import Extractor, ExtractorResult
 
 
 class ConnectionError(Exception):
@@ -16,14 +16,11 @@ class ConnectionError(Exception):
 
 
 class PostgresExtractor(Extractor):
-    def __init__(self, dsn: str):
+    def __init__(self, dsn: str) -> None:
         self.dsn = dsn
-        self.connection = None
-        self.cursor = None
-
         self._connect(dsn)
 
-    def _connect(self, dsn: str):
+    def _connect(self, dsn: str) -> None:
         try:
             self.connection = psycopg2.connect(
                 self.dsn, connection_factory=LogicalReplicationConnection
@@ -35,17 +32,21 @@ class PostgresExtractor(Extractor):
 
         self.cursor = self.connection.cursor()
 
-    def teardown(self):
-        self.cursor.close()
+    def teardown(self) -> None:
+        self.cursor.close()  # type: ignore
         self.connection.close()
 
-    def count(self, relation: str):
+    def count(self, relation: str) -> int:
         self.cursor.execute(f"SELECT COUNT(*) FROM {relation}")
-        return self.cursor.fetchone()[0]
+        row = self.cursor.fetchone()
+        if row:
+            return cast(int, row[0])
+        else:
+            return 0
 
     def extract_all(
         self, relation: str, columns: List[str], primary_key: str, chunk_size: int
-    ):
+    ) -> Generator[ExtractorResult, None, None]:
         offset = 0
         columns_str = ", ".join(columns)
 

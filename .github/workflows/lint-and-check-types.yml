@@ -3,6 +3,9 @@ name: "Lint Python and check types"
 on:
   pull_request:
     branches: [dev, staging, main]
+      paths:
+      - "core/**"
+      - "retake/**"
 
 jobs:
   build:

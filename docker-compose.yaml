@@ -79,4 +79,3 @@ services:
         /etc/confluent/docker/run &
         #
         sleep infinity
-    

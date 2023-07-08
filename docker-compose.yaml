@@ -13,7 +13,6 @@ services:
     volumes:
       - ./postgresql.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
-    # command: postgres -c wal_level=logical
 
   elastic:
     image: elasticsearch:8.8.1
@@ -23,6 +22,7 @@ services:
     environment:
       ELASTIC_PASSWORD: elastic
       discovery.type: single-node
+      xpack.security.enabled: false
 
   kafka:
     image: docker.io/bitnami/kafka:3.5
@@ -35,26 +35,48 @@ services:
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
 
   schema-registry:
-    image: bitnami/schema-registry:latest
+    image: docker.io/bitnami/schema-registry
+    ports:
+      - '8081:8081'
     depends_on:
       - kafka
-    ports:
-      - "8081:8081"
     environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKA_BROKERS: "PLAINTEXT://kafka:9092"
-      SCHEMA_REGISTRY_DEBUG: true
+      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
+      - SCHEMA_REGISTRY_KAFKA_BROKERS=PLAINTEXT://kafka:9092
 
   connect:
-    image: debezium/connect:2.3
+    image: confluentinc/cp-kafka-connect-base:6.2.0
     depends_on:
       - kafka
       - postgres
-    environment:
-      GROUP_ID: 1
-      BOOTSTRAP_SERVERS: kafka:9092
-      CONFIG_STORAGE_TOPIC: my_connect_configs 
-      OFFSET_STORAGE_TOPIC: my_connect_offsets 
-      STATUS_STORAGE_TOPIC: my_connect_statuses
     ports:
       - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: kafka-connect
+      CONNECT_CONFIG_STORAGE_TOPIC: _connect-configs
+      CONNECT_OFFSET_STORAGE_TOPIC: _connect-offsets
+      CONNECT_STATUS_STORAGE_TOPIC: _connect-status
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      # CONNECT_VALUE_CONVERTER: io.confluent.connect.avro.AvroConverter
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      CONNECT_REST_ADVERTISED_HOST_NAME: "kafka-connect"
+      CONNECT_LOG4J_APPENDER_STDOUT_LAYOUT_CONVERSIONPATTERN: "[%d] %p %X{connector.context}%m (%c:%L)%n"
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components,/data/connect-jars
+    command:
+      - bash
+      - -c
+      - |
+        echo "Installing Connector"
+        confluent-hub install --no-prompt debezium/debezium-connector-postgresql:2.2.1
+        confluent-hub install --no-prompt confluentinc/kafka-connect-elasticsearch:14.0.6
+        #
+        echo "Launching Kafka Connect worker"
+        /etc/confluent/docker/run &
+        #
+        sleep infinity
+    

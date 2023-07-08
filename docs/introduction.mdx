@@ -12,8 +12,7 @@ your inputs/sources of truth and vectors are always in sync without the time, co
 
 ## Why Retake
 
-With the growing popularity of vector databases, there’s ongoing debate around using dedicated vector stores vs. keeping vectors in the main database using extensions
-like `pgvector`. While each approach has its merits, many larger-scale companies opt for separate vector stores to isolate the resources used by vector
+With the growing popularity of vector databases, many sophisticated teams opt to store vectors in separate databases to isolate the resources used by vector
 operations from the rest of their database operations. In situations like this, it's important to have resilient and
 horizontally scalable infrastructure in place for handling vector data streams and keeping vectors in sync with their sources of truth.
 
@@ -44,17 +43,13 @@ or adding metadata is easily done from Python functions.
 You can run Retake anywhere, from your laptop to a distributed cloud system.
 
 <CardGroup cols={2}>
-  <Card title="Setup" icon="gear" href="/pipeline">
+  <Card title="Setup" icon="gear" href="/quickstart/setup">
     Configure your database for Retake.
   </Card>
-  <Card title="Quick Start" icon="circle-play" href="/pipeline">
+  <Card title="Quick Start" icon="circle-play" href="/quickstart/pipeline">
     Build your first vector pipeline in under five minutes.
   </Card>
-  <Card
-    title="Concepts"
-    icon="code"
-    href="https://mintlify.com/docs/development"
-  >
+  <Card title="Concepts" icon="code" href="/concepts/source">
     Understand the key concepts of the Retake Python SDK.
   </Card>
 </CardGroup>

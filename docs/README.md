@@ -1,12 +1,6 @@
-# Mintlify Starter Kit
+# Retake Documentation
 
-Click on `Use this template` to copy the Mintlify starter kit. The starter kit contains examples including
-
-- Guide pages
-- Navigation
-- Customizations
-- API Reference pages
-- Use of popular components
+Retake [documentation](https://retake.mintlify.app) is built using [Mintlify](https://mintlify.com/docs/introduction).
 
 ### 👩‍💻 Development
 

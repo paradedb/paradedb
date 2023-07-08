@@ -1,4 +1,4 @@
-name: Python CI
+name: "Run linting and type checks"
 
 on:
   pull_request:

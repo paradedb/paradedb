@@ -1,4 +1,4 @@
-name: "Run linting and type checks"
+name: "Lint Python and check types"
 
 on:
   pull_request:

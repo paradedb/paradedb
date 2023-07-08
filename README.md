@@ -1,26 +1,26 @@
-# Retake Connect
+<p align="center">
+  <a href="https://retake.mintlify.app"><img src="https://github.com/retake-earth/retake/assets/21964054/21a4af17-4eb9-4266-807c-7bb9f6e64657
+" alt="Retake"></a>
+</p>
 
-## Overview
-Retake is a real-time embeddings database with pre-built, real-time connectors to your "sources of truth" (i.e. Postgres, MySQL, etc.). This enables you to integrate embeddings with your existing databases effortlessly, ensuring that your embeddings are always up-to-date with the underlying data sources.
+<p align="center">
+    <b>Retake - Open Source Infrastructure for Vector Data Streams</b>. <br />
+    Keep your vector stores in sync with their sources of truth <br />
+</p>
+
+<h3 align="center">
+  <a href="https://retake.mintlify.app">Documentation</a> &bull;
+  <a href="https://getretake.framer.ai">Website</a>
+</h3>
 
 ## Why Retake
-- **Out-of-the-box data sync** Existing embeddings databases are data siloes that require complex and sometimes brittle mechanisms for data synchronization. Retake provides native connectors that allow seamless data synchronization without the need for extensive configuration or third-party tools.
-- **True real-time updates** Most "real-time" data sync libraries are built on top of Debezium/Kafka, which introduce significant overhead latency on the order of 10s+ per transaction. Retake's connectors are optimized for low latency, ensuring that changes in your data sources are reflected in your embeddings in <1s.
-- **Dead-simple Python SDK**  With just a few lines of Python code, you can set up data synchronization, query embeddings, and perform sophisticated data manipulations. 
+- **Out-of-the-box data sync** Existing embeddings databases are data siloes that require complex and sometimes brittle mechanisms for data synchronization. Retake provides the missing connectors that allow seamless data synchronization without the need for extensive configuration or third-party tools.
+- **True real-time updates** Retake's connectors achieve sub-10ms end-to-end data latency, excluding variable model inference times.
+- **Dead-simple Python SDK**  With just a few lines of Python code, you can set up data synchronization, query embeddings, and perform sophisticated transformations.
 - **Scalable & Efficient**: Designed to handle large volumes of data and high-throughput workloads.
 
-## Getting Started
-To get started with Retake, follow these simple steps:
-
-```sh
-pip install retake
-```
-
 ## Contributing
-We need to write a CONTRIBUTING.md
+For more information on how to contribute, please see our [Contributing Guide](CONTRIBUTING.md).
 
 ## License
-We need to write a LICENSE.md
-
-## Support
-TBD
+Retake is [Apache 2.0 licensed](LICENSE).

@@ -14,10 +14,12 @@ sentence-transformers = "^2.2.2"
 tqdm = "^4.65.0"
 types-psycopg2 = "^2.9.21.10"
 types-tqdm = "^4.65.0.1"
+pinecone-client = "^2.2.2"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"
 mypy = "^1.4.1"
+pytest = "^7.4.0"
 
 [build-system]
 requires = ["poetry-core"]

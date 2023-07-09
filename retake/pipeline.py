@@ -78,6 +78,7 @@ class Pipeline:
     def pipe_once(self, verbose: bool = True) -> None:
         total_rows = self.extractor.count(self.transform.relation)
         chunk_size = 1000
+        index_checked = False
 
         progress_bar = tqdm(
             total=total_rows,
@@ -102,6 +103,15 @@ class Pipeline:
                     else None
                 )
                 embeddings = self.model.create_embeddings(documents)
+
+                if not index_checked:
+                    self.loader.check_and_setup_index(
+                        index_name=self.target.index_name,
+                        field_name=self.target.field_name,
+                        num_dimensions=len(embeddings[0]),
+                    )
+                    index_checked = True
+
                 self.loader.bulk_upsert_embeddings(
                     index_name=self.target.index_name,
                     embeddings=embeddings,

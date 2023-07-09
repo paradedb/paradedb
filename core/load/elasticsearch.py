@@ -71,7 +71,7 @@ class ElasticSearchLoader(Loader):
 
         self.es.indices.create(index=index_name, body=mapping)
 
-    def _check_and_setup_index(
+    def check_and_setup_index(
         self, index_name: str, field_name: str, num_dimensions: int
     ) -> None:
         if not self._check_index_exists(index_name=index_name):
@@ -118,12 +118,6 @@ class ElasticSearchLoader(Loader):
         field_name: str,
         metadata: Optional[Dict[str, Any]],
     ) -> None:
-        self._check_and_setup_index(
-            index_name=index_name,
-            field_name=field_name,
-            num_dimensions=len(embedding),
-        )
-
         doc = dict()
         doc[field_name] = embedding
 
@@ -150,12 +144,6 @@ class ElasticSearchLoader(Loader):
 
         if not len(ids) == num_embeddings:
             raise ValueError("Number of ids does not match number of embeddings")
-
-        self._check_and_setup_index(
-            index_name=index_name,
-            field_name=field_name,
-            num_dimensions=num_dimensions,
-        )
 
         if metadata is None:
             metadata = [{}] * num_embeddings

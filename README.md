@@ -40,5 +40,5 @@ You can run Retake anywhere, from your laptop to a distributed cloud system.
 ## Contributing
 For more information on how to contribute, please see our [Contributing Guide](CONTRIBUTING.md).
 
-## License
+## Licensing
 Retake is [Apache 2.0 licensed](LICENSE).

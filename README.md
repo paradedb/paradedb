@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://retake.mintlify.app"><img src="assets/retake.png" alt="Retake"></a>
+  <a href="https://retake.mintlify.app"><img src="assets/retake.png" alt="Retake" width="250px"></a>
 </p>
 
 <p align="center">

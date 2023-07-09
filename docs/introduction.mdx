@@ -27,18 +27,26 @@ stored in a search engine or a vector database.
 
 ## Key Features
 
-### Real-Time or Batch Updates
+### Out-of-the-Box Data Sync
 
-Retake enables you to sync vectors in scheduled batches or in real-time. Built on top of Kafka, Retake's
-Change Data Capture (CDC) engine achieves sub-10ms end-to-end data latency for real-time updates,
-excluding variable model inference time.
+Existing vector stores are siloes that require complex and sometimes brittle mechanisms for data synchronization.
+Retake provides the missing connectors that allow seamless data synchronization without the need for extensive
+configuration or third-party tools.
+
+### True Real-Time Updates
+
+Retake's connectors achieve sub-10ms end-to-end data latency, excluding variable model inference times.
 
 ### Extensible Python SDK
 
 You can configure any source, sink, transformation, and embedding model as code. Joining and filtering tables
 or adding metadata is easily done from Python functions.
 
-### Deploy Anywhere
+### Scalable and Efficient
+
+Built on top of Kafka, Retake is designed to handle large volumes of data and high-throughput workloads.
+
+### Deployable Anywhere
 
 You can run Retake anywhere, from your laptop to a distributed cloud system.
 

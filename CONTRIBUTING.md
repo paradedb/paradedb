@@ -13,7 +13,7 @@ All changes to Retake happen through Github Pull Requests. Here is the recommend
 others to make suggestions and leave comments.
 3. Fork the Retake repo and branch out from the `dev` branch.
 4. Make your changes. If you've added new functionality, add tests.
-5. Open a pull request towards the `dev` branch. Ensure that all tests and checks pass.
+5. Open a pull request towards the `dev` branch. Ensure that all tests and checks pass. Note that the Retake repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
 6. Congratulations! Our team will review your pull request.
 
 ### **Documentation**

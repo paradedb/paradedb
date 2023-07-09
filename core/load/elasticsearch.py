@@ -54,24 +54,20 @@ class ElasticSearchLoader(Loader):
         mapping = cast(
             Dict[str, Any],
             {
-                "mappings": {
-                    "dynamic": True,
-                    "_source": {"enabled": True},
-                    "properties": {
-                        field_name: {
-                            "type": "dense_vector",
-                            "dims": num_dimensions,
-                            "index": self.index,
-                        }
-                    },
-                }
+                "dynamic": True,
+                "_source": {"enabled": True},
+                "properties": {
+                    field_name: {
+                        "type": "dense_vector",
+                        "dims": num_dimensions,
+                        "index": self.index,
+                    }
+                },
             },
         )
 
         if self.similarity is not None:
-            mapping["mappings"]["properties"][field_name][
-                "similarity"
-            ] = self.similarity
+            mapping["properties"][field_name]["similarity"] = self.similarity
 
         self.es.indices.create(index=index_name, mappings=mapping)
 
@@ -105,12 +101,10 @@ class ElasticSearchLoader(Loader):
             else:
                 # The field does not exist, create it
                 new_field_mapping = {
-                    "properties": {
-                        field_name: {
-                            "type": "dense_vector",
-                            "dims": num_dimensions,
-                            "index": True,
-                        }
+                    field_name: {
+                        "type": "dense_vector",
+                        "dims": num_dimensions,
+                        "index": True,
                     }
                 }
                 self.es.indices.put_mapping(

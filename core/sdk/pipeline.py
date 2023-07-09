@@ -87,7 +87,7 @@ class Pipeline:
 
     def pipe_once(self, verbose: bool = True) -> None:
         total_rows = self.extractor.count(self.transform.relation)
-        chunk_size = 1000
+        chunk_size = 100
         index_checked = False
 
         progress_bar = tqdm(

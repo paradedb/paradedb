@@ -3,11 +3,11 @@ from typing import Optional
 
 
 class ElasticSearchSink(BaseModel):
-    host: Optional[str]
-    user: Optional[str]
-    password: Optional[str]
-    ssl_assert_fingerprint: Optional[str]
-    cloud_id: Optional[str]
+    host: Optional[str] = None
+    user: Optional[str] = None
+    password: Optional[str] = None
+    ssl_assert_fingerprint: Optional[str] = None
+    cloud_id: Optional[str] = None
 
 
 class PineconeSink(BaseModel):

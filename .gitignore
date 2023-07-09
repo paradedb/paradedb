@@ -2,8 +2,11 @@
 __pycache__/
 dist/
 build/
-*.egg-info
+
+# Automatically generated files
 .DS_Store
+.mypy_cache
+.pytest_cache
 
 # Virtualenv
 env/

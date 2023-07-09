@@ -46,7 +46,7 @@ class PineconeLoader(Loader):
     ) -> None:
         index = pinecone.Index(name=index_name)
 
-        doc = {"id": id, "values": embedding}
+        doc: Dict[str, Any] = {"id": id, "values": embedding}
 
         if not metadata is None:
             doc["metadata"] = metadata

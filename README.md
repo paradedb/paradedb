@@ -12,6 +12,14 @@
   <a href="https://getretake.framer.ai">Website</a>
 </h3>
 
+## Installation
+
+```
+pip install retake
+```
+
+To create your first vector data stream, please follow the [documentation](https://retake.mintlify.app).
+
 ## Key Features
 
 **:arrows_counterclockwise:  Out-of-the-Box Data Sync**

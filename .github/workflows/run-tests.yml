@@ -1,4 +1,4 @@
-name: "Lint Python and check types"
+name: "Run tests"
 
 on:
   pull_request:

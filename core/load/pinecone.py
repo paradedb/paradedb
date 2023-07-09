@@ -3,6 +3,7 @@ import pinecone
 from abc import ABC, abstractmethod
 from core.load.base import Loader
 from typing import Dict, List, Union, Optional, Any, cast
+from core.sdk.target import PineconeTarget
 
 
 class PineconeLoader(Loader):
@@ -26,7 +27,11 @@ class PineconeLoader(Loader):
     def _create_index(self, index_name: str, num_dimensions: int) -> None:
         pinecone.create_index(index_name, dimension=num_dimensions)
 
-    def check_and_setup_index(self, index_name: str, num_dimensions: int) -> None:
+    def check_and_setup_index(
+        self, target: PineconeTarget, num_dimensions: int
+    ) -> None:
+        index_name = target.index_name
+
         if not self._check_index_exists(index_name=index_name):
             self._create_index(index_name=index_name, num_dimensions=num_dimensions)
         else:
@@ -38,12 +43,13 @@ class PineconeLoader(Loader):
     ### Public Methods ###
     def upsert_embedding(
         self,
-        index_name: str,
-        namespace: str,
+        target: PineconeTarget,
         embedding: List[float],
         id: Union[str, int],
         metadata: Optional[Dict[str, Any]],
     ) -> None:
+        index_name = target.index_name
+        namespace = target.namespace
         index = pinecone.Index(name=index_name)
 
         doc: Dict[str, Any] = {"id": id, "values": embedding}
@@ -55,12 +61,13 @@ class PineconeLoader(Loader):
 
     def bulk_upsert_embeddings(
         self,
-        index_name: str,
-        namespace: str,
+        target: PineconeTarget,
         embeddings: List[List[float]],
         ids: List[Union[str, int]],
         metadata: Optional[List[Dict[str, Any]]],
     ) -> None:
+        index_name = target.index_name
+        namespace = target.namespace
         num_dimensions = len(embeddings[0])
         num_embeddings = len(embeddings)
         docs = []

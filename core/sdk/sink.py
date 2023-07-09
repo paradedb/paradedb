@@ -10,6 +10,11 @@ class ElasticSearchSink(BaseModel):
     cloud_id: Optional[str]
 
 
+class PineconeSink(BaseModel):
+    api_key: str
+    environment: str
+
+
 class Sink:
     @classmethod
     def ElasticSearch(
@@ -30,3 +35,10 @@ class Sink:
         # Remove keys with None values
         params = {k: v for k, v in params.items() if v is not None}
         return ElasticSearchSink(**params)
+
+    @classmethod
+    def Pinecone(cls, api_key: str, environment: str) -> PineconeSink:
+        return PineconeSink(
+            api_key=api_key,
+            environment=environment,
+        )

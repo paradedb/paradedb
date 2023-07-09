@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 from elasticsearch import Elasticsearch, helpers
 from typing import Dict, List, Union, Optional, Any, cast
 from core.load.base import Loader
+from core.sdk.target import ElasticSearchTarget
 
 
 class FieldTypeError(Exception):
@@ -11,28 +12,31 @@ class FieldTypeError(Exception):
 class ElasticSearchLoader(Loader):
     def __init__(
         self,
-        host: Optional[str],
-        user: Optional[str],
-        password: Optional[str],
-        ssl_assert_fingerprint: Optional[str],
-        cloud_id: Optional[str],
+        host: Optional[str] = None,
+        user: Optional[str] = None,
+        password: Optional[str] = None,
+        ssl_assert_fingerprint: Optional[str] = None,
+        cloud_id: Optional[str] = None,
         index: Optional[bool] = False,
         similarity: Optional[str] = None,
     ) -> None:
         if index and similarity is None:
             raise ValueError("Similarity must be provided if index is True")
 
-        kwargs = {
-            "hosts": [host] if host else None,
-            "basic_auth": (user, password) if user and password else None,
-            "ssl_assert_fingerprint": ssl_assert_fingerprint
-            if ssl_assert_fingerprint
-            else None,
-            "verify_certs": True if host else None,
-            "cloud_id": cloud_id if cloud_id else None,
-        }
+        if cloud_id:
+            self.es = Elasticsearch(cloud_id=cloud_id)
+        elif host and user and password and ssl_assert_fingerprint:
+            self.es = Elasticsearch(
+                hosts=[host],
+                basic_auth=(user, password),
+                ssl_assert_fingerprint=ssl_assert_fingerprint,
+                verify_certs=True,
+            )
+        else:
+            raise ValueError(
+                "Either cloud_id or host, user, password, and ssl_assert_fingerprint must be provided"
+            )
 
-        self.es = Elasticsearch(**{k: v for k, v in kwargs.items() if v is not None})
         self.index = index
         self.similarity = similarity
 
@@ -69,11 +73,14 @@ class ElasticSearchLoader(Loader):
                 "similarity"
             ] = self.similarity
 
-        self.es.indices.create(index=index_name, body=mapping)
+        self.es.indices.create(index=index_name, mappings=mapping)
 
     def check_and_setup_index(
-        self, index_name: str, field_name: str, num_dimensions: int
+        self, target: ElasticSearchTarget, num_dimensions: int
     ) -> None:
+        index_name = target.index_name
+        field_name = target.field_name
+
         if not self._check_index_exists(index_name=index_name):
             self._create_index(
                 index_name=index_name,
@@ -106,36 +113,39 @@ class ElasticSearchLoader(Loader):
                         }
                     }
                 }
-                self.es.indices.put_mapping(index=index_name, body=new_field_mapping)
+                self.es.indices.put_mapping(
+                    index=index_name, properties=new_field_mapping
+                )
 
     ### Public Methods ###
 
     def upsert_embedding(
         self,
-        index_name: str,
+        target: ElasticSearchTarget,
         embedding: List[float],
         id: Union[str, int],
-        field_name: str,
         metadata: Optional[Dict[str, Any]],
     ) -> None:
+        index_name = target.index_name
+        field_name = target.field_name
+
         doc = dict()
         doc[field_name] = embedding
 
         if not metadata is None:
             doc.update(metadata)
 
-        self.es.update(
-            index=index_name, id=id, body={"doc": doc, "doc_as_upsert": True}
-        )
+        self.es.update(index=index_name, id=str(id), doc=doc, doc_as_upsert=True)
 
     def bulk_upsert_embeddings(
         self,
-        index_name: str,
+        target: ElasticSearchTarget,
         embeddings: List[List[float]],
         ids: List[Union[str, int]],
-        field_name: str,
         metadata: Optional[List[Dict[str, Any]]],
     ) -> None:
+        index_name = target.index_name
+        field_name = target.field_name
         num_dimensions = len(embeddings[0])
         num_embeddings = len(embeddings)
 

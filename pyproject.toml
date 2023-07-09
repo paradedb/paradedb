@@ -15,6 +15,7 @@ tqdm = "^4.65.0"
 types-psycopg2 = "^2.9.21.10"
 types-tqdm = "^4.65.0.1"
 pinecone-client = "^2.2.2"
+elasticsearch = "^8.8.2"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

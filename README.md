@@ -14,11 +14,39 @@
 
 ## Installation
 
+To install the Retake Python SDK:
+
 ```
 pip install retake
 ```
 
-To create your first vector data stream, please follow the [documentation](https://retake.mintlify.app).
+Follow the [documentation](https://retake.mintlify.app) for usage instructions.
+
+## Development
+
+### Python SDK
+
+To develop and run the Python SDK locally, follow these steps:
+
+1. Install Poetry
+
+```
+curl -sSL https://install.python-poetry.org | python -
+```
+
+2. Install dependencies
+
+```
+poetry install
+```
+
+3. Build the SDK locally.
+
+```
+poetry build
+```
+
+This command will build and install the `retake` SDK into your local environment.
 
 ## Key Features
 

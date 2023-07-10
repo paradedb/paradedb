@@ -5,6 +5,26 @@ title: "Sink"
 `Sink` specifies where we want to store our vectors. Retake provides lightweight wrappers around
 all supported sinks.
 
+## Pinecone
+
+**Usage**
+
+```bash
+sink = Sink.Pinecone(
+    api_key="***",
+    environment="asia-southeast1-gcp"
+)
+```
+
+**Parameters**
+
+<ParamField body="api_key" type="string" required>
+  Pinecone API key
+</ParamField>
+<ParamField body="environment" type="string" required>
+  Pinecone environment
+</ParamField>
+
 ## ElasticSearch
 
 **Usage**
@@ -18,7 +38,7 @@ sink = Sink.ElasticSearch(
 **Parameters**
 
 <ParamField body="cloud_id" type="string">
-  Your ElasticSearch cloud ID, if using the cloud version
+  ElasticSearch cloud ID, if using the cloud version
 </ParamField>
 <ParamField body="host" type="string">
   ElasticSearch host address, if running locally

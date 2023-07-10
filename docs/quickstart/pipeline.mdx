@@ -9,11 +9,11 @@ description: "Build your first vector pipeline in under five minutes"
 </Info>
 
 In this tutoral we will build a pipeline to sync documents stored in AWS Aurora Postgres with their embeddings,
-stored in ElasticSearch. As you will see, Retake supports a variety of sources and sinks and
+stored in Pinecone. As you will see, Retake supports a variety of sources and sinks and
 you can substitute any source or sink with a few lines of code.
 
 For this example, let's imagine that we are a developer building a chatbot at Babylon, an e-commerce website. In Postgres, we have a table called
-`faqs`, which contains two columns: `questions` and `answers`. We wish to combine each question and answer, embed it, and store it in ElasticSearch.
+`faqs`, which contains two columns: `questions` and `answers`. We wish to combine each question and answer, embed it, and store it in Pinecone.
 
 ### Installation
 
@@ -75,8 +75,7 @@ def optional_metadata(
 
 transform = Transform.Postgres(
     # Note: Your table must have a primary key
-    # In this example, Retake uses the primary key as the
-    # ElasticSearch document ID by default
+    # Retake uses the primary key value as the ID for the embedding
     primary_key="id",
     relation="faqs",
     columns=["questions", "answers"],
@@ -96,13 +95,14 @@ embedding = Embedding.SentenceTransformer(model="all-MiniLM-L6-v2")
 
 ### Create a `Sink`
 
-`Sink` specifies where we want to store our vectors. In this example, `Sink` is ElasticSearch. You can find
+`Sink` specifies where we want to store our vectors. In this example, `Sink` is Pinecone. You can find
 a list of all available sinks [here](/concepts/sink).
 
 ```bash main.py
 # Replace with your sink connection credentials
-sink = Sink.ElasticSearch(
-    cloud_id="cloud_id"
+sink = Sink.Pinecone(
+    api_key="***",
+    environment="asia-southeast1-gcp"
 )
 ```
 
@@ -112,15 +112,9 @@ sink = Sink.ElasticSearch(
 a list of all available targets [here](/concepts/target).
 
 ```bash main.py
-target = Target.ElasticSearch(
+target = Target.Pinecone(
     index_name="faqs",
-    field_name="question_answer_embedding",
-    # Note: If an index with index_name does not already exist
-    # in ElasticSearch, a new index will be created with the below
-    # properties for field_name. If the index already exists,
-    # these properties will be ignored.
-    should_index=True,
-    similarity="cosine",
+    namespace="question_answer_embedding"
 )
 ```
 

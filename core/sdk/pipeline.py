@@ -1,12 +1,13 @@
 from tqdm import tqdm
 from typing import Union, Tuple, Callable, Any, Optional, Dict, cast
 
-from retake.embedding import OpenAIEmbedding, SentenceTransformerEmbedding
-from retake.source import PostgresSource
-from retake.transform import PostgresTransform
-from retake.sink import ElasticSearchSink
-from retake.target import ElasticSearchTarget
+from core.sdk.embedding import OpenAIEmbedding, SentenceTransformerEmbedding
+from core.sdk.source import PostgresSource
+from core.sdk.transform import PostgresTransform
+from core.sdk.sink import ElasticSearchSink, PineconeSink
+from core.sdk.target import ElasticSearchTarget, PineconeTarget
 from core.load.elasticsearch import ElasticSearchLoader
+from core.load.pinecone import PineconeLoader
 from core.extract.postgres import PostgresExtractor
 from core.transform.embedding import OpenAIEmbedding as OpenAI
 from core.transform.embedding import SentenceTransformerEmbedding as SentenceTransformer
@@ -14,10 +15,10 @@ from core.transform.embedding import SentenceTransformerEmbedding as SentenceTra
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
 Embedding = Union[OpenAIEmbedding, SentenceTransformerEmbedding]
-Sink = Union[ElasticSearchSink]
-Target = Union[ElasticSearchTarget]
+Sink = Union[ElasticSearchSink, PineconeSink]
+Target = Union[ElasticSearchTarget, PineconeTarget]
 Extractor = Union[PostgresExtractor]
-Loader = Union[ElasticSearchLoader]
+Loader = Union[ElasticSearchLoader, PineconeLoader]
 Model = Union[OpenAI, SentenceTransformer]
 
 
@@ -47,7 +48,9 @@ class Pipeline:
             raise ValueError("Invalid Source type")
 
     def _get_loader(self) -> Loader:
-        if isinstance(self.target, ElasticSearchTarget):
+        if isinstance(self.sink, ElasticSearchSink) and isinstance(
+            self.target, ElasticSearchTarget
+        ):
             return ElasticSearchLoader(
                 host=self.sink.host,
                 user=self.sink.user,
@@ -55,8 +58,15 @@ class Pipeline:
                 ssl_assert_fingerprint=self.sink.ssl_assert_fingerprint,
                 cloud_id=self.sink.cloud_id,
             )
+        elif isinstance(self.sink, PineconeSink) and isinstance(
+            self.target, PineconeTarget
+        ):
+            return PineconeLoader(
+                api_key=self.sink.api_key,
+                environment=self.sink.environment,
+            )
         else:
-            raise ValueError("Invalid Target type")
+            raise ValueError("Target and Sink types do not match")
 
     def _get_model(self) -> Model:
         if isinstance(self.embedding, OpenAIEmbedding):
@@ -77,7 +87,8 @@ class Pipeline:
 
     def pipe_once(self, verbose: bool = True) -> None:
         total_rows = self.extractor.count(self.transform.relation)
-        chunk_size = 1000
+        chunk_size = 100
+        index_checked = False
 
         progress_bar = tqdm(
             total=total_rows,
@@ -95,6 +106,7 @@ class Pipeline:
             primary_keys = chunk.get("primary_keys")
 
             if rows and primary_keys:
+                # Create lists for embeddings and metadata
                 documents = [self._apply_transform(row) for row in rows]
                 metadata_list = (
                     [self._create_metadata(row) for row in rows]
@@ -102,11 +114,30 @@ class Pipeline:
                     else None
                 )
                 embeddings = self.model.create_embeddings(documents)
+
+                # Appease Mypy by ensuring that Target and Loader types match
+                if not (
+                    isinstance(self.target, ElasticSearchTarget)
+                    and isinstance(self.loader, ElasticSearchLoader)
+                ) or (
+                    isinstance(self.target, PineconeTarget)
+                    and not isinstance(self.loader, PineconeLoader)
+                ):
+                    raise ValueError("Target and Loader types do not match")
+
+                # Check and setup index
+                if not index_checked:
+                    self.loader.check_and_setup_index(
+                        target=self.target,
+                        num_dimensions=len(embeddings[0]),
+                    )
+                    index_checked = True
+
+                # Upsert embeddings
                 self.loader.bulk_upsert_embeddings(
-                    index_name=self.target.index_name,
+                    target=self.target,
                     embeddings=embeddings,
                     ids=primary_keys,
-                    field_name=self.target.field_name,
                     metadata=metadata_list,
                 )
 

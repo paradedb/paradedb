@@ -1,4 +1,4 @@
-name: "Lint Python and check types"
+name: "Run tests"
 
 on:
   pull_request:
@@ -35,10 +35,6 @@ jobs:
         run: |
           poetry install
 
-      - name: Run Black
+      - name: Run Pytest
         run: |
-          poetry run black --check .
-
-      - name: Run mypy
-        run: |
-          poetry run mypy core/ retake/
+          poetry run pytest

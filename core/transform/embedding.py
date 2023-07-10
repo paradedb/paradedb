@@ -23,4 +23,4 @@ class SentenceTransformerEmbedding(Embedding):
         self.model = SentenceTransformer(model)
 
     def create_embeddings(self, documents: List[str]) -> List[List[float]]:
-        return cast(List[List[float]], self.model.encode(documents))
+        return cast(List[List[float]], self.model.encode(documents).tolist())

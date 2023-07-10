@@ -8,6 +8,11 @@ class OpenSearchLoader(Loader):
     def __init__(self) -> None:
         pass
 
+    def check_and_setup_index(
+        self, index_name: str, field_name: str, num_dimensions: int
+    ) -> None:
+        pass
+
     def upsert_embedding(
         self,
         index_name: str,

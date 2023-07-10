@@ -3,11 +3,16 @@ from typing import Optional
 
 
 class ElasticSearchSink(BaseModel):
-    host: Optional[str]
-    user: Optional[str]
-    password: Optional[str]
-    ssl_assert_fingerprint: Optional[str]
-    cloud_id: Optional[str]
+    host: Optional[str] = None
+    user: Optional[str] = None
+    password: Optional[str] = None
+    ssl_assert_fingerprint: Optional[str] = None
+    cloud_id: Optional[str] = None
+
+
+class PineconeSink(BaseModel):
+    api_key: str
+    environment: str
 
 
 class Sink:
@@ -30,3 +35,10 @@ class Sink:
         # Remove keys with None values
         params = {k: v for k, v in params.items() if v is not None}
         return ElasticSearchSink(**params)
+
+    @classmethod
+    def Pinecone(cls, api_key: str, environment: str) -> PineconeSink:
+        return PineconeSink(
+            api_key=api_key,
+            environment=environment,
+        )

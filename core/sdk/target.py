@@ -21,6 +21,11 @@ class PineconeTarget(BaseModel):
     namespace: str
 
 
+class WeaviateTarget(BaseModel):
+    index_name: str
+    field_name: str
+
+
 class Target:
     @classmethod
     def ElasticSearch(
@@ -42,4 +47,11 @@ class Target:
         return PineconeTarget(
             index_name=index_name,
             namespace=namespace,
+        )
+
+    @classmethod
+    def Weaviate(cls, index_name: str, field_name: str) -> WeaviateTarget:
+        return WeaviateTarget(
+            index_name=index_name,
+            field_name=field_name,
         )

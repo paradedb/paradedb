@@ -9,11 +9,12 @@ from core.sdk.embedding import (
 )
 from core.sdk.source import PostgresSource
 from core.sdk.transform import PostgresTransform
-from core.sdk.sink import ElasticSearchSink, PineconeSink
-from core.sdk.target import ElasticSearchTarget, PineconeTarget
+from core.sdk.sink import ElasticSearchSink, PineconeSink, WeaviateSink
+from core.sdk.target import ElasticSearchTarget, PineconeTarget, WeaviateTarget
 from core.sdk.realtime import RealtimeServer
 from core.load.elasticsearch import ElasticSearchLoader
 from core.load.pinecone import PineconeLoader
+from core.load.weaviate import WeaviateLoader
 from core.extract.postgres import PostgresExtractor
 from core.transform.openai import OpenAIEmbedding as OpenAI
 from core.transform.sentence_transformers import (
@@ -28,10 +29,10 @@ Transform = Union[PostgresTransform]
 Embedding = Union[
     OpenAIEmbedding, SentenceTransformerEmbedding, CohereEmbedding, CustomEmbedding
 ]
-Sink = Union[ElasticSearchSink, PineconeSink]
-Target = Union[ElasticSearchTarget, PineconeTarget]
+Sink = Union[ElasticSearchSink, PineconeSink, WeaviateSink]
+Target = Union[ElasticSearchTarget, PineconeTarget, WeaviateTarget]
 Extractor = Union[PostgresExtractor]
-Loader = Union[ElasticSearchLoader, PineconeLoader]
+Loader = Union[ElasticSearchLoader, PineconeLoader, WeaviateLoader]
 Model = Union[OpenAI, SentenceTransformer, Cohere, Custom]
 
 
@@ -79,6 +80,13 @@ class Pipeline:
             return PineconeLoader(
                 api_key=self.sink.api_key,
                 environment=self.sink.environment,
+            )
+        elif isinstance(self.sink, WeaviateSink) and isinstance(
+            self.target, WeaviateTarget
+        ):
+            return WeaviateLoader(
+                api_key=self.sink.api_key,
+                url=self.sink.url,
             )
         else:
             raise ValueError("Target and Sink types do not match")
@@ -136,11 +144,18 @@ class Pipeline:
 
                 # Appease Mypy by ensuring that Target and Loader types match
                 if not (
-                    isinstance(self.target, ElasticSearchTarget)
-                    and isinstance(self.loader, ElasticSearchLoader)
-                ) or (
-                    isinstance(self.target, PineconeTarget)
-                    and not isinstance(self.loader, PineconeLoader)
+                    (
+                        isinstance(self.target, ElasticSearchTarget)
+                        and isinstance(self.loader, ElasticSearchLoader)
+                    )
+                    or (
+                        isinstance(self.target, PineconeTarget)
+                        and isinstance(self.loader, PineconeLoader)
+                    )
+                    or (
+                        isinstance(self.target, WeaviateTarget)
+                        and isinstance(self.loader, WeaviateLoader)
+                    )
                 ):
                     raise ValueError("Target and Loader types do not match")
 

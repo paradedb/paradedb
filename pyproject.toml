@@ -23,6 +23,7 @@ requests = "^2.31.0"
 python-dotenv = "^1.0.0"
 fastavro = "^1.8.0"
 confluent-kafka = "^2.2.0"
+weaviate-client = "^3.22.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

@@ -15,6 +15,11 @@ class PineconeSink(BaseModel):
     environment: str
 
 
+class WeaviateSink(BaseModel):
+    api_key: str
+    url: str
+
+
 class Sink:
     @classmethod
     def ElasticSearch(
@@ -41,4 +46,11 @@ class Sink:
         return PineconeSink(
             api_key=api_key,
             environment=environment,
+        )
+
+    @classmethod
+    def Weaviate(cls, api_key: str, url: str) -> WeaviateSink:
+        return WeaviateSink(
+            api_key=api_key,
+            url=url,
         )

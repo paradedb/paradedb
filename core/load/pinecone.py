@@ -42,6 +42,7 @@ class PineconeLoader(Loader):
                 )
 
     ### Public Methods ###
+
     def upsert_embedding(
         self,
         target: PineconeTarget,

@@ -160,12 +160,7 @@ class Pipeline:
 
         progress_bar.close()
 
-    def pipe_real_time(
-        self,
-        cdc_server_url: str,
-        on_success: Callable[..., Any],
-        on_error: Callable[..., Any],
-    ):
+    def pipe_real_time(self):
         source_conn = self.source.parse_connection_string()
         sink_conn = self.sink.dict()
         index = self.target.index_name

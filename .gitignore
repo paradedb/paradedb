@@ -14,3 +14,6 @@ env/
 
 # Poetry
 poetry-installer-error-*.yml
+
+# faust generated
+realtime-data

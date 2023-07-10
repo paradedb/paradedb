@@ -7,6 +7,7 @@ build/
 .DS_Store
 .mypy_cache
 .pytest_cache
+poetry.lock
 
 # Virtualenv
 env/

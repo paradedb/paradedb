@@ -5,6 +5,26 @@ title: "Target"
 `Target` specifies the index or collection within our sink where we want to store our vectors. Retake provides
 lightweight wrappers around targets for all supported sinks.
 
+## Pinecone
+
+**Usage**
+
+```bash
+target = Target.Pinecone(
+    index_name="faqs",
+    namespace="question_answer_embedding"
+)
+```
+
+**Parameters**
+
+<ParamField body="index_name" type="string" required>
+  Pinecone index name
+</ParamField>
+<ParamField body="namespace" type="string" required>
+  Pinecone namespace
+</ParamField>
+
 ## ElasticSearch
 
 **Usage**

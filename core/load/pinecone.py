@@ -35,9 +35,10 @@ class PineconeLoader(Loader):
         if not self._check_index_exists(index_name=index_name):
             self._create_index(index_name=index_name, num_dimensions=num_dimensions)
         else:
-            if self._get_num_dimensions(index_name=index_name) != num_dimensions:
+            index_dimensions = self._get_num_dimensions(index_name=index_name)
+            if index_dimensions != num_dimensions:
                 raise ValueError(
-                    f"Index {index_name} already exists with a different dimension"
+                    f"Index {index_name} already exists with {index_dimensions} dimensions but embedding has {num_dimensions}"
                 )
 
     ### Public Methods ###
@@ -50,7 +51,7 @@ class PineconeLoader(Loader):
     ) -> None:
         index_name = target.index_name
         namespace = target.namespace
-        index = pinecone.Index(name=index_name)
+        index = pinecone.Index(index_name)
 
         doc: Dict[str, Any] = {"id": id, "values": embedding}
 
@@ -89,5 +90,5 @@ class PineconeLoader(Loader):
                 for doc_id, embedding in zip(ids, embeddings)
             ]
 
-        index = pinecone.Index(name=index_name)
+        index = pinecone.Index(index_name)
         index.upsert(vectors=docs, namespace=namespace)

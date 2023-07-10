@@ -14,7 +14,7 @@
 
 ## Installation
 
-Welcome! If you are not a contributor and just want to use Retake, please proceed to the [stable version](https://github.com/retake-earth/retake/tree/main).
+Welcome! If you are not a contributor and just want to use Retake, please proceed to the [stable version](https://github.com/getretake/retake/tree/main).
 
 To install the Retake Python SDK:
 

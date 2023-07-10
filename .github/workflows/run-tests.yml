@@ -35,6 +35,10 @@ jobs:
         run: |
           poetry install
 
+      - name: Disable CUDA
+        run: |
+          echo "CUDA_VISIBLE_DEVICES=''" >> $GITHUB_ENV
+
       - name: Run Pytest
         run: |
           poetry run pytest

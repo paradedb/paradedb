@@ -39,4 +39,4 @@ jobs:
       # due to CUDA issue in GH runner
       - name: Run Pytest
         run: |
-          poetry run pytest -k "not sentence_transformer"
+          poetry run pytest -k "not core/transform/tests/test_sentence_transformers.py"

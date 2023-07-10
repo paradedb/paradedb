@@ -12,20 +12,23 @@ class WeaviateLoader(Loader):
         api_key: str,
         url: str,
     ) -> None:
-        auth_config = weaviate.AuthApiKey(api_key=api_key)
-
-        weaviate.Client(
+        self.wc = weaviate.Client(
             url=url,
-            auth_client_secret=auth_config,
+            auth_client_secret=weaviate.AuthApiKey(api_key=api_key),
         )
+
+
+
+
 
     # In Weaviate, an index is called an object
     def _check_index_exists(self, index_name: str) -> bool:
-        try:
-            weaviate.Client.data_object.exists(id, class_name=index_name)
-            return True
-        except weaviate.NotFoundException as e:
-            return False
+        # try:
+        #     weaviate.Client.data_object.exists(id, class_name=index_name)
+        #     return True
+        # except weaviate.NotFoundException as e:
+        #     return False
+        pass
 
     def _get_num_dimensions(self, index_name: str) -> int:
         pass
@@ -75,6 +78,7 @@ class WeaviateLoader(Loader):
         id: Union[str, int],
         metadata: Optional[Dict[str, Any]],
     ) -> None:
+    
         # This will create the class if it doesn't exist, otherwise it will do nothing
         # self._create_class(
         #     class_name=index_name,
@@ -113,7 +117,41 @@ class WeaviateLoader(Loader):
 
 
 
-        pass
+        # Class definition object. Weaviate's autoschema feature will infer properties when importing.
+        # We set vectorizer to none since we handle creating the embeddings ourselves
+        class_obj = {
+            "class": index_name,
+            "vectorizer": "none",
+        }
+
+
+        if not self.wc.schema.exists(index_name):
+            # Add the class to the schema
+            # We never explicitly define a schema, Weaviate does this automatically
+            self.wc.schema.create_class(class_obj)
+        # else:
+        #     print("Class already exists")
+
+
+
+        # url = 'https://raw.githubusercontent.com/weaviate-tutorials/quickstart/main/data/jeopardy_tiny+vectors.json'
+        # resp = requests.get(url)
+        # data = json.loads(resp.text)
+
+        # Configure a batch process
+        with self.wc.batch as batch:
+            batch.batch_size=100
+            # Batch import all Questions
+            for i, embedding in enumerate(embeddings):
+                # print(f"importing question: {i+1}")
+
+
+                self.wc.batch.add_data_object({}, index_name, vector=embedding)
+
+
+
+
+        # pass
 
         # num_dimensions = len(embeddings[0])
         # num_embeddings = len(embeddings)

@@ -42,13 +42,13 @@ curl -sSL https://install.python-poetry.org | python -
 poetry install
 ```
 
-3. Build the SDK locally.
+3. Build the SDK locally
 
 ```
 poetry build
 ```
 
-This command will build and install the `retake` SDK into your local environment.
+This command will build and install the `retake` SDK locally. You can now `import retake` from a Python environment.
 
 ## Key Features
 

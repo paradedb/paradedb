@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Callable, List
 
 
 class OpenAIEmbedding(BaseModel):
@@ -16,7 +17,7 @@ class CohereEmbedding(BaseModel):
 
 
 class CustomEmbedding(BaseModel):
-    pass
+    func: Callable[[List[str]], List[List[float]]]
 
 
 class Embedding:
@@ -33,3 +34,7 @@ class Embedding:
     @classmethod
     def Cohere(cls, api_key: str, model: str) -> CohereEmbedding:
         return CohereEmbedding(api_key=api_key, model=model)
+
+    @classmethod
+    def Custom(cls, func: Callable[[List[str]], List[List[float]]]) -> CustomEmbedding:
+        return CustomEmbedding(func=func)

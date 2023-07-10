@@ -1,7 +1,12 @@
 from tqdm import tqdm
 from typing import Union, Tuple, Callable, Any, Optional, Dict, cast
 
-from core.sdk.embedding import OpenAIEmbedding, SentenceTransformerEmbedding
+from core.sdk.embedding import (
+    OpenAIEmbedding,
+    SentenceTransformerEmbedding,
+    CohereEmbedding,
+    CustomEmbedding,
+)
 from core.sdk.source import PostgresSource
 from core.sdk.transform import PostgresTransform
 from core.sdk.sink import ElasticSearchSink, PineconeSink
@@ -14,15 +19,18 @@ from core.transform.sentence_transformers import (
     SentenceTransformerEmbedding as SentenceTransformer,
 )
 from core.transform.cohere import CohereEmbedding as Cohere
+from core.transform.custom import CustomEmbedding as Custom
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
-Embedding = Union[OpenAIEmbedding, SentenceTransformerEmbedding]
+Embedding = Union[
+    OpenAIEmbedding, SentenceTransformerEmbedding, CohereEmbedding, CustomEmbedding
+]
 Sink = Union[ElasticSearchSink, PineconeSink]
 Target = Union[ElasticSearchTarget, PineconeTarget]
 Extractor = Union[PostgresExtractor]
 Loader = Union[ElasticSearchLoader, PineconeLoader]
-Model = Union[OpenAI, SentenceTransformer, Cohere]
+Model = Union[OpenAI, SentenceTransformer, Cohere, Custom]
 
 
 class Pipeline:
@@ -78,6 +86,8 @@ class Pipeline:
             return SentenceTransformer(model=self.embedding.model)
         elif isinstance(self.embedding, CohereEmbedding):
             return Cohere(api_key=self.embedding.api_key, model=self.embedding.model)
+        elif isinstance(self.embedding, CustomEmbedding):
+            return Custom(func=self.embedding.func)
         else:
             raise ValueError("Invalid Embedding type")
 

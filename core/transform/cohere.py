@@ -15,4 +15,4 @@ class CohereEmbedding(Embedding):
             texts=documents,
             model=self.model,
         )
-        return results.embeddings
+        return cast(List[List[float]], results.embeddings)

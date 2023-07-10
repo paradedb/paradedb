@@ -10,6 +10,15 @@ class SentenceTransformerEmbedding(BaseModel):
     model: str
 
 
+class CohereEmbedding(BaseModel):
+    api_key: str
+    model: str
+
+
+class CustomEmbedding(BaseModel):
+    pass
+
+
 class Embedding:
     @classmethod
     def OpenAI(cls, api_key: str, model: str) -> OpenAIEmbedding:
@@ -21,4 +30,6 @@ class Embedding:
     ) -> SentenceTransformerEmbedding:
         return SentenceTransformerEmbedding(model=model)
 
-    # TODO: Add more embedding models, e.g. Cohere, Google, custom model, etc.
+    @classmethod
+    def Cohere(cls, api_key: str, model: str) -> CohereEmbedding:
+        return CohereEmbedding(api_key=api_key, model=model)

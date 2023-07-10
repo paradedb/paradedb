@@ -9,8 +9,11 @@ from core.sdk.target import ElasticSearchTarget, PineconeTarget
 from core.load.elasticsearch import ElasticSearchLoader
 from core.load.pinecone import PineconeLoader
 from core.extract.postgres import PostgresExtractor
-from core.transform.embedding import OpenAIEmbedding as OpenAI
-from core.transform.embedding import SentenceTransformerEmbedding as SentenceTransformer
+from core.transform.openai import OpenAIEmbedding as OpenAI
+from core.transform.sentence_transformers import (
+    SentenceTransformerEmbedding as SentenceTransformer,
+)
+from core.transform.cohere import CohereEmbedding as Cohere
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
@@ -19,7 +22,7 @@ Sink = Union[ElasticSearchSink, PineconeSink]
 Target = Union[ElasticSearchTarget, PineconeTarget]
 Extractor = Union[PostgresExtractor]
 Loader = Union[ElasticSearchLoader, PineconeLoader]
-Model = Union[OpenAI, SentenceTransformer]
+Model = Union[OpenAI, SentenceTransformer, Cohere]
 
 
 class Pipeline:
@@ -73,6 +76,8 @@ class Pipeline:
             return OpenAI(api_key=self.embedding.api_key, model=self.embedding.model)
         elif isinstance(self.embedding, SentenceTransformerEmbedding):
             return SentenceTransformer(model=self.embedding.model)
+        elif isinstance(self.embedding, CohereEmbedding):
+            return Cohere(api_key=self.embedding.api_key, model=self.embedding.model)
         else:
             raise ValueError("Invalid Embedding type")
 

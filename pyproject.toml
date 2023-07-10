@@ -27,6 +27,8 @@ fastavro = "^1.8.0"
 black = "^23.3.0"
 mypy = "^1.4.1"
 pytest = "^7.4.0"
+types-requests = "^2.31.0.1"
+nptyping = "^2.5.0"
 
 [build-system]
 requires = ["poetry-core"]

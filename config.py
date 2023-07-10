@@ -5,13 +5,13 @@ load_dotenv()  # take environment variables from .env.
 
 
 class Config:
-    def get_property(self, property_name) -> str:
+    def get_property(self, property_name: str) -> str:
         return os.environ[property_name]
 
 
 class SourceConfig(Config):
     @property
-    def host(self):
+    def host(self) -> str:
         return self.get_property("DB_INTERNAL_HOST")
 
 

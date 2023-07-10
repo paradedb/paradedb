@@ -1,11 +1,11 @@
 from pydantic import BaseModel
-
+from typing import Optional
 
 class PostgresSource(BaseModel):
     dsn: str
-    internal_host: str = None
+    internal_host: Optional[str]
 
-    def parse_connection_string(self):
+    def parse_connection_string(self)-> dict[str, str]:
         fields = {}
         pairs = self.dsn.split(" ")
         for pair in pairs:

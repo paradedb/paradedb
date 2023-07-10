@@ -152,7 +152,7 @@ class Pipeline:
 
         progress_bar.close()
 
-    def pipe_real_time(self):
+    def pipe_real_time(self) -> None:
         source_conn = self.source.parse_connection_string()
         sink_conn = self.sink.dict()
         index = self.target.index_name
@@ -173,5 +173,5 @@ class Pipeline:
         )
         start_worker()
 
-    def teardown(self):
+    def teardown(self) -> None:
         self.extractor.teardown()

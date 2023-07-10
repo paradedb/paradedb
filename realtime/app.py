@@ -8,9 +8,10 @@ from confluent_kafka import Producer
 from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
 from confluent_kafka.schema_registry.avro import AvroSerializer
-from core.transform import embedding as tf
+from core.transform.base import Embedding
 from faust import App, Worker
-from typing import Callable
+from nptyping import NDArray, Shape, Float32
+from typing import Callable, Any, Optional
 
 kafka_config = KafkaConfig()
 sink_config = SinkConfig()
@@ -21,7 +22,7 @@ app = App(
 )
 
 
-def create_source_connector(conn: dict, schema_name: str, relation: str):
+def create_source_connector(conn: dict[str, str], schema_name: str, relation: str) -> None:
     try:
         url = f"{kafka_config.connect_server}/connectors"
         r = requests.post(
@@ -87,7 +88,7 @@ def return_schema(schema_registry_client: SchemaRegistryClient, schema_id: int) 
     return schema_registry_client.get_schema(schema_id).schema_str
 
 
-def create_sink_connector(conn: dict, index: str):
+def create_sink_connector(conn: dict[str, str], index: str) -> None:
     try:
         url = f"{kafka_config.connect_server}/connectors"
         r = requests.post(
@@ -116,10 +117,10 @@ def register_agents(
     topic: str,
     index: str,
     schema_id: int,
-    embedding_fn: tf.Embedding,
-    transform_fn: Callable,
-    metadata_fn: Callable,
-):
+    embedding_fn: Callable[..., Any], # TODO: proper typing
+    transform_fn: Callable[..., str],
+    metadata_fn: Optional[Callable[..., list[str]]],
+) -> None:
     source_topic = app.topic(topic, value_serializer="raw")
     sr_client = SchemaRegistryClient(
         {"url": kafka_config.schema_registry_external_server}
@@ -130,7 +131,7 @@ def register_agents(
     producer = Producer(producer_conf)
 
     @app.agent(source_topic)
-    async def process_records(records):
+    async def process_records(records: Any) -> None:
         async for record in records:
             if record is not None:
                 data = json.loads(record)
@@ -142,8 +143,11 @@ def register_agents(
                     # TODO: Make distinction when update or new record
                     payload.pop("__deleted")
                     document = transform_fn(*payload)
-                    metadata = metadata_fn(*payload)
                     embedding = embedding_fn(document)
+
+                    metadata = []
+                    if metadata_fn is not None:
+                        metadata = metadata_fn(*payload)
 
                     message = {"doc": embedding.tolist(), "metadata": metadata}
                     producer.produce(
@@ -154,7 +158,7 @@ def register_agents(
                     )
 
 
-def start_worker():
+def start_worker() -> None:
     print("starting faust worker...")
     worker = Worker(app, loglevel="INFO")
     worker.execute_from_commandline()

@@ -8,5 +8,6 @@ build/
 .mypy_cache
 .pytest_cache
 
-# Virtualenv
+# Env
 env/
+.env

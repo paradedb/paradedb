@@ -10,3 +10,9 @@ build/
 
 # Virtualenv
 env/
+
+# env file
+.env
+
+# faust generated
+realtime-data

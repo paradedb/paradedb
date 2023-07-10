@@ -4,56 +4,55 @@ version: '3'
 services:
 
   postgres:
-    image: postgres
+    image: postgres:${DB_VERSION}
     ports:
-      - "5432:5432"
+      - "${DB_PORT}:5432"
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - ./postgresql.conf:/etc/postgresql/postgresql.conf
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
 
   elastic:
-    image: elasticsearch:8.8.1
+    image: elasticsearch:${SINK_VERSION}
     ports:
-      - "9200:9200"
-      - "9300:9300"
+      - "${SINK_PORT}:9200"
     environment:
-      ELASTIC_PASSWORD: elastic
+      SINK_PASSWORD: ${SINK_PASSWORD}
       discovery.type: single-node
       xpack.security.enabled: false
 
   kafka:
-    image: docker.io/bitnami/kafka:3.5
+    image: bitnami/kafka:${KAFKA_VERSION}
     ports:
-      - "9094:9094"
+      - "${KAFKA_EXTERNAL_PORT}:9094"
     environment:
       ALLOW_PLAINTEXT_LISTENER: yes
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:${KAFKA_INTERNAL_PORT},CONTROLLER://:${KAFKA_CONTROLLER_PORT},EXTERNAL://:${KAFKA_EXTERNAL_PORT}
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://${KAFKA_INTERNAL_HOST}:${KAFKA_INTERNAL_PORT},EXTERNAL://${KAFKA_EXTERNAL_HOST}:${KAFKA_EXTERNAL_PORT}
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
 
   schema-registry:
-    image: docker.io/bitnami/schema-registry
+    image: bitnami/schema-registry:${SCHEMA_REGISTRY_VERSION}
     ports:
-      - '8081:8081'
+      - '${SCHEMA_REGISTRY_PORT}:8081'
     depends_on:
       - kafka
     environment:
-      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
-      - SCHEMA_REGISTRY_KAFKA_BROKERS=PLAINTEXT://kafka:9092
+      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:${SCHEMA_REGISTRY_PORT}
+      - SCHEMA_REGISTRY_KAFKA_BROKERS=PLAINTEXT://${KAFKA_INTERNAL_HOST}:${KAFKA_INTERNAL_PORT}
 
   connect:
-    image: confluentinc/cp-kafka-connect-base:6.2.0
+    image: confluentinc/cp-kafka-connect-base:${KAFKA_CONNECT_VERSION}
     depends_on:
       - kafka
       - postgres
     ports:
-      - "8083:8083"
+      - "${KAFKA_CONNECT_PORT}:8083"
     environment:
-      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
-      CONNECT_REST_PORT: 8083
+      CONNECT_BOOTSTRAP_SERVERS: ${KAFKA_INTERNAL_HOST}:${KAFKA_INTERNAL_PORT}
+      CONNECT_REST_PORT: ${KAFKA_CONNECT_PORT}
       CONNECT_GROUP_ID: kafka-connect
       CONNECT_CONFIG_STORAGE_TOPIC: _connect-configs
       CONNECT_OFFSET_STORAGE_TOPIC: _connect-offsets
@@ -72,8 +71,8 @@ services:
       - -c
       - |
         echo "Installing Connector"
-        confluent-hub install --no-prompt debezium/debezium-connector-postgresql:2.2.1
-        confluent-hub install --no-prompt confluentinc/kafka-connect-elasticsearch:14.0.6
+        confluent-hub install --no-prompt debezium/debezium-connector-postgresql:${DEBEZIUM_POSTGRES_VERSION}
+        confluent-hub install --no-prompt confluentinc/kafka-connect-elasticsearch:${ELASTICSEARCH_CONNECTOR_VERSION}
         #
         echo "Launching Kafka Connect worker"
         /etc/confluent/docker/run &

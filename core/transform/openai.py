@@ -13,5 +13,5 @@ class OpenAIEmbedding(Embedding):
     def create_embeddings(self, documents: List[str]) -> List[List[float]]:
         return cast(
             List[List[float]],
-            openai.Embedding.create(input=[documents], model=self.model), # type: ignore 
+            openai.Embedding.create(input=[documents], model=self.model),  # type: ignore
         )

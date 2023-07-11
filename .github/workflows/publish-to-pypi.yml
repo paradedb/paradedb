@@ -22,7 +22,7 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           poetry version patch
-          VERSION=$(poetry version | awk '{print $2}')
-          git commit -am "Bump version to $VERSION"
-          git tag $VERSION
-          git push --follow-tags
+          version=$(poetry version patch | awk '{print $NF}')
+          git commit pyproject.toml -m "Bump version to $version [skip ci]"
+          git push
+          echo "Version updated to is $version"

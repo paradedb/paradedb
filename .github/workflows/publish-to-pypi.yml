@@ -54,24 +54,34 @@ jobs:
             echo 'Using prod configuration...'
 
             # increment version by 0.0.1
-            NEW_MICRO=$(echo "print( ${{ vars.VERSION_MICRO }} + 1)" | python)
+            NEW_MICRO=$(( ${{ vars.VERSION_MICRO }} + 1 )))
             NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_MICRO}"
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
 
             # increment version by staging-rc.1
-            NEW_STAGING_RC=$(echo "print( ${{ vars.VERSION_STAGING_RC }} + 1)" | python)
+            NEW_STAGING_RC=$(( ${{ vars.VERSION_STAGING_RC }} + 1 )))            
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-staging-rc.${NEW_STAGING_RC}"
             
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
 
             # increment version by dev-rc.1
-            NEW_DEV_RC=$(echo "print( ${{ vars.VERSION_DEV_RC }} + 1)" | python)
+            NEW_DEV_RC=$(( ${{ vars.VERSION_DEV_RC }} + 1 )))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-dev-rc.${NEW_DEV_RC}"
           else
             echo 'Error: Invalid branch' && false
           fi
+
+          # Update the pyproject.toml file to publish the new version to PyPi
+          sed "s/version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml > "pyproject.toml.new"
+          mv "pyproject.toml.new" pyproject.toml
+          
+          # Output the new version to create the GitHub tag
+          echo "::set-output name=version::\"${NEW_VERSION}\"/"
+
+
+
 
 
       # - name: Build and publish to PyPI

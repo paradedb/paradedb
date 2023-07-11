@@ -87,7 +87,8 @@ jobs:
           echo "gha_var_name=${GHA_VAR_NAME}" >> $GITHUB_OUTPUT
           echo "gha_var_value=${GHA_VAR_VALUE}" >> $GITHUB_OUTPUT
 
-      - name: Build and publish to PyPI
+      - name: Build and publish to PyPI (prod only)
+        if: ${{ steps.env.outputs.environment }}" == "prod"
         env:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
         run: |

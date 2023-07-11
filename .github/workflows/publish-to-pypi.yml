@@ -1,11 +1,8 @@
-name: Publish Python Package
+name: Bump version number
 
 on:
-  push:
-    branches:
-      - dev
-      - staging
-      - main
+  pull-request:
+    branches: [dev]
 
 jobs:
   deploy:
@@ -16,27 +13,16 @@ jobs:
         uses: actions/setup-python@v2
         with:
           python-version: "3.x"
-      - name: Set Environment
-        id: env
-        run: |
-          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
-            echo "::set-output name=environment::dev"
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "::set-output name=environment::staging"
-          elif [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
-            echo "::set-output name=environment::prod"
-          fi
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python -
-      - name: Configure Poetry
+      - name: Bump version (dev only)
+        if: github.ref == 'refs/heads/dev'
         run: |
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project true
-      - name: Build and publish to PyPI
-        env:
-          ENVIRONMENT: ${{ steps.env.outputs.environment }}
-        run: |
-          poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
-          poetry build
-          poetry publish
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          poetry version patch
+          VERSION=$(poetry version | awk '{print $2}')
+          git commit -am "Bump version to $VERSION"
+          git tag $VERSION
+          git push --follow-tags

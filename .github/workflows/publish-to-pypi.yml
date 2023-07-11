@@ -88,7 +88,7 @@ jobs:
           echo "gha_var_value=${GHA_VAR_VALUE}" >> $GITHUB_OUTPUT
 
       - name: Build and publish to PyPI (prod only)
-        if: ${{ steps.env.outputs.environment }}" == "prod"
+        if: ${{ steps.env.outputs.environment }} == "prod"
         env:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
         run: |
@@ -116,7 +116,7 @@ jobs:
           
       - name: Create GitHub Release (prod only)
         uses: softprops/action-gh-release@v1
-        if: ${{ steps.env.outputs.environment }}" == "prod"
+        if: ${{ steps.env.outputs.environment }} == "prod"
         with:
           tag_name: v${{ steps.version.outputs.version }}
           body: Retake Production Release on ${{ steps.date.outputs.date }}

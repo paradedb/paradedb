@@ -6,7 +6,6 @@ on:
       - dev
       - staging
       - main
-      - phil/versioning
   pull_request:
     branches:
       - dev
@@ -98,7 +97,7 @@ jobs:
 
       - name: Update Version Number
         run: |
-          gh auth login --with-token < ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          # gh auth login --with-token < ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           gh api \
             --method PATCH \
             -H "Accept: application/vnd.github+json" \

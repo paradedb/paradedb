@@ -96,8 +96,9 @@ jobs:
       #     poetry publish
 
       - name: Update Version Number
+        env:
+          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          # gh auth login --with-token < ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           gh api \
             --method PATCH \
             -H "Accept: application/vnd.github+json" \

@@ -6,7 +6,10 @@ on:
       - dev
       - staging
       - main
-      - publish-to-pypi.yml
+  pull_request:
+    branches:
+      - dev
+
 
 jobs:
   deploy:

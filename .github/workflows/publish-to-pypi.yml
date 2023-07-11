@@ -1,7 +1,7 @@
 name: Bump version number
 
 on:
-  pull-request:
+  pull_request:
     branches: [dev]
 
 jobs:

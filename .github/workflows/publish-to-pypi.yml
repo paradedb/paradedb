@@ -55,7 +55,7 @@ jobs:
 
             # increment version by 0.0.1
             NEW_MICRO=$(( ${{ vars.VERSION_MICRO }} + 1 ))
-            NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_MICRO}"
+            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_MICRO}"
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
 

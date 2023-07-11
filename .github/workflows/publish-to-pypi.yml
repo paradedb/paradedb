@@ -75,7 +75,7 @@ jobs:
             GHA_VAR_NAME="VERSION_DEV_RC"
             GHA_VAR_VALUE="${NEW_DEV_RC}"
           else
-            echo 'Error: Invalid branch' && false
+            echo "Error: Invalid branch" && false
           fi
 
           # Update the pyproject.toml file to publish the new version to PyPi

@@ -6,6 +6,7 @@ import queue
 
 from psycopg2.extras import LogicalReplicationConnection
 from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+
 from typing import List, Generator, Dict, Any, Optional, cast
 
 from core.extract.base import Extractor, ExtractorResult
@@ -21,6 +22,7 @@ class PostgresExtractor(Extractor):
         self._connect(dsn)
 
     def _connect(self, dsn: str) -> None:
+        print("Connecting to", dsn)
         try:
             self.connection = psycopg2.connect(
                 self.dsn, connection_factory=LogicalReplicationConnection

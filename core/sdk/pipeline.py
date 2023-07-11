@@ -62,13 +62,17 @@ class Pipeline:
         if isinstance(self.sink, ElasticSearchSink) and isinstance(
             self.target, ElasticSearchTarget
         ):
-            return ElasticSearchLoader(
-                host=self.sink.host,
-                user=self.sink.user,
-                password=self.sink.password,
-                ssl_assert_fingerprint=self.sink.ssl_assert_fingerprint,
-                cloud_id=self.sink.cloud_id,
-            )
+            if self.sink.cloud_id:
+                return ElasticSearchLoader(
+                    cloud_id=self.sink.cloud_id,
+                )
+            else:
+                return ElasticSearchLoader(
+                    host=self.sink.host,
+                    user=self.sink.user,
+                    password=self.sink.password,
+                    ssl_assert_fingerprint=self.sink.ssl_assert_fingerprint
+                )
         elif isinstance(self.sink, PineconeSink) and isinstance(
             self.target, PineconeTarget
         ):

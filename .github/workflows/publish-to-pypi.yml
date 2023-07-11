@@ -75,7 +75,9 @@ jobs:
           fi
 
           # Update the pyproject.toml file to publish the new version to PyPi
-          sed "s/version = .*/version = \"$new_version\"/" pyproject.toml > "pyproject.toml.new"
+          sed "s/version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml > "pyproject.toml.new"
+
+
           mv "pyproject.toml.new" pyproject.toml
 
           # Output the new version to create the GitHub tag

@@ -25,12 +25,12 @@ jobs:
       - name: Set Environment
         id: env
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
-            echo "::set-output name=environment::dev"
+          if [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
+            echo "::set-output name=environment::prod"
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "::set-output name=environment::staging"
-          elif [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
-            echo "::set-output name=environment::prod"
+          else
+            echo "::set-output name=environment::dev"
           fi
 
       - name: Install Poetry

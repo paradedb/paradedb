@@ -1,23 +1,30 @@
-name: Publish Python Package
+name: Publish Retake to PyPi
 
 on:
   push:
     branches:
-      - dev
-      - staging
       - main
-  pull_request:
-    branches:
+      - staging
       - dev
+    paths-ignore:
+      - "README.md"
+      - "docs/**"
+
+# This guarantees that if you push many commits to the same PR, only the latest
+# commit will get run (others get cancelled)
+concurrency:
+  group: publish-to-pypi-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  publish-to-pypi:
+    name: "Publish Retake to PyPi"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Set Up Python
         uses: actions/setup-python@v2
         with:
           python-version: "3.x"
@@ -34,30 +41,41 @@ jobs:
           fi
 
       - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python -
+        run: curl -sSL https://install.python-poetry.org | python -
 
       - name: Configure Poetry
         run: |
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
 
-      - name: Retrieve Current Version Number
+      - name: Retrieve & Increment Current Version Number
         id: version
         run: |
           echo "Current prod version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
           echo "Current staging version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${{ vars.VERSION_STAGING_RC }}"
           echo "Current dev version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
 
-          # if dev or staging, increment RC by 1, else increment micro by 1 and set RC to 0
+
+
+           
+
+
+          # if dev or staging, increment RC by 1, else increment PATCH by 1 and set RCs to 0
           if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
             echo 'Using prod configuration...'
 
             # increment version by 0.0.1
-            NEW_MICRO=$(( ${{ vars.VERSION_PATCH }} + 1 ))
-            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_MICRO}"
+            NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
+            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}"
             GHA_VAR_NAME="VERSION_PATCH"
-            GHA_VAR_VALUE="${NEW_MICRO}"
+            GHA_VAR_VALUE="${NEW_PATCH}"
+
+
+
+            new_staging_rc_version=0
+            new_dev_rc_version=0
+
+
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
 
@@ -96,27 +114,76 @@ jobs:
           poetry build
           poetry publish
 
-      - name: Update Version Number
+
+      - name: Update Version Number in GitHub Actions Variables
         env:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          gh api \
-            --method PATCH \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/getretake/retake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
-            -f name='${{ steps.version.outputs.gha_var_name }}' \
-            -f value='${{ steps.version.outputs.gha_var_value }}'
+          # on prod we update patch and set RCs to 0
+          if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
+            echo 'Using prod configuration...'
 
-      - name: Retrieve Today's Date
+
+
+            result1=$(gh api \
+                      --method PATCH \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "X-GitHub-Api-Version: 2022-11-28" \
+                      /repos/getretake/retake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
+                      -f name='${{ steps.version.outputs.gha_var_name }}' \
+                      -f value='${{ steps.version.outputs.gha_var_value }}')
+
+            result2=$(gh api \
+                      --method PATCH \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "X-GitHub-Api-Version: 2022-11-28" \
+                      /repos/getretake/retake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
+                      -f name='${{ steps.version.outputs.gha_var_name }}' \
+                      -f value='${{ steps.version.outputs.gha_var_value }}')
+                      
+            result3=$(gh api \
+                      --method PATCH \
+                      -H "Accept: application/vnd.github+json" \
+                      -H "X-GitHub-Api-Version: 2022-11-28" \
+                      /repos/getretake/retake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
+                      -f name='${{ steps.version.outputs.gha_var_name }}' \
+                      -f value='${{ steps.version.outputs.gha_var_value }}')
+
+
+            echo "$result1 $result2 $result3"
+
+          # on staging we only update staging rc and On dev we only update dev_rc
+
+          elif [[ "${{ steps.env.outputs.environment }}" == "staging" || "${{ steps.env.outputs.environment }}" == "dev" ]]; then
+            echo 'Using staging configuration...'
+
+            result=$(gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              /repos/getretake/retake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
+              -f name='${{ steps.version.outputs.gha_var_name }}' \
+              -f value='${{ steps.version.outputs.gha_var_value }}')
+
+            echo "$result"
+
+          else
+            echo "Error: Invalid branch" && false
+          fi
+
+
+
+
+
+
+      - name: Retrieve Today's Date for GitHub Release
+        if: steps.env.outputs.environment == 'prod'
         id: date
-        run: |
-          echo "v${{ steps.version.outputs.version }}"
-          echo "date=$(date)" >> $GITHUB_OUTPUT
+        run: echo "date=$(date)" >> $GITHUB_OUTPUT
           
       - name: Create GitHub Release (prod only)
-        uses: softprops/action-gh-release@v1
         if: steps.env.outputs.environment == 'prod'
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
           body: Retake Production Release on ${{ steps.date.outputs.date }}

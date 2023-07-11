@@ -78,7 +78,7 @@ jobs:
           mv "pyproject.toml.new" pyproject.toml
           
           # Output the new version to create the GitHub tag
-          echo "::set-output name=version::\"${NEW_VERSION}\"/"
+          echo "::set-output name=version::${NEW_VERSION}/"
 
       # - name: Build and publish to PyPI
       #   env:
@@ -95,6 +95,7 @@ jobs:
       - name: Retrieve Today's Date
         id: date
         run: |
+          echo "v${{ steps.version.outputs.version }}"
           echo "::set-output name=date::$(date)"
 
       - name: Create GitHub Tag

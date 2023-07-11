@@ -80,10 +80,6 @@ jobs:
           # Output the new version to create the GitHub tag
           echo "::set-output name=version::\"${NEW_VERSION}\"/"
 
-
-
-
-
       # - name: Build and publish to PyPI
       #   env:
       #     ENVIRONMENT: ${{ steps.env.outputs.environment }}
@@ -96,11 +92,6 @@ jobs:
         run: |
           echo "1"
 
-      # Create GitHub Tag
-      - name: "Create GitHub Release Tag"
-        run: |
-          echo "1"
-
       - name: Retrieve Today's Date
         id: date
         run: |
@@ -110,7 +101,5 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          body: Retake Production Release on  ${{ steps.date.outputs.date }}
+          body: Retake Production Release on ${{ steps.date.outputs.date }}
           draft: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

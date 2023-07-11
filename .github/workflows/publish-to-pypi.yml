@@ -78,7 +78,7 @@ jobs:
           mv "pyproject.toml.new" pyproject.toml
           
           # Output the new version to create the GitHub tag
-          echo "::set-output name=version::${NEW_VERSION}/"
+          echo "::set-output name=version::${NEW_VERSION}"
 
       # - name: Build and publish to PyPI
       #   env:

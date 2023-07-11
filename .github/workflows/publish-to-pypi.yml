@@ -57,7 +57,7 @@ jobs:
             NEW_MICRO=$(( ${{ vars.VERSION_MICRO }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_MICRO}"
             GHA_VAR_NAME="VERSION_MICRO"
-            GHA_VAR_VALUE=${NEW_MICRO}
+            GHA_VAR_VALUE="${NEW_MICRO}"
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
 
@@ -65,7 +65,7 @@ jobs:
             NEW_STAGING_RC=$(( ${{ vars.VERSION_STAGING_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-staging-rc.${NEW_STAGING_RC}"
             GHA_VAR_NAME="VERSION_STAGING_RC"
-            GHA_VAR_VALUE=${NEW_STAGING_RC}
+            GHA_VAR_VALUE="${NEW_STAGING_RC}"
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
 
@@ -73,7 +73,7 @@ jobs:
             NEW_DEV_RC=$(( ${{ vars.VERSION_DEV_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-dev-rc.${NEW_DEV_RC}"
             GHA_VAR_NAME="VERSION_DEV_RC"
-            GHA_VAR_VALUE=${NEW_DEV_RC}
+            GHA_VAR_VALUE="${NEW_DEV_RC}"
           else
             echo 'Error: Invalid branch' && false
           fi
@@ -84,8 +84,8 @@ jobs:
           
           # Output the new version to create the GitHub tag
           echo "::set-output name=version::${NEW_VERSION}"
-          echo "::set-output name=gha_var_name::${GHA_VAR_NAME}}"
-          echo "::set-output name=gha_var_value::${GHA_VAR_VALUE}}"
+          echo "::set-output name=gha_var_name::${GHA_VAR_NAME}"
+          echo "::set-output name=gha_var_value::${GHA_VAR_VALUE}"
 
       # - name: Build and publish to PyPI
       #   env:

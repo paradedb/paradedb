@@ -25,11 +25,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install poetry
 
-      - name: Bump version (dev only)
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh/
+          echo "${{ secrets.SSH_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Bump version
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           version=$(poetry version patch | awk '{print $NF}') # awk is used to print the last field
           git commit pyproject.toml -m "Bump version to $version [skip ci]"
-          git push
+          git push git@github.com:getretake/retake.git HEAD:dev
           echo "New version is $version"

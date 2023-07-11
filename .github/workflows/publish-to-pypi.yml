@@ -26,11 +26,11 @@ jobs:
         id: env
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
-            echo "::set-output name=environment::prod"
+            echo "environment=prod" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "::set-output name=environment::staging"
+            echo "environment=staging" >> $GITHUB_OUTPUT
           else
-            echo "::set-output name=environment::dev"
+            echo "environment=dev" >> $GITHUB_OUTPUT
           fi
 
       - name: Install Poetry
@@ -45,25 +45,25 @@ jobs:
       - name: Retrieve Current Version Number
         id: version
         run: |
-          echo "Current prod version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}"
-          echo "Current staging version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-staging-rc.${{ vars.VERSION_STAGING_RC }}"
-          echo "Current dev version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
+          echo "Current prod version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          echo "Current staging version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${{ vars.VERSION_STAGING_RC }}"
+          echo "Current dev version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
 
           # if dev or staging, increment RC by 1, else increment micro by 1 and set RC to 0
           if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
             echo 'Using prod configuration...'
 
             # increment version by 0.0.1
-            NEW_MICRO=$(( ${{ vars.VERSION_MICRO }} + 1 ))
+            NEW_MICRO=$(( ${{ vars.VERSION_PATCH }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_MICRO}"
-            GHA_VAR_NAME="VERSION_MICRO"
+            GHA_VAR_NAME="VERSION_PATCH"
             GHA_VAR_VALUE="${NEW_MICRO}"
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
 
             # increment version by staging-rc.1
             NEW_STAGING_RC=$(( ${{ vars.VERSION_STAGING_RC }} + 1 ))
-            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-staging-rc.${NEW_STAGING_RC}"
+            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${NEW_STAGING_RC}"
             GHA_VAR_NAME="VERSION_STAGING_RC"
             GHA_VAR_VALUE="${NEW_STAGING_RC}"
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
@@ -71,7 +71,7 @@ jobs:
 
             # increment version by dev-rc.1
             NEW_DEV_RC=$(( ${{ vars.VERSION_DEV_RC }} + 1 ))
-            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-dev-rc.${NEW_DEV_RC}"
+            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${NEW_DEV_RC}"
             GHA_VAR_NAME="VERSION_DEV_RC"
             GHA_VAR_VALUE="${NEW_DEV_RC}"
           else
@@ -83,17 +83,17 @@ jobs:
           mv "pyproject.toml.new" pyproject.toml
 
           # Output the new version to create the GitHub tag
-          echo "::set-output name=version::${NEW_VERSION}"
-          echo "::set-output name=gha_var_name::${GHA_VAR_NAME}"
-          echo "::set-output name=gha_var_value::${GHA_VAR_VALUE}"
+          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          echo "gha_var_name=${GHA_VAR_NAME}" >> $GITHUB_OUTPUT
+          echo "gha_var_value=${GHA_VAR_VALUE}" >> $GITHUB_OUTPUT
 
-      # - name: Build and publish to PyPI
-      #   env:
-      #     ENVIRONMENT: ${{ steps.env.outputs.environment }}
-      #   run: |
-      #     poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
-      #     poetry build
-      #     poetry publish
+      - name: Build and publish to PyPI
+        env:
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+        run: |
+          poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
+          poetry build
+          poetry publish
 
       - name: Update Version Number
         env:
@@ -111,11 +111,11 @@ jobs:
         id: date
         run: |
           echo "v${{ steps.version.outputs.version }}"
-          echo "::set-output name=date::$(date)"
-
-      - name: Create GitHub Tag
+          echo "date=$(date)" >> $GITHUB_OUTPUT
+          
+      - name: Create GitHub Release (prod only)
         uses: softprops/action-gh-release@v1
-        if: ${{ steps.env.outputs.environment }}" == "dev"
+        if: ${{ steps.env.outputs.environment }}" == "prod"
         with:
           tag_name: v${{ steps.version.outputs.version }}
           body: Retake Production Release on ${{ steps.date.outputs.date }}

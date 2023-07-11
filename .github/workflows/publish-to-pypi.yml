@@ -78,7 +78,8 @@ jobs:
           sed -i "s/^version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml
 
           # Output the new version to create the GitHub tag
-          echo "::set-output name=version::${NEW_VERSION}"
+          echo "test"
+          echo "::set-output name=version::\"${NEW_VERSION}\"/"
 
       # - name: Build and publish to PyPI
       #   env:

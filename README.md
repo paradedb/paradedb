@@ -8,11 +8,13 @@
 </p>
 
 <h3 align="center">
-  <a href="https://retake.mintlify.app">Documentation</a> &bull;
-  <a href="https://getretake.framer.ai">Website</a>
+  <a href="https://docs.getretake.com">Documentation</a> &bull;
+  <a href="https://getretake.com">Website</a>
 </h3>
 
 ## Installation
+
+Welcome! If you are not a contributor and just want to use Retake, please proceed to the [stable version](https://github.com/getretake/retake/tree/main).
 
 To install the Retake Python SDK:
 
@@ -40,13 +42,13 @@ curl -sSL https://install.python-poetry.org | python -
 poetry install
 ```
 
-3. Build the SDK locally.
+3. Build the SDK locally
 
 ```
 poetry build
 ```
 
-This command will build and install the `retake` SDK into your local environment.
+This command will build and install the `retake` SDK locally. You can now `import retake` from a Python environment.
 
 ## Key Features
 

@@ -35,6 +35,8 @@ jobs:
         run: |
           poetry install
 
+      # Tech Debt: Disable sentence_transformer test in GH actions
+      # due to CUDA issue in GH runner
       - name: Run Pytest
         run: |
-          poetry run pytest
+          poetry run pytest --ignore=core/transform/tests/test_sentence_transformers.py

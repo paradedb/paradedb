@@ -17,7 +17,7 @@
   },
   "topbarCtaButton": {
     "type": "github",
-    "url": "https://github.com/retake-earth/connect"
+    "url": "https://github.com/getretake/retake"
   },
   "navigation": [
     {
@@ -54,7 +54,7 @@
     }
   ],
   "footerSocials": {
-    "github": "https://github.com/retake-earth/connect"
+    "github": "https://github.com/getretake/retake"
   },
   "backgroundImage": "/background.png"
 }

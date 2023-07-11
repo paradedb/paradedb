@@ -39,9 +39,49 @@ embedding = Embedding.SentenceTransformer(
   OpenAI model name
 </ParamField>
 
+## Cohere
+
+**Usage**
+
+```bash
+embedding = Embedding.Cohere(
+    api_key="***",
+    model="large"
+)
+```
+
+**Parameters**
+
+<ParamField body="api_key" type="string" required>
+  Your Cohere API key
+</ParamField>
+<ParamField body="model" type="string" required>
+  Cohere model name
+</ParamField>
+
+## Custom Model
+
+**Usage**
+
+```bash
+from typing import List
+
+def custom_model (docs: List[str]) -> List[List[float]]:
+  # Custom logic here
+  return [[0.1, 0.2, 0.3], [0.1, 0.2, 0.4]]
+
+embedding = Embedding.Custom(
+    func=custom_model
+)
+```
+
+**Parameters**
+
+<ParamField body="func" type="function" required>
+  Custom embedding function. Must accept a string array and return an array of
+  float arrays.
+</ParamField>
+
 ## Other Models
 
-We're quickly adding wrappers around other popular models and releasing the ability to provide your own
-embedding function.
-
-###
+If there's a model you'd like us to build a wrapper around, please request it as a [Github issue](https://github.com/getretake/retake/issues).

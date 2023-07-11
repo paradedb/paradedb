@@ -16,11 +16,14 @@ types-psycopg2 = "^2.9.21.10"
 types-tqdm = "^4.65.0.1"
 pinecone-client = "^2.2.2"
 elasticsearch = "^8.8.2"
+cohere = "^4.12.0"
+openai = "^0.27.8"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"
 mypy = "^1.4.1"
 pytest = "^7.4.0"
+numpy = "^1.25.1"
 
 [build-system]
 requires = ["poetry-core"]

@@ -56,19 +56,24 @@ jobs:
             # increment version by 0.0.1
             NEW_MICRO=$(( ${{ vars.VERSION_MICRO }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_MICRO}"
+            GHA_VAR_NAME="VERSION_MICRO"
+            GHA_VAR_VALUE="${NEW_MICRO}"
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
 
             # increment version by staging-rc.1
             NEW_STAGING_RC=$(( ${{ vars.VERSION_STAGING_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-staging-rc.${NEW_STAGING_RC}"
-            
+            GHA_VAR_NAME="VERSION_STAGING_RC"
+            GHA_VAR_VALUE="${NEW_STAGING_RC}"
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
 
             # increment version by dev-rc.1
             NEW_DEV_RC=$(( ${{ vars.VERSION_DEV_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-dev-rc.${NEW_DEV_RC}"
+            GHA_VAR_NAME="VERSION_DEV_RC"
+            GHA_VAR_VALUE="${NEW_DEV_RC}"
           else
             echo 'Error: Invalid branch' && false
           fi
@@ -79,6 +84,8 @@ jobs:
           
           # Output the new version to create the GitHub tag
           echo "::set-output name=version::${NEW_VERSION}"
+          echo "::set-output name=gha_var_name::${GHA_VAR_NAME}}"
+          echo "::set-output name=gha_var_value::${GHA_VAR_VALUE}}"
 
       # - name: Build and publish to PyPI
       #   env:
@@ -90,7 +97,13 @@ jobs:
 
       - name: Update Version Number
         run: |
-          echo "1"
+          curl -L \
+          -X PATCH \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${{ secrets.GHA_CREATE_RELEASE_PAT }}"\
+          -H "X-GitHub-Api-Version: 2022-11-28" \
+          https://api.github.com/orgs/getretake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
+          -d '{"name":"${{ steps.version.outputs.gha_var_name }}","value":"${{ steps.version.outputs.gha_var_value }}","visibility":"all"}'
 
       - name: Retrieve Today's Date
         id: date

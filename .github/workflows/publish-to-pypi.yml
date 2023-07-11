@@ -67,9 +67,6 @@ jobs:
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
 
-            echo "potato"
-
-
             # increment version by dev-rc.1
             NEW_DEV_RC=$(echo "print( ${{ vars.VERSION_DEV_RC }} + 1)" | python)
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-dev-rc.${NEW_DEV_RC}"
@@ -77,14 +74,11 @@ jobs:
             echo 'Error: Invalid branch' && false
           fi
 
-          echo "tomato"
-
-
           # Update the pyproject.toml file to publish the new version to PyPi
-          sed -i "s/^version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml
+          sed "s/version = .*/version = \"$new_version\"/" pyproject.toml > "pyproject.toml.new"
+          mv "pyproject.toml.new" pyproject.toml
 
           # Output the new version to create the GitHub tag
-          echo "test"
           echo "::set-output name=version::\"${NEW_VERSION}\"/"
 
       # - name: Build and publish to PyPI

@@ -1,42 +1,36 @@
-name: Publish Python Package
+name: Bump version number
 
 on:
   push:
     branches:
       - dev
-      - staging
-      - main
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
+      - name: Check out code
+        uses: actions/checkout@v2
+        with:
+          ref: dev
+
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
           python-version: "3.x"
-      - name: Set Environment
-        id: env
+
+      - name: Install dependencies
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/dev" ]]; then
-            echo "::set-output name=environment::dev"
-          elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
-            echo "::set-output name=environment::staging"
-          elif [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
-            echo "::set-output name=environment::prod"
-          fi
-      - name: Install Poetry
+          python -m pip install --upgrade pip
+          pip install poetry
+
+      - name: Bump version (dev only)
+        if: github.event.pull_request.merged
         run: |
-          curl -sSL https://install.python-poetry.org | python -
-      - name: Configure Poetry
-        run: |
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project true
-      - name: Build and publish to PyPI
-        env:
-          ENVIRONMENT: ${{ steps.env.outputs.environment }}
-        run: |
-          poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
-          poetry build
-          poetry publish
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          version=$(poetry version patch | awk '{print $NF}') # awk is used to print the last field
+          git commit pyproject.toml -m "Bump version to $version [skip ci]"
+          git push
+          echo "New version is $version"

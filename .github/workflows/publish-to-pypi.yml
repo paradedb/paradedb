@@ -90,7 +90,7 @@ jobs:
 
       - name: Update Version Number
         run: |
-          echo "1"
+          echo "2"
 
       - name: Retrieve Today's Date
         id: date

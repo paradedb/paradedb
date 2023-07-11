@@ -64,7 +64,7 @@ jobs:
             NEW_STAGING_RC=$(echo "print( ${{ vars.VERSION_STAGING_RC }} + 1)" | python)
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-staging-rc.${NEW_STAGING_RC}"
             
-          elif [[ "$BRANCH_NAME" == "dev" ]]; then
+          elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
 
             echo "potato"

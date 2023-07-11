@@ -12,8 +12,8 @@ class Similarity(Enum):
 class ElasticSearchTarget(BaseModel):
     index_name: str
     field_name: str
-    should_index: bool
-    similarity: Optional[Similarity]
+    should_index: bool = True
+    similarity: Optional[Similarity] = Similarity.COSINE
 
 
 class PineconeTarget(BaseModel):
@@ -28,7 +28,7 @@ class Target:
         index_name: str,
         field_name: str,
         should_index: bool = True,
-        similarity: Optional[Similarity] = None,
+        similarity: Optional[Similarity] = Similarity.COSINE,
     ) -> ElasticSearchTarget:
         return ElasticSearchTarget(
             index_name=index_name,

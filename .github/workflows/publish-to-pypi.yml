@@ -90,7 +90,7 @@ jobs:
 
       - name: Update Version Number
         run: |
-          echo "2"
+          echo "1"
 
       - name: Retrieve Today's Date
         id: date
@@ -103,3 +103,5 @@ jobs:
           tag_name: v${{ steps.version.outputs.version }}
           body: Retake Production Release on ${{ steps.date.outputs.date }}
           draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

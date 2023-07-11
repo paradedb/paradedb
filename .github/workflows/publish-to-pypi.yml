@@ -1,27 +1,36 @@
 name: Bump version number
 
 on:
-  pull_request:
-    branches: [dev]
+  push:
+    branches:
+      - dev
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v2
+      - name: Check out code
+        uses: actions/checkout@v2
+        with:
+          ref: dev
+
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
           python-version: "3.x"
-      - name: Install Poetry
+
+      - name: Install dependencies
         run: |
-          curl -sSL https://install.python-poetry.org | python -
-      - name: Bump version
+          python -m pip install --upgrade pip
+          pip install poetry
+
+      - name: Bump version (dev only)
+        if: github.event.pull_request.merged
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          poetry version patch
-          version=$(poetry version patch | awk '{print $NF}')
+          version=$(poetry version patch | awk '{print $NF}') # awk is used to print the last field
           git commit pyproject.toml -m "Bump version to $version [skip ci]"
           git push
-          echo "Version updated to is $version"
+          echo "New version is $version"

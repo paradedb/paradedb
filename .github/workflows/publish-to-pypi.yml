@@ -67,12 +67,18 @@ jobs:
           elif [[ "$BRANCH_NAME" == "dev" ]]; then
             echo 'Using dev configuration...'
 
+            echo "potato"
+
+
             # increment version by dev-rc.1
             NEW_DEV_RC=$(echo "print( ${{ vars.VERSION_DEV_RC }} + 1)" | python)
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-dev-rc.${NEW_DEV_RC}"
           else
             echo 'Error: Invalid branch' && false
           fi
+
+          echo "tomato"
+
 
           # Update the pyproject.toml file to publish the new version to PyPi
           sed -i "s/^version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml

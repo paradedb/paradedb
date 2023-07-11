@@ -9,6 +9,9 @@ on:
     paths-ignore:
       - "README.md"
       - "docs/**"
+  pull_request:
+    branches:
+      - dev
 
 # This guarantees that if you push many commits to the same PR, only the latest
 # commit will get run (others get cancelled)

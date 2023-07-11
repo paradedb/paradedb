@@ -15,11 +15,14 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v2
         with:
           python-version: "3.x"
+
       - name: Set Environment
         id: env
         run: |
@@ -30,23 +33,52 @@ jobs:
           elif [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
             echo "::set-output name=environment::prod"
           fi
+
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python -
+
       - name: Configure Poetry
         run: |
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
 
-
       - name: Retrieve Current Version Number
+        id: version
         run: |
-          echo "The value of ENV_VARIABLE_NAME is: ${{ vars.VERSION_MINOR }}"
+          echo "Current prod version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}"
+          echo "Current staging version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-staging-rc.${{ vars.VERSION_STAGING_RC }}"
+          echo "Current dev version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
 
+          # if dev or staging, increment RC by 1, else increment micro by 1 and set RC to 0
+          if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
+            echo 'Using prod configuration...'
 
+            # increment version by 0.0.1
+            NEW_MICRO=$(echo "print( ${{ vars.VERSION_MICRO }} + 1)" | python)
+            NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_MICRO}"
+          elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
+            echo 'Using staging configuration...'
 
+            # increment version by staging-rc.1
+            NEW_STAGING_RC=$(echo "print( ${{ vars.VERSION_STAGING_RC }} + 1)" | python)
+            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-staging-rc.${NEW_STAGING_RC}"
+            
+          elif [[ "$BRANCH_NAME" == "dev" ]]; then
+            echo 'Using dev configuration...'
 
+            # increment version by dev-rc.1
+            NEW_DEV_RC=$(echo "print( ${{ vars.VERSION_DEV_RC }} + 1)" | python)
+            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_MICRO }}-dev-rc.${NEW_DEV_RC}"
+          else
+            echo 'Error: Invalid branch' && false
+          fi
 
+          # Update the pyproject.toml file to publish the new version to PyPi
+          sed -i "s/^version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml
+
+          # Output the new version to create the GitHub tag
+          echo "::set-output name=version::${NEW_VERSION}"
 
       # - name: Build and publish to PyPI
       #   env:
@@ -55,3 +87,27 @@ jobs:
       #     poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
       #     poetry build
       #     poetry publish
+
+
+      - name: Update Version Number
+        run: |
+          echo "1"
+
+      # Create GitHub Tag
+      - name: "Create GitHub Release Tag"
+        run: |
+          echo "1"
+
+      - name: Retrieve Today's Date
+        id: date
+        run: |
+          echo "::set-output name=date::$(date)"
+
+      - name: Create GitHub Tag
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          body: Retake Production Release on  ${{ steps.date.outputs.date }}
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

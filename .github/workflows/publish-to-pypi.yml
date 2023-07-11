@@ -16,7 +16,7 @@ jobs:
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python -
-      - name: Bump version (dev only)
+      - name: Bump version
         if: github.ref == 'refs/heads/dev'
         run: |
           git config --local user.email "action@github.com"

@@ -43,8 +43,8 @@ model = Embedding.SentenceTransformer(model="all-MiniLM-L6-v2")
 # )
 
 sink = Sink.Weaviate(
-    url="https://test-cluster-z9bnfxki.weaviate.network",  # URL of your Weaviate instance
-    api_key="TJRicJn4FVqWfDGIDcyYTTIEwHnS3MxTYhEQ",
+    url="https://test2-rp8gqk80.weaviate.network",  # URL of your Weaviate instance
+    api_key="cbWr4ACjcp7Kgwiw5rpbIwQUjZNqdS9Gm0Jz",
     # auth_client_secret=auth_config,  # (Optional) If the Weaviate instance requires authentication
     # timeout_config=(
     #     5,

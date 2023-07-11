@@ -18,56 +18,98 @@ class WeaviateLoader(Loader):
         )
 
 
+    # In Weaviate, an index is called an object, which must be part of
+    # a class, which is itself part of a schema. Weaviate automatically
+    # generates a default schema if nothing is specified, and to keep things
+    # simple we create a class for each object/index to keep 1:1 mapping.
 
 
-
+    def _check_class_exists(self, index_name: str) -> bool:
+        try:
+            self.wc.schema.exists(index_name)
+            return True
+        except weaviate.exceptions.WeaviateBaseError as e:
+            return False
+        
     # In Weaviate, an index is called an object
     def _check_index_exists(self, index_name: str) -> bool:
-        # try:
-        #     weaviate.Client.data_object.exists(id, class_name=index_name)
-        #     return True
-        # except weaviate.NotFoundException as e:
-        #     return False
-        pass
+        # Objects are referenced via UUID, which is a hash of the class name
+        index_uuid = weaviate.util.generate_uuid5(index_name)
+        try:
+            self.wc.data_object.exists(index_uuid, class_name=index_name)
+            return True
+        except weaviate.exceptions.ObjectAlreadyExistsException as e:
+                return False
+
+
+             
+
+
+
 
     def _get_num_dimensions(self, index_name: str) -> int:
-        pass
+        
+        
+        print(self.wc.data_object.get(
+            uuid = weaviate.util.generate_uuid5(index_name),
+            with_vector = True,
+            class_name = index_name
+        ))
+            
+            
+            
+                    
+        return int(len(self.wc.data_object.get(
+            class_name=index_name,
+        )[0]))
+        
+        
+
+
+    def _create_class(self, index_name: str, num_dimensions: int) -> None:
+        self.we.schema.create_class({
+            "class": index_name,
+            "vectorizer": "none",
+        })
 
     def _create_index(self, index_name: str, num_dimensions: int) -> None:
-        pass
+        # Objects are referenced via UUID, which is a hash of the class name
+        index_uuid = weaviate.util.generate_uuid5(index_name)
+        self.wc.data_object.create(
+             data_object = {},
+             class_name = index_name,
+             uuid = index_uuid,
+             vector = [None] * num_dimensions # Initialize empty vector, we will fill it at upsert time
+        )
+
+
+
+
+    
+
+
+
 
     def check_and_setup_index(
-        self, target: WeaviateTarget, num_dimensions: int
+        self, target: WeaviateTarget, num_dimensions: int 
     ) -> None:
-        pass
+        index_name = target.index_name
 
-    # A class is the equivalent of an index in Weaviate
-    # def _check_class_exists(self, class_name: str) -> bool:
-    #     schema = self.wc.get_schema()
-    #     classes = schema["classes"]
-    #     return any(c["class"] == class_name for c in classes)
-
-    # def _create_class(
-    #     self, class_name: str, field_name: str, num_dimensions: int
-    # ) -> None:
-    #     if self._check_class_exists(class_name=class_name):
-    #         raise ValueError(f"Class {class_name} already exists")
-
-    # vector_schema = cast(
-    #     Dict[str, Any],
-    #     {
-    #         "class": class_name,
-    #         "properties": {
-    #             field_name: {
-    #                 "dataType": ["float"],
-    #                 "vectorIndexType": "hnsw",
-    #                 "embeddingDimensions": num_dimensions,
-    #             }
-    #         },
-    #     },
-    # )
-
-    # self.wc.schema.create(vector_schema)
+        if not self._check_class_exists(index_name=index_name):
+            self._create_class(index_name=index_name)
+        else:
+            # Class already exists, check if object exists within it
+            if not self._check_index_exists(index_name=index_name):
+                self._create_index(index_name=index_name)
+            else:
+                # TODO: fix bug here
+                # Weaviate does not appear to pre-create fixed dimensions indices, and this
+                # is the limit on their dimensions: https://weaviate.io/developers/weaviate/more-resources/faq#what-is-the-maximum-number-of-vector-dimensions-for-embeddings
+                index_dimensions = self._get_num_dimensions(index_name=index_name)
+                if index_dimensions != num_dimensions:
+                    raise ValueError(
+                        f"Index {index_name} already exists with {index_dimensions} dimensions but embedding has {num_dimensions}"
+                    )
 
     ### Public Methods ###
 
@@ -117,20 +159,6 @@ class WeaviateLoader(Loader):
 
 
 
-        # Class definition object. Weaviate's autoschema feature will infer properties when importing.
-        # We set vectorizer to none since we handle creating the embeddings ourselves
-        class_obj = {
-            "class": index_name,
-            "vectorizer": "none",
-        }
-
-
-        if not self.wc.schema.exists(index_name):
-            # Add the class to the schema
-            # We never explicitly define a schema, Weaviate does this automatically
-            self.wc.schema.create_class(class_obj)
-        # else:
-        #     print("Class already exists")
 
 
 

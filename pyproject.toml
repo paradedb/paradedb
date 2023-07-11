@@ -1,8 +1,8 @@
 [tool.poetry]
 name = "retake"
-version = "0.1.6-dev"
+version = "0.0.0"
 description = "Real-time pipelines for vectors"
-authors = ["Ming Ying <ming.ying.nyc@gmail.com>"]
+authors = ["Ming Ying <ming.ying.nyc@gmail.com>", Philippe Noël <philippemnoel@gmail.com>]
 readme = "README.md"
 packages = [{include = "retake"}, {include = "core"}]
 

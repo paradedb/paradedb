@@ -81,7 +81,7 @@ jobs:
           # Update the pyproject.toml file to publish the new version to PyPi
           sed "s/version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml > "pyproject.toml.new"
           mv "pyproject.toml.new" pyproject.toml
-          
+
           # Output the new version to create the GitHub tag
           echo "::set-output name=version::${NEW_VERSION}"
           echo "::set-output name=gha_var_name::${GHA_VAR_NAME}"
@@ -105,7 +105,7 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             /repos/getretake/retake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
             -f name='${{ steps.version.outputs.gha_var_name }}' \
-            -f value='${{ steps.version.outputs.gha_var_value }}}}'
+            -f value='${{ steps.version.outputs.gha_var_value }}'
 
       - name: Retrieve Today's Date
         id: date
@@ -115,6 +115,7 @@ jobs:
 
       - name: Create GitHub Tag
         uses: softprops/action-gh-release@v1
+        if: ${{ steps.env.outputs.environment }}" == "dev"
         with:
           tag_name: v${{ steps.version.outputs.version }}
           body: Retake Production Release on ${{ steps.date.outputs.date }}

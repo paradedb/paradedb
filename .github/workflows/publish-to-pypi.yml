@@ -6,6 +6,7 @@ on:
       - dev
       - staging
       - main
+      - publish-to-pypi.yml
 
 jobs:
   deploy:
@@ -33,10 +34,21 @@ jobs:
         run: |
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
-      - name: Build and publish to PyPI
-        env:
-          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+
+
+      - name: Retrieve Current Version Number
         run: |
-          poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
-          poetry build
-          poetry publish
+          echo "The value of ENV_VARIABLE_NAME is: ${{ vars.VERSION_MINOR }}"
+
+
+
+
+
+
+      # - name: Build and publish to PyPI
+      #   env:
+      #     ENVIRONMENT: ${{ steps.env.outputs.environment }}
+      #   run: |
+      #     poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
+      #     poetry build
+      #     poetry publish

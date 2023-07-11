@@ -103,9 +103,9 @@ jobs:
             --method PATCH \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/getretake/retake/actions/variables/VERSION_DEV_RC \
-            -f name='VERSION_DEV_RC' \
-            -f value='77'
+            /repos/getretake/retake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
+            -f name='${{ steps.version.outputs.gha_var_name }}' \
+            -f value='${{ steps.version.outputs.gha_var_value }}}}'
 
       - name: Retrieve Today's Date
         id: date

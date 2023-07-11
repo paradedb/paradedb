@@ -26,7 +26,6 @@ jobs:
           pip install poetry
 
       - name: Bump version (dev only)
-        if: github.event.pull_request.merged
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"

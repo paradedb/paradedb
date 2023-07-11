@@ -10,7 +10,6 @@ on:
     branches:
       - dev
 
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -80,9 +79,6 @@ jobs:
 
           mv "pyproject.toml.new" pyproject.toml
 
-          # Output the new version to create the GitHub tag
-          echo "::set-output name=version::\"${NEW_VERSION}\"/"
-
       # - name: Build and publish to PyPI
       #   env:
       #     ENVIRONMENT: ${{ steps.env.outputs.environment }}
@@ -90,7 +86,6 @@ jobs:
       #     poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
       #     poetry build
       #     poetry publish
-
 
       - name: Update Version Number
         run: |

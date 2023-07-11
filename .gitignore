@@ -11,3 +11,6 @@ build/
 # Env
 env/
 .env
+
+# Poetry
+poetry-installer-error-*.yml

@@ -17,7 +17,6 @@ jobs:
         run: |
           curl -sSL https://install.python-poetry.org | python -
       - name: Bump version
-        if: github.ref == 'refs/heads/dev'
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"

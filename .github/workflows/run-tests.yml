@@ -22,24 +22,26 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-
       # Based on https://www.cloudbooklet.com/how-to-set-up-deep-learning-architecture-on-ubuntu-22-04/#install-cuda-toolkit-and-cu-dnn
-      - name: Install CUDA & CUDNN
+      - name: Install CUDA & cuDNN
         run: |
-          # Install Cuda
+          # Install CUDA
           sudo apt-get install nvidia-cuda-toolkit nvidia-cuda-toolkit-gcc
 
-          # Install Cudnn
+          # Install cuDNN
           # The CUDNN package is initially downloaded from https://developer.nvidia.com/rdp/cudnn-archive, which requires a login to Nvidia Developer Program
           wget -q https://retake-ci-assets.s3.amazonaws.com/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
           tar -xf cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
           cd cudnn-linux-x86_64-8.9.2.26_cuda12-archive
           
-
           sudo cp include/cudnn.h /usr/lib/cuda/include
           sudo cp lib/libcudnn* /usr/lib/cuda/lib64
           sudo chmod a+r /usr/lib/cuda/include/cudnn.h /usr/lib/cuda/lib64/libcudnn*
 
+
+          export LD_LIBRARY_PATH=/home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib:$LD_LIBRARY_PATH
+          sudo ldconfig
+          ls -l /home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib/libcudnn.so.8
 
       - name: Install Poetry
         run: |
@@ -59,4 +61,8 @@ jobs:
       - name: Run Pytest
         run: |
           export LD_LIBRARY_PATH=/home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib:$LD_LIBRARY_PATH
+          sudo ldconfig
+          ls -l /home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib/libcudnn.so.8
+
+
           poetry run pytest --ignore=core/transform/tests/test_sentence_transformers.py

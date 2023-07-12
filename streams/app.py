@@ -1,42 +1,38 @@
-import numpy
-import os
-import requests
 import json
-from asyncio import get_event_loop, ensure_future
+from core.sdk.realtime import RealtimeServer
 from confluent_kafka import Producer
 from confluent_kafka.serialization import SerializationContext, MessageField
-from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
+from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
-from core.transform.base import Embedding
 from faust import App, Worker
-from nptyping import NDArray, Shape, Float32
 from typing import Callable, Any, Optional
 
 
-def return_schema(schema_registry_client: SchemaRegistryClient, schema_id: int) -> str:
+def return_schema(schema_registry_client: SchemaRegistryClient, subject_name: str) -> str:
     # The result is cached so subsequent attempts will not
     # require an additional round-trip to the Schema Registry.
-    return schema_registry_client.get_schema(schema_id).schema_str
+    return schema_registry_client.get_latest_version(subject_name).schema.schema_str
 
 
 def register_agents(
+    server: RealtimeServer,
     topic: str,
     index: str,
-    schema_id: int,
     embedding_fn: Callable[..., Any],  # TODO: proper typing
     transform_fn: Callable[..., str],
     metadata_fn: Optional[Callable[..., list[str]]],
-) -> None:
+) -> Worker:
     app = App(
         "realtime",
-        broker=f"kafka://{kafka_config.bootstrap_servers}",
+        broker=f"kafka://{server.broker_host}",
         value_serializer="raw",
     )
     source_topic = app.topic(topic, value_serializer="raw")
-    sr_client = SchemaRegistryClient({"url": kafka_config.schema_registry_server})
-    schema_str = return_schema(sr_client, schema_id)
+    sr_client = SchemaRegistryClient({"url": server.schema_registry_url})
+    subject_name = f"{index}-value"
+    schema_str = return_schema(sr_client, subject_name)
     avro_serializer = AvroSerializer(sr_client, schema_str)
-    producer_conf = {"bootstrap.servers": kafka_config.bootstrap_servers}
+    producer_conf = {"bootstrap.servers": server.broker_host}
     producer = Producer(producer_conf)
 
     @app.agent(source_topic)
@@ -58,16 +54,16 @@ def register_agents(
                     if metadata_fn is not None:
                         metadata = metadata_fn(*payload)
 
-                    message = {"doc": embedding.tolist(), "metadata": metadata}
+                    message = {"doc": embedding, "metadata": metadata}
                     producer.produce(
                         topic=index,
                         value=avro_serializer(
                             message, SerializationContext(topic, MessageField.VALUE)
                         ),
                     )
+    return Worker(app, loglevel="INFO")
 
 
-def start_worker() -> None:
+def start_worker(worker: Worker) -> None:
     print("starting faust worker...")
-    worker = Worker(app, loglevel="INFO")
     worker.execute_from_commandline()

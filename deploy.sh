@@ -9,6 +9,45 @@ KAFKA_CONNECT_HOST=localhost
 KAFKA_CONNECT_PORT=8083
 ENV_DIR="$HOME/.config/retake"
 
+get_external_ip() {
+  # Query Google Cloud metadata endpoint
+  ip_address=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip" -H "Metadata-Flavor: Google")
+
+  if [ -n "$ip_address" ]; then
+    echo "$ip_address"
+    return
+  fi
+
+  # Query AWS EC2 metadata endpoint
+  ip_address=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+
+  if [ -n "$ip_address" ]; then
+    echo "$ip_address"
+    return
+  fi
+
+  # Query Azure metadata endpoint
+  ip_address=$(curl -s "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-07-01&format=text")
+
+  if [ -n "$ip_address" ]; then
+    echo "$ip_address"
+    return
+  fi
+
+  # Cloud agnostic way
+  ip_address=$(curl -4 icanhazip.com)
+  if [ -n "$ip_address" ]; then
+    echo "$ip_address"
+    return
+  fi
+
+  # If no IP address found, stop the script
+  echo "No external IP address found. Exiting."
+  exit 1
+}
+
+# Start deploy.sh
+
 # Update
 sudo apt update
 
@@ -32,6 +71,10 @@ SCHEMA_REGISTRY_INTERNAL_HOST=$SCHEMA_REGISTRY_INTERNAL_HOST
 KAFKA_CONNECT_HOST=$KAFKA_CONNECT_HOST
 KAFKA_CONNECT_PORT=$KAFKA_CONNECT_PORT
 EOF
+
+# Set advertise listener as this machine's ip address
+ip_address=get_external_ip
+sed -i "s/placeholder_listener/$ip_address/g" docker-compose.yaml
 
 # Install Docker and Docker Compose
 echo "Setting up Docker..."

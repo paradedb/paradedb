@@ -19,7 +19,7 @@ def cli():
 @click.command()
 def init():
     source_type = questionary.select(
-        "What is the source of your data?", choices=["postgres", "mysql"]
+        "What is the source of your data?", choices=["postgres"]
     ).ask()
 
     source_conn = {}
@@ -40,7 +40,7 @@ def init():
         return
 
     sink_type = questionary.select(
-        "What is the target sink for your data?", choices=["elasticsearch", "mongodb"]
+        "What is the target sink for your data?", choices=["elasticsearch"]
     ).ask()
 
     sink_conn = {}

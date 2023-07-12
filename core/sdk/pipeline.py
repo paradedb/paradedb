@@ -11,6 +11,7 @@ from core.sdk.source import PostgresSource
 from core.sdk.transform import PostgresTransform
 from core.sdk.sink import ElasticSearchSink, PineconeSink
 from core.sdk.target import ElasticSearchTarget, PineconeTarget
+from core.sdk.realtime import RealtimeServer
 from core.load.elasticsearch import ElasticSearchLoader
 from core.load.pinecone import PineconeLoader
 from core.extract.postgres import PostgresExtractor
@@ -20,6 +21,10 @@ from core.transform.sentence_transformers import (
 )
 from core.transform.cohere import CohereEmbedding as Cohere
 from core.transform.custom import CustomEmbedding as Custom
+from streams.app import (
+    register_agents,
+    start_worker
+)
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
@@ -41,12 +46,14 @@ class Pipeline:
         embedding: Embedding,
         sink: Sink,
         target: Target,
+        realtime_server: RealtimeServer,
     ):
         self.source = source
         self.transform = transform
         self.embedding = embedding
         self.sink = sink
         self.target = target
+        self.realtime_server = realtime_server
 
         self.extractor = self._get_extractor()
         self.loader = self._get_loader()
@@ -161,23 +168,20 @@ class Pipeline:
         progress_bar.close()
 
     def pipe_real_time(self) -> None:
-        source_conn = self.source.parse_connection_string()
-        sink_conn = self.sink.dict()
         index = self.target.index_name
-        schema_name = self.transform.schema_name
+        db_schema_name = self.transform.schema_name
         relation = self.transform.relation
-        topic = f"{relation}.{schema_name}.{relation}"
+        topic = f"{relation}.{db_schema_name}.{relation}"
 
-        schema_id = register_sink_value_schema(index)
-        register_agents(
+        worker = register_agents(
+            self.realtime_server,
             topic,
             index,
-            schema_id,
             self.model.create_embeddings,
             self.transform.transform_func,
             self.transform.optional_metadata,
         )
-        start_worker()
+        start_worker(worker)
 
     def teardown(self) -> None:
         self.extractor.teardown()

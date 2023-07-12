@@ -19,10 +19,10 @@ elasticsearch = "^8.8.2"
 cohere = "^4.12.0"
 openai = "^0.27.8"
 faust-streaming = "^0.10.14"
-confluent-kafka = "^2.1.1"
 requests = "^2.31.0"
 python-dotenv = "^1.0.0"
 fastavro = "^1.8.0"
+confluent-kafka = "^2.2.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

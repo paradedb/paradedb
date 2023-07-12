@@ -23,19 +23,22 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
 
-
+      # Based on https://www.cloudbooklet.com/how-to-set-up-deep-learning-architecture-on-ubuntu-22-04/#install-cuda-toolkit-and-cu-dnn
       - name: Install CUDA & CUDNN
         run: |
-
+          # Install Cuda
           sudo apt-get install nvidia-cuda-toolkit nvidia-cuda-toolkit-gcc
 
-          tar -zvxf cudnn-linux-x86_64-8.9.0.131_cuda12-archive.tar.xz
-
-          cd cudnn-linux-x86_64-8.9.0.131_cuda12-archive
+          # Install Cudnn
+          # The CUDNN package is initially downloaded from https://developer.nvidia.com/rdp/cudnn-archive, which requires a login to Nvidia Developer Program
+          wget https://retake-ci-assets.s3.amazonaws.com/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
+          tar -zvxf cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
+          cd cudnn-linux-x86_64-8.9.2.26_cuda12-archive
           
+
+
           sudo cp include/cudnn.h /usr/local/cuda-12.1/include
           sudo cp lib/libcudnn* /usr/local/cuda-12.1/lib64
-          
           sudo chmod a+r /usr/local/cuda-12.1/include/cudnn.h /usr/local/cuda-12.1/lib64/libcudnn*
 
 

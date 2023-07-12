@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "Open Source Infrastructure for Vector Data Streams"
 authors = ["Ming Ying <ming.ying.nyc@gmail.com>", "Philippe Noël <philippemnoel@gmail.com>"]
 readme = "README.md"
-packages = [{include = "retake"}, {include = "core"}, {include = "cli"}]
+packages = [{include = "retake"}, {include = "core"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"

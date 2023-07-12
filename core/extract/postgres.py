@@ -16,7 +16,6 @@ class PostgresExtractor(Extractor):
         self._connect(dsn)
 
     def _connect(self, dsn: str) -> None:
-        print("Connecting to", dsn)
         try:
             self.connection = psycopg2.connect(
                 self.dsn, connection_factory=LogicalReplicationConnection

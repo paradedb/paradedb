@@ -36,7 +36,6 @@ types-requests = "^2.31.0.1"
 flake8 = "^6.0.0"
 pytest-postgresql = "^5.0.0"
 psycopg = {extras = ["binary"], version = "^3.1.9"}
-pytest-docker-fixtures = "^1.3.17"
 pytest-docker = "^1.0.1"
 
 [build-system]

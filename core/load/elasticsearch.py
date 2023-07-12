@@ -31,9 +31,15 @@ class ElasticSearchLoader(Loader):
                 ssl_assert_fingerprint=ssl_assert_fingerprint,
                 verify_certs=True,
             )
+        elif host and user and password:
+            self.es = Elasticsearch(
+                hosts=[host],
+                basic_auth=(user, password),
+                verify_certs=False,
+            )
         else:
             raise ValueError(
-                "Either cloud_id or host, user, password, and ssl_assert_fingerprint must be provided"
+                "Either cloud_id or host, user, and password must be provided"
             )
 
         self.index = index

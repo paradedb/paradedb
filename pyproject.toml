@@ -4,7 +4,7 @@ version = "0.0.0"
 description = "Open Source Infrastructure for Vector Data Streams"
 authors = ["Ming Ying <ming.ying.nyc@gmail.com>", "Philippe Noël <philippemnoel@gmail.com>"]
 readme = "README.md"
-packages = [{include = "retake"}, {include = "core"}]
+packages = [{include = "retake"}, {include = "core"}, {include = "cli"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -23,8 +23,6 @@ confluent-kafka = "^2.1.1"
 requests = "^2.31.0"
 python-dotenv = "^1.0.0"
 fastavro = "^1.8.0"
-click = "^8.1.4"
-questionary = "^1.10.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

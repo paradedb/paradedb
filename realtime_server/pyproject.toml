@@ -1,0 +1,26 @@
+[tool.poetry]
+name = "realtime-server"
+version = "0.1.0"
+description = ""
+authors = ["Mauricio Araujo <mauricio.araujo@proton.me>"]
+readme = "README.md"
+packages = [{include = "realtime_server"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+requests = "^2.31.0"
+click = "^8.1.4"
+questionary = "^1.10.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.3.0"
+mypy = "^1.4.1"
+pytest = "^7.4.0"
+types-requests = "^2.31.0.1"
+
+[tool.poetry.scripts]
+retake = 'realtime_server.cli:main'
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

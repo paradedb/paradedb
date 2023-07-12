@@ -168,8 +168,6 @@ class Pipeline:
         relation = self.transform.relation
         topic = f"{relation}.{schema_name}.{relation}"
 
-        create_source_connector(source_conn, schema_name, relation)
-        create_sink_connector(sink_conn, index)
         schema_id = register_sink_value_schema(index)
         register_agents(
             topic,

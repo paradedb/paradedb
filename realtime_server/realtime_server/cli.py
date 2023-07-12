@@ -1,6 +1,10 @@
 import click
 import questionary
-from realtime.app import create_source_connector, create_sink_connector, register_sink_value_schema
+from realtime.app import (
+    create_source_connector,
+    create_sink_connector,
+    register_sink_value_schema,
+)
 
 POSTGRES_DEFAULT_PORT = "5432"
 POSTGRES_DEFAULT_SCHEMA_NAME = "public"

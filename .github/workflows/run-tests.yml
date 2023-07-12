@@ -36,10 +36,9 @@ jobs:
           cd cudnn-linux-x86_64-8.9.2.26_cuda12-archive
           
 
-
-          sudo cp include/cudnn.h /usr/local/cuda-12.1/include
-          sudo cp lib/libcudnn* /usr/local/cuda-12.1/lib64
-          sudo chmod a+r /usr/local/cuda-12.1/include/cudnn.h /usr/local/cuda-12.1/lib64/libcudnn*
+          sudo cp include/cudnn.h /usr/lib/cuda/include
+          sudo cp lib/libcudnn* /usr/lib/cuda/lib64
+          sudo chmod a+r /usr/lib/cuda/include/cudnn.h /usr/lib/cuda/lib64/libcudnn*
 
 
       - name: Install Poetry

@@ -31,7 +31,7 @@ jobs:
 
           # Install Cudnn
           # The CUDNN package is initially downloaded from https://developer.nvidia.com/rdp/cudnn-archive, which requires a login to Nvidia Developer Program
-          wget https://retake-ci-assets.s3.amazonaws.com/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
+          wget -q https://retake-ci-assets.s3.amazonaws.com/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
           tar -zvxf cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
           cd cudnn-linux-x86_64-8.9.2.26_cuda12-archive
           

@@ -73,7 +73,7 @@ KAFKA_CONNECT_PORT=$KAFKA_CONNECT_PORT
 EOF
 
 # Set advertise listener as this machine's ip address
-ip_address=get_external_ip
+get_external_ip
 sed -i "s/placeholder_listener/$ip_address/g" docker-compose.yaml
 
 # Install Docker and Docker Compose

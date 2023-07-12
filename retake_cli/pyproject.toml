@@ -1,10 +1,10 @@
 [tool.poetry]
-name = "realtime-server"
+name = "retake_cli"
 version = "0.1.0"
 description = ""
 authors = ["Mauricio Araujo <mauricio.araujo@proton.me>"]
 readme = "README.md"
-packages = [{include = "realtime_server"}]
+packages = [{include = "retake_cli"}]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -21,7 +21,7 @@ pytest = "^7.4.0"
 types-requests = "^2.31.0.1"
 
 [tool.poetry.scripts]
-retake = 'realtime_server.cli:main'
+retake-cli = 'retake_cli.cli:main'
 
 [build-system]
 requires = ["poetry-core"]

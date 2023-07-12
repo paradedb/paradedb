@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -e
+
+# Default values, these match with the docker-compose.yaml configuration
 KAFKA_HOST=localhost
 KAFKA_PORT=9094
 SCHEMA_REGISTRY_HOST=localhost
@@ -58,7 +60,6 @@ sudo apt install -y git
 echo "Cloning Retake..."
 git clone https://github.com/getretake/retake.git
 cd retake
-git checkout cli # Remove once cli branch is merged into main
 
 # Write .env file
 mkdir -p $ENV_DIR
@@ -96,10 +97,6 @@ sudo usermod -aG docker "${USER}" || true
 echo "Starting docker compose..."
 sudo -E docker compose up -d
 
-# Install poetry
-# Once the CLI is published, do pip install instead
+# Install retake-cli
 echo "Installing Retake CLI..."
-curl -sSL https://install.python-poetry.org | python3 -
-export PATH="$HOME/.local/bin:$PATH"
-cd realtime_server
-poetry install
+pip install retake-cli

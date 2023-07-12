@@ -1,6 +1,6 @@
 import click
 import questionary
-from realtime.app import (
+from realtime_server.connectors import (
     create_source_connector,
     create_sink_connector,
     register_sink_value_schema,

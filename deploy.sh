@@ -10,7 +10,7 @@ sudo apt install -y git
 # Clone repo
 git clone https://github.com/getretake/retake.git
 cd retake
-git checkout cli
+git checkout cli # Remove once cli branch is merged into main
 
 # Install Docker and Docker Compose
 sudo apt-get install -y ca-certificates curl gnupg
@@ -29,3 +29,9 @@ sudo usermod -aG docker "${USER}" || true
 
 # Start stack
 sudo -E docker compose up -d
+
+# Install poetry
+curl -sSL https://install.python-poetry.org | python3 -
+export PATH="$HOME/.local/bin:$PATH"
+cd realtime_server
+poetry install

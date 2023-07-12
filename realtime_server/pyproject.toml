@@ -7,7 +7,7 @@ readme = "README.md"
 packages = [{include = "realtime_server"}]
 
 [tool.poetry.dependencies]
-python = "^3.11"
+python = "^3.9"
 requests = "^2.31.0"
 click = "^8.1.4"
 questionary = "^1.10.0"

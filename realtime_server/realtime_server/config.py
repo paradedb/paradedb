@@ -4,7 +4,10 @@ from typing import Optional
 
 RETAKE_ENV_PATH = os.path.expanduser("~/.config/retake/.env")
 if not load_dotenv(RETAKE_ENV_PATH):
-    raise EnvironmentError("Make sure the retake environment file exists by running the deploy script")
+    raise EnvironmentError(
+        "Make sure the retake environment file exists by running the deploy script"
+    )
+
 
 class Config:
     def get_property(self, property_name: str) -> Optional[str]:

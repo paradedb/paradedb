@@ -8,16 +8,18 @@ from faust import App, Worker
 from typing import Callable, Any, Optional
 
 
-def return_schema(schema_registry_client: SchemaRegistryClient, subject_name: str) -> str:
+def return_schema(
+    schema_registry_client: SchemaRegistryClient, subject_name: str
+) -> str:
     # The result is cached so subsequent attempts will not
     # require an additional round-trip to the Schema Registry.
     return schema_registry_client.get_latest_version(subject_name).schema.schema_str
 
 
 def register_agents(
-    server: RealtimeServer,
     topic: str,
     index: str,
+    server: RealtimeServer,
     embedding_fn: Callable[..., Any],  # TODO: proper typing
     transform_fn: Callable[..., str],
     metadata_fn: Optional[Callable[..., list[str]]],
@@ -61,6 +63,7 @@ def register_agents(
                             message, SerializationContext(topic, MessageField.VALUE)
                         ),
                     )
+
     return Worker(app, loglevel="INFO")
 
 

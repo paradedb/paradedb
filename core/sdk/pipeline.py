@@ -21,10 +21,7 @@ from core.transform.sentence_transformers import (
 )
 from core.transform.cohere import CohereEmbedding as Cohere
 from core.transform.custom import CustomEmbedding as Custom
-from streams.app import (
-    register_agents,
-    start_worker
-)
+from streams.app import register_agents, start_worker
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
@@ -174,9 +171,9 @@ class Pipeline:
         topic = f"{relation}.{db_schema_name}.{relation}"
 
         worker = register_agents(
-            self.realtime_server,
             topic,
             index,
+            self.realtime_server,
             self.model.create_embeddings,
             self.transform.transform_func,
             self.transform.optional_metadata,

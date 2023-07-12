@@ -7,7 +7,6 @@ build/
 .DS_Store
 .mypy_cache
 .pytest_cache
-poetry.lock
 
 # Env
 env/
@@ -15,6 +14,7 @@ env/
 
 # Poetry
 poetry-installer-error-*.yml
+**/poetry.lock
 
 # faust generated
 realtime-data

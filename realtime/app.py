@@ -3,7 +3,6 @@ import os
 import requests
 import json
 from asyncio import get_event_loop, ensure_future
-from config import SourceConfig, KafkaConfig, SinkConfig
 from confluent_kafka import Producer
 from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
@@ -11,24 +10,18 @@ from confluent_kafka.schema_registry.avro import AvroSerializer
 from core.transform.base import Embedding
 from faust import App, Worker
 from nptyping import NDArray, Shape, Float32
+from realtime.config import KafkaConfig
 from typing import Callable, Any, Optional
 
 kafka_config = KafkaConfig()
-sink_config = SinkConfig()
-app = App(
-    "realtime",
-    broker=f"kafka://{kafka_config.bootstrap_servers}",
-    value_serializer="raw",
-)
 
-
-def create_source_connector(conn: dict[str, str], schema_name: str, relation: str) -> None:
+def create_source_connector(conn: dict[str, str]) -> None:
     try:
         url = f"{kafka_config.connect_server}/connectors"
         r = requests.post(
             url,
             json={
-                "name": f"{relation}-connector",
+                "name": f'{conn["relation"]}-connector',
                 "config": {
                     "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
                     "plugin.name": "pgoutput",
@@ -38,12 +31,12 @@ def create_source_connector(conn: dict[str, str], schema_name: str, relation: st
                     "database.user": f'{conn["user"]}',
                     "database.password": f'{conn["password"]}',
                     "database.dbname": f'{conn["dbname"]}',
-                    "table.include.list": f"{schema_name}.{relation}",
+                    "table.include.list": f'{conn["schema_name"]}.{conn["relation"]}',
                     "transforms": "unwrap",
                     "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
                     "transforms.unwrap.drop.tombstones": "false",
                     "transforms.unwrap.delete.handling.mode": "rewrite",
-                    "topic.prefix": f"{relation}",
+                    "topic.prefix": f'{conn["relation"]}',
                 },
             },
         )
@@ -77,7 +70,7 @@ def register_sink_value_schema(index: str) -> int:
     }
     """
     avro_schema = Schema(schema_str, "AVRO")
-    sr = SchemaRegistryClient({"url": kafka_config.schema_registry_external_server})
+    sr = SchemaRegistryClient({"url": kafka_config.schema_registry_server})
     schema_id = sr.register_schema(f"{index}-value", avro_schema)
     return schema_id
 
@@ -88,7 +81,7 @@ def return_schema(schema_registry_client: SchemaRegistryClient, schema_id: int) 
     return schema_registry_client.get_schema(schema_id).schema_str
 
 
-def create_sink_connector(conn: dict[str, str], index: str) -> None:
+def create_sink_connector(conn: dict[str, str]) -> None:
     try:
         url = f"{kafka_config.connect_server}/connectors"
         r = requests.post(
@@ -97,12 +90,12 @@ def create_sink_connector(conn: dict[str, str], index: str) -> None:
                 "name": f"sink-connector",
                 "config": {
                     "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
-                    "topics": f"{index}",
+                    "topics": f'{conn["index"]}',
                     "key.ignore": "true",
                     "name": "sink-connector",
                     "value.converter": "io.confluent.connect.avro.AvroConverter",
                     "value.converter.schema.registry.url": f"{kafka_config.schema_registry_internal_server}",
-                    "connection.url": f"{sink_config.server}",
+                    "connection.url": f'{conn["host"]}',
                     "connection.username": f'{conn["user"]}',
                     "connection.password": f'{conn["password"]}',
                 },
@@ -117,14 +110,17 @@ def register_agents(
     topic: str,
     index: str,
     schema_id: int,
-    embedding_fn: Callable[..., Any], # TODO: proper typing
+    embedding_fn: Callable[..., Any],  # TODO: proper typing
     transform_fn: Callable[..., str],
     metadata_fn: Optional[Callable[..., list[str]]],
 ) -> None:
-    source_topic = app.topic(topic, value_serializer="raw")
-    sr_client = SchemaRegistryClient(
-        {"url": kafka_config.schema_registry_external_server}
+    app = App(
+        "realtime",
+        broker=f"kafka://{kafka_config.bootstrap_servers}",
+        value_serializer="raw",
     )
+    source_topic = app.topic(topic, value_serializer="raw")
+    sr_client = SchemaRegistryClient({"url": kafka_config.schema_registry_server})
     schema_str = return_schema(sr_client, schema_id)
     avro_serializer = AvroSerializer(sr_client, schema_str)
     producer_conf = {"bootstrap.servers": kafka_config.bootstrap_servers}

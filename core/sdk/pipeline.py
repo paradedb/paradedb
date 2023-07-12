@@ -71,7 +71,7 @@ class Pipeline:
                     host=self.sink.host,
                     user=self.sink.user,
                     password=self.sink.password,
-                    ssl_assert_fingerprint=self.sink.ssl_assert_fingerprint
+                    ssl_assert_fingerprint=self.sink.ssl_assert_fingerprint,
                 )
         elif isinstance(self.sink, PineconeSink) and isinstance(
             self.target, PineconeTarget

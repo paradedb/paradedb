@@ -23,7 +23,7 @@ git checkout cli # Remove once cli branch is merged into main
 
 # Write .env file
 mkdir -p $ENV_DIR
-cat <<EOF > $ENV_DIR
+cat <<EOF > $ENV_DIR/.env
 KAFKA_HOST=$KAFKA_HOST
 KAFKA_PORT=$KAFKA_PORT
 SCHEMA_REGISTRY_HOST=$SCHEMA_REGISTRY_HOST

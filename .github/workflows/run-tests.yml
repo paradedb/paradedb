@@ -22,6 +22,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+
+
+      - name: Set up CUDA
+        run: |
+          sudo apt-get install nvidia-cuda-toolkit nvidia-cuda-toolkit-gcc
+
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python -

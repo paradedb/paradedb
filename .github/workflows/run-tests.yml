@@ -23,8 +23,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
 
-      - name: Debugging with ssh
-        uses: lhotari/action-upterm@v1
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
         
 
       # Based on https://www.cloudbooklet.com/how-to-set-up-deep-learning-architecture-on-ubuntu-22-04/#install-cuda-toolkit-and-cu-dnn

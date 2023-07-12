@@ -58,4 +58,5 @@ jobs:
       # due to CUDA issue in GH runner
       - name: Run Pytest
         run: |
+          export LD_LIBRARY_PATH=/home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib:$LD_LIBRARY_PATH
           poetry run pytest --ignore=core/transform/tests/test_sentence_transformers.py

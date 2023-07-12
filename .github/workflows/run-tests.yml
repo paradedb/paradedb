@@ -22,11 +22,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+
+      - name: Debugging with ssh
+        uses: lhotari/action-upterm@v1
+        
+
       # Based on https://www.cloudbooklet.com/how-to-set-up-deep-learning-architecture-on-ubuntu-22-04/#install-cuda-toolkit-and-cu-dnn
       - name: Install CUDA & cuDNN
         run: |
           # Install CUDA
-          sudo apt-get install nvidia-cuda-toolkit nvidia-cuda-toolkit-gcc
+          # TODO: reactivate this once the rest works, to save time for now
+          # sudo apt-get install nvidia-cuda-toolkit nvidia-cuda-toolkit-gcc
 
           # Install cuDNN
           # The CUDNN package is initially downloaded from https://developer.nvidia.com/rdp/cudnn-archive, which requires a login to Nvidia Developer Program
@@ -37,6 +43,10 @@ jobs:
           sudo cp include/cudnn.h /usr/lib/cuda/include
           sudo cp lib/libcudnn* /usr/lib/cuda/lib64
           sudo chmod a+r /usr/lib/cuda/include/cudnn.h /usr/lib/cuda/lib64/libcudnn*
+
+          
+          locate cudnn | grep /cudnn$
+
 
 
           export LD_LIBRARY_PATH=/home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib:$LD_LIBRARY_PATH

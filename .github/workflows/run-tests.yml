@@ -24,17 +24,19 @@ jobs:
 
 
 
-      - name: Set up CUDA
+      - name: Install CUDA & CUDNN
         run: |
-          cuda_version=cuda12.1
-          cudnn_version=8.9.3.*
 
           sudo apt-get install nvidia-cuda-toolkit nvidia-cuda-toolkit-gcc
 
-          sudo apt-get install libcudnn8=${cudnn_version}-1+${cuda_version}
-          sudo apt-get install libcudnn8-dev=${cudnn_version}-1+${cuda_version}
-          sudo apt-get install libcudnn8-samples=${cudnn_version}-1+${cuda_version}
+          tar -zvxf cudnn-linux-x86_64-8.9.0.131_cuda12-archive.tar.xz
 
+          cd cudnn-linux-x86_64-8.9.0.131_cuda12-archive
+          
+          sudo cp include/cudnn.h /usr/local/cuda-12.1/include
+          sudo cp lib/libcudnn* /usr/local/cuda-12.1/lib64
+          
+          sudo chmod a+r /usr/local/cuda-12.1/include/cudnn.h /usr/local/cuda-12.1/lib64/libcudnn*
 
 
       - name: Install Poetry

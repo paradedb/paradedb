@@ -26,7 +26,16 @@ jobs:
 
       - name: Set up CUDA
         run: |
+          cuda_version=cuda12.1
+          cudnn_version=8.9.3.*
+
           sudo apt-get install nvidia-cuda-toolkit nvidia-cuda-toolkit-gcc
+
+          sudo apt-get install libcudnn8=${cudnn_version}-1+${cuda_version}
+          sudo apt-get install libcudnn8-dev=${cudnn_version}-1+${cuda_version}
+          sudo apt-get install libcudnn8-samples=${cudnn_version}-1+${cuda_version}
+
+
 
       - name: Install Poetry
         run: |

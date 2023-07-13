@@ -18,12 +18,18 @@ pinecone-client = "^2.2.2"
 elasticsearch = "^8.8.2"
 cohere = "^4.12.0"
 openai = "^0.27.8"
+faust-streaming = "^0.10.14"
+requests = "^2.31.0"
+python-dotenv = "^1.0.0"
+fastavro = "^1.8.0"
+confluent-kafka = "^2.2.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"
 mypy = "^1.4.1"
 pytest = "^7.4.0"
 numpy = "^1.25.1"
+types-requests = "^2.31.0.1"
 
 [build-system]
 requires = ["poetry-core"]

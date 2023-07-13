@@ -103,65 +103,7 @@ services (see `docker-compose.yaml` for details).
 docker compose up
 ```
 
-4. Install the `retake-cli`
-
-```bash
-cd retake_cli && poetry install
-```
-
-5. Configure a source and connector. 
-
-```bash
-poetry run retake-cli init
-```
-
-You will be propmpted for connection details, as well as the database schema and database
-table to connect. **Keep in mind that the table has to exist and have at least
-one record in order for the source connector to correctly create a topic.**
-
-## Deployment
-
-### Prerequisites
-
-- The real-time server should be deployed on an instance with at least 4GB memory.
-- The instance must expose an external port for Kafka. See
-`docker-compose.yaml` file for the recommended configuration.
-
-### Instructions 
-
-1. Run the deploy script. It will use the `main` branch by default, but you
-   can configure this with the `--branch` option.
-
-```bash
-curl https://raw.githubusercontent.com/getretake/retake/main/deploy.sh | bash
-```
-
-2. Once the docker compose stack is ready, run the `init` command with the cli.
-
-```bash
-retake-cli init
-```
-
-You will be prompted for connection details on the source and sink. **Ensure the
-table exists and has at least 1 record so the topic is created correctly.**
-
-### Usage
-
-After the `init` command is done, the realtime server can be integrated with the
-SDK by creating a `RealtimeServer` object:
-
-```python
-my_rt_server = RealtimeServer(host="0.0.0.0")
-```
-
-and you can start the realtime worker with:
-
-```python
-pipeline.pipe_real_time()
-```
-
-The worker will start listening for changes on the table and process the stream
-with the models and transforms you define on the pipeline.
+4. To connect to the development server, refer to the [documentation](https://docs.getretake.com/quickstart/real-time-update).
 
 ## Contributing
 

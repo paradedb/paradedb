@@ -34,6 +34,10 @@
       ]
     },
     {
+      "group": "Deployment",
+      "pages": ["deployment/local", "deployment/aws"]
+    },
+    {
       "group": "Concepts",
       "pages": [
         "concepts/source",
@@ -41,12 +45,9 @@
         "concepts/embedding",
         "concepts/sink",
         "concepts/target",
-        "concepts/pipeline"
+        "concepts/pipeline",
+        "concepts/realtime"
       ]
-    },
-    {
-      "group": "Deployment",
-      "pages": ["deployment/local", "deployment/aws"]
     },
     {
       "group": "Company",

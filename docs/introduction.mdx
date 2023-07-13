@@ -7,20 +7,20 @@ title: Introduction
   August 2023.
 </Info>
 
-Retake is open-source infrastructure for vector data streams, purpose-built for low-latency applications. It ensures that
-your inputs/sources of truth and vectors are always in sync without the time, complexity, and cost of maintaining your own pipelines.
+Retake is open-source infrastructure for vector data streams, purpose-built for synchronizing massive volumes of embeddings at low latency.
+It ensures consistency between your inputs/sources of truth and vectors without the time, complexity, and cost of maintaining your own pipelines.
 
 ## Why Retake
 
-With the growing popularity of vector databases, many sophisticated teams opt to store vectors in separate databases to isolate the resources used by vector
-operations from the rest of their database operations. In situations like this, it's important to have resilient and
-horizontally scalable infrastructure in place for handling vector data streams and keeping vectors in sync with their sources of truth.
+With the growing popularity of vector databases, many sophisticated teams opt to store vectors in separate databases to
+isolate the resources used by vector operations from the rest of their database operations. At large scale,
+it's important to have resilient and horizontally scalable infrastructure that efficiently updates vectors.
 
 Retake is a good fit for you if you:
 
 - Store inputs and vectors separately
 - Want a standalone process that updates vectors in response to input changes in
-  your source database.
+  your source database
 
 For instance, if your inputs are documents stored in a SQL table and your vectors are
 stored in a search engine or a vector database.

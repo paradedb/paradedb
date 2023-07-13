@@ -4,7 +4,7 @@
 
 <p align="center">
     <b>Open Source Infrastructure for Vector Data Streams</b> <br />
-    Retake provides data pipelines that sync vectors with their sources of truth <br />
+    Data pipelines that synchronize vectors with their sources of truth <br />
 </p>
 
 <h3 align="center">
@@ -15,7 +15,7 @@
 ## Installation
 
 Welcome! If you are not a contributor and just want to use Retake, please
-proceed to the [stable version](https://github.com/getretake/retake/tree/main).
+proceed to the [main branch](https://github.com/getretake/retake/tree/main).
 
 To install the Retake Python SDK:
 
@@ -56,10 +56,8 @@ This command will build and install the `retake` SDK locally. You can now
 
 ### Real-Time Server
 
-Built on top of Kafka, the real-time server sits between the source(s) and
-sink(s). It is responsible for all real-time ETL jobs.
-
-#### Local Setup
+Built on top of Kafka, the real-time server sits between source(s) and
+sink(s). It is responsible for all real-time data streams.
 
 To run the real-time server locally:
 
@@ -68,47 +66,41 @@ To run the real-time server locally:
 2. Ensure that Poetry and dependencies are installed (see Python SDK
    instructions above).
 
-3. Start the development server
+3. Start the development server, which is composed of the Kafka broker, Kafka Connect
+and the schema registry. Docker Compose will expose a port for each of the
+services (see `docker-compose.yml` for details).
 
 ```
 docker compose up
 ```
 
-This will start the stack which is composed of the kafka broker, kafka connect
-and the schema registry. Docker compose will expose a port for each of the
-services, see the `docker-compose.yaml` file for details.
-
-Once the servers are ready, install the retake-cli with poetry:
+4. Install the `retake-cli`
 
 ```bash
 cd retake_cli && poetry install
 ```
 
-This will install the retake-cli on the poetry environment, after which you can
-use it with:
+5. Configure a source and connector. 
 
 ```bash
-poetry run retake-cli
+poetry run retake-cli init
 ```
 
-To continue the setup, run the `init` command from the cli. You will be
-propmpted for connection details, as well as the database schema and database
+You will be propmpted for connection details, as well as the database schema and database
 table to connect. **Keep in mind that the table has to exist and have at least
 one record in order for the source connector to correctly create a topic.**
 
-#### Self-hosted Setup
+## Deployment
 
-The Realtime server can be self-hosted, it's recommended to use an instance with
-at least 4GB of memory.
+### Prerequisites
 
-##### Pre-requisites
+- The real-time server should be deployed on an instance with at least 4GB memory.
+- The instance must expose an external port for Kafka. See
+`docker-compose.yml` file for the recommended configuration.
 
-The instance must expose an external port for kafka, see the
-`docker-compose.yaml` file for the recommended configuration.
+### Instructions 
 
-For setting up the self-hosted realtime server:
-
-1. Run the `deploy.sh` script. It will use the `main` branch by default, but you
+1. Run the deploy script. It will use the `main` branch by default, but you
    can configure this with the `--branch` option.
 
 ```bash
@@ -124,7 +116,7 @@ retake-cli init
 You will be prompted for connection details on the source and sink. **Ensure the
 table exists and has at least 1 record so the topic is created correctly.**
 
-#### Usage
+### Usage
 
 After the `init` command is done, the realtime server can be integrated with the
 sdk by creating a `RealtimeServer` object:

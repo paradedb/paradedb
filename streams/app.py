@@ -1,11 +1,17 @@
 import json
+import socket
 from core.sdk.realtime import RealtimeServer
+from core.sdk.source import PostgresSource
+from core.sdk.sink import ElasticSearchSink
 from confluent_kafka import Producer
 from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
 from faust import App, Worker
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, Union
+
+Source = Union[PostgresSource]
+Sink = Union[ElasticSearchSink]
 
 
 def return_schema(
@@ -16,6 +22,14 @@ def return_schema(
     return str(
         schema_registry_client.get_latest_version(subject_name).schema.schema_str
     )
+
+
+def register_connector_conf(server: RealtimeServer, source: Source, sink: Sink):
+    config_topic = "_connector_config"
+    conf = {"bootstrap.servers": server.broker_host, "client.id": socket.gethostname()}
+    producer = Producer(conf)
+    producer.produce(topic, key="source_connector", value=json.dumps(source.config))
+    producer.produce(topic, key="sink_connector", value=json.dumps(sink.config))
 
 
 def register_agents(

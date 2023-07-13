@@ -9,6 +9,18 @@ class ElasticSearchSink(BaseModel):
     ssl_assert_fingerprint: Optional[str] = None
     cloud_id: Optional[str] = None
 
+    @property
+    def config(self):
+        if self.cloud_id is not None:
+            return {"cloud_id": self.cloud_id}
+
+        return {
+            "host": self.host,
+            "user": self.user,
+            "password": self.password,
+            "ssl_assert_fingerprint": self.ssl_assert_fingerprint,
+        }
+
 
 class PineconeSink(BaseModel):
     api_key: str

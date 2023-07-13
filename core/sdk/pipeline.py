@@ -22,7 +22,7 @@ from core.transform.sentence_transformers import (
 )
 from core.transform.cohere import CohereEmbedding as Cohere
 from core.transform.custom import CustomEmbedding as Custom
-from streams.app import register_agents, start_worker
+from streams.app import register_connector_conf, register_agents, start_worker
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
@@ -223,7 +223,7 @@ class Pipeline:
 
         progress_bar.close()
 
-    def pipe_real_time(self, realtime_server: RealtimeServer) -> None:
+    def pipe_real_time(self, server: RealtimeServer) -> None:
         if not self.transform:
             raise ValueError(
                 "Transform expected but got None. Did you forget to provide a transform argument?"
@@ -234,10 +234,11 @@ class Pipeline:
         relation = self.transform.relation
         topic = f"{relation}.{db_schema_name}.{relation}"
 
+        register_connector_conf(self.source, self.sink)
         worker = register_agents(
             topic,
             index,
-            realtime_server,
+            server,
             self.model.create_embeddings,
             self.transform.transform_func,
             self.transform.optional_metadata,

@@ -22,21 +22,37 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python -
+  
+      - name: Configure Poetry
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+
+      - name: Install dependencies
+        run: |
+          poetry install
 
 
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+        
 
       # Based on https://www.cloudbooklet.com/how-to-set-up-deep-learning-architecture-on-ubuntu-22-04/#install-cuda-toolkit-and-cu-dnn
-      - name: Install CUDA, cuDNN & NCCL
+      - name: Install CUDA & cuDNN
         run: |
-          # Install CUDA (we need 11.7 for our tests)
-          # See here: https://developer.nvidia.com/cuda-11-7-0-download-archive?target_os=Linux&target_arch=x86_64&Distribution=Ubuntu&target_version=22.04&target_type=deb_network
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
-          sudo mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600
-          sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub
-          sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /"
-          sudo apt-get update
-          sudo apt-get -y install cuda
-          echo $(nvcc --version)
+          # Install CUDA
+          # TODO: reactivate this once the rest works, to save time for now
+          sudo apt-get install nvidia-cuda-toolkit nvidia-cuda-toolkit-gcc
+
+
+
+
+
+
+
 
           # Install cuDNN
           # The CUDNN package is initially downloaded from https://developer.nvidia.com/rdp/cudnn-archive, which requires a login to Nvidia Developer Program
@@ -49,48 +65,26 @@ jobs:
           sudo chmod a+r /usr/lib/cuda/include/cudnn.h /usr/lib/cuda/lib64/libcudnn*
 
 
-
-          # Install NCCL
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
-          sudo dpkg -i cuda-keyring_1.0-1_all.deb
-          sudo apt-get update
-          sudo apt-get -y install libnccl2 libnccl-dev
-
-
-
-
-
           
-          # locate cudnn | grep /cudnn$
+          locate cudnn | grep /cudnn$
 
 
 
           export LD_LIBRARY_PATH=/usr/lib/cuda/lib64:$LD_LIBRARY_PATH
           
-          # export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 
 
-          # sudo ln -s /usr/lib/x86_64-linux-gnu/libcupti.so /usr/lib/cuda/lib64/libcupti.so.11.7
+          sudo ln -s /usr/lib/cuda/lib64/libcupti.so.11.7 /usr/lib/x86_64-linux-gnu/libcupti.so
 
 
 
 
-          # cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib:$LD_LIBRARY_PATH
-          # sudo ldconfig
-          # ls -l /home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib/libcudnn.so.8
+          cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib:$LD_LIBRARY_PATH
+          sudo ldconfig
+          ls -l /home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib/libcudnn.so.8
 
-      - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python -
 
-      - name: Configure Poetry
-        run: |
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project true
-
-      - name: Install dependencies
-        run: |
-          poetry install
 
       # Tech Debt: Disable sentence_transformer test in GH actions
       # due to CUDA issue in GH runner

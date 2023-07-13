@@ -12,12 +12,12 @@ ELASTICSEARCH_DEFAULT_PORT = "9200"
 
 
 @click.group()
-def cli():
+def cli() -> None:
     pass
 
 
 @click.command()
-def init():
+def init() -> None:
     source_type = questionary.select(
         "What is the source of your data?", choices=["postgres"]
     ).ask()
@@ -61,12 +61,12 @@ def init():
     register_sink_value_schema(sink_conn["sink_index"])
 
 
-def setup_cli():
+def setup_cli() -> None:
     cli.add_command(init)
     cli()
 
 
-def main():
+def main() -> None:
     setup_cli()
 
 

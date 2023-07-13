@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional
 
 
 class PostgresSource(BaseModel):
@@ -8,7 +9,12 @@ class PostgresSource(BaseModel):
 class Source:
     @classmethod
     def Postgres(
-        cls, host: str, database: str, user: str, password: str, port: int
+        cls,
+        host: str,
+        database: str,
+        user: str,
+        password: str,
+        port: int,
     ) -> PostgresSource:
         dsn = (
             f"dbname={database} user={user} password={password} host={host} port={port}"

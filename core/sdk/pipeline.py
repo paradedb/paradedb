@@ -11,6 +11,7 @@ from core.sdk.source import PostgresSource
 from core.sdk.transform import PostgresTransform
 from core.sdk.sink import ElasticSearchSink, PineconeSink
 from core.sdk.target import ElasticSearchTarget, PineconeTarget
+from core.sdk.realtime import RealtimeServer
 from core.load.elasticsearch import ElasticSearchLoader
 from core.load.pinecone import PineconeLoader
 from core.extract.postgres import PostgresExtractor
@@ -20,6 +21,7 @@ from core.transform.sentence_transformers import (
 )
 from core.transform.cohere import CohereEmbedding as Cohere
 from core.transform.custom import CustomEmbedding as Custom
+from streams.app import register_agents, start_worker
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
@@ -41,12 +43,14 @@ class Pipeline:
         embedding: Embedding,
         sink: Sink,
         target: Target,
+        realtime_server: RealtimeServer,
     ):
         self.source = source
         self.transform = transform
         self.embedding = embedding
         self.sink = sink
         self.target = target
+        self.realtime_server = realtime_server
 
         self.extractor = self._get_extractor()
         self.loader = self._get_loader()
@@ -160,13 +164,21 @@ class Pipeline:
 
         progress_bar.close()
 
-    def pipe_real_time(
-        self,
-        cdc_server_url: str,
-        on_success: Callable[..., Any],
-        on_error: Callable[..., Any],
-    ) -> None:
-        raise NotImplementedError("TODO: Implement real-time sync with CDC server")
+    def pipe_real_time(self) -> None:
+        index = self.target.index_name
+        db_schema_name = self.transform.schema_name
+        relation = self.transform.relation
+        topic = f"{relation}.{db_schema_name}.{relation}"
+
+        worker = register_agents(
+            topic,
+            index,
+            self.realtime_server,
+            self.model.create_embeddings,
+            self.transform.transform_func,
+            self.transform.optional_metadata,
+        )
+        start_worker(worker)
 
     def teardown(self) -> None:
         self.extractor.teardown()

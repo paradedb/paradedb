@@ -28,7 +28,7 @@ Follow the [documentation](https://retake.mintlify.app) for usage instructions.
 
 ### Python SDK
 
-To develop and run the Python SDK locally, follow these steps:
+The Python SDK enables users to define and configure vector data pipelines and is responsible for all batch ETL jobs. To develop and run the Python SDK locally:
 
 1. Install Poetry
 
@@ -49,6 +49,22 @@ poetry build
 ```
 
 This command will build and install the `retake` SDK locally. You can now `import retake` from a Python environment.
+
+### Real-Time Server 
+
+Built on top of Kafka, the real-time server sits between the source(s) and sink(s). It is responsible for all real-time ETL jobs.
+
+To run the real-time server locally:
+
+1. Ensure that Docker is installed.
+
+2. Ensure that Poetry and dependencies are installed (see Python SDK instructions above).
+
+3. Start the development server
+
+```
+docker compose up
+```
 
 ## Key Features
 

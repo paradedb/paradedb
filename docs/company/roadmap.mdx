@@ -1,6 +1,6 @@
 ---
 title: "Roadmap"
-description: Last Updated July 7, 2023
+description: Last Updated July 13, 2023
 ---
 
 The goal of this page is to provide transparency into what we're working on, what we've completed, and to align
@@ -13,14 +13,25 @@ Below is a list of high-priority features that the Retake team is working on rig
 - Add MySQL `Source` connections
 - Add NoSQL `Source` connections like MongoDB, Firebase, and AWS S3
 - Add additional embedding models like Cohere, Instructor embeddings, and Google PaLM
-- Add custom embedding functions
 - Add OpenSearch and Algolia `Sink` connections
+- Add more vector database `Sink` connections: Chroma, Weaviate, Qdrant, etc.
 - Build a robust test suite
+- Bringing the real-time update server up to production
 - Support self-hosted AWS deployment capabilities
 
 ### Completed Features
 
 A list of features that have been completed
+
+**July 13, 2023: First MVP of Real-Time Server**
+First MVP of the real-time server between Postgres and ElasticSearch working in a local Docker environment.
+
+**July 11, 2023: More Embedding Models**
+Introducing a wrapper for the Cohere embedding model and support for custom embedding functions.
+
+**July 10, 2023: Pinecone Connector**
+
+Support for Pinecone sinks added.
 
 **July 6, 2023: First MVP**
 

@@ -2,6 +2,25 @@
 title: "Send Real-Time Updates"
 ---
 
-Details coming soon!
+<Warning>
+  Real-time update functionality is still under development. [Join the
+  waitlist](https://retake.typeform.com/to/JTcYtLay) to be notified when it's
+  production ready.
+</Warning>
 
-###
+<Info>
+  **Prerequisite** You must have a real-time server running as per these
+  [instructions](/deployment/local).
+</Info>
+
+Real-time updates are useful when the number of embeddings is very large and batch updates are too expensive.
+Retake provides a real-time server that listens for `Source` changes and incrementally updates the `Sink`.
+Registering your source and sink with the real-time server is just two lines of code.
+
+```bash main.py
+from retake import RealTime
+
+# Host is the address set in the docker-compose.yml file
+realtime_server = RealTime(host="0.0.0.0")
+pipeline.pipe_real_time(realtime_server)
+```

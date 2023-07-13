@@ -25,7 +25,38 @@ pip install retake
 
 Follow the [documentation](https://retake.mintlify.app) for usage instructions.
 
+## Key Features
+
+**:arrows_counterclockwise: Out-of-the-Box Data Sync**
+
+Existing vector stores are siloes that require complex and sometimes brittle
+mechanisms for data synchronization. Retake provides the missing connectors that
+allow seamless data synchronization without the need for extensive configuration
+or third-party tools.
+
+**:rocket: True Real-Time Updates**
+
+Retake's connectors achieve sub-10ms end-to-end data latency, excluding variable
+model inference times.
+
+**:link: Extensible Python SDK**
+
+You can configure any source, sink, transformation, and embedding model as code.
+Joining and filtering tables or adding metadata is easily done from Python
+functions.
+
+**:zap: Scalable and Efficient**
+
+Built on top of Kafka, Retake is designed to handle large volumes of data and
+high-throughput workloads.
+
+**:globe_with_meridians: Deployable Anywhere**
+
+You can run Retake anywhere, from your laptop to a distributed cloud system.
+
 ## Development
+
+If you are a developer who wants to contribute to Retake, follow these instructions to run Retake locally.
 
 ### Python SDK
 
@@ -59,8 +90,6 @@ This command will build and install the `retake` SDK locally. You can now
 Built on top of Kafka, the real-time server sits between source(s) and
 sink(s). It is responsible for all real-time data streams.
 
-To run the real-time server locally:
-
 1. Ensure that Docker and Docker Compose are installed.
 
 2. Ensure that Poetry and dependencies are installed (see Python SDK
@@ -68,7 +97,7 @@ To run the real-time server locally:
 
 3. Start the development server, which is composed of the Kafka broker, Kafka Connect
 and the schema registry. Docker Compose will expose a port for each of the
-services (see `docker-compose.yml` for details).
+services (see `docker-compose.yaml` for details).
 
 ```
 docker compose up
@@ -96,7 +125,7 @@ one record in order for the source connector to correctly create a topic.**
 
 - The real-time server should be deployed on an instance with at least 4GB memory.
 - The instance must expose an external port for Kafka. See
-`docker-compose.yml` file for the recommended configuration.
+`docker-compose.yaml` file for the recommended configuration.
 
 ### Instructions 
 
@@ -119,7 +148,7 @@ table exists and has at least 1 record so the topic is created correctly.**
 ### Usage
 
 After the `init` command is done, the realtime server can be integrated with the
-sdk by creating a `RealtimeServer` object:
+SDK by creating a `RealtimeServer` object:
 
 ```python
 my_rt_server = RealtimeServer(host="0.0.0.0")
@@ -133,35 +162,6 @@ pipeline.pipe_real_time()
 
 The worker will start listening for changes on the table and process the stream
 with the models and transforms you define on the pipeline.
-
-## Key Features
-
-**:arrows_counterclockwise: Out-of-the-Box Data Sync**
-
-Existing vector stores are siloes that require complex and sometimes brittle
-mechanisms for data synchronization. Retake provides the missing connectors that
-allow seamless data synchronization without the need for extensive configuration
-or third-party tools.
-
-**:rocket: True Real-Time Updates**
-
-Retake's connectors achieve sub-10ms end-to-end data latency, excluding variable
-model inference times.
-
-**:link: Extensible Python SDK**
-
-You can configure any source, sink, transformation, and embedding model as code.
-Joining and filtering tables or adding metadata is easily done from Python
-functions.
-
-**:zap: Scalable and Efficient**
-
-Built on top of Kafka, Retake is designed to handle large volumes of data and
-high-throughput workloads.
-
-**:globe_with_meridians: Deployable Anywhere**
-
-You can run Retake anywhere, from your laptop to a distributed cloud system.
 
 ## Contributing
 

@@ -10,6 +10,26 @@ SCHEMA_REGISTRY_INTERNAL_HOST=schema-registry
 KAFKA_CONNECT_HOST=localhost
 KAFKA_CONNECT_PORT=8083
 ENV_DIR="$HOME/.config/retake"
+GIT_BRANCH="main"
+
+# Parse command line options
+VALID_ARGS=$(getopt -o b: --long branch: -- "$@")
+if [[ $? -ne 0 ]]; then
+    exit 1;
+fi
+
+eval set -- "$VALID_ARGS"
+while [ : ]; do
+  case "$1" in
+    -b | --branch)
+        GIT_BRANCH="$2"
+        shift 2
+        ;;
+    --) shift;
+        break
+        ;;
+  esac
+done
 
 get_external_ip() {
   # Query Google Cloud metadata endpoint
@@ -60,6 +80,7 @@ sudo apt install -y git
 echo "Cloning Retake..."
 git clone https://github.com/getretake/retake.git
 cd retake
+git checkout "$GIT_BRANCH"
 
 # Write .env file
 mkdir -p $ENV_DIR

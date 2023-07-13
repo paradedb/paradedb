@@ -1,6 +1,6 @@
 import click
 import questionary
-from realtime_server.connectors import (
+from retake_cli.connectors import (
     create_source_connector,
     create_sink_connector,
     register_sink_value_schema,

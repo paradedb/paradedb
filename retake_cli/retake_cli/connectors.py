@@ -1,6 +1,6 @@
 import requests
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
-from realtime_server.config import KafkaConfig
+from retake_cli.config import KafkaConfig
 
 kafka_config = KafkaConfig()
 

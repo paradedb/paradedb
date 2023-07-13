@@ -12,6 +12,8 @@ services:
       KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
       KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://placeholder_listener:9094
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+    volumes:
+    - kafka_data:/bitnami/kafka
 
   schema-registry:
     image: docker.io/bitnami/schema-registry:7.2.5
@@ -56,3 +58,7 @@ services:
         /etc/confluent/docker/run &
         #
         sleep infinity
+
+volumes:
+  kafka_data:
+    driver: local

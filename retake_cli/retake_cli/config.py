@@ -4,9 +4,18 @@ from typing import Optional
 
 RETAKE_ENV_PATH = os.path.expanduser("~/.config/retake/.env")
 if not load_dotenv(RETAKE_ENV_PATH):
-    raise EnvironmentError(
-        "Make sure the retake environment file exists by running the deploy script"
-    )
+    kafka_host = os.environ.get("KAFKA_HOST")
+    kafka_port = os.environ.get("KAFKA_PORT")
+    schema_registry_host = os.environ.get("SCHEMA_REGISTRY_HOST")
+    schema_registry_port =  os.environ.get("SCHEMA_REGISTRY_PORT")
+    schema_registry_internal_host = os.environ.get("SCHEMA_REGISTRY_INTERNAL_HOST")
+    connect_host = os.environ.get("KAFKA_CONNECT_HOST")
+    connect_port = os.environ.get("KAFKA_CONNECT_PORT")
+
+    if not (kafka_host and kafka_port and schema_registry_host and schema_registry_port and schema_registry_internal_host and connect_host and connect_port):
+        raise EnvironmentError(
+            "No environment variables found. Make sure to export them directly or use the deploy script"
+        )
 
 
 class Config:

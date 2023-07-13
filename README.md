@@ -14,7 +14,8 @@
 
 ## Installation
 
-Welcome! If you are not a contributor and just want to use Retake, please proceed to the [stable version](https://github.com/getretake/retake/tree/main).
+Welcome! If you are not a contributor and just want to use Retake, please
+proceed to the [stable version](https://github.com/getretake/retake/tree/main).
 
 To install the Retake Python SDK:
 
@@ -28,7 +29,9 @@ Follow the [documentation](https://retake.mintlify.app) for usage instructions.
 
 ### Python SDK
 
-The Python SDK enables users to define and configure vector data pipelines and is responsible for all batch ETL jobs. To develop and run the Python SDK locally:
+The Python SDK enables users to define and configure vector data pipelines and
+is responsible for all batch ETL jobs. To develop and run the Python SDK
+locally:
 
 1. Install Poetry
 
@@ -48,17 +51,22 @@ poetry install
 poetry build
 ```
 
-This command will build and install the `retake` SDK locally. You can now `import retake` from a Python environment.
+This command will build and install the `retake` SDK locally. You can now
+`import retake` from a Python environment.
 
-### Real-Time Server 
+### Real-Time Server
 
-Built on top of Kafka, the real-time server sits between the source(s) and sink(s). It is responsible for all real-time ETL jobs.
+Built on top of Kafka, the real-time server sits between the source(s) and
+sink(s). It is responsible for all real-time ETL jobs.
+
+#### Local Setup
 
 To run the real-time server locally:
 
-1. Ensure that Docker is installed.
+1. Ensure that Docker and Docker Compose are installed.
 
-2. Ensure that Poetry and dependencies are installed (see Python SDK instructions above).
+2. Ensure that Poetry and dependencies are installed (see Python SDK
+   instructions above).
 
 3. Start the development server
 
@@ -66,33 +74,108 @@ To run the real-time server locally:
 docker compose up
 ```
 
+This will start the stack which is composed of the kafka broker, kafka connect
+and the schema registry. Docker compose will expose a port for each of the
+services, see the `docker-compose.yaml` file for details.
+
+Once the servers are ready, install the retake-cli with poetry:
+
+```bash
+cd retake_cli && poetry install
+```
+
+This will install the retake-cli on the poetry environment, after which you can
+use it with:
+
+```bash
+poetry run retake-cli
+```
+
+To continue the setup, run the `init` command from the cli. You will be
+propmpted for connection details, as well as the database schema and database
+table to connect. **Keep in mind that the table has to exist and have at least
+one record in order for the source connector to correctly create a topic.**
+
+#### Self-hosted Setup
+
+The Realtime server can be self-hosted, it's recommended to use an instance with
+at least 4GB of memory.
+
+##### Pre-requisites
+
+The instance must expose an external port for kafka, see the
+`docker-compose.yaml` file for the recommended configuration.
+
+For setting up the self-hosted realtime server:
+
+1. Run the `deploy.sh` script. It will use the `main` branch by default, but you
+   can configure this with the `--branch` option.
+
+```bash
+curl https://raw.githubusercontent.com/getretake/retake/main/deploy.sh | bash
+```
+
+2. Once the docker compose stack is ready, run the `init` command with the cli.
+
+```bash
+retake-cli init
+```
+
+You will be prompted for connection details on the source and sink. **Ensure the
+table exists and has at least 1 record so the topic is created correctly.**
+
+#### Usage
+
+After the `init` command is done, the realtime server can be integrated with the
+sdk by creating a `RealtimeServer` object:
+
+```python
+my_rt_server = RealtimeServer(host="0.0.0.0")
+```
+
+and you can start the realtime worker with:
+
+```python
+pipeline.pipe_real_time()
+```
+
+The worker will start listening for changes on the table and process the stream
+with the models and transforms you define on the pipeline.
+
 ## Key Features
 
-**:arrows_counterclockwise:  Out-of-the-Box Data Sync**
+**:arrows_counterclockwise: Out-of-the-Box Data Sync**
 
-Existing vector stores are siloes that require complex and sometimes brittle mechanisms for data synchronization.
-Retake provides the missing connectors that allow seamless data synchronization without the need for extensive
-configuration or third-party tools.
+Existing vector stores are siloes that require complex and sometimes brittle
+mechanisms for data synchronization. Retake provides the missing connectors that
+allow seamless data synchronization without the need for extensive configuration
+or third-party tools.
 
-**:rocket:  True Real-Time Updates**
+**:rocket: True Real-Time Updates**
 
-Retake's connectors achieve sub-10ms end-to-end data latency, excluding variable model inference times.
+Retake's connectors achieve sub-10ms end-to-end data latency, excluding variable
+model inference times.
 
-**:link:  Extensible Python SDK**
+**:link: Extensible Python SDK**
 
-You can configure any source, sink, transformation, and embedding model as code. Joining and filtering tables
-or adding metadata is easily done from Python functions.
+You can configure any source, sink, transformation, and embedding model as code.
+Joining and filtering tables or adding metadata is easily done from Python
+functions.
 
-**:zap:  Scalable and Efficient**
+**:zap: Scalable and Efficient**
 
-Built on top of Kafka, Retake is designed to handle large volumes of data and high-throughput workloads.
+Built on top of Kafka, Retake is designed to handle large volumes of data and
+high-throughput workloads.
 
-**:globe_with_meridians:  Deployable Anywhere**
+**:globe_with_meridians: Deployable Anywhere**
 
 You can run Retake anywhere, from your laptop to a distributed cloud system.
 
 ## Contributing
-For more information on how to contribute, please see our [Contributing Guide](CONTRIBUTING.md).
+
+For more information on how to contribute, please see our
+[Contributing Guide](CONTRIBUTING.md).
 
 ## Licensing
+
 Retake is [Apache 2.0 licensed](LICENSE).

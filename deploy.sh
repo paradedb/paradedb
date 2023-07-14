@@ -117,7 +117,3 @@ sudo usermod -aG docker "${USER}" || true
 # Start stack
 echo "Starting docker compose..."
 sudo -E docker compose up -d
-
-# Install retake-cli
-echo "Installing Retake CLI..."
-pip install retake-cli

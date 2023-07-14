@@ -25,11 +25,19 @@ def return_schema(
 
 
 def register_connector_conf(server: RealtimeServer, source: Source, sink: Sink):
-    config_topic = "_connector_config"
+    config_topic = "_connector-config"
     conf = {"bootstrap.servers": server.broker_host, "client.id": socket.gethostname()}
-    producer = Producer(conf)
-    producer.produce(topic, key="source_connector", value=json.dumps(source.config))
-    producer.produce(topic, key="sink_connector", value=json.dumps(sink.config))
+    p = Producer(conf)
+    try:
+        p.produce(config_topic, key="source-connector", value=json.dumps(source.config))
+        p.produce(config_topic, key="sink-connector", value=json.dumps(sink.config))
+
+    except BufferError:
+        print('%% Local producer queue is full (%d messages awaiting delivery): try again\n' %
+                        len(p))
+    print('%% Waiting for %d deliveries\n' % len(p))
+    p.flush()
+    
 
 
 def register_agents(

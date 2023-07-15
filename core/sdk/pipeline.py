@@ -231,10 +231,10 @@ class Pipeline:
 
         index = self.target.index_name
         db_schema_name = self.transform.schema_name
-        relation = self.transform.relation
-        topic = f"{relation}.{db_schema_name}.{relation}"
+        table_name = self.transform.relation
+        topic = f"{table_name}.{db_schema_name}.{table_name}"
 
-        register_connector_conf(self.source, self.sink)
+        register_connector_conf(server, index, db_schema_name, table_name, self.source, self.sink)
         worker = register_agents(
             topic,
             index,

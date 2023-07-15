@@ -3,7 +3,7 @@ import requests
 from confluent_kafka.admin import AdminClient, NewTopic
 from confluent_kafka import Consumer, KafkaException
 from connectors.config import KafkaConfig
-from connectors.connectors import create_source_connector, register_sink_value_schema, create_sink_connector
+from connectors.connect import create_source_connector, register_sink_value_schema, create_sink_connector
 
 kafka_config = KafkaConfig()
 
@@ -35,7 +35,7 @@ c = Consumer(consumer_conf)
 c.subscribe(topics)
 
 # Read messages from Kafka, print to stdout
-done = True
+done = False
 while not done:
     msg = c.poll(1.0)
 
@@ -47,14 +47,15 @@ while not done:
 
     key = msg.key().decode('utf-8')
     value = msg.value().decode('utf-8')
-    value_dict = json.loads()
+    value_dict = json.loads(value)
 
+    print(value_dict)
     if key == "source-connector":
         create_source_connector(value_dict)
     else:
         if "index" in value_dict:
             create_sink_connector(value_dict)
-            register_sink_value_schema()
+            register_sink_value_schema(value_dict["index"])
         else:
             raise Exception("no index found")
 

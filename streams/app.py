@@ -24,13 +24,21 @@ def return_schema(
     )
 
 
-def register_connector_conf(server: RealtimeServer, source: Source, sink: Sink):
+def register_connector_conf(server: RealtimeServer, index: str, db_schema_name: str, table_name:str, source: Source, sink: Sink):
     config_topic = "_connector-config"
     conf = {"bootstrap.servers": server.broker_host, "client.id": socket.gethostname()}
+
+    # Append table name and schema name to source config
+    source_conf = source.config
+    source_conf["schema_name"] = db_schema_name
+    source_conf["table_name"] = table_name
+    # Append index to sink config
+    sink_conf = sink.config
+    sink_conf["index"] = index
     p = Producer(conf)
     try:
-        p.produce(config_topic, key="source-connector", value=json.dumps(source.config))
-        p.produce(config_topic, key="sink-connector", value=json.dumps(sink.config))
+        p.produce(config_topic, key="source-connector", value=json.dumps(source_conf))
+        p.produce(config_topic, key="sink-connector", value=json.dumps(sink_conf))
 
     except BufferError:
         print('%% Local producer queue is full (%d messages awaiting delivery): try again\n' %

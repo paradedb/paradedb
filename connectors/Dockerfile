@@ -1,9 +1,11 @@
 FROM python:3.11-slim
 
-WORKDIR /usr/src/app
+WORKDIR /usr/src
 
 RUN pip install --no-cache-dir confluent-kafka==2.2.0 requests==2.31.0
 
-COPY . .
+ENV PYTHONPATH "${PYTHONPATH}:./connectors"
 
-CMD [ "python", "-u", "./consumer.py" ]
+COPY . ./connectors
+
+CMD [ "python", "-u", "connectors/consumer.py" ]

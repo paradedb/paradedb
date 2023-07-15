@@ -36,9 +36,10 @@ jobs:
           poetry install
 
 
+
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
-        
+
 
       # Based on https://www.cloudbooklet.com/how-to-set-up-deep-learning-architecture-on-ubuntu-22-04/#install-cuda-toolkit-and-cu-dnn
       - name: Install CUDA & cuDNN

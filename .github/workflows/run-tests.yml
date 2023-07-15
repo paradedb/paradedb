@@ -45,45 +45,32 @@ jobs:
       - name: Install CUDA & cuDNN
         run: |
           # Install CUDA
-          # TODO: reactivate this once the rest works, to save time for now
-          sudo apt-get install nvidia-cuda-toolkit nvidia-cuda-toolkit-gcc
-
-
-
-
-
-
-
+          cd /temp
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
+          sudo mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600
+          wget https://developer.download.nvidia.com/compute/cuda/11.7.1/local_installers/cuda-repo-ubuntu2204-11-7-local_11.7.1-515.65.01-1_amd64.deb
+          sudo dpkg -i cuda-repo-ubuntu2204-11-7-local_11.7.1-515.65.01-1_amd64.deb
+          sudo cp /var/cuda-repo-ubuntu2204-11-7-local/cuda-*-keyring.gpg /usr/share/keyrings/
+          sudo apt-get update
+          sudo apt-get -y install cuda
+          
+          # Environment variables
+          sudo nano ~/.bashrc
+          export PATH=/usr/local/cuda-11.7/bin${PATH:+:${PATH}}
+          export LD_LIBRARY_PATH=/usr/local/cuda-11.7/lib64:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=/usr/local/cuda-11.7/include:$LD_LIBRARY_PATH
 
           # Install cuDNN
-          # The CUDNN package is initially downloaded from https://developer.nvidia.com/rdp/cudnn-archive, which requires a login to Nvidia Developer Program
-          wget -q https://retake-ci-assets.s3.amazonaws.com/cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
-          tar -xf cudnn-linux-x86_64-8.9.2.26_cuda12-archive.tar.xz
-          cd cudnn-linux-x86_64-8.9.2.26_cuda12-archive
-          
-          sudo cp include/cudnn.h /usr/lib/cuda/include
-          sudo cp lib/libcudnn* /usr/lib/cuda/lib64
-          sudo chmod a+r /usr/lib/cuda/include/cudnn.h /usr/lib/cuda/lib64/libcudnn*
-
-
-          
-          locate cudnn | grep /cudnn$
+          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
+          sudo mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600
+          sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub
+          sudo add-apt-repository "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /"
+          sudo apt-get update
+          sudo apt-get install libcudnn8=8.5.0.*-1+cuda11.7
+          sudo apt-get install libcudnn8-dev=8.5.0.*-1+cuda11.7
 
 
 
-          export LD_LIBRARY_PATH=/usr/lib/cuda/lib64:$LD_LIBRARY_PATH
-          
-          export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
-
-
-          sudo ln -s /usr/lib/cuda/lib64/libcupti.so.11.7 /usr/lib/x86_64-linux-gnu/libcupti.so
-
-
-
-
-          cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib:$LD_LIBRARY_PATH
-          sudo ldconfig
-          ls -l /home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib/libcudnn.so.8
 
 
 
@@ -91,7 +78,4 @@ jobs:
       # due to CUDA issue in GH runner
       - name: Run Pytest
         run: |
-          export LD_LIBRARY_PATH=/home/ubuntu/cudnn-linux-x86_64-8.9.2.26_cuda12-archive/lib:$LD_LIBRARY_PATH
-
-
           poetry run pytest --ignore=core/transform/tests/test_sentence_transformers.py

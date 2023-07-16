@@ -4,6 +4,7 @@ from core.sdk.pipeline import Pipeline
 from core.extract.postgres import PostgresExtractor
 from core.load.elasticsearch import ElasticSearchLoader
 from core.transform.custom import CustomEmbedding
+from core.sdk.realtime import RealtimeServer
 
 
 def test_postgres_to_elasticsearch(
@@ -23,6 +24,7 @@ def test_postgres_to_elasticsearch(
         embedding=custom_embedding,
         sink=elasticsearch_sink,
         target=elasticsearch_target,
+        realtime_server=RealtimeServer(host="0.0.0.0"),
     )
 
     loader = pipeline._get_loader()

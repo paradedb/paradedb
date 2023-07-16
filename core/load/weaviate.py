@@ -64,7 +64,7 @@ class WeaviateLoader(Loader):
 
         data_object = metadata if metadata else {}
 
-        with self.wc.batch(batch_size=DEFAULT_BATCH_SIZE) as batch:
+        with self.wc.batch(batch_size=DEFAULT_BATCH_SIZE):
             if embedding:
                 self.wc.batch.add_data_object(
                     class_name=class_name,

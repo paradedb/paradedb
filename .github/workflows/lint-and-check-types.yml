@@ -41,4 +41,4 @@ jobs:
 
       - name: Run mypy
         run: |
-          poetry run mypy core/ retake/
+          poetry run mypy core/ retake/ streams/

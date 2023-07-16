@@ -1,5 +1,5 @@
 from tqdm import tqdm
-from typing import Union, Tuple, Callable, Any, Optional, Dict, cast
+from typing import Union, Tuple, Callable, Any, Optional, Dict, List, cast
 
 from core.sdk.embedding import (
     OpenAIEmbedding,
@@ -35,15 +35,17 @@ Extractor = Union[PostgresExtractor]
 Loader = Union[ElasticSearchLoader, PineconeLoader, WeaviateLoader]
 Model = Union[OpenAI, SentenceTransformer, Cohere, Custom]
 
+BATCH_SIZE = 100
+
 
 class Pipeline:
     def __init__(
         self,
         source: Source,
-        transform: Transform,
-        embedding: Embedding,
         sink: Sink,
         target: Target,
+        embedding: Embedding,
+        transform: Optional[Transform] = None,
     ):
         self.source = source
         self.transform = transform
@@ -104,17 +106,70 @@ class Pipeline:
             raise ValueError("Invalid Embedding type")
 
     def _apply_transform(self, row: Tuple[str, ...]) -> str:
+        if not self.transform:
+            raise ValueError("Transform expected but got None")
+
         return cast(str, self.transform.transform_func(*row))
 
     def _create_metadata(self, row: Tuple[str, ...]) -> Dict[str, Any]:
-        if self.transform.optional_metadata:
-            return cast(Dict[str, Any], self.transform.optional_metadata(*row))
-        else:
+        if not self.transform:
+            raise ValueError("Transform expected but got None")
+
+        if not self.transform.optional_metadata:
             raise ValueError("_create_metadata called when optional_metadata is None")
 
-    def pipe_once(self, verbose: bool = True) -> None:
+        return cast(Dict[str, Any], self.transform.optional_metadata(*row))
+
+    def pipe(
+        self,
+        ids: List[Union[str, int]],
+        embeddings: Optional[List[List[float]]],
+        documents: Optional[List[str]],
+        metadata: Optional[List[Dict[str, Any]]],
+        verbose: bool = True,
+    ) -> None:
+        if not embeddings and not documents:
+            raise ValueError("Both embeddings and documents cannot be None")
+
+        if embeddings and documents:
+            raise ValueError("Both embeddings and documents cannot be provided")
+
+        num_rows = len(ids)
+        num_batches = num_rows // BATCH_SIZE
+        progress_bar = tqdm(
+            total=num_rows,
+            desc="Piping embeddings",
+            disable=not verbose,
+        )
+
+        for i in range(num_batches + 1):
+            start = i * BATCH_SIZE
+            end = (i + 1) * BATCH_SIZE
+
+            batch_ids = ids[start:end]
+            batch_embeddings = embeddings[start:end] if embeddings else None
+            batch_documents = documents[start:end] if documents else None
+            batch_metadata = metadata[start:end] if metadata else None
+
+            if batch_documents:
+                batch_embeddings = self.model.create_embeddings(batch_documents)
+
+            self.loader.bulk_upsert_embeddings(
+                target=self.target,  # type: ignore
+                embeddings=cast(List[List[float]], batch_embeddings),
+                ids=batch_ids,
+                metadata=batch_metadata,
+            )
+
+            progress_bar.update(BATCH_SIZE)
+
+        progress_bar.close()
+
+    def pipe_all(self, verbose: bool = True) -> None:
+        if not self.transform:
+            raise ValueError("Transform expected but got None")
+
         total_rows = self.extractor.count(self.transform.relation)
-        chunk_size = 100
         index_checked = False
 
         progress_bar = tqdm(
@@ -127,7 +182,7 @@ class Pipeline:
             relation=self.transform.relation,
             columns=self.transform.columns,
             primary_key=self.transform.primary_key,
-            chunk_size=chunk_size,
+            chunk_size=BATCH_SIZE,
         ):
             rows = chunk.get("rows")
             primary_keys = chunk.get("primary_keys")
@@ -141,23 +196,6 @@ class Pipeline:
                     else None
                 )
                 embeddings = self.model.create_embeddings(documents)
-
-                # Ensure that Target and Loader types match
-                if (
-                    (
-                        isinstance(self.target, ElasticSearchTarget)
-                        and not isinstance(self.loader, ElasticSearchLoader)
-                    )
-                    or (
-                        isinstance(self.target, PineconeTarget)
-                        and not isinstance(self.loader, PineconeLoader)
-                    )
-                    or (
-                        isinstance(self.target, WeaviateTarget)
-                        and not isinstance(self.loader, WeaviateLoader)
-                    )
-                ):
-                    raise ValueError("Target and Loader types do not match")
 
                 # Check and setup index
                 if not index_checked:
@@ -175,11 +213,14 @@ class Pipeline:
                     metadata=metadata_list,
                 )
 
-            progress_bar.update(chunk_size)
+            progress_bar.update(BATCH_SIZE)
 
         progress_bar.close()
 
     def pipe_real_time(self, realtime_server: RealtimeServer) -> None:
+        if not self.transform:
+            raise ValueError("Transform expected but got None")
+
         index = self.target.index_name
         db_schema_name = self.transform.schema_name
         relation = self.transform.relation

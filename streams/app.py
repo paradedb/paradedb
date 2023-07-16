@@ -13,7 +13,9 @@ def return_schema(
 ) -> str:
     # The result is cached so subsequent attempts will not
     # require an additional round-trip to the Schema Registry.
-    return schema_registry_client.get_latest_version(subject_name).schema.schema_str
+    return str(
+        schema_registry_client.get_latest_version(subject_name).schema.schema_str
+    )
 
 
 def register_agents(

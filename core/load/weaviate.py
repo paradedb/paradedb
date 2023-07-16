@@ -51,34 +51,7 @@ class WeaviateLoader(Loader):
         if not self._check_index_exists(index_name=index_name):
             self._create_index(index_name=index_name)
 
-    def upsert_embedding(
-        self,
-        target: WeaviateTarget,
-        embedding: Optional[List[float]],
-        id: Union[str, int],
-        metadata: Optional[Dict[str, Any]],
-    ) -> None:
-        class_name = target.index_name
-        vectorizer = target.default_vectorizer
-        vectorizer_config = target.default_vectorizer_config
-
-        data_object = metadata if metadata else {}
-
-        with self.wc.batch(batch_size=DEFAULT_BATCH_SIZE) as batch:
-            if embedding:
-                self.wc.batch.add_data_object(
-                    class_name=class_name,
-                    data_object=data_object,
-                    vector=embedding,
-                    uuid=str(uuid.uuid5(UUID_NAMESPACE, str(id))),
-                )
-            else:
-                self.wc.batch.add_data_object(
-                    class_name=class_name,
-                    data_object=data_object,
-                    uuid=str(uuid.uuid5(UUID_NAMESPACE, str(id))),
-                )
-
+    @Loader.validate
     def bulk_upsert_embeddings(
         self,
         target: WeaviateTarget,

@@ -2,7 +2,7 @@ name: "Run tests"
 
 on:
   pull_request:
-    branches: [dev, staging, main]
+    branches: [dev, staging, main, feat/more-tests]
     # paths:
     #   - "core/**"
     #   - "retake/**"

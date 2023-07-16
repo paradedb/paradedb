@@ -57,6 +57,7 @@ jobs:
           sudo apt-get -y install libcudnn8-dev=8.5.0.*-1+cuda11.7
 
           # Install NCCL
+          # Based on: https://developer.nvidia.com/nccl/nccl-download (NCCL is not available for CUDA 11.7, so we pick 12.2)
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
           sudo dpkg -i cuda-keyring_1.0-1_all.deb
           sudo apt-get -y update

@@ -32,7 +32,7 @@ jobs:
       - name: Set Environment
         id: env
         run: |
-          if [[ "${{ github.ref }}" == "refs/heads/prod" ]]; then
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "environment=staging" >> $GITHUB_OUTPUT

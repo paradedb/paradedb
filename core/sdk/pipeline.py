@@ -162,14 +162,14 @@ class Pipeline:
                 # Check and setup index
                 if not index_checked:
                     self.loader.check_and_setup_index(
-                        target=self.target, # type: ignore
+                        target=self.target,  # type: ignore
                         num_dimensions=len(embeddings[0]),
                     )
                     index_checked = True
 
                 # Upsert embeddings
                 self.loader.bulk_upsert_embeddings(
-                    target=self.target, # type: ignore
+                    target=self.target,  # type: ignore
                     embeddings=embeddings,
                     ids=primary_keys,
                     metadata=metadata_list,

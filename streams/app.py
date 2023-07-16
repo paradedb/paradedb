@@ -40,13 +40,9 @@ def register_connector_conf(
     source_conf["schema_name"] = db_schema_name
     source_conf["table_name"] = table_name
 
-    source_conf["host"] = "postgres"
-
     # Append index to sink config
     sink_conf = sink.config
     sink_conf["index"] = index
-
-    sink_conf["host"] = "http://elasticsearch:9200"
 
     p = Producer(conf)
     try:

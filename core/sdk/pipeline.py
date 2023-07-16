@@ -9,11 +9,12 @@ from core.sdk.embedding import (
 )
 from core.sdk.source import PostgresSource
 from core.sdk.transform import PostgresTransform
-from core.sdk.sink import ElasticSearchSink, PineconeSink
-from core.sdk.target import ElasticSearchTarget, PineconeTarget
+from core.sdk.sink import ElasticSearchSink, PineconeSink, WeaviateSink
+from core.sdk.target import ElasticSearchTarget, PineconeTarget, WeaviateTarget
 from core.sdk.realtime import RealtimeServer
 from core.load.elasticsearch import ElasticSearchLoader
 from core.load.pinecone import PineconeLoader
+from core.load.weaviate import WeaviateLoader
 from core.extract.postgres import PostgresExtractor
 from core.transform.openai import OpenAIEmbedding as OpenAI
 from core.transform.sentence_transformers import (
@@ -28,10 +29,10 @@ Transform = Union[PostgresTransform]
 Embedding = Union[
     OpenAIEmbedding, SentenceTransformerEmbedding, CohereEmbedding, CustomEmbedding
 ]
-Sink = Union[ElasticSearchSink, PineconeSink]
-Target = Union[ElasticSearchTarget, PineconeTarget]
+Sink = Union[ElasticSearchSink, PineconeSink, WeaviateSink]
+Target = Union[ElasticSearchTarget, PineconeTarget, WeaviateTarget]
 Extractor = Union[PostgresExtractor]
-Loader = Union[ElasticSearchLoader, PineconeLoader]
+Loader = Union[ElasticSearchLoader, PineconeLoader, WeaviateLoader]
 Model = Union[OpenAI, SentenceTransformer, Cohere, Custom]
 
 
@@ -43,14 +44,12 @@ class Pipeline:
         embedding: Embedding,
         sink: Sink,
         target: Target,
-        realtime_server: RealtimeServer,
     ):
         self.source = source
         self.transform = transform
         self.embedding = embedding
         self.sink = sink
         self.target = target
-        self.realtime_server = realtime_server
 
         self.extractor = self._get_extractor()
         self.loader = self._get_loader()
@@ -79,6 +78,15 @@ class Pipeline:
             return PineconeLoader(
                 api_key=self.sink.api_key,
                 environment=self.sink.environment,
+            )
+        elif isinstance(self.sink, WeaviateSink) and isinstance(
+            self.target, WeaviateTarget
+        ):
+            return WeaviateLoader(
+                api_key=self.sink.api_key,
+                url=self.sink.url,
+                default_vectorizer=self.target.default_vectorizer,
+                default_vectorizer_config=self.target.default_vectorizer_config,
             )
         else:
             raise ValueError("Target and Sink types do not match")
@@ -134,27 +142,34 @@ class Pipeline:
                 )
                 embeddings = self.model.create_embeddings(documents)
 
-                # Appease Mypy by ensuring that Target and Loader types match
-                if not (
-                    isinstance(self.target, ElasticSearchTarget)
-                    and isinstance(self.loader, ElasticSearchLoader)
-                ) or (
-                    isinstance(self.target, PineconeTarget)
-                    and not isinstance(self.loader, PineconeLoader)
+                # Ensure that Target and Loader types match
+                if (
+                    (
+                        isinstance(self.target, ElasticSearchTarget)
+                        and not isinstance(self.loader, ElasticSearchLoader)
+                    )
+                    or (
+                        isinstance(self.target, PineconeTarget)
+                        and not isinstance(self.loader, PineconeLoader)
+                    )
+                    or (
+                        isinstance(self.target, WeaviateTarget)
+                        and not isinstance(self.loader, WeaviateLoader)
+                    )
                 ):
                     raise ValueError("Target and Loader types do not match")
 
                 # Check and setup index
                 if not index_checked:
                     self.loader.check_and_setup_index(
-                        target=self.target,
+                        target=self.target,  # type: ignore
                         num_dimensions=len(embeddings[0]),
                     )
                     index_checked = True
 
                 # Upsert embeddings
                 self.loader.bulk_upsert_embeddings(
-                    target=self.target,
+                    target=self.target,  # type: ignore
                     embeddings=embeddings,
                     ids=primary_keys,
                     metadata=metadata_list,
@@ -164,7 +179,7 @@ class Pipeline:
 
         progress_bar.close()
 
-    def pipe_real_time(self) -> None:
+    def pipe_real_time(self, realtime_server: RealtimeServer) -> None:
         index = self.target.index_name
         db_schema_name = self.transform.schema_name
         relation = self.transform.relation
@@ -173,7 +188,7 @@ class Pipeline:
         worker = register_agents(
             topic,
             index,
-            self.realtime_server,
+            realtime_server,
             self.model.create_embeddings,
             self.transform.transform_func,
             self.transform.optional_metadata,

@@ -40,8 +40,6 @@ class ElasticSearchLoader(Loader):
         self.index = index
         self.similarity = similarity
 
-    ### Private Methods ###
-
     def _check_index_exists(self, index_name: str) -> bool:
         return cast(bool, self.es.indices.exists(index=index_name))
 
@@ -70,6 +68,8 @@ class ElasticSearchLoader(Loader):
             mapping["properties"][field_name]["similarity"] = self.similarity
 
         self.es.indices.create(index=index_name, mappings=mapping)
+
+    ### Public Methods ###
 
     def check_and_setup_index(
         self, target: ElasticSearchTarget, num_dimensions: int

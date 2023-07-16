@@ -27,6 +27,8 @@ class PineconeLoader(Loader):
     def _create_index(self, index_name: str, num_dimensions: int) -> None:
         pinecone.create_index(index_name, dimension=num_dimensions)
 
+    ### Public Methods ###
+
     def check_and_setup_index(
         self, target: PineconeTarget, num_dimensions: int
     ) -> None:
@@ -41,7 +43,6 @@ class PineconeLoader(Loader):
                     f"Index {index_name} already exists with {index_dimensions} dimensions but embedding has {num_dimensions}"
                 )
 
-    ### Public Methods ###
     def upsert_embedding(
         self,
         target: PineconeTarget,

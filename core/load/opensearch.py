@@ -8,6 +8,8 @@ class OpenSearchLoader(Loader):
     def __init__(self) -> None:
         pass
 
+    ### Public Methods ###
+
     def check_and_setup_index(
         self, index_name: str, field_name: str, num_dimensions: int
     ) -> None:

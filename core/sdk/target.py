@@ -1,12 +1,21 @@
 from pydantic import BaseModel
 from enum import Enum
-from typing import Optional
+from typing import Optional, Dict
 
 
 class Similarity(Enum):
     L2_NORM = "l2_norm"
     DOT_PRODUCT = "dot_product"
     COSINE = "cosine"
+
+
+class WeaviateVecotorizer(Enum):
+    COHERE = "text2vec-cohere"
+    OPENAI = "text2vec-openai"
+    PALM = "text2vec-palm"
+    HUGGINGFACE = "text2vec-huggingface"
+    TRANSFORMERS = "text2vec-transformers"
+    CONTEXTIONARY = "text2vec-contextionary"
 
 
 class ElasticSearchTarget(BaseModel):
@@ -23,7 +32,8 @@ class PineconeTarget(BaseModel):
 
 class WeaviateTarget(BaseModel):
     index_name: str
-    field_name: str
+    default_vectorizer: WeaviateVecotorizer
+    default_vectorizer_config: Dict[str, str]
 
 
 class Target:
@@ -50,8 +60,14 @@ class Target:
         )
 
     @classmethod
-    def Weaviate(cls, index_name: str, field_name: str) -> WeaviateTarget:
+    def Weaviate(
+        cls,
+        index_name: str,
+        default_vectorizer: WeaviateVecotorizer,
+        default_vectorizer_config: Dict[str, str],
+    ) -> WeaviateTarget:
         return WeaviateTarget(
             index_name=index_name,
-            field_name=field_name,
+            default_vectorizer=default_vectorizer,
+            default_vectorizer_config=default_vectorizer_config,
         )

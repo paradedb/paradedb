@@ -87,6 +87,8 @@ class Pipeline:
             return WeaviateLoader(
                 api_key=self.sink.api_key,
                 url=self.sink.url,
+                default_vectorizer=self.target.default_vectorizer,
+                default_vectorizer_config=self.target.default_vectorizer_config,
             )
         else:
             raise ValueError("Target and Sink types do not match")
@@ -143,18 +145,18 @@ class Pipeline:
                 embeddings = self.model.create_embeddings(documents)
 
                 # Appease Mypy by ensuring that Target and Loader types match
-                if not (
+                if (
                     (
                         isinstance(self.target, ElasticSearchTarget)
-                        and isinstance(self.loader, ElasticSearchLoader)
+                        and not isinstance(self.loader, ElasticSearchLoader)
                     )
                     or (
                         isinstance(self.target, PineconeTarget)
-                        and isinstance(self.loader, PineconeLoader)
+                        and not isinstance(self.loader, PineconeLoader)
                     )
                     or (
                         isinstance(self.target, WeaviateTarget)
-                        and isinstance(self.loader, WeaviateLoader)
+                        and not isinstance(self.loader, WeaviateLoader)
                     )
                 ):
                     raise ValueError("Target and Loader types do not match")

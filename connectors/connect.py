@@ -4,40 +4,59 @@ from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
 from connectors.config import KafkaConfig
 
 kafka_config = KafkaConfig()
-print(kafka_config.bootstrap_servers)
-print(kafka_config.connect_server)
-print(kafka_config.schema_registry_server)
+
+
+def create_connector(connector_config):
+    max_retries = 15
+    retry_count = 0
+    while retry_count < max_retries:
+        try:
+            time.sleep(1)  # Wait for 1 second before retrying
+            url = f"{kafka_config.connect_server}/connectors"
+            r = requests.post(
+                url,
+                json=connector_config,
+            )
+            if r.status_code == 200 or r.status_code == 201:
+                print("Connector successfully created")
+                break
+            else:
+                print("Failed to create connector, retrying...")
+                retry_count += -1
+                continue
+        except requests.exceptions.ConnectionError:
+            print("Kafka connect server is not yet available, retrying...")
+            retry_count += 1
+            continue
+        except Exception as e:
+            # TODO: handle
+            print(e)
 
 
 def create_source_connector(conn: dict[str, str]) -> None:
     print("creating source connector...")
-    try:
-        url = f"{kafka_config.connect_server}/connectors"
-        r = requests.post(
-            url,
-            json={
-                "name": f'{conn["table_name"]}-connector',
-                "config": {
-                    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-                    "plugin.name": "pgoutput",
-                    "value.converter": "org.apache.kafka.connect.json.JsonConverter",  # TODO: support avro
-                    "database.hostname": f'{conn["host"]}',
-                    "database.port": f'{conn["port"]}',
-                    "database.user": f'{conn["user"]}',
-                    "database.password": f'{conn["password"]}',
-                    "database.dbname": f'{conn["dbname"]}',
-                    "table.include.list": f'{conn["schema_name"]}.{conn["table_name"]}',
-                    "transforms": "unwrap",
-                    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
-                    "transforms.unwrap.drop.tombstones": "false",
-                    "transforms.unwrap.delete.handling.mode": "rewrite",
-                    "topic.prefix": f'{conn["table_name"]}',
-                },
+    create_connector(
+        {
+            "name": f'{conn["table_name"]}-connector',
+            "config": {
+                "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+                "plugin.name": "pgoutput",
+                "value.converter": "io.confluent.connect.avro.AvroConverter",
+                "value.converter.schema.registry.url": kafka_config.schema_registry_server,
+                "database.hostname": f'{conn["host"]}',
+                "database.port": f'{conn["port"]}',
+                "database.user": f'{conn["user"]}',
+                "database.password": f'{conn["password"]}',
+                "database.dbname": f'{conn["dbname"]}',
+                "table.include.list": f'{conn["schema_name"]}.{conn["table_name"]}',
+                "transforms": "unwrap",
+                "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+                "transforms.unwrap.drop.tombstones": "false",
+                "transforms.unwrap.delete.handling.mode": "rewrite",
+                "topic.prefix": f'{conn["table_name"]}',
             },
-        )
-    except Exception as e:
-        # TODO: handle
-        print(e)
+        }
+    )
 
 
 def register_sink_value_schema(index: str) -> None:
@@ -82,26 +101,20 @@ def register_sink_value_schema(index: str) -> None:
 
 
 def create_sink_connector(conn: dict[str, str]) -> None:
-    print("creating sink connector...")
-    try:
-        url = f"{kafka_config.connect_server}/connectors"
-        r = requests.post(
-            url,
-            json={
-                "name": f"sink-connector",
-                "config": {
-                    "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
-                    "topics": f'{conn["index"]}',
-                    "key.ignore": "true",
-                    "name": "sink-connector",
-                    "value.converter": "io.confluent.connect.avro.AvroConverter",
-                    "value.converter.schema.registry.url": f"{kafka_config.schema_registry_server}",
-                    "connection.url": f'{conn["host"]}',
-                    "connection.username": f'{conn["user"]}',
-                    "connection.password": f'{conn["password"]}',
-                },
+    print("Creating sink connector")
+    create_connector(
+        {
+            "name": f"sink-connector",
+            "config": {
+                "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
+                "topics": f'{conn["index"]}',
+                "key.ignore": "true",
+                "name": "sink-connector",
+                "value.converter": "io.confluent.connect.avro.AvroConverter",
+                "value.converter.schema.registry.url": f"{kafka_config.schema_registry_server}",
+                "connection.url": f'{conn["host"]}',
+                "connection.username": f'{conn["user"]}',
+                "connection.password": f'{conn["password"]}',
             },
-        )
-    except Exception as e:
-        # TODO: handle
-        print(e)
+        }
+    )

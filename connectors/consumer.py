@@ -86,7 +86,7 @@ def main():
     }
 
     admin = AdminClient({"bootstrap.servers": kafka_config.bootstrap_servers})
-    topics = ["_connector_config"]
+    topics = ["_connector_config", "_config_success"]
     create_topics(admin, topics)
 
     consumer = Consumer(consumer_conf)

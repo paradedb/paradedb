@@ -6,7 +6,7 @@ from core.sdk.sink import ElasticSearchSink
 from confluent_kafka import Producer, Consumer
 from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient
-from confluent_kafka.schema_registry.avro import AvroSerializer
+from confluent_kafka.schema_registry.avro import AvroSerializer, AvroDeserializer
 from faust import App, Worker
 from typing import Callable, Any, Optional, Union
 
@@ -40,9 +40,13 @@ def register_connector_conf(
     source_conf["schema_name"] = db_schema_name
     source_conf["table_name"] = table_name
 
+    source_conf["host"] = "postgres"
+
     # Append index to sink config
     sink_conf = sink.config
     sink_conf["index"] = index
+
+    sink_conf["host"] = "http://elasticsearch:9200"
 
     p = Producer(conf)
     try:
@@ -100,11 +104,20 @@ def register_agents(
         broker=f"kafka://{server.broker_host}",
         value_serializer="raw",
     )
-    source_topic = app.topic(topic, value_serializer="raw")
+    # Create schema registry client
     sr_client = SchemaRegistryClient({"url": server.schema_registry_url})
+
+    # Source
+    source_topic = app.topic(topic, value_serializer="raw")
+    subject_name = f"{topic}-value"
+    source_schema_str = return_schema(sr_client, subject_name)
+    avro_deserializer = AvroDeserializer(sr_client, source_schema_str)
+
+    # Sink
     subject_name = f"{index}-value"
-    schema_str = return_schema(sr_client, subject_name)
-    avro_serializer = AvroSerializer(sr_client, schema_str)
+    sink_schema_str = return_schema(sr_client, subject_name)
+    avro_serializer = AvroSerializer(sr_client, sink_schema_str)
+
     producer_conf = {"bootstrap.servers": server.broker_host}
     producer = Producer(producer_conf)
 
@@ -112,26 +125,27 @@ def register_agents(
     async def process_records(records: Any) -> None:
         async for record in records:
             if record is not None:
-                data = json.loads(record)
-                payload = data["payload"]
-                print(payload)
-                if payload["__deleted"] == "true":
+                data = avro_deserializer(
+                    record, SerializationContext(source_topic, MessageField.VALUE)
+                )
+                print(data)
+                if data["__deleted"] == "true":
                     print("record was deleted, removing embedding...")
                 else:
                     # TODO: Make distinction when update or new record
-                    payload.pop("__deleted")
-                    document = transform_fn(*payload)
+                    data.pop("__deleted")
+                    document = transform_fn(*data)
                     embedding = embedding_fn(document)
 
                     metadata = []
                     if metadata_fn is not None:
-                        metadata = metadata_fn(*payload)
+                        metadata = metadata_fn(*data)
 
                     message = {"doc": embedding, "metadata": metadata}
                     producer.produce(
                         topic=index,
                         value=avro_serializer(
-                            message, SerializationContext(topic, MessageField.VALUE)
+                            message, SerializationContext(index, MessageField.VALUE)
                         ),
                     )
 

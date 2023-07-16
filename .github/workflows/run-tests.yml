@@ -3,9 +3,9 @@ name: "Run tests"
 on:
   pull_request:
     branches: [dev, staging, main]
-    paths:
-      - "core/**"
-      - "retake/**"
+    # paths:
+    #   - "core/**"
+    #   - "retake/**"
 
 jobs:
   build:

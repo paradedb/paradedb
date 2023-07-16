@@ -30,6 +30,7 @@ services:
     image: consumer
     depends_on:
     - kafka
+    - schema-registry
     - connect
     build:
       context: ./connectors

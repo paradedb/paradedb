@@ -20,6 +20,7 @@ if not (
         "No environment variables found. Make sure to export them directly or use the deploy script"
     )
 
+
 class Config:
     def get_property(self, property_name: str) -> Optional[str]:
         value = os.environ.get(property_name)

@@ -1,4 +1,5 @@
 import requests
+import time
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
 from connectors.config import KafkaConfig
 
@@ -39,7 +40,7 @@ def create_source_connector(conn: dict[str, str]) -> None:
         print(e)
 
 
-def register_sink_value_schema(index: str) -> int:
+def register_sink_value_schema(index: str) -> None:
     print("registering sink schema...")
     schema_str = """
     {
@@ -64,10 +65,20 @@ def register_sink_value_schema(index: str) -> int:
     ]
     }
     """
-    avro_schema = Schema(schema_str, "AVRO")
-    sr = SchemaRegistryClient({"url": kafka_config.schema_registry_server})
-    schema_id = sr.register_schema(f"{index}-value", avro_schema)
-    return schema_id
+
+    while True:
+        try:
+            time.sleep(1)  # Wait for 1 second before retrying
+            avro_schema = Schema(schema_str, "AVRO")
+            sr = SchemaRegistryClient({"url": kafka_config.schema_registry_server})
+            subject_name = f"{index}-value"
+            sr.register_schema(subject_name, avro_schema)
+            break
+
+        except requests.exceptions.ConnectionError:
+            print("Schema registry server is not yet available, retrying...")
+
+    print("Schema written successfully")
 
 
 def create_sink_connector(conn: dict[str, str]) -> None:

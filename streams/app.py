@@ -3,7 +3,7 @@ import socket
 from core.sdk.realtime import RealtimeServer
 from core.sdk.source import PostgresSource
 from core.sdk.sink import ElasticSearchSink
-from confluent_kafka import Producer
+from confluent_kafka import Producer, Consumer
 from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
@@ -24,28 +24,67 @@ def return_schema(
     )
 
 
-def register_connector_conf(server: RealtimeServer, index: str, db_schema_name: str, table_name:str, source: Source, sink: Sink):
-    config_topic = "_connector-config"
+def register_connector_conf(
+    server: RealtimeServer,
+    index: str,
+    db_schema_name: str,
+    table_name: str,
+    source: Source,
+    sink: Sink,
+):
+    config_topic = "_connector_config"
     conf = {"bootstrap.servers": server.broker_host, "client.id": socket.gethostname()}
 
     # Append table name and schema name to source config
     source_conf = source.config
     source_conf["schema_name"] = db_schema_name
     source_conf["table_name"] = table_name
+
     # Append index to sink config
     sink_conf = sink.config
     sink_conf["index"] = index
+
     p = Producer(conf)
     try:
         p.produce(config_topic, key="source-connector", value=json.dumps(source_conf))
         p.produce(config_topic, key="sink-connector", value=json.dumps(sink_conf))
 
     except BufferError:
-        print('%% Local producer queue is full (%d messages awaiting delivery): try again\n' %
-                        len(p))
-    print('%% Waiting for %d deliveries\n' % len(p))
+        print(
+            "%% Local producer queue is full (%d messages awaiting delivery): try again\n"
+            % len(p)
+        )
+    print("%% Waiting for %d deliveries\n" % len(p))
     p.flush()
-    
+
+
+def wait_for_config_success(server: RealtimeServer):
+    print("Waiting for connector configuration to be ready")
+    consumer = Consumer(
+        {
+            "bootstrap.servers": server.broker_host,
+            "group.id": "_config_success_group",
+            "auto.offset.reset": "earliest",
+        }
+    )
+    topics = ["_config_success"]
+    consumer.subscribe(topics)
+
+    while True:
+        msg = consumer.poll(timeout=1.0)
+
+        if msg is None:
+            continue
+        if msg.error():
+            print("Consumer error: {}".format(msg.error()))
+            continue
+
+        key = msg.key().decode("utf-8")
+        if key == "config_ready":
+            print("Configuration is ready!")
+            break
+
+    consumer.close()
 
 
 def register_agents(

@@ -22,7 +22,12 @@ from core.transform.sentence_transformers import (
 )
 from core.transform.cohere import CohereEmbedding as Cohere
 from core.transform.custom import CustomEmbedding as Custom
-from streams.app import register_connector_conf, register_agents, start_worker
+from streams.app import (
+    register_connector_conf,
+    wait_for_config_success,
+    register_agents,
+    start_worker,
+)
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
@@ -223,6 +228,16 @@ class Pipeline:
 
         progress_bar.close()
 
+    def create_real_time(self, server: RealtimeServer) -> None:
+        index = self.target.index_name
+        db_schema_name = self.transform.schema_name
+        table_name = self.transform.relation
+
+        register_connector_conf(
+            server, index, db_schema_name, table_name, self.source, self.sink
+        )
+        wait_for_config_success(server)
+
     def pipe_real_time(self, server: RealtimeServer) -> None:
         if not self.transform:
             raise ValueError(
@@ -234,7 +249,6 @@ class Pipeline:
         table_name = self.transform.relation
         topic = f"{table_name}.{db_schema_name}.{table_name}"
 
-        register_connector_conf(server, index, db_schema_name, table_name, self.source, self.sink)
         worker = register_agents(
             topic,
             index,

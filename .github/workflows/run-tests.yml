@@ -35,9 +35,6 @@ jobs:
         run: |
           poetry install
 
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-
       # Based on https://medium.com/@mertguvencli/how-to-setup-nvidia-driver-cuda-toolkit-and-cudnn-in-ubuntu-20-4-ac5efedb4427
       - name: Install CUDA & cuDNN
         run: |

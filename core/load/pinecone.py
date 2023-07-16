@@ -43,24 +43,7 @@ class PineconeLoader(Loader):
                     f"Index {index_name} already exists with {index_dimensions} dimensions but embedding has {num_dimensions}"
                 )
 
-    def upsert_embedding(
-        self,
-        target: PineconeTarget,
-        embedding: List[float],
-        id: Union[str, int],
-        metadata: Optional[Dict[str, Any]],
-    ) -> None:
-        index_name = target.index_name
-        namespace = target.namespace
-        index = pinecone.Index(index_name)
-
-        doc: Dict[str, Any] = {"id": id, "values": embedding}
-
-        if not metadata is None:
-            doc["metadata"] = metadata
-
-        index.upsert(vectors=[doc], namespace=namespace)
-
+    @Loader.validate
     def bulk_upsert_embeddings(
         self,
         target: PineconeTarget,

@@ -107,13 +107,17 @@ class Pipeline:
 
     def _apply_transform(self, row: Tuple[str, ...]) -> str:
         if not self.transform:
-            raise ValueError("Transform expected but got None")
+            raise ValueError(
+                "Transform expected but got None. Did you forget to provide a transform argument?"
+            )
 
         return cast(str, self.transform.transform_func(*row))
 
     def _create_metadata(self, row: Tuple[str, ...]) -> Dict[str, Any]:
         if not self.transform:
-            raise ValueError("Transform expected but got None")
+            raise ValueError(
+                "Transform expected but got None. Did you forget to provide a transform argument?"
+            )
 
         if not self.transform.optional_metadata:
             raise ValueError("_create_metadata called when optional_metadata is None")
@@ -123,9 +127,9 @@ class Pipeline:
     def pipe(
         self,
         ids: List[Union[str, int]],
-        embeddings: Optional[List[List[float]]],
-        documents: Optional[List[str]],
-        metadata: Optional[List[Dict[str, Any]]],
+        embeddings: Optional[List[List[float]]] = None,
+        documents: Optional[List[str]] = None,
+        metadata: Optional[List[Dict[str, Any]]] = None,
         verbose: bool = True,
     ) -> None:
         if not embeddings and not documents:
@@ -155,7 +159,7 @@ class Pipeline:
                 batch_embeddings = self.model.create_embeddings(batch_documents)
 
             self.loader.bulk_upsert_embeddings(
-                target=self.target,  # type: ignore
+                target=self.target,
                 embeddings=cast(List[List[float]], batch_embeddings),
                 ids=batch_ids,
                 metadata=batch_metadata,
@@ -167,7 +171,9 @@ class Pipeline:
 
     def pipe_all(self, verbose: bool = True) -> None:
         if not self.transform:
-            raise ValueError("Transform expected but got None")
+            raise ValueError(
+                "Transform expected but got None. Did you forget to provide a transform argument?"
+            )
 
         total_rows = self.extractor.count(self.transform.relation)
         index_checked = False
@@ -207,7 +213,7 @@ class Pipeline:
 
                 # Upsert embeddings
                 self.loader.bulk_upsert_embeddings(
-                    target=self.target,  # type: ignore
+                    target=self.target,
                     embeddings=embeddings,
                     ids=primary_keys,
                     metadata=metadata_list,
@@ -219,7 +225,9 @@ class Pipeline:
 
     def pipe_real_time(self, realtime_server: RealtimeServer) -> None:
         if not self.transform:
-            raise ValueError("Transform expected but got None")
+            raise ValueError(
+                "Transform expected but got None. Did you forget to provide a transform argument?"
+            )
 
         index = self.target.index_name
         db_schema_name = self.transform.schema_name

@@ -113,24 +113,7 @@ class ElasticSearchLoader(Loader):
 
     ### Public Methods ###
 
-    def upsert_embedding(
-        self,
-        target: ElasticSearchTarget,
-        embedding: List[float],
-        id: Union[str, int],
-        metadata: Optional[Dict[str, Any]],
-    ) -> None:
-        index_name = target.index_name
-        field_name = target.field_name
-
-        doc = dict()
-        doc[field_name] = embedding
-
-        if not metadata is None:
-            doc.update(metadata)
-
-        self.es.update(index=index_name, id=str(id), doc=doc, doc_as_upsert=True)
-
+    @Loader.validate
     def bulk_upsert_embeddings(
         self,
         target: ElasticSearchTarget,

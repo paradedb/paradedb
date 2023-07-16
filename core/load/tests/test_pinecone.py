@@ -59,27 +59,15 @@ def test_check_and_setup_index_not_exists(
     get_num_dimensions_mock.assert_not_called()
 
 
-# Testing upsert_embedding method
-@patch("pinecone.Index", return_value=MagicMock())
-def test_upsert_embedding(index_mock, loader, target):
-    mock_embedding = [1, 2, 3]
-    mock_id = "test_id"
-    mock_metadata = {"key": "value"}
-    loader.upsert_embedding(target, mock_embedding, mock_id, mock_metadata)
-    index_mock.assert_called_once_with("test_index")
-    index_mock.return_value.upsert.assert_called_once_with(
-        vectors=[{"id": "test_id", "values": [1, 2, 3], "metadata": {"key": "value"}}],
-        namespace="test_namespace",
-    )
-
-
 # Testing bulk_upsert_embeddings method
 @patch("pinecone.Index", return_value=MagicMock())
 def test_bulk_upsert_embeddings(index_mock, loader, target):
     mock_embeddings = [[1, 2, 3], [4, 5, 6]]
     mock_ids = ["test_id1", "test_id2"]
     mock_metadata = [{"key1": "value1"}, {"key2": "value2"}]
-    loader.bulk_upsert_embeddings(target, mock_embeddings, mock_ids, mock_metadata)
+    loader.bulk_upsert_embeddings(
+        target=target, embeddings=mock_embeddings, ids=mock_ids, metadata=mock_metadata
+    )
     index_mock.assert_called_once_with("test_index")
     index_mock.return_value.upsert.assert_called_once_with(
         vectors=[

@@ -15,16 +15,7 @@ class OpenSearchLoader(Loader):
     ) -> None:
         pass
 
-    def upsert_embedding(
-        self,
-        index_name: str,
-        embedding: List[float],
-        id: Union[str, int],
-        field_name: str,
-        metadata: Optional[Dict[str, Any]],
-    ) -> None:
-        pass
-
+    @Loader.validate
     def bulk_upsert_embeddings(
         self,
         index_name: str,

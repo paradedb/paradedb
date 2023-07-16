@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from enum import Enum
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 
 class Similarity(Enum):
@@ -33,7 +33,7 @@ class PineconeTarget(BaseModel):
 class WeaviateTarget(BaseModel):
     index_name: str
     default_vectorizer: WeaviateVecotorizer
-    default_vectorizer_config: Dict[str, str]
+    default_vectorizer_config: Dict[str, Any]
 
 
 class Target:

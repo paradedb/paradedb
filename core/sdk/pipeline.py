@@ -44,14 +44,12 @@ class Pipeline:
         embedding: Embedding,
         sink: Sink,
         target: Target,
-        realtime_server: RealtimeServer,
     ):
         self.source = source
         self.transform = transform
         self.embedding = embedding
         self.sink = sink
         self.target = target
-        self.realtime_server = realtime_server
 
         self.extractor = self._get_extractor()
         self.loader = self._get_loader()
@@ -144,7 +142,7 @@ class Pipeline:
                 )
                 embeddings = self.model.create_embeddings(documents)
 
-                # Appease Mypy by ensuring that Target and Loader types match
+                # Ensure that Target and Loader types match
                 if (
                     (
                         isinstance(self.target, ElasticSearchTarget)
@@ -164,14 +162,14 @@ class Pipeline:
                 # Check and setup index
                 if not index_checked:
                     self.loader.check_and_setup_index(
-                        target=self.target,
+                        target=self.target, # type: ignore
                         num_dimensions=len(embeddings[0]),
                     )
                     index_checked = True
 
                 # Upsert embeddings
                 self.loader.bulk_upsert_embeddings(
-                    target=self.target,
+                    target=self.target, # type: ignore
                     embeddings=embeddings,
                     ids=primary_keys,
                     metadata=metadata_list,
@@ -181,7 +179,7 @@ class Pipeline:
 
         progress_bar.close()
 
-    def pipe_real_time(self) -> None:
+    def pipe_real_time(self, realtime_server: RealtimeServer) -> None:
         index = self.target.index_name
         db_schema_name = self.transform.schema_name
         relation = self.transform.relation
@@ -190,7 +188,7 @@ class Pipeline:
         worker = register_agents(
             topic,
             index,
-            self.realtime_server,
+            realtime_server,
             self.model.create_embeddings,
             self.transform.transform_func,
             self.transform.optional_metadata,

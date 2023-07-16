@@ -1,7 +1,7 @@
 import os
+import uuid
 
-from uuid import UUID
-from weaviate import Client, Schema, AuthApiKey
+from weaviate import Client, AuthApiKey
 
 from abc import ABC, abstractmethod
 from core.load.base import Loader
@@ -9,7 +9,7 @@ from typing import Dict, List, Union, Optional, Any, cast
 from core.sdk.target import WeaviateTarget, WeaviateVecotorizer
 
 DEFAULT_BATCH_SIZE = 100
-NUM_RETRIES = 4
+UUID_NAMESPACE = uuid.NAMESPACE_DNS
 
 
 class WeaviateLoader(Loader):
@@ -31,13 +31,15 @@ class WeaviateLoader(Loader):
         return cast(bool, self.wc.schema.exists(index_name))
 
     def _create_index(self, index_name: str) -> None:
+        default_vectorizer = str(self.default_vectorizer.value)
+
+        print(default_vectorizer)
+
         self.wc.schema.create_class(
             {
                 "class": index_name,
-                "vectorizer": self.default_vectorizer,
-                "moduleConfig": {
-                    self.default_vectorizer: self.default_vectorizer_config
-                },
+                "vectorizer": default_vectorizer,
+                "moduleConfig": {default_vectorizer: self.default_vectorizer_config},
             }
         )
 
@@ -68,13 +70,13 @@ class WeaviateLoader(Loader):
                     class_name=class_name,
                     data_object=data_object,
                     vector=embedding,
-                    uuid=str(UUID(str(id))),
+                    uuid=str(uuid.uuid5(UUID_NAMESPACE, str(id))),
                 )
             else:
                 self.wc.batch.add_data_object(
                     class_name=class_name,
                     data_object=data_object,
-                    uuid=str(UUID(str(id))),
+                    uuid=str(uuid.uuid5(UUID_NAMESPACE, str(id))),
                 )
 
     def bulk_upsert_embeddings(
@@ -82,32 +84,30 @@ class WeaviateLoader(Loader):
         target: WeaviateTarget,
         embeddings: List[List[float]],
         ids: List[Union[str, int]],
-        metadatas: Optional[List[Dict[str, Any]]],
+        metadata: Optional[List[Dict[str, Any]]],
     ) -> None:
         class_name = target.index_name
         vectorizer = target.default_vectorizer
         vectorizer_config = target.default_vectorizer_config
 
-        data_objects = metadatas if metadatas else [{} for _ in range(len(ids))]
+        data_objects = metadata if metadata else [{} for _ in range(len(ids))]
 
         with self.wc.batch(
             batch_size=DEFAULT_BATCH_SIZE,
             num_workers=os.cpu_count(),
-            num_retries=NUM_RETRIES,
-            connection_error_retries=NUM_RETRIES,
             dynamic=True,
         ):
-            for embedding, id, metadata in zip(embeddings, ids, data_objects):
+            for embedding, id, data in zip(embeddings, ids, data_objects):
                 if embedding:
                     self.wc.batch.add_data_object(
                         class_name=class_name,
-                        data_object=metadata,
+                        data_object=data,
                         vector=embedding,
-                        uuid=str(UUID(str(id))),
+                        uuid=str(uuid.uuid5(UUID_NAMESPACE, str(id))),
                     )
                 else:
                     self.wc.batch.add_data_object(
                         class_name=class_name,
-                        data_object=metadata,
-                        uuid=str(UUID(str(id))),
+                        data_object=data,
+                        uuid=str(uuid.uuid5(UUID_NAMESPACE, str(id))),
                     )

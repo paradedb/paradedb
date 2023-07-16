@@ -27,10 +27,8 @@ class Loader(ABC):
             if not len(ids) == num_embeddings:
                 raise ValueError("Number of ids does not match number of embeddings")
 
-            if metadata is not None and not len(metadata) == num_embeddings:
-                raise ValueError(
-                    "Number of metadata does not match number of embeddings"
-                )
+            if metadata is not None and not len(ids) == len(metadata):
+                raise ValueError("Number of metadata does not match number of ids")
 
             return func(self, *args, **kwargs)
 

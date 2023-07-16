@@ -25,7 +25,7 @@ jobs:
       - name: Install Poetry
         run: |
           curl -sSL https://install.python-poetry.org | python -
-  
+
       - name: Configure Poetry
         run: |
           poetry config virtualenvs.create true
@@ -46,7 +46,7 @@ jobs:
           sudo cp /var/cuda-repo-ubuntu2204-11-7-local/cuda-*-keyring.gpg /usr/share/keyrings/
           sudo apt-get -y update
           sudo apt-get -y install cuda
-          
+
           # Install cuDNN
           wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
           sudo mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600

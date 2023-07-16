@@ -54,36 +54,6 @@ source = Source.Postgres(
 )
 ```
 
-### Create a `Transform`
-
-`Transform` specifies which table and columns contain our inputs and how we want to transform our inputs before embedding them.
-In this example, we wish to concatenate `question` and `answer`. Other `Source` classes may have [different function signatures](/concepts/transform).
-
-```bash main.py
-from typing import Union, Dict
-
-
-def transform_func(question: Union[str, None], answer: Union[str, None]) -> str:
-    return (question or "") + (answer or "")
-
-
-def optional_metadata(
-    question: Union[str, None], answer: Union[str, None]
-) -> Dict[str, str]:
-    return {"any_key": "any_value"}
-
-
-transform = Transform.Postgres(
-    # Note: Your table must have a primary key
-    # Retake uses the primary key value as the ID for the embedding
-    primary_key="id",
-    relation="faqs",
-    columns=["questions", "answers"],
-    transform_func=transform_func,
-    optional_metadata=optional_metadata,
-)
-```
-
 ### Create an `Embedding`
 
 `Embedding` specifies the embedding model we wish to use. Retake [provides wrappers](/concepts/embedding) around most popular embedding models
@@ -125,7 +95,6 @@ target = Target.Pinecone(
 ```bash main.py
 pipeline = Pipeline(
     source=source,
-    transform=transform,
     embedding=model,
     sink=sink,
     target=target,

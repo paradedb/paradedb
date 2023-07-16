@@ -1,18 +1,90 @@
 ---
-title: "Send a Batch Update"
+title: "Batch Processing"
 ---
 
-A batch update reads every single row or document from your source, embeds it, and upserts it into your sink. This is an
-expensive and time-consuming operation and may be bottlenecked by query limits if a third-party embedding API is used.
+Retake provides convenient utility functions for batch processing vectors that can plugged directly into
+any Python application.
 
-A batch update will not delete any documents in your sink, but if there is a document with the same ID and field name in
+## Piping Data from Memory
+
+`Pipeline` exposes a `pipe` function that pipes an array of vectors or documents stored in memory into your `Sink`.
+
+```bash main.py
+# Pipe an array of vectors
+pipeline.pipe(
+    embeddings = [[0.1, 0.2, 0.3], [0.2, 0.4, 0.6]],
+    ids = ["id1", "id2"],
+    # Optional
+    metadata = [{"key1": "value1"}, {"key2": "value2"}]
+)
+
+# Pipe an array of documents
+# Retake will automatically embed documents before they're loaded into the Sink
+pipeline.pipe(
+    documents=[["some_text", "some_more_text"]]
+    ids = ["id1", "id2"],
+    # Optional
+    metadata = [{"key1": "value1"}, {"key2": "value2"}]
+)
+```
+
+## Piping an Entire `Source`
+
+`Pipeline` exposes a `pipe_all` function that reads every row or document from your `Source`, embeds it, and upserts it into your `Sink`.
+This may be an expensive and time-consuming operation and may be bottlenecked by query limits if a third-party embedding
+API is used. This operation will not delete any documents in your sink, but if there is a document with the same ID and field name in
 your sink, it will be overriden with the new value.
 
-Running a batch update is a single line of code:
+### Create a `Transform`
+
+First, create a `Transform` that specifies which table and columns contain your inputs/documents and how you want to transform your inputs before embedding them.
+In this example, we wish to concatenate `question` and `answer`. Other `Source` classes may have [different function signatures](/concepts/transform).
+
+```bash main.py
+from typing import Union, Dict
+
+
+def transform_func(question: Union[str, None], answer: Union[str, None]) -> str:
+    return (question or "") + (answer or "")
+
+
+def optional_metadata(
+    question: Union[str, None], answer: Union[str, None]
+) -> Dict[str, str]:
+    return {"any_key": "any_value"}
+
+
+transform = Transform.Postgres(
+    # Note: Your table must have a primary key
+    # Retake uses the primary key value as the ID for the embedding
+    primary_key="id",
+    relation="faqs",
+    columns=["questions", "answers"],
+    transform_func=transform_func,
+    optional_metadata=optional_metadata,
+)
+```
+
+### Update `Pipeline`
+
+Next, create a new `Pipeline` with the newly-created `Transform` object.
+
+```bash main.py
+# source, model, etc. were created in the tutorial on the previous page
+pipeline = Pipeline(
+    source=source,
+    embedding=model,
+    sink=sink,
+    target=target,
+    transform=transform
+)
+```
+
+### Run the Batch Update
+
+Embedding and loading the entire `Source` into the `Sink` is a single line of code.
 
 ```bash main.py
 # This could take a while, depending on your table size and embedding model
-pipeline.pipe_once(verbose=True)
+pipeline.pipe_all(verbose=True)
 ```
-
-###

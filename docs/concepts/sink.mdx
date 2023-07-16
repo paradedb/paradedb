@@ -25,6 +25,26 @@ sink = Sink.Pinecone(
   Pinecone environment
 </ParamField>
 
+## Weaviate
+
+**Usage**
+
+```bash
+sink = Sink.Weaviate(
+    api_key="***",
+    url="weaviate_url"
+)
+```
+
+**Parameters**
+
+<ParamField body="api_key" type="string" required>
+  Weaviate API key
+</ParamField>
+<ParamField body="url" type="string" required>
+  Weaviate URL
+</ParamField>
+
 ## ElasticSearch
 
 **Usage**

@@ -25,6 +25,40 @@ target = Target.Pinecone(
   Pinecone namespace
 </ParamField>
 
+## Weaviate
+
+**Usage**
+
+```bash
+target = Target.Weaviate(
+    index_name="example_class",
+    default_vectorizer="text2vec-huggingface",
+    default_vectorizer_config={
+        "model": "sentence-transformers/all-MiniLM-L6-v2",
+        "options": {"waitForModel": True, "useGPU": True, "useCache": True},
+    }
+)
+```
+
+**Parameters**
+
+<ParamField body="index_name" type="string" required>
+  Weaviate class name. `index_name` is used for the sake of naming consistency
+  with other `Sink` types.
+</ParamField>
+<ParamField body="default_vectorizer" type="string" required>
+  If the provided class name above does not exist, Retake will create a class
+  with the provided class name. In this case, you must specify the vectorizer.
+  Options for vectorizers are provided in the [Weaviate
+  documentation](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules).
+  If the class already exists, this parameter is ignored.
+</ParamField>
+<ParamField body="default_vectorizer_config" type="string" required>
+  The vectorizer `moduleConfig` (example in the [Weaviate
+  documentation](https://weaviate.io/developers/weaviate/modules/retriever-vectorizer-modules/text2vec-huggingface)).
+  If the class already exists, this parameter is ignored.
+</ParamField>
+
 ## ElasticSearch
 
 **Usage**

@@ -10,7 +10,7 @@ from connectors.connect import (
 )
 
 
-def create_topics(admin, topics) -> None:
+def create_topics(admin: AdminClient, topics: list[str]) -> None:
     # Create topic
     new_topics = [
         NewTopic(topic, num_partitions=3, replication_factor=1) for topic in topics
@@ -26,7 +26,7 @@ def create_topics(admin, topics) -> None:
             print("Failed to create topic {}: {}".format(topic, e))
 
 
-def consume_messages(consumer) -> None:
+def consume_messages(consumer: Consumer) -> None:
     # Read messages from Kafka, print to stdout
     source_connector_created = False
     sink_value_schema_registered = False
@@ -69,14 +69,14 @@ def consume_messages(consumer) -> None:
                 break
 
 
-def produce_config_ready_message(producer) -> None:
+def produce_config_ready_message(producer: Producer) -> None:
     # Once the schema is registered, produce a special message to the readiness topic
     producer.produce(topic="_config_success", key="config_ready", value="true")
     producer.flush()
     print("Produced to config ready topic")
 
 
-def main():
+def main() -> None:
     kafka_config = KafkaConfig()
     consumer_conf = {
         "bootstrap.servers": kafka_config.bootstrap_servers,

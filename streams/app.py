@@ -2,7 +2,7 @@ import json
 import socket
 from core.sdk.realtime import RealtimeServer
 from core.sdk.source import PostgresSource
-from core.sdk.sink import ElasticSearchSink
+from core.sdk.sink import ElasticSearchSink, PineconeSink, WeaviateSink
 from confluent_kafka import Producer, Consumer
 from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient
@@ -11,7 +11,7 @@ from faust import App, Worker
 from typing import Callable, Any, Optional, Union
 
 Source = Union[PostgresSource]
-Sink = Union[ElasticSearchSink]
+Sink = Union[ElasticSearchSink, PineconeSink, WeaviateSink]
 
 
 def return_schema(
@@ -31,7 +31,7 @@ def register_connector_conf(
     table_name: str,
     source: Source,
     sink: Sink,
-):
+) -> None:
     config_topic = "_connector_config"
     conf = {"bootstrap.servers": server.broker_host, "client.id": socket.gethostname()}
 
@@ -58,7 +58,7 @@ def register_connector_conf(
     p.flush()
 
 
-def wait_for_config_success(server: RealtimeServer):
+def wait_for_config_success(server: RealtimeServer) -> None:
     print("Waiting for connector configuration to be ready")
     consumer = Consumer(
         {

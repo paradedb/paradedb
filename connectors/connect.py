@@ -2,11 +2,12 @@ import requests
 import time
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
 from connectors.config import KafkaConfig
+from typing import Any
 
 kafka_config = KafkaConfig()
 
 
-def create_connector(connector_config):
+def create_connector(connector_config: dict[str, Any])-> None:
     max_retries = 15
     retry_count = 0
     while retry_count < max_retries:

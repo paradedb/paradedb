@@ -10,7 +10,7 @@ class ElasticSearchSink(BaseModel):
     cloud_id: Optional[str] = None
 
     @property
-    def config(self):
+    def config(self) -> dict[str, Optional[str]]:
         if self.cloud_id is not None:
             return {"cloud_id": self.cloud_id}
 
@@ -26,10 +26,20 @@ class PineconeSink(BaseModel):
     api_key: str
     environment: str
 
+    @property
+    def config(self) -> dict[str, Optional[str]]:
+        # Unimplemented
+        return {}
+
 
 class WeaviateSink(BaseModel):
     api_key: str
     url: str
+
+    @property
+    def config(self) -> dict[str, Optional[str]]:
+        # Unimplemented
+        return {}
 
 
 class Sink:

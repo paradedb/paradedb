@@ -35,7 +35,7 @@
     },
     {
       "group": "Deployment",
-      "pages": ["deployment/local", "deployment/aws"]
+      "pages": ["deployment/local", "deployment/cloud"]
     },
     {
       "group": "Concepts",

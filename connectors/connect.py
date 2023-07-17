@@ -7,7 +7,7 @@ from typing import Any
 kafka_config = KafkaConfig()
 
 
-def create_connector(connector_config: dict[str, Any])-> None:
+def create_connector(connector_config: dict[str, Any]) -> None:
     max_retries = 15
     retry_count = 0
     while retry_count < max_retries:

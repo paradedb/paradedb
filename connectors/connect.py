@@ -1,3 +1,4 @@
+from http import HTTPStatus
 import requests
 import time
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
@@ -18,12 +19,14 @@ def create_connector(connector_config: dict[str, Any]) -> None:
                 url,
                 json=connector_config,
             )
-            if r.status_code == 200 or r.status_code == 201:
+            if r.status_code == HTTPStatus.OK or r.status_code == HTTPStatus.CREATED:
                 print("Connector successfully created")
                 break
+            elif r.status_code == HTTPStatus.CONFLICT:
+                print("Connector already exists")
+                break
             else:
-                print("Failed to create connector, retrying...")
-                retry_count += -1
+                print(f"Failed to create connector: {r.reason}")
                 continue
         except requests.exceptions.ConnectionError:
             print("Kafka connect server is not yet available, retrying...")

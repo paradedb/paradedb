@@ -26,15 +26,14 @@ def create_connector(connector_config: dict[str, Any]) -> None:
                 print("Connector already exists")
                 break
             else:
-                print(f"Failed to create connector: {r.reason}")
-                continue
+                print(r.json())
+                raise requests.exceptions.RequestException(
+                    f"Failed to create connector: {r.reason}"
+                )
         except requests.exceptions.ConnectionError:
             print("Kafka connect server is not yet available, retrying...")
             retry_count += 1
             continue
-        except Exception as e:
-            # TODO: handle
-            print(e)
 
 
 def create_source_connector(conn: dict[str, str]) -> None:
@@ -105,7 +104,7 @@ def register_sink_value_schema(index: str) -> None:
 
 
 def create_sink_connector(conn: dict[str, str]) -> None:
-    print("Creating sink connector")
+    print("Creating sink connector...")
     create_connector(
         {
             "name": f"sink-connector",

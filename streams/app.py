@@ -80,9 +80,16 @@ def wait_for_config_success(server: RealtimeServer) -> None:
             continue
 
         key = msg.key().decode("utf-8")
+        value = msg.value().decode("utf-8")
         if key == "config_ready":
-            print("Configuration is ready!")
-            break
+            if value == "true":
+                print("Configuration is ready!")
+                break
+            else:
+                print(
+                    "Something went wrong while configuring the source and sink connectors. Check the realtime server logs for more information."
+                )
+                break
 
     consumer.close()
 

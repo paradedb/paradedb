@@ -3,24 +3,45 @@ title: "Send Real-Time Updates"
 ---
 
 <Warning>
-  Real-time update functionality is still under development. [Join the
-  waitlist](https://retake.typeform.com/to/JTcYtLay) to be notified when it's
-  production ready.
+  Currently, only Postgres-to-ElasticSearch real-time data streams are
+  supported. The Retake team is actively adding support for other streams. [Join
+  the waitlist](https://retake.typeform.com/to/JTcYtLay) to be notified when
+  it's ready.
 </Warning>
 
 <Info>
-  **Prerequisite** You must have a real-time server running as per these
-  [instructions](/deployment/local).
+  **Prerequisite** You must have a real-time server running. It can either run
+  on [your local computer](/deployment/local) or in the
+  [cloud](/deployment/cloud).
 </Info>
 
-Real-time updates are useful when the number of embeddings is very large and batch updates are too expensive.
+<Info>
+  Your [source](/concepts/source) must have a table with at least one row.
+</Info>
+
+Real-time updates are useful when the number of embeddings is very large and batch updates become expensive.
 Retake provides a real-time server that listens for `Source` changes and incrementally updates the `Sink`.
-Registering your source and sink with the real-time server is just two lines of code.
+Registering your source and sink with the real-time server is just three lines of code.
 
 ```bash main.py
-from retake import RealTime
+from retake import RealtimeServer
 
-# Host is the address set in the docker-compose.yml file
-realtime_server = RealTime(host="0.0.0.0")
+# Please refer to the docker-compose.yml file for host and ports
+# These are the default host/ports when you clone Retake
+realtime_server = RealtimeServer(
+  host="localhost",
+  broker_port=9094,
+  schema_registry_port=8081
+)
+
+# Send the connection details of your source and sink to the broker,
+# which will automatically create and configure the connectors
+pipeline.create_real_time(realtime_server)
+
+# Tell the real-time server to start processing changes using the
+# transforms you defined in the pipeline, and automatically push
+# the results to the sink
 pipeline.pipe_real_time(realtime_server)
 ```
+
+That's it! As long as your real-time server continues to run, your Source and Sink are synced in real time.

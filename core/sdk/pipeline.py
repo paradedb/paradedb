@@ -50,7 +50,7 @@ class Pipeline:
         sink: Sink,
         target: Target,
         embedding: Embedding,
-        transform: Optional[Transform] = None,
+        transform: Optional[Transform],
     ):
         self.source = source
         self.transform = transform
@@ -229,6 +229,10 @@ class Pipeline:
         progress_bar.close()
 
     def create_real_time(self, server: RealtimeServer) -> None:
+        if self.transform is None:
+            raise ValueError(
+                "Transform expected but got None. Did you forget to provide a transform argument?"
+            )
         index = self.target.index_name
         db_schema_name = self.transform.schema_name
         table_name = self.transform.relation
@@ -239,7 +243,7 @@ class Pipeline:
         wait_for_config_success(server)
 
     def pipe_real_time(self, server: RealtimeServer) -> None:
-        if not self.transform:
+        if self.transform is None:
             raise ValueError(
                 "Transform expected but got None. Did you forget to provide a transform argument?"
             )

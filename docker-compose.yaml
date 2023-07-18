@@ -10,8 +10,9 @@ services:
     environment:
       ALLOW_PLAINTEXT_LISTENER: yes
       KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://placeholder_listener:9094
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true
     volumes:
     - kafka_data:/bitnami/kafka
 
@@ -22,9 +23,26 @@ services:
     depends_on:
       - kafka
     environment:
-      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
-      - SCHEMA_REGISTRY_KAFKA_BROKERS=PLAINTEXT://kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKA_BROKERS: PLAINTEXT://kafka:9092
 
+  consumer:
+    image: consumer
+    depends_on:
+    - kafka
+    - schema-registry
+    - connect
+    build:
+      context: ./connectors
+      dockerfile: Dockerfile
+    environment:
+      KAFKA_HOST: kafka
+      KAFKA_PORT: 9092
+      SCHEMA_REGISTRY_HOST: schema-registry
+      SCHEMA_REGISTRY_PORT: 8081
+      KAFKA_CONNECT_HOST: connect
+      KAFKA_CONNECT_PORT: 8083
+      
   connect:
     image: confluentinc/cp-kafka-connect-base:6.2.0
     depends_on:

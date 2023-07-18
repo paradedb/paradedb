@@ -22,7 +22,12 @@ from core.transform.sentence_transformers import (
 )
 from core.transform.cohere import CohereEmbedding as Cohere
 from core.transform.custom import CustomEmbedding as Custom
-from streams.app import register_agents, start_worker
+from streams.app import (
+    register_connector_conf,
+    wait_for_config_success,
+    register_agents,
+    start_worker,
+)
 
 Source = Union[PostgresSource]
 Transform = Union[PostgresTransform]
@@ -45,7 +50,7 @@ class Pipeline:
         sink: Sink,
         target: Target,
         embedding: Embedding,
-        transform: Optional[Transform] = None,
+        transform: Optional[Transform],
     ):
         self.source = source
         self.transform = transform
@@ -223,21 +228,35 @@ class Pipeline:
 
         progress_bar.close()
 
-    def pipe_real_time(self, realtime_server: RealtimeServer) -> None:
-        if not self.transform:
+    def create_real_time(self, server: RealtimeServer) -> None:
+        if self.transform is None:
+            raise ValueError(
+                "Transform expected but got None. Did you forget to provide a transform argument?"
+            )
+        index = self.target.index_name
+        db_schema_name = self.transform.schema_name
+        table_name = self.transform.relation
+
+        register_connector_conf(
+            server, index, db_schema_name, table_name, self.source, self.sink
+        )
+        wait_for_config_success(server)
+
+    def pipe_real_time(self, server: RealtimeServer) -> None:
+        if self.transform is None:
             raise ValueError(
                 "Transform expected but got None. Did you forget to provide a transform argument?"
             )
 
         index = self.target.index_name
         db_schema_name = self.transform.schema_name
-        relation = self.transform.relation
-        topic = f"{relation}.{db_schema_name}.{relation}"
+        table_name = self.transform.relation
+        topic = f"{table_name}.{db_schema_name}.{table_name}"
 
         worker = register_agents(
             topic,
             index,
-            realtime_server,
+            server,
             self.model.create_embeddings,
             self.transform.transform_func,
             self.transform.optional_metadata,

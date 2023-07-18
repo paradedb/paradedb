@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -e
 
 # Default values, these match with the docker-compose.yaml configuration
 KAFKA_HOST=localhost
@@ -33,34 +32,55 @@ done
 
 get_external_ip() {
   # Query Google Cloud metadata endpoint
-  ip_address=$(curl -s "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip" -H "Metadata-Flavor: Google")
+  echo "Trying gcloud..."
+  response=$(curl -s -w '%{http_code}\n' "http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip" -H "Metadata-Flavor: Google")
+  ip_address=$(echo "$response" | head -n 1)
+  status_code=$(echo "$response" | tail -n 1)
 
-  if [ -n "$ip_address" ]; then
+  if [ "$status_code" -eq 200 ] && [ -n "$ip_address" ]; then
     echo "$ip_address"
     return
+  else
+    echo "Failed to retrieve IP address from gcloud"
   fi
 
   # Query AWS EC2 metadata endpoint
-  ip_address=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4)
+  echo "Trying AWS..."
+  response=$(curl -s -w '%{http_code}\n' http://169.254.169.254/latest/meta-data/public-ipv4)
+  ip_address=$(echo "$response" | head -n 1)
+  status_code=$(echo "$response" | tail -n 1)
 
-  if [ -n "$ip_address" ]; then
+  if [ "$status_code" -eq 200 ] && [ -n "$ip_address" ]; then
     echo "$ip_address"
     return
+  else
+    echo "Failed to retrieve IP address from AWS"
   fi
 
   # Query Azure metadata endpoint
-  ip_address=$(curl -s "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-07-01&format=text")
+  echo "Trying Azure..."
+  response=$(curl -s -w '%{http_code}\n' "http://169.254.169.254/metadata/instance/network/interface/0/ipv4/ipAddress/0/publicIpAddress?api-version=2021-07-01&format=text")
+  ip_address=$(echo "$response" | head -n 1)
+  status_code=$(echo "$response" | tail -n 1)
 
-  if [ -n "$ip_address" ]; then
+  if [ "$status_code" -eq 200 ] && [ -n "$ip_address" ]; then
     echo "$ip_address"
     return
+  else
+    echo "Failed to retrieve IP address from Azure"
   fi
 
   # Cloud agnostic way
-  ip_address=$(curl -4 icanhazip.com)
-  if [ -n "$ip_address" ]; then
+  echo "Trying icanhazip..."
+  response=$(curl -4 -s -w '%{http_code}\n' icanhazip.com)
+  ip_address=$(echo "$response" | head -n 1)
+  status_code=$(echo "$response" | tail -n 1)
+
+  if [ "$status_code" -eq 200 ] && [ -n "$ip_address" ]; then
     echo "$ip_address"
     return
+  else
+    echo "Failed to retrieve IP address from icanhazip"
   fi
 
   # If no IP address found, stop the script
@@ -94,9 +114,11 @@ KAFKA_CONNECT_HOST=$KAFKA_CONNECT_HOST
 KAFKA_CONNECT_PORT=$KAFKA_CONNECT_PORT
 EOF
 
-# Set advertise listener as this machine's ip address
+# # Set advertise listener as this machine's ip address
+echo "Getting external ip"
 get_external_ip
-sed -i "s/placeholder_listener/$ip_address/g" docker-compose.yaml
+echo $ip_address
+sed -i "s/localhost/$ip_address/g" docker-compose.yaml
 
 # Install Docker and Docker Compose
 echo "Setting up Docker..."
@@ -117,7 +139,3 @@ sudo usermod -aG docker "${USER}" || true
 # Start stack
 echo "Starting docker compose..."
 sudo -E docker compose up -d
-
-# Install retake-cli
-echo "Installing Retake CLI..."
-pip install retake-cli

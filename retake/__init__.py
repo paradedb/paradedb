@@ -4,5 +4,14 @@ from core.sdk.embedding import Embedding
 from core.sdk.sink import Sink
 from core.sdk.target import Target
 from core.sdk.pipeline import Pipeline
+from core.sdk.realtime import RealtimeServer
 
-__all__ = ["Source", "Transform", "Embedding", "Sink", "Target", "Pipeline"]
+__all__ = [
+    "Source",
+    "Transform",
+    "Embedding",
+    "Sink",
+    "Target",
+    "Pipeline",
+    "RealtimeServer",
+]

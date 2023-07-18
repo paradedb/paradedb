@@ -3,17 +3,13 @@ title: "Create Your First Pipeline"
 description: "Build your first vector pipeline in under five minutes"
 ---
 
-<Info>
-  **Prerequisite** Before proceeding, please ensure that your source databases
-  are [properly configured](/setup).
-</Info>
-
 In this tutoral we will build a pipeline to sync documents stored in AWS Aurora Postgres with their embeddings,
 stored in Pinecone. As you will see, Retake supports a variety of sources and sinks and
 you can substitute any source or sink with a few lines of code.
 
-For this example, let's imagine that we are a developer building a chatbot at Babylon, an e-commerce website. In Postgres, we have a table called
-`faqs`, which contains two columns: `questions` and `answers`. We wish to combine each question and answer, embed it, and store it in Pinecone.
+For this example, let's imagine that we are a developer building a chatbot at Babylon, an e-commerce website.
+In Postgres, we have a table called `faqs`, which contains two columns: `questions` and `answers`.
+We wish to combine each question and answer, embed it, and store it in Pinecone.
 
 ### Installation
 
@@ -34,7 +30,7 @@ pip install retake
 In a new Python file, we import the Retake SDK and all necessary classes:
 
 ```bash main.py
-from retake import Source, Transform, Embedding, Sink, Target, Pipeline
+from retake import Source, Embedding, Sink, Target, Pipeline
 ```
 
 ### Create a `Source`

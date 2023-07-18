@@ -27,7 +27,6 @@
     {
       "group": "Quick Start",
       "pages": [
-        "quickstart/setup",
         "quickstart/pipeline",
         "quickstart/batch-update",
         "quickstart/real-time-update"
@@ -35,7 +34,7 @@
     },
     {
       "group": "Deployment",
-      "pages": ["deployment/local", "deployment/aws"]
+      "pages": ["deployment/setup", "deployment/local", "deployment/cloud"]
     },
     {
       "group": "Concepts",

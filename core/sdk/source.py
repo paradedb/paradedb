@@ -5,6 +5,15 @@ from typing import Optional
 class PostgresSource(BaseModel):
     dsn: str
 
+    @property
+    def config(self) -> dict[str, str]:
+        fields = {}
+        pairs = self.dsn.split(" ")
+        for pair in pairs:
+            key, value = pair.split("=")
+            fields[key] = value
+        return fields
+
 
 class Source:
     @classmethod

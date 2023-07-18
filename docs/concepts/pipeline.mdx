@@ -19,19 +19,20 @@ pipeline = Pipeline(
 **Parameters**
 
 <ParamField body="source" type="Source" required>
-  A `Source` object
+  A [`Source`](/concepts/source) object
 </ParamField>
-<ParamField body="transform" type="Transform" required>
-  A `Transform` object
+<ParamField body="transform" type="Transform">
+  A [`Transform`](/concepts/transform) object. Not required for `pipe`, but
+  required for `pipe_all` and `pipe_real_time`.
 </ParamField>
 <ParamField body="embedding" type="Embedding" required>
-  A `Embedding` object
+  An [`Embedding`](/concepts/embedding) object
 </ParamField>
 <ParamField body="sink" type="Sink" required>
-  A `Sink` object
+  A [`Sink`](/concepts/sink) object
 </ParamField>
 <ParamField body="target" type="Target" required>
-  A `Target` object
+  A [`Target`](/concepts/target) object
 </ParamField>
 
 ## Methods
@@ -60,12 +61,6 @@ pipeline.pipe(
   the embedding model provided in the `Embedding` object. Either `embeddings` or
   `documents` arguments must be provided, but not both
 </ParamField>
-<ParamField body="verbose" type="boolean" default="True">
-  Will print a progress bar if set to `True`
-</ParamField>
-
-**Parameters**
-
 <ParamField body="verbose" type="boolean" default="True">
   Will print a progress bar if set to `True`
 </ParamField>

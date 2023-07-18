@@ -55,8 +55,8 @@ retake-consumer-1  | Topic _config_success created
 4. That's it - the real-time server is now running and ready to receive requests! [Use the SDK](/quickstart/real-time-update) to connect
    to the server and configure real-time-updates.
 
-<Tip>
-  If the source and sink servers are running as Docker containers in the same machine, you can connect them to the Docker
-  Compose network so they are accessible by the realtime server. This can be done with the `docker network connect <network> <container>`
+<Note>
+  If the source and sink servers are running as Docker containers in the same machine, you need to connect them to the Docker
+  Compose network so they are accessible by the real-time server. This can be done with the `docker network connect <network> <container>`
   command. See the [docker documentation](https://docs.docker.com/engine/reference/commandline/network_connect/) for more information.
-</Tip>
+</Note>

@@ -79,10 +79,10 @@ def main() -> None:
     #  Create consumer, producer and admin client
     kafka_config = KafkaConfig()
     consumer_conf = {
-            "bootstrap.servers": kafka_config.bootstrap_servers,
-            "group.id": "_connector_config_group",
-            "auto.offset.reset": "smallest",
-            "allow.auto.create.topics": "true",
+        "bootstrap.servers": kafka_config.bootstrap_servers,
+        "group.id": "_connector_config_group",
+        "auto.offset.reset": "smallest",
+        "allow.auto.create.topics": "true",
     }
     consumer = Consumer(consumer_conf)
     producer = Producer({"bootstrap.servers": kafka_config.bootstrap_servers})

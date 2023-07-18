@@ -59,7 +59,9 @@ def register_connector_conf(
 
 
 def wait_for_config_success(server: RealtimeServer) -> None:
-    print("Waiting for connector configuration to be ready")
+    print(
+        "Waiting for connector configuration to be ready (this could take a minute)..."
+    )
     consumer = Consumer(
         {
             "bootstrap.servers": server.broker_host,

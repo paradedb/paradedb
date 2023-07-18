@@ -7,7 +7,10 @@ from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer, AvroDeserializer
 from faust import App, Worker
-from typing import Callable, Any, Optional
+from typing import Callable, Any, Optional, Union
+
+Source = Union[PostgresSource]
+Sink = Union[ElasticSearchSink, PineconeSink, WeaviateSink]
 
 
 def return_schema(

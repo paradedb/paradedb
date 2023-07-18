@@ -54,6 +54,7 @@ class WeaviateSink(BaseModel):
         # Unimplemented
         return {}
 
+<<<<<<< HEAD
 
 class QdrantSink(BaseModel):
     host: Optional[str] = None
@@ -66,6 +67,8 @@ class QdrantSink(BaseModel):
         # Unimplemented
         return {}
 
+=======
+>>>>>>> fce4e02 (feat: configure connectors via Kafka topic (#41))
 
 class Sink:
     @classmethod

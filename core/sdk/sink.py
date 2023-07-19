@@ -27,6 +27,7 @@ class OpenSearchSink(BaseModel):
     user: str
     password: str
     use_ssl: bool
+    cacerts: str
 
     @property
     def config(self) -> dict[str, Optional[str]]:
@@ -77,10 +78,15 @@ class Sink:
 
     @classmethod
     def OpenSearch(
-        cls, hosts: List[Dict[str, str]], user: str, password: str, use_ssl: bool
+        cls,
+        hosts: List[Dict[str, str]],
+        user: str,
+        password: str,
+        use_ssl: bool,
+        cacerts: str,
     ) -> OpenSearchSink:
         return OpenSearchSink(
-            hosts=hosts, user=user, password=password, use_ssl=use_ssl
+            hosts=hosts, user=user, password=password, use_ssl=use_ssl, cacerts=cacerts
         )
 
     @classmethod

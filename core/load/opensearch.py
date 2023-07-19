@@ -6,7 +6,12 @@ from core.sdk.target import OpenSearchTarget
 
 class OpenSearchLoader(Loader):
     def __init__(
-        self, hosts: List[Dict[str, str]], user: str, password: str, use_ssl: bool
+        self,
+        hosts: List[Dict[str, str]],
+        user: str,
+        password: str,
+        use_ssl: bool,
+        cacerts: str,
     ) -> None:
         auth = (user, password)
         self.opensearch = OpenSearch(
@@ -14,6 +19,10 @@ class OpenSearchLoader(Loader):
             http_compress=True,  # enables gzip compression for request bodies
             http_auth=auth,
             use_ssl=use_ssl,
+            verify_certs=use_ssl,
+            ssl_assert_hostname=False,
+            ssl_show_warn=False,
+            ca_certs=cacerts,
         )
 
     def _check_index_exists(self, index_name: str) -> bool:

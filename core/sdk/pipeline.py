@@ -93,6 +93,7 @@ class Pipeline:
                 user=self.sink.user,
                 password=self.sink.password,
                 use_ssl=self.sink.use_ssl,
+                cacerts=self.sink.cacerts,
             )
         elif isinstance(self.sink, PineconeSink) and isinstance(
             self.target, PineconeTarget

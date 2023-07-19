@@ -42,7 +42,7 @@ class OpenSearchLoader(Loader):
         index_name = target.index_name
 
         if metadata is not None:
-            docs = []
+            docs: List[Dict[str, Any]] = []
             for doc_id, embedding, meta in zip(ids, embeddings, metadata):
                 docs.append({"index": {"_index": index_name, "_id": doc_id}})
                 docs.append(
@@ -61,4 +61,4 @@ class OpenSearchLoader(Loader):
                         "values": embedding,
                     }
                 )
-        self.opensearch.bulk(docs)
+        self.opensearch.bulk(body=docs)

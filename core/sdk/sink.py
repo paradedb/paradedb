@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict
 
 
 class ElasticSearchSink(BaseModel):
@@ -20,6 +20,18 @@ class ElasticSearchSink(BaseModel):
             "password": self.password,
             "ssl_assert_fingerprint": self.ssl_assert_fingerprint,
         }
+
+
+class OpenSearchSink(BaseModel):
+    hosts: List[Dict[str, str]]
+    user: str
+    password: str
+    use_ssl: bool
+
+    @property
+    def config(self) -> dict[str, Optional[str]]:
+        # Unimplemented
+        return {}
 
 
 class PineconeSink(BaseModel):
@@ -62,6 +74,14 @@ class Sink:
         # Remove keys with None values
         params = {k: v for k, v in params.items() if v is not None}
         return ElasticSearchSink(**params)
+
+    @classmethod
+    def OpenSearch(
+        cls, hosts: List[Dict[str, str]], user: str, password: str, use_ssl: bool
+    ) -> OpenSearchSink:
+        return OpenSearchSink(
+            hosts=hosts, user=user, password=password, use_ssl=use_ssl
+        )
 
     @classmethod
     def Pinecone(cls, api_key: str, environment: str) -> PineconeSink:

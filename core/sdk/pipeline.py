@@ -9,10 +9,16 @@ from core.sdk.embedding import (
 )
 from core.sdk.source import PostgresSource
 from core.sdk.transform import PostgresTransform
-from core.sdk.sink import ElasticSearchSink, PineconeSink, WeaviateSink
-from core.sdk.target import ElasticSearchTarget, PineconeTarget, WeaviateTarget
+from core.sdk.sink import ElasticSearchSink, OpenSearchSink, PineconeSink, WeaviateSink
+from core.sdk.target import (
+    ElasticSearchTarget,
+    OpenSearchTarget,
+    PineconeTarget,
+    WeaviateTarget,
+)
 from core.sdk.realtime import RealtimeServer
 from core.load.elasticsearch import ElasticSearchLoader
+from core.load.opensearch import OpenSearchLoader
 from core.load.pinecone import PineconeLoader
 from core.load.weaviate import WeaviateLoader
 from core.extract.postgres import PostgresExtractor
@@ -34,10 +40,10 @@ Transform = Union[PostgresTransform]
 Embedding = Union[
     OpenAIEmbedding, SentenceTransformerEmbedding, CohereEmbedding, CustomEmbedding
 ]
-Sink = Union[ElasticSearchSink, PineconeSink, WeaviateSink]
-Target = Union[ElasticSearchTarget, PineconeTarget, WeaviateTarget]
+Sink = Union[ElasticSearchSink, OpenSearchSink, PineconeSink, WeaviateSink]
+Target = Union[ElasticSearchTarget, OpenSearchTarget, PineconeTarget, WeaviateTarget]
 Extractor = Union[PostgresExtractor]
-Loader = Union[ElasticSearchLoader, PineconeLoader, WeaviateLoader]
+Loader = Union[ElasticSearchLoader, OpenSearchLoader, PineconeLoader, WeaviateLoader]
 Model = Union[OpenAI, SentenceTransformer, Cohere, Custom]
 
 BATCH_SIZE = 100
@@ -78,6 +84,15 @@ class Pipeline:
                 password=self.sink.password,
                 ssl_assert_fingerprint=self.sink.ssl_assert_fingerprint,
                 cloud_id=self.sink.cloud_id,
+            )
+        elif isinstance(self.sink, OpenSearchSink) and isinstance(
+            self.target, OpenSearchTarget
+        ):
+            return OpenSearchLoader(
+                hosts=self.sink.hosts,
+                user=self.sink.user,
+                password=self.sink.password,
+                use_ssl=self.sink.use_ssl,
             )
         elif isinstance(self.sink, PineconeSink) and isinstance(
             self.target, PineconeTarget

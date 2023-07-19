@@ -6,7 +6,7 @@ from weaviate import Client, AuthApiKey
 from abc import ABC, abstractmethod
 from core.load.base import Loader
 from typing import Dict, List, Union, Optional, Any, cast
-from core.sdk.target import WeaviateTarget, WeaviateVecotorizer
+from core.sdk.target import WeaviateTarget, WeaviateVectorizer
 
 DEFAULT_BATCH_SIZE = 100
 UUID_NAMESPACE = uuid.NAMESPACE_DNS
@@ -17,7 +17,7 @@ class WeaviateLoader(Loader):
         self,
         api_key: str,
         url: str,
-        default_vectorizer: WeaviateVecotorizer,
+        default_vectorizer: WeaviateVectorizer,
         default_vectorizer_config: Dict[str, str],
     ) -> None:
         self.wc = Client(

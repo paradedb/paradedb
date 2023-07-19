@@ -9,7 +9,7 @@ class Similarity(Enum):
     COSINE = "cosine"
 
 
-class WeaviateVecotorizer(Enum):
+class WeaviateVectorizer(Enum):
     COHERE = "text2vec-cohere"
     OPENAI = "text2vec-openai"
     PALM = "text2vec-palm"
@@ -32,7 +32,7 @@ class PineconeTarget(BaseModel):
 
 class WeaviateTarget(BaseModel):
     index_name: str
-    default_vectorizer: WeaviateVecotorizer
+    default_vectorizer: WeaviateVectorizer
     default_vectorizer_config: Dict[str, Any]
 
 
@@ -63,7 +63,7 @@ class Target:
     def Weaviate(
         cls,
         index_name: str,
-        default_vectorizer: WeaviateVecotorizer,
+        default_vectorizer: WeaviateVectorizer,
         default_vectorizer_config: Dict[str, str],
     ) -> WeaviateTarget:
         return WeaviateTarget(

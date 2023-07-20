@@ -27,6 +27,7 @@ class ElasticSearchTarget(BaseModel):
 
 class OpenSearchTarget(BaseModel):
     index_name: str
+    field_name: str
 
 
 class PineconeTarget(BaseModel):
@@ -57,8 +58,8 @@ class Target:
         )
 
     @classmethod
-    def OpenSearch(cls, index_name: str) -> OpenSearchTarget:
-        return OpenSearchTarget(index_name=index_name)
+    def OpenSearch(cls, index_name: str, field_name: str) -> OpenSearchTarget:
+        return OpenSearchTarget(index_name=index_name, field_name=field_name)
 
     @classmethod
     def Pinecone(cls, index_name: str, namespace: str) -> PineconeTarget:

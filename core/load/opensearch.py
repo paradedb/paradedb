@@ -49,17 +49,13 @@ class OpenSearchLoader(Loader):
         metadata: Optional[List[Dict[str, Any]]],
     ) -> None:
         index_name = target.index_name
+        field_name = target.field_name
 
         if metadata is not None:
             docs: List[Dict[str, Any]] = []
             for doc_id, embedding, meta in zip(ids, embeddings, metadata):
                 docs.append({"index": {"_index": index_name, "_id": doc_id}})
-                docs.append(
-                    {
-                        "values": embedding,
-                        "metadata": metadata,
-                    }
-                )
+                docs.append({field_name: embedding, **meta})
 
         else:
             docs = []
@@ -67,7 +63,7 @@ class OpenSearchLoader(Loader):
                 docs.append({"index": {"_index": index_name, "_id": doc_id}})
                 docs.append(
                     {
-                        "values": embedding,
+                        field_name: embedding,
                     }
                 )
         self.opensearch.bulk(body=docs)

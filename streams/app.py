@@ -2,7 +2,7 @@ import json
 import socket
 from core.sdk.realtime import RealtimeServer
 from core.sdk.source import PostgresSource
-from core.sdk.sink import ElasticSearchSink, PineconeSink, WeaviateSink
+from core.sdk.sink import ElasticSearchSink, OpenSearchSink, PineconeSink, WeaviateSink
 from confluent_kafka import Producer, Consumer
 from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient
@@ -11,7 +11,7 @@ from faust import App, Worker
 from typing import Callable, Any, Optional, Union
 
 Source = Union[PostgresSource]
-Sink = Union[ElasticSearchSink, PineconeSink, WeaviateSink]
+Sink = Union[ElasticSearchSink, OpenSearchSink, PineconeSink, WeaviateSink]
 
 
 def return_schema(

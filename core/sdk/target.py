@@ -25,6 +25,11 @@ class ElasticSearchTarget(BaseModel):
     similarity: Optional[Similarity]
 
 
+class OpenSearchTarget(BaseModel):
+    index_name: str
+    field_name: str
+
+
 class PineconeTarget(BaseModel):
     index_name: str
     namespace: str
@@ -51,6 +56,10 @@ class Target:
             should_index=should_index,
             similarity=similarity,
         )
+
+    @classmethod
+    def OpenSearch(cls, index_name: str, field_name: str) -> OpenSearchTarget:
+        return OpenSearchTarget(index_name=index_name, field_name=field_name)
 
     @classmethod
     def Pinecone(cls, index_name: str, namespace: str) -> PineconeTarget:

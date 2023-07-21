@@ -33,8 +33,6 @@ class WeaviateLoader(Loader):
     def _create_index(self, index_name: str) -> None:
         default_vectorizer = str(self.default_vectorizer.value)
 
-        print(default_vectorizer)
-
         self.wc.schema.create_class(
             {
                 "class": index_name,

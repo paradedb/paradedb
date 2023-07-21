@@ -9,18 +9,26 @@ from core.sdk.embedding import (
 )
 from core.sdk.source import PostgresSource
 from core.sdk.transform import PostgresTransform
-from core.sdk.sink import ElasticSearchSink, OpenSearchSink, PineconeSink, WeaviateSink
+from core.sdk.sink import (
+    ElasticSearchSink,
+    OpenSearchSink,
+    PineconeSink,
+    WeaviateSink,
+    QdrantSink,
+)
 from core.sdk.target import (
     ElasticSearchTarget,
     OpenSearchTarget,
     PineconeTarget,
     WeaviateTarget,
+    QdrantTarget,
 )
 from core.sdk.realtime import RealtimeServer
 from core.load.elasticsearch import ElasticSearchLoader
 from core.load.opensearch import OpenSearchLoader
 from core.load.pinecone import PineconeLoader
 from core.load.weaviate import WeaviateLoader
+from core.load.qdrant import QdrantLoader
 from core.extract.postgres import PostgresExtractor
 from core.transform.openai import OpenAIEmbedding as OpenAI
 from core.transform.sentence_transformers import (
@@ -40,10 +48,14 @@ Transform = Union[PostgresTransform]
 Embedding = Union[
     OpenAIEmbedding, SentenceTransformerEmbedding, CohereEmbedding, CustomEmbedding
 ]
-Sink = Union[ElasticSearchSink, OpenSearchSink, PineconeSink, WeaviateSink]
-Target = Union[ElasticSearchTarget, OpenSearchTarget, PineconeTarget, WeaviateTarget]
+Sink = Union[ElasticSearchSink, OpenSearchSink, PineconeSink, WeaviateSink, QdrantSink]
+Target = Union[
+    ElasticSearchTarget, OpenSearchTarget, PineconeTarget, WeaviateTarget, QdrantTarget
+]
 Extractor = Union[PostgresExtractor]
-Loader = Union[ElasticSearchLoader, OpenSearchLoader, PineconeLoader, WeaviateLoader]
+Loader = Union[
+    ElasticSearchLoader, OpenSearchLoader, PineconeLoader, WeaviateLoader, QdrantLoader
+]
 Model = Union[OpenAI, SentenceTransformer, Cohere, Custom]
 
 BATCH_SIZE = 100
@@ -110,6 +122,17 @@ class Pipeline:
                 url=self.sink.url,
                 default_vectorizer=self.target.default_vectorizer,
                 default_vectorizer_config=self.target.default_vectorizer_config,
+            )
+
+        elif isinstance(self.sink, QdrantSink) and isinstance(
+            self.target, QdrantTarget
+        ):
+            return QdrantLoader(
+                host=self.sink.host,
+                port=self.sink.port,
+                url=self.sink.url,
+                api_key=self.sink.api_key,
+                similarity=self.target.similarity,
             )
         else:
             raise ValueError("Target and Sink types do not match")

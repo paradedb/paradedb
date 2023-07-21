@@ -3,7 +3,6 @@ import pinecone
 from unittest.mock import Mock, patch, MagicMock
 from core.load.pinecone import PineconeLoader
 from core.sdk.target import PineconeTarget
-from typing import List, Dict, Any, Union, Optional
 
 
 @pytest.fixture

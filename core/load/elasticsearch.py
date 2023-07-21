@@ -1,4 +1,3 @@
-from abc import ABC, abstractmethod
 from elasticsearch import Elasticsearch, helpers
 from typing import Dict, List, Union, Optional, Any, cast
 from core.load.base import Loader
@@ -69,7 +68,7 @@ class ElasticSearchLoader(Loader):
 
         self.es.indices.create(index=index_name, mappings=mapping)
 
-    ### Public Methods ###
+    # Public Methods
 
     def check_and_setup_index(
         self, target: ElasticSearchTarget, num_dimensions: int
@@ -111,7 +110,7 @@ class ElasticSearchLoader(Loader):
                     index=index_name, properties=new_field_mapping
                 )
 
-    ### Public Methods ###
+    # Public Methods
 
     @Loader.validate
     def bulk_upsert_embeddings(

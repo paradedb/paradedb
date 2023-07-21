@@ -45,33 +45,51 @@ def create_sink_connector(conf: Dict[str, str]):
     create_connector(get_http_sink_config())
 
 
-def get_postgres_connector_config() -> None:
-    print("creating postgres source connector...")
-    create_connector(
-        {
-            "name": f'{conn["table_name"]}-connector',
-            "config": {
-                "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-                "plugin.name": "pgoutput",
-                "value.converter": "io.confluent.connect.avro.AvroConverter",
-                "value.converter.schema.registry.url": kafka_config.schema_registry_server,
-                "database.hostname": f'{conn["host"]}',
-                "database.port": f'{conn["port"]}',
-                "database.user": f'{conn["user"]}',
-                "database.password": f'{conn["password"]}',
-                "database.dbname": f'{conn["dbname"]}',
-                "table.include.list": f'{conn["schema_name"]}.{conn["table_name"]}',
-                "transforms": "unwrap",
-                "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
-                "transforms.unwrap.drop.tombstones": "false",
-                "transforms.unwrap.delete.handling.mode": "rewrite",
-                "topic.prefix": f'{conn["table_name"]}',
-            },
-        }
-    )
+def get_postgres_connector_config(conf: Dict[str, str]) -> Dict:
+    return {
+        "name": f'{conf["table_name"]}-connector',
+        "config": {
+            "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+            "plugin.name": "pgoutput",
+            "value.converter": "io.confluent.connect.avro.AvroConverter",
+            "value.converter.schema.registry.url": kafka_config.schema_registry_server,
+            "database.hostname": f'{conf["host"]}',
+            "database.port": f'{conf["port"]}',
+            "database.user": f'{conf["user"]}',
+            "database.password": f'{conf["password"]}',
+            "database.dbname": f'{conf["dbname"]}',
+            "table.include.list": f'{conf["schema_name"]}.{conf["table_name"]}',
+            "transforms": "unwrap",
+            "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+            "transforms.unwrap.drop.tombstones": "false",
+            "transforms.unwrap.delete.handling.mode": "rewrite",
+            "topic.prefix": f'{conf["table_name"]}',
+        },
+    }
 
 
-def register_sink_value_schema(index: str) -> None:
+def get_http_sink_config(conf: Dict[str, str]) -> Dict:
+    return {
+        "name": f"",
+        "config": {
+            "topics": kafka_config.http_sink_topic,
+            "tasks.max": "1",
+            "connector.class": "io.confluent.connect.http.HttpSinkConnector",
+            "http.api.url": f'{kafka_config.http_sink_server}/messages?type={conf["type"]}&field_name={conf["field_name"]}',
+            "value.converter": "io.confluent.connect.avro.AvroConverter",
+            "value.converter.schema.registry.url": kafka_config.schema_registry_server,
+            "confluent.topic.bootstrap.servers": kafka_config.bootstrap_servers,
+            "confluent.topic.replication.factor": "1",
+            "reporter.bootstrap.servers": kafka_config.bootstrap_servers,
+            "reporter.result.topic.name": "success-responses",
+            "reporter.result.topic.replication.factor": "1",
+            "reporter.error.topic.name": "error-responses",
+            "reporter.error.topic.replication.factor": "1",
+        },
+    }
+
+
+def register_sink_value_schema(index_name: str) -> None:
     print("registering sink schema...")
     schema_str = """
     {
@@ -92,6 +110,11 @@ def register_sink_value_schema(index: str) -> None:
             "items": "string"
         },
         "default": []
+        },
+        {
+            "name": "field_name",
+            "type": "string",
+            "default": "value"
         }
     ]
     }

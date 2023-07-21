@@ -3,7 +3,7 @@ import requests
 import time
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
 from kafka_connectors.kafka_config import KafkaConfig
-from typing import Any
+from typing import Any, Dict
 
 kafka_config = KafkaConfig()
 
@@ -36,8 +36,17 @@ def create_connector(connector_config: dict[str, Any]) -> None:
             continue
 
 
-def create_source_connector(conn: dict[str, str]) -> None:
-    print("creating source connector...")
+def create_source_connector(conf: Dict[str, str]):
+    if conf["type"] == "postgres":
+        create_connector(get_postgres_connector_config())
+
+
+def create_sink_connector(conf: Dict[str, str]):
+    create_connector(get_http_sink_config())
+
+
+def get_postgres_connector_config() -> None:
+    print("creating postgres source connector...")
     create_connector(
         {
             "name": f'{conn["table_name"]}-connector',
@@ -101,23 +110,3 @@ def register_sink_value_schema(index: str) -> None:
             print("Schema registry server is not yet available, retrying...")
 
     print("Schema written successfully")
-
-
-def create_sink_connector(conn: dict[str, str]) -> None:
-    print("Creating sink connector...")
-    create_connector(
-        {
-            "name": "sink-connector",
-            "config": {
-                "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
-                "topics": f'{conn["index"]}',
-                "key.ignore": "true",
-                "name": "sink-connector",
-                "value.converter": "io.confluent.connect.avro.AvroConverter",
-                "value.converter.schema.registry.url": f"{kafka_config.schema_registry_server}",
-                "connection.url": f'{conn["host"]}',
-                "connection.username": f'{conn["user"]}',
-                "connection.password": f'{conn["password"]}',
-            },
-        }
-    )

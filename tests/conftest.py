@@ -107,7 +107,7 @@ def elasticsearch_sink(docker_ip, docker_services):
     )
 
     return Sink.ElasticSearch(
-        host="https://127.0.0.1:9200",
+        host=url,
         user="elastic",
         password="elastic",
         ssl_assert_fingerprint=None,

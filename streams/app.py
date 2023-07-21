@@ -1,7 +1,7 @@
 import json
 import socket
 from core.sdk.realtime import RealtimeServer
-from core.sdk.pipeline import Source, Sink
+from core.sdk.types import Source, Sink
 from confluent_kafka import Producer, Consumer
 from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient

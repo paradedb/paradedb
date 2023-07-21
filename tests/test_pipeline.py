@@ -4,7 +4,6 @@ from core.sdk.pipeline import Pipeline
 from core.extract.postgres import PostgresExtractor
 from core.load.elasticsearch import ElasticSearchLoader
 from core.transform.custom import CustomEmbedding
-from core.sdk.realtime import RealtimeServer
 
 
 def test_postgres_to_elasticsearch(
@@ -23,8 +22,7 @@ def test_postgres_to_elasticsearch(
         transform=postgres_transform,
         embedding=custom_embedding,
         sink=elasticsearch_sink,
-        target=elasticsearch_target,
-        realtime_server=RealtimeServer(host="0.0.0.0"),
+        target=elasticsearch_target
     )
 
     loader = pipeline._get_loader()
@@ -35,8 +33,8 @@ def test_postgres_to_elasticsearch(
     assert isinstance(extractor, PostgresExtractor)
     assert isinstance(model, CustomEmbedding)
 
-    # Run pipe_once()
-    pipeline.pipe_once(verbose=True)
+    # Run pipe_all()
+    pipeline.pipe_all(verbose=True)
 
     # Check that the embedding was inserted correctly
     response = loader.es.get(index=test_index_name, id=test_document_id)

@@ -1,5 +1,5 @@
 from opensearchpy import OpenSearch
-from typing import List, Union, Optional, Dict, Tuple, Any
+from typing import List, Union, Optional, Dict, Any
 from core.load.base import Loader
 from core.sdk.target import OpenSearchTarget
 

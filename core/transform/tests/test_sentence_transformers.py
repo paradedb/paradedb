@@ -1,17 +1,13 @@
-import pytest
 import numpy as np
 
 from unittest.mock import patch
-from typing import List
 from core.transform.sentence_transformers import SentenceTransformerEmbedding
 
 
 def test_sentence_transformer_embedding_initialization():
     model = "all-MiniLM-L6-v2"
 
-    with patch(
-        "core.transform.sentence_transformers.SentenceTransformer"
-    ) as MockedTransformer:
+    with patch("core.transform.sentence_transformers.SentenceTransformer"):
         sentence_transformers_embedding = SentenceTransformerEmbedding(model)
 
         assert sentence_transformers_embedding.model is not None

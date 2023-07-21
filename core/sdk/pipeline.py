@@ -1,5 +1,5 @@
 from tqdm import tqdm
-from typing import Union, Tuple, Callable, Any, Optional, Dict, List, cast
+from typing import Union, Tuple, Any, Optional, Dict, List, cast
 
 from core.sdk.embedding import (
     OpenAIEmbedding,

@@ -8,7 +8,6 @@ from qdrant_client.models import (
     CollectionDescription,
 )
 
-from core.load.base import Loader
 from core.load.qdrant import QdrantLoader
 from core.sdk.target import QdrantTarget, QdrantSimilarity
 
@@ -16,12 +15,12 @@ from core.sdk.target import QdrantTarget, QdrantSimilarity
 class TestQdrantLoader:
     @patch.object(QdrantClient, "__init__", return_value=None)
     def test_constructor_with_url_and_api_key(self, mock_init):
-        loader = QdrantLoader(url="test_url", api_key="test_api_key")
+        QdrantLoader(url="test_url", api_key="test_api_key")
         mock_init.assert_called_once_with(url="test_url", api_key="test_api_key")
 
     @patch.object(QdrantClient, "__init__", return_value=None)
     def test_constructor_with_host_and_port(self, mock_init):
-        loader = QdrantLoader(host="localhost", port=8000)
+        QdrantLoader(host="localhost", port=8000)
         mock_init.assert_called_once_with(host="localhost", port=8000)
 
     def test_constructor_with_incorrect_args(self):
@@ -41,9 +40,9 @@ class TestQdrantLoader:
         )
         loader.client.get_collections = MagicMock(return_value=mock_response)
 
-        assert loader._check_index_exists("index1") == True
-        assert loader._check_index_exists("index2") == True
-        assert loader._check_index_exists("index3") == False
+        assert loader._check_index_exists("index1")
+        assert loader._check_index_exists("index2")
+        assert not loader._check_index_exists("index3")
 
     def test_create_index(self):
         loader = QdrantLoader(host="localhost", port=8000)

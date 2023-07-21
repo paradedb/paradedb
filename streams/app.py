@@ -7,7 +7,7 @@ from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer, AvroDeserializer
 from faust import App, Worker
-from typing import Callable, Any, Optional, Union
+from typing import Callable, Any, Optional
 
 
 def return_schema(

@@ -39,6 +39,10 @@ jobs:
         run: |
           poetry run black --check .
 
+      - name: Run Flake8
+        run: |
+          poetry run flake8 core retake streams connectors
+
       - name: Run mypy
         run: |
-          poetry run mypy core/ retake/ streams/ connectors/
+          poetry run mypy core retake streams connectors

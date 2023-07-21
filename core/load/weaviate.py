@@ -3,7 +3,6 @@ import uuid
 
 from weaviate import Client, AuthApiKey
 
-from abc import ABC, abstractmethod
 from core.load.base import Loader
 from typing import Dict, List, Union, Optional, Any, cast
 from core.sdk.target import WeaviateTarget, WeaviateVectorizer
@@ -58,9 +57,6 @@ class WeaviateLoader(Loader):
         metadata: Optional[List[Dict[str, Any]]],
     ) -> None:
         class_name = target.index_name
-        vectorizer = target.default_vectorizer
-        vectorizer_config = target.default_vectorizer_config
-
         data_objects = metadata if metadata else [{} for _ in range(len(ids))]
 
         with self.wc.batch(

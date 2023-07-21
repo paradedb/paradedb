@@ -1,12 +1,7 @@
 import psycopg2
-import select
-import json
-import threading
-import queue
 
 from psycopg2.extras import LogicalReplicationConnection
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from typing import List, Generator, Dict, Any, Optional, cast
+from typing import List, Generator, cast
 
 from core.extract.base import Extractor, ExtractorResult
 

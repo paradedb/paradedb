@@ -28,19 +28,17 @@ def register_connector_conf(
     index: str,
     db_schema_name: str,
     table_name: str,
-    source: Source,
-    sink: Sink,
+    source_conf: Dict[str, str],
+    sink_conf: Dict[str, Optional[str]],
 ) -> None:
     config_topic = "_connector_config"
     conf = {"bootstrap.servers": server.broker_host, "client.id": socket.gethostname()}
 
     # Append table name and schema name to source config
-    source_conf = source.config
     source_conf["schema_name"] = db_schema_name
     source_conf["table_name"] = table_name
 
     # Append index to sink config
-    sink_conf = sink.config
     sink_conf["index"] = index
 
     p = Producer(conf)

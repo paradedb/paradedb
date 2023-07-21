@@ -270,11 +270,15 @@ class Pipeline:
         source_conf = self.source.config
         sink_conf = self.sink.config
 
-        if "localhost" in source_conf["host"]:
+        if ("localhost" in source_conf["host"]) and (server.internal_source_host):
             print("Using internal host for source")
             source_conf["host"] = server.internal_source_host
 
-        if "localhost" in sink_conf["host"]:
+        if (
+            (sink_conf["host"])
+            and ("localhost" in sink_conf["host"])
+            and (server.internal_sink_host)
+        ):
             print("Using internal host for sink")
             source_conf["host"] = server.internal_sink_host
 

@@ -55,6 +55,18 @@ class WeaviateSink(BaseModel):
         return {}
 
 
+class QdrantSink(BaseModel):
+    host: Optional[str] = None
+    port: Optional[int] = None
+    url: Optional[str] = None
+    api_key: Optional[str] = None
+
+    @property
+    def config(self) -> dict[str, Optional[str]]:
+        # Unimplemented
+        return {}
+
+
 class Sink:
     @classmethod
     def ElasticSearch(
@@ -102,3 +114,13 @@ class Sink:
             api_key=api_key,
             url=url,
         )
+
+    @classmethod
+    def Qdrant(
+        cls,
+        host: Optional[str] = None,
+        port: Optional[int] = None,
+        url: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ) -> QdrantSink:
+        return QdrantSink(host=host, port=port, url=url, api_key=api_key)

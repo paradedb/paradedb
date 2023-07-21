@@ -107,7 +107,7 @@ def create_sink_connector(conn: dict[str, str]) -> None:
     print("Creating sink connector...")
     create_connector(
         {
-            "name": f"sink-connector",
+            "name": "sink-connector",
             "config": {
                 "connector.class": "io.confluent.connect.elasticsearch.ElasticsearchSinkConnector",
                 "topics": f'{conn["index"]}',

@@ -1,7 +1,5 @@
-import pytest
 from unittest.mock import Mock
 from typing import List, Callable
-from core.transform.base import Embedding
 from core.transform.custom import CustomEmbedding
 
 

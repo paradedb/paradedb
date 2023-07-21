@@ -1,7 +1,6 @@
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 
-from abc import ABC, abstractmethod
 from core.load.base import Loader
 from typing import Dict, List, Union, Optional, Any, cast
 from core.sdk.target import QdrantTarget, QdrantSimilarity

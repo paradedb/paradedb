@@ -1,8 +1,7 @@
 import pinecone
 
-from abc import ABC, abstractmethod
 from core.load.base import Loader
-from typing import Dict, List, Union, Optional, Any, cast
+from typing import Dict, List, Union, Optional, Any
 from core.sdk.target import PineconeTarget
 
 
@@ -18,7 +17,7 @@ class PineconeLoader(Loader):
         try:
             pinecone.describe_index(index_name)
             return True
-        except pinecone.NotFoundException as e:
+        except pinecone.NotFoundException:
             return False
 
     def _get_num_dimensions(self, index_name: str) -> int:
@@ -27,7 +26,7 @@ class PineconeLoader(Loader):
     def _create_index(self, index_name: str, num_dimensions: int) -> None:
         pinecone.create_index(index_name, dimension=num_dimensions)
 
-    ### Public Methods ###
+    # Public Methods
 
     def check_and_setup_index(
         self, target: PineconeTarget, num_dimensions: int

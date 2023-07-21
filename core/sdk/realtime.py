@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Optional
 
 DEFAULT_BROKER_PORT = 9094
 DEFAULT_SCHEMA_REGISTRY_PORT = 8081
@@ -9,6 +10,8 @@ class RealtimeServer(BaseModel):
     broker_port: int = DEFAULT_BROKER_PORT
     schema_registry_port: int = DEFAULT_SCHEMA_REGISTRY_PORT
     use_tls: bool = False  # TODO: make this default to True
+    internal_source_host: Optional[str]
+    internal_sink_host: Optional[str]
 
     @property
     def broker_host(self) -> str:

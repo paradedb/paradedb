@@ -266,12 +266,24 @@ class Pipeline:
             raise ValueError(
                 "Transform expected but got None. Did you forget to provide a transform argument?"
             )
+
+        source_conf = self.source.config
+        sink_conf = self.sink.config
+
+        if "localhost" in source_conf["host"]:
+            print("Using internal host for source")
+            source_conf["host"] = server.internal_source_host
+
+        if "localhost" in sink_conf["host"]:
+            print("Using internal host for sink")
+            source_conf["host"] = server.internal_sink_host
+
         index = self.target.index_name
         db_schema_name = self.transform.schema_name
         table_name = self.transform.relation
 
         register_connector_conf(
-            server, index, db_schema_name, table_name, self.source, self.sink
+            server, index, db_schema_name, table_name, source_conf, sink_conf
         )
         wait_for_config_success(server)
 

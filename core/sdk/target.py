@@ -3,10 +3,16 @@ from enum import Enum
 from typing import Optional, Dict, Any
 
 
-class Similarity(Enum):
+class ElasticSimilarity(Enum):
     L2_NORM = "l2_norm"
     DOT_PRODUCT = "dot_product"
     COSINE = "cosine"
+
+
+class QdrantSimilarity(Enum):
+    COSINE = "Cosine"
+    EUCLID = "Euclid"
+    DOT = "Dot"
 
 
 class WeaviateVectorizer(Enum):
@@ -22,7 +28,7 @@ class ElasticSearchTarget(BaseModel):
     index_name: str
     field_name: str
     should_index: bool
-    similarity: Optional[Similarity]
+    similarity: Optional[ElasticSimilarity] = None
 
 
 class OpenSearchTarget(BaseModel):
@@ -41,6 +47,11 @@ class WeaviateTarget(BaseModel):
     default_vectorizer_config: Dict[str, Any]
 
 
+class QdrantTarget(BaseModel):
+    index_name: str
+    similarity: Optional[QdrantSimilarity] = None
+
+
 class Target:
     @classmethod
     def ElasticSearch(
@@ -48,7 +59,7 @@ class Target:
         index_name: str,
         field_name: str,
         should_index: bool = True,
-        similarity: Optional[Similarity] = None,
+        similarity: Optional[ElasticSimilarity] = None,
     ) -> ElasticSearchTarget:
         return ElasticSearchTarget(
             index_name=index_name,
@@ -79,4 +90,15 @@ class Target:
             index_name=index_name,
             default_vectorizer=default_vectorizer,
             default_vectorizer_config=default_vectorizer_config,
+        )
+
+    @classmethod
+    def Qdrant(
+        cls,
+        index_name: str,
+        similarity: Optional[QdrantSimilarity] = None,
+    ) -> QdrantTarget:
+        return QdrantTarget(
+            index_name=index_name,
+            similarity=similarity,
         )

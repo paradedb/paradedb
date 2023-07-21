@@ -35,9 +35,6 @@ numpy = "^1.25.1"
 types-requests = "^2.31.0.1"
 flake8 = "^6.0.0"
 
-[tool.black]
-line-length = 88
-
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

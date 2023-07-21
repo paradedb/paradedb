@@ -1,9 +1,9 @@
 import json
 import requests
 from confluent_kafka.admin import AdminClient, NewTopic
-from confluent_kafka import Producer, Consumer
-from connectors.config import KafkaConfig
-from connectors.connect import (
+from confluent_kafka import Producer, Consumer, KafkaException
+from kafka_connectors.kafka_config import KafkaConfig
+from kafka_connectors.connector_config import (
     create_source_connector,
     register_sink_value_schema,
     create_sink_connector,

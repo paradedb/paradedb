@@ -26,14 +26,14 @@ services:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
       SCHEMA_REGISTRY_KAFKA_BROKERS: PLAINTEXT://kafka:9092
 
-  consumer:
-    image: consumer
+  kafka-connectors:
+    image: kafka-connectors
     depends_on:
     - kafka
     - schema-registry
     - connect
     build:
-      context: ./connectors
+      context: ./kafka_connectors
       dockerfile: Dockerfile
     environment:
       KAFKA_HOST: kafka
@@ -70,7 +70,7 @@ services:
       - |
         echo "Installing Connector"
         confluent-hub install --no-prompt debezium/debezium-connector-postgresql:2.2.1
-        confluent-hub install --no-prompt confluentinc/kafka-connect-elasticsearch:14.0.6
+        confluent-hub install confluentinc/kafka-connect-http:1.7.2
         #
         echo "Launching Kafka Connect worker"
         /etc/confluent/docker/run &

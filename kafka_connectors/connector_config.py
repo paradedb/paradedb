@@ -2,7 +2,7 @@ from http import HTTPStatus
 import requests
 import time
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
-from connectors.config import KafkaConfig
+from kafka_connectors.kafka_config import KafkaConfig
 from typing import Any
 
 kafka_config = KafkaConfig()

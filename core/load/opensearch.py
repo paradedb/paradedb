@@ -54,16 +54,21 @@ class OpenSearchLoader(Loader):
         if metadata is not None:
             docs: List[Dict[str, Any]] = []
             for doc_id, embedding, meta in zip(ids, embeddings, metadata):
-                docs.append({"index": {"_index": index_name, "_id": doc_id}})
-                docs.append({field_name: embedding, **meta})
+                docs.append({"update": {"_index": index_name, "_id": doc_id}})
+                docs.append(
+                    {"doc": {field_name: embedding, **meta}, "doc_as_upsert": True}
+                )
 
         else:
             docs = []
             for doc_id, embedding in zip(ids, embeddings):
-                docs.append({"index": {"_index": index_name, "_id": doc_id}})
+                docs.append({"update": {"_index": index_name, "_id": doc_id}})
                 docs.append(
                     {
-                        field_name: embedding,
+                        "doc": {
+                            field_name: embedding,
+                        },
+                        "doc_as_upsert": True,
                     }
                 )
         self.opensearch.bulk(body=docs)

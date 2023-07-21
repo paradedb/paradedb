@@ -22,7 +22,7 @@ def test_postgres_to_elasticsearch(
         transform=postgres_transform,
         embedding=custom_embedding,
         sink=elasticsearch_sink,
-        target=elasticsearch_target
+        target=elasticsearch_target,
     )
 
     loader = pipeline._get_loader()

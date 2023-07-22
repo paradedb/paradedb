@@ -25,17 +25,13 @@ def test_postgres_to_elasticsearch(
         target=elasticsearch_target,
     )
 
-    loader = pipeline._get_loader()
-    extractor = pipeline._get_extractor()
-    model = pipeline._get_model()
-
-    assert isinstance(loader, ElasticSearchLoader)
-    assert isinstance(extractor, PostgresExtractor)
-    assert isinstance(model, CustomEmbedding)
+    assert isinstance(pipeline.loader, ElasticSearchLoader)
+    assert isinstance(pipeline.extractor, PostgresExtractor)
+    assert isinstance(pipeline.model, CustomEmbedding)
 
     # Run pipe_all()
     pipeline.pipe_all(verbose=True)
 
     # Check that the embedding was inserted correctly
-    response = loader.es.get(index=test_index_name, id=test_document_id)
+    response = pipeline.loader.es.get(index=test_index_name, id=test_document_id)
     assert response["_source"][test_field_name] == test_vector

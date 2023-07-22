@@ -32,11 +32,16 @@ class ElasticSearchLoader(Loader):
                 verify_certs=True,
             )
         elif host and user and password:
+            print("Connecting...")
             self.es = Elasticsearch(
                 hosts=[host],
                 basic_auth=(user, password),
                 verify_certs=False,
+                timeout=10,
+                max_retries=3,
+                retry_on_timeout=True,
             )
+            print("Connected!")
         else:
             raise ValueError(
                 "Either cloud_id or host, user, and password must be provided"

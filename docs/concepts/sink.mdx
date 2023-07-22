@@ -45,6 +45,32 @@ sink = Sink.Weaviate(
   Weaviate URL
 </ParamField>
 
+## Qdrant
+
+**Usage**
+
+```bash
+sink = Sink.Qdrant(
+    api_key="***",
+    url="weaviate_url"
+)
+```
+
+**Parameters**
+
+<ParamField body="api_key" type="string">
+  Qdrant API key (required for Qdrant Cloud)
+</ParamField>
+<ParamField body="url" type="string">
+  Qdrant URL (required for Qdrant Cloud)
+</ParamField>
+<ParamField body="host" type="string">
+  Qdrant host (required for self-hosted Qdrant)
+</ParamField>
+<ParamField body="port" type="int">
+  Qdrant port (required for self-hosted Qdrant)
+</ParamField>
+
 ## ElasticSearch
 
 **Usage**

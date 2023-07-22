@@ -23,16 +23,20 @@ class ElasticSearchLoader(Loader):
             raise ValueError("Similarity must be provided if index is True")
 
         if cloud_id:
-            self.es = Elasticsearch(cloud_id=cloud_id)
+            self.es = Elasticsearch(
+                cloud_id=cloud_id, timeout=10, max_retries=3, retry_on_timeout=True
+            )
         elif host and user and password and ssl_assert_fingerprint:
             self.es = Elasticsearch(
                 hosts=[host],
                 basic_auth=(user, password),
                 ssl_assert_fingerprint=ssl_assert_fingerprint,
                 verify_certs=True,
+                timeout=10,
+                max_retries=3,
+                retry_on_timeout=True,
             )
         elif host and user and password:
-            print("Connecting...")
             self.es = Elasticsearch(
                 hosts=[host],
                 basic_auth=(user, password),
@@ -41,7 +45,6 @@ class ElasticSearchLoader(Loader):
                 max_retries=3,
                 retry_on_timeout=True,
             )
-            print("Connected!")
         else:
             raise ValueError(
                 "Either cloud_id or host, user, and password must be provided"
@@ -79,9 +82,8 @@ class ElasticSearchLoader(Loader):
 
         try:
             self.es.indices.create(index=index_name, mappings=mapping)
-        except Exception as e:
+        except Exception:
             pass
-
 
     # Public Methods
 

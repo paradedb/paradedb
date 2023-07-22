@@ -77,7 +77,11 @@ class ElasticSearchLoader(Loader):
         if self.similarity is not None:
             mapping["properties"][field_name]["similarity"] = self.similarity
 
-        self.es.indices.create(index=index_name, mappings=mapping)
+        try:
+            self.es.indices.create(index=index_name, mappings=mapping)
+        except Exception as e:
+            pass
+
 
     # Public Methods
 

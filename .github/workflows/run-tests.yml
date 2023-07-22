@@ -26,7 +26,7 @@ jobs:
       - name: Install Poetry
         run: |
           # curl -sSL https://install.python-poetry.org | python -
-          brew install poetry
+          brew install poetry docker-compose
 
       - name: Configure Poetry
         run: |

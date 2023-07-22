@@ -36,33 +36,33 @@ jobs:
       - name: Install Dependencies
         run: poetry install
 
-      # Based on https://medium.com/@mertguvencli/how-to-setup-nvidia-driver-cuda-toolkit-and-cudnn-in-ubuntu-20-4-ac5efedb4427
-      - name: Install CUDA, cuDNN & NCCL
-        run: |
-          # Install CUDA
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
-          sudo mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600
-          wget https://developer.download.nvidia.com/compute/cuda/11.7.1/local_installers/cuda-repo-ubuntu2204-11-7-local_11.7.1-515.65.01-1_amd64.deb
-          sudo dpkg -i cuda-repo-ubuntu2204-11-7-local_11.7.1-515.65.01-1_amd64.deb
-          sudo cp /var/cuda-repo-ubuntu2204-11-7-local/cuda-*-keyring.gpg /usr/share/keyrings/
-          sudo apt-get -y update
-          sudo apt-get -y install cuda
+      # # Based on https://medium.com/@mertguvencli/how-to-setup-nvidia-driver-cuda-toolkit-and-cudnn-in-ubuntu-20-4-ac5efedb4427
+      # - name: Install CUDA, cuDNN & NCCL
+      #   run: |
+      #     # Install CUDA
+      #     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
+      #     sudo mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600
+      #     wget https://developer.download.nvidia.com/compute/cuda/11.7.1/local_installers/cuda-repo-ubuntu2204-11-7-local_11.7.1-515.65.01-1_amd64.deb
+      #     sudo dpkg -i cuda-repo-ubuntu2204-11-7-local_11.7.1-515.65.01-1_amd64.deb
+      #     sudo cp /var/cuda-repo-ubuntu2204-11-7-local/cuda-*-keyring.gpg /usr/share/keyrings/
+      #     sudo apt-get -y update
+      #     sudo apt-get -y install cuda
 
-          # Install cuDNN
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
-          sudo mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600
-          sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub
-          sudo add-apt-repository -y "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /"          
-          sudo apt-get -y update
-          sudo apt-get -y install libcudnn8=8.5.0.*-1+cuda11.7
-          sudo apt-get -y install libcudnn8-dev=8.5.0.*-1+cuda11.7
+      #     # Install cuDNN
+      #     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-ubuntu2204.pin
+      #     sudo mv cuda-ubuntu2204.pin /etc/apt/preferences.d/cuda-repository-pin-600
+      #     sudo apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/3bf863cc.pub
+      #     sudo add-apt-repository -y "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/ /"          
+      #     sudo apt-get -y update
+      #     sudo apt-get -y install libcudnn8=8.5.0.*-1+cuda11.7
+      #     sudo apt-get -y install libcudnn8-dev=8.5.0.*-1+cuda11.7
 
-          # Install NCCL
-          # Based on https://developer.nvidia.com/nccl/nccl-download (NCCL is not available for CUDA 11.7, so we pick 12.2)
-          wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
-          sudo dpkg -i cuda-keyring_1.0-1_all.deb
-          sudo apt-get -y update
-          sudo apt-get -y install libnccl2=2.18.3-1+cuda12.2 libnccl-dev=2.18.3-1+cuda12.2
+      #     # Install NCCL
+      #     # Based on https://developer.nvidia.com/nccl/nccl-download (NCCL is not available for CUDA 11.7, so we pick 12.2)
+      #     wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
+      #     sudo dpkg -i cuda-keyring_1.0-1_all.deb
+      #     sudo apt-get -y update
+      #     sudo apt-get -y install libnccl2=2.18.3-1+cuda12.2 libnccl-dev=2.18.3-1+cuda12.2
 
       # - name: Setup tmate session
       #   uses: mxschmitt/action-tmate@v3

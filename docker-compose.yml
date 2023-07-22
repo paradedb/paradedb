@@ -42,9 +42,6 @@ services:
       SCHEMA_REGISTRY_PORT: 8081
       KAFKA_CONNECT_HOST: connect
       KAFKA_CONNECT_PORT: 8083
-      HTTP_SINK_HOST: http-sink
-      HTTP_SINK_PORT: 8080
-      HTTP_SINK_TARGET: http-messages
       
   connect:
     image: confluentinc/cp-kafka-connect-base:6.2.0

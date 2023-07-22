@@ -59,6 +59,30 @@ target = Target.Weaviate(
   If the class already exists, this parameter is ignored.
 </ParamField>
 
+## Qdrant
+
+**Usage**
+
+```bash
+target = Target.Qdrant(
+    index_name="faqs",
+    similarity="Cosine"
+)
+```
+
+**Parameters**
+
+<ParamField body="index_name" type="string" required>
+  Qdrant collection name. `index_name` is used for the sake of naming
+  consistency with other `Sink` types.
+</ParamField>
+<ParamField body="similarity" type="string">
+  If the provided collection name does not exist, Retake will create a
+  collection with the provided name. In this case, Retake will create a
+  collection with the distance metric specified. Defaults to `Cosine`, options
+  are `Cosine`, `Euclid`, and `Dot`.
+</ParamField>
+
 ## ElasticSearch
 
 **Usage**

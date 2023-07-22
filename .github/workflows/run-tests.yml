@@ -24,7 +24,9 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install Poetry
-        run: curl -sSL https://install.python-poetry.org | python -
+        run: |
+          # curl -sSL https://install.python-poetry.org | python -
+          brew install poetry
 
       - name: Configure Poetry
         run: |

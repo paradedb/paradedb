@@ -6,6 +6,24 @@ from kafka_connectors.kafka_config import KafkaConfig
 from typing import Any, Dict
 
 kafka_config = KafkaConfig()
+source_connector_created = False
+sink_value_schema_registered = False
+
+
+def process_connector_config(key: str, value: Dict[str, str]) -> None:
+    if key == "source-connector" and not source_connector_created:
+        create_source_connector(value_dict)
+        source_connector_created = True
+    else:
+        if "index" in value_dict:
+            if not sink_value_schema_registered:
+                register_sink_value_schema(value_dict["index"])
+                sink_value_schema_registered = True
+        else:
+            raise ValueError("no index found")
+
+        if source_connector_created and sink_value_schema_registered:
+            print("Successfully configured connectors!")
 
 
 def create_connector(connector_config: dict[str, Any]) -> None:
@@ -41,8 +59,11 @@ def create_source_connector(conf: Dict[str, str]):
         create_connector(get_postgres_connector_config())
 
 
-def create_sink_connector(conf: Dict[str, str]):
-    create_connector(get_http_sink_config())
+def produce_config_ready_message(producer: Producer, status: str) -> None:
+    # Once the schema is registered, produce a special message to the readiness topic
+    producer.produce(topic="_config_success", key="config_ready", value=status)
+    producer.flush()
+    print("Produced to config ready topic")
 
 
 def get_postgres_connector_config(conf: Dict[str, str]) -> Dict:
@@ -68,32 +89,11 @@ def get_postgres_connector_config(conf: Dict[str, str]) -> Dict:
     }
 
 
-def get_http_sink_config(conf: Dict[str, str]) -> Dict:
-    return {
-        "name": f"",
-        "config": {
-            "topics": kafka_config.http_sink_topic,
-            "tasks.max": "1",
-            "connector.class": "io.confluent.connect.http.HttpSinkConnector",
-            "http.api.url": f'{kafka_config.http_sink_server}/messages?type={conf["type"]}&field_name={conf["field_name"]}',
-            "value.converter": "io.confluent.connect.avro.AvroConverter",
-            "value.converter.schema.registry.url": kafka_config.schema_registry_server,
-            "confluent.topic.bootstrap.servers": kafka_config.bootstrap_servers,
-            "confluent.topic.replication.factor": "1",
-            "reporter.bootstrap.servers": kafka_config.bootstrap_servers,
-            "reporter.result.topic.name": "success-responses",
-            "reporter.result.topic.replication.factor": "1",
-            "reporter.error.topic.name": "error-responses",
-            "reporter.error.topic.replication.factor": "1",
-        },
-    }
-
-
 def register_sink_value_schema(index_name: str) -> None:
     print("registering sink schema...")
     schema_str = """
     {
-    "name": "embedding",
+    "name": "embeddings",
     "type": "record",
     "fields": [
         {
@@ -112,7 +112,17 @@ def register_sink_value_schema(index_name: str) -> None:
         "default": []
         },
         {
+            "name": "sink",
+            "type": "string",
+            "default": "value"
+        },
+        {
             "name": "field_name",
+            "type": "string",
+            "default": "value"
+        },
+        {
+            "name": "index_name",
             "type": "string",
             "default": "value"
         }

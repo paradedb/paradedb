@@ -133,14 +133,7 @@ class ElasticSearchLoader(Loader):
     ) -> None:
         index_name = target.index_name
         field_name = target.field_name
-        num_dimensions = len(embeddings[0])
         num_embeddings = len(embeddings)
-
-        if not all(len(embedding) == num_dimensions for embedding in embeddings):
-            raise ValueError("Not all embeddings have the same number of dimensions")
-
-        if not len(ids) == num_embeddings:
-            raise ValueError("Number of ids does not match number of embeddings")
 
         if metadata is None:
             metadata = [{}] * num_embeddings
@@ -161,4 +154,6 @@ class ElasticSearchLoader(Loader):
             for doc in docs
         ]
 
+        print("BULK UPSERTING")
         helpers.bulk(self.es, actions)
+        print("UPSERTED")

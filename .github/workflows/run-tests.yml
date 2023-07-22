@@ -9,12 +9,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    services:
-      elasticsearch:
-        image: elasticsearch:7.8.1
-        ports:
-          - 9200:9200
+    runs-on: macos-latest-xl
     strategy:
       matrix:
         python-version: [3.9]

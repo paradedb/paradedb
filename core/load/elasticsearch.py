@@ -37,7 +37,7 @@ class ElasticSearchLoader(Loader):
                 hosts=[host],
                 basic_auth=(user, password),
                 verify_certs=False,
-                timeout=10,
+                request_timeout=10,
                 max_retries=5,
                 retry_on_timeout=True,
             )

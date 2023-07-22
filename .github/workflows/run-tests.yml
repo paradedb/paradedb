@@ -10,6 +10,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    services:
+      elasticsearch:
+        image: elasticsearch:7.8.1
+        ports:
+          - 9200:9200
     strategy:
       matrix:
         python-version: [3.9]
@@ -62,8 +67,8 @@ jobs:
           sudo apt-get -y update
           sudo apt-get -y install libnccl2=2.18.3-1+cuda12.2 libnccl-dev=2.18.3-1+cuda12.2
 
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
+      # - name: Setup tmate session
+      #   uses: mxschmitt/action-tmate@v3
 
       - name: Run Pytest
         run: poetry run pytest

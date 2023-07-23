@@ -14,19 +14,19 @@ GIT_BRANCH="main"
 # Parse command line options
 VALID_ARGS=$(getopt -o b: --long branch: -- "$@")
 if [[ $? -ne 0 ]]; then
-    exit 1;
+  exit 1;
 fi
 
 eval set -- "$VALID_ARGS"
 while [ : ]; do
   case "$1" in
     -b | --branch)
-        GIT_BRANCH="$2"
-        shift 2
-        ;;
+      GIT_BRANCH="$2"
+      shift 2
+      ;;
     --) shift;
-        break
-        ;;
+      break
+      ;;
   esac
 done
 
@@ -91,10 +91,10 @@ get_external_ip() {
 # Start deploy.sh
 
 # Update
-sudo apt update
+sudo apt-get update
 
 # Install git
-sudo apt install -y git
+sudo apt-get install -y git
 
 # Clone repo
 echo "Cloning Retake..."
@@ -126,11 +126,10 @@ sudo apt-get install -y ca-certificates curl gnupg
 sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
-echo \
-  "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
+echo "deb [arch="$(dpkg --print-architecture)" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
   "$(. /etc/os-release && echo "$VERSION_CODENAME")" stable" | \
   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-sudo apt update
+sudo apt-get update
 sudo apt-get -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
 # Enable non-root docker

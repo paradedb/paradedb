@@ -10,7 +10,7 @@ All changes to Retake happen through Github Pull Requests. Here is the recommend
 
 1. Before working on a change, please check to see if there is already a Github issue open for that change.
 2. If there is not, please open an issue first. This gives the community visibility into what you're working on and allows
-others to make suggestions and leave comments.
+   others to make suggestions and leave comments.
 3. Fork the Retake repo and branch out from the `dev` branch.
 4. Make your changes. If you've added new functionality, add tests.
 5. Open a pull request towards the `dev` branch. Ensure that all tests and checks pass. Note that the Retake repository has pull request title linting in place and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
@@ -22,4 +22,4 @@ Retake's public-facing documentation is stored in the `docs` folder. If you are 
 
 ## Licensing
 
-By contributing to Retake, you agree that your contributions will be licensed under the [Apache License 2.0](LICENSE) license.
+By contributing to Retake, you agree that your contributions will be licensed under the [Elastic License 2.0](LICENSE) license.

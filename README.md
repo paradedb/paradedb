@@ -108,8 +108,8 @@ sink(s). It is responsible for all real-time data streams.
    instructions above).
 
 3. Start the development server, which is composed of the Kafka broker, Kafka Connect
-and the schema registry. Docker Compose will expose a port for each of the
-services (see `docker-compose.yaml` for details).
+   and the schema registry. Docker Compose will expose a port for each of the
+   services (see `docker-compose.yaml` for details).
 
 ```
 docker compose up

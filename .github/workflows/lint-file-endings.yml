@@ -23,7 +23,7 @@ concurrency:
 jobs:
   lint-file-endings:
     name: Lint File Endings
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Git Repository

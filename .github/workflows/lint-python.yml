@@ -1,3 +1,8 @@
+# workflows/lint-python.yml
+#
+# Python: Linting
+# Lint Python code using Black, Flake8 & Mypy.
+
 name: "Lint Python and check types"
 
 on:
@@ -6,25 +11,27 @@ on:
     paths:
       - "core/**"
       - "retake/**"
+  workflow_dispatch:
+
+# This guarantees that if you push many commits to the same PR, only the latest
+# commit will get run (others get cancelled)
+concurrency:
+  group: lint-python-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   lint-python:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [3.9]
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Set up Python Environment
+        uses: actions/setup-python@v3
 
       - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python -
+        run: curl -sSL https://install.python-poetry.org | python -
 
       - name: Configure Poetry
         run: |
@@ -32,17 +39,13 @@ jobs:
           poetry config virtualenvs.in-project true
 
       - name: Install dependencies
-        run: |
-          poetry install
+        run: poetry install
 
       - name: Run Black
-        run: |
-          poetry run black --check .
+        run: poetry run black --check .
 
       - name: Run Flake8
-        run: |
-          poetry run flake8 core retake streams connectors
+        run: poetry run flake8 core retake streams connectors
 
-      - name: Run mypy
-        run: |
-          poetry run mypy core retake streams connectors
+      - name: Run Mypy
+        run: poetry run mypy core retake streams connectors

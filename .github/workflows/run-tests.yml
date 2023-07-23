@@ -1,30 +1,41 @@
-name: "Run tests"
+# workflows/run-tests.yml
+#
+# Run Tests
+# Run unit and integration tests.
+
+name: "Run Tests"
 
 on:
   pull_request:
-    branches: [dev, staging, main]
+    branches:
+      - dev
+      - staging
+      - main
     paths:
       - "core/**"
       - "retake/**"
+  workflow_dispatch:
+
+# This guarantees that if you push many commits to the same PR, only the latest
+# commit will get run (others get cancelled)
+concurrency:
+  group: run-tests-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
-  build:
+  run-tests:
+    name: Run Tests
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [3.9]
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
-        with:
-          python-version: ${{ matrix.python-version }}
+      - name: Set up Python Environment
+        uses: actions/setup-python@v3
 
       - name: Install Poetry
-        run: |
-          curl -sSL https://install.python-poetry.org | python -
+        run: curl -sSL https://install.python-poetry.org | python -
 
       - name: Configure Poetry
         run: |

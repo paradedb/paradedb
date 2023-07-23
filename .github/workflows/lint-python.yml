@@ -8,7 +8,7 @@ on:
       - "retake/**"
 
 jobs:
-  build:
+  lint-python:
     runs-on: ubuntu-latest
     strategy:
       matrix:

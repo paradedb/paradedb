@@ -31,7 +31,7 @@ proceed to the [main branch](https://github.com/getretake/retake/tree/main).
 
 To install the Retake Python SDK:
 
-```
+```bash
 pip install retake
 ```
 
@@ -78,19 +78,19 @@ locally:
 
 1. Install Poetry
 
-```
+```bash
 curl -sSL https://install.python-poetry.org | python -
 ```
 
 2. Install dependencies
 
-```
+```bash
 poetry install
 ```
 
 3. Build the SDK locally
 
-```
+```bash
 poetry build
 ```
 
@@ -109,9 +109,9 @@ sink(s). It is responsible for all real-time data streams.
 
 3. Start the development server, which is composed of the Kafka broker, Kafka Connect
    and the schema registry. Docker Compose will expose a port for each of the
-   services (see `docker-compose.yaml` for details).
+   services (see `docker-compose.yml` for details).
 
-```
+```bash
 docker compose up
 ```
 

@@ -6,6 +6,7 @@ on:
       - main
       - staging
       - dev
+      - phil/fix-deploy
     paths-ignore:
       - "README.md"
       - "docs/**"

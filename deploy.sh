@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 
 # Default values, these match with the docker-compose.yaml configuration
 KAFKA_HOST=localhost

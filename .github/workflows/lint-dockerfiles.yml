@@ -22,7 +22,7 @@ jobs:
   lint-dockerfiles:
     name: Lint Dockerfiles
     runs-on: ubuntu-latest
-    container: hadolint/hadolint:latest
+    container: hadolint/hadolint:latest-alpine
 
     steps:
       - name: Checkout Git Repository

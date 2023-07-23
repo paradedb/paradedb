@@ -6,7 +6,6 @@ on:
       - main
       - staging
       - dev
-      - phil/fix-deploy
     paths-ignore:
       - "README.md"
       - "docs/**"
@@ -88,10 +87,6 @@ jobs:
           sed "s/version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml > "pyproject.toml.new"
           mv "pyproject.toml.new" pyproject.toml
 
-          echo "\n\n Updated pyproject.toml: \n\n"
-          cat pyproject.toml
-          echo "\n\n"
-
           # Output the new version to create the GitHub Release tag and update GitHub Actions variables
           echo "New version: ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
@@ -99,7 +94,7 @@ jobs:
           echo "gha_var_value=${GHA_VAR_VALUE}" >> $GITHUB_OUTPUT
 
       - name: Build and publish to PyPi (prod only)
-        if: steps.env.outputs.environment == 'dev'
+        if: steps.env.outputs.environment == 'prod'
         run: |
           poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
           poetry build

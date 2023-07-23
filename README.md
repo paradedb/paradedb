@@ -112,4 +112,4 @@ For more information on how to contribute, please see our
 
 ## Licensing
 
-Retake is [Apache 2.0 licensed](LICENSE).
+Retake is [Elastic License 2.0 licensed](LICENSE).

@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 # Default values, these match with the docker-compose.yaml configuration
 KAFKA_HOST=localhost
 KAFKA_PORT=9094

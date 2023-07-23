@@ -7,7 +7,7 @@ while read -r file
 do
   if grep -q \
     -e "^set -Eeuo pipefail$" \
-    -e "^# @whist-skip-check-pipefail$" \
+    -e "^# @retake-skip-check-pipefail$" \
     "$file"
   then
     echo "[set -Eeuo pipefail -> Present] $file"

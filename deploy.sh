@@ -15,13 +15,12 @@ ENV_DIR="$HOME/.config/retake"
 GIT_BRANCH="main"
 
 # Parse command line options
-VALID_ARGS=$(getopt -o b: --long branch: -- "$@")
-if [[ $? -ne 0 ]]; then
+if ! VALID_ARGS=$(getopt -o b: --long branch: -- "$@"); then
   exit 1;
 fi
 
 eval set -- "$VALID_ARGS"
-while [ : ]; do
+while true; do
   case "$1" in
     -b | --branch)
       GIT_BRANCH="$2"
@@ -130,7 +129,7 @@ sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
 echo "deb [arch=\"$(dpkg --print-architecture)\" signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-  "$(. /etc/os-release && echo \"$VERSION_CODENAME\")" stable" | \
+  \"$(. /etc/os-release && echo \"$VERSION_CODENAME\")\" stable" | \
   sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
 sudo apt-get update
 sudo apt-get -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin

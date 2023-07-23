@@ -106,8 +106,8 @@ cd retake
 git checkout "$GIT_BRANCH"
 
 # Write .env file
-mkdir -p $ENV_DIR
-cat <<EOF > $ENV_DIR/.env
+mkdir -p "$ENV_DIR"
+cat <<EOF > "$ENV_DIR/.env"
 KAFKA_HOST=$KAFKA_HOST
 KAFKA_PORT=$KAFKA_PORT
 SCHEMA_REGISTRY_HOST=$SCHEMA_REGISTRY_HOST
@@ -120,7 +120,7 @@ EOF
 # # Set advertise listener as this machine's ip address
 echo "Getting external ip"
 get_external_ip
-echo $ip_address
+echo "$ip_address"
 sed -i "s/localhost/$ip_address/g" docker-compose.yaml
 
 # Install Docker and Docker Compose

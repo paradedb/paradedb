@@ -7,6 +7,7 @@ from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 from kafka_connectors.kafka_config import KafkaConfig
 from kafka_connectors.connector_config import process_connector_config
+from kafka_connectors.sink_handler import load
 from typing import Dict, List, Optional
 
 
@@ -75,10 +76,10 @@ def main() -> None:
     producer = Producer({"bootstrap.servers": kafka_config.bootstrap_servers})
     admin = AdminClient({"bootstrap.servers": kafka_config.bootstrap_servers})
 
-    new_topics = ["_connector_config", "_config_success"]
+    new_topics = ["_connector_config", "_config_success", "embeddings"]
     create_topics(admin, new_topics)
 
-    # Subscribe only to the _connector_config topic
+    # Subscribe to topics
     subscribe_topics = ["_connector_config", "embeddings"]
     consumer.subscribe(subscribe_topics)
 
@@ -106,9 +107,11 @@ def main() -> None:
         elif topic == "embeddings":
             key, value = decode_message("avro", msg, sr_client)
             try:
-                pass
-            except:
-                pass
+                load(key, value)
+            except Exception as e:
+                print(e)
+                print("Failed to load event")
+                print(key, value)
 
     consumer.close()
 

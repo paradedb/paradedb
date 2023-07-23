@@ -1,6 +1,7 @@
 from http import HTTPStatus
 import requests
 import time
+from confluent_kafka import Producer
 from confluent_kafka.schema_registry import SchemaRegistryClient, Schema
 from kafka_connectors.kafka_config import KafkaConfig
 from typing import Any, Dict

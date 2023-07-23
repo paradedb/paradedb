@@ -2,11 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /usr/src
 
-RUN pip install --no-cache-dir confluent-kafka==2.2.0 requests==2.31.0
+COPY kafka_connectors/requirements.txt .
+RUN pip install -r requirements.txt
 
 ENV PYTHONPATH "${PYTHONPATH}:./kafka_connectors:./core"
 
-COPY ../core/ ./core
-COPY . ./kafka_connectors
+COPY ./core/ ./core
+COPY ./kafka_connectors ./kafka_connectors
 
 CMD [ "python", "-u", "kafka_connectors/controller.py" ]

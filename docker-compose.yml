@@ -33,8 +33,8 @@ services:
     - schema-registry
     - connect
     build:
-      context: ./kafka_connectors
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: kafka_connectors/Dockerfile
     environment:
       KAFKA_HOST: kafka
       KAFKA_PORT: 9092

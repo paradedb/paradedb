@@ -1,0 +1,9 @@
+# Order is important. The last matching pattern has the most precedence. # In each subsection folders are ordered first by depth, then alphabetically
+
+/.github/                                                      @philippemnoel
+/assets/                                                       @rebasedming @philippemnoel
+/connectors/                                                   @rebasedming @mauaraujo
+/core/                                                         @rebasedming @mauaraujo
+/docs/                                                         @rebasedming
+/retake/                                                       @rebasedming @mauaraujo
+/streams/                                                      @mauaraujo

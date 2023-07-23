@@ -19,7 +19,6 @@ class Transform:
         primary_key: str,
         columns: List[str],
         transform_func: Callable[..., Any],
-        schema_name: str = "public",
         optional_metadata: Optional[Callable[..., Any]] = None,
     ) -> PostgresTransform:
         return PostgresTransform(

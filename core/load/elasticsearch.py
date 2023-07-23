@@ -31,9 +31,15 @@ class ElasticSearchLoader(Loader):
                 ssl_assert_fingerprint=ssl_assert_fingerprint,
                 verify_certs=True,
             )
+        elif host and user and password:
+            self.es = Elasticsearch(
+                hosts=[host],
+                basic_auth=(user, password),
+                verify_certs=False,
+            )
         else:
             raise ValueError(
-                "Either cloud_id or host, user, password, and ssl_assert_fingerprint must be provided"
+                "Either cloud_id or host, user, and password must be provided"
             )
 
         self.index = index
@@ -45,9 +51,6 @@ class ElasticSearchLoader(Loader):
     def _create_index(
         self, index_name: str, field_name: str, num_dimensions: int
     ) -> None:
-        if self._check_index_exists(index_name=index_name):
-            raise ValueError(f"Index {index_name} already exists")
-
         mapping = cast(
             Dict[str, Any],
             {
@@ -122,14 +125,7 @@ class ElasticSearchLoader(Loader):
     ) -> None:
         index_name = target.index_name
         field_name = target.field_name
-        num_dimensions = len(embeddings[0])
         num_embeddings = len(embeddings)
-
-        if not all(len(embedding) == num_dimensions for embedding in embeddings):
-            raise ValueError("Not all embeddings have the same number of dimensions")
-
-        if not len(ids) == num_embeddings:
-            raise ValueError("Number of ids does not match number of embeddings")
 
         if metadata is None:
             metadata = [{}] * num_embeddings

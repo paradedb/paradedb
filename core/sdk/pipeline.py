@@ -8,7 +8,6 @@ from core.sdk.embedding import (
     CustomEmbedding,
 )
 from core.sdk.source import PostgresSource
-from core.sdk.transform import PostgresTransform
 from core.sdk.sink import (
     ElasticSearchSink,
     OpenSearchSink,
@@ -42,21 +41,16 @@ from streams.app import (
     register_agents,
     start_worker,
 )
-
-Source = Union[PostgresSource]
-Transform = Union[PostgresTransform]
-Embedding = Union[
-    OpenAIEmbedding, SentenceTransformerEmbedding, CohereEmbedding, CustomEmbedding
-]
-Sink = Union[ElasticSearchSink, OpenSearchSink, PineconeSink, WeaviateSink, QdrantSink]
-Target = Union[
-    ElasticSearchTarget, OpenSearchTarget, PineconeTarget, WeaviateTarget, QdrantTarget
-]
-Extractor = Union[PostgresExtractor]
-Loader = Union[
-    ElasticSearchLoader, OpenSearchLoader, PineconeLoader, WeaviateLoader, QdrantLoader
-]
-Model = Union[OpenAI, SentenceTransformer, Cohere, Custom]
+from core.sdk.types import (
+    Source,
+    Transform,
+    Embedding,
+    Sink,
+    Target,
+    Extractor,
+    Loader,
+    Model,
+)
 
 BATCH_SIZE = 100
 

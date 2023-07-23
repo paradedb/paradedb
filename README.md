@@ -12,6 +12,18 @@
   <a href="https://getretake.com">Website</a>
 </h3>
 
+<p align="center">
+<a href="https://github.com/getretake/retake/stargazers/" target="_blank">
+    <img src="https://img.shields.io/github/stars/getretake/retake?style=social&label=Star&maxAge=2592000" alt="Test">
+</a>
+<a href="https://github.com/getretake/retake/releases" target="_blank">
+    <img src="https://img.shields.io/github/v/release/getretake/retake?color=white" alt="Release">
+</a>
+<a href="https://github.com/getretake/retake/tree/main/LICENSE" target="_blank">
+    <img src="https://img.shields.io/static/v1?label=license&message=ELv2&color=white" alt="License">
+</a>
+</p>
+
 ## Installation
 
 Welcome! If you are not a contributor and just want to use Retake, please

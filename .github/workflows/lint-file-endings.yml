@@ -1,0 +1,60 @@
+# workflows/lint-file-endings.yml
+#
+# File Endings: Linting
+# Lint the project's file endings.
+
+name: "File Endings: Linting"
+
+on:
+  pull_request:
+    paths:
+      - "**.md"
+      - "**/**.md"
+      - ".github/**/**.md"
+      - ".github/workflows/lint-markdown.yml"
+  workflow_dispatch:
+
+# This guarantees that if you push many commits to the same PR, only the latest
+# commit will get run (others get cancelled)
+concurrency:
+  group: lint-file-endings-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  lint-file-endings:
+    name: Lint File Endings
+    runs-on: ubuntu-20.04
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
+
+      - name: Check for CRLF files
+        run: |
+          FILES=$(git ls-files --eol | grep crlf || true)
+          if [[ ! -z "$FILES" ]]; then
+            echo "The following files have incorrect line endings:"
+            echo "$FILES"
+            false
+          fi
+
+      - name: Install fd search tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find
+          mkdir -p "$HOME/.local/bin"
+          sudo ln -s $(which fdfind) "$HOME/.local/bin/fd"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Add trailing newlines to all relevant files
+        run: .github/workflows/helpers/lint_trailing_newlines.sh
+
+      - name: Print modified files
+        run: |
+          FILES=$(git ls-files --modified)
+          if [[ ! -z "$FILES" ]]; then
+              echo "The following files have incorrect trailing newlines:"
+              echo "$FILES"
+              echo "Please fix them using .github/workflows/helpers/lint_trailing_newlines.sh"
+              false
+          fi

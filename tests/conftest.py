@@ -89,30 +89,30 @@ def custom_embedding(test_vector):
 
 @pytest.fixture(scope="session")
 def elasticsearch_sink(docker_ip, docker_services):
-    print("\nSpinning up Elasticsearch fixture (this may take a minute)...")
+    # print("\nSpinning up Elasticsearch fixture (this may take a minute)...")
 
-    def is_responsive(url):
-        try:
-            response = requests.get(
-                url, auth=HTTPBasicAuth("elastic", "elastic"), verify=False
-            )
-            return response.status_code == 200
-        except Exception as e:
-            return False
+    # def is_responsive(url):
+    #     try:
+    #         response = requests.get(
+    #             url, auth=HTTPBasicAuth("elastic", "elastic"), verify=False
+    #         )
+    #         return response.status_code == 200
+    #     except Exception as e:
+    #         return False
 
-    port = docker_services.port_for("elasticsearch", 9200)
-    url = f"https://{docker_ip}:{port}"
+    # port = docker_services.port_for("elasticsearch", 9200)
+    # url = f"https://{docker_ip}:{port}"
 
-    print(f"Waiting for {url} to be responsive")
+    # print(f"Waiting for {url} to be responsive")
 
-    docker_services.wait_until_responsive(
-        timeout=90.0, pause=1, check=lambda: is_responsive(url)
-    )
+    # docker_services.wait_until_responsive(
+    #     timeout=90.0, pause=1, check=lambda: is_responsive(url)
+    # )
 
-    print("Is responsive")
+    # print("Is responsive")
 
     return Sink.ElasticSearch(
-        host=url,
+        host="https://localhost:9200",
         user="elastic",
         password="elastic",
         ssl_assert_fingerprint=None,

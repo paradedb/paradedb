@@ -32,16 +32,11 @@ class ElasticSearchLoader(Loader):
                 verify_certs=True,
             )
         elif host and user and password:
-            print("CONNECTING")
             self.es = Elasticsearch(
                 hosts=[host],
                 basic_auth=(user, password),
                 verify_certs=False,
-                timeout=10,
-                max_retries=5,
-                retry_on_timeout=True,
             )
-            print("CONNECTED")
         else:
             raise ValueError(
                 "Either cloud_id or host, user, and password must be provided"
@@ -74,10 +69,7 @@ class ElasticSearchLoader(Loader):
         if self.similarity is not None:
             mapping["properties"][field_name]["similarity"] = self.similarity
 
-        try:
-            self.es.indices.create(index=index_name, mappings=mapping)
-        except Exception:
-            pass
+        self.es.indices.create(index=index_name, mappings=mapping)
 
     # Public Methods
 
@@ -154,6 +146,4 @@ class ElasticSearchLoader(Loader):
             for doc in docs
         ]
 
-        print("BULK UPSERTING")
         helpers.bulk(self.es, actions)
-        print("UPSERTED")

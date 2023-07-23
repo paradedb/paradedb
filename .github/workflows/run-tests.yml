@@ -70,15 +70,13 @@ jobs:
           sudo sysctl -w fs.file-max=262144
           sudo sysctl -w vm.max_map_count=262144
 
-      - name: Runs Elasticsearch
+      # Username is "elastic" and password is "changeme", must be used to access the instance
+      - name: Run ElasticSearch
         uses: elastic/elastic-github-actions/elasticsearch@master
         with:
           stack-version: 8.8.2
 
-      # - name: Setup tmate session
-      #   uses: mxschmitt/action-tmate@v3
-
-      - name: Elasticsearch is reachable
+      - name: Confirm ElasticSearch is Reachable
         run: curl -k -X GET "https://localhost:9200" -u elastic:changeme
 
       - name: Run Pytest

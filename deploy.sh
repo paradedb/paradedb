@@ -3,7 +3,7 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# Default values, these match with the docker-compose.yaml configuration
+# Default values, these match with the docker-compose.yml configuration
 KAFKA_HOST=localhost
 KAFKA_PORT=9094
 SCHEMA_REGISTRY_HOST=localhost
@@ -120,7 +120,7 @@ EOF
 echo "Getting external ip"
 get_external_ip
 echo "$ip_address"
-sed -i "s/localhost/$ip_address/g" docker-compose.yaml
+sed -i "s/localhost/$ip_address/g" docker-compose.yml
 
 # Install Docker and Docker Compose
 echo "Setting up Docker..."

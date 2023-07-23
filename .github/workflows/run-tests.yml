@@ -75,12 +75,11 @@ jobs:
         with:
           stack-version: 8.8.2
 
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
+      # - name: Setup tmate session
+      #   uses: mxschmitt/action-tmate@v3
 
       - name: Elasticsearch is reachable
-        run: |
-          curl -k --verbose --show-error http://localhost:9200 -u elastic:elastic
+        run: curl -k -X GET "https://localhost:9200" -u elastic:changeme
 
       - name: Run Pytest
         run: poetry run pytest

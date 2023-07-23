@@ -10,7 +10,7 @@ def test_postgres_to_elasticsearch(
     postgres_source,
     postgres_transform,
     custom_embedding,
-    elasticsearch_sink,
+    elasticsearch_sink_factory,
     elasticsearch_target,
     test_index_name,
     test_document_id,
@@ -21,7 +21,7 @@ def test_postgres_to_elasticsearch(
         source=postgres_source,
         transform=postgres_transform,
         embedding=custom_embedding,
-        sink=elasticsearch_sink,
+        sink=elasticsearch_sink_factory,
         target=elasticsearch_target,
     )
 

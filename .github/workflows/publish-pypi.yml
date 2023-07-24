@@ -26,7 +26,7 @@ jobs:
   publish-pypi:
     name: Publish Retake to PyPi
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v3

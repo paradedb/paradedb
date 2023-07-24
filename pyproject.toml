@@ -7,7 +7,9 @@ readme = "README.md"
 packages = [{include = "retake"}, {include = "core"}, {include = "streams"}]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.12"
+python = "^3.8"
+gotrue = "^1.0.1"
+httpx = "^0.23.0"
 psycopg2-binary = "^2.9.6"
 pydantic = "^1.8.0"
 sentence-transformers = "^2.2.2"

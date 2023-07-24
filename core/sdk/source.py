@@ -11,6 +11,7 @@ class PostgresSource(BaseModel):
         for pair in pairs:
             key, value = pair.split("=")
             fields[key] = value
+        fields["source_type"] = "postgresql"
         return fields
 
 

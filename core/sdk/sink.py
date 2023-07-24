@@ -15,6 +15,7 @@ class ElasticSearchSink(BaseModel):
             return {"cloud_id": self.cloud_id}
 
         return {
+            "sink_type": "elasticsearch",
             "host": self.host,
             "user": self.user,
             "password": self.password,

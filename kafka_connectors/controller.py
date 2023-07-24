@@ -6,7 +6,11 @@ from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 from kafka_connectors.kafka_config import KafkaConfig
-from kafka_connectors.connector_config import process_connector_config
+from kafka_connectors.connector_config import (
+    process_connector_config,
+    setup_store,
+    register_sink_value_schema,
+)
 from kafka_connectors.sink_handler import load
 from typing import Dict, List, Optional
 
@@ -33,12 +37,13 @@ def produce_message(producer: Producer, topic: str, key: str, value: str) -> Non
 
 
 def decode_message(
-    encoding: str, message: Message, sr_client: Optional[SchemaRegistryClient]
+    encoding: str, message: Message, sr_client: Optional[SchemaRegistryClient] = None
 ) -> (str, Dict[str, str]):
     if encoding == "json":
         key = message.key().decode("utf-8")
         value = message.value().decode("utf-8")
-        return (key, value)
+        value_dict = json.loads(value)
+        return (key, value_dict)
     elif encoding == "avro":
         key = message.key().decode("utf-8")
 
@@ -86,6 +91,12 @@ def main() -> None:
     # Create schema registry client
     sr_client = SchemaRegistryClient({"url": kafka_config.schema_registry_server})
 
+    # Create state
+    setup_store()
+
+    # Register sink schema
+    register_sink_value_schema()
+
     while True:
         msg = consumer.poll()
         topic, partition = msg.topic(), msg.partition()
@@ -99,7 +110,7 @@ def main() -> None:
         if topic == "_connector_config":
             key, value = decode_message("json", msg)
             try:
-                process_connector_config(key, value_dict)
+                process_connector_config(key, value)
                 produce_message(producer, "_config_success", "config_ready", "true")
             except requests.exceptions.RequestException as e:
                 produce_message(producer, "_config_success", "config_ready", "false")

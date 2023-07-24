@@ -7,10 +7,10 @@ name: "Lint Python and check types"
 
 on:
   pull_request:
-    branches: [dev, staging, main]
-    paths:
-      - "core/**"
-      - "retake/**"
+    branches:
+      - dev
+      - staging
+      - main
   workflow_dispatch:
 
 # This guarantees that if you push many commits to the same PR, only the latest
@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   lint-python:
+    name: Lint Python Files
     runs-on: ubuntu-latest
 
     steps:

@@ -33,10 +33,13 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "Using prod configuration..."
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "Using staging configuration..."
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "Using dev configuration..."
           fi
 
       - name: Install Poetry

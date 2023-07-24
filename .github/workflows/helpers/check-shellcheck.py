@@ -27,7 +27,6 @@ parser.add_argument(
 )
 
 if __name__ == "__main__":
-
     args = parser.parse_args()
     exclude_dirs = args.exclude_dirs.split()
 
@@ -45,7 +44,9 @@ if __name__ == "__main__":
 
     for file in sh_files:
         if file not in codes_to_exclude:
-            p = subprocess.run("shellcheck {}".format(file), shell=True, capture_output=True)
+            p = subprocess.run(
+                "shellcheck {}".format(file), shell=True, capture_output=True
+            )
             print(p.stdout.decode())
             if p.returncode != 0:
                 print("[Shellcheck did not pass] {}".format(file))
@@ -53,7 +54,9 @@ if __name__ == "__main__":
         else:
             codes = codes_to_exclude[file]
             p = subprocess.run(
-                "shellcheck -e {} {}".format(codes, file), shell=True, capture_output=True
+                "shellcheck -e {} {}".format(codes, file),
+                shell=True,
+                capture_output=True,
             )
             print(p.stdout.decode())
             if p.returncode != 0:

@@ -39,7 +39,6 @@ def register_connector_conf(
     # Append index to sink config
     sink_conf = sink.config
     sink_conf["index"] = index
-    sink_conf["host"] = "elasticsearch"
 
     p = Producer(conf)
     try:
@@ -95,10 +94,12 @@ def wait_for_config_success(server: RealtimeServer) -> None:
 
 def register_agents(
     topic: str,
+    sink_type: str,
     index: str,
+    field_name: str,
     server: RealtimeServer,
     embedding_fn: Callable[..., Any],  # TODO: proper typing
-    transform_fn: Callable[..., str],
+    transform_fn: Optional[Callable[..., str]],
     metadata_fn: Optional[Callable[..., list[str]]],
 ) -> Worker:
     app = App(
@@ -116,7 +117,7 @@ def register_agents(
     avro_deserializer = AvroDeserializer(sr_client, source_schema_str)
 
     # Sink
-    subject_name = f"{index}-value"
+    subject_name = "embeddings-value"
     sink_schema_str = return_schema(sr_client, subject_name)
     avro_serializer = AvroSerializer(sr_client, sink_schema_str)
 
@@ -136,14 +137,25 @@ def register_agents(
                 else:
                     # TODO: Make distinction when update or new record
                     data.pop("__deleted")
-                    document = transform_fn(*data)
+
+                    if transform_fn is not None:
+                        document = transform_fn(*data)
+                    else:
+                        document = data
+
                     embedding = embedding_fn(document)
 
                     metadata = []
                     if metadata_fn is not None:
                         metadata = metadata_fn(*data)
 
-                    message = {"doc": embedding, "metadata": metadata}
+                    message = {
+                        "sink": sink_type,
+                        "doc": embedding,
+                        "metadata": metadata,
+                        "index_name": index,
+                        "field_name": field_name,
+                    }
                     producer.produce(
                         topic=index,
                         value=avro_serializer(

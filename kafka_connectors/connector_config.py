@@ -39,7 +39,7 @@ def process_connector_config(message_key: str, value: Dict[str, str]) -> None:
         value.pop("source_type")
 
         #  Create source connector
-        create_source_connector(value)
+        create_source_connector(source_type, value)
         d["source_connector_created"] = True
     elif message_key == "sink-connector":
         # Extract sink type

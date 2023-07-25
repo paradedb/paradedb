@@ -285,10 +285,14 @@ class Pipeline:
         db_schema_name = self.transform.schema_name
         table_name = self.transform.relation
         topic = f"{table_name}.{db_schema_name}.{table_name}"
+        sink_type = self.sink.config.get("sink_type")
+        field_name = self.target.field_name
 
         worker = register_agents(
             topic,
+            sink_type,
             index,
+            field_name,
             server,
             self.model.create_embeddings,
             self.transform.transform_func,

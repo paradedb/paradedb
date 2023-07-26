@@ -15,3 +15,6 @@ env/
 # Poetry
 poetry-installer-error-*.yml
 **/poetry.lock
+
+# VSCode
+.vscode/

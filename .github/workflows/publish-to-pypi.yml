@@ -55,6 +55,7 @@ jobs:
         run: |
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
+
       - name: Retrieve & Increment Current Version Number
         working-directory: clients/python
         id: version
@@ -62,8 +63,10 @@ jobs:
           echo "Current prod version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
           echo "Current staging version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${{ vars.VERSION_STAGING_RC }}"
           echo "Current dev version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
+          
           if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
             echo 'Using prod configuration...'
+            
             # increment version by 0.0.1
             NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}"
@@ -71,6 +74,7 @@ jobs:
             GHA_VAR_VALUE="${NEW_PATCH}"
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
+            
             # increment version by staging-rc.1
             NEW_STAGING_RC=$(( ${{ vars.VERSION_STAGING_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${NEW_STAGING_RC}"
@@ -78,6 +82,7 @@ jobs:
             GHA_VAR_VALUE="${NEW_STAGING_RC}"
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
+            
             # increment version by dev-rc.1
             NEW_DEV_RC=$(( ${{ vars.VERSION_DEV_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${NEW_DEV_RC}"
@@ -86,14 +91,17 @@ jobs:
           else
             echo "Error: Invalid branch" && false
           fi
+
           # Update the pyproject.toml file to publish the new version to PyPi
           sed "s/version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml > "pyproject.toml.new"
           mv "pyproject.toml.new" pyproject.toml
+          
           # Output the new version to create the GitHub Release tag and update GitHub Actions variables
           echo "New version: ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
           echo "gha_var_name=${GHA_VAR_NAME}" >> $GITHUB_OUTPUT
           echo "gha_var_value=${GHA_VAR_VALUE}" >> $GITHUB_OUTPUT
+
       - name: Build and Publish to PyPi (prod only)
         if: steps.env.outputs.environment == 'prod'
         working-directory: clients/python
@@ -101,6 +109,7 @@ jobs:
           poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
           poetry build
           poetry publish
+
       - name: Update Version Number in GitHub Actions Variables
         env:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
@@ -114,6 +123,7 @@ jobs:
               /repos/getretake/retake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
               -f name='${{ steps.version.outputs.gha_var_name }}' \
               -f value='${{ steps.version.outputs.gha_var_value }}'
+            
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
@@ -141,6 +151,7 @@ jobs:
           else
             echo "Error: Invalid branch" && false
           fi
+
       - name: Retrieve Today's Date for GitHub Release
         if: steps.env.outputs.environment == 'prod'
         id: date

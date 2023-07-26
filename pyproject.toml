@@ -19,6 +19,7 @@ requests = "^2.31.0"
 fastavro = "^1.8.0"
 confluent-kafka = "^2.2.0"
 loguru = "^0.7.0"
+opensearch-py = "^2.2.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

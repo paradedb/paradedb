@@ -36,6 +36,14 @@
         "search/pagination",
         "search/custom"
       ]
+    },
+    {
+      "group": "Deployment",
+      "pages": ["deployment/local", "deployment/kubernetes"]
+    },
+    {
+      "group": "Company",
+      "pages": ["company/roadmap"]
     }
   ],
   "footerSocials": {

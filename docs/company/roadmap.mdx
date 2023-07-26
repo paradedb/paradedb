@@ -1,0 +1,31 @@
+---
+title: "Roadmap"
+description: Last Updated July 26, 2023
+---
+
+The goal of this page is to provide transparency into what we're working on, what we've completed, and to align
+the efforts of the core Retake team with community efforts.
+
+### Upcoming Features
+
+Below is a list of high-priority features that the Retake team is working on right now.
+
+- Enable Retake to be deployed to production via Docker Compose or Helm
+- Modify the Python client to allow developers to add multiple tables to a single search index
+- Build high-level client libraries for Typescript, Java, and Go
+- Bring real-time data sync to production (currently a feature branch)
+- Build a robust test suite
+- Build a managed cloud version
+
+## Requesting a Feature
+
+The best way to request a feature is to [create a Github issue](https://github.com/getretake/retake/issues/new/choose)
+for it. We read these issues every day and are very responsive.
+
+### Completed Features
+
+A list of features that have been completed
+
+**July 25, 2023: First MVP**: We're excited to release our first MVP into the wild! It's very simple: just a Python SDK
+with two functions: one to index a Postgres table, and another to execute search queries with the full expressiveness
+of the Open/ElasticSearch DSL. We also built an example Python Flask app using our Python library and search engine.

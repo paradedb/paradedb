@@ -64,15 +64,19 @@ print(response)
 
 ## Key Features
 
-- **Always in Sync**: Built with Kafka and OpenSearch, Retake connects to a Postgres database, indexes, and automatically creates embeddings for tables and columns specified by the developer. As data changes or new data arrives in Postgres, Retake ensures that the indexed data and its embeddings are kept in sync.
-- **Low-Code SDK**: Retake provides intuitive search SDKs that drop into any Python application (other languages coming soon). The core API is just two functions.
-- **Open/ElasticSearch DSL Compatible**: Retake’s query interface is built on top of the the high-level OpenSearch Python client, enabling developers to query with the full expressiveness of the OpenSearch DSL (domain-specific language).
-- **Deployable Anywhere**: Retake is deployable anywhere, from a laptop to a distributed cloud system.
+- :arrows_counterclockwise: **Always in Sync**: Built with Kafka and OpenSearch, Retake connects to a Postgres database, indexes, and automatically creates embeddings for tables and columns specified by the developer. As data changes or new data arrives in Postgres, Retake ensures that the indexed data and its embeddings are kept in sync.
+- :rocket: **Low-Code SDK**: Retake provides intuitive search SDKs that drop into any Python application (other languages coming soon). The core API is just two functions.
+- :zap: **Open/ElasticSearch DSL Compatible**: Retake’s query interface is built on top of the the high-level OpenSearch Python client, enabling developers to query with the full expressiveness of the OpenSearch DSL (domain-specific language).
+- :globe_with_meridians: **Deployable Anywhere**: Retake is deployable anywhere, from a laptop to a distributed cloud system.
+
+## How Retake Works 
+
+A detailed overview of Retake's architecture can be found in our [documentation](https://docs.getretake.com/architecture).
 
 ## Contributing
 
 For more information on how to contribute, please see our [Contributing Guide](CONTRIBUTING.md).
 
-## Licensing
+## License
 
 Retake is [Elastic License 2.0 licensed](LICENSE).

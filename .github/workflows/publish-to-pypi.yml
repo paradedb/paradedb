@@ -1,4 +1,9 @@
-name: Publish Retake to PyPi
+# workflows/publish-to-pypi.yml
+#
+# Retake Search: Publish to PyPi
+# Publish Retake Search as a pip package to PyPi.
+
+name: Publish Retake Search to PyPi
 
 on:
   push:
@@ -14,13 +19,14 @@ on:
 # This guarantees that if you push many commits to the same PR, only the latest
 # commit will get run (others get cancelled)
 concurrency:
-  group: publish-to-pypi-${{ github.head_ref || github.run_id }}
+  group: publish-pypi-dockerhub-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   publish-to-pypi:
-    name: "Publish Retake to PyPi"
+    name: Publish Retake Search to PyPi
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v3
@@ -33,30 +39,31 @@ jobs:
         run: |
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "Using prod configuration..."
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
+            echo "Using staging configuration..."
           else
             echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "Using dev configuration..."
           fi
-
       - name: Install Poetry
         run: curl -sSL https://install.python-poetry.org | python -
 
       - name: Configure Poetry
+        working-directory: clients/python
         run: |
           poetry config virtualenvs.create true
           poetry config virtualenvs.in-project true
-
       - name: Retrieve & Increment Current Version Number
+        working-directory: clients/python
         id: version
         run: |
           echo "Current prod version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
           echo "Current staging version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${{ vars.VERSION_STAGING_RC }}"
           echo "Current dev version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
-
           if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
             echo 'Using prod configuration...'
-
             # increment version by 0.0.1
             NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}"
@@ -64,7 +71,6 @@ jobs:
             GHA_VAR_VALUE="${NEW_PATCH}"
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
-
             # increment version by staging-rc.1
             NEW_STAGING_RC=$(( ${{ vars.VERSION_STAGING_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${NEW_STAGING_RC}"
@@ -72,7 +78,6 @@ jobs:
             GHA_VAR_VALUE="${NEW_STAGING_RC}"
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
-
             # increment version by dev-rc.1
             NEW_DEV_RC=$(( ${{ vars.VERSION_DEV_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${NEW_DEV_RC}"
@@ -81,24 +86,21 @@ jobs:
           else
             echo "Error: Invalid branch" && false
           fi
-
           # Update the pyproject.toml file to publish the new version to PyPi
           sed "s/version = .*/version = \"${NEW_VERSION}\"/" pyproject.toml > "pyproject.toml.new"
           mv "pyproject.toml.new" pyproject.toml
-
           # Output the new version to create the GitHub Release tag and update GitHub Actions variables
           echo "New version: ${NEW_VERSION}"
           echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
           echo "gha_var_name=${GHA_VAR_NAME}" >> $GITHUB_OUTPUT
           echo "gha_var_value=${GHA_VAR_VALUE}" >> $GITHUB_OUTPUT
-
-      - name: Build and publish to PyPi (prod only)
+      - name: Build and Publish to PyPi (prod only)
         if: steps.env.outputs.environment == 'prod'
+        working-directory: clients/python
         run: |
           poetry config pypi-token.pypi ${{ secrets.PYPI_TOKEN }}
           poetry build
           poetry publish
-
       - name: Update Version Number in GitHub Actions Variables
         env:
           GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
@@ -112,7 +114,6 @@ jobs:
               /repos/getretake/retake/actions/variables/${{ steps.version.outputs.gha_var_name }} \
               -f name='${{ steps.version.outputs.gha_var_name }}' \
               -f value='${{ steps.version.outputs.gha_var_value }}'
-
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
@@ -140,7 +141,6 @@ jobs:
           else
             echo "Error: Invalid branch" && false
           fi
-
       - name: Retrieve Today's Date for GitHub Release
         if: steps.env.outputs.environment == 'prod'
         id: date
@@ -151,7 +151,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ steps.version.outputs.version }}
-          body: Retake Production Release on ${{ steps.date.outputs.date }}
+          body: Retake Search Production Release on ${{ steps.date.outputs.date }}
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

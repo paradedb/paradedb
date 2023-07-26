@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Generator, TypedDict, Union, List, Any
+from typing import Generator, Dict, TypedDict, Union, List, Any
 
 
 class ExtractorResult(TypedDict):

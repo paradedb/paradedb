@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "retakesearch"
+version = "0.0.0"
+description = "Open Source Search Infrastructure for Developers"
+readme = "README.md"
+authors = ["Ming Ying <ming.ying.nyc@gmail.com>"]
+packages = [{include = "retakesearch"}]
+
+[tool.poetry.dependencies]
+python = ">=3.6,<4"
+certifi = "^2023.7.22"
+retakesearch-py = "^2.2.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

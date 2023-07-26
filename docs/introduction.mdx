@@ -2,54 +2,47 @@
 title: Introduction
 ---
 
-Retake is open-source infrastructure for vector data streams, purpose-built for synchronizing high volumes of embeddings at low latency.
-It ensures consistency between your inputs/sources of truth and vectors without the time, complexity, and cost of maintaining your own pipelines.
+<Info>
+  Please note that Retake aims to be production-ready by August 2023. [Join the
+  newsletter](https://retake.typeform.com/to/JTcYtLay) for updates.
+</Info>
+
+Retake is real-time keyword (BM25) + semantic (kNN) search (i.e. neural search) infrastructure for developers,
+built to stay in sync with fast-changing databases. Retake acts as a search layer around any Postgres database
+and provides a straightforward SDK for developers to add neural search to any Python application.
 
 ## Why Retake
 
-With the growing popularity of vector databases, many sophisticated teams opt to store vectors in separate databases to
-isolate the resources used by vector operations from the rest of their database operations. At scale,
-it's important to have resilient and horizontally scalable infrastructure that efficiently updates vectors.
+Retake is a good fit for developers that
 
-Retake is a good fit for you if you:
-
-- Store inputs and vectors separately
-- Want a standalone process that updates vectors in response to input changes in
-  your source database
-
-For instance, if your inputs are documents stored in a SQL table and your vectors are
-stored in a search engine or a vector database.
+1. Have investigated vector databases for semantic search, but also want the capabilities of traditional search
+   (e.g. keyword and text search, aggregations, filtering, ranking, etc.).
+2. Are looking for an opinionated neural search library that "just works" without the overhead of managing a vector store,
+   search engine, embedding models, and data pipelines.
 
 ## Key Features
 
-### Out-of-the-Box Data Sync
+**Always in Sync**
 
-Existing vector stores are siloes that require complex and sometimes brittle mechanisms for data synchronization.
-Retake provides the missing connectors that allow seamless data synchronization without the need for extensive
-configuration or third-party tools.
+Built with Kafka and OpenSearch, Retake connects to a Postgres database, indexes, and embeds specified documents.
+As data changes or new data arrives in Postgres, Retake automatically stays in sync and re-generates embeddings.
 
-### True Real-Time Updates
+**Low-Code SDK**
 
-Retake's connectors achieve sub-10ms end-to-end data latency, excluding variable model inference times.
+Retake provides intuitive search SDKs that drop into any Python application (other languages coming soon).
+The core API is just two functions.
 
-### Extensible Python SDK
+**Open/ElasticSearch DSL Compatible**
 
-You can configure any source, sink, transformation, and embedding model as code. Joining and filtering tables
-or adding metadata is easily done from Python functions.
+Retake's query interface is built on top of the the high-level OpenSearch Python client, enabling developers
+to operate with the full expressiveness of the OpenSearch DSL (domain-specific language).
 
-### Scalable and Efficient
+**Deployable Anywhere**
 
-Built on top of Kafka, Retake is designed to handle large volumes of data and high-throughput workloads.
-
-### Deployable Anywhere
-
-You can run Retake anywhere, from your laptop to a distributed cloud system.
+Retake is deployable anywhere, from a laptop to a distributed cloud system.
 
 <CardGroup cols={2}>
   <Card title="Quick Start" icon="circle-play" href="/quickstart/pipeline">
-    Build your first vector pipeline in under five minutes.
-  </Card>
-  <Card title="Concepts" icon="code" href="/concepts/source">
-    Understand the key concepts of the Retake Python SDK.
+    Add neural search to your Python application in under five minutes
   </Card>
 </CardGroup>

@@ -69,7 +69,7 @@ print(response)
 - :zap: **Open/ElasticSearch DSL Compatible**: Retake’s query interface is built on top of the the high-level OpenSearch Python client, enabling developers to query with the full expressiveness of the OpenSearch DSL (domain-specific language).
 - :globe_with_meridians: **Deployable Anywhere**: Retake is deployable anywhere, from a laptop to a distributed cloud system.
 
-## How Retake Works 
+## How Retake Works
 
 A detailed overview of Retake's architecture can be found in our [documentation](https://docs.getretake.com/architecture).
 

@@ -14,15 +14,18 @@ setup instructions can be found [here](https://github.com/getretake/search/tree/
 ## Installation
 
 <Info>**Prerequisite** Docker and Docker Compose must be installed.</Info>
+<Warning>
+  We are currently working on deploying to Docker hub and providing a Docker
+  Compose file. This is a temporary installation workaround.
+</Warning>
 
-In a terminal, pull and run the Retake Docker image. This spins up the Retake engine, which is responsible
-forexecuting search queries and storing search data.
+Clone the `retake` repository and run:
 
 ```bash
-docker pull retake/retakesearch
-docker run -p 8000:8000 retake/retakesearch
+docker compose up
 ```
 
+This spins up the Retake engine, which is responsible forexecuting search queries and storing search data.
 Next, `cd` into your Python project and install `retakesearch`.
 
 ```bash

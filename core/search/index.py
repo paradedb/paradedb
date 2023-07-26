@@ -11,6 +11,7 @@ from core.search.index_settings import IndexSettings
 from core.search.model_group import ModelGroup
 from core.search.model import Model
 from core.search.pipeline import Pipeline
+from loguru import logger
 
 # TODO: Allow these values to be updated by the user
 # Hard-coded as defaults for now
@@ -88,6 +89,7 @@ class Index:
             for document, _id in zip(documents, ids)
         ]
         helpers.bulk(self.client, formatted_documents)
+        logger.info(f"Successfully bulk upserted {len(formatted_documents)} documents")
 
     def search(self, dsl: Dict[str, Any]) -> Dict[str, Any]:
         def add_model_id(nested_dict, model_id):
@@ -151,9 +153,10 @@ class Index:
             else:
                 model_id = model["model_id"]
 
-            # Load the model
-            response = self.model.load(model_id)
-            self._wait_for_task_result(response["task_id"])
+            logger.info(f"Loading and deploying model: {model_id}")
+            self.model.load(model_id)
+            resp = self.model.deploy(model_id)
+            logger.info(f"deploy response: {resp}")
 
             # Get/create pipeline
             pipeline = self.pipeline.get(pipeline_id=self.pipeline_id)

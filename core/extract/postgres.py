@@ -1,7 +1,11 @@
 import psycopg2
+import select
+import json
+import threading
+import queue
 
-from psycopg2.extras import LogicalReplicationConnection
-from typing import List, Generator, cast
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+from typing import List, Generator, Dict, Any, Optional, cast
 
 from core.extract.base import Extractor, ExtractorResult
 
@@ -11,19 +15,22 @@ class ConnectionError(Exception):
 
 
 class PostgresExtractor(Extractor):
-    def __init__(self, dsn: str) -> None:
-        self.dsn = dsn
-        self._connect(dsn)
+    def __init__(self, host: str, user: str, password: str, port: int) -> None:
+        self.host = host
+        self.user = user
+        self.password = password
+        self.port = port
+        self._connect()
 
-    def _connect(self, dsn: str) -> None:
+    def _connect(self) -> None:
         try:
             self.connection = psycopg2.connect(
-                self.dsn, connection_factory=LogicalReplicationConnection
+                host=self.host, user=self.user, password=self.password, port=self.port
             )
-        except psycopg2.ProgrammingError:
-            raise ConnectionError("Unable to connect to database")
-        except psycopg2.OperationalError:
-            raise ConnectionError("Unable to connect to database")
+        except psycopg2.ProgrammingError as e:
+            raise ConnectionError(f"Unable to connect to database: {e}")
+        except psycopg2.OperationalError as e:
+            raise ConnectionError(f"Unable to connect to database: {e}")
 
         self.cursor = self.connection.cursor()
 
@@ -65,8 +72,8 @@ class PostgresExtractor(Extractor):
             # Extract primary keys from rows
             primary_keys = [row[-1] for row in rows]
 
-            # Remove primary keys from rows
-            rows = [row[:-1] for row in rows]
+            # Convert rows into list of dicts, excluding primary keys
+            rows = [dict(zip(columns, row[:-1])) for row in rows]
 
             yield {"rows": rows, "primary_keys": primary_keys}
             offset += chunk_size

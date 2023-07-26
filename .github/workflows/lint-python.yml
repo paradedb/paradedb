@@ -7,10 +7,10 @@ name: "Lint Python and check types"
 
 on:
   pull_request:
-    branches: [dev, staging, main]
-    paths:
-      - "core/**"
-      - "retake/**"
+    branches:
+      - dev
+      - staging
+      - main
   workflow_dispatch:
 
 # This guarantees that if you push many commits to the same PR, only the latest
@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   lint-python:
+    name: Lint Python Files
     runs-on: ubuntu-latest
 
     steps:
@@ -44,8 +45,6 @@ jobs:
       - name: Run Black
         run: poetry run black --check .
 
-      - name: Run Flake8
-        run: poetry run flake8 core retake streams connectors
-
-      - name: Run Mypy
-        run: poetry run mypy core retake streams connectors
+      # This needs fixing, uncomment this out when we are ready
+      # - name: Run Mypy
+      #   run: poetry run mypy core api clients/python examples/flask

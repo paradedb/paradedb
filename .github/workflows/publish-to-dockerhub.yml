@@ -1,0 +1,56 @@
+# workflows/publish-to-dockerhub.yml
+#
+# Retake Search: Publish to Docker Hub
+# Publish Retake Search as a Docker image to Docker Hub.
+
+name: Publish Retake Search to Docker Hub
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# This guarantees that if you push many commits to the same PR, only the latest
+# commit will get run (others get cancelled)
+concurrency:
+  group: publish-to-dockerhub-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  publish-to-dockerhub:
+    name: Publish Retake Search to Docker Hub
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
+
+      - name: Configure Docker Hub Metadata
+        id: metadata
+        uses: docker/metadata-action@v4
+        with:
+          images: retake/retakesearch
+          tags: type=ref,event=tag
+
+      # Add support for more platforms with QEMU (necessary for arm64-compatible images)
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
+      - name: Build and Push Docker Image to Docker Hub (prod only)
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}

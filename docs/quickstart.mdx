@@ -1,0 +1,92 @@
+---
+title: Quick Start
+description: Add neural search to your Python app in under five minutes
+---
+
+In this tutorial, we will implement neural search over a
+Postgres database using the `retakesearch` Python library. This tutorial will
+only cover Retake-specific code and assumes that you already have a Python environment
+where you would like to integrate Retake.
+
+If you would like to see a full demo application using Retake, an example Python Flask app with
+setup instructions can be found [here](https://github.com/getretake/search/tree/dev/examples/flask).
+
+## Installation
+
+<Info>**Prerequisite** Docker and Docker Compose must be installed.</Info>
+
+In a terminal, pull and run the Retake Docker image. This spins up the Retake engine, which is responsible
+forexecuting search queries and storing search data.
+
+```bash
+docker pull retake/retakesearch
+docker run -p 8000:8000 retake/retakesearch
+```
+
+Next, `cd` into your Python project and install `retakesearch`.
+
+```bash
+pip install retakesearch
+```
+
+## Index Postgres Data
+
+Next, we use the Retake Python SDK to tell the Retake engine which tables and columns in Postgres we wish
+to search over. As long as the Retake engine is running, this only needs to be done once.
+
+```bash
+from retakesearch import Client, Database, Table
+
+# When the Retake engine is run locally,
+# this is the default API key/URL
+client = Client(
+  api_key="retake_test_key",
+  url="http://localhost:8000"
+)
+
+# Provide your Postgres database credentials here
+database = Database(
+    host="***",
+    user="***",
+    password="***",
+    port=5432,
+)
+
+# Provide the table name, primary key, and columns you
+# wish to search over here
+table = Table(
+    name="faqs"
+    primary_key="id",
+    columns=["questions", "answers"],
+    # Columns passed into neural_columns will have neural search enabled
+    # Columns not included will only have keyword search enabled
+    neural_columns=["questions", "answers"],
+)
+
+# Run this command for every table you wish to search over
+response = client.index(database, table)
+```
+
+## Execute a Search
+
+Inside our Python application, we are ready to write and execute our first search query.
+
+```bash
+from retakesearch import Search
+
+table_name = "faqs"
+
+# This executes a full-text (BM25) search
+bm25_search = Search().query("match", questions="Who am I?")
+client.search(table_name, bm25_search)
+
+# This executes a neural (BM25 + kNN) search
+neural_search = Search().neuralQuery("Who am I?", ["questions"])
+client.search(table_name, neural_search)
+```
+
+Note that Retake's `Search` query builder is a forked version of the
+[high-level OpenSearch Python DSL client](https://opensearch.org/docs/latest/clients/python-high-level).
+Please refer to the [search guide]() for the essentials of writing search queries.
+
+That's it! You've successfully executed a neural search query over your Postgres database.

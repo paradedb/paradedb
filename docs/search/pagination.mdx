@@ -1,0 +1,13 @@
+---
+title: Pagination
+---
+
+Pagination and offsets can be applied using Python slicing. The below query retries ten results, starting
+with the tenth result:
+
+```
+client.search(
+    table_name,
+    Search().query("match", question="Who am I?")[10:20]
+)
+```

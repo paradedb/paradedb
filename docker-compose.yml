@@ -29,6 +29,11 @@ services:
       SCHEMA_REGISTRY_PORT: 8081
       KAFKA_CONNECT_HOST: connect
       KAFKA_CONNECT_PORT: 8083
+      OPENSEARCH_HOST: core
+      OPENSEARCH_PORT: 9200
+      OPENSEARCH_USER: admin
+      OPENSEARCH_PASSWORD: admin
+      OPENSEARCH_USE_TLS: False
 
   kafka:
     image: bitnami/kafka:3.5

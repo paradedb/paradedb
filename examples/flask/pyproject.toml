@@ -1,0 +1,13 @@
+[tool.poetry]
+name = "retake-flask-demo"
+version = "0.0.0"
+description = "Retake Search Flask Demo"
+authors = ["Ming Ying <ming.ying.nyc@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.8,<4"
+retakesearch = "^0.0.0"
+flask = "^2.3.2"
+webargs = "^8.3.0"
+python-dotenv = "^1.0.0"

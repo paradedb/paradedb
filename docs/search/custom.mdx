@@ -1,0 +1,15 @@
+---
+title: Custom DSL
+---
+
+The `from_dict` function can be used to execute queries using JSON DSL objects. This is useful if you are
+familiar with the OpenSearch DSL and prefer to write more complex queries this way.
+
+```bash
+dsl = {'query': {'match': {'field': 'test'}}}
+
+client.search(
+    table_name,
+    Search().from_dict(dsl)
+)
+```

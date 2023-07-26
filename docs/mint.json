@@ -22,35 +22,20 @@
   "navigation": [
     {
       "group": "Welcome",
-      "pages": ["introduction"]
+      "pages": ["introduction", "quickstart", "architecture"]
     },
     {
-      "group": "Quick Start",
+      "group": "How to Search",
       "pages": [
-        "quickstart/pipeline",
-        "quickstart/batch-update",
-        "quickstart/real-time-update"
+        "search/overview",
+        "search/keyword",
+        "search/neural",
+        "search/sorting",
+        "search/filtering",
+        "search/aggregation",
+        "search/pagination",
+        "search/custom"
       ]
-    },
-    {
-      "group": "Deployment",
-      "pages": ["deployment/setup", "deployment/local", "deployment/cloud"]
-    },
-    {
-      "group": "Concepts",
-      "pages": [
-        "concepts/source",
-        "concepts/transform",
-        "concepts/embedding",
-        "concepts/sink",
-        "concepts/target",
-        "concepts/pipeline",
-        "concepts/realtime"
-      ]
-    },
-    {
-      "group": "Company",
-      "pages": ["company/roadmap"]
     }
   ],
   "footerSocials": {

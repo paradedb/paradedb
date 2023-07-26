@@ -1,0 +1,77 @@
+---
+title: Filtering
+---
+
+The `filter` function can be used to retrieve exactly the results that match filters.
+
+## String Filtering
+
+```bash
+filter_string = "Michael"
+
+client.search(
+    table_name,
+    Search().filter("term", answer=filter_string)
+)
+```
+
+## Numeric Filtering
+
+The `range` operator supports the following options:
+
+- `gte`: Greater-than or equal to
+- `gt`: Greater-than
+- `lte`: Less-than or equal to
+- `lt`: Less-than
+
+```bash
+client.search(
+    table_name,
+    Search().filter("range", number_of_questions={"gte": 10, "lte": 50})
+)
+```
+
+For filter results where a field is equal to a specific numeric value, use the `term` operator:
+
+```bash
+client.search(
+    table_name,
+    Search().filter("term", number_of_questions=5)
+)
+```
+
+## List Filtering
+
+The `terms` operator is used to filter results where a specific value is in a list of values:
+
+```bash
+answers_list = ["David", "Michael", "Bob"]
+
+client.search(
+    table_name,
+    Search().filter("terms", answers=answers_list)
+)
+```
+
+## Boolean Filtering
+
+The `term` operator can also be used for boolean filtering:
+
+```bash
+client.search(
+    table_name,
+    Search().filter("term", is_active=True)
+)
+```
+
+## Exclusion Filtering
+
+The `exclude` operator is a shortcut to the `must_not` boolean operator. The following query
+returns all results where `answer` is not "Michael":
+
+```bash
+client.search(
+    table_name,
+    Search().filter("term", answer="Michael")
+)
+```

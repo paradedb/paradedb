@@ -1,0 +1,91 @@
+---
+title: Aggregation
+---
+
+Aggregation, also known as faceting, enables developers to gather statistics about search results,
+enabling the analysis of patterns in the dataset at scale. The `aggs` function, in conjunction with
+the `A` helper, is used to add aggregations to any search query.
+
+### Basic Usage
+
+```bash
+from retakesearch import A
+
+bucket_name = "average_price"
+agg = A("avg", field="price")
+
+response = client.search(
+    table_name,
+    Search().aggs.metrics(bucket_name, agg)
+)
+
+# Print the average price
+print(response.aggregations[bucket_name].value)
+```
+
+## Operators
+
+### Distinct Values
+
+`terms` groups results by distinct values. Each unique value becomes a bucket.
+
+```bash
+A('terms', field='color')
+```
+
+### Range
+
+`range` groups results into range buckets. For numerical data, these ranges could be something like
+"1-10", "10-20", "20-30", etc.
+
+```bash
+A('range', field='price', ranges=[{'from': 10, 'to': 20}, {'from': 20, 'to': 30}])
+```
+
+### Date Range
+
+`date_range` functions similarly to `range` but works with date fields.
+
+```bash
+A('date_range', field='publish_date', ranges=[{'from': 'now-1d/d', 'to': 'now/d'}, {'from': 'now-1M/M', 'to': 'now/M'}])
+```
+
+### Histogram
+
+`histogram` groups numbers into buckets of equal width.
+
+```bash
+A('histogram', field='price', interval=10)
+```
+
+### Date Histogram
+
+`date_histogram` is a special form of histogram that works with date fields.
+
+```bash
+A('date_histogram', field='publish_date', interval='month')
+```
+
+### Average
+
+`avg` calculates the average of a field.
+
+```bash
+A('avg', field='price')
+```
+
+### Sum
+
+`sum` calculates the sum of a field.
+
+```bash
+A('sum', field='quantity')
+```
+
+### Min and Max
+
+`min` and `max` calculate the min and max of a field, respectively.
+
+```bash
+A(`min`, field='price')
+```

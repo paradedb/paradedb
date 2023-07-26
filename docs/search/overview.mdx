@@ -1,0 +1,50 @@
+---
+title: Overview
+---
+
+<Info>
+  **Prerequisite** This guide assumes that you have properly [installed and set
+  up Retake](/quickstart).
+</Info>
+
+To execute a search query, you must use the `Client.search` function and specify
+
+1. The name of the table that you want to search
+2. The search query, written using the `Search` high-level Python client
+
+## Basic Usage
+
+```bash
+from retakesearch import Client, Search
+
+client = Client(
+  api_key="retake_test_key",
+  url="http://localhost:8000"
+)
+
+table_name = "faqs"
+response = client.search(
+    table_name,
+    Search().query("match", question="Who am I?")
+)
+```
+
+The above example performs a keyword search for all rows in the Postgres table `faqs` where
+the column `question` matches the phrase "Who Am I?". Note that the table `faqs` and column
+`question` [must first be indexed](/quickstart) prior to query execution.
+
+## More Complex Example
+
+Complex search logic like filters, ranking, pagination, etc. can be added to the `Search` class
+as chained functions. For example, the following query performs a filter on the above query:
+
+```bash
+response = client.search(
+    table_name,
+    Search()
+        .query("match", question="Who am I?")
+        .filter("term", answer="Michael")
+)
+```
+
+The following sections will cover the specifics of how to write different types of queries.

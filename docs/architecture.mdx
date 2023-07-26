@@ -1,0 +1,41 @@
+---
+title: How Retake Works
+---
+
+## Architecture
+
+Retake is composed of three components:
+
+1. **Search Layer**: Responsible for processing search queries and storing data
+2. **Connection Layer**: Responsible for connecting to Postgres, indexing Postgres data, and delivering incremental updates
+   to the search layer
+3. **Query Layer**: An SDK that plugs into the developer's application and enables developers to query the search layer
+
+### Search Layer
+
+Retake's search layer is built on top of [OpenSearch](https://opensearch.org/), an open-source fork of ElasticSearch
+that acts as both a search engine and data store. The search layer is primarily responsible for
+
+1. Receiving, indexing, and storing Postgres data from the connection layer
+2. Receives user queries from the query layer, executing them, and returning search results
+
+### Connection Layer
+
+Retake employs Kafka to pipe data from Postgres to the search layer. By default, Retake implements change data capture (CDC)
+on Postgres to stay in sync — when a row is changed or new data arrives in Postgres, Retake automatically updates
+the corresponding data in the search layer.
+
+### Query Layer
+
+The query layer is a Python SDK that connects the developer's application to the search engine. The `Search` class
+of the SDK is responsible for constructing queries, which are translated to [OpenSearch query DSL](https://opensearch.org/docs/latest/query-dsl/)
+before being sent to the search engine.
+
+## Neural Search
+
+Neural search is a technique for delivering more accurate, contextually-aware search results by merging traditional
+keyword-based search algorithms like BM25 with semantic search.
+
+Retake's neural search feature is powered by the [OpenSearch neural search plugin](https://opensearch.org/docs/latest/search-plugins/neural-search/).
+When the developer [executes a neural search](/search/neural), Retake triggers a process that calculates both a "keyword-based score" and a
+"semantic score" before returning the results with the highest combined score.

@@ -36,9 +36,11 @@ jobs:
       - name: Run Beautysh to Check Scripts Formatting
         run: |
           # We need to use globstar for glob expansion on bash
-          shopt -s globstar
-          beautysh **/*.sh --indent-size 2 --check
-          shopt -u globstar
+          shopt -s globstar nullglob
+          if compgen -G "**/*.sh" > /dev/null; then
+            beautysh **/*.sh --indent-size 2 --check
+          fi
+          shopt -u globstar nullglob
 
       - name: Check that All Bash Scripts Start with "#!/bin/bash"
         run: .github/workflows/helpers/check-shebang.sh

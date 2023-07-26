@@ -1,126 +1,77 @@
 <p align="center">
-  <a href="https://retake.mintlify.app"><img src="assets/retake.png" alt="Retake" width="250px"></a>
+  <img src="assets/retake.svg" alt="Retake" width="125px"></a>
 </p>
+
+<h1 align="center">
+    <b>Retake</b>
+</h1>
 
 <p align="center">
-    <b>Open Source Infrastructure for Vector Data Streams</b> <br />
-    Data pipelines that synchronize vectors with their sources of truth <br />
+    <b>Real-Time Neural Search for Developers</b> <br />
 </p>
 
-<h3 align="center">
-  <a href="https://docs.getretake.com">Documentation</a> &bull;
-  <a href="https://getretake.com">Website</a>
-</h3>
+Retake is real-time keyword + semantic neural search infrastructure for developers, built to stay in sync with fast-changing databases. Retake wraps around any Postgres database and provides simple search SDKs that snap into any Python or Typescript application. You don't need to worry about managing separate vector stores and text search engines, uploading and embedding documents, or reindexing data. Just write search queries and let Retake handle the rest.
 
-<p align="center">
-<a href="https://github.com/getretake/retake/stargazers/" target="_blank">
-    <img src="https://img.shields.io/github/stars/getretake/retake?style=social&label=Star&maxAge=2592000" alt="Test">
-</a>
-<a href="https://github.com/getretake/retake/releases" target="_blank">
-    <img src="https://img.shields.io/github/v/release/getretake/retake?color=white" alt="Release">
-</a>
-<a href="https://github.com/getretake/retake/tree/main/LICENSE" target="_blank">
-    <img src="https://img.shields.io/static/v1?label=license&message=ELv2&color=white" alt="License">
-</a>
-</p>
+To get started, simply start the Retake engine
 
-## Installation
-
-Welcome! If you are not a contributor and just want to use Retake, please
-proceed to the [main branch](https://github.com/getretake/retake/tree/main).
-
-To install the Retake Python SDK:
-
-```bash
-pip install retake
 ```
-
-Follow the [documentation](https://retake.mintlify.app) for usage instructions.
-
-## Key Features
-
-**:arrows_counterclockwise: Out-of-the-Box Data Sync**
-
-Existing vector stores are siloes that require complex and sometimes brittle
-mechanisms for data synchronization. Retake provides the missing connectors that
-allow seamless data synchronization without the need for extensive configuration
-or third-party tools.
-
-**:rocket: True Real-Time Updates**
-
-Retake's connectors achieve sub-10ms end-to-end data latency, excluding variable
-model inference times.
-
-**:link: Extensible Python SDK**
-
-You can configure any source, sink, transformation, and embedding model as code.
-Joining and filtering tables or adding metadata is easily done from Python
-functions.
-
-**:zap: Scalable and Efficient**
-
-Built on top of Kafka, Retake is designed to handle large volumes of data and
-high-throughput workloads.
-
-**:globe_with_meridians: Deployable Anywhere**
-
-You can run Retake anywhere, from your laptop to a distributed cloud system.
-
-## Development
-
-If you are a developer who wants to contribute to Retake, follow these instructions to run Retake locally.
-
-### Python SDK
-
-The Python SDK enables users to define and configure vector data pipelines and
-is responsible for all batch ETL jobs. To develop and run the Python SDK
-locally:
-
-1. Install Poetry
-
-```bash
-curl -sSL https://install.python-poetry.org | python -
-```
-
-2. Install dependencies
-
-```bash
-poetry install
-```
-
-3. Build the SDK locally
-
-```bash
-poetry build
-```
-
-This command will build and install the `retake` SDK locally. You can now
-`import retake` from a Python environment.
-
-### Real-Time Server
-
-Built on top of Kafka, the real-time server sits between source(s) and
-sink(s). It is responsible for all real-time data streams.
-
-1. Ensure that Docker and Docker Compose are installed.
-
-2. Ensure that Poetry and dependencies are installed (see Python SDK
-   instructions above).
-
-3. Start the development server, which is composed of the Kafka broker, Kafka Connect
-   and the schema registry. Docker Compose will expose a port for each of the
-   services (see `docker-compose.yml` for details).
-
-```bash
 docker compose up
 ```
 
-4. To connect to the development server, refer to the [documentation](https://docs.getretake.com/quickstart/real-time-update).
+By default, this will start the Retake engine at `http://localhost:8000` with API key `retake-test-key`.
+
+## Usage
+
+### Python
+
+Install the SDK
+
+```
+pip install retakesearch
+```
+
+The core API is just two functions
+
+```
+from retakesearch import Client, Search, Database, Table
+
+client = Client(api_key="retake-test-key", url="http://localhost:8000")
+
+database = Database(
+    host-"***",
+    user="***",
+    password="***",
+    port=5432
+)
+
+table = Table(
+    name="table_name",
+    primary_key="primary_key_column",
+    columns: ["column1"] # These are the columns you wish to search
+    neural_columns=["column1"] # These are the columns you wish to enable neural search over
+)
+
+# Index your table
+# This only needs to be done once
+client.index(database, table)
+
+# Search your table
+query = Search().neuralQuery("my_query", ["column1])
+response = client.search("table_name", query)
+
+print(response)
+```
+
+## Key Features
+
+- **Always in Sync**: Built with Kafka and OpenSearch, Retake connects to a Postgres database, indexes, and automatically creates embeddings for tables and columns specified by the developer. As data changes or new data arrives in Postgres, Retake ensures that the indexed data and its embeddings are kept in sync.
+- **Low-Code SDK**: Retake provides intuitive search SDKs that drop into any Python application (other languages coming soon). The core API is just two functions.
+- **Open/ElasticSearch DSL Compatible**: Retake’s query interface is built on top of the the high-level OpenSearch Python client, enabling developers to query with the full expressiveness of the OpenSearch DSL (domain-specific language).
+- **Deployable Anywhere**: Retake is deployable anywhere, from a laptop to a distributed cloud system.
 
 ## Contributing
 
-For more information on how to contribute, please see our
-[Contributing Guide](CONTRIBUTING.md).
+For more information on how to contribute, please see our [Contributing Guide](CONTRIBUTING.md).
 
 ## Licensing
 

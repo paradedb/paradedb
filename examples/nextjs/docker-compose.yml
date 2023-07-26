@@ -1,0 +1,27 @@
+services:
+  deps:
+    image: node
+    volumes:
+      - ".:/app"
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - npm
+      - install
+    profiles:
+      - run
+  app:
+    image: node
+    ports:
+      - "3000:3000"
+    volumes:
+      - ".:/app"
+    working_dir: /app
+    command:
+      - npm
+      - run
+      - dev
+volumes:
+  data: null
+  node_modules: null

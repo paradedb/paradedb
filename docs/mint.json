@@ -22,7 +22,7 @@
   "navigation": [
     {
       "group": "Welcome",
-      "pages": ["introduction", "quickstart", "architecture"]
+      "pages": ["introduction", "setup", "quickstart", "architecture"]
     },
     {
       "group": "How to Search",

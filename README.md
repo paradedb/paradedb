@@ -17,7 +17,7 @@
 
 <p align="center">
 <a href="https://github.com/getretake/retake/stargazers/" target="_blank">
-    <img src="https://img.shields.io/github/stars/getretake/retake?style=social&label=Star&maxAge=2592000" alt="Test">
+    <img src="https://img.shields.io/github/stars/getretake/retake?style=social&label=Star&maxAge=60" alt="Stars">
 </a>
 <a href="https://github.com/getretake/retake/releases" target="_blank">
     <img src="https://img.shields.io/github/v/release/getretake/retake?color=white" alt="Release">

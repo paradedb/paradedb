@@ -33,7 +33,7 @@ pip install retakesearch
 The core API is just two functions
 
 ```
-from retakesearch import Client, Search, Database, Table
+from retakesearch import Client, Index, Database, Table, Search
 
 client = Client(api_key="retake-test-key", url="http://localhost:8000")
 
@@ -51,20 +51,13 @@ table = Table(
     neural_columns=["column1"] # These are the columns you wish to enable neural search over
 )
 
-# Index your table
-# This only needs to be done once
-client.index(database, table)
-
-# Search your table
-query = Search().neuralQuery("my_query", ["column1])
-response = client.search("table_name", query)
-
-print(response)
+index = client.create_index("my_index")
+index.add_source(database, table)
 ```
 
 ## Key Features
 
-- :arrows_counterclockwise: **Always in Sync**: Built with Kafka and OpenSearch, Retake connects to a Postgres database, indexes, and automatically creates embeddings for tables and columns specified by the developer. As data changes or new data arrives in Postgres, Retake ensures that the indexed data and its embeddings are kept in sync.
+- :arrows_counterclockwise: **Always in Sync**: Built with Kafka and OpenSearch, Retake connects to a Postgres database, indexes, and automatically creates embeddings for tables and columns specified by the developer. As data changes or new data arrives in Postgres, Retake ensures that the indexed data is kept in sync.
 - :brain: **Intelligent Vector Cache** Whenever data is changed in Postgres, Retake updates the embedding/vector representation of that data behind the scenes.
   Vectors are automatically cached for lightning-fast query results.
 - :rocket: **Low-Code SDK**: Retake provides intuitive search SDKs that drop into any Python application (other languages coming soon). The core API is just two functions.

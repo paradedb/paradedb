@@ -168,12 +168,18 @@ def consume_records(
                 if len(messages) <= BATCH_SIZE:
                     messages.append(msg)
 
-                elif len(messages) <= BATCH_SIZE and (time.time() - start_time) >= COMMIT_TIMEOUT and len(messages) > 0:
+                elif (
+                    len(messages) <= BATCH_SIZE
+                    and (time.time() - start_time) >= COMMIT_TIMEOUT
+                    and len(messages) > 0
+                ):
                     logger.info(
                         f"reached commit timeout. Commiting {len(messages)} messages."
                     )
                     consumer.commit(asynchronous=False)
-                    process_messages(messages, topic, primary_key, process_fn, sr_client)
+                    process_messages(
+                        messages, topic, primary_key, process_fn, sr_client
+                    )
                     messages = []
                     continue
                 else:

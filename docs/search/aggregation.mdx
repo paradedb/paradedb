@@ -14,8 +14,7 @@ from retakesearch import A
 bucket_name = "average_price"
 agg = A("avg", field="price")
 
-response = client.search(
-    table_name,
+response = index.search(
     Search().aggs.metrics(bucket_name, agg)
 )
 
@@ -87,5 +86,5 @@ A('sum', field='quantity')
 `min` and `max` calculate the min and max of a field, respectively.
 
 ```bash
-A(`min`, field='price')
+A('min', field='price')
 ```

@@ -7,9 +7,7 @@ familiar with the OpenSearch DSL and prefer to write more complex queries this w
 
 ```bash
 dsl = {'query': {'match': {'field': 'test'}}}
+query = Search().from_dict(dsl)
 
-client.search(
-    table_name,
-    Search().from_dict(dsl)
-)
+index.search(query)
 ```

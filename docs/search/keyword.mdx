@@ -2,6 +2,12 @@
 title: Keyword Search
 ---
 
+<Note>
+  The code provided in this section and all subsequent sections is for query
+  construction only. For a query to be executed, it must be passed into
+  `Index.search`. See [Overview](/search/overview) for instructions.
+</Note>
+
 ## Basic Usage
 
 The `query` function performs keyword (BM25) search. Use the `term` operator for exact matches
@@ -10,10 +16,7 @@ return documents containing the exact phrase "Who am I?", whereas the `match` op
 documents containing "Who", "am", or "I":
 
 ```bash
-client.search(
-    table_name,
-    Search().query("term", question="Who am I?")
-)
+Search().query("term", question="Who am I?")
 ```
 
 ## Multiple Columns
@@ -22,10 +25,7 @@ The `multi_match` operator enables search for a term in multiple columns. This e
 for matches in both the `question` and `answer` columns of a table:
 
 ```bash
-client.search(
-    table_name,
-    Search().query("multi_match", query="Who am I", fields=["question", "answer"])
-)
+Search().query("multi_match", query="Who am I", fields=["question", "answer"])
 ```
 
 ## Fuzzy Matching
@@ -34,10 +34,7 @@ The `fuzzy` operator enables fuzzy search. The following query searches for matc
 and allows for up to two character changes:
 
 ```bash
-client.search(
-    table_name,
-    Search().query("fuzzy", question={"value": "Whom I?", "fuzziness": 2})
-)
+Search().query("fuzzy", question={"value": "Whom I?", "fuzziness": 2})
 ```
 
 ## Boolean Queries
@@ -53,18 +50,16 @@ Boolean queries provide a flexible way to construct complex queries using four t
 - `filter`: The filter `operator` works similar to `must` but doesn't affect the scoring. It simply includes/excludes documents based on whether they match the filter condition.
 
 ```bash
-from retake import Q
+from retakesearch import Q
 
-client.search(
-    table_name,
-    Search().query(
-        Q(
-            "bool",
-            must=[Q("match", question="Who am I?")],
-            filter=[Q("term", answer="Michael")],
-            must_not=[Q("term", question="Where are you?")],
-            should=[Q("match", question="Whom are you?")]
-        )
+Search().query(
+    Q(
+        "bool",
+        must=[Q("match", question="Who am I?")],
+        filter=[Q("term", answer="Michael")],
+        must_not=[Q("term", question="Where are you?")],
+        should=[Q("match", question="Whom are you?")]
     )
 )
+
 ```

@@ -8,10 +8,7 @@ The response object of each search result contains a `_score` attribute. Higher 
 are more relevant to the search query. The `sort` function can be used to sort results by score in descending order:
 
 ```bash
-client.search(
-    table_name,
-    Search().query("term", question="Who am I?").sort("_score")
-)
+Search().query("term", question="Who am I?").sort("_score")
 ```
 
 ## Custom Sorting
@@ -20,13 +17,10 @@ The `sort` function also accepts field names for custom sorting. Multiple criter
 and the results will be sorted in order of the provided criteria.
 
 ```bash
- client.search(
-    table_name,
-    Search()
-        .query("term", question="Who am I?")
-        .sort(
-            "questions", # Ascending order
-            "-answer" # Descending order
-        )
-)
+Search()
+    .query("term", question="Who am I?")
+    .sort(
+        "questions", # Ascending order
+        "-answer" # Descending order
+    )
 ```

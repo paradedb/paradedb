@@ -7,10 +7,8 @@ title: Overview
   up Retake](/quickstart).
 </Info>
 
-To execute a search query, you must use the `Client.search` function and specify
-
-1. The name of the index that you want to search
-2. The search query, written using the `Search` high-level Python client
+To execute a search query, you must use the `Index.search` function and
+pass in the search query, written using the `Search` high-level Python client.
 
 ## Basic Usage
 
@@ -22,29 +20,35 @@ client = Client(
   url="http://localhost:8000"
 )
 
-table_name = "faqs"
-response = client.search(
-    table_name,
-    Search().query("match", question="Who am I?")
-)
+# Use client.create_index if the index doesn't exist
+index = client.get_index("my_index")
+
+# Construct query
+query = Search().query("match", question="Who am I?")
+
+# Execute query
+response = index.search(query)
 ```
 
 The above example performs a keyword search for all rows in the Postgres table `faqs` where
-the column `question` matches the phrase "Who Am I?". Note that the table `faqs` and column
-`question` [must first be indexed](/quickstart) prior to query execution.
+the column `question` matches the phrase "Who Am I?".
 
 ## More Complex Example
 
-Complex search logic like filters, ranking, pagination, etc. can be added to the `Search` class
-as chained functions. For example, the following query performs a filter on the above query:
+Complex search logic like filters, ranking, faceting, pagination, etc. can be added to the `Search` class
+as a logical pipeline of transformations. For example:
 
 ```bash
-response = client.search(
-    table_name,
+query = (
     Search()
-        .query("match", question="Who am I?")
-        .filter("term", answer="Michael")
+    .query("match", question="Who am I?")
+    .filter("term", answer="Michael")
+    .sort("-answer")
 )
+
+response = index.search(query)
 ```
 
-The following sections will cover the specifics of how to write different types of queries.
+The following sections will cover the specifics of how to write different types of queries. Please note
+that this is guide is non-exhaustive, and that many more features of the `Search` client can be found
+[in the source repository](https://github.com/getretake/opensearch-py).

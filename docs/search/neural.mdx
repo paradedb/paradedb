@@ -4,18 +4,16 @@ title: Neural Search
 
 ## Basic Usage
 
-The `neuralQuery` function performs neural (keyword + semantic) search. The function takes two arguments: the
-query and the column names to search over.
+The `neuralQuery` function performs neural (keyword + semantic) search. Results returned by this function will
+be scored both on semantic meaning and keyword matching.
+
+The function takes two arguments: the query and the field names to search over.
 
 ```bash
 query = "Who am I?"
-columns = ["question", "answer"]
-table_name = "faqs"
+fields = ["question", "answer"]
 
-client.search(
-    table_name,
-    Search().neuralQuery(query, columns)
-)
+Search().neuralQuery(query, fields)
 ```
 
 A more detailed overview of how neural search works and why it may be useful to your application is provided

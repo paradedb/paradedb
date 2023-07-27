@@ -1,8 +1,7 @@
 import httpx
 
+from opensearchpy import Search
 from typing import Any, List
-
-from .search import Search
 
 
 class Database:
@@ -24,16 +23,17 @@ class Table:
 
 
 class Index:
-    def __init__(self, index_name: str, api_key: str) -> None:
+    def __init__(self, index_name: str, api_key: str, url: str) -> None:
         self.index_name = index_name
         self.api_key = api_key
+        self.url = url
 
         self.headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
 
-    def add_source(self, database: Database, table: Table) -> None:
+    def add_source(self, database: Database, table: Table) -> Any:
         json = {
             "index_name": self.index_name,
             "source_host": database.host,
@@ -63,7 +63,7 @@ class Index:
 
     def search(self, search: Search) -> Any:
         json = {
-            "dsl": search.to_dict(),
+            "dsl": search.to_dict(),  # type: ignore
             "index_name": self.index_name,
         }
         try:

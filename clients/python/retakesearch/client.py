@@ -1,6 +1,4 @@
 import httpx
-from opensearchpy import Search
-from typing import Any, List
 
 from .index import Index
 
@@ -19,7 +17,7 @@ class Client:
                 },
             )
             response.raise_for_status()
-            return Index(index_name=index_name, api_key=self.api_key)
+            return Index(index_name=index_name, api_key=self.api_key, url=self.url)
 
     def create_index(self, index_name: str) -> Index:
         with httpx.Client(timeout=None) as http:
@@ -32,4 +30,4 @@ class Client:
                 json={"name": index_name},
             )
             response.raise_for_status()
-            return Index(index_name=index_name, api_key=self.api_key)
+            return Index(index_name=index_name, api_key=self.api_key, url=self.url)

@@ -23,8 +23,10 @@ search_args = {
 @app.route("/search", methods=["POST"])
 @use_args(search_args, location="json")
 def search(args):
+    index = client.get_index(table_name)
     query = Search().neuralQuery(args["query"], columns)
-    result = client.search(table_name, query)
+
+    result = index.search(query)
 
     return jsonify(result)
 

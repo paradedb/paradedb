@@ -76,13 +76,6 @@ class Index:
         return knn_vector_properties
 
     ### Public Methods ###
-
-    def insert(self, documents: List[Dict[str, Any]]) -> None:
-        formatted_documents = [
-            {"_index": self.name, "_source": document} for document in documents
-        ]
-        helpers.bulk(self.client, formatted_documents)
-
     def upsert(self, documents: List[Dict[str, Any]], ids: List[str]) -> None:
         formatted_documents = [
             {
@@ -96,24 +89,41 @@ class Index:
         ]
         helpers.bulk(self.client, formatted_documents)
 
-    def get(self, id: str) -> Union[Dict[str, Any], None]:
-        try:
-            response = self.client.get(index=self.name, id=id)
-            return cast(Dict[str, Any], response["_source"])
-        except NotFoundError:
-            return None
-
     def search(self, dsl: Dict[str, Any]) -> Dict[str, Any]:
+        def add_model_id(nested_dict, model_id):
+            for key, value in nested_dict.items():
+                if isinstance(value, dict):
+                    if "source" not in value.keys():
+                        add_model_id(value, model_id)
+                    if key == "neural":
+                        for _, inner_value in value.items():
+                            if (
+                                isinstance(inner_value, dict)
+                                and "source" not in inner_value.keys()
+                            ):
+                                inner_value["model_id"] = model_id
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict):
+                            add_model_id(item, model_id)
+
+        model = self.model.get(default_model_name)
+
+        if not model:
+            raise Exception(f"Model {default_model_name} not found.")
+
+        model_id = model["model_id"]
+        add_model_id(dsl, model_id)
+
         # Get embedding field names
         embedding_field_names = self._get_embedding_field_names()
 
-        # Construct DSL
-        search = Search().from_dict(dsl)  # type: ignore
-        search = search.source(excludes=embedding_field_names)
+        if "_source" in dsl and isinstance(dsl["_source"], dict):
+            dsl["_source"]["excludes"] = embedding_field_names
+        else:
+            dsl["_source"] = {"excludes": embedding_field_names}
 
-        return cast(
-            Dict[str, Any], self.client.search(index=self.name, body=search.to_dict())
-        )
+        return cast(Dict[str, Any], self.client.search(index=self.name, body=dsl))
 
     def register_neural_search_fields(self, fields: Optional[List[str]] = None) -> None:
         if fields:

@@ -82,11 +82,8 @@ async def create_index(payload: IndexCreatePayload) -> JSONResponse:
         )
 
 
-@router.post(f"/{tag}/add_source", tags=[tag])
+@router.post(f"/{tag}/realtime/link", tags=[tag])
 async def add_source(payload: AddSourcePayload) -> JSONResponse:
-    # Number of rows to extract at once
-    BATCH_SIZE = 500
-
     try:
         index = client.get_index(payload.index_name)
 
@@ -95,32 +92,49 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
             port=payload.source_port,
             user=payload.source_user,
             password=payload.source_password,
+            dbname=payload.source_dbname,
+            schema_name=payload.source_schema_name,
         )
+        logger.info("Successfully setup extractor")
+
+        kafka_config = KafkaConfig()
 
         if payload.source_neural_columns:
+            logger.info("Registering neural search fields...")
             index.register_neural_search_fields(payload.source_neural_columns)
+            logger.info("Successfully registered neural search fields")
 
-        for chunk in extractor.extract_all(
-            relation=payload.source_relation,
-            columns=payload.source_columns,
-            primary_key=payload.source_primary_key,
-            chunk_size=BATCH_SIZE,
+        extractor.extract_real_time(
+            kafka_config.connect_server,
+            kafka_config.schema_registry_server,
+            payload.source_relation,
+            payload.source_primary_key,
+            payload.source_columns,
+        )
+        logger.info("Created connector. Waiting for it to be ready...")
+
+        if extractor.is_connector_ready(
+            kafka_config.connect_server, payload.source_relation
         ):
-            rows = chunk.get("rows")
-            primary_keys = chunk.get("primary_keys")
-
-            if rows and primary_keys:
-                print("upserting", rows)
-                index.upsert(documents=rows, ids=primary_keys)
-
+            logger.info("Connector ready!")
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content=f"{payload.source_relation} linked successfully",
+            )
+        else:
+            return JSONResponse(
+                status_code=status.HTTP_400_OK,
+                content=f"Failed to link data. Connector not created successfully. Check the Kafka Connect logs for more information",
+            )
+    except ConnectionError as e:
         return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content=f"Source {payload.source_relation} linked to index {payload.index_name} successfully",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=f"Could not connect to database: {e}",
         )
     except Exception as e:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content=str(e),
+            content=f"Failed to link data: {e}",
         )
 
 

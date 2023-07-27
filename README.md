@@ -59,7 +59,7 @@ index.add_source(database, table)
 
 - :arrows_counterclockwise: **Always in Sync**: Built with Kafka and OpenSearch, Retake connects to a Postgres database, indexes, and automatically creates embeddings for tables and columns specified by the developer. As data changes or new data arrives in Postgres, Retake ensures that the indexed data is kept in sync.
 - :brain: **Intelligent Vector Cache** Whenever data is changed in Postgres, Retake updates the embedding/vector representation of that data behind the scenes.
-  Vectors are automatically cached for lightning-fast query results.
+  Vectors are automatically cached for lightning-fast query results with semantic understanding.
 - :rocket: **Low-Code SDK**: Retake provides intuitive search SDKs that drop into any Python application (other languages coming soon). The core API is just two functions.
 - :zap: **Open/ElasticSearch DSL Compatible**: Retake’s query interface is built on top of the the high-level OpenSearch Python client, enabling developers to query with the full expressiveness of the OpenSearch DSL (domain-specific language).
 - :globe_with_meridians: **Deployable Anywhere**: Retake is deployable anywhere, from a laptop to a distributed cloud system.

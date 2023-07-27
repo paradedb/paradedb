@@ -76,13 +76,6 @@ class Index:
         return knn_vector_properties
 
     ### Public Methods ###
-
-    def insert(self, documents: List[Dict[str, Any]]) -> None:
-        formatted_documents = [
-            {"_index": self.name, "_source": document} for document in documents
-        ]
-        helpers.bulk(self.client, formatted_documents)
-
     def upsert(self, documents: List[Dict[str, Any]], ids: List[str]) -> None:
         formatted_documents = [
             {
@@ -95,13 +88,6 @@ class Index:
             for document, _id in zip(documents, ids)
         ]
         helpers.bulk(self.client, formatted_documents)
-
-    def get(self, id: str) -> Union[Dict[str, Any], None]:
-        try:
-            response = self.client.get(index=self.name, id=id)
-            return cast(Dict[str, Any], response["_source"])
-        except NotFoundError:
-            return None
 
     def search(self, dsl: Dict[str, Any]) -> Dict[str, Any]:
         # Get embedding field names

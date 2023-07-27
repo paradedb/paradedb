@@ -6,7 +6,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from typing import Callable, Any
 
-from .routers import index, client
+from .routers import index
 
 # TODO: Replace hard-coded API key
 API_KEY = os.getenv("API_KEY")
@@ -64,4 +64,3 @@ app.add_middleware(
 )
 app.add_middleware(AuthMiddleware, api_key_validator=APIKeyValidator(API_KEY))
 app.include_router(index.router)
-app.include_router(client.router)

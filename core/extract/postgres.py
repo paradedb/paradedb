@@ -119,6 +119,7 @@ class PostgresExtractor(Extractor):
                 "database.dbname": f"{self.dbname}",
                 "table.include.list": f"{self.schema_name}.{relation}",
                 "column.include.list": ",".join(include_columns),
+                "slot.name": f"debezium_{relation}",
                 "transforms": "unwrap",
                 "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
                 "transforms.unwrap.drop.tombstones": "false",

@@ -154,8 +154,12 @@ class Index:
                 model_id = model["model_id"]
 
             logger.info(f"Loading and deploying model: {model_id}")
-            self.model.load(model_id)
+            resp = self.model.load(model_id)
+            self._wait_for_task_result(resp["task_id"])
+
             resp = self.model.deploy(model_id)
+            self._wait_for_task_result(resp["task_id"])
+
             logger.info(f"deploy response: {resp}")
 
             # Get/create pipeline

@@ -21,12 +21,9 @@ table = Table(
     neural_columns=json.loads(os.getenv("DATABASE_TABLE_COLUMNS")),
 )
 
-response = client.index(database, table)
+index = client.get_index(index_name=os.getenv("DATABASE_TABLE_NAME"))
 
-
-def search(query):
-    response = client.search(table.name, query)
-    return response
-
-
-print(response)
+if not index:
+    index = client.create_index(index_name=os.getenv("DATABASE_TABLE_NAME"))
+    index.add_source(database=database, table=table)
+    print("Index created and source added")

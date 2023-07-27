@@ -32,13 +32,13 @@ Next, `cd` into your Python project and install `retakesearch`.
 pip install retakesearch
 ```
 
-## Index Postgres Data
+## Integrate with Postgres
 
 Next, we use the Retake Python SDK to tell the Retake engine which tables and columns in Postgres we wish
 to search over. As long as the Retake engine is running, this only needs to be done once.
 
 ```bash
-from retakesearch import Client, Database, Table
+from retakesearch import Client, Index, Database, Table
 
 # When the Retake engine is run locally,
 # this is the default API key/URL
@@ -66,8 +66,13 @@ table = Table(
     neural_columns=["questions", "answers"],
 )
 
-# Run this command for every table you wish to search over
-response = client.index(database, table)
+# Create an index
+index = client.create_index("my_index")
+
+# Populate the index with data from your table
+# You can add multiple tables to the same index if you want
+# to search over multiple tables in the same query
+index.add_source(database, table)
 ```
 
 ## Execute a Search
@@ -81,11 +86,11 @@ table_name = "faqs"
 
 # This executes a full-text (BM25) search
 bm25_search = Search().query("match", questions="Who am I?")
-client.search(table_name, bm25_search)
+index.search(table_name, bm25_search)
 
 # This executes a neural (BM25 + kNN) search
 neural_search = Search().neuralQuery("Who am I?", ["questions"])
-client.search(table_name, neural_search)
+index.search(table_name, neural_search)
 ```
 
 Note that Retake's `Search` query builder is a forked version of the

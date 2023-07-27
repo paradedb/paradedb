@@ -8,10 +8,7 @@ Pagination and offsets can be applied using Python slicing. The below query retr
 with the tenth result:
 
 ```bash
-client.search(
-    table_name,
-    Search().query("match", question="Who am I?")[10:20]
-)
+Search().query("match", question="Who am I?")[10:20]
 ```
 
 ## Deep Pagination
@@ -26,15 +23,9 @@ remains consistent between pages and is unable to jump to a specific page — on
 query = Search().query("match", question="Who am I?")[0:1000]
 
 # First page
-first_response = client.search(
-    table_name,
-    query
-)
+first_response = index.search(query)
 
 # Second page
 search_after = first_response.hits[-1].meta.sort
-second_response = client.search(
-    table_name,
-    query.extra(search_after=search_after)
-)
+second_response = index.search(query.extra(search_after=search_after))
 ```

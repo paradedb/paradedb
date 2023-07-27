@@ -97,9 +97,14 @@ class PostgresExtractor(Extractor):
         connect_server: str,
         schema_registry_server: str,
         relation: str,
+        primary_key: str,
         columns: List[str],
     ) -> None:
         include_columns = [f"{self.schema_name}.{relation}.{col}" for col in columns]
+
+        # Always include the primary key so it can be extracted for indexing
+        include_columns.append(f"{self.schema_name}.{relation}.{primary_key}")
+
         connector_config = {
             "name": f"{relation}-connector",
             "config": {

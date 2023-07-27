@@ -23,7 +23,7 @@ def create_topics(admin: AdminClient, topics: List[str]) -> None:
     for topic, f in fs.items():
         try:
             f.result()  # The result itself is None
-            logger.info("Topic {} created".format(topic))
+            logger.warning("Topic {} created by sink consumer".format(topic))
         except Exception as e:
             logger.error("Failed to create topic {}: {}".format(topic, e))
 
@@ -87,8 +87,6 @@ def process_messages(
             documents.append(value)
 
     ids = extract_ids(primary_key, documents)
-    logger.info(f"Extracted ids: {ids}")
-    logger.info("Starting processing function")
     process_fn(documents, ids)
 
 
@@ -129,8 +127,8 @@ def consume_records(
     # Create schema registry client
     sr_client = SchemaRegistryClient({"url": kafka_config.schema_registry_server})
 
-    BATCH_SIZE = 100
-    COMMIT_TIMEOUT = 5
+    BATCH_SIZE = 1000
+    COMMIT_TIMEOUT = 2
 
     try:
         consumer.subscribe(subscribe_topics)
@@ -139,18 +137,6 @@ def consume_records(
         logger.info("Starting consumer loop...")
         while True:
             msg = consumer.poll(timeout=1.0)
-            if ((time.time() - start_time) >= COMMIT_TIMEOUT) and len(messages) > 0:
-                # If there is a message when the timeout is reached, append to queue
-                if msg is not None:
-                    messages.append(msg)
-
-                logger.info(
-                    f"reached commit timeout. Commiting {len(messages)} messages."
-                )
-                consumer.commit(asynchronous=False)
-                process_messages(messages, topic, primary_key, process_fn, sr_client)
-                messages = []
-                continue
 
             if msg is None:
                 continue
@@ -166,8 +152,16 @@ def consume_records(
                     raise KafkaException(msg.error())
             else:
                 if len(messages) <= BATCH_SIZE:
-                    logger.info("appending message to internal queue")
                     messages.append(msg)
+
+                elif len(messages) <= BATCH_SIZE and (time.time() - start_time) >= COMMIT_TIMEOUT and len(messages) > 0:
+                    logger.info(
+                        f"reached commit timeout. Commiting {len(messages)} messages."
+                    )
+                    consumer.commit(asynchronous=False)
+                    process_messages(messages, topic, primary_key, process_fn, sr_client)
+                    messages = []
+                    continue
                 else:
                     logger.info(
                         f"reached commit batch limit. Commiting {len(messages)} messages."

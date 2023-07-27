@@ -60,6 +60,7 @@ async def get_index(index_name: str) -> JSONResponse:
 @router.post(f"/{tag}/create", tags=[tag])
 async def create_index(payload: IndexCreatePayload) -> JSONResponse:
     try:
+        print("creating")
         client.create_index(payload.index_name)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -100,6 +101,7 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
             primary_keys = chunk.get("primary_keys")
 
             if rows and primary_keys:
+                print("upserting", rows)
                 index.upsert(documents=rows, ids=primary_keys)
 
         return JSONResponse(
@@ -134,39 +136,10 @@ async def register_neural_search_fields(
 @router.post(f"/{tag}/search", tags=[tag])
 async def search_documents(payload: SearchPayload) -> JSONResponse:
     try:
-
-        def add_model_id(nested_dict, model_id):
-            for key, value in nested_dict.items():
-                if isinstance(value, dict):
-                    if "source" not in value.keys():
-                        add_model_id(value, model_id)
-                    if key == "neural":
-                        for inner_key, inner_value in value.items():
-                            if (
-                                isinstance(inner_value, dict)
-                                and "source" not in inner_value.keys()
-                            ):
-                                inner_value["model_id"] = model_id
-                elif isinstance(value, list):
-                    for item in value:
-                        if isinstance(item, dict):
-                            add_model_id(item, model_id)
-
         index = client.get_index(payload.index_name)
-        dsl = payload.dsl
-        model = index.model.get(default_model_name)
-
-        if not model:
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content=f"Table {payload.index_name} is not properly registered. Did you forget to index() the table?",
-            )
-
-        model_id = model["model_id"]
-        add_model_id(dsl, model_id)
-        print(dsl)
-
-        return JSONResponse(status_code=status.HTTP_200_OK, content=index.search(dsl))
+        return JSONResponse(
+            status_code=status.HTTP_200_OK, content=index.search(payload.dsl)
+        )
     except Exception as e:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,

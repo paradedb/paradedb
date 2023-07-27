@@ -7,7 +7,7 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = ">=3.8,<4"
-retakesearch = "^0.0.0"
 flask = "^2.3.2"
 webargs = "^8.3.0"
 python-dotenv = "^1.0.0"
+retakesearch = {path = "../../clients/python/dist/retakesearch-0.0.0-py3-none-any.whl"}

@@ -1,3 +1,5 @@
+# Flask Demo App
+
 This is a demo Flask app built with `retakesearch`. The app exposes a single `/search` endpoint
 that performs a basic neural (i.e. keyword + semantic) search over your Postgres table.
 

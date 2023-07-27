@@ -10,6 +10,23 @@
     <b>Real-Time Neural Search for Developers</b> <br />
 </p>
 
+<h3 align="center">
+  <a href="https://docs.getretake.com">Documentation</a> &bull;
+  <a href="https://getretake.com">Website</a>
+</h3>
+
+<p align="center">
+<a href="https://github.com/getretake/retake/stargazers/" target="_blank">
+    <img src="https://img.shields.io/github/stars/getretake/retake?style=social&label=Star&maxAge=2592000" alt="Test">
+</a>
+<a href="https://github.com/getretake/retake/releases" target="_blank">
+    <img src="https://img.shields.io/github/v/release/getretake/retake?color=white" alt="Release">
+</a>
+<a href="https://github.com/getretake/retake/tree/main/LICENSE" target="_blank">
+    <img src="https://img.shields.io/static/v1?label=license&message=ELv2&color=white" alt="License">
+</a>
+</p>
+
 Retake is real-time keyword + semantic neural search infrastructure for developers, built to stay in sync with fast-changing databases. Retake wraps around any Postgres database and provides simple search SDKs that snap into any Python or Typescript application. You don't need to worry about managing separate vector stores and text search engines, uploading and embedding documents, or reindexing data. Just write search queries and let Retake handle the rest.
 
 To get started, simply start the Retake engine

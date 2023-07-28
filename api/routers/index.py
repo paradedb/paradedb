@@ -180,62 +180,6 @@ async def realtime_link(payload: AddSourcePayload) -> JSONResponse:
         )
 
 
-@router.post(f"/{tag}/realtime/link", tags=[tag])
-async def realtime_link(payload: AddSourcePayload) -> JSONResponse:
-    try:
-        index = client.get_index(payload.index_name)
-
-        extractor = PostgresExtractor(
-            host=payload.source_host,
-            port=payload.source_port,
-            user=payload.source_user,
-            password=payload.source_password,
-            dbname=payload.source_dbname,
-            schema_name=payload.source_schema_name,
-        )
-        logger.info("Successfully setup extractor")
-
-        kafka_config = KafkaConfig()
-
-        if payload.source_neural_columns:
-            logger.info("Registering neural search fields...")
-            index.register_neural_search_fields(payload.source_neural_columns)
-            logger.info("Successfully registered neural search fields")
-
-        extractor.extract_real_time(
-            kafka_config.connect_server,
-            kafka_config.schema_registry_server,
-            payload.source_relation,
-            payload.source_primary_key,
-            payload.source_columns,
-        )
-        logger.info("Created connector. Waiting for it to be ready...")
-
-        if extractor.is_connector_ready(
-            kafka_config.connect_server, payload.source_relation
-        ):
-            logger.info("Connector ready!")
-            return JSONResponse(
-                status_code=status.HTTP_200_OK,
-                content=f"{payload.source_relation} linked successfully",
-            )
-        else:
-            return JSONResponse(
-                status_code=status.HTTP_400_OK,
-                content=f"Failed to link data. Connector not created successfully. Check the Kafka Connect logs for more information",
-            )
-    except ConnectionError as e:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content=f"Could not connect to database: {e}",
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content=f"Failed to link data: {e}",
-        )
-
-
 @router.post(f"/{tag}/realtime/start", tags=[tag])
 async def realtime_start(
     payload: AddSourcePayload, bg_tasks: BackgroundTasks

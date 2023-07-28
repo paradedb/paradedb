@@ -50,6 +50,7 @@ jobs:
       - name: Install Dependencies
         run: poetry install
 
+      # Uncomment this if you are using a SentenceTransformer which requires CUDA (even if on a non-GPU machine)
       # # Based on https://medium.com/@mertguvencli/how-to-setup-nvidia-driver-cuda-toolkit-and-cudnn-in-ubuntu-20-4-ac5efedb4427
       # - name: Install CUDA, cuDNN & NCCL
       #   run: |

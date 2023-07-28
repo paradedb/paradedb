@@ -6,12 +6,13 @@ import requests
 from requests.auth import HTTPBasicAuth
 
 from core.extract.postgres import PostgresSource
+from clients.python.retakesearch.client import Client
 
 
 ## Helpers ##
 
 
-def local_elasticsearch_sink(docker_ip, docker_services):
+def local_opensearch_client(docker_ip, docker_services):
     print(
         "\nSpinning up local OpenSearch Docker container + fixture (this may take a minute)..."
     )
@@ -28,7 +29,7 @@ def local_elasticsearch_sink(docker_ip, docker_services):
     port = docker_services.port_for("opensearch", 9200)
     url = f"https://{docker_ip}:{port}"
 
-    print(f"Waiting for {url} to be responsive")
+    print(f"Waiting for OpenSearch instance at {url} to be responsive...")
 
     docker_services.wait_until_responsive(
         timeout=90.0, pause=1, check=lambda: is_responsive(url)
@@ -36,23 +37,17 @@ def local_elasticsearch_sink(docker_ip, docker_services):
 
     print("OpenSearch instance is responsive!")
 
-    return True
-    # return Sink.ElasticSearch(
-    #     host="https://localhost:9200",
-    #     user="elastic",
-    #     password="elastic",
-    #     ssl_assert_fingerprint=None,
-    # )
-
-
-def ci_elasticsearch_sink():
-    return Sink.ElasticSearch(
-        host="https://localhost:9200",
-        user="elastic",
-        password="changeme",  # Default password for ElasticSearch from elastic/elastic-github-actions/elasticsearch@master
-        ssl_assert_fingerprint=None,
+    return Client(
+        api_key="retake_test_key",
+        url="http://localhost:9200"     
     )
 
+
+def ci_opensearch_client():
+    return Client(
+        api_key="retake_test_key",
+        url="http://localhost:9200"     
+    )
 
 ## Fixtures ##
 
@@ -115,17 +110,17 @@ def postgres_source(
     return source
 
 
-# In CI, we run the ElasticSearch Docker container separately via a GitHub Action, so we
+# In CI, we run the OpenSearch Docker container separately via a GitHub Action, so we
 # create this fixture factory to only launch the container if we're running the test locally.
 @pytest.fixture
-def elasticsearch_sink_factory(request):
+def opensearch_client_factory(request):
     ci_var = os.getenv("CI")
 
     if not ci_var:
         print("Testing in local environment...")
         docker_ip = request.getfixturevalue("docker_ip")
         docker_services = request.getfixturevalue("docker_services")
-        return local_elasticsearch_sink(docker_ip, docker_services)
+        return local_opensearch_client(docker_ip, docker_services)
     else:
         print("Testing in CI environment...")
-        return ci_elasticsearch_sink()
+        return ci_opensearch_client()

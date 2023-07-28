@@ -85,5 +85,8 @@ jobs:
       - name: Confirm OpenSearch is Reachable
         run: curl -k -X GET "http://localhost:9200" -u admin:admin
 
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
+
       - name: Run Pytest
         run: poetry run pytest

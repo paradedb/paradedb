@@ -41,7 +41,7 @@ def local_opensearch_client(docker_ip, docker_services):
 
 
 def ci_opensearch_client():
-    return Client(api_key="retake_test_key", url="http://localhost:9200")
+    return Client(api_key="retake_test_key", url="http://localhost:8000")
 
 
 ## Fixtures ##
@@ -109,13 +109,13 @@ def postgres_source(
 # create this fixture factory to only launch the container if we're running the test locally.
 @pytest.fixture
 def opensearch_client_factory(request):
-    # ci_var = os.getenv("CI")
+    ci_var = os.getenv("CI")
 
-    # if not ci_var:
-    print("Testing in local environment...")
-    docker_ip = request.getfixturevalue("docker_ip")
-    docker_services = request.getfixturevalue("docker_services")
-    return local_opensearch_client(docker_ip, docker_services)
-    # else:
-    #     print("Testing in CI environment...")
-    #     return ci_opensearch_client()
+    if not ci_var:
+        print("Testing in local environment...")
+        docker_ip = request.getfixturevalue("docker_ip")
+        docker_services = request.getfixturevalue("docker_services")
+        return local_opensearch_client(docker_ip, docker_services)
+    else:
+        print("Testing in CI environment...")
+        return ci_opensearch_client()

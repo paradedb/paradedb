@@ -78,6 +78,9 @@ jobs:
       #     sudo apt-get -y update
       #     sudo apt-get -y install libnccl2=2.18.3-1+cuda12.2 libnccl-dev=2.18.3-1+cuda12.2
 
+      - name: Set up OpenSearch
+        uses: ankane/setup-opensearch@v1
+
       - name: Confirm OpenSearch is Reachable
         run: curl -k -X GET "https://localhost:9200" -u admin:admin
 

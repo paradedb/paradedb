@@ -1,4 +1,5 @@
 import time
+import json
 
 from enum import Enum
 from pydantic import BaseModel
@@ -61,7 +62,7 @@ class Index:
             task_status = response["state"]  # type: ignore
 
             if task_status == TaskStatus.FAILED:
-                raise OpenSearchTaskException(response)  # type: ignore
+                raise OpenSearchTaskException(json.dumps(response))
 
             time.sleep(wait_time_seconds)
 

@@ -23,7 +23,7 @@ search_args = {
 
 
 @app.route("/search", methods=["POST"])
-@use_args(search_args, location="json")
+@use_args(search_args, location="json")  # type: ignore
 def search(args: Dict[str, Any]) -> Response:
     if not table_name or not columns:
         return Response(

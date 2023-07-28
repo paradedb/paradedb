@@ -1,4 +1,5 @@
 import time
+import json
 
 from enum import Enum
 from pydantic import BaseModel
@@ -51,14 +52,17 @@ class Index:
         response = None
         wait_time_seconds = 2
 
-        while not task_status == TaskStatus.COMPLETED.value:
+        while task_status not in [TaskStatus.COMPLETED.value, TaskStatus.FAILED.value]:
             response = self.client.transport.perform_request(
                 "GET", f"/_plugins/_ml/tasks/{task_id}"
             )
+
+            logger.info(response)
+
             task_status = response["state"]  # type: ignore
 
             if task_status == TaskStatus.FAILED:
-                raise OpenSearchTaskException(response["error"])  # type: ignore
+                raise OpenSearchTaskException(json.dumps(response))
 
             time.sleep(wait_time_seconds)
 
@@ -156,6 +160,8 @@ class Index:
             logger.info(f"Loading and deploying model: {model_id}")
             resp = self.model.load(model_id)
             self._wait_for_task_result(resp["task_id"])
+
+            logger.info("Model loaded")
 
             resp = self.model.deploy(model_id)
             self._wait_for_task_result(resp["task_id"])

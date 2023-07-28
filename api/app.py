@@ -1,4 +1,5 @@
 import os
+import urllib3
 
 from fastapi import FastAPI, Request, status
 from starlette.middleware.cors import CORSMiddleware
@@ -7,6 +8,9 @@ from starlette.responses import JSONResponse
 from typing import Callable, Any
 
 from .routers import index
+
+# TODO: Add SSL and remove this
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # TODO: Replace hard-coded API key
 API_KEY = os.getenv("API_KEY")

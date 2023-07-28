@@ -4,8 +4,8 @@ description: Add neural search to your Python app in under five minutes
 ---
 
 <Info>
-  **Prerequisite** You have [enabled logical replication](/setup) in your
-  Postgres database.
+  **Prerequisite** Please ensure that you have [enabled logical
+  replication](/setup) in your Postgres database.
 </Info>
 
 In this tutorial, we will implement neural search over Postgres using the `retakesearch` Python library.
@@ -29,7 +29,7 @@ Clone the `retake` repository and run:
 docker compose up
 ```
 
-This spins up the Retake engine, which is responsible forexecuting search queries and storing search data.
+This spins up the Retake engine, which is responsible for executing search queries and storing search data.
 Next, `cd` into your Python project and install `retakesearch`.
 
 ```bash
@@ -85,7 +85,7 @@ Data stored outside of Postgres can be added to an index as well.
 
 ```bash
 documents = [{"key": "value"}]
-ids = [id1]
+ids = ["id1"]
 
 index.upsert(
   documents=documents,

@@ -12,9 +12,6 @@ def test_postgres_to_opensearch(
     test_field_name,
     test_vector,
 ):
-    
-
-
 
     pass
     # pipeline = Pipeline()

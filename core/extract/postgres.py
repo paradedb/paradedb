@@ -4,7 +4,9 @@ import time
 
 from http import HTTPStatus
 from loguru import logger
-from typing import List, Generator, cast
+from pydantic import BaseModel
+from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
+from typing import List, Generator, Dict, Any, Optional, cast
 
 from core.extract.base import Extractor, ExtractorResult
 from core.extract.realtime import create_connector
@@ -176,9 +178,6 @@ class PostgresExtractor(Extractor):
         return False
 
 
-from pydantic import BaseModel
-
-
 class PostgresSource(BaseModel):
     dsn: str
 
@@ -206,4 +205,3 @@ class Source:
             f"dbname={database} user={user} password={password} host={host} port={port}"
         )
         return PostgresSource(dsn=dsn)
-

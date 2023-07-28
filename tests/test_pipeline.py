@@ -32,7 +32,7 @@ def test_postgres_to_opensearch(
         neural_columns=[test_column_name],
     )
 
-    # Step 4 
+    # Step 4
     index = client.create_index(test_index_name)
 
     # Step 5

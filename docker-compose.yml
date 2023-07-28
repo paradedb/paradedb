@@ -1,4 +1,4 @@
-version: "3"
+version: '3'
 
 services:
   core:
@@ -46,12 +46,12 @@ services:
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true
     volumes:
-      - kafka_data:/bitnami/kafka
+    - kafka_data:/bitnami/kafka
 
   schema-registry:
     image: docker.io/bitnami/schema-registry:7.2.5
     ports:
-      - "8081:8081"
+      - '8081:8081'
     depends_on:
       - kafka
     environment:

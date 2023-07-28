@@ -50,3 +50,12 @@ class Model:
             "POST", f"/_plugins/_ml/models/{model_id}/_load"
         )
         return cast(Dict[str, Any], response)
+
+    def deploy(self, model_id: str) -> Union[bool, Any]:
+        try:
+            response = self.client.transport.perform_request(
+                "POST", f"/_plugins/_ml/models/{model_id}/_deploy"
+            )
+            return response
+        except:
+            pass

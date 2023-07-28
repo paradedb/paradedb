@@ -82,7 +82,7 @@ jobs:
         uses: ankane/setup-opensearch@v1
 
       - name: Confirm OpenSearch is Reachable
-        run: curl -k -X GET "https://localhost:9200" -u admin:admin
+        run: curl -k -X GET "http://localhost:9200" -u admin:admin
 
       - name: Run Pytest
         run: poetry run pytest

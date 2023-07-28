@@ -45,6 +45,5 @@ jobs:
       - name: Run Black
         run: poetry run black --check .
 
-      # This needs fixing, uncomment this out when we are ready
-      # - name: Run Mypy
-      #   run: poetry run mypy core api clients/python examples/flask
+      - name: Run Mypy
+        run: poetry run mypy .

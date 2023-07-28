@@ -81,7 +81,9 @@ class Index:
         return knn_vector_properties
 
     ### Public Methods ###
-    def upsert(self, documents: List[Dict[str, Any]], ids: List[str]) -> None:
+    def upsert(
+        self, documents: List[Dict[str, Any]], ids: List[Union[str, int]]
+    ) -> None:
         formatted_documents = [
             {
                 "_op_type": "update",
@@ -96,7 +98,7 @@ class Index:
         logger.info(f"Successfully bulk upserted {len(formatted_documents)} documents")
 
     def search(self, dsl: Dict[str, Any]) -> Dict[str, Any]:
-        def add_model_id(nested_dict, model_id):
+        def add_model_id(nested_dict: Dict[str, Any], model_id: str) -> None:
             for key, value in nested_dict.items():
                 if isinstance(value, dict):
                     if "source" not in value.keys():
@@ -166,7 +168,7 @@ class Index:
             resp = self.model.deploy(model_id)
             self._wait_for_task_result(resp["task_id"])
 
-            logger.info(f"deploy response: {resp}")
+            logger.info(f"Model deployed: {resp}")
 
             # Get/create pipeline
             pipeline = self.pipeline.get(pipeline_id=self.pipeline_id)

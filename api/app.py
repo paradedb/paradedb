@@ -5,7 +5,7 @@ from fastapi import FastAPI, Request, status
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
-from typing import Callable, Any
+from typing import Callable, Optional, Any
 
 from .routers import index
 
@@ -13,14 +13,14 @@ from .routers import index
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # TODO: Replace hard-coded API key
-API_KEY = os.getenv("API_KEY")
+API_KEY = os.getenv("API_KEY", "")
 
 
 class APIKeyValidator:
     def __init__(self, api_key: str) -> None:
         self.api_key = api_key
 
-    def __call__(self, request: Request) -> JSONResponse:
+    def __call__(self, request: Request) -> Optional[JSONResponse]:
         if request.method == "OPTIONS":
             return None
 

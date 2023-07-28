@@ -1,6 +1,7 @@
+from loguru import logger
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import NotFoundError
-from typing import Dict, Union, Any, cast
+from typing import Dict, Union, Any, Optional, cast
 
 
 class Model:
@@ -51,11 +52,8 @@ class Model:
         )
         return cast(Dict[str, Any], response)
 
-    def deploy(self, model_id: str) -> Union[bool, Any]:
-        try:
-            response = self.client.transport.perform_request(
-                "POST", f"/_plugins/_ml/models/{model_id}/_deploy"
-            )
-            return response
-        except:
-            pass
+    def deploy(self, model_id: str) -> Dict[str, Any]:
+        response = self.client.transport.perform_request(
+            "POST", f"/_plugins/_ml/models/{model_id}/_deploy"
+        )
+        return cast(Dict[str, Any], response)

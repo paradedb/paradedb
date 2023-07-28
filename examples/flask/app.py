@@ -2,9 +2,11 @@ import os
 import ast
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify
+from flask import Flask, Response, jsonify
 from webargs import fields
 from webargs.flaskparser import use_args
+from typing import Dict, Any
+
 from retakesearch import Client, Search
 
 load_dotenv()
@@ -13,7 +15,7 @@ app = Flask(__name__)
 
 client = Client("retake-test-key", "http://localhost:8000")
 table_name = os.getenv("DATABASE_TABLE_NAME")
-columns = ast.literal_eval(os.getenv("DATABASE_TABLE_COLUMNS"))
+columns = ast.literal_eval(os.getenv("DATABASE_TABLE_COLUMNS", "[]"))
 
 search_args = {
     "query": fields.Str(required=True),
@@ -22,10 +24,22 @@ search_args = {
 
 @app.route("/search", methods=["POST"])
 @use_args(search_args, location="json")
-def search(args):
-    index = client.get_index(table_name)
-    query = Search().neuralQuery(args["query"], columns)
+def search(args: Dict[str, Any]) -> Response:
+    if not table_name or not columns:
+        return Response(
+            status=400,
+            response="Table name or columns is empty. Check DATABASE_TABLE_NAME and DATABASE_TABLE_COLUMNS environment variables.",
+        )
 
+    index = client.get_index(table_name)
+
+    if not index:
+        return Response(
+            status=400,
+            response=f"Table {table_name} was not indexed. Did you run scripts/setup.py?",
+        )
+
+    query = Search().neuralQuery(args["query"], columns)  # type: ignore
     result = index.search(query)
 
     return jsonify(result)

@@ -74,7 +74,7 @@ async def get_index(index_name: str) -> JSONResponse:
 
 
 @router.post("/{tag}/upsert", tags=[tag])
-async def upsert(payload: UpsertPayload):
+async def upsert(payload: UpsertPayload) -> JSONResponse:
     try:
         if not len(payload.documents) == len(payload.ids):
             return JSONResponse(

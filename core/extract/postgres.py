@@ -1,14 +1,9 @@
 import psycopg2
-import select
-import json
 import requests
-import threading
 import time
-import queue
 
 from http import HTTPStatus
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from typing import List, Generator, Dict, Any, Optional, cast
+from typing import List, Generator, cast
 
 from core.extract.base import Extractor, ExtractorResult
 from core.extract.realtime import create_connector
@@ -87,9 +82,9 @@ class PostgresExtractor(Extractor):
             primary_keys = [row[-1] for row in rows]
 
             # Convert rows into list of dicts, excluding primary keys
-            rows = [dict(zip(columns, row[:-1])) for row in rows]
+            output = [dict(zip(columns, row[:-1])) for row in rows]
 
-            yield {"rows": rows, "primary_keys": primary_keys}
+            yield {"rows": output, "primary_keys": primary_keys}
             offset += chunk_size
 
     def extract_real_time(

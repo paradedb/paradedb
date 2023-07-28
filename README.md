@@ -47,7 +47,7 @@ Install the SDK
 pip install retakesearch
 ```
 
-The core API is just two functions
+The core API is just a few functions.
 
 ```
 from retakesearch import Client, Index, Database, Table, Search
@@ -85,7 +85,7 @@ Whenever data is changed in Postgres, Retake also updates the embedding/vector r
 
 :rocket: **Low-Code SDK**
 
-Retake provides intuitive search SDKs that drop into any Python application (other languages coming soon). The core API is just two functions.
+Retake provides intuitive search SDKs that drop into any Python application (other languages coming soon). The core API is just a few functions.
 
 :zap: **Open/ElasticSearch DSL Compatible**
 

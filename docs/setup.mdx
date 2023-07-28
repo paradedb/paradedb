@@ -1,0 +1,36 @@
+---
+title: Setup
+description: Configure your Postgres database for real-time search
+---
+
+<Info>**Prerequisite** Make sure you are running PostgreSQL 11 or higher.</Info>
+
+Retake leverages PostgreSQL [logical replication](https://www.postgresql.org/docs/current/logical-replication.html) to
+detect changes in the database and propagate them to Retake.
+
+## Enable Logical Replication
+
+### Non-AWS
+
+1. Ensure Postgres database user is a superuser
+
+```
+SELECT usename FROM pg_user WHERE usesuper = true
+```
+
+2. Enable logical decoding in `postgres.conf`
+
+```
+wal_level = logical
+```
+
+3. Add replication slots. You must have at least as many replication slots as the number of tables you wish to
+   search over.
+
+```
+max_replication_slots = 10
+```
+
+### AWS
+
+Enable logical replication by following this [guide](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraPostgreSQL.Replication.Logical.html).

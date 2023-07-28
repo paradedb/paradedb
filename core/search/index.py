@@ -2,6 +2,7 @@ import time
 import json
 
 from enum import Enum
+from loguru import logger
 from opensearchpy import OpenSearch, helpers
 from typing import Dict, List, Optional, Any, Union, cast
 
@@ -10,7 +11,6 @@ from core.search.index_settings import IndexSettings
 from core.search.model_group import ModelGroup
 from core.search.model import Model
 from core.search.pipeline import Pipeline
-from loguru import logger
 
 # TODO: Allow these values to be updated by the user
 # Hard-coded as defaults for now

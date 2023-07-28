@@ -251,8 +251,13 @@ async def realtime_start(
     # Follow topic naming convention used by Debezium
     topic = f"{payload.source_relation}.{payload.source_schema_name}.{payload.source_relation}"
 
+    if not kafka_consumer.initialized:
+        logger.info("Initializing Kafka consumer")
+        kafka_consumer.initialize()
+
     # Start the background process to begin consuming Kafka events
     if not kafka_consumer.is_consuming:
+        logger.info("Starting consume_records background task")
         bg_tasks.add_task(kafka_consumer.consume_records, index.upsert)
 
     # Subscribe to the new table

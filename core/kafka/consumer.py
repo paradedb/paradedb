@@ -14,28 +14,17 @@ from typing import Dict, List, Optional, Callable, Union, Any, Tuple
 
 
 class KafkaConsumer:
-    kafka_config = KafkaConfig()
-    consumer_conf = {
-        "bootstrap.servers": kafka_config.bootstrap_servers,
-        "group.id": "retake_kafka",
-        "auto.offset.reset": "smallest",
-        "enable.auto.commit": "false",
-        "allow.auto.create.topics": "true",
-    }
-
     def __init__(self) -> None:
-        self._consumer = Consumer(self.consumer_conf)
-        self._admin = AdminClient(
-            {"bootstrap.servers": self.kafka_config.bootstrap_servers}
-        )
-        self._schema_registry_client = SchemaRegistryClient(
-            {"url": self.kafka_config.schema_registry_server}
-        )
+        self._admin = None
+        self._consumer = None
+        self._schema_registry_client = None
         self._topics: List[str] = []
         self._topic_primary_keys: Dict[str, Any] = {}
         self._lock = Lock()
         self.is_consuming = False
+        self.initialized = False
 
+    # Private Methods
     def _create_topics(self, admin: AdminClient, topics: List[str]) -> None:
         # Create topic
         new_topics = [
@@ -117,11 +106,34 @@ class KafkaConsumer:
             schema_registry_client.get_latest_version(subject_name).schema.schema_str
         )
 
+    # Public Methods
+
+    def initialize(self) -> None:
+        kafka_config = KafkaConfig()
+        consumer_conf = {
+            "bootstrap.servers": kafka_config.bootstrap_servers,
+            "group.id": "retake_kafka",
+            "auto.offset.reset": "smallest",
+            "enable.auto.commit": "false",
+            "allow.auto.create.topics": "true",
+        }
+
+        self._consumer = Consumer(consumer_conf)
+        self._admin = AdminClient({"bootstrap.servers": kafka_config.bootstrap_servers})
+        self._schema_registry_client = SchemaRegistryClient(
+            {"url": kafka_config.schema_registry_server}
+        )
+        self.initialized = True
+
     def consume_records(
         self,
         process_fn: Callable[[List[Dict[str, Any]], List[Union[str, int]]], None],
     ) -> None:
-        self.is_consuming = True
+        if not self.initialized or not self._consumer or not self._admin:
+            raise Exception("Consumer not initialized. Call consume_records first.")
+
+        if self.is_consuming:
+            raise Exception("Consumer is already consuming.")
 
         BATCH_SIZE = 1000
         COMMIT_TIMEOUT = 2
@@ -130,6 +142,8 @@ class KafkaConsumer:
             messages: Dict[str, List[str]] = {topic: [] for topic in self._topics}
             start_time = time.time()
             logger.info("Starting consumer loop...")
+            self.is_consuming = True
+
             while True:
                 msg = self._consumer.poll(timeout=1.0)
 
@@ -185,9 +199,16 @@ class KafkaConsumer:
             self.is_consuming = False
 
     def add_topic(self, topic: str, primary_key: str) -> None:
+        if not self.initialized or not self._consumer:
+            raise Exception("Consumer not initialized. Call consume_records first.")
+
         with self._lock:
             if topic not in self._topics:
+                # Create topic
+                self._create_topics(self._admin, [topic])
                 self._topics.append(topic)
                 self._topic_primary_keys[topic] = primary_key
+
+                # Subscribe to topics
                 self._consumer.unsubscribe()
                 self._consumer.subscribe(self._topics)

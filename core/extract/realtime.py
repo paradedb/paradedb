@@ -7,11 +7,11 @@ from typing import Any
 
 
 def create_connector(connect_server: str, connector_config: dict[str, Any]) -> None:
-    max_retries = 15
+    max_retries = 20
     retry_count = 0
     while retry_count < max_retries:
         try:
-            time.sleep(1)  # Wait for 1 second before retrying
+            time.sleep(2)  # Wait for 2 seconds before retrying
             url = f"{connect_server}/connectors"
             r = requests.post(
                 url,

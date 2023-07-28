@@ -1,7 +1,6 @@
-from loguru import logger
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import NotFoundError
-from typing import Dict, Union, Any, Optional, cast
+from typing import Dict, Union, Any, cast
 
 
 class Model:
@@ -27,7 +26,7 @@ class Model:
             source = model["_source"]
 
             return cast(Dict[str, Any], source)
-        except NotFoundError as e:
+        except NotFoundError:
             return None
 
     def register(

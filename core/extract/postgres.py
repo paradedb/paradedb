@@ -3,6 +3,7 @@ import requests
 import time
 
 from http import HTTPStatus
+from loguru import logger
 from typing import List, Generator, cast
 
 from core.extract.base import Extractor, ExtractorResult
@@ -126,9 +127,9 @@ class PostgresExtractor(Extractor):
         try:
             create_connector(connect_server, connector_config)
         except requests.exceptions.HTTPError as e:
-            print("Connector already exists")
+            logger.error(f"Connector already exists: {e}")
         except requests.exceptions.RequestException as e:
-            print(e)
+            logger.error(e)
 
     def is_connector_ready(self, connect_server: str, relation: str) -> bool:
         connector_name = f"{relation}-connector"

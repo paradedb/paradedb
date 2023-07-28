@@ -1,5 +1,4 @@
 import json
-import requests
 import time
 from confluent_kafka.admin import AdminClient, NewTopic
 from confluent_kafka import Producer, Consumer, KafkaError, KafkaException, Message

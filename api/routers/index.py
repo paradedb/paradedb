@@ -79,13 +79,13 @@ async def upsert(payload: UpsertPayload) -> JSONResponse:
         if not len(payload.documents) == len(payload.ids):
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                content=f"Length of documents and ids arrays must be equal",
+                content="Length of documents and ids arrays must be equal",
             )
         index = client.get_index(payload.index_name)
         index.upsert(payload.documents, payload.ids)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content=f"Documents upserted successfully",
+            content="Documents upserted successfully",
         )
     except Exception as e:
         return JSONResponse(
@@ -193,7 +193,7 @@ async def realtime_link(payload: AddSourcePayload) -> JSONResponse:
         else:
             return JSONResponse(
                 status_code=status.HTTP_400_OK,
-                content=f"Failed to link data. Connector not created successfully. Check the Kafka Connect logs for more information",
+                content="Failed to link data. Connector not created successfully. Check the Kafka Connect logs for more information",
             )
     except ConnectionError as e:
         return JSONResponse(
@@ -217,7 +217,7 @@ async def realtime_start(
     index = None
     try:
         index = client.get_index(payload.source_relation)
-    except Exception as e:
+    except Exception:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=f"Index {payload.source_relation} not found",

@@ -1,5 +1,5 @@
 from opensearchpy import OpenSearch
-from typing import List, Dict, Any
+from typing import Dict, Any
 
 
 class IndexMappings:
@@ -16,4 +16,3 @@ class IndexMappings:
                 self.client.indices.put_mapping(index=self.name, body=body)
             except Exception as e:
                 print(f"Failed to upsert {attribute} with {values}: {e}")
-                pass

@@ -38,7 +38,7 @@ class APIKeyValidator:
                     content="Invalid API Key",
                 )
             return None
-        except Exception as e:
+        except Exception:
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 content="Invalid API Key",

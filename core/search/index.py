@@ -2,9 +2,7 @@ import time
 import json
 
 from enum import Enum
-from pydantic import BaseModel
-from opensearchpy import OpenSearch, Search, helpers
-from opensearchpy.exceptions import NotFoundError
+from opensearchpy import OpenSearch, helpers
 from typing import Dict, List, Optional, Any, Union, cast
 
 from core.search.index_mappings import IndexMappings
@@ -45,7 +43,7 @@ class Index:
         self.pipeline = Pipeline(client)
         self.pipeline_id = f"{self.name}_pipeline"
 
-    ### Private Methods ###
+    # Private Methods
 
     def _wait_for_task_result(self, task_id: str) -> Dict[str, Any]:
         task_status = None
@@ -80,7 +78,7 @@ class Index:
 
         return knn_vector_properties
 
-    ### Public Methods ###
+    # Public Methods
     def upsert(
         self, documents: List[Dict[str, Any]], ids: List[Union[str, int]]
     ) -> None:

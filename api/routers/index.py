@@ -40,9 +40,10 @@ class SearchPayload(BaseModel):
 
 
 class UpsertPayload(BaseModel):
-    index_name: str 
+    index_name: str
     documents: List[Dict[str, Any]]
     ids: List[Union[str, int]]
+
 
 class AddSourcePayload(BaseModel):
     index_name: str
@@ -70,10 +71,16 @@ async def get_index(index_name: str) -> JSONResponse:
             status_code=status.HTTP_400_BAD_REQUEST,
             content=str(e),
         )
-    
+
+
 @router.post("/{tag}/upsert", tags=[tag])
 async def upsert(payload: UpsertPayload):
     try:
+        if not len(payload.documents) == len(payload.ids):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=f"Length of documents and ids arrays must be equal",
+            )
         index = client.get_index(payload.index_name)
         index.upsert(payload.documents, payload.ids)
         return JSONResponse(

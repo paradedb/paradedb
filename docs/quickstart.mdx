@@ -79,6 +79,20 @@ index = client.create_index("my_index")
 index.add_source(database, table)
 ```
 
+## Add Additional Data (Optional)
+
+Data stored outside of Postgres can be added to an index as well.
+
+```bash
+documents = [{"key": "value"}]
+ids = [id1]
+
+index.upsert(
+  documents=documents,
+  ids=ids
+)
+```
+
 ## Execute a Search
 
 Inside our Python application, we are ready to write and execute our first search query.

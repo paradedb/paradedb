@@ -2,7 +2,7 @@ from fastapi import APIRouter, BackgroundTasks, status
 from loguru import logger
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 
 from api.config.kafka import KafkaConfig
 from api.config.opensearch import OpenSearchConfig
@@ -39,6 +39,12 @@ class SearchPayload(BaseModel):
     dsl: Dict[str, Any]
 
 
+class UpsertPayload(BaseModel):
+    index_name: str
+    documents: List[Dict[str, Any]]
+    ids: List[Union[str, int]]
+
+
 class AddSourcePayload(BaseModel):
     index_name: str
     source_host: str
@@ -64,6 +70,27 @@ async def get_index(index_name: str) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=str(e),
+        )
+
+
+@router.post("/{tag}/upsert", tags=[tag])
+async def upsert(payload: UpsertPayload):
+    try:
+        if not len(payload.documents) == len(payload.ids):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=f"Length of documents and ids arrays must be equal",
+            )
+        index = client.get_index(payload.index_name)
+        index.upsert(payload.documents, payload.ids)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=f"Documents upserted successfully",
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=f"Failed to upsert documents: {e}",
         )
 
 

@@ -1,7 +1,7 @@
 import httpx
 
 from opensearchpy import Search
-from typing import Any, List
+from typing import Any, List, Dict, Union
 
 
 class Database:
@@ -66,10 +66,28 @@ class Index:
             "dsl": search.to_dict(),  # type: ignore
             "index_name": self.index_name,
         }
+
         try:
             with httpx.Client(timeout=None) as http:
                 response = http.post(
                     f"{self.url}/index/search", headers=self.headers, json=json
+                )
+                response.raise_for_status()
+                return response.json()
+        except httpx.HTTPStatusError as exc:
+            return exc.response.json()
+        except Exception as exc:
+            return str(exc)
+
+    def upsert(
+        self, documents: List[Dict[str, Any]], ids: List[Union[str, int]]
+    ) -> Any:
+        json = {"index_name": self.index_name, "documents": documents, "ids": ids}
+
+        try:
+            with httpx.Client(timeout=None) as http:
+                response = http.post(
+                    f"{self.url}/index/upsert", headers=self.headers, json=json
                 )
                 response.raise_for_status()
                 return response.json()

@@ -2,7 +2,7 @@ import os
 import ast
 
 from dotenv import load_dotenv
-from flask import Flask, Response, jsonify
+from flask import Flask, Response
 from webargs import fields
 from webargs.flaskparser import use_args
 from typing import Dict, Any
@@ -42,7 +42,7 @@ def search(args: Dict[str, Any]) -> Response:
     query = Search().neuralQuery(args["query"], columns)  # type: ignore
     result = index.search(query)
 
-    return jsonify(result)
+    return Response(status=200, response=result)
 
 
 if __name__ == "__main__":

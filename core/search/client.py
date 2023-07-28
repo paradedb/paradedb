@@ -1,7 +1,6 @@
 from opensearchpy import OpenSearch
 
 from core.search.index import Index
-from typing import cast
 
 
 class Client:
@@ -16,12 +15,12 @@ class Client:
             verify_certs=verify_certs,
         )
 
-    ### Private Methods ###
+    # Private Methods
 
     def _check_index_exists(self, index_name: str) -> bool:
         return self.client.indices.exists(index=index_name)
 
-    ### Public Methods ###
+    # Public Methods
 
     def create_index(self, index_name: str) -> Index:
         if self._check_index_exists(index_name=index_name):

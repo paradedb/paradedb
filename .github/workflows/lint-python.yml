@@ -32,12 +32,7 @@ jobs:
         uses: actions/setup-python@v3
 
       - name: Install Poetry
-        run: curl -sSL https://install.python-poetry.org | python -
-
-      - name: Configure Poetry
-        run: |
-          poetry config virtualenvs.create true
-          poetry config virtualenvs.in-project true
+        run: pip install poetry
 
       - name: Install dependencies
         run: poetry install
@@ -45,6 +40,8 @@ jobs:
       - name: Run Black
         run: poetry run black --check .
 
-      # This needs fixing, uncomment this out when we are ready
-      # - name: Run Mypy
-      #   run: poetry run mypy core api clients/python examples/flask
+      - name: Run Mypy
+        run: poetry run mypy .
+
+      - name: Run Flake8
+        run: poetry run flake8 .

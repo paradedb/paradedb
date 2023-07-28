@@ -1,14 +1,10 @@
 import psycopg2
-import select
-import json
 import requests
-import threading
 import time
-import queue
 
 from http import HTTPStatus
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from typing import List, Generator, Dict, Any, Optional, cast
+from loguru import logger
+from typing import List, Generator, cast
 
 from core.extract.base import Extractor, ExtractorResult
 from core.extract.realtime import create_connector
@@ -87,9 +83,9 @@ class PostgresExtractor(Extractor):
             primary_keys = [row[-1] for row in rows]
 
             # Convert rows into list of dicts, excluding primary keys
-            rows = [dict(zip(columns, row[:-1])) for row in rows]
+            output = [dict(zip(columns, row[:-1])) for row in rows]
 
-            yield {"rows": rows, "primary_keys": primary_keys}
+            yield {"rows": output, "primary_keys": primary_keys}
             offset += chunk_size
 
     def extract_real_time(
@@ -131,9 +127,9 @@ class PostgresExtractor(Extractor):
         try:
             create_connector(connect_server, connector_config)
         except requests.exceptions.HTTPError as e:
-            print("Connector already exists")
+            logger.error(f"Connector already exists: {e}")
         except requests.exceptions.RequestException as e:
-            print(e)
+            logger.error(e)
 
     def is_connector_ready(self, connect_server: str, relation: str) -> bool:
         connector_name = f"{relation}-connector"

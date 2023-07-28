@@ -25,7 +25,7 @@ class ModelGroup:
             model_group = response["hits"]["hits"][0]  # type: ignore
             model_group["model_group_id"] = model_group["_id"]
             return cast(Dict[str, Any], model_group)
-        except NotFoundError as e:
+        except NotFoundError:
             return None
 
     def create(self, name: str, access_mode: str = "public") -> Dict[str, Any]:

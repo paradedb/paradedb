@@ -1,5 +1,4 @@
 import json
-import requests
 import time
 from confluent_kafka.admin import AdminClient, NewTopic
 from confluent_kafka import Producer, Consumer, KafkaError, KafkaException, Message
@@ -9,7 +8,7 @@ from confluent_kafka.schema_registry.avro import AvroDeserializer
 from loguru import logger
 
 from api.config.kafka import KafkaConfig
-from typing import Dict, List, Optional, Callable, Any, Tuple
+from typing import Dict, List, Optional, Callable, Union, Any, Tuple
 
 
 def create_topics(admin: AdminClient, topics: List[str]) -> None:
@@ -38,9 +37,9 @@ def decode_message(
     message: Message,
     topic: str,
     sr_client: Optional[SchemaRegistryClient] = None,
-) -> Tuple[str, Dict[str, str]]:
+) -> Tuple[str, Dict[str, Union[str, int]]]:
     key: str = ""
-    value_dict: Dict[str, str] = {}
+    value_dict: Dict[str, Union[str, int]] = {}
 
     try:
         if encoding == "json":
@@ -64,7 +63,9 @@ def decode_message(
     return (key, value_dict)
 
 
-def extract_ids(primary_key: str, records: List[Dict[str, str]]) -> List[str]:
+def extract_ids(
+    primary_key: str, records: List[Dict[str, Union[str, int]]]
+) -> List[Union[str, int]]:
     ids = []
     for record in records:
         id_value = record.get(primary_key)
@@ -77,7 +78,7 @@ def process_messages(
     messages: List[str],
     topic: str,
     primary_key: str,
-    process_fn: Callable[[List[Dict[str, Any]], List[str]], None],
+    process_fn: Callable[[List[Dict[str, Any]], List[Union[str, int]]], None],
     sr_client: Optional[SchemaRegistryClient] = None,
 ) -> None:
     documents = []
@@ -103,7 +104,7 @@ def return_schema(
 def consume_records(
     topic: str,
     primary_key: str,
-    process_fn: Callable[[List[Dict[str, Any]], List[str]], None],
+    process_fn: Callable[[List[Dict[str, Any]], List[Union[str, int]]], None],
 ) -> None:
     #  Create consumer and producer
     kafka_config = KafkaConfig()
@@ -115,7 +116,6 @@ def consume_records(
         "allow.auto.create.topics": "true",
     }
     consumer = Consumer(consumer_conf)
-    producer = Producer({"bootstrap.servers": kafka_config.bootstrap_servers})
     admin = AdminClient({"bootstrap.servers": kafka_config.bootstrap_servers})
 
     # Create topic in case it doesn't exist

@@ -26,7 +26,7 @@ class Model:
             source = model["_source"]
 
             return cast(Dict[str, Any], source)
-        except NotFoundError as e:
+        except NotFoundError:
             return None
 
     def register(
@@ -51,11 +51,8 @@ class Model:
         )
         return cast(Dict[str, Any], response)
 
-    def deploy(self, model_id: str) -> Union[bool, Any]:
-        try:
-            response = self.client.transport.perform_request(
-                "POST", f"/_plugins/_ml/models/{model_id}/_deploy"
-            )
-            return response
-        except:
-            pass
+    def deploy(self, model_id: str) -> Dict[str, Any]:
+        response = self.client.transport.perform_request(
+            "POST", f"/_plugins/_ml/models/{model_id}/_deploy"
+        )
+        return cast(Dict[str, Any], response)

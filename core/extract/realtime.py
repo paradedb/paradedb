@@ -1,10 +1,9 @@
 from http import HTTPStatus
-from os.path import exists
 import requests
 import time
 from loguru import logger
 
-from typing import Any, Dict
+from typing import Any
 
 
 def create_connector(connect_server: str, connector_config: dict[str, Any]) -> None:

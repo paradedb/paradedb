@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 from api.config.base import Config
 
 kafka_host = os.environ.get("KAFKA_HOST")

@@ -2,9 +2,7 @@ import time
 import json
 
 from enum import Enum
-from pydantic import BaseModel
-from opensearchpy import OpenSearch, Search, helpers
-from opensearchpy.exceptions import NotFoundError
+from opensearchpy import OpenSearch, helpers
 from typing import Dict, List, Optional, Any, Union, cast
 
 from core.search.index_mappings import IndexMappings
@@ -45,7 +43,7 @@ class Index:
         self.pipeline = Pipeline(client)
         self.pipeline_id = f"{self.name}_pipeline"
 
-    ### Private Methods ###
+    # Private Methods
 
     def _wait_for_task_result(self, task_id: str) -> Dict[str, Any]:
         task_status = None
@@ -80,8 +78,10 @@ class Index:
 
         return knn_vector_properties
 
-    ### Public Methods ###
-    def upsert(self, documents: List[Dict[str, Any]], ids: List[str]) -> None:
+    # Public Methods
+    def upsert(
+        self, documents: List[Dict[str, Any]], ids: List[Union[str, int]]
+    ) -> None:
         formatted_documents = [
             {
                 "_op_type": "update",
@@ -96,7 +96,7 @@ class Index:
         logger.info(f"Successfully bulk upserted {len(formatted_documents)} documents")
 
     def search(self, dsl: Dict[str, Any]) -> Dict[str, Any]:
-        def add_model_id(nested_dict, model_id):
+        def add_model_id(nested_dict: Dict[str, Any], model_id: str) -> None:
             for key, value in nested_dict.items():
                 if isinstance(value, dict):
                     if "source" not in value.keys():
@@ -166,7 +166,7 @@ class Index:
             resp = self.model.deploy(model_id)
             self._wait_for_task_result(resp["task_id"])
 
-            logger.info(f"deploy response: {resp}")
+            logger.info(f"Model deployed: {resp}")
 
             # Get/create pipeline
             pipeline = self.pipeline.get(pipeline_id=self.pipeline_id)

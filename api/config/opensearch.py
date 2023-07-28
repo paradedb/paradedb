@@ -1,5 +1,4 @@
 import os
-from typing import Optional
 from api.config.base import Config
 
 opensearch_host = os.environ.get("OPENSEARCH_HOST")
@@ -25,8 +24,8 @@ class OpenSearchConfig(Config):
         return self.get_property("OPENSEARCH_HOST")
 
     @property
-    def port(self) -> str:
-        return self.get_property("OPENSEARCH_PORT")
+    def port(self) -> int:
+        return int(self.get_property("OPENSEARCH_PORT"))
 
     @property
     def user(self) -> str:

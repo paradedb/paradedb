@@ -1,6 +1,6 @@
 from opensearchpy import OpenSearch
 from opensearchpy.exceptions import NotFoundError
-from typing import Dict, List, Union, Any, cast
+from typing import Dict, Union, Any, cast
 
 
 class Pipeline:
@@ -14,7 +14,7 @@ class Pipeline:
         try:
             response = self.client.ingest.get_pipeline(id=pipeline_id)
             return cast(Dict[str, Any], response)
-        except NotFoundError as e:
+        except NotFoundError:
             return None
 
     def create_processor(self, pipeline_id: str, processor: Dict[str, Any]) -> None:

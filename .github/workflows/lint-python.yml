@@ -48,5 +48,5 @@ jobs:
       - name: Run Mypy
         run: poetry run mypy .
 
-       - name: Run Flake8
+      - name: Run Flake8
         run: poetry run flake8 .

@@ -116,7 +116,6 @@ def consume_records(
         "allow.auto.create.topics": "true",
     }
     consumer = Consumer(consumer_conf)
-    producer = Producer({"bootstrap.servers": kafka_config.bootstrap_servers})
     admin = AdminClient({"bootstrap.servers": kafka_config.bootstrap_servers})
 
     # Create topic in case it doesn't exist

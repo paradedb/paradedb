@@ -6,16 +6,16 @@ from typing import List, Dict, Any, Union
 
 from api.config.kafka import KafkaConfig
 from api.config.opensearch import OpenSearchConfig
-from api.sink_consumer import consume_records
 
 from core.extract.postgres import PostgresExtractor, ConnectionError
+from core.kafka.consumer import KafkaConsumer
 from core.search.client import Client
 
-router = APIRouter()
 tag = "index"
 
+router = APIRouter()
 opensearch_config = OpenSearchConfig()
-
+kafka_consumer = KafkaConsumer()
 client = Client(
     host=opensearch_config.host,
     port=opensearch_config.port,
@@ -31,11 +31,6 @@ class IndexCreatePayload(BaseModel):
 
 class IndexDeletePayload(BaseModel):
     index_name: str
-
-
-class RegisterNeuralSearchFieldsPayload(BaseModel):
-    index_name: str
-    fields: List[str]
 
 
 class SearchPayload(BaseModel):
@@ -255,30 +250,18 @@ async def realtime_start(
 
     # Follow topic naming convention used by Debezium
     topic = f"{payload.source_relation}.{payload.source_schema_name}.{payload.source_relation}"
-    bg_tasks.add_task(consume_records, topic, payload.source_primary_key, index.upsert)
+
+    # Start the background process to begin consuming Kafka events
+    if not kafka_consumer.is_consuming:
+        bg_tasks.add_task(kafka_consumer.consume_records, index.upsert)
+
+    # Subscribe to the new table
+    kafka_consumer.add_topic(topic, payload.source_primary_key)
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content=f"Processing started on index {payload.source_relation}",
     )
-
-
-@router.post(f"/{tag}/register_neural_search_fields", tags=[tag])
-async def register_neural_search_fields(
-    payload: RegisterNeuralSearchFieldsPayload,
-) -> JSONResponse:
-    try:
-        index = client.get_index(payload.index_name)
-        index.register_neural_search_fields(payload.fields)
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content=f"Neural search fields for {payload.index_name} registered successfully",
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content=f"Failed to register neural search fields: {e}",
-        )
 
 
 @router.post(f"/{tag}/search", tags=[tag])

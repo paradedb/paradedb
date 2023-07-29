@@ -66,7 +66,7 @@ class CreateFieldPayload(BaseModel):
 
 
 @router.get("/ping", tags=[tag])
-async def pong():
+async def pong() -> JSONResponse:
     try:
         return JSONResponse(status_code=status.HTTP_200_OK, content="pong")
     except Exception as e:

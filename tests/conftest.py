@@ -6,8 +6,7 @@ import requests
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError
 
-from clients.python.retakesearch.client import Client
-from clients.python.retakesearch import Database
+from clients.python.retakesearch import Database, Client
 
 
 ## Configurations ##

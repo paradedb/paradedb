@@ -1,3 +1,5 @@
+import pytest
+
 from clients.python.retakesearch import Table
 from clients.python.retakesearch.search import Search
 
@@ -11,6 +13,8 @@ def test_postgres_to_opensearch(
     test_column_name,
     test_index_name,
 ):
+    os=opensearch_service
+    
     # Initialize Retake Client (OpenSearch also needs to be running)
     client = fastapi_client
 

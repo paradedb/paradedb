@@ -5,7 +5,8 @@ import requests
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError
 
-from clients.python.retakesearch import Database, Client
+from clients.python.retakesearch import Database
+from clients.python.retakesearch.client import Client
 
 
 # Configurations
@@ -34,9 +35,25 @@ def test_primary_key():
     return "test_pk"
 
 
+
+@pytest.fixture(scope="session")
+def test_vector():
+    return [0.1, 0.2, 0.3]
+
+
 @pytest.fixture(scope="session")
 def test_index_name():
     return "test_index_name"
+
+
+@pytest.fixture(scope="session")
+def test_field_name():
+    return "test_field_name"
+
+
+@pytest.fixture(scope="session")
+def test_document_id():
+    return "test_document_id"
 
 
 @pytest.fixture(scope="session")

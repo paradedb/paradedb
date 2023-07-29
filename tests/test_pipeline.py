@@ -3,6 +3,7 @@ from clients.python.retakesearch.search import Search
 
 
 def test_postgres_to_opensearch(
+    opensearch_service,
     postgres_source,
     fastapi_client,
     test_table_name,

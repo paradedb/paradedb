@@ -4,9 +4,7 @@ import time
 
 from http import HTTPStatus
 from loguru import logger
-from pydantic import BaseModel
-from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-from typing import List, Generator, Dict, Any, Optional, cast
+from typing import List, Generator, cast
 
 from core.extract.base import Extractor, ExtractorResult
 from core.extract.realtime import create_connector

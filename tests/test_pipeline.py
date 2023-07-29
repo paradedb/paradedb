@@ -1,4 +1,3 @@
-import pytest
 
 from clients.python.retakesearch import Table
 from clients.python.retakesearch.search import Search

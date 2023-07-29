@@ -1,4 +1,3 @@
-import os
 import pytest
 import psycopg2
 import requests
@@ -9,7 +8,7 @@ from requests.exceptions import ConnectionError
 from clients.python.retakesearch import Database, Client
 
 
-## Configurations ##
+# Configurations
 
 
 @pytest.fixture(scope="session")
@@ -17,7 +16,7 @@ def docker_compose_file(pytestconfig):
     return pytestconfig.rootpath.joinpath(".", "docker-compose.yml")
 
 
-## Fixtures ##
+# Fixtures
 
 
 @pytest.fixture(scope="session")
@@ -79,7 +78,7 @@ def opensearch_service(docker_ip, docker_services):
             )
             return response.status_code == 200
         except Exception as e:
-            return False
+            return e
 
     port = docker_services.port_for("core", 9200)
     url = f"https://{docker_ip}:{port}"

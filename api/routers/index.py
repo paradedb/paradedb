@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, status
+from fastapi import APIRouter, BackgroundTasks, status, HTTPException
 from loguru import logger
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
@@ -114,15 +114,21 @@ async def upsert(payload: UpsertPayload) -> JSONResponse:
 @router.post(f"/{tag}/create", tags=[tag])
 async def create_index(payload: IndexCreatePayload) -> JSONResponse:
     try:
-        client.create_index(payload.index_name)
+        try:
+            client.create_index(payload.index_name)
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, 
+                detail=f"Failed to create index {payload.index_name}: {e}"
+            )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Index {payload.index_name} created successfully",
         )
     except Exception as e:
         return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content=f"Failed to create index {payload.index_name}: {e}",
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=f"An unexpected error occurred: {e}",
         )
 
 

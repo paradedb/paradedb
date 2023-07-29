@@ -119,9 +119,13 @@ def opensearch_service(docker_ip, docker_services):
 def fastapi_client(docker_ip, docker_services):
     """Ensure that FastAPI service is up and responsive."""
     print("\nSpinning up FastAPI service...")
+    api_key = "retake-test-key"
 
     def is_responsive(url):
-        headers = {"Authorization": "Bearer retake-test-key"}
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
         try:
             response = requests.get(url, headers=headers, verify=False)
             if response.status_code == 200:
@@ -140,4 +144,4 @@ def fastapi_client(docker_ip, docker_services):
     )
 
     print("FastAPI service is responsive!")
-    return Client(api_key="retake-test-key", url=url)
+    return Client(api_key=api_key, url=url)

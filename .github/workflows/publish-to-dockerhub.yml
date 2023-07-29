@@ -51,6 +51,6 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          file: ./Dockerfile
+          file: ./Dockerfile.prod
           push: true
           tags: ${{ steps.metadata.outputs.tags }}

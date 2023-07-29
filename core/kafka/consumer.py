@@ -88,10 +88,13 @@ class KafkaConsumer:
         process_fn: Callable[[List[Dict[str, Any]], List[Union[str, int]]], None],
         sr_client: Optional[SchemaRegistryClient] = None,
     ) -> None:
+        logger.info(f"Topic: {topic}")
+        logger.info(messages)
         documents = []
         for msg in messages:
             if sr_client is not None:
                 _, value = self._decode_message("avro", msg, topic, sr_client)
+                logger.info(f"Decoded: {value}")
                 documents.append(value)
 
         ids = self._extract_ids(self._topic_primary_keys[topic], documents)
@@ -124,12 +127,14 @@ class KafkaConsumer:
             {"url": kafka_config.schema_registry_server}
         )
         self.initialized = True
+        logger.info("initialized")
 
     def consume_records(
         self,
         process_fn: Callable[[List[Dict[str, Any]], List[Union[str, int]]], None],
     ) -> None:
         if not self.initialized or not self._consumer or not self._admin:
+            logger.info(self.initialized, self._consumer, self._admin)
             raise Exception("Consumer not initialized. Call consume_records first.")
 
         if self.is_consuming:
@@ -146,6 +151,7 @@ class KafkaConsumer:
 
             while True:
                 msg = self._consumer.poll(timeout=1.0)
+                logger.info(msg)
 
                 if msg is None:
                     for topic in self._topics:
@@ -181,6 +187,7 @@ class KafkaConsumer:
                     topic = msg.topic()
                     if len(messages[topic]) <= BATCH_SIZE:
                         messages[topic].append(msg)
+                        logger.info("appended msg")
                     else:
                         logger.info(
                             f"reached commit batch limit. Commiting {len(messages[topic])} messages."

@@ -16,8 +16,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    volumes:
-      - .:/app
+    depends_on:
+      - core
     ports:
       - 8000:8000
     command: uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
@@ -34,6 +34,8 @@ services:
       OPENSEARCH_USER: admin
       OPENSEARCH_PASSWORD: admin
       OPENSEARCH_USE_TLS: False
+    volumes:
+      - .:/app
 
   kafka:
     image: bitnami/kafka:3.5
@@ -46,14 +48,14 @@ services:
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
       KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true
     volumes:
-    - kafka_data:/bitnami/kafka
+      - kafka_data:/bitnami/kafka
 
   schema-registry:
     image: docker.io/bitnami/schema-registry:7.2.5
-    ports:
-      - '8081:8081'
     depends_on:
       - kafka
+    ports:
+      - '8081:8081'
     environment:
       SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
       SCHEMA_REGISTRY_KAFKA_BROKERS: PLAINTEXT://kafka:9092

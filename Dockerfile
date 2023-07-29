@@ -15,3 +15,12 @@ RUN poetry config virtualenvs.create false && poetry install
 
 # Copy source
 COPY . .
+
+# Install Uvicorn for web service
+RUN pip install uvicorn
+
+# Expose port
+EXPOSE 8000
+
+# Run FastAPI server
+CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

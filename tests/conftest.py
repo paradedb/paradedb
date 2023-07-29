@@ -39,6 +39,11 @@ def test_index_name():
     return "test_index_name"
 
 
+@pytest.fixture(scope="session")
+def test_document_id():
+    return "test_document_id"
+
+
 @pytest.fixture
 def postgres_source(
     postgresql, test_table_name, test_primary_key, test_column_name, test_document_id

@@ -52,7 +52,7 @@ from retakesearch import Client, Index, Database, Table
 # When the Retake engine is run locally,
 # this is the default API key/URL
 client = Client(
-  api_key="retake_test_key",
+  api_key="retake-test-key",
   url="http://localhost:8000"
 )
 
@@ -105,15 +105,13 @@ Inside our Python application, we are ready to write and execute our first searc
 ```bash
 from retakesearch import Search
 
-table_name = "faqs"
-
 # This executes a full-text (BM25) search
-bm25_search = Search().query("match", questions="Who am I?")
-index.search(table_name, bm25_search)
+bm25_search_query = Search().query("match", questions="Who am I?")
+index.search(bm25_search_query)
 
 # This executes a neural (BM25 + kNN) search
-neural_search = Search().neuralQuery("Who am I?", ["questions"])
-index.search(table_name, neural_search)
+neural_search_query = Search().neuralQuery("Who am I?", ["questions"])
+index.search(neural_search_query)
 ```
 
 Note that Retake's `Search` query builder is a forked version of the

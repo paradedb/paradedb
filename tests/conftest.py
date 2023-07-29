@@ -4,44 +4,18 @@ import psycopg2
 import requests
 
 from requests.auth import HTTPBasicAuth
+from requests.exceptions import ConnectionError
 
-from core.extract.postgres import PostgresSource
 from clients.python.retakesearch.client import Client
+from clients.python.retakesearch import Database
 
 
-## Helpers ##
+## Configurations ##
 
 
-def local_opensearch_client(docker_ip, docker_services):
-    print(
-        "\nSpinning up local OpenSearch Docker container + fixture (this may take a minute)..."
-    )
-
-    def is_responsive(url):
-        try:
-            response = requests.get(
-                url, auth=HTTPBasicAuth("admin", "admin"), verify=False
-            )
-            return response.status_code == 200
-        except Exception as e:
-            return False
-
-    port = docker_services.port_for("opensearch", 9200)
-    url = f"https://{docker_ip}:{port}"
-
-    print(f"Waiting for OpenSearch instance at {url} to be responsive...")
-
-    docker_services.wait_until_responsive(
-        timeout=90.0, pause=1, check=lambda: is_responsive(url)
-    )
-
-    print("OpenSearch instance is responsive!")
-
-    return Client(api_key="retake_test_key", url="http://localhost:9200")
-
-
-def ci_opensearch_client():
-    return Client(api_key="retake_test_key", url="http://localhost:8000")
+@pytest.fixture(scope="session")
+def docker_compose_file(pytestconfig):
+    return pytestconfig.rootpath.joinpath(".", "docker-compose.yml")
 
 
 ## Fixtures ##
@@ -63,23 +37,8 @@ def test_primary_key():
 
 
 @pytest.fixture(scope="session")
-def test_vector():
-    return [0.1, 0.2, 0.3]
-
-
-@pytest.fixture(scope="session")
 def test_index_name():
     return "test_index_name"
-
-
-@pytest.fixture(scope="session")
-def test_field_name():
-    return "test_field_name"
-
-
-@pytest.fixture(scope="session")
-def test_document_id():
-    return "test_document_id"
 
 
 @pytest.fixture
@@ -101,21 +60,64 @@ def postgres_source(
     temp_conn.close()
 
     # Return Source
-    source = PostgresSource(dsn=dsn)
-    return source
+    return Database(
+        host=postgresql.info.host,
+        user=postgresql.info.user,
+        password=postgresql.info.password,
+        port=postgresql.info.port,
+    )
 
 
-# In CI, we run the OpenSearch Docker container separately via a GitHub Action, so we
-# create this fixture factory to only launch the container if we're running the test locally.
-@pytest.fixture
-def opensearch_client_factory(request):
-    ci_var = os.getenv("CI")
+@pytest.fixture(scope="session")
+def opensearch_service(docker_ip, docker_services):
+    """Ensure that OpenSearch service is up and responsive."""
+    print("\nSpinning up OpenSearch service...")
 
-    if not ci_var:
-        print("Testing in local environment...")
-        docker_ip = request.getfixturevalue("docker_ip")
-        docker_services = request.getfixturevalue("docker_services")
-        return local_opensearch_client(docker_ip, docker_services)
-    else:
-        print("Testing in CI environment...")
-        return ci_opensearch_client()
+    def is_responsive(url):
+        try:
+            response = requests.get(
+                url, auth=HTTPBasicAuth("admin", "admin"), verify=False
+            )
+            return response.status_code == 200
+        except Exception as e:
+            return False
+
+    port = docker_services.port_for("core", 9200)
+    url = f"https://{docker_ip}:{port}"
+
+    print(f"Waiting for OpenSearch service at {url} to be responsive...")
+
+    docker_services.wait_until_responsive(
+        timeout=90.0, pause=1, check=lambda: is_responsive(url)
+    )
+
+    print("OpenSearch service is responsive!")
+    return url
+
+
+@pytest.fixture(scope="session")
+def fastapi_client(docker_ip, docker_services):
+    """Ensure that FastAPI service is up and responsive."""
+    print("\nSpinning up FastAPI service...")
+
+    def is_responsive(url):
+        headers = {"Authorization": "Bearer retake-test-key"}
+        try:
+            response = requests.get(url, headers=headers, verify=False)
+            if response.status_code == 200:
+                return True
+        except ConnectionError:
+            return False
+
+    port = docker_services.port_for("api", 8000)
+    url = f"http://{docker_ip}:{port}"
+    ping_url = f"{url}/ping"
+
+    print(f"Waiting for FastAPI service at {url} to be responsive...")
+
+    docker_services.wait_until_responsive(
+        timeout=90.0, pause=1, check=lambda: is_responsive(ping_url)
+    )
+
+    print("FastAPI service is responsive!")
+    return Client(api_key="retake-test-key", url=url)

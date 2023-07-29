@@ -79,14 +79,6 @@ jobs:
       #     sudo apt-get -y update
       #     sudo apt-get -y install libnccl2=2.18.3-1+cuda12.2 libnccl-dev=2.18.3-1+cuda12.2
 
-      - name: Set up OpenSearch
-        uses: ankane/setup-opensearch@v1
-
-      - name: Confirm OpenSearch is Reachable
-        run: curl -k -X GET "http://localhost:9200" -u admin:admin
-
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-
+      # --capture=no makes print statements display inline when the tests are running, which is useful for debugging
       - name: Run Pytest
-        run: poetry run pytest
+        run: poetry run pytest --capture=no

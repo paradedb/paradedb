@@ -30,12 +30,10 @@ def is_opensearch_responsive(url):
 def is_fastapi_responsive(url, test_api_key):
     headers = {
         "Authorization": f"Bearer {test_api_key}",
-        "Content-Type": "application/json",
     }
     try:
         response = requests.get(url, headers=headers, verify=False)
-        if response.status_code == 200:
-            return True
+        return response.status_code == 200
     except ConnectionError:
         return False
 

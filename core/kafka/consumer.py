@@ -160,7 +160,6 @@ class KafkaConsumer:
 
                 while True:
                     msg = self._consumer.poll(timeout=1.0)
-
                     if msg is None:
                         if (
                             len(messages) <= BATCH_SIZE
@@ -182,8 +181,8 @@ class KafkaConsumer:
                                     process_fn,
                                     self._schema_registry_client,
                                 )
-                            messages = []
-                        start_time = time.time()
+                                messages[topic] = []
+                                start_time = time.time()
                         continue
 
                     if msg.error():

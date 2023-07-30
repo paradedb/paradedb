@@ -29,6 +29,10 @@ class IndexCreatePayload(BaseModel):
     index_name: str
 
 
+class IndexDeletePayload(BaseModel):
+    index_name: str
+
+
 class RegisterNeuralSearchFieldsPayload(BaseModel):
     index_name: str
     fields: List[str]
@@ -106,6 +110,21 @@ async def create_index(payload: IndexCreatePayload) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=f"Failed to create index {payload.index_name}: {e}",
+        )
+
+
+@router.post(f"/{tag}/delete", tags=[tag])
+async def delete_index(payload: IndexDeletePayload) -> JSONResponse:
+    try:
+        client.delete_index(payload.index_name)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=f"Index {payload.index_name} deleted successfully",
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=f"Failed to delete index {payload.index_name}: {e}",
         )
 
 

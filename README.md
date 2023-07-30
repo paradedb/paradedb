@@ -43,13 +43,13 @@ By default, this will start the Retake engine at `http://localhost:8000` with AP
 
 Install the SDK
 
-```
+```bash
 pip install retakesearch
 ```
 
 The core API is just a few functions.
 
-```
+```python
 from retakesearch import Client, Index, Database, Table, Search
 
 client = Client(api_key="retake-test-key", url="http://localhost:8000")

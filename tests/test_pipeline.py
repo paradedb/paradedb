@@ -26,7 +26,7 @@ def test_postgres_to_opensearch(
     index = client.create_index(test_index_name)
     index.add_source(database, table)
 
-    # Test executing a search query of each type
+    # Test that the data was loaded and can be searched
     bm25_search_query = Search().query("match_all")
     response = index.search(bm25_search_query)
     print(response)

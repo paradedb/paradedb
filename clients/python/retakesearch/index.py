@@ -53,8 +53,8 @@ class Index:
             response = http.post(
                 f"{self.url}/index/add_source", headers=self.headers, json=json
             )
-            response.raise_for_status()
-            return response.json()
+            if not response.status_code == 200:
+                raise Exception(response.text)
 
     def search(self, search: Search) -> Any:
         json = {
@@ -66,8 +66,10 @@ class Index:
             response = http.post(
                 f"{self.url}/index/search", headers=self.headers, json=json
             )
-            response.raise_for_status()
-            return response.json()
+            if response.status_code == 200:
+                return response.json()
+            else:
+                raise Exception(response.text)
 
     def upsert(
         self, documents: List[Dict[str, Any]], ids: List[Union[str, int]]

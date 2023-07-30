@@ -112,11 +112,11 @@ class KafkaConsumer:
 
     # Public Methods
 
-    def initialize(self) -> None:        
+    def initialize(self) -> None:
         with self._consumer_initialize_lock:
             if self._consumer_initialized.is_set():
                 return
-        
+
             kafka_config = KafkaConfig()
             consumer_conf = {
                 "bootstrap.servers": kafka_config.bootstrap_servers,
@@ -127,7 +127,9 @@ class KafkaConsumer:
             }
 
             self._consumer = Consumer(consumer_conf)
-            self._admin = AdminClient({"bootstrap.servers": kafka_config.bootstrap_servers})
+            self._admin = AdminClient(
+                {"bootstrap.servers": kafka_config.bootstrap_servers}
+            )
             self._schema_registry_client = SchemaRegistryClient(
                 {"url": kafka_config.schema_registry_server}
             )
@@ -140,40 +142,47 @@ class KafkaConsumer:
     ) -> None:
         if self.is_consuming:
             return
-        
+
         with self._consume_records_lock:
             self.is_consuming = True
             self._consumer_initialized.wait()
+
+            if not self._consumer:
+                raise Exception("Consumer not initialized in consume_records")
 
             BATCH_SIZE = 1000
             COMMIT_TIMEOUT = 2
 
             try:
-                messages: Dict[str, List[str]] = {topic: [] for topic in self._topics}
+                messages: List[str] = []
                 start_time = time.time()
                 logger.info("Starting consumer loop...")
 
                 while True:
                     msg = self._consumer.poll(timeout=1.0)
-                    logger.info(msg)
+
                     if msg is None:
-                        for topic in self._topics:
-                            if (
-                                len(messages[topic]) <= BATCH_SIZE
-                                and (time.time() - start_time) >= COMMIT_TIMEOUT
-                                and len(messages[topic]) > 0
-                            ):
-                                logger.info(
-                                    f"reached commit timeout. Commiting {len(messages[topic])} messages."
-                                )
-                                self._consumer.commit(asynchronous=False)
+                        if (
+                            len(messages) <= BATCH_SIZE
+                            and (time.time() - start_time) >= COMMIT_TIMEOUT
+                            and len(messages) > 0
+                        ):
+                            logger.info(
+                                f"reached commit timeout. Commiting {len(messages)} messages."
+                            )
+                            self._consumer.commit(asynchronous=False)
+                            for topic in self._topics:
                                 self._process_messages(
-                                    messages[topic],
+                                    [
+                                        message
+                                        for message in messages
+                                        if message.topic() == topic
+                                    ],
                                     topic,
                                     process_fn,
                                     self._schema_registry_client,
                                 )
-                                messages[topic] = []
+                            messages = []
                         start_time = time.time()
                         continue
 
@@ -187,21 +196,25 @@ class KafkaConsumer:
                         elif msg.error():
                             raise KafkaException(msg.error())
                     else:
-                        topic = msg.topic()
-                        if len(messages[topic]) <= BATCH_SIZE:
-                            messages[topic].append(msg)
+                        if len(messages) <= BATCH_SIZE:
+                            messages.append(msg)
                         else:
                             logger.info(
-                                f"reached commit batch limit. Commiting {len(messages[topic])} messages."
+                                f"reached commit batch limit. Commiting {len(messages)} messages."
                             )
                             self._consumer.commit(asynchronous=False)
-                            self._process_messages(
-                                messages[topic],
-                                topic,
-                                process_fn,
-                                self._schema_registry_client,
-                            )
-                            messages[topic] = []
+                            for topic in self._topics:
+                                self._process_messages(
+                                    [
+                                        message
+                                        for message in messages
+                                        if message.topic() == topic
+                                    ],
+                                    topic,
+                                    process_fn,
+                                    self._schema_registry_client,
+                                )
+                            messages = []
             finally:
                 # Close down consumer to commit final offsets.
                 self._consumer.close()
@@ -209,6 +222,9 @@ class KafkaConsumer:
 
     def add_topic(self, topic: str, primary_key: str) -> None:
         self._consumer_initialized.wait()
+
+        if not self._consumer:
+            raise Exception("Consumer not initialized in consume_records")
 
         with self._add_topic_lock:
             if topic not in self._topics:

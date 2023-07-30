@@ -217,7 +217,7 @@ async def realtime_link(payload: AddSourcePayload) -> JSONResponse:
             )
         else:
             return JSONResponse(
-                status_code=status.HTTP_400_OK,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 content="Failed to link data. Connector not created successfully. Check the Kafka Connect logs for more information",
             )
     except ConnectionError as e:

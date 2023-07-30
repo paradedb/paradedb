@@ -12,7 +12,6 @@ from .routers import index
 # TODO: Add SSL and remove this
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# TODO: Replace hard-coded API key
 API_KEY = os.getenv("API_KEY", "")
 
 

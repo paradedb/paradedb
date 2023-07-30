@@ -22,9 +22,13 @@ def docker_compose_file(pytestconfig):
 def is_opensearch_responsive(url):
     try:
         response = requests.get(url, auth=HTTPBasicAuth("admin", "admin"), verify=False)
-        return response.status_code == 200
-    except Exception as e:
-        return e
+        if response.status_code == 200:
+            health = response.json()
+            return health["status"] in ["green", "yellow"]
+
+        return False
+    except Exception:
+        return False
 
 
 def is_fastapi_responsive(url, test_api_key):
@@ -99,23 +103,19 @@ def opensearch_service_and_fastapi_client(docker_ip, docker_services):
 
     print("\nSpinning up OpenSearch service...")
     os_port = docker_services.port_for("core", 9200)
-    os_url = f"https://{docker_ip}:{os_port}"
+    os_url = f"https://{docker_ip}:{os_port}/_cluster/health"
 
     print(f"Waiting for OpenSearch service at {os_url} to be responsive...")
     docker_services.wait_until_responsive(
         timeout=90.0, pause=1, check=lambda: is_opensearch_responsive(os_url)
     )
-    # We need to wait another 60-90 seconds for it to initialize, after the
-    # Docker container is responsive
-    sleep(90)
-    print("OpenSearch service is responsive!")
 
-    print("\nSpinning up FastAPI service...")
+    print("OpenSearch service is responsive!\nSpinning up FastAPI service...")
+
     test_api_key = "retake-test-key"
-
     fastapi_port = docker_services.port_for("api", 8000)
     fastapi_url = f"http://{docker_ip}:{fastapi_port}"
-    ping_url = f"{fastapi_url}/ping"
+    ping_url = f"{fastapi_url}"
 
     print(f"Waiting for FastAPI service at {fastapi_url} to be responsive...")
     docker_services.wait_until_responsive(

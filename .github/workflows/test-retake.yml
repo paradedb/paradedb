@@ -1,9 +1,9 @@
 # workflows/test-retake.yml
 #
-# Retake: Tests
+# Integration Tests
 # Test the Retake repository with unit and integration tests.
 
-name: "Retake: Tests"
+name: "Integration Tests"
 
 on:
   pull_request:
@@ -51,4 +51,4 @@ jobs:
         run: poetry install
 
       - name: Run Pytest
-        run: poetry run pytest --capture=no
+        run: poetry run pytest

@@ -4,6 +4,10 @@ from pydantic import BaseModel
 from starlette.responses import JSONResponse
 from typing import List, Dict, Any, Union
 
+
+import traceback
+
+
 from api.config.kafka import KafkaConfig
 from api.config.opensearch import OpenSearchConfig
 
@@ -118,14 +122,15 @@ async def create_index(payload: IndexCreatePayload) -> JSONResponse:
             client.create_index(payload.index_name)
         except Exception as e:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail=f"Failed to create index {payload.index_name}: {e}"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Failed to create index {payload.index_name}: {e}",
             )
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Index {payload.index_name} created successfully",
         )
     except Exception as e:
+        traceback.print_exc()
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=f"An unexpected error occurred: {e}",

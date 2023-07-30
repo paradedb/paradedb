@@ -2,6 +2,9 @@ import pytest
 import psycopg2
 import requests
 
+
+from time import sleep
+
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError
 
@@ -35,25 +38,9 @@ def test_primary_key():
     return "test_pk"
 
 
-
-@pytest.fixture(scope="session")
-def test_vector():
-    return [0.1, 0.2, 0.3]
-
-
 @pytest.fixture(scope="session")
 def test_index_name():
     return "test_index_name"
-
-
-@pytest.fixture(scope="session")
-def test_field_name():
-    return "test_field_name"
-
-
-@pytest.fixture(scope="session")
-def test_document_id():
-    return "test_document_id"
 
 
 @pytest.fixture(scope="session")
@@ -89,11 +76,13 @@ def postgres_source(
 
 
 @pytest.fixture(scope="session")
-def opensearch_service(docker_ip, docker_services):
+def fastapi_client(docker_ip, docker_services):
+    """Ensure that FastAPI service is up and responsive."""
+
     """Ensure that OpenSearch service is up and responsive."""
     print("\nSpinning up OpenSearch service...")
 
-    def is_responsive(url):
+    def is_responsive_os(url):
         try:
             response = requests.get(
                 url, auth=HTTPBasicAuth("admin", "admin"), verify=False
@@ -108,21 +97,18 @@ def opensearch_service(docker_ip, docker_services):
     print(f"Waiting for OpenSearch service at {url} to be responsive...")
 
     docker_services.wait_until_responsive(
-        timeout=90.0, pause=1, check=lambda: is_responsive(url)
+        timeout=90.0, pause=1, check=lambda: is_responsive_os(url)
     )
 
     print("OpenSearch service is responsive!")
-    return url
 
+    sleep(90)
 
-@pytest.fixture(scope="session")
-def fastapi_client(docker_ip, docker_services):
-    """Ensure that FastAPI service is up and responsive."""
     print("\nSpinning up FastAPI service...")
     api_key = "retake-test-key"
 
     def is_responsive(url):
-        headers={
+        headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }

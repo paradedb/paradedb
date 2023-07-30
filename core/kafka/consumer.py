@@ -148,7 +148,7 @@ class KafkaConsumer:
             self._consumer_initialized.wait()
 
             if not self._consumer:
-                raise Exception("Consumer not initialized in consume_records")
+                raise Exception("Tried to consume records but consumer not initialized")
 
             BATCH_SIZE = 1000
             COMMIT_TIMEOUT = 2
@@ -224,7 +224,7 @@ class KafkaConsumer:
         self._consumer_initialized.wait()
 
         if not self._consumer:
-            raise Exception("Consumer not initialized in consume_records")
+            raise Exception("Tried to add topic but consumer not initialized")
 
         with self._add_topic_lock:
             if topic not in self._topics:

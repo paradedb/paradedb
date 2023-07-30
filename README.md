@@ -70,6 +70,11 @@ table = Table(
 
 index = client.create_index("my_index")
 index.add_source(database, table)
+
+query = Search().neuralQuery("my query", ["column1"])
+response = index.search(query)
+
+print(response)
 ```
 
 ## Key Features

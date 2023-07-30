@@ -26,10 +26,7 @@ class Client:
         if self._check_index_exists(index_name=index_name):
             raise ValueError(f"Index {index_name} already exists")
 
-        try:
-            self.client.indices.create(index=index_name)
-        except Exception as e:
-            raise ValueError(f"Index {index_name} could not be created: {e}")
+        self.client.indices.create(index=index_name)
 
         return Index(name=index_name, client=self.client)
 

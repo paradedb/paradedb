@@ -50,6 +50,5 @@ jobs:
       - name: Install Dependencies
         run: poetry install
 
-      # --capture=no makes print statements display inline when the tests are running
       - name: Run Pytest
         run: poetry run pytest --capture=no

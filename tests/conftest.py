@@ -1,8 +1,6 @@
 import pytest
 import psycopg2
 import requests
-
-
 from time import sleep
 
 from requests.auth import HTTPBasicAuth
@@ -12,12 +10,34 @@ from clients.python.retakesearch import Database
 from clients.python.retakesearch.client import Client
 
 
-# Configurations
+# Helpers
 
 
+# Configure pytest-docker to use the root-level docker-compose.yml, to avoid duplication
 @pytest.fixture(scope="session")
 def docker_compose_file(pytestconfig):
     return pytestconfig.rootpath.joinpath(".", "docker-compose.yml")
+
+
+def is_opensearch_responsive(url):
+    try:
+        response = requests.get(url, auth=HTTPBasicAuth("admin", "admin"), verify=False)
+        return response.status_code == 200
+    except Exception as e:
+        return e
+
+
+def is_fastapi_responsive(url, test_api_key):
+    headers = {
+        "Authorization": f"Bearer {test_api_key}",
+        "Content-Type": "application/json",
+    }
+    try:
+        response = requests.get(url, headers=headers, verify=False)
+        if response.status_code == 200:
+            return True
+    except ConnectionError:
+        return False
 
 
 # Fixtures
@@ -76,58 +96,35 @@ def postgres_source(
 
 
 @pytest.fixture(scope="session")
-def fastapi_client(docker_ip, docker_services):
-    """Ensure that FastAPI service is up and responsive."""
+def opensearch_service_and_fastapi_client(docker_ip, docker_services):
+    """Ensure that OpenSearch & FastAPI services are up and responsive."""
 
-    """Ensure that OpenSearch service is up and responsive."""
     print("\nSpinning up OpenSearch service...")
-
-    def is_responsive_os(url):
-        try:
-            response = requests.get(
-                url, auth=HTTPBasicAuth("admin", "admin"), verify=False
-            )
-            return response.status_code == 200
-        except Exception as e:
-            return e
-
     port = docker_services.port_for("core", 9200)
     url = f"https://{docker_ip}:{port}"
 
     print(f"Waiting for OpenSearch service at {url} to be responsive...")
-
     docker_services.wait_until_responsive(
-        timeout=90.0, pause=1, check=lambda: is_responsive_os(url)
+        timeout=90.0, pause=1, check=lambda: is_opensearch_responsive(url)
     )
-
+    # We need to wait another 60-90 seconds for it to initialize, after the
+    # Docker container is responsive
+    sleep(90)
     print("OpenSearch service is responsive!")
 
-    sleep(90)
-
     print("\nSpinning up FastAPI service...")
-    api_key = "retake-test-key"
-
-    def is_responsive(url):
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        try:
-            response = requests.get(url, headers=headers, verify=False)
-            if response.status_code == 200:
-                return True
-        except ConnectionError:
-            return False
+    test_api_key = "retake-test-key"
 
     port = docker_services.port_for("api", 8000)
     url = f"http://{docker_ip}:{port}"
     ping_url = f"{url}/ping"
 
     print(f"Waiting for FastAPI service at {url} to be responsive...")
-
     docker_services.wait_until_responsive(
-        timeout=90.0, pause=1, check=lambda: is_responsive(ping_url)
+        timeout=90.0,
+        pause=1,
+        check=lambda: is_fastapi_responsive(ping_url, test_api_key),
     )
-
     print("FastAPI service is responsive!")
-    return Client(api_key=api_key, url=url)
+
+    return Client(api_key=test_api_key, url=url)

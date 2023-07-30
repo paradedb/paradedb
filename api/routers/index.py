@@ -1,12 +1,8 @@
-from fastapi import APIRouter, BackgroundTasks, status, HTTPException
+from fastapi import APIRouter, BackgroundTasks, status
 from loguru import logger
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 from typing import List, Dict, Any, Union
-
-
-import traceback
-
 
 from api.config.kafka import KafkaConfig
 from api.config.opensearch import OpenSearchConfig
@@ -118,22 +114,15 @@ async def upsert(payload: UpsertPayload) -> JSONResponse:
 @router.post(f"/{tag}/create", tags=[tag])
 async def create_index(payload: IndexCreatePayload) -> JSONResponse:
     try:
-        try:
-            client.create_index(payload.index_name)
-        except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Failed to create index {payload.index_name}: {e}",
-            )
+        client.create_index(payload.index_name)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Index {payload.index_name} created successfully",
         )
     except Exception as e:
-        traceback.print_exc()
         return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content=f"An unexpected error occurred: {e}",
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=f"Failed to create index {payload.index_name}: {e}",
         )
 
 

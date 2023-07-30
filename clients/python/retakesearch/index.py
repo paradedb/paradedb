@@ -46,20 +46,15 @@ class Index:
             "source_neural_columns": table.neural_columns,
         }
 
-        try:
-            with httpx.Client(timeout=None) as http:
-                print(
-                    f"Adding {table.name} to index {self.index_name}. This could take some time if the table is large..."
-                )
-                response = http.post(
-                    f"{self.url}/index/add_source", headers=self.headers, json=json
-                )
-                response.raise_for_status()
-                return response.json()
-        except httpx.HTTPStatusError as exc:
-            return exc.response.json()
-        except Exception as exc:
-            return str(exc)
+        with httpx.Client(timeout=None) as http:
+            print(
+                f"Adding {table.name} to index {self.index_name}. This could take some time if the table is large..."
+            )
+            response = http.post(
+                f"{self.url}/index/add_source", headers=self.headers, json=json
+            )
+            response.raise_for_status()
+            return response.json()
 
     def search(self, search: Search) -> Any:
         json = {
@@ -67,17 +62,12 @@ class Index:
             "index_name": self.index_name,
         }
 
-        try:
-            with httpx.Client(timeout=None) as http:
-                response = http.post(
-                    f"{self.url}/index/search", headers=self.headers, json=json
-                )
-                response.raise_for_status()
-                return response.json()
-        except httpx.HTTPStatusError as exc:
-            return exc.response.json()
-        except Exception as exc:
-            return str(exc)
+        with httpx.Client(timeout=None) as http:
+            response = http.post(
+                f"{self.url}/index/search", headers=self.headers, json=json
+            )
+            response.raise_for_status()
+            return response.json()
 
     def upsert(
         self, documents: List[Dict[str, Any]], ids: List[Union[str, int]]

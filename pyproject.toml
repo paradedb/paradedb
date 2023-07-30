@@ -30,6 +30,7 @@ types-flask = "^1.1.6"
 pytest-postgresql = "^5.0.0"
 pytest-docker = "^2.0.0"
 flake8 = "^6.0.0"
+httpx = "^0.24.1"
 
 [build-system]
 requires = ["poetry-core"]

@@ -1,7 +1,6 @@
 import pytest
 import psycopg2
 import requests
-from time import sleep
 
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError

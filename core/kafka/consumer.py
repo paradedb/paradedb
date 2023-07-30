@@ -181,8 +181,8 @@ class KafkaConsumer:
                                     process_fn,
                                     self._schema_registry_client,
                                 )
-                                messages[topic] = []
-                                start_time = time.time()
+                            messages = []
+                            start_time = time.time()
                         continue
 
                     if msg.error():

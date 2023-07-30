@@ -64,7 +64,7 @@ database = Database(
 table = Table(
     name="table_name",
     primary_key="primary_key_column",
-    columns: ["column1"] # These are the columns you wish to search
+    columns=["column1"] # These are the columns you wish to search
     neural_columns=["column1"] # These are the columns you wish to enable neural search over
 )
 

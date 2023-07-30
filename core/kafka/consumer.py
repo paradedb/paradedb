@@ -7,7 +7,7 @@ from confluent_kafka.serialization import SerializationContext, MessageField
 from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroDeserializer
 from loguru import logger
-from threading import Lock
+from threading import Lock, Event
 
 from api.config.kafka import KafkaConfig
 from typing import Dict, List, Optional, Callable, Union, Any, Tuple
@@ -20,9 +20,13 @@ class KafkaConsumer:
         self._schema_registry_client = None
         self._topics: List[str] = []
         self._topic_primary_keys: Dict[str, Any] = {}
-        self._lock = Lock()
+
+        self._add_topic_lock = Lock()
+        self._consumer_initialize_lock = Lock()
+        self._consume_records_lock = Lock()
+        self._consumer_initialized = Event()
+
         self.is_consuming = False
-        self.initialized = False
 
     # Private Methods
     def _create_topics(self, admin: AdminClient, topics: List[str]) -> None:
@@ -88,13 +92,10 @@ class KafkaConsumer:
         process_fn: Callable[[List[Dict[str, Any]], List[Union[str, int]]], None],
         sr_client: Optional[SchemaRegistryClient] = None,
     ) -> None:
-        logger.info(f"Topic: {topic}")
-        logger.info(messages)
         documents = []
         for msg in messages:
             if sr_client is not None:
                 _, value = self._decode_message("avro", msg, topic, sr_client)
-                logger.info(f"Decoded: {value}")
                 documents.append(value)
 
         ids = self._extract_ids(self._topic_primary_keys[topic], documents)
@@ -111,57 +112,87 @@ class KafkaConsumer:
 
     # Public Methods
 
-    def initialize(self) -> None:
-        kafka_config = KafkaConfig()
-        consumer_conf = {
-            "bootstrap.servers": kafka_config.bootstrap_servers,
-            "group.id": "retake_kafka",
-            "auto.offset.reset": "smallest",
-            "enable.auto.commit": "false",
-            "allow.auto.create.topics": "true",
-        }
+    def initialize(self) -> None:        
+        with self._consumer_initialize_lock:
+            if self._consumer_initialized.is_set():
+                return
+        
+            kafka_config = KafkaConfig()
+            consumer_conf = {
+                "bootstrap.servers": kafka_config.bootstrap_servers,
+                "group.id": "retake_kafka",
+                "auto.offset.reset": "smallest",
+                "enable.auto.commit": "false",
+                "allow.auto.create.topics": "true",
+            }
 
-        self._consumer = Consumer(consumer_conf)
-        self._admin = AdminClient({"bootstrap.servers": kafka_config.bootstrap_servers})
-        self._schema_registry_client = SchemaRegistryClient(
-            {"url": kafka_config.schema_registry_server}
-        )
-        self.initialized = True
-        logger.info("initialized")
+            self._consumer = Consumer(consumer_conf)
+            self._admin = AdminClient({"bootstrap.servers": kafka_config.bootstrap_servers})
+            self._schema_registry_client = SchemaRegistryClient(
+                {"url": kafka_config.schema_registry_server}
+            )
+
+            self._consumer_initialized.set()
 
     def consume_records(
         self,
         process_fn: Callable[[List[Dict[str, Any]], List[Union[str, int]]], None],
     ) -> None:
-        if not self.initialized or not self._consumer or not self._admin:
-            logger.info(self.initialized, self._consumer, self._admin)
-            raise Exception("Consumer not initialized. Call consume_records first.")
-
         if self.is_consuming:
-            raise Exception("Consumer is already consuming.")
-
-        BATCH_SIZE = 1000
-        COMMIT_TIMEOUT = 2
-
-        try:
-            messages: Dict[str, List[str]] = {topic: [] for topic in self._topics}
-            start_time = time.time()
-            logger.info("Starting consumer loop...")
+            return
+        
+        with self._consume_records_lock:
             self.is_consuming = True
+            self._consumer_initialized.wait()
 
-            while True:
-                msg = self._consumer.poll(timeout=1.0)
-                logger.info(msg)
+            BATCH_SIZE = 1000
+            COMMIT_TIMEOUT = 2
 
-                if msg is None:
-                    for topic in self._topics:
-                        if (
-                            len(messages[topic]) <= BATCH_SIZE
-                            and (time.time() - start_time) >= COMMIT_TIMEOUT
-                            and len(messages[topic]) > 0
-                        ):
+            try:
+                messages: Dict[str, List[str]] = {topic: [] for topic in self._topics}
+                start_time = time.time()
+                logger.info("Starting consumer loop...")
+
+                while True:
+                    msg = self._consumer.poll(timeout=1.0)
+                    logger.info(msg)
+                    if msg is None:
+                        for topic in self._topics:
+                            if (
+                                len(messages[topic]) <= BATCH_SIZE
+                                and (time.time() - start_time) >= COMMIT_TIMEOUT
+                                and len(messages[topic]) > 0
+                            ):
+                                logger.info(
+                                    f"reached commit timeout. Commiting {len(messages[topic])} messages."
+                                )
+                                self._consumer.commit(asynchronous=False)
+                                self._process_messages(
+                                    messages[topic],
+                                    topic,
+                                    process_fn,
+                                    self._schema_registry_client,
+                                )
+                                messages[topic] = []
+                        start_time = time.time()
+                        continue
+
+                    if msg.error():
+                        if msg.error().code() == KafkaError._PARTITION_EOF:
+                            # End of partition event
+                            logger.error(
+                                "%% %s [%d] reached end at offset %d\n"
+                                % (msg.topic(), msg.partition(), msg.offset())
+                            )
+                        elif msg.error():
+                            raise KafkaException(msg.error())
+                    else:
+                        topic = msg.topic()
+                        if len(messages[topic]) <= BATCH_SIZE:
+                            messages[topic].append(msg)
+                        else:
                             logger.info(
-                                f"reached commit timeout. Commiting {len(messages[topic])} messages."
+                                f"reached commit batch limit. Commiting {len(messages[topic])} messages."
                             )
                             self._consumer.commit(asynchronous=False)
                             self._process_messages(
@@ -171,45 +202,15 @@ class KafkaConsumer:
                                 self._schema_registry_client,
                             )
                             messages[topic] = []
-                    start_time = time.time()
-                    continue
-
-                if msg.error():
-                    if msg.error().code() == KafkaError._PARTITION_EOF:
-                        # End of partition event
-                        logger.error(
-                            "%% %s [%d] reached end at offset %d\n"
-                            % (msg.topic(), msg.partition(), msg.offset())
-                        )
-                    elif msg.error():
-                        raise KafkaException(msg.error())
-                else:
-                    topic = msg.topic()
-                    if len(messages[topic]) <= BATCH_SIZE:
-                        messages[topic].append(msg)
-                        logger.info("appended msg")
-                    else:
-                        logger.info(
-                            f"reached commit batch limit. Commiting {len(messages[topic])} messages."
-                        )
-                        self._consumer.commit(asynchronous=False)
-                        self._process_messages(
-                            messages[topic],
-                            topic,
-                            process_fn,
-                            self._schema_registry_client,
-                        )
-                        messages[topic] = []
-        finally:
-            # Close down consumer to commit final offsets.
-            self._consumer.close()
-            self.is_consuming = False
+            finally:
+                # Close down consumer to commit final offsets.
+                self._consumer.close()
+                self.is_consuming = False
 
     def add_topic(self, topic: str, primary_key: str) -> None:
-        if not self.initialized or not self._consumer:
-            raise Exception("Consumer not initialized. Call consume_records first.")
+        self._consumer_initialized.wait()
 
-        with self._lock:
+        with self._add_topic_lock:
             if topic not in self._topics:
                 # Create topic
                 self._create_topics(self._admin, [topic])

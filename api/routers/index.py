@@ -166,6 +166,17 @@ async def realtime_link(payload: AddSourcePayload) -> JSONResponse:
         )
         logger.info("Successfully setup extractor")
 
+        # Validate that relation, columns, and primary key are valid
+        extractor.validate(
+            payload.source_relation, payload.source_columns, payload.source_primary_key
+        )
+
+        if not set(payload.source_neural_columns).issubset(set(payload.source_columns)):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content="Neural columns must be a subset of columns",
+            )
+
         kafka_config = KafkaConfig()
 
         if payload.source_neural_columns:

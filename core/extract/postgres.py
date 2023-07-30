@@ -44,6 +44,35 @@ class PostgresExtractor(Extractor):
 
         self.cursor = self.connection.cursor()
 
+    def validate(self, relation: str, columns: List[str], primary_key: str) -> None:
+        # Check if the relation (table) exists
+        self.cursor.execute(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = %s AND table_name = %s);",
+            (self.schema_name, relation),
+        )
+        relation_exists = self.cursor.fetchone()[0]  # type: ignore
+        if not relation_exists:
+            raise ValueError(
+                f"The relation '{relation}' does not exist in the schema '{self.schema_name}'"
+            )
+
+        # Check if the columns are valid
+        self.cursor.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = %s AND table_name = %s;",
+            (self.schema_name, relation),
+        )
+        actual_columns = [row[0] for row in self.cursor.fetchall()]
+        for col in columns:
+            if col not in actual_columns:
+                raise ValueError(
+                    f"The column '{col}' does not exist in relation '{relation}'"
+                )
+
+        if primary_key not in actual_columns:
+            raise ValueError(
+                f"The primary key '{primary_key}' does not exist in relation '{relation}'"
+            )
+
     def teardown(self) -> None:
         self.cursor.close()  # type: ignore
         self.connection.close()

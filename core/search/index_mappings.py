@@ -2,6 +2,7 @@ from enum import Enum
 from opensearchpy import OpenSearch
 from typing import Dict, Any
 
+
 class FieldType(Enum):
     # Core Data Types
     TEXT = "text"
@@ -50,6 +51,7 @@ class FieldType(Enum):
     # Join Data Types
     JOIN = "join"
 
+
 class IndexMappings:
     def __init__(self, name: str, client: OpenSearch):
         self.name = name
@@ -59,8 +61,6 @@ class IndexMappings:
         # We upsert one-by-one, so if a single property fails, it does not
         # affect the others
         for attribute, values in properties.items():
-            try:
-                body = {"properties": {attribute: values}}
-                self.client.indices.put_mapping(index=self.name, body=body)
-            except Exception as e:
-                print(f"Failed to upsert {attribute} with {values}: {e}")
+            body = {"properties": {attribute: values}}
+            print(body)
+            self.client.indices.put_mapping(index=self.name, body=body)

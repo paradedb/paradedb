@@ -206,7 +206,3 @@ class Index:
                     for field in fields
                 }
             )
-
-    def set_field_types(self, field_types: Dict[str, str]) -> None:
-        properties = {key: {"type": value} for key, value in field_types.items()}
-        self.mappings.upsert(properties=properties)

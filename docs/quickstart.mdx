@@ -36,10 +36,15 @@ Next, `cd` into your Python project and install `retakesearch`.
 pip install retakesearch
 ```
 
-## Integrate with Postgres
+## Upload Data
 
-Next, we use the Retake Python SDK to tell the Retake engine which tables and columns in Postgres we wish
-to search over. As long as the Retake engine is running, this only needs to be done once.
+Next, we use the Retake Python SDK to tell the Retake engine what data we wish to search over. Retake enables
+developers to either upload their own data or integrate directly with Postgres.
+
+### From Postgres
+
+The `Index.add_source` function integrates an index with Postgres. As long as the Retake engine is running, this
+function only needs to be called once.
 
 ```bash
 from retakesearch import Client, Index, Database, Table
@@ -79,9 +84,9 @@ index = client.create_index("my_index")
 index.add_source(database, table)
 ```
 
-## Add Additional Data (Optional)
+### From Memory
 
-Data stored outside of Postgres can be added to an index as well.
+Data stored outside of Postgres can also be added to an index.
 
 ```bash
 documents = [{"key": "value"}]

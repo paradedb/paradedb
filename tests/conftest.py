@@ -101,7 +101,7 @@ def opensearch_service_and_fastapi_client(docker_ip, docker_services):
     os_port = docker_services.port_for("core", 9200)
     os_url = f"https://{docker_ip}:{os_port}"
 
-    print(f"Waiting for OpenSearch service at {url} to be responsive...")
+    print(f"Waiting for OpenSearch service at {os_url} to be responsive...")
     docker_services.wait_until_responsive(
         timeout=90.0, pause=1, check=lambda: is_opensearch_responsive(os_url)
     )

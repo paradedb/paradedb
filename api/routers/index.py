@@ -10,6 +10,7 @@ from api.config.opensearch import OpenSearchConfig
 from core.extract.postgres import PostgresExtractor, ConnectionError
 from core.kafka.consumer import KafkaConsumer
 from core.search.client import Client
+from core.search.index_mappings import FieldType
 
 tag = "index"
 
@@ -56,6 +57,12 @@ class AddSourcePayload(BaseModel):
     source_neural_columns: List[str] = []
     source_dbname: str = "postgres"
     source_schema_name: str = "public"
+
+
+class CreateFieldPayload(BaseModel):
+    index_name: str
+    field_name: str
+    field_type: str
 
 
 @router.get("/index/{index_name}", tags=[tag])
@@ -151,7 +158,6 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
             primary_keys = chunk.get("primary_keys")
 
             if rows and primary_keys:
-                print("upserting", rows)
                 index.upsert(documents=rows, ids=primary_keys)
 
         return JSONResponse(
@@ -278,4 +284,29 @@ async def search_documents(payload: SearchPayload) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=f"Failed to search documents: {e}",
+        )
+
+
+@router.post(f"/{tag}/field/create", tags=[tag])
+async def create_field(payload: CreateFieldPayload) -> JSONResponse:
+    try:
+        field_types = [e.value for e in FieldType]
+        if payload.field_type not in field_types:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=f"Invalid field type: {payload.field_type}. Accepted values are {field_types}",
+            )
+
+        index = client.get_index(payload.index_name)
+        index.mappings.upsert(
+            properties={payload.field_name: {"type": payload.field_type}}
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=f"Field {payload.field_name} created successfully",
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=f"Failed to create field: {e}",
         )

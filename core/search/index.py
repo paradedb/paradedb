@@ -6,7 +6,7 @@ from loguru import logger
 from opensearchpy import OpenSearch, helpers
 from typing import Dict, List, Optional, Any, Union, cast
 
-from core.search.index_mappings import IndexMappings
+from core.search.index_mappings import IndexMappings, FieldType
 from core.search.index_settings import IndexSettings
 from core.search.model_group import ModelGroup
 from core.search.model import Model
@@ -73,7 +73,7 @@ class Index:
         knn_vector_properties = []
 
         for prop, prop_data in properties.items():
-            if prop_data.get("type") == "knn_vector":
+            if prop_data.get("type") == FieldType.KNN_VECTOR.value:
                 knn_vector_properties.append(prop)
 
         return knn_vector_properties
@@ -199,7 +199,7 @@ class Index:
             self.mappings.upsert(
                 properties={
                     f"{field}{reserved_embedding_field_name_ending}": {
-                        "type": "knn_vector",
+                        "type": FieldType.KNN_VECTOR.value,
                         "dimension": default_model_dimensions,
                         "method": {"name": "hnsw", "engine": "lucene"},
                     }

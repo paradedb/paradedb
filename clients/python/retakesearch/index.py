@@ -95,3 +95,17 @@ class Index:
             return exc.response.json()
         except Exception as exc:
             return str(exc)
+
+    def create_field(self, field_name: str, field_type: str) -> Any:
+        json = {
+            "index_name": self.index_name,
+            "field_name": field_name,
+            "field_type": field_type,
+        }
+
+        with httpx.Client(timeout=None) as http:
+            response = http.post(
+                f"{self.url}/index/field/create", headers=self.headers, json=json
+            )
+            if not response.status_code == 200:
+                raise Exception(response.text)

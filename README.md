@@ -64,16 +64,19 @@ database = Database(
     port=5432
 )
 
+columns = ["column1"]
 table = Table(
     name="table_name",
     primary_key="primary_key_column",
-    columns=["column1"] # These are the columns you wish to search
+    columns=columns
 )
 
 index = client.create_index("my_index")
 index.add_source(database, table)
 
-query = Search().neuralQuery("my query", ["column1"])
+index.vectorize(columns)
+
+query = Search().neuralQuery("my query", columns)
 response = index.search(query)
 
 print(response)

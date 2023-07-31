@@ -30,9 +30,11 @@
 Retake is the fastest way to implement universal search in your app.
 
 Built to stay in sync with fast-changing databases. Retake abstracts away the complexity of search by acting as a search
-layer around any Postgres database and providing simple search SDKs that snap into any Python or Typescript application. You don't need to worry about managing separate vector stores and text search engines, uploading and embedding documents, or reindexing data. Just write search queries and let Retake handle the rest.
+layer around Postgres. Retake also provides simple search SDKs that snap into any Python or Typescript application.
 
-To get started, simply start the Retake engine
+You don't need to worry about managing separate vector stores and text search engines, uploading and embedding documents, or reindexing data. Just write search queries and let Retake handle the rest.
+
+To get started, simply start the Retake engine:
 
 ```bash
 docker compose up

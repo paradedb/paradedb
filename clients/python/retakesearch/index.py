@@ -5,11 +5,12 @@ from typing import Any, List, Dict, Union
 
 
 class Database:
-    def __init__(self, host: str, user: str, password: str, port: int):
+    def __init__(self, host: str, user: str, password: str, port: int, dbname: str):
         self.host = host
         self.user = user
         self.password = password
         self.port = port
+        self.dbname = dbname
 
 
 class Table:
@@ -40,6 +41,7 @@ class Index:
             "source_user": database.user,
             "source_password": database.password,
             "source_port": database.port,
+            "source_dbname": database.dbname,
             "source_relation": table.name,
             "source_primary_key": table.primary_key,
             "source_columns": table.columns,

@@ -68,36 +68,8 @@ def test_index_name():
 def test_document_id():
     return "test_document_id"
 
-
-@pytest.fixture
-def postgres_source(
-    postgresql, test_table_name, test_primary_key, test_column_name, test_document_id
-):
-    dsn = f"dbname={postgresql.info.dbname} user={postgresql.info.user} host={postgresql.info.host} port={postgresql.info.port}"
-
-    # Populate DB with test data
-    temp_conn = psycopg2.connect(dsn)
-    with temp_conn.cursor() as cursor:
-        cursor.execute(
-            f"CREATE TABLE {test_table_name} ({test_primary_key} varchar PRIMARY KEY, {test_column_name} varchar);"
-        )
-        cursor.execute(
-            f"INSERT INTO {test_table_name} VALUES ('{test_document_id}', 'fake_data1'), ('id2', 'fake_data2'), ('id3', 'fake_data3');"
-        )
-    temp_conn.commit()
-    temp_conn.close()
-
-    # Return Source
-    return Database(
-        host=postgresql.info.host,
-        user=postgresql.info.user,
-        password=postgresql.info.password,
-        port=postgresql.info.port,
-    )
-
-
 @pytest.fixture(scope="session")
-def opensearch_service_and_fastapi_client(docker_ip, docker_services):
+def retake_client(docker_ip, docker_services):
     """Ensure that OpenSearch & FastAPI services are up and responsive."""
 
     print("\nSpinning up OpenSearch service...")

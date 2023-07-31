@@ -1,13 +1,10 @@
 import pytest
 import psycopg2
 import requests
-from psycopg2 import OperationalError
-from time import sleep
 
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError
 
-from clients.python.retakesearch import Database
 from clients.python.retakesearch.client import Client
 
 
@@ -112,6 +109,6 @@ def retake_client(docker_ip, docker_services):
         pause=1,
         check=lambda: is_fastapi_responsive(ping_url, test_api_key),
     )
-    print("FastAPI service is responsive!\n\n")
+    print("FastAPI service is responsive!\n")
 
     return Client(api_key=test_api_key, url=fastapi_url)

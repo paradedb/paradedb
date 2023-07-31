@@ -33,7 +33,7 @@ class PostgresExtractor(Extractor):
         self._connect()
 
     def _connect(self) -> None:
-        try:
+        try:                
             self.connection = psycopg2.connect(
                 host=self.host,
                 user=self.user,

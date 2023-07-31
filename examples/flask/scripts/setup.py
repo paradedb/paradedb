@@ -10,6 +10,7 @@ client = Client(
 )
 
 database = Database(
+    dbname=os.getenv("DATABASE_NAME", ""),
     host=os.getenv("DATABASE_HOST", ""),
     port=int(os.getenv("DATABASE_PORT", "5432")),
     user=os.getenv("DATABASE_USER", ""),

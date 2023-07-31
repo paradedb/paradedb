@@ -27,7 +27,10 @@ mypy = "^1.4.1"
 pytest = "^7.4.0"
 types-requests = "^2.31.0.2"
 types-flask = "^1.1.6"
+pytest-docker = "^2.0.0"
 flake8 = "^6.0.0"
+httpx = "^0.24.1"
+docker = "^6.1.3"
 
 [build-system]
 requires = ["poetry-core"]

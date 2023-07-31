@@ -3,7 +3,7 @@
 # Markdown: Linting
 # Lint Markdown files using Prettier.
 
-name: "Markdown: Linting"
+name: Linting
 
 on:
   pull_request:

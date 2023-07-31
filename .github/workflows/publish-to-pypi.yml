@@ -1,9 +1,9 @@
 # workflows/publish-to-pypi.yml
 #
-# Retake Search: Publish to PyPi
-# Publish Retake Search as a pip package to PyPi.
+# Retake: Publish to PyPi
+# Publish Retake as a pip package to PyPi.
 
-name: Publish Retake Search to PyPi
+name: Publishing
 
 on:
   push:
@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   publish-to-pypi:
-    name: Publish Retake Search to PyPi
+    name: Publish Retake to PyPi
     runs-on: ubuntu-latest
 
     steps:

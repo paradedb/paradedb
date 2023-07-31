@@ -1,0 +1,54 @@
+# workflows/test-retake.yml
+#
+# Retake: Integration Tests
+# Test the Retake repository with unit and integration tests.
+
+name: Integration Tests
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - main
+    paths:
+      - "api/**"
+      - "clients/**"
+      - "core/**"
+      - "examples/**"
+      - "retake/**"
+      - "tests/**"
+      - ".github/workflows/test-retake.yml"
+  workflow_dispatch:
+
+# This guarantees that if you push many commits to the same PR, only the latest
+# commit will get run (others get cancelled)
+concurrency:
+  group: test-retake-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  test-retake:
+    name: Test Retake End-to-End
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python Environment
+        uses: actions/setup-python@v3
+
+      - name: Install Poetry
+        run: curl -sSL https://install.python-poetry.org | python -
+
+      - name: Configure Poetry
+        run: |
+          poetry config virtualenvs.create true
+          poetry config virtualenvs.in-project true
+
+      - name: Install Dependencies
+        run: poetry install
+
+      - name: Run Pytest
+        run: poetry run pytest

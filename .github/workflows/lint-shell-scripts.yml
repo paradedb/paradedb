@@ -3,7 +3,7 @@
 # Shell Scripts: Linting
 # Lint and enforce good practices for shell scripts.
 
-name: "Shell Scripts: Linting"
+name: Linting
 
 on:
   pull_request:

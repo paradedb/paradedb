@@ -35,12 +35,20 @@ class PostgresExtractor(Extractor):
     def _connect(self) -> None:
         try:
             self.connection = psycopg2.connect(
-                host=self.host, user=self.user, password=self.password, port=self.port
+                host=self.host,
+                user=self.user,
+                password=self.password,
+                port=self.port,
+                dbname=self.dbname,
             )
-        except psycopg2.ProgrammingError:
-            raise ConnectionError("Unable to connect to database")
-        except psycopg2.OperationalError:
-            raise ConnectionError("Unable to connect to database")
+        except psycopg2.ProgrammingError as e:
+            raise ConnectionError(
+                f"Unable to connect to database {self.dbname} {self.host} {self.port} {self.user} {self.password}: {e}"
+            )
+        except psycopg2.OperationalError as e:
+            raise ConnectionError(
+                f"Unable to connect to database {self.dbname} {self.host} {self.port} {self.user} {self.password}: {e}"
+            )
 
         self.cursor = self.connection.cursor()
 

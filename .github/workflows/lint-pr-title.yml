@@ -3,7 +3,7 @@
 # PR Title: Linting
 # Lint and enforce proper PR title format.
 
-name: "PR Title: Linting"
+name: Linting
 
 on:
   pull_request:

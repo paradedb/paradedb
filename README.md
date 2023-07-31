@@ -27,7 +27,6 @@
 </a>
 </p>
 
-
 Retake is the fastest way to implement universal search in your app.
 
 Built to stay in sync with fast-changing databases. Retake abstracts away the complexity of search by acting as a search

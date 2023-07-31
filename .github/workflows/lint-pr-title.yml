@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   lint-pr-title:
-    name: PR Title
+    name: Validate PR Title
     runs-on: ubuntu-latest
 
     steps:

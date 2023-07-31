@@ -4,9 +4,6 @@ from clients.python.retakesearch import Table, Database
 from clients.python.retakesearch.search import Search
 
 
-# Helpers
-
-
 # Load the Docker client created by pytest-docker
 docker_client = docker.from_env()
 
@@ -70,11 +67,6 @@ def test_postgres_to_opensearch(
     index = retake_client.create_index(test_index_name)
     index.add_source(database, table)
 
-    # Test that the data was loaded and can be searched
-    bm25_search_query = Search().query("match_all")
-    response = index.search(bm25_search_query)
-    print(response)
-
-    neural_search_query = Search().neuralQuery("fake data", ["city_name"])
+    neural_search_query = Search().neuralQuery("New York City", ["city_name"])
     response = index.search(neural_search_query)
-    print(response)
+    assert len(response["hits"]["hits"]) > 0

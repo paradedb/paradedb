@@ -1,25 +1,24 @@
-version: '3'
+version: "3"
 
 services:
   core:
     extends:
       file: ../docker-compose.yml
       service: core
-  
+
   api:
     extends:
       file: ../docker-compose.yml
       service: api
 
   postgres:
-      image: postgres:latest
-      environment: 
-        - POSTGRES_USER=postgres
-        - POSTGRES_PASSWORD=postgres
-        - POSTGRES_DB=postgres
-      ports:
-        - 5432:5432
-      volumes:
-        # copy the SQL script to create & fill tables
-        - ./create_tables.sql:/docker-entrypoint-initdb.d/create_tables.sql
-        - ./fill_tables.sql:/docker-entrypoint-initdb.d/fill_tables.sql
+    image: postgres:latest
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    ports:
+      - 5432:5432
+    volumes:
+      - ./create_tables.sql:/docker-entrypoint-initdb.d/create_tables.sql
+      - ./fill_tables.sql:/docker-entrypoint-initdb.d/fill_tables.sql

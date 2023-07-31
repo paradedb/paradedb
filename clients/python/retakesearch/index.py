@@ -58,6 +58,8 @@ class Index:
             if not response.status_code == 200:
                 raise Exception(response.text)
 
+            print(response.json())
+
     def search(self, search: Search) -> Any:
         json = {
             "dsl": search.to_dict(),  # type: ignore

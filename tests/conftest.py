@@ -1,5 +1,4 @@
 import pytest
-import psycopg2
 import requests
 
 from requests.auth import HTTPBasicAuth
@@ -34,17 +33,6 @@ def is_fastapi_responsive(url, test_api_key):
         return False
 
 
-def is_postgres_responsive(url, port):
-    try:
-        conn = psycopg2.connect(
-            dbname="postgres", user="postgres", password="postgres", host=url, port=port
-        )
-        conn.close()
-        return True
-    except psycopg2.OperationalError:
-        return False
-
-
 # Fixtures
 
 
@@ -76,18 +64,6 @@ def test_document_id():
 @pytest.fixture(scope="session")
 def retake_client(docker_ip, docker_services):
     """Ensure that PostgreSQL, OpenSearch & FastAPI services are up and responsive."""
-
-    print("\nSpinning up PostgreSQL service...")
-    pg_port = docker_services.port_for("postgres", 5432)
-    pg_url = docker_ip
-
-    print(f"Waiting for PostgreSQL service at {pg_url}:{pg_port} to be responsive...")
-    docker_services.wait_until_responsive(
-        timeout=90.0, pause=1, check=lambda: is_postgres_responsive(pg_url, pg_port)
-    )
-
-    print("PostgreSQL service is responsive!\n\nSpinning up OpenSearch service...")
-
     os_port = docker_services.port_for("core", 9200)
     os_url = f"https://{docker_ip}:{os_port}/_cluster/health"
 

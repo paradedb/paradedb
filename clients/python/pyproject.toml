@@ -9,7 +9,7 @@ packages = [{include = "retakesearch"}]
 [tool.poetry.dependencies]
 python = ">=3.6,<4"
 certifi = "^2023.7.22"
-retakesearch-py = "^2.2.1"
+retakesearch-py = "^2.2.2"
 
 [build-system]
 requires = ["poetry-core"]

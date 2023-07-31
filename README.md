@@ -78,7 +78,16 @@ index.add_source(database, table)
 
 index.vectorize(columns)
 
-query = Search().neuralQuery("my query", columns)
+# Keyword (BM25) search
+query = Search().query("match", column1="my query")
+response = index.search(query)
+
+# Semantic (vector-based) search
+query = Search().with_semantic("my_query", columns)
+response = index.search(query)
+
+# Neural (keyword + semantic) search
+query = Search().with_neural("my_query", columns)
 response = index.search(query)
 
 print(response)

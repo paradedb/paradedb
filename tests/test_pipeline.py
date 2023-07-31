@@ -65,6 +65,6 @@ def test_postgres_to_opensearch(
     # Vectorize the field
     index.vectorize(["city_name"])
 
-    neural_search_query = Search().neuralQuery("New York City", ["city_name"])
+    neural_search_query = Search().with_neural("New York City", ["city_name"])
     response = index.search(neural_search_query)
     assert len(response["hits"]["hits"]) > 0

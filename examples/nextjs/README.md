@@ -6,20 +6,20 @@ This is a demo Next.js app built with `retake-search`. The app enables users to 
 
 1. Start the Retake engine. From the root directory of this repo (not the `flask` directory), run
 
-```
+```bash
 docker compose up
 ```
 
 2. `cd` back into this directory
 
-```
+```bash
 cd examples/nextjs
 ```
 
 3. In the root `nextjs` directory, create a `.env` file with the following content. Replace all environment
    variables accordingly.
 
-```
+```bash
 # Host URL of your Postgres database
 DATABASE_HOST=***
 # Username of your Postgres database
@@ -44,12 +44,12 @@ RETAKE_API_URL=http://localhost:8000
 
 4. Run the setup script, which will index the database table specified in the `.env` file:
 
-```
+```bash
 npm run setup
 ```
 
 5. Start the Next.js app
 
-```
+```bash
 npm start
 ```

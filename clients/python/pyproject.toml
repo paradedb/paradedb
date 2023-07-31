@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "retakesearch"
 version = "0.0.0"
-description = "Open Source Neural Search Engine Python Client"
+description = "Python client for Retake: universal search infra for developers"
 authors = ["Ming Ying <ming.ying.nyc@gmail.com>"]
 readme = "README.md"
 packages = [{include = "retakesearch"}]

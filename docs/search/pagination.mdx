@@ -7,8 +7,8 @@ title: Pagination
 Pagination and offsets can be applied using Python slicing. The below query retries ten results, starting
 with the tenth result:
 
-```bash
-Search().query("match", question="Who am I?")[10:20]
+```python
+Search().query("match", questions="Who am I?")[10:20]
 ```
 
 ## Deep Pagination
@@ -19,8 +19,8 @@ Retake first computes the top 50 results, and then returns only the results from
 The `search_after` operator avoids the high memory cost of deep pagination. However, it requires that the sort order
 remains consistent between pages and is unable to jump to a specific page — only the next page.
 
-```bash
-query = Search().query("match", question="Who am I?")[0:1000]
+```python
+query = Search().query("match", questions="Who am I?")[0:1000]
 
 # First page
 first_response = index.search(query)

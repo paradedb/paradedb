@@ -1,29 +1,42 @@
 ---
-title: Neural Search
+title: Semantic + Neural Search
 ---
+
+Semantic search, using HNSW, understands the semantic meaning of your query and finds results that are contextually
+relevant. Neural search combines this semantic understanding with keyword-based BM25 search.
 
 ## Prerequisite
 
-Neural search returns search results that are scored on both semantic meaning and keyword matching.
+Before semantic and neural search can be performed over a field, the field must first be vectorized. Once vectorized,
+a field does not need to be vectorized again — Retake ensures that vectors are properly cached and kept in sync.
 
-Neural search is only enabled over fields that have been vectorized. Once a field is vectorized, it does not
-need to be vectorized again. Retake guarantees that vectors are cached and kept in sync.
-
-```
+```python
 fields_to_vectorize = ["questions", "answers"]
 index.vectorize(fields_to_vectorize)
 ```
 
-## Basic Usage
+## Semantic Search
 
-Once fields are vectorized, they can be searched with the `neuralQuery` function. This function takes two arguments:
-the query and the field names to search over.
+The `with_semantic` function takes two arguments: the query and the field names to search over. It returns results
+whose vectors are most similar to the vectorized query:
 
 ```python
 query = "Who am I?"
 fields = ["question", "answer"]
 
-Search().neuralQuery(query, fields)
+Search().with_semantic(query, fields)
+```
+
+## Neural Search
+
+The `with_neural` function takes the same arguments as `with_semantic`. It returns results with the highest combined
+semantic and keyword-based scores:
+
+```python
+query = "Who am I?"
+fields = ["question", "answer"]
+
+Search().with_neural(query, fields)
 ```
 
 A more detailed overview of how neural search works and why it may be useful to your application is provided

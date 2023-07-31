@@ -128,7 +128,7 @@ neural_search_fields = ["questions"]
 index.vectorize(neural_search_fields)
 
 # This executes a neural search
-neural_search_query = Search().neuralQuery("Who am I?", neural_search_fields)
+neural_search_query = Search().with_neural("Who am I?", neural_search_fields)
 response = index.search(neural_search_query)
 
 print(response)

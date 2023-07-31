@@ -62,5 +62,4 @@ class IndexMappings:
         # affect the others
         for attribute, values in properties.items():
             body = {"properties": {attribute: values}}
-            print(body)
             self.client.indices.put_mapping(index=self.name, body=body)

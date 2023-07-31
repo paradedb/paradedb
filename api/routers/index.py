@@ -158,7 +158,6 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
             primary_keys = chunk.get("primary_keys")
 
             if rows and primary_keys:
-                print("upserting", rows)
                 index.upsert(documents=rows, ids=primary_keys)
 
         return JSONResponse(

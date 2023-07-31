@@ -30,8 +30,8 @@ def test_postgres_to_opensearch(
 ):
     # Define in code our PostgreSQL database and associated table as defined in docker-compose.yml
 
-    ## The IP address of host here needs to be that of the postgres container, not that of the localhost, cuz its from
-    ## the perspective of within the OpenSearch docker container, which is on a different network!!
+    # The IP address of host here needs to be that of the postgres container, not that of the localhost, cuz its from
+    # the perspective of within the OpenSearch docker container, which is on a different network!!
 
     matching_containers = get_matching_containers("-postgres-1")
     pg_container_name = matching_containers[0].name

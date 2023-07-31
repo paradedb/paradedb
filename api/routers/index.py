@@ -149,13 +149,6 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
     try:
         index = client.get_index(payload.index_name)
 
-        print("111111111")
-        # okay so it fails in the postgresextractor
-        print(payload.source_host)
-        print(payload.source_port)
-        print(payload.source_user)
-        print(payload.source_password)
-
         extractor = PostgresExtractor(
             host=payload.source_host,
             port=payload.source_port,
@@ -165,11 +158,9 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
             schema_name=payload.source_schema_name,
         )
 
-        print("2222222222")
         if payload.source_neural_columns:
             index.register_neural_search_fields(payload.source_neural_columns)
 
-        print("3333333333")
         for chunk in extractor.extract_all(
             relation=payload.source_relation,
             columns=payload.source_columns,
@@ -182,7 +173,6 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
             if rows and primary_keys:
                 index.upsert(documents=rows, ids=primary_keys)
 
-        print("4444444444")
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Source {payload.source_relation} linked to index {payload.index_name} successfully",

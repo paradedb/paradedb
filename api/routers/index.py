@@ -155,7 +155,7 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
             user=payload.source_user,
             password=payload.source_password,
             dbname=payload.source_dbname,
-            schema_name=payload.source_schema_name
+            schema_name=payload.source_schema_name,
         )
 
         if payload.source_neural_columns:

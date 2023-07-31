@@ -42,9 +42,13 @@ class PostgresExtractor(Extractor):
                 dbname=self.dbname,
             )
         except psycopg2.ProgrammingError as e:
-            raise ConnectionError(f"Unable to connect to database {self.dbname} {self.host} {self.port} {self.user} {self.password}: {e}")
+            raise ConnectionError(
+                f"Unable to connect to database {self.dbname} {self.host} {self.port} {self.user} {self.password}: {e}"
+            )
         except psycopg2.OperationalError as e:
-            raise ConnectionError(f"Unable to connect to database {self.dbname} {self.host} {self.port} {self.user} {self.password}: {e}")
+            raise ConnectionError(
+                f"Unable to connect to database {self.dbname} {self.host} {self.port} {self.user} {self.password}: {e}"
+            )
 
         self.cursor = self.connection.cursor()
 

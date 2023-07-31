@@ -1,6 +1,8 @@
 import pytest
 import psycopg2
 import requests
+from psycopg2 import OperationalError
+from time import sleep
 
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError
@@ -10,12 +12,6 @@ from clients.python.retakesearch.client import Client
 
 
 # Helpers
-
-
-# Configure pytest-docker to use the root-level docker-compose.yml, to avoid duplication
-@pytest.fixture(scope="session")
-def docker_compose_file(pytestconfig):
-    return pytestconfig.rootpath.joinpath(".", "docker-compose.yml")
 
 
 def is_opensearch_responsive(url):
@@ -38,6 +34,17 @@ def is_fastapi_responsive(url, test_api_key):
         response = requests.get(url, headers=headers, verify=False)
         return response.status_code == 200
     except ConnectionError:
+        return False
+
+
+def is_postgres_responsive(url, port):
+    try:
+        conn = psycopg2.connect(
+            dbname="postgres", user="postgres", password="postgres", host=url, port=port
+        )
+        conn.close()
+        return True
+    except psycopg2.OperationalError:
         return False
 
 
@@ -68,11 +75,22 @@ def test_index_name():
 def test_document_id():
     return "test_document_id"
 
+
 @pytest.fixture(scope="session")
 def retake_client(docker_ip, docker_services):
-    """Ensure that OpenSearch & FastAPI services are up and responsive."""
+    """Ensure that PostgreSQL, OpenSearch & FastAPI services are up and responsive."""
 
-    print("\nSpinning up OpenSearch service...")
+    print("\nSpinning up PostgreSQL service...")
+    pg_port = docker_services.port_for("postgres", 5432)
+    pg_url = docker_ip
+
+    print(f"Waiting for PostgreSQL service at {pg_url}:{pg_port} to be responsive...")
+    docker_services.wait_until_responsive(
+        timeout=90.0, pause=1, check=lambda: is_postgres_responsive(pg_url, pg_port)
+    )
+
+    print("PostgreSQL service is responsive!\n\nSpinning up OpenSearch service...")
+
     os_port = docker_services.port_for("core", 9200)
     os_url = f"https://{docker_ip}:{os_port}/_cluster/health"
 
@@ -81,7 +99,7 @@ def retake_client(docker_ip, docker_services):
         timeout=90.0, pause=1, check=lambda: is_opensearch_responsive(os_url)
     )
 
-    print("OpenSearch service is responsive!\nSpinning up FastAPI service...")
+    print("OpenSearch service is responsive!\n\nSpinning up FastAPI service...")
 
     test_api_key = "retake-test-key"
     fastapi_port = docker_services.port_for("api", 8000)
@@ -94,6 +112,6 @@ def retake_client(docker_ip, docker_services):
         pause=1,
         check=lambda: is_fastapi_responsive(ping_url, test_api_key),
     )
-    print("FastAPI service is responsive!")
+    print("FastAPI service is responsive!\n\n")
 
     return Client(api_key=test_api_key, url=fastapi_url)

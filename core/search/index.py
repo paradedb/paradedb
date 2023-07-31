@@ -69,7 +69,8 @@ class Index:
     def _get_embedding_field_names(self) -> List[str]:
         properties = self.client.indices.get_mapping(index=self.name)[self.name][
             "mappings"
-        ]["properties"]
+        ].get("properties", dict())
+
         knn_vector_properties = []
 
         for prop, prop_data in properties.items():

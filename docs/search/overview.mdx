@@ -12,7 +12,7 @@ pass in the search query, written using the `Search` high-level Python client.
 
 ## Basic Usage
 
-```bash
+```python
 from retakesearch import Client, Search
 
 client = Client(
@@ -24,7 +24,7 @@ client = Client(
 index = client.get_index("my_index")
 
 # Construct query
-query = Search().query("match", question="Who am I?")
+query = Search().query("match", questions="Who am I?")
 
 # Execute query
 response = index.search(query)
@@ -38,10 +38,10 @@ the column `question` matches the phrase "Who Am I?".
 Complex search logic like filters, ranking, faceting, pagination, etc. can be added to the `Search` class
 as a logical pipeline of transformations. For example:
 
-```bash
+```python
 query = (
     Search()
-    .query("match", question="Who am I?")
+    .query("match", questions="Who am I?")
     .filter("term", answer="Michael")
     .sort("-answer")
 )

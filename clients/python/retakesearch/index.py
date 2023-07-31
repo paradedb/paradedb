@@ -14,13 +14,10 @@ class Database:
 
 
 class Table:
-    def __init__(
-        self, name: str, primary_key: str, columns: List[str], neural_columns: List[str]
-    ):
+    def __init__(self, name: str, primary_key: str, columns: List[str]):
         self.name = name
         self.primary_key = primary_key
         self.columns = columns
-        self.neural_columns = neural_columns
 
 
 class Index:
@@ -45,7 +42,6 @@ class Index:
             "source_relation": table.name,
             "source_primary_key": table.primary_key,
             "source_columns": table.columns,
-            "source_neural_columns": table.neural_columns,
         }
 
         with httpx.Client(timeout=None) as http:
@@ -103,7 +99,7 @@ class Index:
             )
             if not response.status_code == 200:
                 raise Exception(response.text)
-            
+
     def vectorize(self, field_names: List[str]) -> None:
         json = {
             "index_name": self.index_name,

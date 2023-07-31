@@ -1,5 +1,6 @@
 import os
 import ast
+import json
 
 from dotenv import load_dotenv
 from flask import Flask, Response
@@ -42,7 +43,7 @@ def search(args: Dict[str, Any]) -> Response:
     query = Search().neuralQuery(args["query"], columns)  # type: ignore
     result = index.search(query)
 
-    return Response(status=200, response=result)
+    return Response(status=200, response=json.dumps(result))
 
 
 if __name__ == "__main__":

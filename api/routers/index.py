@@ -35,7 +35,7 @@ class IndexDeletePayload(BaseModel):
 
 
 class VectorizePayload(BaseModel):
-    index_name: str 
+    index_name: str
     field_names: List[str]
 
 
@@ -59,7 +59,6 @@ class AddSourcePayload(BaseModel):
     source_relation: str
     source_primary_key: str
     source_columns: List[str]
-    source_neural_columns: List[str] = []
     source_dbname: str = "postgres"
     source_schema_name: str = "public"
 
@@ -178,8 +177,6 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
 @router.post(f"/{tag}/realtime/link", tags=[tag])
 async def realtime_link(payload: AddSourcePayload) -> JSONResponse:
     try:
-        index = client.get_index(payload.index_name)
-
         extractor = PostgresExtractor(
             host=payload.source_host,
             port=payload.source_port,
@@ -195,14 +192,7 @@ async def realtime_link(payload: AddSourcePayload) -> JSONResponse:
             payload.source_relation, payload.source_columns, payload.source_primary_key
         )
 
-        if not set(payload.source_neural_columns).issubset(set(payload.source_columns)):
-            return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                content="Neural columns must be a subset of columns",
-            )
-
         kafka_config = KafkaConfig()
-
         extractor.extract_real_time(
             kafka_config.connect_server,
             kafka_config.schema_registry_server,
@@ -311,11 +301,13 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
         )
 
 
-@router.post(f"/{tag}/field/vectorize", tags=[tag])
+@router.post(f"/{tag}/vectorize", tags=[tag])
 async def vectorize_field(payload: VectorizePayload) -> JSONResponse:
     try:
         index = client.get_index(payload.index_name)
         index.register_neural_search_fields(payload.field_names)
+        # Reindexing is necessary to generate vectors for existing document fields
+        index.reindex()
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Fields {payload.field_names} vectorized successfully",

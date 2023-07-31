@@ -6,7 +6,7 @@ The `filter` function can be used to retrieve exactly the results that match fil
 
 ## String Filtering
 
-```bash
+```python
 Search().filter("term", answer="Michael")
 ```
 
@@ -19,13 +19,13 @@ The `range` operator supports the following options:
 - `lte`: Less-than or equal to
 - `lt`: Less-than
 
-```bash
+```python
 Search().filter("range", number_of_questions={"gte": 10, "lte": 50})
 ```
 
 For filter results where a field is equal to a specific numeric value, use the `term` operator:
 
-```bash
+```python
 Search().filter("term", number_of_questions=5)
 ```
 
@@ -33,7 +33,7 @@ Search().filter("term", number_of_questions=5)
 
 The `terms` operator is used to filter results where a specific value is in a list of values:
 
-```bash
+```python
 answers_list = ["David", "Michael", "Bob"]
 
 Search().filter("terms", answers=answers_list)
@@ -43,7 +43,7 @@ Search().filter("terms", answers=answers_list)
 
 The `term` operator can also be used for boolean filtering:
 
-```bash
+```python
 Search().filter("term", is_active=True)
 ```
 
@@ -52,6 +52,6 @@ Search().filter("term", is_active=True)
 The `exclude` operator is a shortcut to the `must_not` boolean operator. The following query
 returns all results where `answer` is not "Michael":
 
-```bash
+```python
 Search().exclude("term", answer="Michael")
 ```

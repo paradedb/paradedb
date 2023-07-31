@@ -7,8 +7,8 @@ title: Sorting
 The response object of each search result contains a `_score` attribute. Higher scores represent results that
 are more relevant to the search query. The `sort` function can be used to sort results by score in descending order:
 
-```bash
-Search().query("term", question="Who am I?").sort("_score")
+```python
+Search().query("term", questions="Who am I?").sort("_score")
 ```
 
 ## Custom Sorting
@@ -16,9 +16,9 @@ Search().query("term", question="Who am I?").sort("_score")
 The `sort` function also accepts field names for custom sorting. Multiple criteria can be provided,
 and the results will be sorted in order of the provided criteria.
 
-```bash
+```python
 Search()
-    .query("term", question="Who am I?")
+    .query("term", questions="Who am I?")
     .sort(
         "questions", # Ascending order
         "-answer" # Descending order

@@ -207,3 +207,6 @@ class Index:
                     for field in fields
                 }
             )
+
+    def reindex(self) -> None:
+        helpers.reindex(self.client, self.name, self.name)

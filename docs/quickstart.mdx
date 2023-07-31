@@ -43,10 +43,10 @@ developers to either upload their own data or integrate directly with Postgres.
 
 ### From Postgres
 
-The `Index.add_source` function integrates an index with Postgres. As long as the Retake engine is running, this
-function only needs to be called once.
+The `Index.add_source` function integrates Retake directly with Postgres. As long as the Retake engine is running, this
+function only needs to be run once.
 
-```bash
+```python
 from retakesearch import Client, Index, Database, Table
 
 # When the Retake engine is run locally,
@@ -69,10 +69,7 @@ database = Database(
 table = Table(
     name="faqs"
     primary_key="id",
-    columns=["questions", "answers"],
-    # Columns passed into neural_columns will have neural search enabled
-    # Columns not included will only have keyword search enabled
-    neural_columns=["questions", "answers"],
+    columns=["questions", "answers"]
 )
 
 # Create an index
@@ -88,7 +85,7 @@ index.add_source(database, table)
 
 Data stored outside of Postgres can also be added to an index.
 
-```bash
+```python
 documents = [{"key": "value"}]
 ids = ["id1"]
 
@@ -102,16 +99,33 @@ index.upsert(
 
 Inside our Python application, we are ready to write and execute our first search query.
 
-```bash
+### Keyword-Based Search (BM25)
+
+```python
 from retakesearch import Search
 
 # This executes a full-text (BM25) search
 bm25_search_query = Search().query("match", questions="Who am I?")
-index.search(bm25_search_query)
+response = index.search(bm25_search_query)
 
-# This executes a neural (BM25 + kNN) search
-neural_search_query = Search().neuralQuery("Who am I?", ["questions"])
-index.search(neural_search_query)
+print(response)
+```
+
+### Neural Search
+
+```python
+from retakesearch import Search
+
+# A field must be vectorized before neural search can be performed
+# This only needs to be done once
+neural_search_fields = ["questions"]
+index.vectorize(neural_search_fields)
+
+# This executes a neural search
+neural_search_query = Search().neuralQuery("Who am I?", neural_search_fields)
+response = index.search(neural_search_query)
+
+print(response)
 ```
 
 Note that Retake's `Search` query builder is a forked version of the

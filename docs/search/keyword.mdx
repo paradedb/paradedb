@@ -15,8 +15,8 @@ and the `match` operator for full-text queries. For instance, the `term` operato
 return documents containing the exact phrase "Who am I?", whereas the `match` operator will return
 documents containing "Who", "am", or "I":
 
-```bash
-Search().query("term", question="Who am I?")
+```python
+Search().query("term", questions="Who am I?")
 ```
 
 ## Multiple Columns
@@ -24,7 +24,7 @@ Search().query("term", question="Who am I?")
 The `multi_match` operator enables search for a term in multiple columns. This example searches
 for matches in both the `question` and `answer` columns of a table:
 
-```bash
+```python
 Search().query("multi_match", query="Who am I", fields=["question", "answer"])
 ```
 
@@ -33,8 +33,8 @@ Search().query("multi_match", query="Who am I", fields=["question", "answer"])
 The `fuzzy` operator enables fuzzy search. The following query searches for matches for a query
 and allows for up to two character changes:
 
-```bash
-Search().query("fuzzy", question={"value": "Whom I?", "fuzziness": 2})
+```python
+Search().query("fuzzy", questions={"value": "Whom I?", "fuzziness": 2})
 ```
 
 ## Boolean Queries
@@ -49,16 +49,16 @@ Boolean queries provide a flexible way to construct complex queries using four t
 
 - `filter`: The filter `operator` works similar to `must` but doesn't affect the scoring. It simply includes/excludes documents based on whether they match the filter condition.
 
-```bash
+```python
 from retakesearch import Q
 
 Search().query(
     Q(
         "bool",
-        must=[Q("match", question="Who am I?")],
+        must=[Q("match", questions="Who am I?")],
         filter=[Q("term", answer="Michael")],
-        must_not=[Q("term", question="Where are you?")],
-        should=[Q("match", question="Whom are you?")]
+        must_not=[Q("term", questions="Where are you?")],
+        should=[Q("match", questions="Whom are you?")]
     )
 )
 

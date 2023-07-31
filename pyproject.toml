@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "retake"
 version = "0.0.0"
-description = "Open Source Neural Search Engine"
+description = "Real-Time Universal Search Infra for Developers"
 authors = ["Ming Ying <ming.ying.nyc@gmail.com>", "Philippe Noël <philippemnoel@gmail.com>"]
 readme = "README.md"
 

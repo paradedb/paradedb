@@ -34,6 +34,11 @@ class IndexDeletePayload(BaseModel):
     index_name: str
 
 
+class VectorizePayload(BaseModel):
+    index_name: str 
+    field_names: List[str]
+
+
 class SearchPayload(BaseModel):
     index_name: str
     dsl: Dict[str, Any]
@@ -147,9 +152,6 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
             schema_name=payload.source_schema_name,
         )
 
-        if payload.source_neural_columns:
-            index.register_neural_search_fields(payload.source_neural_columns)
-
         for chunk in extractor.extract_all(
             relation=payload.source_relation,
             columns=payload.source_columns,
@@ -200,11 +202,6 @@ async def realtime_link(payload: AddSourcePayload) -> JSONResponse:
             )
 
         kafka_config = KafkaConfig()
-
-        if payload.source_neural_columns:
-            logger.info("Registering neural search fields...")
-            index.register_neural_search_fields(payload.source_neural_columns)
-            logger.info("Successfully registered neural search fields")
 
         extractor.extract_real_time(
             kafka_config.connect_server,
@@ -311,4 +308,20 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=f"Failed to create field: {e}",
+        )
+
+
+@router.post(f"/{tag}/field/vectorize", tags=[tag])
+async def vectorize_field(payload: VectorizePayload) -> JSONResponse:
+    try:
+        index = client.get_index(payload.index_name)
+        index.register_neural_search_fields(payload.field_names)
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content=f"Fields {payload.field_names} vectorized successfully",
+        )
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=f"Failed to vectorize fields: {e}",
         )

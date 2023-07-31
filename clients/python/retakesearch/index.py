@@ -58,8 +58,6 @@ class Index:
             if not response.status_code == 200:
                 raise Exception(response.text)
 
-            print(response.json())
-
     def search(self, search: Search) -> Any:
         json = {
             "dsl": search.to_dict(),  # type: ignore
@@ -92,7 +90,7 @@ class Index:
         except Exception as exc:
             return str(exc)
 
-    def create_field(self, field_name: str, field_type: str) -> Any:
+    def create_field(self, field_name: str, field_type: str) -> None:
         json = {
             "index_name": self.index_name,
             "field_name": field_name,
@@ -102,6 +100,19 @@ class Index:
         with httpx.Client(timeout=None) as http:
             response = http.post(
                 f"{self.url}/index/field/create", headers=self.headers, json=json
+            )
+            if not response.status_code == 200:
+                raise Exception(response.text)
+            
+    def vectorize(self, field_names: List[str]) -> None:
+        json = {
+            "index_name": self.index_name,
+            "field_names": field_names,
+        }
+
+        with httpx.Client(timeout=None) as http:
+            response = http.post(
+                f"{self.url}/index/vectorize", headers=self.headers, json=json
             )
             if not response.status_code == 200:
                 raise Exception(response.text)

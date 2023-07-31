@@ -1,9 +1,9 @@
 # workflows/test-retake.yml
 #
-# Integration Tests
+# Retake: Integration Tests
 # Test the Retake repository with unit and integration tests.
 
-name: "Integration Tests"
+name: Integration Tests
 
 on:
   pull_request:
@@ -29,7 +29,7 @@ concurrency:
 
 jobs:
   test-retake:
-    name: Test Retake
+    name: Test Retake End-to-End
     runs-on: ubuntu-latest
 
     steps:

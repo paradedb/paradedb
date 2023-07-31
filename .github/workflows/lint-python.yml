@@ -3,7 +3,7 @@
 # Python: Linting
 # Lint Python code using Black, Flake8 & Mypy.
 
-name: "Lint Python and check types"
+name: Linting
 
 on:
   pull_request:

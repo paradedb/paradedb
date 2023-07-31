@@ -3,7 +3,7 @@
 # File Endings: Linting
 # Lint the project's file endings.
 
-name: "File Endings: Linting"
+name: Linting
 
 on:
   pull_request:

@@ -4,11 +4,15 @@ from clients.python.retakesearch import Table, Database
 from clients.python.retakesearch.search import Search
 
 
-# Because
+# Helpers
 
+
+# Load the Docker client created by pytest-docker
 docker_client = docker.from_env()
 
 
+# Get the container name of a running container by partial name, since pytest-docker
+# generates containers of format pytestXYZ123-servicename-1 (i.e. pytest123456-postgres-1)
 def get_matching_containers(partial_name):
     all_containers = docker_client.containers.list(all=True)
     matching_containers = [
@@ -19,20 +23,23 @@ def get_matching_containers(partial_name):
     return matching_containers
 
 
+# Retrieve the IP address of a container on a given network, since we need the internal IP address of the
+# container, instead of the localhost IP address, since the OpenSearch and the Postgres containers need to
+# communicate with each other within the same Docker network
 def get_container_ip(container_name, network_name):
     container = docker_client.containers.get(container_name)
     return container.attrs["NetworkSettings"]["Networks"][network_name]["IPAddress"]
+
+
+# Tests
 
 
 def test_postgres_to_opensearch(
     retake_client,
     test_index_name,
 ):
-    # Define in code our PostgreSQL database and associated table as defined in docker-compose.yml
-
-    # The IP address of host here needs to be that of the postgres container, not that of the localhost, cuz its from
-    # the perspective of within the OpenSearch docker container, which is on a different network!!
-
+    # Get the container name, network, and IP address of the PostgreSQL Docker container spun up by pytest-docker
+    # as part of the retake_client fixture
     matching_containers = get_matching_containers("-postgres-1")
     pg_container_name = matching_containers[0].name
     print(f"PostgreSQL Docker container name: {pg_container_name}")
@@ -43,6 +50,7 @@ def test_postgres_to_opensearch(
     pg_container_ip = get_container_ip(pg_container_name, pg_container_network)
     print(f"PostgreSQL Docker container IP: {pg_container_ip}\n")
 
+    # Create adatabase and a table object for our PostgreSQL container
     database = Database(
         host=pg_container_ip,
         user="postgres",
@@ -60,7 +68,6 @@ def test_postgres_to_opensearch(
 
     # Create an index for our vectors in OpenSearch, and sync the database table to it
     index = retake_client.create_index(test_index_name)
-
     index.add_source(database, table)
 
     # Test that the data was loaded and can be searched

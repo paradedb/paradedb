@@ -1,9 +1,9 @@
 # workflows/publish-to-dockerhub.yml
 #
-# Retake Search: Publish to Docker Hub
-# Publish Retake Search as a Docker image to Docker Hub.
+# Retake: Publish to Docker Hub
+# Publish Retake as a Docker image to Docker Hub.
 
-name: Publish Retake Search to Docker Hub
+name: Publishing
 
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   publish-to-dockerhub:
-    name: Publish Retake Search to Docker Hub
+    name: Publish Retake to Docker Hub
     runs-on: ubuntu-latest
 
     steps:

@@ -3,7 +3,7 @@
 # GitHub Actions: Linting
 # Lint GitHub Actions YAML workflows/actions using Prettier.
 
-name: "GitHub Actions: Linting"
+name: Linting
 
 on:
   pull_request:

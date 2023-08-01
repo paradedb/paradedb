@@ -26,15 +26,11 @@ for complete examples of implementing search with Retake.
 ## Installation
 
 <Info>**Prerequisite** Docker and Docker Compose must be installed.</Info>
-<Warning>
-  We are currently working on deploying to Docker hub and providing a Docker
-  Compose file. This is a temporary installation workaround.
-</Warning>
 
-Clone the `retake` repository and run:
+Download the [docker compose file](https://raw.githubusercontent.com/getretake/retake/main/docker-compose.yml) and run:
 
 ```bash
-docker compose up
+docker compose up -d
 ```
 
 This spins up the Retake engine, which is responsible for executing search queries and storing search data.

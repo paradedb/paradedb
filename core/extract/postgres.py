@@ -1,13 +1,8 @@
 import psycopg2
-import requests
-import time
 
-from http import HTTPStatus
-from loguru import logger
 from typing import List, Generator, cast
 
 from core.extract.base import Extractor, ExtractorResult
-from core.extract.realtime import create_connector
 
 
 class ConnectionError(Exception):
@@ -124,61 +119,3 @@ class PostgresExtractor(Extractor):
 
             yield {"rows": output, "primary_keys": primary_keys}
             offset += chunk_size
-
-    def extract_real_time(
-        self,
-        connect_server: str,
-        schema_registry_server: str,
-        relation: str,
-        primary_key: str,
-        columns: List[str],
-    ) -> None:
-        include_columns = [f"{self.schema_name}.{relation}.{col}" for col in columns]
-
-        # Always include the primary key so it can be extracted for indexing
-        include_columns.append(f"{self.schema_name}.{relation}.{primary_key}")
-
-        connector_config = {
-            "name": f"{relation}-connector",
-            "config": {
-                "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-                "plugin.name": "pgoutput",
-                "value.converter": "io.confluent.connect.avro.AvroConverter",
-                "value.converter.schema.registry.url": schema_registry_server,
-                "database.hostname": f"{self.host}",
-                "database.port": f"{self.port}",
-                "database.user": f"{self.user}",
-                "database.password": f"{self.password}",
-                "database.dbname": f"{self.dbname}",
-                "table.include.list": f"{self.schema_name}.{relation}",
-                "column.include.list": ",".join(include_columns),
-                "slot.name": f"debezium_{relation}",
-                "transforms": "unwrap",
-                "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
-                "transforms.unwrap.drop.tombstones": "false",
-                "transforms.unwrap.delete.handling.mode": "rewrite",
-                "topic.prefix": f"{relation}",
-            },
-        }
-
-        try:
-            create_connector(connect_server, connector_config)
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"Connector already exists: {e}")
-        except requests.exceptions.RequestException as e:
-            logger.error(e)
-
-    def is_connector_ready(self, connect_server: str, relation: str) -> bool:
-        connector_name = f"{relation}-connector"
-        url = f"{connect_server}/connectors/{connector_name}"
-        timeout = 15
-
-        start_time = time.time()
-
-        while time.time() - start_time < timeout:
-            response = requests.get(url)
-            if response.status_code == HTTPStatus.OK:
-                return True
-            time.sleep(1)
-
-        return False

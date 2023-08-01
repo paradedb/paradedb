@@ -13,14 +13,14 @@ import {
 import { Search, useSearch } from "retake-search";
 import { withNeural } from "retake-search/helpers";
 
+const index = process.env.DATABASE_TABLE_NAME ?? "";
+const columns = process.env.DATABASE_TABLE_COLUMNS
+  ? JSON.parse(process.env.DATABASE_TABLE_COLUMNS)
+  : [];
+
 export default () => {
   const [userInput, setUserInput] = useState<string>("");
-  const index = process.env.DATABASE_TABLE_NAME ?? "";
-  const columns = process.env.DATABASE_TABLE_COLUMNS
-    ? JSON.parse(process.env.DATABASE_TABLE_COLUMNS)
-    : [];
   const query = Search().query(withNeural(userInput, columns));
-
   const { data, error } = useSearch({ indexName: index, query: query });
   const results = data?.hits?.hits;
 

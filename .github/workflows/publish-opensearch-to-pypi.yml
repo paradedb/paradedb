@@ -54,13 +54,16 @@ jobs:
       - name: Install Dependencies
         run: pip install setuptools wheel twine
 
-      # Don't forget to manually update the version in opensearch-py/opensearchpy/_version.py, as per
-      # OpenSearch's standard release process
-      - name: Build and Publish to PyPi (prod only)
-        if: steps.env.outputs.environment == 'prod'
+      - name: Build and Test OpenSearch
         working-directory: opensearch-py
         run: |
           python setup.py sdist bdist_wheel
           cd dist
           twine check *
-          twine upload * -u ${{ secrets.PYPI_USERNAME }} -p ${{ secrets.PYPI_PASSWORD }} --verbose
+
+      # Don't forget to manually update the version in opensearch-py/opensearchpy/_version.py, as per
+      # OpenSearch's standard release process
+      - name: Publish to PyPi (prod only)
+        if: steps.env.outputs.environment == 'prod'
+        working-directory: opensearch-py/dist
+        run: twine upload * -u ${{ secrets.PYPI_USERNAME }} -p ${{ secrets.PYPI_PASSWORD }} --verbose

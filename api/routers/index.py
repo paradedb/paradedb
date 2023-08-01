@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Union
 from api.config.opensearch import OpenSearchConfig
 from api.config.pgsync import PgSyncConfig
 
-from core.extract.postgres import PostgresExtractor, ConnectionError
+from core.extract.postgres import PostgresExtractor
 from core.search.client import Client
 from core.search.index_mappings import FieldType
 
@@ -198,7 +198,7 @@ async def realtime_link(payload: SyncPayload) -> JSONResponse:
         if res.status_code == status.HTTP_200_OK:
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
-                content=f"Real time sync started successfully",
+                content="Real time sync started successfully",
             )
         else:
             return JSONResponse(

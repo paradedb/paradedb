@@ -77,7 +77,7 @@ async def sync(request: Request) -> Response:
             return JSONResponse("failed to run pgsync boostrap", 400)
 
         # Start pgsync
-        sync_proc = subprocess.Popen(
+        subprocess.Popen(
             ["/usr/local/bin/pgsync", "--config", file_name, "--daemon"],
             env=config,
         )

@@ -11,6 +11,7 @@ on:
       - main
       - staging
       - dev
+      - phil/submodules
     paths:
       - "opensearch-py/**"
       - ".github/workflows/publish-opensearch-to-pypi.yml"

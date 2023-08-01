@@ -202,7 +202,7 @@ async def realtime_link(payload: SyncPayload) -> JSONResponse:
             )
         else:
             return JSONResponse(
-                status_code=status.HTTP_400_OK,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 content=f"Could not start real time sync: {res.reason}",
             )
     except Exception as e:

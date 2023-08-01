@@ -7,7 +7,6 @@ from loguru import logger
 from typing import List, Generator, cast
 
 from core.extract.base import Extractor, ExtractorResult
-from core.extract.realtime import create_connector
 
 
 class ConnectionError(Exception):

@@ -8,7 +8,7 @@ services:
       - 9600:9600
     environment:
       - discovery.type=single-node
-      - plugins.security.disabled=true
+      - plugins.security.disabled=false
       - plugins.ml_commons.model_access_control_enabled=true
       - plugins.ml_commons.only_run_on_ml_node=false
 
@@ -30,6 +30,7 @@ services:
       OPENSEARCH_USE_TLS: False
       PGSYNC_HOST: pgsync
       PGSYNC_PORT: 7433
+      PGSYNC_SSL_ENABLED: False
     volumes:
       - .:/app
 

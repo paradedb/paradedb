@@ -1,10 +1,12 @@
-from fastapi import APIRouter, BackgroundTasks, status
+import requests
+from fastapi import APIRouter, status
 from loguru import logger
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 from typing import List, Dict, Any, Union
 
 from api.config.opensearch import OpenSearchConfig
+from api.config.pgsync import PgSyncConfig
 
 from core.extract.postgres import PostgresExtractor, ConnectionError
 from core.search.client import Client
@@ -14,6 +16,8 @@ tag = "index"
 
 router = APIRouter()
 opensearch_config = OpenSearchConfig()
+pgsync_config = PgSyncConfig()
+
 client = Client(
     host=opensearch_config.host,
     port=opensearch_config.port,
@@ -64,6 +68,11 @@ class CreateFieldPayload(BaseModel):
     index_name: str
     field_name: str
     field_type: str
+
+
+class SyncPayload(BaseModel):
+    source: AddSourcePayload
+    json_schema: Dict[str, Any]
 
 
 @router.get("/index/{index_name}", tags=[tag])
@@ -172,8 +181,21 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
 
 
 @router.post(f"/{tag}/realtime/link", tags=[tag])
-async def realtime_link(payload: AddSourcePayload) -> JSONResponse:
-    pass
+async def realtime_link(payload: SyncPayload) -> JSONResponse:
+    try:
+        body = {"source": payload.source, "schema": payload.schema_json}
+        res = requests.post(f"{pgsync_config.url}/sync", json=body)
+        logger.info(res.content)
+        if res.status_code == status.HTTP_200_OK:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content=f"Real time sync started successfully",
+            )
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content=str(e),
+        )
 
 
 @router.post(f"/{tag}/search", tags=[tag])

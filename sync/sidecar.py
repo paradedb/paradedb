@@ -2,12 +2,13 @@ import json
 import os
 import subprocess
 from starlette.applications import Starlette
-from starlette.responses import JSONResponse
+from starlette.requests import Request
+from starlette.responses import JSONResponse ,Response
 from starlette.routing import Route
 from loguru import logger
 
 
-async def sync(request):
+async def sync(request: Request)-> Response:
     try:
         data = await request.json()
 

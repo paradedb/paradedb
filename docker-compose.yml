@@ -23,76 +23,50 @@ services:
     command: uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
     environment:
       API_KEY: retake-test-key
-      KAFKA_HOST: kafka
-      KAFKA_PORT: 9092
-      SCHEMA_REGISTRY_HOST: schema-registry
-      SCHEMA_REGISTRY_PORT: 8081
-      KAFKA_CONNECT_HOST: connect
-      KAFKA_CONNECT_PORT: 8083
       OPENSEARCH_HOST: core
       OPENSEARCH_PORT: 9200
       OPENSEARCH_USER: admin
       OPENSEARCH_PASSWORD: admin
       OPENSEARCH_USE_TLS: False
+      PGSYNC_HOST: pgsync
+      PGSYNC_PORT: 7433
+      PGSYNC_SSL_ENABLED: False
     volumes:
       - .:/app
 
-  kafka:
-    image: bitnami/kafka:3.5
+  redis:
+    image: redis
+    command: redis-server --requirepass redis
+    
+  pgsync:
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
     ports:
-      - "9094:9094"
-    environment:
-      ALLOW_PLAINTEXT_LISTENER: yes
-      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
-      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
-      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: true
-    volumes:
-      - kafka_data:/bitnami/kafka
-
-  schema-registry:
-    image: docker.io/bitnami/schema-registry:7.2.5
+      - 7433:7433
+    sysctls:
+      - net.ipv4.tcp_keepalive_time=200
+      - net.ipv4.tcp_keepalive_intvl=200
+      - net.ipv4.tcp_keepalive_probes=5
+    labels:
+      org.label-schema.name: "pgsync"
+      org.label-schema.description: "Postgres to OpenSearch sync"
+      com.label-schema.service-type: "daemon"
     depends_on:
-      - kafka
-    ports:
-      - '8081:8081'
+      - core
+      - api
+      - redis
     environment:
-      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
-      SCHEMA_REGISTRY_KAFKA_BROKERS: PLAINTEXT://kafka:9092
-
-  connect:
-    image: confluentinc/cp-kafka-connect-base:6.2.0
-    depends_on:
-      - kafka
-    ports:
-      - "8083:8083"
-    environment:
-      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
-      CONNECT_REST_PORT: 8083
-      CONNECT_GROUP_ID: kafka-connect
-      CONNECT_CONFIG_STORAGE_TOPIC: _connect-configs
-      CONNECT_OFFSET_STORAGE_TOPIC: _connect-offsets
-      CONNECT_STATUS_STORAGE_TOPIC: _connect-status
-      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
-      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.storage.StringConverter
-      CONNECT_REST_ADVERTISED_HOST_NAME: "kafka-connect"
-      CONNECT_LOG4J_APPENDER_STDOUT_LAYOUT_CONVERSIONPATTERN: "[%d] %p %X{connector.context}%m (%c:%L)%n"
-      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
-      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
-      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
-      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components,/data/connect-jars
-    command:
-      - bash
-      - -c
-      - |
-        echo "Installing Connector"
-        confluent-hub install --no-prompt debezium/debezium-connector-postgresql:2.2.1
-        #
-        echo "Launching Kafka Connect worker"
-        /etc/confluent/docker/run &
-        #
-        sleep infinity
-
-volumes:
-  kafka_data:
-    driver: local
+      LOG_LEVEL: INFO
+      ELASTICSEARCH_HOST: core
+      ELASTICSEARCH_PORT: 9200
+      ELASTICSEARCH_USER: admin
+      ELASTICSEARCH_PASSWORD: admin
+      ELASTICSEARCH_SCHEME: https
+      ELASTICSEARCH_USE_SSL: True
+      ELASTICSEARCH_VERIFY_CERTS: False
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: redis
+      ELASTICSEARCH: false
+      OPENSEARCH: true

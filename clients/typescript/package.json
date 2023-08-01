@@ -8,7 +8,7 @@
     "compile": "rollup -c rollup.config.mjs",
     "clean": "rimraf dist",
     "build": "yarn run clean && yarn run compile",
-    "lint": "eslint --fix src/** --no-error-on-unmatched-pattern"
+    "lint:fix": "eslint --fix src/** --no-error-on-unmatched-pattern"
   },
   "devDependencies": {
     "@rollup/plugin-commonjs": "^25.0.3",

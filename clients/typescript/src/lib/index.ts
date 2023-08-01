@@ -134,4 +134,4 @@ class Index {
   }
 }
 
-export { Index }
+export { Index, Database, Table }

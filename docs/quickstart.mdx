@@ -18,8 +18,10 @@ In this tutorial, we will implement neural search over Postgres using the `retak
 This tutorial will only cover Retake-specific code and assumes that you already have a Python environment
 where you would like to integrate Retake.
 
-If you would like to see a full demo application using Retake, an example Python Flask app with
-setup instructions can be found [here](https://github.com/getretake/search/tree/dev/examples/flask).
+Please refer to the
+[example Python Flask app](https://github.com/getretake/search/tree/dev/examples/flask) or
+[example Nextjs app](https://github.com/getretake/search/tree/dev/examples/nextjs)
+for complete examples of implementing search with Retake.
 
 ## Installation
 
@@ -36,11 +38,19 @@ docker compose up
 ```
 
 This spins up the Retake engine, which is responsible for executing search queries and storing search data.
-Next, `cd` into your Python project and install `retakesearch`.
+Next, `cd` into your Python project and install the Retake SDK.
 
-```bash
+<CodeGroup>
+
+```bash Python
 pip install retakesearch
 ```
+
+```bash Typescript
+npm install retake-search
+```
+
+</CodeGroup>
 
 ## Upload Data
 
@@ -52,7 +62,9 @@ developers to either upload their own data or integrate directly with Postgres.
 The `Index.add_source` function integrates Retake directly with Postgres. As long as the Retake engine is running, this
 function only needs to be run once.
 
-```python
+<CodeGroup>
+
+```python Python
 from retakesearch import Client, Index, Database, Table
 
 # When the Retake engine is run locally,
@@ -82,16 +94,40 @@ table = Table(
 index = client.create_index("my_index")
 
 # Populate the index with data from your table
-# You can add multiple tables to the same index if you want
-# to search over multiple tables in the same query
 index.add_source(database, table)
 ```
+
+```typescript Typescript
+import { Client, Database, Table, Search } from "retake-search";
+
+// When the Retake engine is run locally,
+// this is the default API key/URL
+const client = new Client("retake-test-key", "http://localhost:8000");
+
+// Provide your Postgres database credentials here
+const database = new Database("host", "user", "password", "port", "dbname");
+
+// Provide the table name, primary key, and columns you
+// wish to search over here
+const columns = ["column_to_search"];
+const table = new Table("table_name", "primary_key", columns);
+
+// Create an index
+const index = client.create_index("table_name");
+
+// Populate the index with data from your table
+index.addSource(database, table);
+```
+
+</CodeGroup>
 
 ### From Memory
 
 Data stored outside of Postgres can also be added to an index.
 
-```python
+<CodeGroup>
+
+```python Python
 documents = [{"key": "value"}]
 ids = ["id1"]
 
@@ -101,13 +137,22 @@ index.upsert(
 )
 ```
 
+```typescript Typescript
+const documents = [{ key: "value" }];
+const ids = ["id1"];
+
+index.upsert(documents, ids);
+```
+
+</CodeGroup>
+
 ## Execute a Search
 
 Inside our Python application, we are ready to write and execute our first search query.
 
-### Keyword-Based Search (BM25)
+<CodeGroup>
 
-```python
+```python Python
 from retakesearch import Search
 
 # This executes a full-text (BM25) search
@@ -117,22 +162,18 @@ response = index.search(bm25_search_query)
 print(response)
 ```
 
-### Neural Search
+```typescript Typescript
+import { Search } from "retake-search";
+import { matchQuery } from "retake-search/helpers";
 
-```python
-from retakesearch import Search
+// This executes a full-text (BM25) search
+const bm25Query = Search().query(matchQuery("column_to_search", "my query"));
+const response = index.search(bm25Query);
 
-# A field must be vectorized before neural search can be performed
-# This only needs to be done once
-neural_search_fields = ["questions"]
-index.vectorize(neural_search_fields)
-
-# This executes a neural search
-neural_search_query = Search().with_neural("Who am I?", neural_search_fields)
-response = index.search(neural_search_query)
-
-print(response)
+print(response);
 ```
+
+</CodeGroup>
 
 Note that Retake's `Search` query builder is a forked version of the
 [high-level OpenSearch Python DSL client](https://opensearch.org/docs/latest/clients/python-high-level).

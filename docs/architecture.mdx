@@ -21,7 +21,7 @@ that acts as both a search engine and data store. The search layer is primarily 
 
 ### Connection Layer
 
-Retake employs Kafka to pipe data from Postgres to the search layer. By default, Retake implements change data capture (CDC)
+Retake employs logical-replication-based Change-Data-Capture (CDC) to pipe data from Postgres to the search layer. By default, Retake implements change data capture (CDC)
 over Postgres to stay in sync — when a row is changed or new data arrives in Postgres, Retake automatically updates
 the corresponding data in the search layer.
 

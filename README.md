@@ -93,12 +93,50 @@ response = index.search(query)
 print(response)
 ```
 
+### Typescript
+
+Install the SDK
+
+```
+npm install retake-search
+```
+
+The core API is just a few functions.
+
+```typescript
+import { Client, Database, Table, Search } from "retake-search";
+import { withSemantic, withNeural, matchQuery } from "retake-search/helpers";
+
+const client = new Client("retake-test-key", "http://localhost:8000");
+
+// Replace with your database credentials
+const columns = ["column_to_search"];
+const database = new Database("host", "user", "password", "port", "dbname");
+const table = new Table("table_name", "primary_key", columns);
+
+const index = client.create_index("table_name");
+
+index.addSource(database, table);
+index.vectorize(columns);
+
+// Keyword (BM25) search
+const bm25Query = Search().query(matchQuery("column_to_search", "my query"));
+index.search(bm25Query);
+
+// Semantic (vector-based) search
+const semanticQuery = Search().query(withSemantic("my query", columns));
+index.search(semanticQuery);
+
+// Neural (keyword + semantic) search
+const neuralQuery = Search().query(withNeural("my query", columns));
+index.search(neuralQuery);
+```
+
 ## Key Features
 
 :arrows_counterclockwise: **Always in Sync**
 
-Retake leverages Kafka to integrate directly with Postgres. As data changes or new data arrives,
-Retake ensures that the indexed data is kept in sync.
+Retake leverages logical-replication-based Change-Data-Capture (CDC) to integrate directly with Postgres. As data changes or new data arrives, Retake ensures that the indexed data is kept in sync.
 
 :brain: **Intelligent Vector Cache**
 

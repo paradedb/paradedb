@@ -10,34 +10,65 @@ relevant. Neural search combines this semantic understanding with keyword-based 
 Before semantic and neural search can be performed over a field, the field must first be vectorized. Once vectorized,
 a field does not need to be vectorized again — Retake ensures that vectors are properly cached and kept in sync.
 
-```python
+<CodeGroup>
+
+```python Python
 fields_to_vectorize = ["questions", "answers"]
 index.vectorize(fields_to_vectorize)
 ```
+
+```typescript Typescript
+const fieldsToVectorize = ["questions", "answers"];
+index.vectorize(fieldsToVectorize);
+```
+
+</CodeGroup>
 
 ## Semantic Search
 
 The `with_semantic` function takes two arguments: the query and the field names to search over. It returns results
 whose vectors are most similar to the vectorized query:
 
-```python
+<CodeGroup>
+
+```python Python
 query = "Who am I?"
-fields = ["question", "answer"]
+fields = ["question", "answers"]
 
 Search().with_semantic(query, fields)
 ```
+
+```typescript Typescript
+query = "Who am I?";
+fields = ["question", "answers"];
+
+Search().withSemantic(query, fields);
+```
+
+</CodeGroup>
 
 ## Neural Search
 
 The `with_neural` function takes the same arguments as `with_semantic`. It returns results with the highest combined
 semantic and keyword-based scores:
 
-```python
+<CodeGroup>
+
+```python Python
 query = "Who am I?"
-fields = ["question", "answer"]
+fields = ["question", "answers"]
 
 Search().with_neural(query, fields)
 ```
+
+```typescript Typescript
+query = "Who am I?";
+fields = ["question", "answers"];
+
+Search().withNeural(query, fields);
+```
+
+</CodeGroup>
 
 A more detailed overview of how neural search works and why it may be useful to your application is provided
 [here](/architecture#neural-search).

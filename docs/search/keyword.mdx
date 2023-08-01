@@ -15,27 +15,57 @@ and the `match` operator for full-text queries. For instance, the `term` operato
 return documents containing the exact phrase "Who am I?", whereas the `match` operator will return
 documents containing "Who", "am", or "I":
 
-```python
+<CodeGroup>
+
+```python Python
 Search().query("term", questions="Who am I?")
 ```
 
-## Multiple Columns
+```typescript Typescript
+import { termQuery } from "retake-search/helpers";
 
-The `multi_match` operator enables search for a term in multiple columns. This example searches
-for matches in both the `question` and `answer` columns of a table:
-
-```python
-Search().query("multi_match", query="Who am I", fields=["question", "answer"])
+Search().query(termQuery("questions", "Who am I?"));
 ```
+
+</CodeGroup>
+
+## Multiple Fields
+
+The `multi_match` operator enables search for a term in multiple fields. This example searches
+for matches in both the `question` and `answer` fields of an index:
+
+<CodeGroup>
+
+```python Python
+Search().query("multi_match", query="Who am I", fields=["questions", "answers"])
+```
+
+```typescript Typescript
+import { multiMatchQuery } from "retake-search/helpers";
+
+Search().query(multiMatchQuery(["questions", "answers"], "Who am I?"));
+```
+
+</CodeGroup>
 
 ## Fuzzy Matching
 
 The `fuzzy` operator enables fuzzy search. The following query searches for matches for a query
 and allows for up to two character changes:
 
-```python
+<CodeGroup>
+
+```python Python
 Search().query("fuzzy", questions={"value": "Whom I?", "fuzziness": 2})
 ```
+
+```typescript Typescript
+import { fuzzyQuery } from "retake-search/helpers";
+
+Search().query(fuzzyQuery("questions", "Who am I?").fuzziness(2));
+```
+
+</CodeGroup>
 
 ## Boolean Queries
 
@@ -49,17 +79,32 @@ Boolean queries provide a flexible way to construct complex queries using four t
 
 - `filter`: The filter `operator` works similar to `must` but doesn't affect the scoring. It simply includes/excludes documents based on whether they match the filter condition.
 
-```python
+<CodeGroup>
+
+```python Python
 from retakesearch import Q
 
 Search().query(
     Q(
         "bool",
         must=[Q("match", questions="Who am I?")],
-        filter=[Q("term", answer="Michael")],
+        filter=[Q("term", answers="Michael")],
         must_not=[Q("term", questions="Where are you?")],
         should=[Q("match", questions="Whom are you?")]
     )
 )
 
 ```
+
+```typescript Typescript
+import { matchQuery, termQuery } from "retake-search/helpers";
+
+const query = Search()
+  .boolQuery()
+  .must(matchQuery("questions", "Who am I?"))
+  .filter(termQuery("answers", "Michael"))
+  .mustNot(termQuery("answers", "Michael"))
+  .should(matchQuery("questions", "Whom are you?"));
+```
+
+</CodeGroup>

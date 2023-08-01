@@ -13,7 +13,7 @@ services:
       - plugins.ml_commons.only_run_on_ml_node=false
 
   api:
-    image: retake/retakesearch:latest
+    image: retake/retakesearch
     depends_on:
       - core
     ports:
@@ -37,7 +37,7 @@ services:
     command: redis-server --requirepass redis
     
   pgsync:
-    image: retake/retakesync:latest
+    image: retake/retakesync
     ports:
       - 7433:7433
     sysctls:

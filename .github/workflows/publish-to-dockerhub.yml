@@ -87,8 +87,8 @@ jobs:
       - name: Build and Push Docker Image to Docker Hub
         uses: docker/build-push-action@v4
         with:
-          context: .
+          context: ./symc
           platforms: linux/amd64,linux/arm64
-          file: ./sync/Dockerfile
+          file: ./Dockerfile
           push: true
           tags: ${{ steps.metadata.outputs.tags }}

@@ -35,11 +35,6 @@ const setup = async () => {
     throw new Error("Table failed to index due to an unexpected error");
   }
 
-  console.log(
-    "Vectorizing",
-    JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]")
-  );
-
   await index.vectorize(JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]"));
   await index.addSource(database, table);
 

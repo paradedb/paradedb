@@ -89,6 +89,6 @@ jobs:
         with:
           context: ./sync
           platforms: linux/amd64,linux/arm64
-          file: ./Dockerfile
+          file: Dockerfile
           push: true
           tags: ${{ steps.metadata.outputs.tags }}

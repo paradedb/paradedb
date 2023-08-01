@@ -4,12 +4,21 @@ title: Pagination
 
 ## Basic Usage
 
-Pagination and offsets can be applied using Python slicing. The below query retries ten results, starting
-with the tenth result:
+The below query returns five results, starting with the tenth result:
 
-```python
-Search().query("match", questions="Who am I?")[10:20]
+<CodeGroup>
+
+```python Python
+Search().query("match", questions="Who am I?")[10:15]
 ```
+
+```typescript Typescript
+import { matchQuery } from "retake-search/helpers";
+
+Search().query(matchQuery("questions", "Who am I?")).size(5).from(10);
+```
+
+</CodeGroup>
 
 ## Deep Pagination
 
@@ -19,7 +28,9 @@ Retake first computes the top 50 results, and then returns only the results from
 The `search_after` operator avoids the high memory cost of deep pagination. However, it requires that the sort order
 remains consistent between pages and is unable to jump to a specific page — only the next page.
 
-```python
+<CodeGroup>
+
+```python Python
 query = Search().query("match", questions="Who am I?")[0:1000]
 
 # First page
@@ -29,3 +40,20 @@ first_response = index.search(query)
 search_after = first_response.hits[-1].meta.sort
 second_response = index.search(query.extra(search_after=search_after))
 ```
+
+```typescript Typescript
+const query = Search()
+  .query(matchQuery("questions", "Who am I?"))
+  .size(1000)
+  .from(0);
+
+// First page
+const firstResponse = index.search(query);
+
+// Second page
+const searchAfter =
+  firstResponse.hits.hits[firstResponse.hits.hits.length - 1].sort;
+const secondResponse = index.search(query.searchAfter(searchAfter));
+```
+
+</CodeGroup>

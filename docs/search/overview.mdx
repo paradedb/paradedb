@@ -12,7 +12,12 @@ pass in the search query, written using the `Search` high-level Python client.
 
 ## Basic Usage
 
-```python
+This example performs a keyword search for all rows in the Postgres table `faqs` where
+the column `question` matches the phrase "Who Am I?".
+
+<CodeGroup>
+
+```python Python
 from retakesearch import Client, Search
 
 client = Client(
@@ -30,25 +35,55 @@ query = Search().query("match", questions="Who am I?")
 response = index.search(query)
 ```
 
-The above example performs a keyword search for all rows in the Postgres table `faqs` where
-the column `question` matches the phrase "Who Am I?".
+```typescript Typescript
+import { Client, Search } from "retake-search";
+import { matchQuery } from "retake-search/helpers";
 
-## More Complex Example
+const client = new Client("retake-test-key", "http://localhost:8000");
+
+// Use client.createIndex if the index doesn't exist
+const index = client.getIndex("my_index");
+
+// Construct query
+const query = Search().query(matchQuery("questions", "Who am I?"));
+
+// Execute query
+const response = index.search(query);
+```
+
+</CodeGroup>
+
+## Query Construction
 
 Complex search logic like filters, ranking, faceting, pagination, etc. can be added to the `Search` class
 as a logical pipeline of transformations. For example:
 
-```python
+<CodeGroup>
+
+```python Python
 query = (
     Search()
     .query("match", questions="Who am I?")
-    .filter("term", answer="Michael")
-    .sort("-answer")
+    .filter("term", answers="Michael")
+    .sort("-answers")
 )
 
 response = index.search(query)
 ```
 
+```typescript Typescript
+import { matchQuery, termQuery, sort } from "retake-search/helpers"
+
+const query = Search()
+  .boolQuery()
+  .must(matchQuery("questions", "Who am I?"))
+  .filter(termQuery("answers", "Michael))
+  .sort(sort("answers", "desc"))
+```
+
+</CodeGroup>
+
 The following sections will cover the specifics of how to write different types of queries. Please note
 that this is guide is non-exhaustive, and that many more features of the `Search` client can be found
-[in the source repository](https://github.com/getretake/opensearch-py).
+[Python](https://github.com/getretake/opensearch-py) and [Typescript](https://github.com/getretake/opensearch-js) source
+repositories.

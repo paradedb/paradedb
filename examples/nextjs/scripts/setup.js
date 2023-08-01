@@ -1,27 +1,44 @@
-const { Client } = require("retake-search");
+const { Client, Database, Table } = require("retake-search");
 require("dotenv").config();
 
-const client = new Client({
-  apiKey: process.env.RETAKE_API_KEY,
-  url: process.env.RETAKE_API_URL,
-});
+const setup = async () => {
+  const client = new Client(
+    process.env.RETAKE_API_KEY,
+    process.env.RETAKE_API_URL
+  );
 
-console.log(
-  "Indexing table (this could take a while if your table is large)..."
-);
+  const database = new Database(
+    process.env.DATABASE_HOST,
+    process.env.DATABASE_USER,
+    process.env.DATABASE_PASSWORD,
+    parseInt(process.env.DATABASE_PORT || "5432"),
+    process.env.DATABASE_NAME
+  );
 
-client
-  .index({
-    database: {
-      host: process.env.DATABASE_HOST,
-      port: process.env.DATABASE_PORT,
-      user: process.env.DATABASE_USER,
-      password: process.env.DATABASE_PASSWORD,
-    },
-    table: {
-      name: process.env.DATABASE_TABLE_NAME,
-      primaryKey: process.env.DATABASE_TABLE_PRIMARY_KEY,
-      columns: JSON.parse(process.env.DATABASE_TABLE_COLUMNS),
-    },
-  })
-  .then(console.log);
+  const table = new Table(
+    process.env.DATABASE_TABLE_NAME,
+    process.env.DATABASE_TABLE_PRIMARY_KEY,
+    JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]")
+  );
+
+  console.log(
+    "Indexing table (this could take a while if your table is large)..."
+  );
+
+  let index = await client.getIndex(process.env.DATABASE_TABLE_NAME);
+
+  if (!index) {
+    index = client.createIndex(process.env.DATABASE_TABLE_NAME);
+  }
+
+  if (!index) {
+    throw new Error("Table failed to index due to an unexpected error");
+  }
+
+  await index.vectorize(JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]"));
+  await index.addSource(database, table);
+
+  return;
+};
+
+setup().then(() => console.log("Index created and source added"));

@@ -5,22 +5,31 @@ title: Sorting
 ## By Relevance
 
 The response object of each search result contains a `_score` attribute. Higher scores represent results that
-are more relevant to the search query. The `sort` function can be used to sort results by score in descending order:
-
-```python
-Search().query("term", questions="Who am I?").sort("_score")
-```
+are more relevant to the search query. By default, results are returned in descending order of `_score`.
 
 ## Custom Sorting
 
 The `sort` function also accepts field names for custom sorting. Multiple criteria can be provided,
 and the results will be sorted in order of the provided criteria.
 
-```python
+<CodeGroup>
+
+```python Python
 Search()
     .query("term", questions="Who am I?")
     .sort(
         "questions", # Ascending order
-        "-answer" # Descending order
+        "-answers" # Descending order
     )
 ```
+
+```typescript Typescript
+import { termQuery, sort } from "retake-search/helpers";
+
+Search()
+  .query(termQuery("questions", "Who am I?"))
+  .sort(sort("questions", "asc"))
+  .sort(sort("answers", "desc"));
+```
+
+</CodeGroup>

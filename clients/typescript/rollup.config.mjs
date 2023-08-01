@@ -3,17 +3,22 @@ import commonjs from "@rollup/plugin-commonjs"
 import typescript from "@rollup/plugin-typescript"
 
 export default {
-  input: "src/index.ts",
+  input: {
+    index: "src/index.ts",
+    "helpers/index": "src/helpers/index.ts",
+  },
   output: [
     {
-      file: "dist/index.cjs.js",
+      dir: "dist",
       format: "cjs",
       sourcemap: true,
+      entryFileNames: "[name].cjs.js",
     },
     {
-      file: "dist/index.esm.js",
+      dir: "dist",
       format: "es",
       sourcemap: true,
+      entryFileNames: "[name].esm.js",
     },
   ],
   plugins: [typescript(), resolve(), commonjs()],

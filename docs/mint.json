@@ -43,7 +43,7 @@
     },
     {
       "group": "Company",
-      "pages": ["company/roadmap"]
+      "pages": ["company/roadmap", "company/changelog"]
     }
   ],
   "footerSocials": {

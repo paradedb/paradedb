@@ -6,9 +6,19 @@ The `filter` function can be used to retrieve exactly the results that match fil
 
 ## String Filtering
 
-```python
-Search().filter("term", answer="Michael")
+<CodeGroup>
+
+```python Python
+Search().filter("term", answers="Michael")
 ```
+
+```typescript Typescript
+import { termQuery } from "retake-search/helpers";
+
+Search().boolQuery().filter(termQuery("answer", "Michael"));
+```
+
+</CodeGroup>
 
 ## Numeric Filtering
 
@@ -19,39 +29,91 @@ The `range` operator supports the following options:
 - `lte`: Less-than or equal to
 - `lt`: Less-than
 
-```python
+<CodeGroup>
+
+```python Python
 Search().filter("range", number_of_questions={"gte": 10, "lte": 50})
 ```
 
+```typescript Typescript
+import { rangeQuery } from "retake-search/helpers";
+
+Search().rangeQuery("number_of_questions").gte(10).lte(20);
+```
+
+</CodeGroup>
+
 For filter results where a field is equal to a specific numeric value, use the `term` operator:
 
-```python
+<CodeGroup>
+
+```python Python
 Search().filter("term", number_of_questions=5)
 ```
+
+```typescript Typescript
+import { termQuery } from "retake-search/helpers";
+
+Search().boolQuery().filter(termQuery("number_of_questions", 5));
+```
+
+</CodeGroup>
 
 ## List Filtering
 
 The `terms` operator is used to filter results where a specific value is in a list of values:
 
-```python
+<CodeGroup>
+
+```python Python
 answers_list = ["David", "Michael", "Bob"]
 
 Search().filter("terms", answers=answers_list)
 ```
 
+```typescript Typescript
+import { termsQuery } from "retake-search/helpers";
+
+answersList = ["David", "Michael", "Bob"];
+
+Search().query(termsQuery("answers", answersList));
+```
+
+</CodeGroup>
+
 ## Boolean Filtering
 
 The `term` operator can also be used for boolean filtering:
 
-```python
+<CodeGroup>
+
+```python Python
 Search().filter("term", is_active=True)
 ```
+
+```typescript Typescript
+import { termQuery } from "retake-search/helpers";
+
+Search().boolQuery().filter(termQuery("is_active", true));
+```
+
+</CodeGroup>
 
 ## Exclusion Filtering
 
 The `exclude` operator is a shortcut to the `must_not` boolean operator. The following query
 returns all results where `answer` is not "Michael":
 
-```python
-Search().exclude("term", answer="Michael")
+<CodeGroup>
+
+```python Python
+Search().exclude("term", answers="Michael")
 ```
+
+```typescript Typescript
+import { termQuery } from "retake-search/helpers";
+
+Search().boolQuery().mustNot(termQuery("answers", "Michael"));
+```
+
+</CodeGroup>

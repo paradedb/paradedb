@@ -3,12 +3,13 @@ title: Aggregation
 ---
 
 Aggregation, also known as faceting, enables developers to gather statistics about search results,
-enabling the analysis of patterns in the dataset at scale. The `aggs` function, in conjunction with
-the `A` helper, is used to add aggregations to any search query.
+enabling the analysis of patterns in the dataset at scale.
 
 ### Basic Usage
 
-```python
+<CodeGroup>
+
+```python Python
 from retakesearch import A
 
 bucket_name = "average_price"
@@ -22,69 +23,178 @@ response = index.search(
 print(response.aggregations[bucket_name].value)
 ```
 
+```typescript Typescript
+import { avgAggregation } from "retake-search/helpers";
+
+bucketName = "average_price";
+
+response = index.search(Search().avgAggregation(bucket_name, "price"));
+
+// Print the average price
+print(response.aggregations[bucket_name].value);
+```
+
+</CodeGroup>
+
 ## Operators
 
 ### Distinct Values
 
 `terms` groups results by distinct values. Each unique value becomes a bucket.
 
-```python
-A('terms', field='color')
+<CodeGroup>
+
+```python Python
+Search().aggs.metrics(bucket_name, A("terms", field="color"))
 ```
+
+```typescript Typescript
+import { termsAggregation } from "retake-search/helpers";
+
+Search().termsAggregation(bucketName, "color");
+```
+
+</CodeGroup>
 
 ### Range
 
 `range` groups results into range buckets. For numerical data, these ranges could be something like
 "1-10", "10-20", "20-30", etc.
 
-```python
-A('range', field='price', ranges=[{'from': 10, 'to': 20}, {'from': 20, 'to': 30}])
+<CodeGroup>
+
+```python Python
+Search().aggs.metrics(
+    bucket_name,
+    A('range', field='price', ranges=[{'from': 10, 'to': 20}, {'from': 20, 'to': 30}])
+)
 ```
+
+```typescript Typescript
+import { rangeAggregation } from "retake-search/helpers";
+
+Search()
+  .rangeAggregation(bucketName, "price")
+  .ranges([
+    { from: 10, to: 20 },
+    { from: 20, to: 30 },
+  ]);
+```
+
+</CodeGroup>
 
 ### Date Range
 
 `date_range` functions similarly to `range` but works with date fields.
 
-```python
-A('date_range', field='publish_date', ranges=[{'from': 'now-1d/d', 'to': 'now/d'}, {'from': 'now-1M/M', 'to': 'now/M'}])
+<CodeGroup>
+
+```python Python
+Search().aggs.metrics(
+    bucket_name,
+    A("date_range", field="publish_date", ranges=[{"from": "now-1d/d", "to": "now/d"}, {"from": "now-1M/M", "to": "now/M"}])
+)
 ```
+
+```typescript Typescript
+import { dateRangeAggregation } from "retake-search/aggregations";
+
+Search()
+  .dateRangeAggregation(bucket_name, "publish_date")
+  .ranges([
+    { from: "now-1d/d", to: "now/d" },
+    { from: "now-1M/M", to: "now/M" },
+  ]);
+```
+
+</CodeGroup>
 
 ### Histogram
 
 `histogram` groups numbers into buckets of equal width.
 
-```python
-A('histogram', field='price', interval=10)
+<CodeGroup>
+
+```python Python
+Search().aggs.metrics(
+    bucket_name,
+    A("histogram", field="price", interval=10)
+)
 ```
 
-### Date Histogram
+```typescript Typescript
+import { histogramAggregation } from "retake-search/aggregations";
 
-`date_histogram` is a special form of histogram that works with date fields.
-
-```python
-A('date_histogram', field='publish_date', interval='month')
+Search().histogramAggregationAggregation(bucket_name, "price", 10);
 ```
+
+</CodeGroup>
 
 ### Average
 
 `avg` calculates the average of a field.
 
-```python
-A('avg', field='price')
+<CodeGroup>
+
+```python Python
+Search().aggs.metrics(
+    bucket_name,
+    A("avg", field="price")
+)
 ```
+
+```typescript Typescript
+import { avgAggregation } from "retake-search/aggregations";
+
+Search().avgAggregation(bucket_name, "price");
+```
+
+</CodeGroup>
 
 ### Sum
 
 `sum` calculates the sum of a field.
 
-```python
-A('sum', field='quantity')
+<CodeGroup>
+
+```python Python
+Search().aggs.metrics(
+    bucket_name,
+    A("sum", field="price")
+)
 ```
+
+```typescript Typescript
+import { sumAggregation } from "retake-search/aggregations";
+
+Search().sumAggregation(bucket_name, "price");
+```
+
+</CodeGroup>
 
 ### Min and Max
 
 `min` and `max` calculate the min and max of a field, respectively.
 
-```python
-A('min', field='price')
+<CodeGroup>
+
+```python Python
+Search().aggs.metrics(
+    bucket_name,
+    A("min", field="price")
+)
+
+Search().aggs.metrics(
+    bucket_name,
+    A("max", field="price")
+)
 ```
+
+```typescript Typescript
+import { minAggregation, maxAggregation } from "retake-search/aggregations";
+
+Search().minAggregation(bucket_name, "price");
+Search().maxAggregation(bucket_name, "price");
+```
+
+</CodeGroup>

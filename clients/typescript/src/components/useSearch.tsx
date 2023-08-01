@@ -1,40 +1,47 @@
+import helpers from "opensearch-js"
 import { useState, useEffect, useContext, useRef } from "react"
-import { Client } from "../client"
+
+import { Client } from "../lib/client"
+import { Index } from "../lib/index"
 import SearchContext from "./SearchContext"
 
 interface SearchOptions {
-  table: string
-  query: Record<string, any>
+  indexName: string
+  query: helpers.RequestBodySearch
 }
 
-const useSearch = ({ table, query }: SearchOptions) => {
+const useSearch = ({ indexName, query }: SearchOptions) => {
   const context = useContext(SearchContext)
-  const [data, setData] = useState<null | Record<string, any>>(null)
-  const [error, setError] = useState(null)
+  const [data, setData] = useState<Record<string, any>>()
+  const [error, setError] = useState<string>()
+  const [index, setIndex] = useState<Index>()
 
   if (!context?.apiKey || !context?.url) {
     throw new Error("apiKey and url must be set in SearchProvider")
   }
 
-  const client = new Client({
-    apiKey: context.apiKey,
-    url: context.url,
-  })
-
+  const client = new Client(context.apiKey, context.url)
   const prevQueryRef = useRef<string>()
+
+  useEffect(() => {
+    client
+      .getIndex(indexName)
+      .then((index) => setIndex(index))
+      .catch((err) => setError(err))
+  })
 
   useEffect(() => {
     const stringifiedQuery = JSON.stringify(query)
 
-    if (prevQueryRef.current !== stringifiedQuery) {
-      client
-        .search({ table, dsl: query })
+    if (prevQueryRef.current !== stringifiedQuery && index !== undefined) {
+      index
+        .search(query)
         .then((res: any) => setData(res))
-        .catch((err) => setError(err))
+        .catch((err: string) => setError(err))
 
       prevQueryRef.current = stringifiedQuery
     }
-  }, [table, query])
+  }, [indexName, query])
 
   return { data, error }
 }

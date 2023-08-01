@@ -74,18 +74,15 @@ class Index:
     ) -> Any:
         json = {"index_name": self.index_name, "documents": documents, "ids": ids}
 
-        try:
-            with httpx.Client(timeout=None) as http:
-                response = http.post(
-                    f"{self.url}/index/upsert", headers=self.headers, json=json
-                )
-                response.raise_for_status()
+        with httpx.Client(timeout=None) as http:
+            response = http.post(
+                f"{self.url}/index/upsert", headers=self.headers, json=json
+            )
+            if response.status_code == 200:
                 return response.json()
-        except httpx.HTTPStatusError as exc:
-            return exc.response.json()
-        except Exception as exc:
-            return str(exc)
-
+            else:
+                raise Exception(response.text)
+            
     def create_field(self, field_name: str, field_type: str) -> None:
         json = {
             "index_name": self.index_name,

@@ -57,12 +57,16 @@ services:
       - api
       - redis
     environment:
-      - LOG_LEVEL=INFO
-      - ELASTICSEARCH_HOST=core
-      - ELASTICSEARCH_PORT=9200
-      - ELASTICSEARCH_SCHEME=http
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_AUTH=redis
-      - ELASTICSEARCH=false
-      - OPENSEARCH=true
+      LOG_LEVEL: INFO
+      ELASTICSEARCH_HOST: core
+      ELASTICSEARCH_PORT: 9200
+      ELASTICSEARCH_USER: admin
+      ELASTICSEARCH_PASSWORD: admin
+      ELASTICSEARCH_SCHEME: https
+      ELASTICSEARCH_USE_SSL: True
+      ELASTICSEARCH_VERIFY_CERTS: False
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: redis
+      ELASTICSEARCH: false
+      OPENSEARCH: true

@@ -72,7 +72,7 @@ class CreateFieldPayload(BaseModel):
 
 class SyncPayload(BaseModel):
     source: AddSourcePayload
-    json_schema: Dict[str, Any]
+    pgsync_schema: Dict[str, Any]
 
 
 @router.get("/index/{index_name}", tags=[tag])
@@ -183,7 +183,16 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
 @router.post(f"/{tag}/realtime/link", tags=[tag])
 async def realtime_link(payload: SyncPayload) -> JSONResponse:
     try:
-        body = {"source": payload.source, "schema": payload.schema_json}
+        # Make sure all values are strings
+        source = {}
+        for k, v in payload.source.dict().items():
+            if isinstance(v, str):
+                source[k] = v
+            else:
+                source[k] = str(v)
+
+        body = {"source": source, "schema": [payload.pgsync_schema]}
+        logger.info(pgsync_config.url)
         res = requests.post(f"{pgsync_config.url}/sync", json=body)
         logger.info(res.content)
         if res.status_code == status.HTTP_200_OK:

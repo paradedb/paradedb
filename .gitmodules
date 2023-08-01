@@ -1,0 +1,6 @@
+[submodule "opensearch-py"]
+	path = opensearch-py
+	url = https://github.com/getretake/opensearch-py
+[submodule "opensearch-js"]
+	path = opensearch-js
+	url = https://github.com/getretake/opensearch-js

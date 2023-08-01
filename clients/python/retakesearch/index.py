@@ -82,7 +82,7 @@ class Index:
                 return response.json()
             else:
                 raise Exception(response.text)
-            
+
     def create_field(self, field_name: str, field_type: str) -> None:
         json = {
             "index_name": self.index_name,

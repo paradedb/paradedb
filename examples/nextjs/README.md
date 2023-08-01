@@ -28,6 +28,8 @@ DATABASE_USER=***
 DATABASE_PASSWORD=***
 # Port number of your Postgres database
 DATABASE_PORT=5432
+# Database name
+DATABASE_NAME=***
 
 # Table name that you wish to index/search
 DATABASE_TABLE_NAME=my_table_name

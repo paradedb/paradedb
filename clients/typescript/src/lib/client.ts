@@ -11,50 +11,49 @@ class Client {
   }
 
   async getIndex(indexName: string) {
-    const response = await ky.get(`${this.url}/index/${indexName}`, {
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-    })
-
-    if (response.ok) {
-      return new Index(indexName, this.apiKey, this.url)
-    } else {
-      const text = await response.text()
-      throw new Error(text)
-    }
+    return await ky
+      .get(`${this.url}/index/${indexName}`, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+      })
+      .then((response) => {
+        if (response.ok) return new Index(indexName, this.apiKey, this.url)
+      })
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
   }
 
   async createIndex(indexName: string) {
-    const response = await ky.post(`${this.url}/index/create`, {
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      json: { index_name: indexName },
-    })
-
-    if (response.ok) {
-      return new Index(indexName, this.apiKey, this.url)
-    } else {
-      const text = await response.text()
-      throw new Error(text)
-    }
+    return await ky
+      .post(`${this.url}/index/create`, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        json: { index_name: indexName },
+      })
+      .then((response) => {
+        if (response.ok) return new Index(indexName, this.apiKey, this.url)
+      })
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
   }
 
   async deleteIndex(indexName: string) {
-    const response = await ky.post(`${this.url}/index/delete`, {
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      json: { index_name: indexName },
-    })
-
-    if (!response.ok) {
-      const text = await response.text()
-      throw new Error(text)
-    }
+    await ky
+      .post(`${this.url}/index/delete`, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        json: { index_name: indexName },
+      })
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
   }
 }
 

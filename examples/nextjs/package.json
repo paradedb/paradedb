@@ -20,7 +20,7 @@
     "postcss": "8.4.26",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "retake-search": "^1.0.8",
+    "retake-search": "file:../../clients/typescript",
     "tailwindcss": "3.3.3",
     "typescript": "5.1.6"
   },

@@ -1,9 +1,19 @@
 {
   "name": "retake-search",
+  "license": "Apache-2.0",
   "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",
-  "license": "Apache-2.0",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.cjs.js"
+    },
+    "./helpers": {
+      "import": "./dist/helpers/index.esm.js",
+      "require": "./dist/helpers/index.cjs.js"
+    }
+  },
   "scripts": {
     "compile": "rollup -c rollup.config.mjs",
     "clean": "rimraf dist",

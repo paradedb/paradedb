@@ -22,16 +22,17 @@ const useSearch = ({ indexName, query }: SearchOptions) => {
 
   const client = new Client(context.apiKey, context.url)
   const prevQueryRef = useRef<string>()
+  const jsonQuery = query.toJSON()
 
   useEffect(() => {
     client
       .getIndex(indexName)
       .then((index) => setIndex(index))
       .catch((err) => setError(err))
-  })
+  }, [])
 
   useEffect(() => {
-    const stringifiedQuery = JSON.stringify(query)
+    const stringifiedQuery = JSON.stringify(jsonQuery)
 
     if (prevQueryRef.current !== stringifiedQuery && index !== undefined) {
       index
@@ -41,7 +42,7 @@ const useSearch = ({ indexName, query }: SearchOptions) => {
 
       prevQueryRef.current = stringifiedQuery
     }
-  }, [indexName, query])
+  }, [indexName, jsonQuery])
 
   return { data, error }
 }

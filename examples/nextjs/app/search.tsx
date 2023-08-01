@@ -10,24 +10,24 @@ import {
   TableCell,
   Text,
 } from "@tremor/react";
-import { helpers, request, useSearch } from "retake-search";
-const { multiMatchQuery } = helpers;
+import { Search, useSearch } from "retake-search";
+import { withNeural } from "retake-search/helpers";
 
 export default () => {
   const [userInput, setUserInput] = useState<string>("");
-  const table = process.env.DATABASE_TABLE_NAME ?? "";
+  const index = process.env.DATABASE_TABLE_NAME ?? "";
   const columns = process.env.DATABASE_TABLE_COLUMNS
     ? JSON.parse(process.env.DATABASE_TABLE_COLUMNS)
     : [];
-  const query = request.query(multiMatchQuery(columns, userInput)).toJSON();
+  const query = Search().query(withNeural(userInput, columns));
 
-  const { data, error } = useSearch({ table, query });
+  const { data, error } = useSearch({ indexName: index, query: query });
   const results = data?.hits?.hits;
 
   if (error) {
     return (
       <Card>
-        <Text>{error}</Text>
+        <Text>An unexpected error occured: {error}</Text>
       </Card>
     );
   }

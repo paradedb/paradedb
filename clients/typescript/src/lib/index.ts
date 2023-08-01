@@ -68,12 +68,14 @@ class Index {
       `Adding ${table.name} to index ${this.indexName}. This could take some time if the table is large...`
     )
 
-    return await ky
+    await ky
       .post(`${this.url}/index/add_source`, {
         headers: this.headers,
         json: json,
       })
-      .json()
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
   }
 
   async search(search: helpers.RequestBodySearch) {
@@ -87,7 +89,10 @@ class Index {
         headers: this.headers,
         json: json,
       })
-      .json()
+      .then((response) => response.json())
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
   }
 
   async upsert(
@@ -96,12 +101,14 @@ class Index {
   ): Promise<any> {
     const json = { index_name: this.indexName, documents: documents, ids: ids }
 
-    return await ky
+    await ky
       .post(`${this.url}/index/upsert`, {
         headers: this.headers,
         json: json,
       })
-      .json()
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
   }
 
   async createField(fieldName: string, fieldType: string) {
@@ -111,12 +118,14 @@ class Index {
       field_type: fieldType,
     }
 
-    return await ky
+    await ky
       .post(`${this.url}/index/field/create`, {
         headers: this.headers,
         json: json,
       })
-      .json()
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
   }
 
   async vectorize(fieldNames: string[]) {
@@ -125,12 +134,14 @@ class Index {
       field_names: fieldNames,
     }
 
-    return await ky
+    await ky
       .post(`${this.url}/index/vectorize`, {
         headers: this.headers,
         json: json,
       })
-      .json()
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
   }
 }
 

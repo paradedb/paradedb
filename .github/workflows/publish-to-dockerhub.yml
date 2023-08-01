@@ -19,8 +19,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish-retake-to-dockerhub:
-    name: Publish Retake to Docker Hub
+  publish-retakesearch-to-dockerhub:
+    name: Publish Retake Search to Docker Hub
     runs-on: ubuntu-latest
 
     steps:
@@ -56,8 +56,8 @@ jobs:
           push: true
           tags: ${{ steps.metadata.outputs.tags }}
 
-  publish-pgsync-to-dockerhub:
-    name: Publish PGSync to Docker Hub
+  publish-retakesync-to-dockerhub:
+    name: Publish Retake Sync to Docker Hub
     runs-on: ubuntu-latest
 
     steps:
@@ -68,7 +68,7 @@ jobs:
         id: metadata
         uses: docker/metadata-action@v4
         with:
-          images: retake/pgsync
+          images: retake/retakesync
           tags: type=ref,event=tag
 
       # Add support for more platforms with QEMU (necessary for arm64-compatible images)
@@ -87,7 +87,7 @@ jobs:
       - name: Build and Push Docker Image to Docker Hub
         uses: docker/build-push-action@v4
         with:
-          context: ./symc
+          context: ./sync
           platforms: linux/amd64,linux/arm64
           file: ./Dockerfile
           push: true

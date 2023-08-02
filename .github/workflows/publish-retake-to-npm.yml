@@ -7,8 +7,6 @@ name: Publishing
 
 on:
   push:
-    branches:
-      - phil/npm
     tags:
       - "v*"
   workflow_dispatch:
@@ -35,9 +33,7 @@ jobs:
 
       - name: Install Dependencies
         working-directory: clients/typescript
-        run: |
-          npm install
-          npm ci
+        run: npm install && npm ci
 
       - name: Build and Publish to NPM
         working-directory: clients/typescript

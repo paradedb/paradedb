@@ -47,7 +47,6 @@ def test_postgres_to_opensearch(
     pg_container_ip = get_container_ip(pg_container_name, pg_container_network)
     print(f"PostgreSQL Docker container IP: {pg_container_ip}\n")
 
-
     # Create adatabase and a table object for our PostgreSQL container
     database = Database(
         host=pg_container_ip,

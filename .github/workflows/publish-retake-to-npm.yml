@@ -1,0 +1,42 @@
+# workflows/publish-retake-npm.yml
+#
+# Retake: Publish to NPM
+# Publish Retake as a npm package to NPM.
+
+name: Publishing
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+# This guarantees that if you push many commits to the same PR, only the latest
+# commit will get run (others get cancelled)
+concurrency:
+  group: publish-retake-to-npm-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  publish-retake-to-npm:
+    name: Publish Retake to NPM
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
+
+      - name: Set Up NodeJS
+        uses: actions/setup-node@v3
+        with:
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install Dependencies
+        working-directory: clients/typescript
+        run: npm install && npm ci
+
+      - name: Build and Publish to NPM
+        working-directory: clients/typescript
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

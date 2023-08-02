@@ -1,6 +1,6 @@
 {
   "name": "retake-search",
-  "license": "Apache-2.0",
+  "license": "Elastic License 2.0",
   "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
@@ -46,5 +46,5 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
-  "version": "1.0.9"
+  "version": "1.0.11"
 }

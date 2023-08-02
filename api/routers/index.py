@@ -4,14 +4,12 @@ from loguru import logger
 from opensearchpy.exceptions import RequestError
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Union
 
 from api.config.opensearch import OpenSearchConfig
 from api.config.pgsync import PgSyncConfig
 
-from core.extract.postgres import PostgresExtractor
 from core.search.client import Client
-from core.search.index import default_model_name
 from core.search.index_mappings import FieldType
 
 tag = "index"

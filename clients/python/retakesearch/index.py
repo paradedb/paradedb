@@ -31,8 +31,10 @@ class Index:
             "Content-Type": "application/json",
         }
 
-    def add_source(self, database: Database, table: Table) -> Any:
-        json = {
+    def add_source(
+        self, database: Database, table: Table, schema: Dict[str, Any]
+    ) -> Any:
+        source = {
             "index_name": self.index_name,
             "source_host": database.host,
             "source_user": database.user,
@@ -44,12 +46,16 @@ class Index:
             "source_columns": table.columns,
         }
 
+        schema["database"] = database.dbname
+
+        json = {
+            "source": source,
+            "pgsync_schema": schema,
+        }
+
         with httpx.Client(timeout=None) as http:
-            print(
-                f"Adding {table.name} to index {self.index_name}. This could take some time if the table is large..."
-            )
             response = http.post(
-                f"{self.url}/index/add_source", headers=self.headers, json=json
+                f"{self.url}/index/realtime/link", headers=self.headers, json=json
             )
             if not response.status_code == 200:
                 raise Exception(response.text)

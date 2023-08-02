@@ -141,61 +141,22 @@ async def delete_index(payload: IndexDeletePayload) -> JSONResponse:
         )
 
 
-@router.post(f"/{tag}/add_source", tags=[tag])
-async def add_source(payload: AddSourcePayload) -> JSONResponse:
-    # Number of rows to extract at once
-    BATCH_SIZE = 500
-
-    try:
-        index = client.get_index(payload.index_name)
-
-        extractor = PostgresExtractor(
-            host=payload.source_host,
-            port=payload.source_port,
-            user=payload.source_user,
-            password=payload.source_password,
-            dbname=payload.source_dbname,
-            schema_name=payload.source_schema_name,
-        )
-
-        for chunk in extractor.extract_all(
-            relation=payload.source_relation,
-            columns=payload.source_columns,
-            primary_key=payload.source_primary_key,
-            chunk_size=BATCH_SIZE,
-        ):
-            rows = chunk.get("rows")
-            primary_keys = chunk.get("primary_keys")
-
-            if rows and primary_keys:
-                index.upsert(documents=rows, ids=primary_keys)
-
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content=f"Source {payload.source_relation} linked to index {payload.index_name} successfully",
-        )
-    except Exception as e:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content=str(e),
-        )
-
-
 @router.post(f"/{tag}/realtime/link", tags=[tag])
 async def realtime_link(payload: SyncPayload) -> JSONResponse:
     try:
-        # Make sure all values are strings
         source = {}
-        for k, v in payload.source.dict().items():
+        for k, v in payload.source.model_dump().items():
             if isinstance(v, str):
                 source[k] = v
             else:
                 source[k] = str(v)
 
         body = {"source": source, "schema": [payload.pgsync_schema]}
-        logger.info(pgsync_config.url)
+
+        logger.info(f"Preparing to send sync request to {pgsync_config.url}")
         res = requests.post(f"{pgsync_config.url}/sync", json=body)
-        logger.info(res.content)
+        logger.info(f"Got sync response {res.content}")
+
         if res.status_code == status.HTTP_200_OK:
             return JSONResponse(
                 status_code=status.HTTP_200_OK,

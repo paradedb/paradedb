@@ -53,7 +53,7 @@ def test_postgres_to_opensearch(
         host=pg_container_ip,
         user="postgres",
         password="postgres",
-        port="5432",
+        port=5432,
         dbname="postgres",
     )
 

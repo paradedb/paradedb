@@ -34,7 +34,7 @@ layer around Postgres. Retake also provides simple search SDKs that snap into an
 
 You don't need to worry about managing separate vector stores and text search engines, uploading and embedding documents, or reindexing data. Just write search queries and let Retake handle the rest.
 
-To get started, simply start the Retake engine:
+To get started, simply download the [docker compose file](https://raw.githubusercontent.com/getretake/retake/main/docker-compose.yml) and run:
 
 ```bash
 docker compose up
@@ -145,11 +145,11 @@ Whenever data is changed in Postgres, Retake also updates the embedding/vector r
 
 :rocket: **Low-Code SDK**
 
-Retake provides intuitive search SDKs that drop into any Python application (other languages coming soon). The core API is just a few functions.
+Retake provides intuitive search SDKs that drop into any Python or Typescript application (other languages coming soon). The core API is just a few functions.
 
 :zap: **Open/ElasticSearch DSL Compatible**
 
-Retake’s query interface is built on top of the the high-level OpenSearch Python client, enabling developers to query with the full expressiveness of the OpenSearch DSL (domain-specific language).
+Retake enables developers to query with the full expressiveness of the OpenSearch DSL (domain-specific language).
 
 :globe_with_meridians: **Deployable Anywhere**
 

@@ -37,7 +37,7 @@ You don't need to worry about managing separate vector stores and text search en
 To get started, simply download the [docker compose file](https://raw.githubusercontent.com/getretake/retake/main/docker-compose.yml) and run:
 
 ```bash
-docker compose up -d
+docker compose up
 ```
 
 By default, this will start the Retake engine at `http://localhost:8000` with API key `retake-test-key`.

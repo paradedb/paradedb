@@ -40,7 +40,7 @@ def search(args: Dict[str, Any]) -> Response:
             response=f"Table {table_name} was not indexed. Did you run scripts/setup.py?",
         )
 
-    query = Search().with_neural(args["query"], columns)  # type: ignore
+    query = Search().with_neural(args["query"], columns)
     result = index.search(query)
 
     return Response(status=200, response=json.dumps(result))

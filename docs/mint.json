@@ -92,5 +92,8 @@
   "footerSocials": {
     "github": "https://github.com/getretake/retake"
   },
-  "backgroundImage": "/background.png"
+  "backgroundImage": "/background.png",
+  "integrations": {
+    "intercom": "k8wp5os9"
+  }
 }

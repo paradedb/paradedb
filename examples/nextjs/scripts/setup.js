@@ -7,32 +7,28 @@ const setup = async () => {
     process.env.RETAKE_API_URL
   );
 
-  const database = new Database(
-    process.env.DATABASE_HOST,
-    process.env.DATABASE_USER,
-    process.env.DATABASE_PASSWORD,
-    parseInt(process.env.DATABASE_PORT || "5432"),
-    process.env.DATABASE_NAME
-  );
+  const database = new Database({
+    host: process.env.DATABASE_HOST,
+    user: process.env.DATABASE_USER,
+    password: process.env.DATABASE_PASSWORD,
+    port: parseInt(process.env.DATABASE_PORT || "5432"),
+    dbName: process.env.DATABASE_NAME,
+  });
 
-  const table = new Table(
-    process.env.DATABASE_TABLE_NAME,
-    process.env.DATABASE_TABLE_PRIMARY_KEY,
-    JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]")
-  );
+  const table = new Table({
+    table: process.env.DATABASE_TABLE_NAME,
+    columns: JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]"),
+  });
 
   console.log(
     "Indexing table (this could take a while if your table is large)..."
   );
 
-  let index = await client.getIndex(process.env.DATABASE_TABLE_NAME);
-
-  if (!index) {
-    index = client.createIndex(process.env.DATABASE_TABLE_NAME);
-  }
-
-  if (!index) {
-    throw new Error("Table failed to index due to an unexpected error");
+  let index;
+  try {
+    index = await client.getIndex(process.env.DATABASE_TABLE_NAME);
+  } catch (err) {
+    index = await client.createIndex(process.env.DATABASE_TABLE_NAME);
   }
 
   await index.vectorize(JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]"));

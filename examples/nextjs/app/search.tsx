@@ -9,6 +9,7 @@ import {
   TableRow,
   TableCell,
   Text,
+  Flex,
 } from "@tremor/react";
 import { Search, useSearch } from "retake-search";
 import { withNeural } from "retake-search/helpers";
@@ -38,24 +39,30 @@ export default () => {
         value={userInput}
         onChange={(event) => setUserInput(event.target.value)}
       />
-      <Table className="mt-5">
-        <TableHead>
-          <TableRow>
-            {columns.map((column: string, index: number) => (
-              <TableHeaderCell key={index}>{column}</TableHeaderCell>
-            ))}
-          </TableRow>
-        </TableHead>
-        <TableBody>
-          {results?.map((result: any, index: number) => (
-            <TableRow key={index}>
+      {userInput === "" ? (
+        <Flex className="mt-5 justify-center">
+          <Text className="mt-4">Start typing to see search results</Text>
+        </Flex>
+      ) : (
+        <Table className="mt-5">
+          <TableHead>
+            <TableRow>
               {columns.map((column: string, index: number) => (
-                <TableCell key={index}>{result?._source?.[column]}</TableCell>
+                <TableHeaderCell key={index}>{column}</TableHeaderCell>
               ))}
             </TableRow>
-          )) ?? <></>}
-        </TableBody>
-      </Table>
+          </TableHead>
+          <TableBody>
+            {results?.map((result: any, index: number) => (
+              <TableRow key={index}>
+                {columns.map((column: string, index: number) => (
+                  <TableCell key={index}>{result?._source?.[column]}</TableCell>
+                ))}
+              </TableRow>
+            )) ?? <></>}
+          </TableBody>
+        </Table>
+      )}
     </Card>
   );
 };

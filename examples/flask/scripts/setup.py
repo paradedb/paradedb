@@ -19,7 +19,6 @@ database = Database(
 
 table = Table(
     name=os.getenv("DATABASE_TABLE_NAME", ""),
-    primary_key=os.getenv("DATABASE_TABLE_PRIMARY_KEY", ""),
     columns=json.loads(os.getenv("DATABASE_TABLE_COLUMNS", "[]")),
 )
 

@@ -4,13 +4,14 @@ from loguru import logger
 from opensearchpy.exceptions import RequestError
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Optional, Union
 
 from api.config.opensearch import OpenSearchConfig
 from api.config.pgsync import PgSyncConfig
 
 from core.extract.postgres import PostgresExtractor
 from core.search.client import Client
+from core.search.index import default_model_name
 from core.search.index_mappings import FieldType
 
 tag = "index"
@@ -52,27 +53,24 @@ class UpsertPayload(BaseModel):
     ids: List[Union[str, int]]
 
 
-class AddSourcePayload(BaseModel):
-    index_name: str
-    source_host: str
-    source_port: int
-    source_user: str
-    source_password: str
-    source_relation: str
-    source_primary_key: str
-    source_columns: List[str]
-    source_dbname: str = "postgres"
-    source_schema_name: str = "public"
-
-
 class CreateFieldPayload(BaseModel):
     index_name: str
     field_name: str
     field_type: str
 
 
-class SyncPayload(BaseModel):
-    source: AddSourcePayload
+class Database(BaseModel):
+    index_name: str
+    source_host: str
+    source_port: int
+    source_user: str
+    source_password: str
+    source_dbname: str = "postgres"
+    source_schema_name: str = "public"
+
+
+class AddSourcePayload(BaseModel):
+    source: Database
     pgsync_schema: Dict[str, Any]
 
 
@@ -141,17 +139,13 @@ async def delete_index(payload: IndexDeletePayload) -> JSONResponse:
         )
 
 
-@router.post(f"/{tag}/realtime/link", tags=[tag])
-async def realtime_link(payload: SyncPayload) -> JSONResponse:
+@router.post(f"/{tag}/add_source", tags=[tag])
+async def add_source(payload: AddSourcePayload) -> JSONResponse:
     try:
-        source = {}
-        for k, v in payload.source.model_dump().items():
-            if isinstance(v, str):
-                source[k] = v
-            else:
-                source[k] = str(v)
-
+        source = {k: str(v) if not isinstance(v, str) else v for k, v in payload.source.model_dump().items()}
         body = {"source": source, "schema": [payload.pgsync_schema]}
+
+        logger.info(body)
 
         logger.info(f"Preparing to send sync request to {pgsync_config.url}")
         res = requests.post(f"{pgsync_config.url}/sync", json=body)
@@ -165,7 +159,7 @@ async def realtime_link(payload: SyncPayload) -> JSONResponse:
         else:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                content=f"Could not start real time sync: {res.reason}",
+                content=f"Could not start real time sync: {res.content}",
             )
     except Exception as e:
         return JSONResponse(
@@ -182,8 +176,8 @@ async def search_documents(payload: SearchPayload) -> JSONResponse:
             status_code=status.HTTP_200_OK, content=index.search(payload.dsl)
         )
     except RequestError as e:
-        error_stub = "is not knn_vector type"
-        if error_stub in str(e):
+        not_vectorized_error_stub = "is not knn_vector type"
+        if not_vectorized_error_stub in str(e):
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content=f"Failed to search index {payload.index_name} because not all fields were vectorized. Did you call Index.vectorize()?",

@@ -1,4 +1,4 @@
-version: '3'
+version: "3"
 
 services:
   core:
@@ -35,7 +35,7 @@ services:
   redis:
     image: redis
     command: redis-server --requirepass redis
-    
+
   pgsync:
     image: retake/retakesync
     ports:
@@ -53,7 +53,7 @@ services:
       - api
       - redis
     environment:
-      LOG_LEVEL: INFO
+      LOG_LEVEL: WARNING
       ELASTICSEARCH_HOST: core
       ELASTICSEARCH_PORT: 9200
       ELASTICSEARCH_USER: admin

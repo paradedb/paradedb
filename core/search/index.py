@@ -31,6 +31,8 @@ class TaskStatus(Enum):
 class OpenSearchTaskException(Exception):
     pass
 
+class ModelNotLoadedException(Exception):
+    pass
 
 class Index:
     def __init__(self, name: str, client: OpenSearch) -> None:
@@ -42,6 +44,8 @@ class Index:
         self.model = Model(client)
         self.pipeline = Pipeline(client)
         self.pipeline_id = f"{self.name}_pipeline"
+
+        self._load_model()
 
     # Private Methods
 
@@ -78,6 +82,44 @@ class Index:
                 knn_vector_properties.append(prop)
 
         return knn_vector_properties
+
+
+    def _load_model(self) -> str:
+        model_group = self.model_group.get(default_model_group)
+        if not model_group:
+            model_group = self.model_group.create(default_model_group)
+
+        model_group_id = model_group["model_group_id"]
+
+        # Get/register model
+        model = self.model.get(default_model_name)
+        model_id = None
+
+        if not model:
+            response = self.model.register(
+                name=default_model_name,
+                version=default_model_version,
+                model_format=default_model_format,
+                model_group_id=model_group_id,
+            )
+            task_id = response["task_id"]
+            task_result = self._wait_for_task_result(task_id)
+            model_id = task_result["model_id"]
+        else:
+            model_id = model["model_id"]
+
+        logger.info(f"Loading and deploying model: {model_id}")
+        resp = self.model.load(model_id)
+        self._wait_for_task_result(resp["task_id"])
+
+        logger.info("Model loaded")
+
+        resp = self.model.deploy(model_id)
+        self._wait_for_task_result(resp["task_id"])
+
+        logger.info(f"Model deployed: {resp}")
+
+        return model_id
 
     # Public Methods
     def upsert(
@@ -117,7 +159,7 @@ class Index:
         model = self.model.get(default_model_name)
 
         if not model:
-            raise Exception(f"Model {default_model_name} not found.")
+            raise ModelNotLoadedException("Unexpected error: Retake embedding model was not loaded. Try re-initializing the index with get_index.")
 
         model_id = model["model_id"]
         add_model_id(dsl, model_id)
@@ -134,41 +176,9 @@ class Index:
 
     def register_neural_search_fields(self, fields: Optional[List[str]] = None) -> None:
         if fields:
-            # Get/create model group
-            model_group = self.model_group.get(default_model_group)
-            if not model_group:
-                model_group = self.model_group.create(default_model_group)
-
-            model_group_id = model_group["model_group_id"]
-
-            # Get/register model
-            model = self.model.get(default_model_name)
-            model_id = None
-
-            if not model:
-                response = self.model.register(
-                    name=default_model_name,
-                    version=default_model_version,
-                    model_format=default_model_format,
-                    model_group_id=model_group_id,
-                )
-                task_id = response["task_id"]
-                task_result = self._wait_for_task_result(task_id)
-                model_id = task_result["model_id"]
-            else:
-                model_id = model["model_id"]
-
-            logger.info(f"Loading and deploying model: {model_id}")
-            resp = self.model.load(model_id)
-            self._wait_for_task_result(resp["task_id"])
-
-            logger.info("Model loaded")
-
-            resp = self.model.deploy(model_id)
-            self._wait_for_task_result(resp["task_id"])
-
-            logger.info(f"Model deployed: {resp}")
-
+            # Get/create model
+            model_id = self._load_model()
+            
             # Get/create pipeline
             pipeline = self.pipeline.get(pipeline_id=self.pipeline_id)
 

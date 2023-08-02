@@ -142,14 +142,17 @@ async def delete_index(payload: IndexDeletePayload) -> JSONResponse:
 @router.post(f"/{tag}/add_source", tags=[tag])
 async def add_source(payload: AddSourcePayload) -> JSONResponse:
     try:
-        source = {k: str(v) if not isinstance(v, str) else v for k, v in payload.source.model_dump().items()}
+        source = {
+            k: str(v) if not isinstance(v, str) else v
+            for k, v in payload.source.model_dump().items()
+        }
         body = {"source": source, "schema": [payload.pgsync_schema]}
 
         logger.info(body)
 
         logger.info(f"Preparing to send sync request to {pgsync_config.url}")
         res = requests.post(f"{pgsync_config.url}/sync", json=body)
-        logger.info(f"Got sync response {res.content}")
+        logger.info(f"Got sync response {res.text}")
 
         if res.status_code == status.HTTP_200_OK:
             return JSONResponse(
@@ -159,7 +162,7 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
         else:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                content=f"Could not start real time sync: {res.content}",
+                content=f"Could not start real time sync: {res.text}",
             )
     except Exception as e:
         return JSONResponse(

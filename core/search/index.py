@@ -31,8 +31,10 @@ class TaskStatus(Enum):
 class OpenSearchTaskException(Exception):
     pass
 
+
 class ModelNotLoadedException(Exception):
     pass
+
 
 class Index:
     def __init__(self, name: str, client: OpenSearch) -> None:
@@ -44,8 +46,6 @@ class Index:
         self.model = Model(client)
         self.pipeline = Pipeline(client)
         self.pipeline_id = f"{self.name}_pipeline"
-
-        self._load_model()
 
     # Private Methods
 
@@ -83,8 +83,9 @@ class Index:
 
         return knn_vector_properties
 
-
     def _load_model(self) -> str:
+        logger.info("Loading model...")
+
         model_group = self.model_group.get(default_model_group)
         if not model_group:
             model_group = self.model_group.create(default_model_group)
@@ -119,7 +120,7 @@ class Index:
 
         logger.info(f"Model deployed: {resp}")
 
-        return model_id
+        return cast(str, model_id)
 
     # Public Methods
     def upsert(
@@ -158,11 +159,9 @@ class Index:
 
         model = self.model.get(default_model_name)
 
-        if not model:
-            raise ModelNotLoadedException("Unexpected error: Retake embedding model was not loaded. Try re-initializing the index with get_index.")
-
-        model_id = model["model_id"]
-        add_model_id(dsl, model_id)
+        if model:
+            model_id = model["model_id"]
+            add_model_id(dsl, model_id)
 
         # Get embedding field names
         embedding_field_names = self._get_embedding_field_names()
@@ -178,7 +177,7 @@ class Index:
         if fields:
             # Get/create model
             model_id = self._load_model()
-            
+
             # Get/create pipeline
             pipeline = self.pipeline.get(pipeline_id=self.pipeline_id)
 

@@ -29,7 +29,7 @@ class Table:
         self.children = children
 
     def to_schema(self) -> Dict[str, Any]:
-        schema = {"table": self.name, "columns": self.columns}
+        schema: Dict[str, Any] = {"table": self.name, "columns": self.columns}
 
         if self.transform:
             schema["transform"] = self.transform
@@ -64,7 +64,7 @@ class Index:
             "source_dbname": database.dbname,
         }
 
-        pgsync_schema = dict()
+        pgsync_schema: Dict[str, Any] = dict()
         pgsync_schema["database"] = database.dbname
         pgsync_schema["index"] = self.index_name
         pgsync_schema["nodes"] = table.to_schema()
@@ -74,7 +74,9 @@ class Index:
             "pgsync_schema": pgsync_schema,
         }
 
-        print(f"Preparing to sync index {self.index_name} with table {table.name}. This may take some time if your table is large...")
+        print(
+            f"Preparing to sync index {self.index_name} with table {table.name}. This may take some time if your table is large..."
+        )
 
         with httpx.Client(timeout=None) as http:
             response = http.post(

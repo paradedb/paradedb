@@ -56,15 +56,19 @@ def test_postgres_to_opensearch(
         dbname="postgres",
     )
 
-    table = Table(name="city", primary_key="city_id", columns=["city_name"])
+    table = Table(
+        name="city",
+        columns=["city_name"],
+        transform={"rename": {"city_name": "name"}},
+    )
 
     # Create an index for our vectors in OpenSearch, and sync the database table to it
     index = retake_client.create_index(test_index_name)
     index.add_source(database, table)
 
     # Vectorize the field
-    index.vectorize(["city_name"])
+    index.vectorize(["name"])
 
-    neural_search_query = Search().with_neural("New York City", ["city_name"])
+    neural_search_query = Search().with_neural("New York City", ["name"])
     response = index.search(neural_search_query)
     assert len(response["hits"]["hits"]) > 0

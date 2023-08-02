@@ -25,7 +25,7 @@ class Client:
 
     # Public Methods
 
-    def create_index(self, index_name: str) -> Index:
+    def create_index(self, index_name: str, refresh: bool = False) -> Index:
         if self._check_index_exists(index_name=index_name):
             raise ValueError(f"Index {index_name} already exists")
 
@@ -33,7 +33,7 @@ class Client:
 
         return Index(name=index_name, client=self.client)
 
-    def get_index(self, index_name: str) -> Index:
+    def get_index(self, index_name: str, refresh: bool = False) -> Index:
         if not self._check_index_exists(index_name=index_name):
             raise ValueError(f"Index {index_name} does not exist")
 

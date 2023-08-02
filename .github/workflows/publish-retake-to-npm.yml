@@ -7,6 +7,8 @@ name: Publishing
 
 on:
   push:
+    branches:
+      - phil/npm
     tags:
       - "v*"
   workflow_dispatch:
@@ -28,15 +30,14 @@ jobs:
 
       - name: Set Up NodeJS
         uses: actions/setup-node@v3
-        with:
-          node-version: "18.x"
-          registry-url: "https://registry.npmjs.org"
 
       - name: Install Dependencies
         working-directory: clients/typescript
-        run: npm ci
+        run: |
+          npm install
+          npm ci
 
-      - name: Publish
+      - name: Build and Publish to NPM 
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

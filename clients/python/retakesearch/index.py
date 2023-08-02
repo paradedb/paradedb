@@ -1,7 +1,7 @@
 import httpx
 
 from opensearchpy import Search
-from typing import Any, List, Dict, Union
+from typing import Any, List, Dict, Optional, Union
 
 
 class Database:
@@ -14,10 +14,33 @@ class Database:
 
 
 class Table:
-    def __init__(self, name: str, primary_key: str, columns: List[str]):
+    def __init__(
+        self,
+        name: str,
+        columns: List[str],
+        transform: Optional[Dict[str, Any]] = None,
+        relationship: Optional[Dict[str, Any]] = None,
+        children: Optional[List["Table"]] = None,
+    ):
         self.name = name
-        self.primary_key = primary_key
         self.columns = columns
+        self.transform = transform
+        self.relationship = relationship
+        self.children = children
+
+    def to_schema(self) -> Dict[str, Any]:
+        schema = {"table": self.name, "columns": self.columns}
+
+        if self.transform:
+            schema["transform"] = self.transform
+
+        if self.relationship:
+            schema["relationship"] = self.relationship
+
+        if self.children:
+            schema["children"] = [child.to_schema() for child in self.children]
+
+        return schema
 
 
 class Index:
@@ -31,9 +54,7 @@ class Index:
             "Content-Type": "application/json",
         }
 
-    def add_source(
-        self, database: Database, table: Table, schema: Dict[str, Any]
-    ) -> Any:
+    def add_source(self, database: Database, table: Table) -> Any:
         source = {
             "index_name": self.index_name,
             "source_host": database.host,
@@ -41,21 +62,23 @@ class Index:
             "source_password": database.password,
             "source_port": database.port,
             "source_dbname": database.dbname,
-            "source_relation": table.name,
-            "source_primary_key": table.primary_key,
-            "source_columns": table.columns,
         }
 
-        schema["database"] = database.dbname
+        pgsync_schema = dict()
+        pgsync_schema["database"] = database.dbname
+        pgsync_schema["index"] = self.index_name
+        pgsync_schema["nodes"] = table.to_schema()
 
         json = {
             "source": source,
-            "pgsync_schema": schema,
+            "pgsync_schema": pgsync_schema,
         }
+
+        print(f"Preparing to sync index {self.index_name} with table {table.name}. This may take some time if your table is large...")
 
         with httpx.Client(timeout=None) as http:
             response = http.post(
-                f"{self.url}/index/realtime/link", headers=self.headers, json=json
+                f"{self.url}/index/add_source", headers=self.headers, json=json
             )
             if not response.status_code == 200:
                 raise Exception(response.text)

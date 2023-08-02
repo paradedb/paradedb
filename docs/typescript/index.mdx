@@ -1,0 +1,134 @@
+---
+title: Index
+---
+
+The `Index` class is used to perform actions on a specific index like search and data ingestion. Use
+[`Client`](/typescript/client) to get or create an `Index` object.
+
+## Methods
+
+### `upsert`
+
+Upserts documents into the index.
+
+```typescript Typescript
+index.upsert((documents = [{ questions: "Who am I?" }]), (ids = ["id1"]));
+```
+
+**Parameters**
+
+<ParamField body="documents" type="List[Dict]" required>
+  A list of JSON objects.
+</ParamField>
+<ParamField body="ids" type="List[str]" required>
+  A list of string IDs, where each ID corresponds to a document in the
+  `documents` list at the same position. Must be the same length as `documents`.
+</ParamField>
+
+### `addSource`
+
+Establishes real-time data sync between the `Index` and a Postgres table.
+
+```typescript Typescript
+import { Database, Table } from "retake-search";
+
+const database = new Database("host", "user", "password", "port", "dbname");
+const table = new Table("table_name", "primary_key", columns);
+
+index.addSource(database, table);
+```
+
+**Parameters**
+
+<ParamField body="database" type="Database" required>
+  A [`Database`](/typescript/database) object.
+</ParamField>
+<ParamField body="table" type="Table" required>
+  A [`Table`](/typescript/table) object.
+</ParamField>
+
+### `search`
+
+Executes a search query.
+
+```typescript Typescript
+import { Search } from "retake-search";
+
+const query = Search().query(termQuery("questions", "Who am I?"));
+response = index.search(query);
+```
+
+**Parameters**
+
+<ParamField body="search" type="Search" required>
+  A [`Search`](/typescript/search) object.
+</ParamField>
+
+**Returns**
+
+<Accordion title="Response Object">
+```json 
+{
+  "took": 34,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 1,
+      "relation": "eq"
+    },
+    "max_score": 1.0,
+    "hits": [
+      {
+        "_index": "example-index",
+        "_type": "_doc",
+        "_id": "id1",
+        "_score": 1.0,
+        "_source": {
+          "questions": "Who am I?"
+        }
+      }
+    ]
+  }
+}
+```
+</Accordion>
+
+### `vectorize`
+
+Vectorizes a provided list of fields for the purpose of enabling semantic and neural search over them.
+Once vectorized, a field does not need to be vectorized again — Retake ensures that vectors are properly cached
+and kept in sync.
+
+```typescript Typescript
+index.vectorize(["questions", "answers"]);
+```
+
+**Parameters**
+
+<ParamField body="fieldNames" type="List[str]" required>
+  A list of field names to vectorize.
+</ParamField>
+
+### `createField`
+
+Creates a new field inside the index.
+
+```typescript Typescript
+index.createField("new_field", "text");
+```
+
+**Parameters**
+
+<ParamField body="field_name" type="str" required>
+  The name of the new field.
+</ParamField>
+<ParamField body="field_type" type="str" required>
+  The type of the new field. Must be a valid
+  [FieldType](https://github.com/getretake/retake/blob/dev/core/search/index_mappings.py#L6).
+</ParamField>

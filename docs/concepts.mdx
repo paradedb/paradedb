@@ -1,0 +1,45 @@
+---
+title: High-Level Concepts
+---
+
+## Data
+
+### Document
+
+In Retake, a document is a basic unit of information that can be indexed. It's a structured JSON object
+containing information that represents the data of a single entity. A search in Retake returns a list of
+relevant documents.
+
+### Field
+
+Each document consists of fields, which can be likened to columns in a database table, or keys of a JSON
+object.
+
+### Index
+
+An index is a collection of documents. Typically, developers will choose to group similar documents under
+a single index. A search in Retake is performed over a single index.
+
+## Search
+
+### Keyword-Based Search
+
+Keyword-based search, using the BM25 algorithm, is a statistical approach to ranking search results based on
+term frequency and inverse document frequency. It calculates a score for each document that reflects how often a
+query term appears, considering the frequency of that term in the entire collection of documents.
+
+Keyword-based search is especially useful for retrieving search results based on names, proper nouns, and specific terms.
+
+### Semantic Search
+
+Semantic search utilizes [embeddings](https://platform.openai.com/docs/guides/embeddings) to understand
+the context and intent behind a user's search query, rather than merely matching keywords.
+
+### Neural Search
+
+Neural search is a technique for delivering more accurate, contextually-aware search results by merging semantic search
+with keyword-based search.
+
+Retake's neural search feature is powered by the [OpenSearch neural search plugin](https://opensearch.org/docs/latest/search-plugins/neural-search/).
+When the developer [executes a neural search](/search/neural), Retake triggers a process that calculates both a "keyword-based score" and a
+"semantic score" before returning the results with the highest combined score.

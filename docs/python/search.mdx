@@ -1,0 +1,20 @@
+---
+title: Search
+---
+
+The `Search` class is used to construct search queries via a logical pipeline of transformations.
+Please refer to the [how to search guide](/search) for more information on how to use the `Search`
+class.
+
+## Basic Usage
+
+```python Python
+from retakesearch import Search
+
+query = Search().query("match", questions="Who am I?")
+response = index.search(query)
+```
+
+Note that the `Search` class is based on a forked version of the
+[Opensearch Python client](https://github.com/getretake/opensearch-py) `Search` class and
+has almost all — if not all — of the capabilities of the Opensearch `Search` class.

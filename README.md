@@ -60,10 +60,11 @@ from retakesearch import Client, Index, Database, Table, Search
 client = Client(api_key="retake-test-key", url="http://localhost:8000")
 
 database = Database(
-    host-"***",
+    host="***",
     user="***",
     password="***",
     port=5432
+    dbname="***"
 )
 
 columns = ["column1"]

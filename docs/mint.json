@@ -19,10 +19,33 @@
     "type": "github",
     "url": "https://github.com/getretake/retake"
   },
+  "anchors": [
+    {
+      "name": "How to Search",
+      "icon": "magnifying-glass",
+      "url": "search"
+    },
+    {
+      "name": "Python Client",
+      "icon": "python",
+      "url": "python"
+    },
+    {
+      "name": "Typescript Client",
+      "icon": "js",
+      "url": "typescript"
+    }
+  ],
   "navigation": [
     {
       "group": "Welcome",
-      "pages": ["introduction", "setup", "quickstart", "architecture"]
+      "pages": [
+        "introduction",
+        "setup",
+        "quickstart",
+        "architecture",
+        "concepts"
+      ]
     },
     {
       "group": "How to Search",
@@ -44,6 +67,26 @@
     {
       "group": "Company",
       "pages": ["company/roadmap", "company/changelog"]
+    },
+    {
+      "group": "Python",
+      "pages": [
+        "python/client",
+        "python/index",
+        "python/search",
+        "python/database",
+        "python/table"
+      ]
+    },
+    {
+      "group": "Typescript",
+      "pages": [
+        "typescript/client",
+        "typescript/index",
+        "typescript/search",
+        "typescript/database",
+        "typescript/table"
+      ]
     }
   ],
   "footerSocials": {

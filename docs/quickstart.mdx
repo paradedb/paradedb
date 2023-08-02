@@ -9,11 +9,6 @@ description: Add neural search to your Python app in under five minutes
   team](http://calendly.com/philippemnoel).
 </Note>
 
-<Info>
-  **Prerequisite** Please ensure that you have [enabled logical
-  replication](/setup) in your Postgres database.
-</Info>
-
 In this tutorial, we will implement neural search over Postgres using the `retakesearch` Python library.
 This tutorial will only cover Retake-specific code and assumes that you already have a Python environment
 where you would like to integrate Retake.
@@ -55,6 +50,11 @@ developers to either upload their own data or integrate directly with Postgres.
 
 ### From Postgres
 
+<Info>
+  **Prerequisite** Please ensure that you have [enabled logical
+  replication](/setup) in your Postgres database.
+</Info>
+
 The `Index.add_source` function integrates Retake directly with Postgres. As long as the Retake engine is running, this
 function only needs to be run once.
 
@@ -76,6 +76,7 @@ database = Database(
     user="***",
     password="***",
     port=5432,
+    dbname="***"
 )
 
 # Provide the table name, primary key, and columns you

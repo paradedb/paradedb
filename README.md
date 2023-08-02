@@ -34,10 +34,10 @@ layer around Postgres. Retake also provides simple search SDKs that snap into an
 
 You don't need to worry about managing separate vector stores and text search engines, uploading and embedding documents, or reindexing data. Just write search queries and let Retake handle the rest.
 
-To get started, simply start the Retake engine:
+To get started, simply download the [docker compose file](https://raw.githubusercontent.com/getretake/retake/main/docker-compose.yml) and run:
 
 ```bash
-docker compose up
+docker compose up -d
 ```
 
 By default, this will start the Retake engine at `http://localhost:8000` with API key `retake-test-key`.

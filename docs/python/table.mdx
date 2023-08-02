@@ -1,0 +1,29 @@
+---
+title: Table
+---
+
+The `Table` class is used to store information about a Postgres table.
+
+## Instantiation
+
+```python Python
+from retakesearch import Table
+
+table = Table(
+    name="table_name",
+    primary_key="primary_key_column",
+    columns=["questions", "answers"]
+)
+```
+
+**Parameters**
+
+<ParamField body="name" type="str" required>
+  Table name
+</ParamField>
+<ParamField body="primary_key" type="str" required>
+  Primary key column name
+</ParamField>
+<ParamField body="columns" type="List[str]" required>
+  Name of columns to index
+</ParamField>

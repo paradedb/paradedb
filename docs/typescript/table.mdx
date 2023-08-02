@@ -1,0 +1,25 @@
+---
+title: Table
+---
+
+The `Table` class is used to store information about a Postgres table.
+
+## Instantiation
+
+```typescript Typescript
+import { Table } from "retake-search";
+
+const table = new Table("table_name", "primary_key", ["questions", "answers"]);
+```
+
+**Parameters**
+
+<ParamField body="name" type="str" required>
+  Table name
+</ParamField>
+<ParamField body="primary_key" type="str" required>
+  Primary key column name
+</ParamField>
+<ParamField body="columns" type="List[str]" required>
+  Name of columns to index
+</ParamField>

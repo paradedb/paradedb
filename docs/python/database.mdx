@@ -1,0 +1,37 @@
+---
+title: Database
+---
+
+The `Database` class is used to store Postgres database credentials.
+
+## Instantiation
+
+```python Python
+from retakesearch import Database
+
+database = Database(
+    host="***",
+    user="***",
+    password="***",
+    port=5432
+    dbname="***"
+)
+```
+
+**Parameters**
+
+<ParamField body="host" type="str" required>
+  Postgres host address
+</ParamField>
+<ParamField body="user" type="str" required>
+  Postgres username
+</ParamField>
+<ParamField body="password" type="str" required>
+  Postgres password
+</ParamField>
+<ParamField body="dbname" type="Tstrable" required>
+  Postgres database name
+</ParamField>
+<ParamField body="port" type="int" required>
+  Postgres port number
+</ParamField>

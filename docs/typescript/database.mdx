@@ -1,0 +1,31 @@
+---
+title: Database
+---
+
+The `Database` class is used to store Postgres database credentials.
+
+## Instantiation
+
+```typescript Typescript
+import { Database } from "retake-search";
+
+const database = new Database("host", "user", "password", "port", "dbname");
+```
+
+**Parameters**
+
+<ParamField body="host" type="str" required>
+  Postgres host address
+</ParamField>
+<ParamField body="user" type="str" required>
+  Postgres username
+</ParamField>
+<ParamField body="password" type="str" required>
+  Postgres password
+</ParamField>
+<ParamField body="port" type="int" required>
+  Postgres port number
+</ParamField>
+<ParamField body="dbname" type="Tstrable" required>
+  Postgres database name
+</ParamField>

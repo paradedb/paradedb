@@ -1,0 +1,77 @@
+---
+title: Client
+---
+
+The `Client` class is used to get, create, and delete indices.
+
+## Instantiation
+
+```python Python
+from retakesearch import Client
+
+client = Client(
+    api_key="retake-test-key",
+    url="http://localhost:8000"
+)
+```
+
+**Parameters**
+
+<ParamField body="api_key" type="string" required>
+  Retake API key. Defaults to `retake-test-key` if `docker compose up` is run.
+</ParamField>
+<ParamField body="model" type="string" required>
+  Retake URL. Defaults to `http://localhost:8000` if `docker compose up` is run.
+</ParamField>
+
+## Methods
+
+### `create_index`
+
+Creates an empty index.
+
+```python Python
+index = client.create_index("test_index")
+```
+
+**Parameters**
+
+<ParamField body="index_name" type="string" required>
+  The name of the index to create.
+</ParamField>
+
+**Returns**
+
+An [`Index`](/python/index) object.
+
+### `get_index`
+
+Gets an index.
+
+```python Python
+index = client.get_index("test_index")
+```
+
+**Parameters**
+
+<ParamField body="index_name" type="string" required>
+  The name of the index to get.
+</ParamField>
+
+**Returns**
+
+An [`Index`](/python/index) object.
+
+### `delete_index`
+
+Deletes an index and all its documents.
+
+```python Python
+index = client.delete_index("test_index")
+```
+
+**Parameters**
+
+<ParamField body="index_name" type="string" required>
+  The name of the index to delete.
+</ParamField>

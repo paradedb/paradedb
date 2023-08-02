@@ -9,7 +9,13 @@ The `Database` class is used to store Postgres database credentials.
 ```typescript Typescript
 import { Database } from "retake-search";
 
-const database = new Database("host", "user", "password", "port", "dbname");
+const database = new Database({
+  host: "***",
+  user: "***",
+  password: "***",
+  dbName: "***",
+  port: 5432,
+});
 ```
 
 **Parameters**

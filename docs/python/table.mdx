@@ -11,7 +11,6 @@ from retakesearch import Table
 
 table = Table(
     name="table_name",
-    primary_key="primary_key_column",
     columns=["questions", "answers"]
 )
 ```
@@ -21,9 +20,21 @@ table = Table(
 <ParamField body="name" type="str" required>
   Table name
 </ParamField>
-<ParamField body="primary_key" type="str" required>
+<ParamField body="columns" type="str" required>
   Primary key column name
 </ParamField>
-<ParamField body="columns" type="List[str]" required>
-  Name of columns to index
+<ParamField body="children" type="Dict[str, Any]">
+  Child tables. Should be specified only if you wish to combine multiple tables
+  inside a single index. All child tables provided must be linked to the primary
+  table with a foreign key. Follows the [pgsync
+  schema](https://pgsync.com/tutorial/table-with-single-child-node/).
+</ParamField>
+<ParamField body="transform" type="Dict[str, Any]">
+  Enables developers to rename fields, specify field types, and concatenate
+  fields. Follows the [pgsync
+  schema](https://pgsync.com/tutorial/transform-nodes/).
+</ParamField>
+<ParamField body="relationship" type="Dict[str, Any]">
+  Should only be passed into a child table. Follows the [pgsync
+  schema](https://pgsync.com/tutorial/relationship-with-object-variant/).
 </ParamField>

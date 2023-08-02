@@ -83,7 +83,6 @@ database = Database(
 # wish to search over here
 table = Table(
     name="faqs"
-    primary_key="id",
     columns=["questions", "answers"]
 )
 
@@ -102,12 +101,21 @@ import { Client, Database, Table, Search } from "retake-search";
 const client = new Client("retake-test-key", "http://localhost:8000");
 
 // Provide your Postgres database credentials here
-const database = new Database("host", "user", "password", "port", "dbname");
+const database = new Database({
+  host: "***",
+  user: "***",
+  password: "***",
+  dbName: "***",
+  port: 5432,
+});
 
 // Provide the table name, primary key, and columns you
 // wish to search over here
 const columns = ["column_to_search"];
-const table = new Table("table_name", "primary_key", columns);
+const table = new Table({
+  table: "table_name",
+  columns: columns,
+});
 
 // Create an index
 const index = client.create_index("table_name");

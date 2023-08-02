@@ -50,7 +50,7 @@ def test_postgres_to_opensearch(
 
     # Create adatabase and a table object for our PostgreSQL container
     database = Database(
-        host="127.0.0.1",
+        host=pg_container_ip,
         user="postgres",
         password="postgres",
         port="5432",

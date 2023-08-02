@@ -37,7 +37,7 @@ jobs:
           npm install
           npm ci
 
-      - name: Build and Publish to NPM 
+      - name: Build and Publish to NPM
         working-directory: clients/typescript
         run: npm publish
         env:

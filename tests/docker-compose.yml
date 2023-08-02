@@ -11,6 +11,16 @@ services:
       file: ../docker-compose.yml
       service: api
 
+  redis:
+    extends:
+      file: ../docker-compose.yml
+      service: redis
+  
+  pgsync:
+    extends:
+      file: ../docker-compose.yml
+      service: pgsync
+
   postgres:
     image: postgres:latest
     environment:

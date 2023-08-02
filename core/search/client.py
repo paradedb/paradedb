@@ -13,6 +13,9 @@ class Client:
             http_auth=(user, password),
             use_ssl=True,
             verify_certs=verify_certs,
+            max_retries=3,
+            retry_on_timeout=True,
+            timeout=30,
         )
 
     # Private Methods

@@ -12,7 +12,7 @@ on:
       - staging
       - dev
     paths:
-      - "opensearch-py/**"
+      - "submodules/opensearch-py/**"
       - ".github/workflows/publish-opensearch-to-pypi.yml"
   workflow_dispatch:
 
@@ -55,7 +55,7 @@ jobs:
         run: pip install setuptools wheel twine
 
       - name: Build and Test OpenSearch
-        working-directory: opensearch-py
+        working-directory: submodules/opensearch-py
         run: |
           python setup.py sdist bdist_wheel
           cd dist
@@ -65,5 +65,5 @@ jobs:
       # OpenSearch's standard release process
       - name: Publish to PyPi (prod only)
         if: steps.env.outputs.environment == 'prod'
-        working-directory: opensearch-py/dist
+        working-directory: submodules/opensearch-py/dist
         run: twine upload * -u ${{ secrets.PYPI_USERNAME }} -p ${{ secrets.PYPI_PASSWORD }} --verbose

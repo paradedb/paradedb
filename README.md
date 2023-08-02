@@ -74,6 +74,7 @@ table = Table(
 )
 
 index = client.create_index("my_index")
+# Note: The table must have a primary key
 index.add_source(database, table)
 
 index.vectorize(columns)
@@ -125,6 +126,7 @@ const table = new Table({
 
 const index = client.create_index("table_name");
 
+// Note: The table must have a primary key
 index.addSource(database, table);
 index.vectorize(columns);
 

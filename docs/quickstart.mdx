@@ -90,6 +90,7 @@ table = Table(
 index = client.create_index("my_index")
 
 # Populate the index with data from your table
+# Note: The table must have a primary key
 index.add_source(database, table)
 ```
 
@@ -121,6 +122,7 @@ const table = new Table({
 const index = client.create_index("table_name");
 
 // Populate the index with data from your table
+// Note: The table must have a primary key
 index.addSource(database, table);
 ```
 

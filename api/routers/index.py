@@ -1,6 +1,7 @@
 import requests
 from fastapi import APIRouter, status
 from loguru import logger
+from opensearchpy.exceptions import RequestError
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
 from typing import List, Dict, Any, Union
@@ -219,10 +220,22 @@ async def search_documents(payload: SearchPayload) -> JSONResponse:
         return JSONResponse(
             status_code=status.HTTP_200_OK, content=index.search(payload.dsl)
         )
+    except RequestError as e:
+        error_stub = "is not knn_vector type"
+        if error_stub in str(e):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=f"Failed to search index {payload.index_name} because not all fields were vectorized. Did you call Index.vectorize()?",
+            )
+        else:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=f"Failed to search index {payload.index_name}: {e}",
+            )
     except Exception as e:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            content=f"Failed to search documents: {e}",
+            content=f"Failed to search index {payload.index_name}: {e}",
         )
 
 

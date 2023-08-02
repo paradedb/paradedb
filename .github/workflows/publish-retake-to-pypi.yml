@@ -1,4 +1,4 @@
-# workflows/publish-to-pypi.yml
+# workflows/publish-retake-to-pypi.yml
 #
 # Retake: Publish to PyPi
 # Publish Retake as a pip package to PyPi.
@@ -19,11 +19,11 @@ on:
 # This guarantees that if you push many commits to the same PR, only the latest
 # commit will get run (others get cancelled)
 concurrency:
-  group: publish-pypi-dockerhub-${{ github.head_ref || github.run_id }}
+  group: publish-retake-to-pypi-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  publish-to-pypi:
+  publish-retake-to-pypi:
     name: Publish Retake to PyPi
     runs-on: ubuntu-latest
 

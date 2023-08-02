@@ -51,8 +51,12 @@ class Index {
     }
   }
 
-  async addSource(database: Database, table: Table) {
-    const json = {
+  async addSource(
+    database: Database,
+    table: Table,
+    schema: Record<string, any>
+  ) {
+    const source = {
       index_name: this.indexName,
       source_host: database.host,
       source_user: database.user,
@@ -64,12 +68,15 @@ class Index {
       source_columns: table.columns,
     }
 
-    console.log(
-      `Adding ${table.name} to index ${this.indexName}. This could take some time if the table is large...`
-    )
+    schema["database"] = database.dbName
+
+    const json = {
+      source,
+      pgsync_schema: schema,
+    }
 
     await ky
-      .post(`${this.url}/index/add_source`, {
+      .post(`${this.url}/index/realtime/link`, {
         headers: this.headers,
         json: json,
       })

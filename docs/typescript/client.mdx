@@ -72,3 +72,86 @@ const index = client.deleteIndex("test_index");
 <ParamField body="indexName" type="string" required>
   The name of the index to delete.
 </ParamField>
+
+### `listIndices`
+
+Lists all indices that have been created.
+
+```typescript Typescript
+client.listIndices();
+```
+
+**Returns**
+
+A `Promise` containing a list of all available indices.
+
+### `describeIndex`
+
+Returns the fields and number of documents within a specified index.
+
+```typescript Typescript
+client.describeIndex("test_index");
+```
+
+**Parameters**
+
+<ParamField body="indexName" type="string" required>
+  The name of the index.
+</ParamField>
+
+**Returns**
+
+A `Promise` containing a response object.
+
+<Accordion title="Response Object">
+```json 
+{
+    "count": 983,
+    "fields": {
+        "_meta": {
+            "type": "object"
+        },
+        "name": {
+            "type": "text",
+            "fields": {
+                "keyword": {
+                    "type": "keyword",
+                    "ignore_above": 256
+                }
+            }
+        },
+        "description": {
+            "type": "text",
+            "fields": {
+                "keyword": {
+                    "type": "keyword",
+                    "ignore_above": 256
+                }
+            }
+        }
+    },
+    "vectorized_fields": {
+        "name": {
+            "type": "knn_vector",
+            "dimension": 384,
+            "method": {
+                "engine": "lucene",
+                "space_type": "l2",
+                "name": "hnsw",
+                "parameters": {}
+            }
+        },
+        "description": {
+            "type": "knn_vector",
+            "dimension": 384,
+            "method": {
+                "engine": "lucene",
+                "space_type": "l2",
+                "name": "hnsw",
+                "parameters": {}
+            }
+        }
+    }
+}
+```
+</Accordion>

@@ -65,8 +65,8 @@
       "pages": ["deployment/local", "deployment/kubernetes"]
     },
     {
-      "group": "Company",
-      "pages": ["company/roadmap", "company/changelog"]
+      "group": "Product",
+      "pages": ["product/roadmap", "product/changelog"]
     },
     {
       "group": "Python",

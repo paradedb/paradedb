@@ -1,6 +1,11 @@
 from opensearchpy import OpenSearch
 
 from core.search.index import Index
+from typing import List
+
+# Users are not allowed to create indices with these prefixes
+# because these are reserved for internal use by OpenSearch
+reserved_index_prefixes = [".", "security-auditlog"]
 
 
 class Client:
@@ -25,15 +30,20 @@ class Client:
 
     # Public Methods
 
-    def create_index(self, index_name: str, refresh: bool = False) -> Index:
+    def create_index(self, index_name: str) -> Index:
         if self._check_index_exists(index_name=index_name):
             raise ValueError(f"Index {index_name} already exists")
+
+        if any(index_name.startswith(prefix) for prefix in reserved_index_prefixes):
+            raise ValueError(
+                f"Index {index_name} cannot start with any of {reserved_index_prefixes}"
+            )
 
         self.client.indices.create(index=index_name)
 
         return Index(name=index_name, client=self.client)
 
-    def get_index(self, index_name: str, refresh: bool = False) -> Index:
+    def get_index(self, index_name: str) -> Index:
         if not self._check_index_exists(index_name=index_name):
             raise ValueError(f"Index {index_name} does not exist")
 
@@ -41,3 +51,13 @@ class Client:
 
     def delete_index(self, index_name: str) -> None:
         self.client.indices.delete(index=index_name, ignore=[400, 404])
+
+    def list_indices(self) -> List[str]:
+        indices = self.client.indices.get_alias()
+        index_names = filter(
+            lambda x: not any(
+                x.startswith(prefix) for prefix in reserved_index_prefixes
+            ),
+            indices.keys(),
+        )
+        return list(index_names)

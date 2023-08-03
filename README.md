@@ -76,7 +76,6 @@ table = Table(
 index = client.create_index("my_index")
 # Note: The table must have a primary key
 index.add_source(database, table)
-
 index.vectorize(columns)
 
 # Keyword (BM25) search

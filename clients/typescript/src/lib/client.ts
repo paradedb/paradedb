@@ -57,6 +57,34 @@ class Client {
         throw new Error(await err.response.text())
       })
   }
+
+  async listIndices() {
+    return await ky
+      .get(`${this.url}/client/indices`, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        timeout: false,
+      })
+      .json()
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
+  }
+
+  async describeIndex(indexName: string) {
+    return await ky
+      .get(`${this.url}/index/${indexName}`, {
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        timeout: false,
+      })
+      .json()
+      .catch(async (err) => {
+        throw new Error(await err.response.text())
+      })
+  }
 }
 
 export { Client }

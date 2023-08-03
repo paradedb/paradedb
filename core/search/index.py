@@ -219,3 +219,28 @@ class Index:
 
     def reindex(self) -> None:
         helpers.reindex(self.client, self.name, self.name)
+
+    def describe(self) -> Dict[str, Any]:
+        count = self.client.count(index=self.name)["count"]
+        mapping = self.client.indices.get_mapping(index=self.name)
+        all_properties = (
+            mapping.get(self.name, dict())
+            .get("mappings", dict())
+            .get("properties", dict())
+        )
+        fields = {
+            k: v
+            for k, v in all_properties.items()
+            if not k.endswith(reserved_embedding_field_name_ending)
+        }
+        vectorized_fields = {
+            k[: -len(reserved_embedding_field_name_ending)]: v
+            for k, v in all_properties.items()
+            if k.endswith(reserved_embedding_field_name_ending)
+        }
+
+        return {
+            "count": count,
+            "fields": fields,
+            "vectorized_fields": vectorized_fields,
+        }

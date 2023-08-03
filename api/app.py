@@ -8,6 +8,7 @@ from starlette.responses import JSONResponse
 from typing import Callable, Optional, Any
 
 from .routers import index
+from .routers import client
 from .routers import base
 
 # TODO: Add SSL and remove this
@@ -69,3 +70,4 @@ app.add_middleware(
 app.add_middleware(AuthMiddleware, api_key_validator=APIKeyValidator(API_KEY))
 app.include_router(index.router)
 app.include_router(base.router)
+app.include_router(client.router)

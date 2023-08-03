@@ -6,7 +6,8 @@
     "build": "next build",
     "start": "next dev",
     "lint": "next lint",
-    "setup": "node ./scripts/setup.js"
+    "setup": "node ./scripts/setup.js",
+    "preinstall": "node ./scripts/preinstall.js"
   },
   "dependencies": {
     "@tremor/react": "^3.4.1",

@@ -21,7 +21,7 @@ const columns = process.env.DATABASE_TABLE_COLUMNS
   ? JSON.parse(process.env.DATABASE_TABLE_COLUMNS)
   : [];
 
-export default () => {
+const SearchComponent = () => {
   const [userInput, setUserInput] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
@@ -80,3 +80,5 @@ export default () => {
     </Card>
   );
 };
+
+export default SearchComponent;

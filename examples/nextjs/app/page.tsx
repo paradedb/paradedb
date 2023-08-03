@@ -2,7 +2,7 @@
 import Search from "./search";
 import { SearchProvider } from "retake-search";
 
-export default () => {
+const Page = () => {
   return (
     <SearchProvider
       apiKey={process.env.RETAKE_API_KEY ?? ""}
@@ -14,3 +14,5 @@ export default () => {
     </SearchProvider>
   );
 };
+
+export default Page;

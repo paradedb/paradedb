@@ -39,11 +39,15 @@ export default () => {
 
   return (
     <Card>
-      <Metric>TV Show Search Demo</Metric>
+      <Metric>Search Demo</Metric>
       <Flex className="gap-x-4 mt-6">
         <TextInput
           value={userInput}
           onChange={(event) => setUserInput(event.target.value)}
+          placeholder="Search your dataset here"
+          onKeyDown={(evt) => {
+            if (evt.key === "Enter") setSearchQuery(userInput);
+          }}
         />
         <Button onClick={() => setSearchQuery(userInput)} color="indigo">
           Search

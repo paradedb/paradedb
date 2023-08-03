@@ -18,6 +18,7 @@ class Table:
         self,
         name: str,
         columns: List[str],
+        schema: str = "public",
         transform: Optional[Dict[str, Any]] = None,
         relationship: Optional[Dict[str, Any]] = None,
         children: Optional[List["Table"]] = None,
@@ -25,11 +26,16 @@ class Table:
         self.name = name
         self.columns = columns
         self.transform = transform
+        self.schema = schema
         self.relationship = relationship
         self.children = children
 
     def to_schema(self) -> Dict[str, Any]:
-        schema: Dict[str, Any] = {"table": self.name, "columns": self.columns}
+        schema: Dict[str, Any] = {
+            "table": self.name,
+            "columns": self.columns,
+            "schema": self.schema,
+        }
 
         if self.transform:
             schema["transform"] = self.transform

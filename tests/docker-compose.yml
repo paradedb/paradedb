@@ -15,7 +15,7 @@ services:
     extends:
       file: ../docker-compose.yml
       service: redis
-  
+
   pgsync:
     extends:
       file: ../docker-compose.yml
@@ -30,5 +30,10 @@ services:
     ports:
       - 5432:5432
     volumes:
+      - ./postgres.conf:/etc/postgresql/postgres.conf
       - ./create_tables.sql:/docker-entrypoint-initdb.d/create_tables.sql
       - ./fill_tables.sql:/docker-entrypoint-initdb.d/fill_tables.sql
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgres.conf"

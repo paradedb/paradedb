@@ -31,5 +31,10 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=postgres
     volumes:
+      - ./postgres.conf:/etc/postgresql/postgres.conf
       - ./create_tables.sql:/docker-entrypoint-initdb.d/create_tables.sql
       - ./fill_tables.sql:/docker-entrypoint-initdb.d/fill_tables.sql
+    command:
+      - "postgres"
+      - "-c"
+      - "config_file=/etc/postgresql/postgres.conf"

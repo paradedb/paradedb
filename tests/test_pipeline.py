@@ -47,24 +47,6 @@ def test_postgres_to_opensearch(
     pg_container_ip = get_container_ip(pg_container_name, pg_container_network)
     print(f"PostgreSQL Docker container IP: {pg_container_ip}\n")
 
-
-
-    # Get the container name, network, and IP address of the PostgreSQL Docker container spun up by pytest-docker
-    # as part of the retake_client fixture
-    matching_containers = get_matching_containers("-pgsync-1")
-    pgsync_container_name = matching_containers[0].name
-    print(f"PGSync Docker container name: {pgsync_container_name}")
-
-    pgsync_container_network = pgsync_container_name.split("-")[0] + "_default"
-    print(f"PGSync Docker container network: {pgsync_container_network}")
-
-    pgsync_container_ip = get_container_ip(pgsync_container_name, pgsync_container_network)
-    print(f"PGSync Docker container IP: {pgsync_container_ip}\n")
-
-
-
-
-
     # Create adatabase and a table object for our PostgreSQL container
     database = Database(
         host=pg_container_ip,

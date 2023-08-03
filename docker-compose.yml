@@ -11,7 +11,6 @@ services:
       - plugins.security.disabled=false
       - plugins.ml_commons.model_access_control_enabled=true
       - plugins.ml_commons.only_run_on_ml_node=false
-      - bootstrap.memory_lock=true
 
   api:
     image: retake/retakesearch:latest

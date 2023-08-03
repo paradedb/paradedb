@@ -8,7 +8,7 @@ name: Publishing
 on:
   push:
     tags:
-      - "v*"
+      - "*"
   workflow_dispatch:
 
 # This guarantees that if you push many commits to the same PR, only the latest

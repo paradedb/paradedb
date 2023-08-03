@@ -162,7 +162,7 @@ jobs:
         if: steps.env.outputs.environment == 'prod'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v${{ steps.version.outputs.version }}
+          tag_name: ${{ steps.version.outputs.version }}
           body: Retake Search Production Release on ${{ steps.date.outputs.date }}
           draft: false
         env:

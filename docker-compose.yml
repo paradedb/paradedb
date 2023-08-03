@@ -65,3 +65,5 @@ services:
       REDIS_AUTH: redis
       ELASTICSEARCH: false
       OPENSEARCH: true
+    volumes:
+      - .:/app

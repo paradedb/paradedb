@@ -13,12 +13,11 @@ services:
       - plugins.ml_commons.only_run_on_ml_node=false
 
   api:
-    image: retake/retakesearch
+    image: retake/retakesearch:latest
     depends_on:
       - core
     ports:
       - 8000:8000
-    command: uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
     environment:
       API_KEY: retake-test-key
       OPENSEARCH_HOST: core
@@ -33,11 +32,11 @@ services:
       - .:/app
 
   redis:
-    image: redis
+    image: redis:latest
     command: redis-server --requirepass redis
 
   pgsync:
-    image: retake/retakesync
+    image: retake/retakesync:latest
     ports:
       - 7433:7433
     sysctls:

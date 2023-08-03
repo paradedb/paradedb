@@ -34,8 +34,38 @@ services:
     extends:
       file: ./docker-compose.yml
       service: redis
-    
+
   pgsync:
-    extends:
-      file: ./docker-compose.yml
-      service: pgsync
+    working_dir: /sync
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - 7433:7433
+    sysctls:
+      - net.ipv4.tcp_keepalive_time=200
+      - net.ipv4.tcp_keepalive_intvl=200
+      - net.ipv4.tcp_keepalive_probes=5
+    labels:
+      org.label-schema.name: "pgsync"
+      org.label-schema.description: "Postgres to OpenSearch sync"
+      com.label-schema.service-type: "daemon"
+    depends_on:
+      - core
+      - api
+      - redis
+    command: uvicorn sidecar:app --host 0.0.0.0 --port 7433 --reload
+    environment:
+      LOG_LEVEL: WARNING
+      ELASTICSEARCH_HOST: core
+      ELASTICSEARCH_PORT: 9200
+      ELASTICSEARCH_USER: admin
+      ELASTICSEARCH_PASSWORD: admin
+      ELASTICSEARCH_SCHEME: https
+      ELASTICSEARCH_USE_SSL: True
+      ELASTICSEARCH_VERIFY_CERTS: False
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_AUTH: redis
+      ELASTICSEARCH: false
+      OPENSEARCH: true

@@ -4,6 +4,7 @@ import helpers from "opensearch-js"
 interface TableSchema {
   table: string
   columns: string[]
+  schema?: string
   transform?: { [key: string]: any }
   relationship?: { [key: string]: any }
   children?: TableSchema[]
@@ -36,6 +37,7 @@ class Database {
 class Table {
   table: string
   columns: string[]
+  schema?: string
   transform?: { [key: string]: any }
   relationship?: { [key: string]: any }
   children?: Table[]
@@ -43,6 +45,7 @@ class Table {
   constructor(args: TableSchema) {
     this.table = args.table
     this.columns = args.columns
+    this.schema = args.schema ?? "public"
     this.transform = args.transform
     this.relationship = args.relationship
 
@@ -54,6 +57,7 @@ class Table {
     const schema: TableSchema = {
       table: this.table,
       columns: this.columns,
+      schema: this.schema,
     }
 
     if (this.transform) schema.transform = this.transform

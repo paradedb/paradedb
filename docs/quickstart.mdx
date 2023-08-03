@@ -79,8 +79,7 @@ database = Database(
     dbname="***"
 )
 
-# Provide the table name, primary key, and columns you
-# wish to search over here
+# Provide the table name and columns you wish to search over here
 table = Table(
     name="faqs"
     columns=["questions", "answers"]
@@ -110,8 +109,7 @@ const database = new Database({
   port: 5432,
 });
 
-// Provide the table name, primary key, and columns you
-// wish to search over here
+// Provide the table name and columns you wish to search over here
 const columns = ["column_to_search"];
 const table = new Table({
   table: "table_name",

@@ -12,23 +12,7 @@ import { Table } from "retake-search";
 const table = new Table({
   table: "table_name",
   columns: ["column1"],
-  // Optional
-  transform: {
-    rename: {
-      column1: "another_name",
-    },
-  },
-  // Optional
-  children: [
-    new Table({
-      table: "child_table",
-      columns: ["column2", "column3"],
-      relationship: {
-        variant: "object",
-        type: "one_to_one",
-      },
-    }),
-  ],
+  schema: "public",
 });
 ```
 
@@ -39,6 +23,9 @@ const table = new Table({
 </ParamField>
 <ParamField body="columns" type="str" required>
   Primary key column name
+</ParamField>
+<ParamField body="schema" type="str" default="public">
+  Table schema name
 </ParamField>
 <ParamField body="children" type="Dict[str, Any]">
   Child tables. Should be specified only if you wish to combine multiple tables

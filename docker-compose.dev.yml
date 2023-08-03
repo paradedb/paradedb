@@ -36,9 +36,8 @@ services:
       service: redis
 
   pgsync:
-    working_dir: /sync
     build:
-      context: .
+      context: ./sync
       dockerfile: Dockerfile
     ports:
       - 7433:7433

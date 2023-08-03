@@ -27,13 +27,28 @@ index.upsert((documents = [{ questions: "Who am I?" }]), (ids = ["id1"]));
 
 ### `addSource`
 
+<Info>
+  **Prerequisite** Your table must have a primary key. If you are joining
+  multiple tables under a same index, they must be linked via primary keys. See
+  [Table](/typescript/table) for more details.
+</Info>
+
 Establishes real-time data sync between the `Index` and a Postgres table.
 
 ```typescript Typescript
 import { Database, Table } from "retake-search";
 
-const database = new Database("host", "user", "password", "port", "dbname");
-const table = new Table("table_name", "primary_key", columns);
+const database = new Database({
+  host: "***",
+  user: "***",
+  password: "***",
+  dbName: "***",
+  port: 5432,
+});
+const table = new Table({
+  table: "table_name",
+  columns: ["column_to_search"],
+});
 
 index.addSource(database, table);
 ```

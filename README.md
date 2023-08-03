@@ -70,11 +70,11 @@ database = Database(
 columns = ["column1"]
 table = Table(
     name="table_name",
-    primary_key="primary_key_column",
     columns=columns
 )
 
 index = client.create_index("my_index")
+# Note: The table must have a primary key
 index.add_source(database, table)
 
 index.vectorize(columns)
@@ -112,11 +112,21 @@ const client = new Client("retake-test-key", "http://localhost:8000");
 
 // Replace with your database credentials
 const columns = ["column_to_search"];
-const database = new Database("host", "user", "password", "port", "dbname");
-const table = new Table("table_name", "primary_key", columns);
+const database = new Database({
+  host: "***",
+  user: "***",
+  password: "***",
+  dbName: "***",
+  port: 5432,
+});
+const table = new Table({
+  table: "table_name",
+  columns: columns,
+});
 
 const index = client.create_index("table_name");
 
+// Note: The table must have a primary key
 index.addSource(database, table);
 index.vectorize(columns);
 

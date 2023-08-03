@@ -1,6 +1,22 @@
 import ky from "ky"
 import helpers from "opensearch-js"
 
+interface TableSchema {
+  table: string
+  columns: string[]
+  transform?: { [key: string]: any }
+  relationship?: { [key: string]: any }
+  children?: TableSchema[]
+}
+
+interface DatabaseSchema {
+  host: string
+  user: string
+  password: string
+  port: number
+  dbName: string
+}
+
 class Database {
   host: string
   user: string
@@ -8,30 +24,44 @@ class Database {
   port: number
   dbName: string
 
-  constructor(
-    host: string,
-    user: string,
-    password: string,
-    port: number,
-    dbName: string
-  ) {
-    this.host = host
-    this.user = user
-    this.password = password
-    this.port = port
-    this.dbName = dbName
+  constructor(args: DatabaseSchema) {
+    this.host = args.host
+    this.user = args.user
+    this.password = args.password
+    this.port = args.port
+    this.dbName = args.dbName
   }
 }
 
 class Table {
-  name: string
-  primaryKey: string
+  table: string
   columns: string[]
+  transform?: { [key: string]: any }
+  relationship?: { [key: string]: any }
+  children?: Table[]
 
-  constructor(name: string, primaryKey: string, columns: string[]) {
-    this.name = name
-    this.primaryKey = primaryKey
-    this.columns = columns
+  constructor(args: TableSchema) {
+    this.table = args.table
+    this.columns = args.columns
+    this.transform = args.transform
+    this.relationship = args.relationship
+
+    if (args.children)
+      this.children = args.children.map((child) => new Table(child))
+  }
+
+  toSchema(): TableSchema {
+    const schema: TableSchema = {
+      table: this.table,
+      columns: this.columns,
+    }
+
+    if (this.transform) schema.transform = this.transform
+    if (this.relationship) schema.relationship = this.relationship
+    if (this.children)
+      schema.children = this.children.map((child) => child.toSchema())
+
+    return schema
   }
 }
 
@@ -52,26 +82,35 @@ class Index {
   }
 
   async addSource(database: Database, table: Table) {
-    const json = {
+    const source = {
       index_name: this.indexName,
       source_host: database.host,
       source_user: database.user,
       source_password: database.password,
       source_port: database.port,
       source_dbname: database.dbName,
-      source_relation: table.name,
-      source_primary_key: table.primaryKey,
-      source_columns: table.columns,
+    }
+
+    const pgsyncSchema = {
+      database: database.dbName,
+      index: this.indexName,
+      nodes: table.toSchema(),
+    }
+
+    const json = {
+      source,
+      pgsync_schema: pgsyncSchema,
     }
 
     console.log(
-      `Adding ${table.name} to index ${this.indexName}. This could take some time if the table is large...`
+      `Preparing to sync index ${this.indexName} with table ${table.table}. This may take some time if your table is large...`
     )
 
     await ky
       .post(`${this.url}/index/add_source`, {
         headers: this.headers,
         json: json,
+        timeout: false,
       })
       .catch(async (err) => {
         throw new Error(await err.response.text())
@@ -88,6 +127,7 @@ class Index {
       .post(`${this.url}/index/search`, {
         headers: this.headers,
         json: json,
+        timeout: false,
       })
       .then((response) => response.json())
       .catch(async (err) => {
@@ -105,6 +145,7 @@ class Index {
       .post(`${this.url}/index/upsert`, {
         headers: this.headers,
         json: json,
+        timeout: false,
       })
       .catch(async (err) => {
         throw new Error(await err.response.text())
@@ -122,6 +163,7 @@ class Index {
       .post(`${this.url}/index/field/create`, {
         headers: this.headers,
         json: json,
+        timeout: false,
       })
       .catch(async (err) => {
         throw new Error(await err.response.text())
@@ -138,6 +180,7 @@ class Index {
       .post(`${this.url}/index/vectorize`, {
         headers: this.headers,
         json: json,
+        timeout: false,
       })
       .catch(async (err) => {
         throw new Error(await err.response.text())
@@ -145,4 +188,4 @@ class Index {
   }
 }
 
-export { Index, Database, Table }
+export { Index, Database, Table, DatabaseSchema, TableSchema }

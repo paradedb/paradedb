@@ -30,6 +30,12 @@ index.upsert(
 
 ### `add_source`
 
+<Info>
+  **Prerequisite** Your table must have a primary key. If you are joining
+  multiple tables under a same index, they must be linked via primary keys. See
+  [Table](/python/table) for more details.
+</Info>
+
 Establishes real-time data sync between the `Index` and a Postgres table.
 
 ```python Python
@@ -45,7 +51,6 @@ database = Database(
 
 table = Table(
     name="table_name",
-    primary_key="primary_key_column",
     columns=["questions", "answers"]
 )
 

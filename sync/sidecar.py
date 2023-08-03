@@ -71,10 +71,10 @@ async def sync(request: Request) -> Response:
         bootstrap_proc.wait()
         out, err = bootstrap_proc.communicate()
         logger.info(out)
-        logger.error(err)
 
         if bootstrap_proc.returncode is None or bootstrap_proc.returncode != 0:
-            return JSONResponse("failed to run pgsync boostrap", 400)
+            decoded_err = (err).decode("utf-8")
+            return JSONResponse(f"Failed to sync: {decoded_err}", 400)
 
         # Start pgsync
         subprocess.Popen(

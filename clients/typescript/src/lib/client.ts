@@ -33,6 +33,7 @@ class Client {
           "Content-Type": "application/json",
         },
         json: { index_name: indexName },
+        timeout: false,
       })
       .then((response) => {
         if (response.ok) return new Index(indexName, this.apiKey, this.url)
@@ -50,6 +51,7 @@ class Client {
           "Content-Type": "application/json",
         },
         json: { index_name: indexName },
+        timeout: false,
       })
       .catch(async (err) => {
         throw new Error(await err.response.text())

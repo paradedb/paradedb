@@ -3,12 +3,12 @@ version: "3"
 services:
   core:
     extends:
-      file: ../docker-compose.yml
+      file: ../docker-compose.dev.yml
       service: core
 
   api:
     extends:
-      file: ../docker-compose.yml
+      file: ../docker-compose.dev.yml
       service: api
 
   redis:

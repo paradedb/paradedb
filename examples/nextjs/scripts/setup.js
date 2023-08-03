@@ -20,16 +20,14 @@ const setup = async () => {
     columns: JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]"),
   });
 
-  console.log(
-    "Indexing table (this could take a while if your table is large)..."
-  );
-
   let index;
   try {
     index = await client.getIndex(process.env.DATABASE_TABLE_NAME);
   } catch (err) {
     index = await client.createIndex(process.env.DATABASE_TABLE_NAME);
   }
+
+  console.log("Vectorizing fields...");
 
   await index.vectorize(JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]"));
   await index.addSource(database, table);

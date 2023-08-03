@@ -10,6 +10,8 @@ import {
   TableCell,
   Text,
   Flex,
+  Button,
+  Metric,
 } from "@tremor/react";
 import { Search, useSearch } from "retake-search";
 import { withNeural } from "retake-search/helpers";
@@ -19,9 +21,11 @@ const columns = process.env.DATABASE_TABLE_COLUMNS
   ? JSON.parse(process.env.DATABASE_TABLE_COLUMNS)
   : [];
 
-export default () => {
+const SearchComponent = () => {
   const [userInput, setUserInput] = useState<string>("");
-  const query = Search().query(withNeural(userInput, columns));
+  const [searchQuery, setSearchQuery] = useState<string>("");
+
+  const query = Search().query(withNeural(searchQuery, columns));
   const { data, error } = useSearch({ indexName: index, query: query });
   const results = data?.hits?.hits;
 
@@ -35,11 +39,21 @@ export default () => {
 
   return (
     <Card>
-      <TextInput
-        value={userInput}
-        onChange={(event) => setUserInput(event.target.value)}
-      />
-      {userInput === "" ? (
+      <Metric>Search Demo</Metric>
+      <Flex className="gap-x-4 mt-6">
+        <TextInput
+          value={userInput}
+          onChange={(event) => setUserInput(event.target.value)}
+          placeholder="Search your dataset here"
+          onKeyDown={(evt) => {
+            if (evt.key === "Enter") setSearchQuery(userInput);
+          }}
+        />
+        <Button onClick={() => setSearchQuery(userInput)} color="indigo">
+          Search
+        </Button>
+      </Flex>
+      {searchQuery === "" ? (
         <Flex className="mt-5 justify-center">
           <Text className="mt-4">Start typing to see search results</Text>
         </Flex>
@@ -66,3 +80,5 @@ export default () => {
     </Card>
   );
 };
+
+export default SearchComponent;

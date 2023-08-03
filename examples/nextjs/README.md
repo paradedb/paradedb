@@ -1,4 +1,4 @@
-This is a demo Next.js app built with `retake-search`. The app enables users to perform BM25 search over your Postgres table.
+This is a demo Next.js app built with `retake-search`. The app enables users to perform search over your Postgres table.
 
 ## Get Started
 

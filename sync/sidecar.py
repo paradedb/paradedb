@@ -50,7 +50,6 @@ async def sync(request: Request) -> Response:
             "ELASTICSEARCH_VERIFY_CERTS": os.getenv("ELASTICSEARCH_VERIFY_CERTS"),
             "REDIS_HOST": os.getenv("REDIS_HOST"),
             "REDIS_PORT": os.getenv("REDIS_PORT"),
-            "REDIS_AUTH": os.getenv("REDIS_AUTH"),
             "ELASTICSEARCH": os.getenv("ELASTICSEARCH"),
             "OPENSEARCH": os.getenv("OPENSEARCH"),
         }

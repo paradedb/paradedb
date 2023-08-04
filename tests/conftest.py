@@ -1,13 +1,30 @@
+import docker
 import pytest
 import requests
 
 from requests.auth import HTTPBasicAuth
 from requests.exceptions import ConnectionError
 
-from clients.python.retakesearch.client import Client
-
+from clients.python.retakesearch import Client, Database
 
 # Helpers
+
+docker_client = docker.from_env()
+
+
+def get_matching_containers(partial_name):
+    all_containers = docker_client.containers.list(all=True)
+    matching_containers = [
+        container
+        for container in all_containers
+        if container.name.endswith(partial_name)
+    ]
+    return matching_containers
+
+
+def get_container_ip(container_name, network_name):
+    container = docker_client.containers.get(container_name)
+    return container.attrs["NetworkSettings"]["Networks"][network_name]["IPAddress"]
 
 
 def is_opensearch_responsive(url):
@@ -62,7 +79,7 @@ def test_document_id():
 
 
 @pytest.fixture(scope="session")
-def retake_client(docker_ip, docker_services):
+def client(docker_ip, docker_services):
     """Ensure that PostgreSQL, OpenSearch & FastAPI services are up and responsive."""
     print("\nSpinning up OpenSearch service...")
     os_port = docker_services.port_for("core", 9200)
@@ -89,3 +106,26 @@ def retake_client(docker_ip, docker_services):
     print("FastAPI service is responsive!\n")
 
     return Client(api_key=test_api_key, url=fastapi_url)
+
+
+@pytest.fixture(scope="session")
+def database():
+    # Get the container name, network, and IP address of the PostgreSQL Docker container spun up by pytest-docker
+    # as part of the retake_client fixture
+    matching_containers = get_matching_containers("-postgres-1")
+    pg_container_name = matching_containers[0].name
+    print(f"PostgreSQL Docker container name: {pg_container_name}")
+
+    pg_container_network = pg_container_name.split("-")[0] + "_default"
+    print(f"PostgreSQL Docker container network: {pg_container_network}")
+
+    pg_container_ip = get_container_ip(pg_container_name, pg_container_network)
+    print(f"PostgreSQL Docker container IP: {pg_container_ip}\n")
+
+    return Database(
+        host=pg_container_ip,
+        user="postgres",
+        password="postgres",
+        port=5432,
+        dbname="postgres",
+    )

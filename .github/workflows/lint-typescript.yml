@@ -8,12 +8,11 @@ name: Linting
 on:
   pull_request:
     paths:
-      - "**.js"
       - "**/**.js"
-      - "**.ts"
       - "**/**.ts"
-      - "**.tsx"
       - "**/**.tsx"
+      - "**/**.css"
+      - "**/**.json"
       - ".github/workflows/lint-typescript.yml"
   workflow_dispatch:
 
@@ -42,4 +41,4 @@ jobs:
         run: npm install -g prettier
 
       - name: Check if TypeScript files are Formatted
-        run: prettier --check '{**/**.js,**/**.ts,**/**.tsx}' # Prettier glob syntax hits all .js/ts/tsx files with this
+        run: prettier --check '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}' # Prettier glob syntax hits all .js/ts/tsx files with this

@@ -41,5 +41,5 @@ jobs:
       - name: Install Prettier
         run: npm install -g prettier
 
-      - name: Check if Markdown files are Formatted
+      - name: Check if TypeScript files are Formatted
         run: prettier --check '{**/**.js,**/**.ts,**/**.tsx}' # Prettier glob syntax hits all .js/ts/tsx files with this

@@ -10,4 +10,4 @@ COPY . .
 
 EXPOSE 7433
 
-CMD ["uvicorn", "sidecar:app", "--host", "0.0.0.0", "--port", "7433", "--reload"]
+CMD ["uvicorn", "sidecar:app", "--host", "0.0.0.0", "--port", "7433"]

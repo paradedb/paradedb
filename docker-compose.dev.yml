@@ -1,23 +1,22 @@
+# This docker-compose.dev.yml file is for local development only.
+
 version: "3"
 
 services:
   core:
-    image: public.ecr.aws/opensearchproject/opensearch:latest
-    ports:
-      - 9200:9200
-      - 9600:9600
-    environment:
-      - discovery.type=single-node
-      - plugins.security.disabled=false
-      - plugins.ml_commons.model_access_control_enabled=true
-      - plugins.ml_commons.only_run_on_ml_node=false
+    extends:
+      file: ./docker-compose.yml
+      service: core
 
   api:
-    image: retake/retakesearch:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
     depends_on:
       - core
     ports:
       - 8000:8000
+    command: uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
     environment:
       API_KEY: retake-test-key
       OPENSEARCH_HOST: core
@@ -32,11 +31,14 @@ services:
       - .:/app
 
   redis:
-    image: redis:latest
-    command: redis-server --requirepass redis
+    extends:
+      file: ./docker-compose.yml
+      service: redis
 
   pgsync:
-    image: retake/retakesync:latest
+    build:
+      context: ./sync
+      dockerfile: Dockerfile
     ports:
       - 7433:7433
     sysctls:
@@ -51,6 +53,7 @@ services:
       - core
       - api
       - redis
+    command: uvicorn sidecar:app --host 0.0.0.0 --port 7433 --reload
     environment:
       LOG_LEVEL: WARNING
       ELASTICSEARCH_HOST: core
@@ -65,5 +68,3 @@ services:
       REDIS_AUTH: redis
       ELASTICSEARCH: false
       OPENSEARCH: true
-    volumes:
-      - .:/app

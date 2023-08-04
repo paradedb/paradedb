@@ -64,6 +64,7 @@ def test_document_id():
 @pytest.fixture(scope="session")
 def retake_client(docker_ip, docker_services):
     """Ensure that PostgreSQL, OpenSearch & FastAPI services are up and responsive."""
+    print("\nSpinning up OpenSearch service...")
     os_port = docker_services.port_for("core", 9200)
     os_url = f"https://{docker_ip}:{os_port}/_cluster/health"
 

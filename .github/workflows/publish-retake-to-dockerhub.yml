@@ -32,7 +32,9 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: retake/retakesearch
-          tags: type=semver,pattern={{version}}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
 
       # Add support for more platforms with QEMU (necessary for arm64-compatible images)
       - name: Set up QEMU
@@ -69,7 +71,9 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: retake/retakesync
-          tags: type=semver,pattern={{version}}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
 
       # Add support for more platforms with QEMU (necessary for arm64-compatible images)
       - name: Set up QEMU

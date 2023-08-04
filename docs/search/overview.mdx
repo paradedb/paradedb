@@ -7,10 +7,20 @@ title: Overview
   up Retake](/quickstart).
 </Info>
 
-To execute a search query, you must use the `Index.search` function and
-pass in the search query, written using the `Search` high-level Python client.
+The `Search` class is used to construct search requests. Behind the scenes, Retake translates `Search` requests
+to OpenSearch's query language (DSL). `Search` is designed with three main objectives:
+
+1. **Composability**: Complex requests are composed by mixing and matching various components — queries,
+   boolean logic, filters, aggregation, etc. — with one another.
+
+2. **Readability**: Requests are constructed as a logical pipeline of transformations.
+
+3. **Full OpenSearch Functionality**: `Search` supports the entire OpenSearch DSL, which is identical to
+   the ElasticSearch DSL except in rare cases. Most queries, no matter how complex, are possible.
 
 ## Basic Usage
+
+The `Index.search` function is responsible for executing queries constructed with `Search`.
 
 This example performs a keyword search for all rows in the Postgres table `faqs` where
 the column `question` matches the phrase "Who Am I?".
@@ -82,6 +92,54 @@ const query = Search()
 ```
 
 </CodeGroup>
+
+## Field Types
+
+Index fields have types, which are used to tell the search layer how to index the field and what kinds of search operations
+are allowed on the field. If no field type is set when data is uploaded, Retake will infer and dynamically assign a field
+type. But in many cases, developers will want to specify a field type themselves.
+
+### Setting a Field Type
+
+The `transform` property of the `Table` class has functionality to specify what field type each column should map to:
+
+<CodeGroup>
+
+```python Python
+table = Table(
+    name="tv_shows",
+    columns=["description", "rating"],
+    transform={
+      "mapping": {
+        "description": "text",
+        "rating": "double"
+      }
+    }
+)
+```
+
+</CodeGroup>
+
+`Index.create_field`also enables developers to create a field with a certain type. Note that once a field is created, its
+type cannot be changed.
+
+<CodeGroup>
+
+```python Python
+index.create_field("description", "text")
+```
+
+</CodeGroup>
+
+### Choosing a Field Type
+
+`text` and `keyword` are two common field types . Text fields are typically used for longer pieces of text, whereas
+keyword fields are typically used for individual words or phrases for the purpose of exact matching or filtering. Text fields
+should be queried with the `match` operator, whereas keyword fields are queried with the `term` operator.
+
+In addition, Retake supports a [wide variety of other field types](https://github.com/getretake/retake/blob/fb43fd2eb09f54218907876a88452e7e9974cdd1/core/search/index_mappings.py#L4).
+
+## Helpful Resources
 
 The following sections will cover the specifics of how to write different types of queries. Please note
 that this is guide is non-exhaustive, and that many more features of the `Search` client can be found

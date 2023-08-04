@@ -75,10 +75,9 @@ class AddSourcePayload(BaseModel):
 @router.get("/index/{index_name}", tags=[tag])
 async def get_index(index_name: str) -> JSONResponse:
     try:
-        client.get_index(index_name)
-        return JSONResponse(
-            status_code=status.HTTP_200_OK, content=f"Index {index_name} found"
-        )
+        index = client.get_index(index_name)
+        description = index.describe()
+        return JSONResponse(status_code=status.HTTP_200_OK, content=description)
     except Exception as e:
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,

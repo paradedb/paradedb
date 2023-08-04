@@ -75,3 +75,84 @@ index = client.delete_index("test_index")
 <ParamField body="index_name" type="string" required>
   The name of the index to delete.
 </ParamField>
+
+### `list_indices`
+
+Lists all indices that have been created.
+
+```python Python
+client.list_indices()
+```
+
+**Returns**
+
+A list of all existing index names.
+
+### `describe_index`
+
+Returns the fields and number of documents within a specified index.
+
+```python Python
+client.describe_index("test_index")
+```
+
+**Parameters**
+
+<ParamField body="index_name" type="string" required>
+  The name of the index.
+</ParamField>
+
+**Returns**
+
+<Accordion title="Response Object">
+```json 
+{
+    "count": 983,
+    "fields": {
+        "_meta": {
+            "type": "object"
+        },
+        "name": {
+            "type": "text",
+            "fields": {
+                "keyword": {
+                    "type": "keyword",
+                    "ignore_above": 256
+                }
+            }
+        },
+        "description": {
+            "type": "text",
+            "fields": {
+                "keyword": {
+                    "type": "keyword",
+                    "ignore_above": 256
+                }
+            }
+        }
+    },
+    "vectorized_fields": {
+        "name": {
+            "type": "knn_vector",
+            "dimension": 384,
+            "method": {
+                "engine": "lucene",
+                "space_type": "l2",
+                "name": "hnsw",
+                "parameters": {}
+            }
+        },
+        "description": {
+            "type": "knn_vector",
+            "dimension": 384,
+            "method": {
+                "engine": "lucene",
+                "space_type": "l2",
+                "name": "hnsw",
+                "parameters": {}
+            }
+        }
+    }
+}
+```
+</Accordion>

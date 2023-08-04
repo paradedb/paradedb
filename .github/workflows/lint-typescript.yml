@@ -1,0 +1,45 @@
+# workflows/lint-typescript.yml
+#
+# TypeScript: Linting
+# Lint TypeScript files using Prettier.
+
+name: Linting
+
+on:
+  pull_request:
+    paths:
+      - "**.js"
+      - "**/**.js"
+      - "**.ts"
+      - "**/**.ts"
+      - "**.tsx"
+      - "**/**.tsx"
+      - ".github/workflows/lint-typescript.yml"
+  workflow_dispatch:
+
+# This guarantees that if you push many commits to the same PR, only the latest
+# commit will get run (others get cancelled)
+concurrency:
+  group: lint-typescript-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  lint-markdown:
+    name: Lint TypeScript Files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
+
+      - name: Set up NodeJS Environment
+        uses: actions/setup-node@v3
+
+      # We have to use npm install -g here, as the yarn
+      # equivalent "yarn global add" doesn't correctly
+      # add the command to the path in GitHub Actions.
+      - name: Install Prettier
+        run: npm install -g prettier
+
+      - name: Check if Markdown files are Formatted
+        run: prettier --check '{**/**.js,**/**.ts,**/**.tsx}' # Prettier glob syntax hits all .js/ts/tsx files with this

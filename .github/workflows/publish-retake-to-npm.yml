@@ -31,6 +31,10 @@ jobs:
         with:
           registry-url: "https://registry.npmjs.org"
 
+      - name: Update Version
+        working-directory: clients/typescript
+        run: jq ".version = \"${GITHUB_REF#refs/tags/v}\"" package.json > "tmp.json" && mv "tmp.json" "package.json"
+
       - name: Install Dependencies
         working-directory: clients/typescript
         run: npm install && npm ci

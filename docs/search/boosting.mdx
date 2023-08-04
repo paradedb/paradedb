@@ -1,0 +1,42 @@
+---
+title: Boosting
+---
+
+## Basic Usage
+
+Boosting is useful for cases where you want to demote certain results without excluding them. A boosting query
+achieves this by returning results that match a positive query. Among these results, the ones that also match a
+negative query are scored lower.
+
+The below example returns results where `name` matches "True Crime," but the scores of results with `description` fields containing
+"New York" are multiplied by `0.5`:
+
+<CodeGroup>
+
+```python Python
+from retakesearch import Q
+
+positive_query = Q("match", name="True Crime")
+negative_query = Q("match", description="New York")
+
+query = Search().query(
+    Q(
+        "boosting",
+        positive=positive_query,
+        negative=negative_query,
+        negative_boost=0.5
+    )
+)
+```
+
+```typescript Typescript
+import { boostingQuery, matchQuery } from "retake-search/helpers";
+
+const query = Search().boostingQuery(
+  matchQuery("name", "True Crime"), // Positive query
+  matchQuery("description", "New York"), // Negative query
+  0.5 // Negative boost
+);
+```
+
+</CodeGroup>

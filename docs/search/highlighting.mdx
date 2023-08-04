@@ -1,0 +1,33 @@
+---
+title: Highlighting
+---
+
+## Basic Usage
+
+Highlighting is used in conjunction with text-based queries to emphasize query matches within the
+search result.
+
+<CodeGroup>
+
+```python Python
+# Highlights matches for the name field
+Search().highlight("name")
+
+# Highlights matches for the name and description fields and specifies the
+# highlighted fragment size
+Search().highlight("name", "description", fragment_size=50)
+```
+
+```typescript Typescript
+// Highlights matches for the name field
+Search().highlight().fields(["name"]);
+
+// Highlights matches for the name and description fields and specifies the
+// highlighted fragment size
+Search().highlight().fields(["name", "description"]).fragmentSize(50);
+```
+
+</CodeGroup>
+
+A list of all highlighting options can be found
+[here](https://opensearch.org/docs/2.2/opensearch/search/highlight/#highlighting-options).

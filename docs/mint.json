@@ -65,7 +65,7 @@
     },
     {
       "group": "Deployment",
-      "pages": ["deployment/local", "deployment/kubernetes"]
+      "pages": ["deployment/local", "deployment/managed"]
     },
     {
       "group": "Product",

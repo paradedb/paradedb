@@ -2,15 +2,15 @@
 set -e
 
 if [ $# -eq 0 ]; then
-    # If no argument is provided, set domain to "localhost"
-    domain="localhost"
-else
-    domain=$1
+    echo "Please provide a domain as a positional argument."
+    exit 1
 fi
+
+DOMAIN=$1
 
 # Write Caddyfile
 cat << EOF > Caddyfile
-$domain {
+$DOMAIN {
     handle_path /retake/* {
         reverse_proxy api:8000
     }

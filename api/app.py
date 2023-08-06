@@ -11,10 +11,15 @@ from .routers import index
 from .routers import client
 from .routers import base
 
+
+
+
+
 # TODO: Add SSL and remove this
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = os.getenv("API_KEY", "")
+TELEMETRY = os.getenv("TELEMETRRY", "enabled")
 
 
 class APIKeyValidator:

@@ -35,11 +35,11 @@ else
     echo ""
 fi
 
-if ! [ -n "${RETAKE_APP_TAG:-}" ]; then
+if ! [ -z "${RETAKE_APP_TAG:-}" ]; then
     export RETAKE_APP_TAG=$RETAKE_APP_TAG
 else
     echo "What version of Retake would you like to install? Browse available versions here: https://hub.docker.com/r/retake/retakesearch/tags"
-    read -p "Please enter a valid tag (i.e.: vX.Y.Z) or press Enter to default to 'latest': " RETAKE_APP_TAG
+    read -rp "Please enter a valid tag (i.e.: vX.Y.Z) or press Enter to default to 'latest': " RETAKE_APP_TAG
     if [ -n "$RETAKE_APP_TAG" ]; then
         export RETAKE_APP_TAG="${RETAKE_APP_TAG:-latest}"
     else
@@ -49,7 +49,7 @@ else
 fi
 echo ""
 
-if ! [ -n "${DOMAIN:-}" ]; then
+if ! [ -z "${DOMAIN:-}" ]; then
     export DOMAIN=$DOMAIN
 else
     echo "Let's get the exact domain Retake will be installed on. This will be used for TLS 🔐."
@@ -79,7 +79,7 @@ sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
 # Retake uses basic telemetry to monitor usage (number of deployments, and number
 # of search queries per deployment). If you prefer not to be included in our telemetry,
 # simply set TELEMETRY=disabled in your .env file.
-if ! [ -n "${TELEMETRY:-}" ]; then
+if ! [ -z "${TELEMETRY:-}" ]; then
     if [ "${TELEMETRY}" == "disabled" ]; then
         echo "Telemetry successfully disabled -- Retake will not get any usage data from your deployment."
         echo "Retake has very light telemetry (i.e.: is your deploy running, and how many search queries are you running?)."

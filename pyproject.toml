@@ -21,6 +21,7 @@ confluent-kafka = "^2.2.0"
 loguru = "^0.7.0"
 retakesearch-py = "^2.2.0"
 retake-pgsync = "^2.5.1"
+posthog = "^3.0.1"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

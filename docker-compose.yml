@@ -15,6 +15,7 @@ services:
       - core
     environment:
       API_KEY: retake-test-key
+      POSTHOG_API_KEY: posthog-test-key
       OPENSEARCH_HOST: core
       OPENSEARCH_PORT: 9200
       OPENSEARCH_USER: admin

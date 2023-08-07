@@ -6,6 +6,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 from typing import Callable, Optional, Any
+from posthog import Posthog
 
 from .routers import index
 from .routers import client
@@ -15,6 +16,10 @@ from .routers import base
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = os.getenv("API_KEY", "")
+POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY")
+TELEMETRY = os.getenv("TELEMETRY", "enabled")
+
+posthog = Posthog(POSTHOG_API_KEY, host="https://app.posthog.com")
 
 
 class APIKeyValidator:
@@ -71,3 +76,6 @@ app.add_middleware(AuthMiddleware, api_key_validator=APIKeyValidator(API_KEY))
 app.include_router(index.router)
 app.include_router(base.router)
 app.include_router(client.router)
+
+if TELEMETRY != "disabled":
+    posthog.capture("distinct_id_of_the_user", "A user deployed Retake")

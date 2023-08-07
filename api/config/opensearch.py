@@ -15,7 +15,7 @@ if not (
     and opensearch_password
     and opensearch_use_tls
 ):
-    raise EnvironmentError("No environment variables found")
+    raise EnvironmentError("No opensearch environment variables found")
 
 
 class OpenSearchConfig(Config):

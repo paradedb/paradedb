@@ -2,10 +2,7 @@ version: "3"
 
 services:
   core:
-    image: public.ecr.aws/opensearchproject/opensearch:latest
-    ports:
-      - 9200:9200
-      - 9600:9600
+    image: public.ecr.aws/opensearchproject/opensearch:2.9.0
     environment:
       - discovery.type=single-node
       - plugins.security.disabled=false
@@ -16,24 +13,32 @@ services:
     image: retake/retakesearch:latest
     depends_on:
       - core
-    ports:
-      - 8000:8000
     environment:
       API_KEY: retake-test-key
       OPENSEARCH_HOST: core
       OPENSEARCH_PORT: 9200
       OPENSEARCH_USER: admin
       OPENSEARCH_PASSWORD: admin
-      OPENSEARCH_USE_TLS: False
+      OPENSEARCH_USE_TLS: True
       PGSYNC_HOST: pgsync
       PGSYNC_PORT: 7433
-      PGSYNC_SSL_ENABLED: False
     volumes:
       - .:/app
 
   redis:
-    image: redis:latest
-    command: redis-server --requirepass redis
+    image: redis:7.0.12-alpine
+    command: redis-server
+
+  caddy:
+    image: caddy:2.7.2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
 
   pgsync:
     image: retake/retakesync:latest
@@ -62,8 +67,9 @@ services:
       ELASTICSEARCH_VERIFY_CERTS: False
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_AUTH: redis
       ELASTICSEARCH: false
       OPENSEARCH: true
-    volumes:
-      - .:/app
+
+volumes:
+  caddy_data:
+  caddy_config:

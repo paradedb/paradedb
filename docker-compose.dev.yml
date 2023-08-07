@@ -7,6 +7,8 @@ services:
     extends:
       file: ./docker-compose.yml
       service: core
+    ports:
+      - 9200:9200
 
   api:
     build:
@@ -34,6 +36,8 @@ services:
     extends:
       file: ./docker-compose.yml
       service: redis
+    ports:
+      - 6379:6379
 
   pgsync:
     build:

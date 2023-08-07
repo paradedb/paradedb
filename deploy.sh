@@ -5,7 +5,7 @@
 set -Eeuo pipefail
 
 # Make sure the console is huuuge
-if test $(tput cols) -ge 64; then
+if test "$(tput cols)" -ge 64; then
   # Make it green!
   echo -e "\033[32m"
   echo -e "______ _____ _____ ___   _   __ _____ "
@@ -35,12 +35,12 @@ else
     echo ""
 fi
 
-if ! [ -z "${RETAKE_APP_TAG:-}" ]; then
+if ! [ -n "${RETAKE_APP_TAG:-}" ]; then
     export RETAKE_APP_TAG=$RETAKE_APP_TAG
 else
     echo "What version of Retake would you like to install? Browse available versions here: https://hub.docker.com/r/retake/retakesearch/tags"
     read -p "Please enter a valid tag (i.e.: vX.Y.Z) or press Enter to default to 'latest': " RETAKE_APP_TAG
-    if [ -z "$RETAKE_APP_TAG" ]; then
+    if [ -n "$RETAKE_APP_TAG" ]; then
         export RETAKE_APP_TAG="${RETAKE_APP_TAG:-latest}"
     else
         export RETAKE_APP_TAG=$RETAKE_APP_TAG
@@ -49,13 +49,13 @@ else
 fi
 echo ""
 
-if ! [ -z "${DOMAIN:-}" ]; then
+if ! [ -n "${DOMAIN:-}" ]; then
     export DOMAIN=$DOMAIN
 else
     echo "Let's get the exact domain Retake will be installed on. This will be used for TLS 🔐."
     echo "Make sure that you have a Host A DNS record pointing to this instance!"
     read -p "Please enter your configured domain (i.e.: search.getretake.com): " DOMAIN
-    if [ -z "$DOMAIN" ]; then
+    if [ -n "$DOMAIN" ]; then
         echo "Domain not provided. This step is mandatory, exiting..."
         exit 1
     fi
@@ -79,7 +79,7 @@ sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
 # Retake uses basic telemetry to monitor usage (number of deployments, and number
 # of search queries per deployment). If you prefer not to be included in our telemetry,
 # simply set TELEMETRY=disabled in your .env file.
-if ! [ -z "${TELEMETRY:-}" ]; then
+if ! [ -n "${TELEMETRY:-}" ]; then
     if [ "${TELEMETRY}" == "disabled" ]; then
         echo "Telemetry successfully disabled -- Retake will not get any usage data from your deployment."
         echo "Retake has very light telemetry (i.e.: is your deploy running, and how many search queries are you running?)."
@@ -110,7 +110,7 @@ else
     releaseTag="${RETAKE_APP_TAG/release-/""}"
     git fetch --tags
     echo "Checking out Retake release: $releaseTag"
-    git checkout $releaseTag
+    git checkout "$releaseTag"
 fi
 
 # Write Caddyfile

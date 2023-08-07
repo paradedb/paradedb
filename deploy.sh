@@ -78,12 +78,13 @@ sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
 # of search queries per deployment). If you prefer not to be included in our telemetry,
 # simply set TELEMETRY=disabled in your .env file.
 if ! [ -z "${TELEMETRY:-}" ]; then
-    if [ "${TELEMETRY}" == "disabled"] then;
+    if [ "${TELEMETRY}" == "disabled"]; then
         echo "Telemetry successfully disabled -- Retake will not get any usage data from your deployment."
         echo "Retake has very light telemetry (i.e.: is your deploy running, and how many search queries are you running?)."
         echo "We do this to get a sense of how much usage Retake is getting, which helps us prioritize features and support."
         echo "We never collect actual search queries, or PII. If this telemetry is okay with you, please consider re-enabling it."
         echo "Much love <3!"
+    fi
 else
     # Temporary, until we get onboarded onto PostHog
     curl -X POST -H 'Content-type: application/json' --data '{"text":"A new user deployed our docker-compose stack!"}' https://hooks.slack.com/services/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

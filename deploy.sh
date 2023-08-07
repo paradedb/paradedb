@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# This script is inspired from PostHog and Airbyte, thanks to them for the inspiration!
+
 set -Eeuo pipefail
 
 # Make sure the console is huuuge

@@ -116,7 +116,7 @@ fi
 
 # Write Caddyfile
 cat << EOF > Caddyfile
-$DOMAIN {
+$DOMAIN :80 :443 {
     reverse_proxy api:8000
 }
 EOF

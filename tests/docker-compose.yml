@@ -5,19 +5,11 @@ services:
     extends:
       file: ../docker-compose.dev.yml
       service: core
-    ports:
-      - 9200:9200
-      - 9600:9600
 
   api:
     extends:
       file: ../docker-compose.dev.yml
       service: api
-    environment:
-      OPENSEARCH_USE_TLS: False
-      PGSYNC_SSL_ENABLED: False
-    ports:
-      - 8000:8000
 
   redis:
     extends:

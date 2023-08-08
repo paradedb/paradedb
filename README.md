@@ -23,7 +23,7 @@
     <img src="https://img.shields.io/github/v/release/getretake/retake?color=white" alt="Release">
 </a>
 <a href="https://github.com/getretake/retake/tree/main/LICENSE" target="_blank">
-    <img src="https://img.shields.io/static/v1?label=license&message=ELv2&color=white" alt="License">
+    <img src="https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=white" alt="License">
 </a>
 </p>
 
@@ -174,4 +174,4 @@ For more information on how to contribute, please see our [Contributing Guide](C
 
 ## License
 
-Retake is [Elastic License 2.0 licensed](LICENSE).
+Retake is licensed under the [Apache-2.0 License](LICENSE).

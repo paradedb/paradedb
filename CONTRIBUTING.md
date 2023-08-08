@@ -22,4 +22,4 @@ Retake's public-facing documentation is stored in the `docs` folder. If you are 
 
 ### **Licensing**
 
-By contributing to Retake, you agree that your contributions will be licensed under the [Elastic License 2.0](LICENSE) license.
+By contributing to Retake, you agree that your contributions will be licensed under the [Apache-2.0 License](LICENSE) license.

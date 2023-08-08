@@ -13,4 +13,5 @@ class PgSyncConfig(Config):
     def url(self) -> str:
         host = self.get_property("PGSYNC_HOST")
         port = self.get_property("PGSYNC_PORT")
+
         return f"http://{host}:{port}"

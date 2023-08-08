@@ -9,5 +9,8 @@
         "eslint-config-prettier": "^9.0.0",
         "eslint-config-standard": "^17.1.0",
         "eslint-plugin-unused-imports": "^3.0.0"
+    },
+    "dependencies": {
+        "next": "^13.4.13"
     }
 }

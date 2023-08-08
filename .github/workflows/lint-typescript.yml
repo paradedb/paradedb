@@ -46,7 +46,7 @@ jobs:
         run: npm install
 
       - name: Check if TypeScript Files are ESLint Formatted
-        run: eslint '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
+        run: eslint --config .eslintrc.json '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
 
       - name: Check if TypeScript Files are Prettier Formatted
         run: prettier --check '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'

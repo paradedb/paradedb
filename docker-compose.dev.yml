@@ -7,8 +7,6 @@ services:
     extends:
       file: ./docker-compose.yml
       service: core
-    ports:
-      - 9200:9200
 
   api:
     build:
@@ -38,6 +36,11 @@ services:
       service: redis
     ports:
       - 6379:6379
+
+  caddy:
+    extends:
+      file: ./docker-compose.yml
+      service: caddy
 
   pgsync:
     build:
@@ -72,3 +75,7 @@ services:
       REDIS_AUTH: redis
       ELASTICSEARCH: false
       OPENSEARCH: true
+
+volumes:
+  caddy_data:
+  caddy_config:

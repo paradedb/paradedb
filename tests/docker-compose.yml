@@ -1,3 +1,5 @@
+# This docker-compose.yml file is for local tests and CI runs only.
+
 version: "3"
 
 services:
@@ -16,6 +18,11 @@ services:
       file: ../docker-compose.dev.yml
       service: redis
 
+  caddy:
+    extends:
+      file: ../docker-compose.dev.yml
+      service: caddy
+
   pgsync:
     extends:
       file: ../docker-compose.dev.yml
@@ -33,3 +40,7 @@ services:
     volumes:
       - ./create_tables.sql:/docker-entrypoint-initdb.d/create_tables.sql
       - ./fill_tables.sql:/docker-entrypoint-initdb.d/fill_tables.sql
+
+volumes:
+  caddy_data:
+  caddy_config:

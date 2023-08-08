@@ -1,7 +1,6 @@
 {
   "plugins": ["@typescript-eslint", "unused-imports"],
   "extends": [
-    "next/core-web-vitals",
     "plugin:@typescript-eslint/recommended",
     "prettier"
   ],

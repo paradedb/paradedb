@@ -1,7 +1,7 @@
 # workflows/lint-typescript.yml
 #
 # TypeScript: Linting
-# Lint TypeScript files using Prettier.
+# Lint TypeScript files using Prettier & ESLint.
 
 name: Linting
 
@@ -42,8 +42,8 @@ jobs:
           npm install -g prettier
           npm install -g eslint
 
-      - name: Check if TypeScript files are ESLint Formatted
+      - name: Check if TypeScript Files are ESLint Formatted
         run: eslint '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
 
-      - name: Check if TypeScript files are Prettier Formatted
+      - name: Check if TypeScript Files are Prettier Formatted
         run: prettier --check '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'

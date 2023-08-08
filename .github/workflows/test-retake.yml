@@ -18,8 +18,8 @@ on:
       - "examples/**"
       - "sync/**"
       - "tests/**"
-      - ".github/workflows/test-retake.yml"
       - "docker-compose.yml"
+      - ".github/workflows/test-retake.yml"
   workflow_dispatch:
 
 # This guarantees that if you push many commits to the same PR, only the latest
@@ -33,7 +33,7 @@ jobs:
     name: Test Retake End-to-End
     runs-on: ubuntu-latest
 
-    # To avoid rate limits when pulling Docker images in the integration tests
+    # To avoid rate limits when pulling Docker images in pytest-docker
     env:
       DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}

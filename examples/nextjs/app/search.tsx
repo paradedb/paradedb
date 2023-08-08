@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState } from "react"
 import {
   TextInput,
   Card,
@@ -12,29 +12,29 @@ import {
   Flex,
   Button,
   Metric,
-} from "@tremor/react";
-import { Search, useSearch } from "retake-search";
-import { withNeural } from "retake-search/helpers";
+} from "@tremor/react"
+import { Search, useSearch } from "retake-search"
+import { withNeural } from "retake-search/helpers"
 
-const index = process.env.DATABASE_TABLE_NAME ?? "";
+const index = process.env.DATABASE_TABLE_NAME ?? ""
 const columns = process.env.DATABASE_TABLE_COLUMNS
   ? JSON.parse(process.env.DATABASE_TABLE_COLUMNS)
-  : [];
+  : []
 
 const SearchComponent = () => {
-  const [userInput, setUserInput] = useState<string>("");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [userInput, setUserInput] = useState<string>("")
+  const [searchQuery, setSearchQuery] = useState<string>("")
 
-  const query = Search().query(withNeural(searchQuery, columns));
-  const { data, error } = useSearch({ indexName: index, query: query });
-  const results = data?.hits?.hits;
+  const query = Search().query(withNeural(searchQuery, columns))
+  const { data, error } = useSearch({ indexName: index, query: query })
+  const results = data?.hits?.hits
 
   if (error) {
     return (
       <Card>
         <Text>An unexpected error occured: {error}</Text>
       </Card>
-    );
+    )
   }
 
   return (
@@ -46,7 +46,7 @@ const SearchComponent = () => {
           onChange={(event) => setUserInput(event.target.value)}
           placeholder="Search your dataset here"
           onKeyDown={(evt) => {
-            if (evt.key === "Enter") setSearchQuery(userInput);
+            if (evt.key === "Enter") setSearchQuery(userInput)
           }}
         />
         <Button onClick={() => setSearchQuery(userInput)} color="indigo">
@@ -78,7 +78,7 @@ const SearchComponent = () => {
         </Table>
       )}
     </Card>
-  );
-};
+  )
+}
 
-export default SearchComponent;
+export default SearchComponent

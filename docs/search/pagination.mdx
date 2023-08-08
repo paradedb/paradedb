@@ -13,9 +13,9 @@ Search().query("match", questions="Who am I?")[10:15]
 ```
 
 ```typescript Typescript
-import { matchQuery } from "retake-search/helpers";
+import { matchQuery } from "retake-search/helpers"
 
-Search().query(matchQuery("questions", "Who am I?")).size(5).from(10);
+Search().query(matchQuery("questions", "Who am I?")).size(5).from(10)
 ```
 
 </CodeGroup>
@@ -45,15 +45,15 @@ second_response = index.search(query.extra(search_after=search_after))
 const query = Search()
   .query(matchQuery("questions", "Who am I?"))
   .size(1000)
-  .from(0);
+  .from(0)
 
 // First page
-const firstResponse = index.search(query);
+const firstResponse = index.search(query)
 
 // Second page
 const searchAfter =
-  firstResponse.hits.hits[firstResponse.hits.hits.length - 1].sort;
-const secondResponse = index.search(query.searchAfter(searchAfter));
+  firstResponse.hits.hits[firstResponse.hits.hits.length - 1].sort
+const secondResponse = index.search(query.searchAfter(searchAfter))
 ```
 
 </CodeGroup>

@@ -24,12 +24,12 @@ Search()
 ```
 
 ```typescript Typescript
-import { termQuery, sort } from "retake-search/helpers";
+import { termQuery, sort } from "retake-search/helpers"
 
 Search()
   .query(termQuery("questions", "Who am I?"))
   .sort(sort("questions", "asc"))
-  .sort(sort("answers", "desc"));
+  .sort(sort("answers", "desc"))
 ```
 
 </CodeGroup>

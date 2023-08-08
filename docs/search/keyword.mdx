@@ -22,9 +22,9 @@ Search().query("term", questions="Who am I?")
 ```
 
 ```typescript Typescript
-import { termQuery } from "retake-search/helpers";
+import { termQuery } from "retake-search/helpers"
 
-Search().query(termQuery("questions", "Who am I?"));
+Search().query(termQuery("questions", "Who am I?"))
 ```
 
 </CodeGroup>
@@ -41,9 +41,9 @@ Search().query("multi_match", query="Who am I", fields=["questions", "answers"])
 ```
 
 ```typescript Typescript
-import { multiMatchQuery } from "retake-search/helpers";
+import { multiMatchQuery } from "retake-search/helpers"
 
-Search().query(multiMatchQuery(["questions", "answers"], "Who am I?"));
+Search().query(multiMatchQuery(["questions", "answers"], "Who am I?"))
 ```
 
 </CodeGroup>
@@ -60,9 +60,9 @@ Search().query("fuzzy", questions={"value": "Whom I?", "fuzziness": 2})
 ```
 
 ```typescript Typescript
-import { fuzzyQuery } from "retake-search/helpers";
+import { fuzzyQuery } from "retake-search/helpers"
 
-Search().query(fuzzyQuery("questions", "Who am I?").fuzziness(2));
+Search().query(fuzzyQuery("questions", "Who am I?").fuzziness(2))
 ```
 
 </CodeGroup>
@@ -97,14 +97,14 @@ Search().query(
 ```
 
 ```typescript Typescript
-import { matchQuery, termQuery } from "retake-search/helpers";
+import { matchQuery, termQuery } from "retake-search/helpers"
 
 const query = Search()
   .boolQuery()
   .must(matchQuery("questions", "Who am I?"))
   .filter(termQuery("answers", "Michael"))
   .mustNot(termQuery("answers", "Michael"))
-  .should(matchQuery("questions", "Whom are you?"));
+  .should(matchQuery("questions", "Whom are you?"))
 ```
 
 </CodeGroup>

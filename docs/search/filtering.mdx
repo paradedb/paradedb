@@ -13,9 +13,9 @@ Search().filter("term", answers="Michael")
 ```
 
 ```typescript Typescript
-import { termQuery } from "retake-search/helpers";
+import { termQuery } from "retake-search/helpers"
 
-Search().boolQuery().filter(termQuery("answer", "Michael"));
+Search().boolQuery().filter(termQuery("answer", "Michael"))
 ```
 
 </CodeGroup>
@@ -36,9 +36,9 @@ Search().filter("range", number_of_questions={"gte": 10, "lte": 50})
 ```
 
 ```typescript Typescript
-import { rangeQuery } from "retake-search/helpers";
+import { rangeQuery } from "retake-search/helpers"
 
-Search().rangeQuery("number_of_questions").gte(10).lte(20);
+Search().rangeQuery("number_of_questions").gte(10).lte(20)
 ```
 
 </CodeGroup>
@@ -52,9 +52,9 @@ Search().filter("term", number_of_questions=5)
 ```
 
 ```typescript Typescript
-import { termQuery } from "retake-search/helpers";
+import { termQuery } from "retake-search/helpers"
 
-Search().boolQuery().filter(termQuery("number_of_questions", 5));
+Search().boolQuery().filter(termQuery("number_of_questions", 5))
 ```
 
 </CodeGroup>
@@ -72,11 +72,11 @@ Search().filter("terms", answers=answers_list)
 ```
 
 ```typescript Typescript
-import { termsQuery } from "retake-search/helpers";
+import { termsQuery } from "retake-search/helpers"
 
-answersList = ["David", "Michael", "Bob"];
+answersList = ["David", "Michael", "Bob"]
 
-Search().query(termsQuery("answers", answersList));
+Search().query(termsQuery("answers", answersList))
 ```
 
 </CodeGroup>
@@ -92,9 +92,9 @@ Search().filter("term", is_active=True)
 ```
 
 ```typescript Typescript
-import { termQuery } from "retake-search/helpers";
+import { termQuery } from "retake-search/helpers"
 
-Search().boolQuery().filter(termQuery("is_active", true));
+Search().boolQuery().filter(termQuery("is_active", true))
 ```
 
 </CodeGroup>
@@ -111,9 +111,9 @@ Search().exclude("term", answers="Michael")
 ```
 
 ```typescript Typescript
-import { termQuery } from "retake-search/helpers";
+import { termQuery } from "retake-search/helpers"
 
-Search().boolQuery().mustNot(termQuery("answers", "Michael"));
+Search().boolQuery().mustNot(termQuery("answers", "Michael"))
 ```
 
 </CodeGroup>

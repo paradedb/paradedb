@@ -7,9 +7,9 @@ The `Client` class is used to get, create, and delete indices.
 ## Instantiation
 
 ```typescript Typescript
-import { Client } from "retake-search";
+import { Client } from "retake-search"
 
-const client = Client("retake-test-key", "http://localhost:8000");
+const client = Client("retake-test-key", "http://localhost:8000")
 ```
 
 **Parameters**
@@ -28,7 +28,7 @@ const client = Client("retake-test-key", "http://localhost:8000");
 Creates an empty index.
 
 ```typescript Typescript
-const index = client.createIndex("test_index");
+const index = client.createIndex("test_index")
 ```
 
 **Parameters**
@@ -46,7 +46,7 @@ An [`Index`](/typescript/index) object.
 Gets an index.
 
 ```typescript Typescript
-const index = client.getIndex("test_index");
+const index = client.getIndex("test_index")
 ```
 
 **Parameters**
@@ -64,7 +64,7 @@ An [`Index`](/typescript/index) object.
 Deletes an index and all its documents.
 
 ```typescript Typescript
-const index = client.deleteIndex("test_index");
+const index = client.deleteIndex("test_index")
 ```
 
 **Parameters**
@@ -78,7 +78,7 @@ const index = client.deleteIndex("test_index");
 Lists all indices that have been created.
 
 ```typescript Typescript
-client.listIndices();
+client.listIndices()
 ```
 
 **Returns**
@@ -90,7 +90,7 @@ A `Promise` containing a list of all available indices.
 Returns the fields and number of documents within a specified index.
 
 ```typescript Typescript
-client.describeIndex("test_index");
+client.describeIndex("test_index")
 ```
 
 **Parameters**

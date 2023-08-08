@@ -4,7 +4,7 @@ import json
 from enum import Enum
 from loguru import logger
 from opensearchpy import OpenSearch, helpers
-from typing import Dict, List, Optional, Any, Union, cast
+from typing import Dict, List, Any, Union, cast
 
 from core.search.index_mappings import IndexMappings, FieldType
 from core.search.index_settings import IndexSettings
@@ -18,6 +18,9 @@ default_model_group = "default_model_group"
 default_model_name = "huggingface/sentence-transformers/all-MiniLM-L12-v2"
 default_model_version = "1.0.1"
 default_model_format = "TORCH_SCRIPT"
+default_engine = "faiss"
+default_algorithm = "hnsw"
+default_space_type = "l2"
 default_model_dimensions = 384
 
 reserved_embedding_field_name_ending = "_retake_embedding"
@@ -173,49 +176,57 @@ class Index:
 
         return cast(Dict[str, Any], self.client.search(index=self.name, body=dsl))
 
-    def register_neural_search_fields(self, fields: Optional[List[str]] = None) -> None:
-        if fields:
-            # Get/create model
-            model_id = self._load_model()
+    def register_neural_search_fields(
+        self,
+        fields: List[str],
+        space_type: str,
+        engine: str,
+    ) -> None:
+        # Get/create model
+        model_id = self._load_model()
 
-            # Get/create pipeline
-            pipeline = self.pipeline.get(pipeline_id=self.pipeline_id)
+        # Get/create pipeline
+        pipeline = self.pipeline.get(pipeline_id=self.pipeline_id)
 
-            if not pipeline:
-                self.pipeline.create(pipeline_id=self.pipeline_id)
+        if not pipeline:
+            self.pipeline.create(pipeline_id=self.pipeline_id)
 
-            # Update index settings to use pipeline
-            self.settings.update(
-                settings={"index.knn": True, "default_pipeline": self.pipeline_id}
-            )
+        # Update index settings to use pipeline
+        self.settings.update(
+            settings={"index.knn": True, "default_pipeline": self.pipeline_id}
+        )
 
-            # Add new neural search fields to pipeline
-            processor = {
-                "text_embedding": {
-                    "model_id": model_id,
-                    "field_map": {
-                        field: f"{field}{reserved_embedding_field_name_ending}"
-                        for field in fields
+        # Add new neural search fields to pipeline
+        processor = {
+            "text_embedding": {
+                "model_id": model_id,
+                "field_map": {
+                    field: f"{field}{reserved_embedding_field_name_ending}"
+                    for field in fields
+                },
+            }
+        }
+
+        self.pipeline.create_processor(
+            pipeline_id=self.pipeline_id,
+            processor=processor,
+        )
+
+        # Update index settings to use new neural search fields
+        self.mappings.upsert(
+            properties={
+                f"{field}{reserved_embedding_field_name_ending}": {
+                    "type": FieldType.KNN_VECTOR.value,
+                    "dimension": default_model_dimensions,
+                    "method": {
+                        "name": default_algorithm,
+                        "engine": engine,
+                        "space_type": space_type,
                     },
                 }
+                for field in fields
             }
-
-            self.pipeline.create_processor(
-                pipeline_id=self.pipeline_id,
-                processor=processor,
-            )
-
-            # Update index settings to use new neural search fields
-            self.mappings.upsert(
-                properties={
-                    f"{field}{reserved_embedding_field_name_ending}": {
-                        "type": FieldType.KNN_VECTOR.value,
-                        "dimension": default_model_dimensions,
-                        "method": {"name": "hnsw", "engine": "lucene"},
-                    }
-                    for field in fields
-                }
-            )
+        )
 
     def reindex(self) -> None:
         helpers.reindex(self.client, self.name, self.name)

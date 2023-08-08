@@ -120,11 +120,21 @@ class Index:
             else:
                 raise Exception(response.text)
 
-    def create_field(self, field_name: str, field_type: str) -> None:
+    def create_field(
+        self,
+        field_name: str,
+        field_type: str,
+        dimension: Optional[int] = None,
+        space_type: Optional[str] = None,
+        engine: Optional[str] = None,
+    ) -> None:
         json = {
             "index_name": self.index_name,
             "field_name": field_name,
             "field_type": field_type,
+            "dimension": dimension,
+            "space_type": space_type,
+            "engine": engine,
         }
 
         with httpx.Client(timeout=None) as http:
@@ -134,10 +144,17 @@ class Index:
             if not response.status_code == 200:
                 raise Exception(response.text)
 
-    def vectorize(self, field_names: List[str]) -> None:
+    def vectorize(
+        self,
+        field_names: List[str],
+        space_type: Optional[str] = None,
+        engine: Optional[str] = None,
+    ) -> None:
         json = {
             "index_name": self.index_name,
             "field_names": field_names,
+            "space_type": space_type,
+            "engine": engine,
         }
 
         with httpx.Client(timeout=None) as http:

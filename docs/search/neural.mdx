@@ -1,14 +1,15 @@
 ---
-title: Semantic + Neural Search
+title: Neural Search
 ---
 
-Semantic search, using HNSW, understands the semantic meaning of your query and finds results that are contextually
-relevant. Neural search combines this semantic understanding with keyword-based BM25 search.
+Neural search, or hybrid search, enables developers to query `keyword` or `text` fields and retrieve results that
+are scored on both keyword and semantic relevance.
 
 ## Prerequisite
 
-Before semantic and neural search can be performed over a field, the field must first be vectorized. Once vectorized,
+Before neural search can be performed over a field, the field must first be vectorized. Once vectorized,
 a field does not need to be vectorized again — Retake ensures that vectors are properly cached and kept in sync.
+By default, Retake uses `faiss`, but this setting can be [overriden](/python/index#vectorize).
 
 <CodeGroup>
 
@@ -24,33 +25,10 @@ index.vectorize(fieldsToVectorize);
 
 </CodeGroup>
 
-## Semantic Search
-
-The `with_semantic` function takes two arguments: the query and the field names to search over. It returns results
-whose vectors are most similar to the vectorized query:
-
-<CodeGroup>
-
-```python Python
-query = "Who am I?"
-fields = ["question", "answers"]
-
-Search().with_semantic(query, fields)
-```
-
-```typescript Typescript
-query = "Who am I?";
-fields = ["question", "answers"];
-
-Search().withSemantic(query, fields);
-```
-
-</CodeGroup>
-
 ## Neural Search
 
-The `with_neural` function takes the same arguments as `with_semantic`. It returns results with the highest combined
-semantic and keyword-based scores:
+The `with_neural` function takes two arguments: the query string and the field names to search over. It returns results
+with the highest combined semantic and keyword-based scores:
 
 <CodeGroup>
 
@@ -72,3 +50,26 @@ Search().withNeural(query, fields);
 
 A more detailed overview of how neural search works and why it may be useful to your application is provided
 [here](/architecture#neural-search).
+
+## Semantic Search
+
+If you wish to retrieve results scored purely on semantic relevance (without keyword-based relevance), the `with_semantic`
+function should be used.
+
+<CodeGroup>
+
+```python Python
+query = "Who am I?"
+fields = ["question", "answers"]
+
+Search().with_semantic(query, fields)
+```
+
+```typescript Typescript
+query = "Who am I?";
+fields = ["question", "answers"];
+
+Search().withSemantic(query, fields);
+```
+
+</CodeGroup>

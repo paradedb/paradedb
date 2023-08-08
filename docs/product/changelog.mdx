@@ -1,7 +1,22 @@
 ---
 title: "Changelog"
-description: Last Updated August 1, 2023
+description: Last Updated August 8, 2023
 ---
+
+### August 8, 2023
+
+**Vector Store and ANN Search**
+
+The Python client now supports the creation of `knn_vector` fields which store vectors that can be retrieved
+via approximate nearest neighbors search and filtered efficiently. Additionally, developers now have the capability to
+choose between `faiss`, `lucene` and `nmslib` engines.
+
+### August 5, 2023
+
+**Real-Time Sync with Postgres**
+
+We've retired Kafka and introduced pgsync, which synchronizes indices with Postgres tables. Unlike Kafka, pgsync is a
+significantly more lightweight library that works out of the box without the need for extensive custom configuration.
 
 ### August 1, 2023
 

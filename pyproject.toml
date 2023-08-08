@@ -19,9 +19,9 @@ requests = "^2.31.0"
 fastavro = "^1.8.0"
 confluent-kafka = "^2.2.0"
 loguru = "^0.7.0"
-retakesearch-py = "^2.2.0"
 retake-pgsync = "^2.5.1"
 posthog = "^3.0.1"
+retakesearch-py = "^2.2.4"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"
@@ -34,6 +34,7 @@ flake8 = "^6.0.0"
 httpx = "^0.24.1"
 docker = "^6.1.3"
 mock = "^5.1.0"
+faker = "19.2.0"
 
 [build-system]
 requires = ["poetry-core"]

@@ -7,6 +7,8 @@ services:
     extends:
       file: ./docker-compose.yml
       service: core
+    ports:
+      - 9200:9200
 
   api:
     build:
@@ -19,6 +21,7 @@ services:
     command: uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
     environment:
       API_KEY: retake-test-key
+      POSTHOG_API_KEY: posthog-test-key
       OPENSEARCH_HOST: core
       OPENSEARCH_PORT: 9200
       OPENSEARCH_USER: admin
@@ -36,11 +39,6 @@ services:
       service: redis
     ports:
       - 6379:6379
-
-  caddy:
-    extends:
-      file: ./docker-compose.yml
-      service: caddy
 
   pgsync:
     build:
@@ -75,7 +73,3 @@ services:
       REDIS_AUTH: redis
       ELASTICSEARCH: false
       OPENSEARCH: true
-
-volumes:
-  caddy_data:
-  caddy_config:

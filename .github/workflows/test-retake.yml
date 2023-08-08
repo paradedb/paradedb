@@ -43,14 +43,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      - name: Write Caddyfile
-        run: |
-          cat << EOF > Caddyfile
-          $DOMAIN :80 :443 {
-              reverse_proxy api:8000
-          }
-          EOF
-
       - name: Set up Python Environment
         uses: actions/setup-python@v3
 

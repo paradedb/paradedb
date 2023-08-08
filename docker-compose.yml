@@ -8,9 +8,6 @@ services:
       - plugins.security.disabled=false
       - plugins.ml_commons.model_access_control_enabled=true
       - plugins.ml_commons.only_run_on_ml_node=false
-    ports:
-      - 9200:9200
-      - 9600:9600
 
   api:
     image: retake/retakesearch:latest
@@ -23,12 +20,9 @@ services:
       OPENSEARCH_PORT: 9200
       OPENSEARCH_USER: admin
       OPENSEARCH_PASSWORD: admin
-      OPENSEARCH_USE_TLS: False
+      OPENSEARCH_USE_TLS: True
       PGSYNC_HOST: pgsync
       PGSYNC_PORT: 7433
-      PGSYNC_SSL_ENABLED: False
-    ports:
-      - 8000:8000
     volumes:
       - .:/app
 

@@ -14,7 +14,6 @@
     "react/display-name": "off",
     "react-hooks/exhaustive-deps": "off"
   },
-  "ignorePatterns": ["scripts/**/*", "jest.config.js"],
   "overrides": [
     {
       "files": ["**/*.tsx", "**/*.ts", "**/*.js", "**/*.json"],

@@ -33,16 +33,14 @@ jobs:
     name: Test Retake End-to-End
     runs-on: ubuntu-latest
 
+    # To avoid rate limits when pulling Docker images in the integration tests
+    env:
+      DOCKER_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKER_PASSWORD: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v3
-
-      # To avoid rate limits when pulling Docker images in the integration tests
-      - name: Login to Docker Hub
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
       - name: Set up Python Environment
         uses: actions/setup-python@v3

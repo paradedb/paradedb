@@ -42,6 +42,9 @@ jobs:
           npm install -g prettier
           npm install -g eslint
 
+      - name: Install Dependencies
+        run: npm install
+
       - name: Check if TypeScript Files are ESLint Formatted
         run: eslint '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
 

@@ -16,9 +16,10 @@ on:
       - "clients/**"
       - "core/**"
       - "examples/**"
-      - "retake/**"
+      - "sync/**"
       - "tests/**"
       - ".github/workflows/test-retake.yml"
+      - "docker-compose.yml"
   workflow_dispatch:
 
 # This guarantees that if you push many commits to the same PR, only the latest

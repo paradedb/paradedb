@@ -1,41 +1,68 @@
 ---
-title: Setup
-description: Configure your Postgres database for real-time search
+title: Set Up Postgres
+description: Configure your Postgres database for real-time sync
 ---
 
-<Note>
-  Retake also supports search over non-Postgres data sources. If you do not wish
-  to integrate with Postgres or prefer to write your own data ingestion logic,
-  you may skip this section.
-</Note>
-<Info>**Prerequisite** Make sure you are running PostgreSQL 11 or higher.</Info>
-
 Retake leverages PostgreSQL [logical replication](https://www.postgresql.org/docs/current/logical-replication.html) to
-detect changes in the database and propagate them to Retake.
+detect changes in the database and propagate them to Retake. Integrating your Postgres with Retake is a good
+idea if you have fast-changing data and want to reduce the latency and compute cost of reindexing or re-embedding
+your data.
 
-## Enable Logical Replication
+## Before You Begin
 
-### Non-AWS
+The following Postgres databases are real-time compatible:
+
+1. Amazon RDS/Aurora
+2. Azure DB
+3. Google Cloud SQL
+4. Self-Hosted Postgres
+
+The following databases are not compatible:
+
+1. Neon
+2. Supabase
+3. Any managed Postgres service that does not have logical replication or does not grant you superuser privileges
+
+<Note>
+  Note that, if you are using a data store not real-time compatible, you can
+  still use Retake. Retake enables you to write your own data ingestion logic
+  and you may skip this section.
+</Note>
+
+## Cloud Postgres
+
+Please refer to the following guides for how to enable logical replication:
+
+- [Amazon Aurora/RDS](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraPostgreSQL.Replication.Logical.html)
+- [Azure DB](https://learn.microsoft.com/en-us/azure/postgresql/single-server/concepts-logical#set-up-your-server)
+- [Google Cloud SQL](https://cloud.google.com/sql/docs/postgres/replication/configure-logical-replication#configuring-your-postgresql-instance)
+
+## Self-Hosted Postgres
+
+If you are self-hosting Postgres, follow these steps.
 
 1. Ensure that your Postgres user is a superuser.
 
-```
-SELECT usename FROM pg_user WHERE usesuper = true
+```sql
+SELECT usename FROM pg_user WHERE usesuper = true;
 ```
 
-2. Enable logical decoding in `postgres.conf`.
+2. Enable logical decoding in `postgresql.conf`.
 
-```
+```bash
 wal_level = logical
 ```
 
-3. Add replication slots. You must have at least as many replication slots as the number of tables you wish to
-   search over.
+3. In the same `postgresql.conf` file, add replication slots.
+   You must have at least as many replication slots as the number of tables you wish to search over.
 
-```
+```bash
 max_replication_slots = 10
 ```
 
-### AWS
+4. Restart the database. Confirm that your changes were successful by running the following command and verifying that
+   the output is `logical`.
 
-Enable logical replication by following this [guide](https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraPostgreSQL.Replication.Logical.html).
+```sql
+SHOW wal_level;
+```

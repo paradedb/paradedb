@@ -9,51 +9,13 @@ description: Implement hybrid search over Postgres in under five minutes
   team](http://calendly.com/philippemnoel).
 </Note>
 
-In this quickstart, we will implement hybrid search over a [Kaggle e-commerce dataset](https://www.kaggle.com/datasets/mukuldeshantri/ecommerce-fashion-dataset),
-which contains 30,000 rows of products. Here is a simplified version of what the dataset looks like:
+This guide will walk you through the following steps to get started with Retake:
 
-| BrandName   | Description                                                    | SellPrice | Category          |
-| ----------- | -------------------------------------------------------------- | --------- | ----------------- |
-| Fratini     | solid polyester blend wide neck womens regular top - off white | 74        | Westernwear-Women |
-| Zinc London | stripes polyester sweetheart neck womens dress - black         | 849       | Westernwear-Women |
-| Kraus       | wide ankle length cotton womens jeans - light blue             | 2449      | Westernwear-Women |
+1. Installing and running Retake
+2. Integrating Retake with Postgres
+3. Performing your first search
 
-To follow along with this tutorial, you can optionally [download the full CSV file](https://www.kaggle.com/datasets/mukuldeshantri/ecommerce-fashion-dataset/download?datasetVersionNumber=1)
-and upload it to a Postgres table.
-
-## (Optional) Upload CSV to Postgres
-
-This tutorial uses Neon, a serverless Postgres provider that makes it very easy to create Postgres tables and upload
-CSVs, but you can use any Postgres service. First, we connect to our Neon instance using `psql`:
-
-```bash
-psql -h pg.neon.tech
-```
-
-Once inside `psql`, we can create a table and upload the CSV file:
-
-```sql
-CREATE TABLE products (
-  id integer,
-  BrandName text,
-  Details text,
-  Sizes text,
-  MRP text,
-  SellPrice text,
-  Discount text,
-  Category text
-);
-
-\copy products FROM '/path/to/FashionDataset.csv' DELIMITER ',' CSV HEADER;
-```
-
-The last step is to create a primary key. All tables must have a primary key to integrate with Retake:
-
-```sql
-ALTER TABLE products ADD COLUMN product_id SERIAL PRIMARY KEY;
-```
-
-## Install Retake
+## Install and Run Retake
 
 <Info>**Prerequisite** Docker and Docker Compose must be installed.</Info>
 
@@ -78,17 +40,26 @@ npm install retake-search
 
 </CodeGroup>
 
-## Index Postgres
+## Integrate with Postgres
 
 <Info>
   **Prerequisite** Please ensure that you have [enabled logical
-  replication](/setup) in your Postgres database.
+  replication](/setup) in your Postgres database. If you are using a
+  non-Postgres data store or a Postgres service that does not support logical
+  replication, you can still use Retake but will have to batch upload data using
+  `Index.upsert`.
 </Info>
 
-Next, we use the Retake Python SDK to tell the Retake engine what table(s) we wish to search over.
+Next, we use the Retake Python SDK to tell the Retake engine what table(s) we wish to search over. Let's pretend
+we have a Postgres table called `products` with the following data:
 
-The `Index.add_source` function integrates Retake directly with Postgres. As long as the Retake engine is running, this
-function only needs to be run once.
+| brand       | description                                                    | price | category |
+| ----------- | -------------------------------------------------------------- | ----- | -------- |
+| Fratini     | Solid polyester blend wide neck womens regular top - off white | 74    | Women    |
+| Zinc London | Stripes polyester sweetheart neck womens dress - black         | 849   | Women    |
+| Kraus       | Wide ankle length cotton mens jeans - light blue               | 2449  | Men      |
+
+The following code integrates this table with Retake:
 
 <CodeGroup>
 
@@ -114,8 +85,7 @@ database = Database(
 # Provide the table name and columns you wish to search over here
 table = Table(
     name="products"
-    columns=["BrandName", "Details", "Sizes", "SellPrice", "Discount", "Category"]
-    transform={"mapping": {"SellPrice": "integer"}}
+    columns=["brand", "description", "price", "category"]
 )
 
 # Create an index
@@ -159,9 +129,7 @@ index.addSource(database, table);
 
 </CodeGroup>
 
-### From Memory
-
-Data stored outside of Postgres can also be added to an index.
+Optionally, data stored outside of Postgres can also be added to an index.
 
 <CodeGroup>
 
@@ -194,24 +162,70 @@ Inside our application, we are ready to write and execute our first search query
 from retakesearch import Search
 
 # This executes a full-text (BM25) search
-bm25_search_query = Search().query("match", questions="Who am I?")
+bm25_search_query = Search().query("match", description="jeans")
 response = index.search(bm25_search_query)
+
+# This executes a hybrid keyword + semantic search
+hybrid_search_query = Search().with_neural("neural", description="jeans")
+response = index.search(hybrid_search_query)
 
 print(response)
 ```
 
 ```typescript Typescript
 import { Search } from "retake-search";
-import { matchQuery } from "retake-search/helpers";
+import { withNeural } from "retake-search/helpers";
 
 // This executes a full-text (BM25) search
-const bm25Query = Search().query(matchQuery("column_to_search", "my query"));
+const bm25Query = Search().query(matchQuery("description", "jeans"));
 const response = index.search(bm25Query);
+
+// This executes a hybrid keyword + semantic search
+const hybridQuery = Search().query(withNeural("jeans", ["description"]));
+const response = index.search(hybridQuery);
 
 print(response);
 ```
 
 </CodeGroup>
+
+This would print the following response (`hits` shortened for illustrative purposes):
+
+<Accordion title="Response Object">
+```json 
+{
+  "took": 34,
+  "timed_out": false,
+  "_shards": {
+    "total": 5,
+    "successful": 5,
+    "skipped": 0,
+    "failed": 0
+  },
+  "hits": {
+    "total": {
+      "value": 100,
+      "relation": "eq"
+    },
+    "max_score": 1.0,
+    "hits": [
+      {
+        "_index": "products",
+        "_type": "_doc",
+        "_id": "id1",
+        "_score": 1.0,
+        "_source": {
+          "description": "Wide ankle length cotton mens jeans - light blue",
+          "brand": "Fratini",
+          "price": 74,
+          "category": "Women"
+        }
+      }
+    ]
+  }
+}
+```
+</Accordion>
 
 Note that Retake's `Search` query builder is a forked version of the
 [high-level OpenSearch client](https://opensearch.org/docs/latest/clients/python-high-level) for Python and
@@ -221,3 +235,9 @@ Please refer to the [search guide](search/overview) for the essentials of writin
 ## Congrats!
 
 You've successfully executed a neural search query over your Postgres database.
+
+<CardGroup cols={2}>
+  <Card title="Search Reference" icon="circle-play" href="/search/overview">
+    How to write different kinds of search queries
+  </Card>
+</CardGroup>

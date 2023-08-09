@@ -88,10 +88,6 @@ if [ -n "${TELEMETRY:-}" ]; then
         echo "We never collect actual search queries, or PII. If this telemetry is okay with you, please consider re-enabling it."
         echo "Much love <3!"
     fi
-else
-    # Temporary, until we get onboarded onto PostHog
-    curl -X POST -H 'Content-type: application/json' --data '{"text":"A new user deployed our docker-compose stack!"}' https://hooks.slack.com/services/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
-    export TELEMETRY=$TELEMETRY
 fi
 
 echo "Grabbing latest APT caches..."

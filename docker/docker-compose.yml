@@ -16,6 +16,8 @@ services:
       service: api
     ports:
       - 8000:8000
+    environment:
+      POSTHOG_API_KEY: phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj
 
   redis:
     extends:

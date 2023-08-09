@@ -16,10 +16,13 @@ from .routers import base
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 API_KEY = os.getenv("API_KEY", "")
-POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY")
+POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "")
 TELEMETRY = os.getenv("TELEMETRY", "enabled")
 
-posthog = Posthog(POSTHOG_API_KEY, host="https://app.posthog.com")
+if POSTHOG_API_KEY != "":
+    # posthog = Posthog(POSTHOG_API_KEY, host="https://app.posthog.com")
+    posthog = Posthog(project_api_key='phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj', host='https://app.posthog.com')
+
 
 
 class APIKeyValidator:
@@ -77,5 +80,6 @@ app.include_router(index.router)
 app.include_router(base.router)
 app.include_router(client.router)
 
-if TELEMETRY != "disabled":
-    posthog.capture("distinct_id_of_the_user", "A user deployed Retake")
+if POSTHOG_API_KEY != "" and TELEMETRY != "disabled":
+    # Keep all telemetry as anonymous
+    posthog.capture('anonymous', 'test-event')

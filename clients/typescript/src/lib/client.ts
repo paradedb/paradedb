@@ -20,9 +20,6 @@ class Client {
       .then((response) => {
         if (response.ok) return new Index(indexName, this.apiKey, this.url)
       })
-      .catch(async (err) => {
-        throw new Error(await err.response.text())
-      })
   }
 
   async createIndex(indexName: string) {
@@ -37,9 +34,6 @@ class Client {
       })
       .then((response) => {
         if (response.ok) return new Index(indexName, this.apiKey, this.url)
-      })
-      .catch(async (err) => {
-        throw new Error(await err.response.text())
       })
   }
 

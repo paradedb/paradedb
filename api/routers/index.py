@@ -212,6 +212,7 @@ async def search_documents(payload: SearchPayload) -> JSONResponse:
                 content=f"Failed to search index {payload.index_name}: {e}",
             )
     except Exception as e:
+        logger.info(e)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=f"Failed to search index {payload.index_name}: {e}",

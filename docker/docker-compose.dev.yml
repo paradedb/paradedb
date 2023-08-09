@@ -1,0 +1,34 @@
+# This docker-compose.dev.yml file is for local development of retake search.
+
+version: "3"
+
+services:
+  core:
+    extends:
+      file: ./docker-compose.base.yml
+      service: core
+    ports:
+      - 9200:9200
+
+  api:
+    build:
+      context: .
+      dockerfile: search.Dockerfile
+    ports:
+      - 8000:8000
+    command: uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
+
+  redis:
+    extends:
+      file: ./docker-compose.base.yml
+      service: redis
+    ports:
+      - 6379:6379
+
+  pgsync:
+    build:
+      context: .
+      dockerfile: sync.Dockerfile
+    ports:
+      - 7433:7433
+    command: uvicorn sidecar:app --host 0.0.0.0 --port 7433 --reload

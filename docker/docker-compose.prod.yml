@@ -1,0 +1,41 @@
+# This docker-compose.yml file is for a hobby production deploy.
+
+version: "3"
+
+services:
+  core:
+    extends:
+      file: ../docker-compose.base.yml
+      service: core
+
+  api:
+    extends:
+      file: ../docker-compose.base.yml
+      service: api
+    environment:
+      POSTHOG_API_KEY: phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj
+
+  redis:
+    extends:
+      file: ../docker-compose.base.yml
+      service: redis
+
+  pgsync:
+    extends:
+      file: ../docker-compose.base.yml
+      service: pgsync
+
+  caddy:
+    image: caddy:2.7.2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

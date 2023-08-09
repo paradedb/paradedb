@@ -4,11 +4,12 @@ from loguru import logger
 from opensearchpy.exceptions import RequestError
 from pydantic import BaseModel
 from starlette.responses import JSONResponse
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Optional, Union
 
 from api.config.opensearch import OpenSearchConfig
 from api.config.pgsync import PgSyncConfig
 
+from core.search.index import default_algorithm, default_engine, default_space_type
 from core.search.client import Client
 from core.search.index_mappings import FieldType
 
@@ -55,6 +56,9 @@ class CreateFieldPayload(BaseModel):
     index_name: str
     field_name: str
     field_type: str
+    dimension: Optional[int] = None
+    space_type: Optional[str] = None
+    engine: Optional[str] = None
 
 
 class Database(BaseModel):
@@ -205,9 +209,25 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
             )
 
         index = client.get_index(payload.index_name)
-        index.mappings.upsert(
-            properties={payload.field_name: {"type": payload.field_type}}
-        )
+
+        # Set index.knn = True
+        index.settings.update(settings={"index.knn": True})
+
+        # Update index mapping
+        properties: Dict[str, Any] = {payload.field_name: {"type": payload.field_type}}
+
+        if payload.field_type == FieldType.KNN_VECTOR.value:
+            properties[payload.field_name]["dimension"] = payload.dimension
+            properties[payload.field_name]["method"] = {
+                "name": default_algorithm,
+                "space_type": payload.model_dump().get(
+                    "space_type", default_space_type
+                ),
+                "engine": payload.model_dump().get("engine", default_engine),
+            }
+
+        index.mappings.upsert(properties=properties)
+
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Field {payload.field_name} created successfully",
@@ -220,10 +240,14 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
 
 
 @router.post(f"/{tag}/vectorize", tags=[tag])
-async def vectorize_field(payload: VectorizePayload) -> JSONResponse:
+async def vectorize(payload: VectorizePayload) -> JSONResponse:
     try:
         index = client.get_index(payload.index_name)
-        index.register_neural_search_fields(payload.field_names)
+        index.register_neural_search_fields(
+            payload.field_names,
+            engine=payload.model_dump().get("engine", default_engine),
+            space_type=payload.model_dump().get("space_type", default_space_type),
+        )
         # Reindexing is necessary to generate vectors for existing document fields
         index.reindex()
         return JSONResponse(

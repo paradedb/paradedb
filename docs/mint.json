@@ -53,6 +53,7 @@
         "search/overview",
         "search/keyword",
         "search/neural",
+        "search/vector",
         "search/sorting",
         "search/filtering",
         "search/aggregation",

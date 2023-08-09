@@ -1,0 +1,77 @@
+---
+title: Vector Search
+---
+
+<Note>Only the Python client supports vector storage and vector search.</Note>
+
+Vector search enables developers to search for relevant documents using a query vector.
+
+## Prerequisite
+
+Vector search can only be performed over fields with a `knn_vector` type, which must be
+[specified by the user](/python/index#create_field).
+
+<CodeGroup>
+
+```python Python
+index.create_field(
+    field_name="my_vector_field",
+    field_type="knn_vector",
+    dimension=3,
+    engine="faiss",
+    space_type="l2"
+)
+```
+
+</CodeGroup>
+
+After the field is created, vectors can be manually upserted:
+
+<CodeGroup>
+
+```python Python
+documents = [{"my_vector_field": [0.1, 0.2, 0.3]}]
+ids = ["id1"]
+
+index.upsert(documents=documents, ids=ids)
+```
+
+</CodeGroup>
+
+## Basic Usage
+
+`with_nearest_neighbor` retrieves the top `k` documents whose vectors are most similar to the provided query vector.
+Note that `k` has a maximum size of 10,000.
+
+<CodeGroup>
+
+```python Python
+k = 50
+
+Search().with_nearest_neighbor(
+    vector=[0.2, 0.3, 0.4],
+    field="my_vector_field",
+    k=k
+)[0:k]
+```
+
+</CodeGroup>
+
+## Efficient Filtering
+
+To efficently filter results during the kNN search, as opposed to before or after the search, the `filter` argument
+can be provided. This ensures that `k` results are returned, assuming that there are at least `k` results
+in total. Note that efficient filtering is only supported by `lucene` and `faiss`.
+
+```python Python
+from retakesearch import Q
+
+k = 50
+
+Search().with_nearest_neighbor(
+    vector=[0.2, 0.3, 0.4],
+    field="my_vector_field",
+    k=k,
+    filter=Q("match", another_field="value")
+)[0:k]
+```

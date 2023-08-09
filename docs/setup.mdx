@@ -5,7 +5,8 @@ description: Configure your Postgres database for real-time search
 
 <Note>
   Retake also supports search over non-Postgres data sources. If you do not wish
-  to integrate with Postgres, you may skip this section.
+  to integrate with Postgres or prefer to write your own data ingestion logic,
+  you may skip this section.
 </Note>
 <Info>**Prerequisite** Make sure you are running PostgreSQL 11 or higher.</Info>
 
@@ -16,13 +17,13 @@ detect changes in the database and propagate them to Retake.
 
 ### Non-AWS
 
-1. Ensure Postgres database user is a superuser
+1. Ensure that your Postgres user is a superuser.
 
 ```
 SELECT usename FROM pg_user WHERE usesuper = true
 ```
 
-2. Enable logical decoding in `postgres.conf`
+2. Enable logical decoding in `postgres.conf`.
 
 ```
 wal_level = logical

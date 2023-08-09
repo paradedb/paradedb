@@ -133,6 +133,15 @@ index.vectorize(["questions", "answers"])
 <ParamField body="field_names" type="List[str]" required>
   A list of field names to vectorize.
 </ParamField>
+<ParamField body="engine" type="str" default="faiss">
+  Must be one of `faiss`, `nmslib`, or `lucene`.
+</ParamField>
+<ParamField body="space_type" type="str" default="l2">
+  The similarity method to use. Must be one of `l2`, `innerproduct`, or
+  `cosinesimil`. Note that `faiss` only supports `l2` and `innerproduct`, and
+  that `lucene` only supports `l2` and `cosinesimil`. `nmslib` supports all
+  three.
+</ParamField>
 
 ### `create_field`
 
@@ -150,4 +159,19 @@ index.create_field("new_field", "text")
 <ParamField body="field_type" type="str" required>
   The type of the new field. Must be a valid
   [FieldType](https://github.com/getretake/retake/blob/dev/core/search/index_mappings.py#L6).
+</ParamField>
+<ParamField body="engine" type="str" default="faiss">
+  Should only be provided for the `knn_vector` field type. Must be one of
+  `faiss`, `nmslib`, or `lucene`.
+</ParamField>
+<ParamField body="space_type" type="str" default="l2">
+  Should only be provided for the `knn_vector` field type. Must be one of `l2`,
+  `innerproduct`, or `cosinesimil`. Note that `faiss` only supports `l2` and
+  `innerproduct`, and that `lucene` only supports `l2` and `cosinesimil`.
+  `nmslib` supports all three.
+</ParamField>
+<ParamField body="dimension" type="int">
+  Should only be provided for the `knn_vector` field type. If not provided,
+  Retake will infer the dimension based on the dimension of the first vector
+  added to this field.
 </ParamField>

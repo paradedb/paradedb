@@ -52,14 +52,54 @@ class FieldType(Enum):
     JOIN = "join"
 
 
+class Engine(Enum):
+    FAISS = "faiss"
+    LUCENE = "lucene"
+    NMSLIB = "nmslib"
+
+
+class SpaceType(Enum):
+    L2 = "l2"
+    COSINE = "cosinesimil"
+    INNERPRODUCT = "innerproduct"
+
+
+engine_space_mapping: Dict[str, Any] = {
+    Engine.FAISS.value: {SpaceType.L2.value, SpaceType.INNERPRODUCT.value},
+    Engine.LUCENE.value: {SpaceType.L2.value, SpaceType.COSINE.value},
+    Engine.NMSLIB.value: {
+        SpaceType.L2.value,
+        SpaceType.COSINE,
+        SpaceType.INNERPRODUCT.value,
+    },
+}
+
+
 class IndexMappings:
     def __init__(self, name: str, client: OpenSearch):
         self.name = name
         self.client = client
 
+    def _validate_knn_method(self, property: Dict[str, Any]) -> None:
+        dimension = property.get("dimension", None)
+        method = property.get("method", dict())
+        engine = method.get("engine", None)
+        space_type = method.get("space_type", None)
+
+        if not engine or not space_type or not dimension:
+            raise Exception(
+                "Parameters for engine, space_type, and dimension must be provided for knn_vector type"
+            )
+
+        if space_type not in engine_space_mapping[engine]:
+            raise Exception(
+                f"The spacetype {space_type} is not supported by the engine {engine}"
+            )
+
     def upsert(self, properties: Dict[str, Any]) -> None:
-        # We upsert one-by-one, so if a single property fails, it does not
-        # affect the others
         for attribute, values in properties.items():
+            if values.get("type") == FieldType.KNN_VECTOR.value:
+                self._validate_knn_method(values)
+
             body = {"properties": {attribute: values}}
             self.client.indices.put_mapping(index=self.name, body=body)

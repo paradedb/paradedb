@@ -138,7 +138,7 @@ sudo usermod -aG docker "${USER}" || true
 # Start stack
 echo ""
 echo "Starting docker compose..."
-sudo -E docker compose up -d
+sudo -E docker compose -f docker/docker-compose.prod.yml up -d
 
 echo ""
 echo "⏳ Waiting for Retake to be ready (this will take a few minutes)"

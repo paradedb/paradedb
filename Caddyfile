@@ -1,0 +1,3 @@
+ :80 :443 {
+    reverse_proxy api:8000
+}

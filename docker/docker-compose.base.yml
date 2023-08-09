@@ -1,4 +1,6 @@
-version: "3"
+# This docker-compose.yml file is the base for all other docker compose files.
+
+version: "3.8"
 
 services:
   core:
@@ -15,36 +17,21 @@ services:
       - core
     environment:
       API_KEY: retake-test-key
-      POSTHOG_API_KEY: phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj
+      POSTHOG_API_KEY: ""
       OPENSEARCH_HOST: core
       OPENSEARCH_PORT: 9200
       OPENSEARCH_USER: admin
       OPENSEARCH_PASSWORD: admin
-      OPENSEARCH_USE_TLS: True
+      OPENSEARCH_VERIFY_CERTS: False
       PGSYNC_HOST: pgsync
       PGSYNC_PORT: 7433
-    volumes:
-      - .:/app
 
   redis:
     image: redis:7.0.12-alpine
     command: redis-server
 
-  caddy:
-    image: caddy:2.7.2-alpine
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-
   pgsync:
     image: retake/retakesync:latest
-    ports:
-      - 7433:7433
     sysctls:
       - net.ipv4.tcp_keepalive_time=200
       - net.ipv4.tcp_keepalive_intvl=200
@@ -70,7 +57,3 @@ services:
       REDIS_PORT: 6379
       ELASTICSEARCH: false
       OPENSEARCH: true
-
-volumes:
-  caddy_data:
-  caddy_config:

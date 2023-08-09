@@ -24,7 +24,7 @@ client = Client(
     port=opensearch_config.port,
     user=opensearch_config.user,
     password=opensearch_config.password,
-    verify_certs=opensearch_config.use_tls,
+    verify_certs=opensearch_config.verify_certs,
 )
 
 

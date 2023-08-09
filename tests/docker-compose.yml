@@ -5,22 +5,22 @@ version: "3"
 services:
   core:
     extends:
-      file: ../docker-compose.dev.yml
+      file: ../docker/docker-compose.dev.yml
       service: core
 
   api:
     extends:
-      file: ../docker-compose.dev.yml
+      file: ../docker/docker-compose.dev.yml
       service: api
 
   redis:
     extends:
-      file: ../docker-compose.dev.yml
+      file: ../docker/docker-compose.dev.yml
       service: redis
 
   pgsync:
     extends:
-      file: ../docker-compose.dev.yml
+      file: ../docker/docker-compose.dev.yml
       service: pgsync
 
   postgres:

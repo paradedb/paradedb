@@ -1,0 +1,32 @@
+# This docker-compose.yml file can be used for testing and development.
+
+version: "3.8"
+
+services:
+  core:
+    extends:
+      file: ./docker-compose.base.yml
+      service: core
+    ports:
+      - 9200:9200
+
+  api:
+    extends:
+      file: ./docker-compose.base.yml
+      service: api
+    ports:
+      - 8000:8000
+
+  redis:
+    extends:
+      file: ./docker-compose.base.yml
+      service: redis
+    ports:
+      - 6379:6379
+
+  pgsync:
+    extends:
+      file: ./docker-compose.base.yml
+      service: pgsync
+    ports:
+      - 7433:7433

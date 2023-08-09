@@ -1,6 +1,6 @@
 ---
 title: Quick Start
-description: Add search to your Python or Typescript app in under five minutes
+description: Implement hybrid search over Postgres in under five minutes
 ---
 
 <Note>
@@ -9,16 +9,51 @@ description: Add search to your Python or Typescript app in under five minutes
   team](http://calendly.com/philippemnoel).
 </Note>
 
-In this tutorial, we will implement neural search over Postgres using the `retakesearch` Python library.
-This tutorial will only cover Retake-specific code and assumes that you already have a Python environment
-where you would like to integrate Retake.
+In this quickstart, we will implement hybrid search over a [Kaggle e-commerce dataset](https://www.kaggle.com/datasets/mukuldeshantri/ecommerce-fashion-dataset),
+which contains 30,000 rows of products. Here is a simplified version of what the dataset looks like:
 
-Please refer to the
-[example Python Flask app](https://github.com/getretake/search/tree/dev/examples/flask) or
-[example Nextjs app](https://github.com/getretake/search/tree/dev/examples/nextjs)
-for complete examples of implementing search with Retake.
+| BrandName   | Description                                                    | SellPrice | Category          |
+| ----------- | -------------------------------------------------------------- | --------- | ----------------- |
+| Fratini     | solid polyester blend wide neck womens regular top - off white | 74        | Westernwear-Women |
+| Zinc London | stripes polyester sweetheart neck womens dress - black         | 849       | Westernwear-Women |
+| Kraus       | wide ankle length cotton womens jeans - light blue             | 2449      | Westernwear-Women |
 
-## Installation
+To follow along with this tutorial, you can optionally [download the full CSV file](https://www.kaggle.com/datasets/mukuldeshantri/ecommerce-fashion-dataset/download?datasetVersionNumber=1)
+and upload it to a Postgres table.
+
+## (Optional) Upload CSV to Postgres
+
+This tutorial uses Neon, a serverless Postgres provider that makes it very easy to create Postgres tables and upload
+CSVs, but you can use any Postgres service. First, we connect to our Neon instance using `psql`:
+
+```bash
+psql -h pg.neon.tech
+```
+
+Once inside `psql`, we can create a table and upload the CSV file:
+
+```sql
+CREATE TABLE products (
+  id integer,
+  BrandName text,
+  Details text,
+  Sizes text,
+  MRP text,
+  SellPrice text,
+  Discount text,
+  Category text
+);
+
+\copy products FROM '/path/to/FashionDataset.csv' DELIMITER ',' CSV HEADER;
+```
+
+The last step is to create a primary key. All tables must have a primary key to integrate with Retake:
+
+```sql
+ALTER TABLE products ADD COLUMN product_id SERIAL PRIMARY KEY;
+```
+
+## Install Retake
 
 <Info>**Prerequisite** Docker and Docker Compose must be installed.</Info>
 
@@ -29,7 +64,7 @@ docker compose up
 ```
 
 This spins up the Retake engine, which is responsible for executing search queries and storing search data.
-Next, `cd` into your Python project and install the Retake SDK.
+Next, install the Retake SDK in your Python or Typescript environment.
 
 <CodeGroup>
 
@@ -43,17 +78,14 @@ npm install retake-search
 
 </CodeGroup>
 
-## Upload Data
-
-Next, we use the Retake Python SDK to tell the Retake engine what data we wish to search over. Retake enables
-developers to either upload their own data or integrate directly with Postgres.
-
-### From Postgres
+## Index Postgres
 
 <Info>
   **Prerequisite** Please ensure that you have [enabled logical
   replication](/setup) in your Postgres database.
 </Info>
+
+Next, we use the Retake Python SDK to tell the Retake engine what table(s) we wish to search over.
 
 The `Index.add_source` function integrates Retake directly with Postgres. As long as the Retake engine is running, this
 function only needs to be run once.
@@ -75,18 +107,19 @@ database = Database(
     host="***",
     user="***",
     password="***",
+    dbname="***",
     port=5432,
-    dbname="***"
 )
 
 # Provide the table name and columns you wish to search over here
 table = Table(
-    name="faqs"
-    columns=["questions", "answers"]
+    name="products"
+    columns=["BrandName", "Details", "Sizes", "SellPrice", "Discount", "Category"]
+    transform={"mapping": {"SellPrice": "integer"}}
 )
 
 # Create an index
-index = client.create_index("my_index")
+index = client.create_index("products")
 
 # Populate the index with data from your table
 # Note: The table must have a primary key

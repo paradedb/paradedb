@@ -1,6 +1,6 @@
 # This docker-compose.yml file is the base for all other docker compose files.
 
-version: "3"
+version: "3.8"
 
 services:
   core:

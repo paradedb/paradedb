@@ -1,3 +1,5 @@
+# This docker-compose.yml file is for local tests and CI runs only.
+
 version: "3"
 
 services:

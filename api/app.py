@@ -20,9 +20,7 @@ POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "")
 TELEMETRY = os.getenv("TELEMETRY", "enabled")
 
 if POSTHOG_API_KEY != "":
-    # posthog = Posthog(POSTHOG_API_KEY, host="https://app.posthog.com")
-    posthog = Posthog(project_api_key='phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj', host='https://app.posthog.com')
-
+    posthog = Posthog(project_api_key=POSTHOG_API_KEY, host="https://app.posthog.com")
 
 
 class APIKeyValidator:
@@ -82,4 +80,4 @@ app.include_router(client.router)
 
 if POSTHOG_API_KEY != "" and TELEMETRY != "disabled":
     # Keep all telemetry as anonymous
-    posthog.capture('anonymous', 'test-event')
+    posthog.capture("anonymous", "retake-deployment-started")

@@ -1,0 +1,28 @@
+---
+title: On a Cloud Instance
+---
+
+Retake can be self-hosted inside your own cloud. This is especially useful for applications with sensitive data,
+as it ensures that the information remains within your cloud infrastructure.
+
+## Prerequisites
+
+1. You have deployed a Linux Ubuntu virtual machine
+2. Your instance has at least 8GB RAM
+
+## Deployment
+
+SSH into your instance and run:
+
+```bash
+curl -O https://raw.githubusercontent.com/getretake/retake/main/deploy.sh
+```
+
+This will download the deploy script. Next, run the deploy script:
+
+```bash
+chmod +x deploy.sh
+./deploy.sh
+```
+
+The deploy script will guide you through the process of configuring and running Retake.

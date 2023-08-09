@@ -29,8 +29,9 @@
 
 Retake is the fastest way to unlock keyword + semantic search for enterprise databases.
 
-Built to stay in sync with Postgres, Retake abstracts away the complexity of search by acting as a search
-layer. Retake also provides simple search SDKs that snap into any Python or Typescript application.
+By connecting directly to Postgres, Retake accelerates the development of AI applications that
+require searching, matching, or analyzing database documents. Retake also provides simple search
+SDKs that snap into any Python or Typescript application.
 
 You don't need to worry about managing separate vector stores and text search engines, uploading and embedding documents, or reindexing data. Just write search queries and let Retake handle the rest.
 

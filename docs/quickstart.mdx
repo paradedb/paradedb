@@ -11,9 +11,9 @@ description: Implement hybrid search over Postgres in under five minutes
 
 This guide will walk you through the following steps to get started with Retake:
 
-1. Installing and running Retake
-2. Integrating Retake with Postgres
-3. Performing your first search
+1. Install and run Retake
+2. Upload data to Retake via Postgres integration or batch upload
+3. Execute your first search
 
 ## Install and Run Retake
 
@@ -40,7 +40,7 @@ npm install retake-search
 
 </CodeGroup>
 
-## Integrate with Postgres
+## Upload Data to Retake
 
 <Info>
   **Prerequisite** Please ensure that you have [enabled logical
@@ -129,7 +129,7 @@ index.addSource(database, table);
 
 </CodeGroup>
 
-Optionally, data stored outside of Postgres can also be added to an index.
+Optionally, data stored outside of Postgres can also be added to an index via batch upload.
 
 <CodeGroup>
 
@@ -234,7 +234,8 @@ Please refer to the [search guide](search/overview) for the essentials of writin
 
 ## Congrats!
 
-You've successfully executed a neural search query over your Postgres database.
+You've successfully executed a neural search query over your Postgres database. To see full examples
+of applications built with Retake, please refer to our [demo Flask and Nextjs apps](https://github.com/getretake/retake/tree/main/examples).
 
 <CardGroup cols={2}>
   <Card title="Search Reference" icon="circle-play" href="/search/overview">

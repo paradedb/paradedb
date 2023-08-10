@@ -4,7 +4,7 @@ This is a demo Next.js app built with `retake-search`. The app enables users to 
 
 **Prerequisite** You must have a Postgres database with a table that has at least one row and a primary key column.
 
-1. Start the Retake engine. From the root directory of this repo (not the `flask` directory), run
+1. Start the Retake engine. From the `docker` folder of this repo (not the `flask` directory), run
 
 ```bash
 docker compose up

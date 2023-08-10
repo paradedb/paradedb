@@ -35,9 +35,11 @@ SDKs that snap into any Python or Typescript application.
 
 You don't need to worry about managing separate vector stores and text search engines, uploading and embedding documents, or reindexing data. Just write search queries and let Retake handle the rest.
 
-To get started, simply download the [docker compose file](https://raw.githubusercontent.com/getretake/retake/main/docker-compose.yml) and run:
+To get started, run our Docker Compose file:
 
 ```bash
+git clone git@github.com:getretake/retake.git
+cd retake/docker
 docker compose up
 ```
 

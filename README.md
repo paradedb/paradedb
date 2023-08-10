@@ -7,7 +7,7 @@
 </h1>
 
 <p align="center">
-    <b>Real-Time Universal Search Infra for Developers</b> <br />
+    <b>Open-Source Hybrid Search for Postgres</b> <br />
 </p>
 
 <h3 align="center">

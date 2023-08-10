@@ -12,7 +12,7 @@ The `Index` class is used to perform actions on a specific index like search and
 Upserts documents into the index.
 
 ```typescript Typescript
-index.upsert((documents = [{ questions: "Who am I?" }]), (ids = ["id1"]));
+index.upsert([{ questions: "Who am I?" }], ["id1"]);
 ```
 
 **Parameters**

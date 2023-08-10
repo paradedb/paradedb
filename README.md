@@ -7,7 +7,7 @@
 </h1>
 
 <p align="center">
-    <b>Real-Time Universal Search Infra for Developers</b> <br />
+    <b>Open-Source Hybrid Search for Postgres</b> <br />
 </p>
 
 <h3 align="center">
@@ -27,7 +27,7 @@
 </a>
 </p>
 
-Retake is the fastest way to unlock keyword + semantic search for enterprise databases.
+Retake is the fastest way to unlock keyword + semantic search for your database.
 
 By connecting directly to Postgres, Retake accelerates the development of AI applications that
 require searching, matching, or analyzing database documents. Retake also provides simple search

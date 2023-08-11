@@ -37,7 +37,11 @@ jobs:
 
       - name: Install Dependencies
         working-directory: clients/typescript
-        run: npm install && npm ci
+        run: npm install
+
+      - name: Build Retake
+        working-directory: clients/typescript
+        run: npm run build
 
       - name: Build and Publish to NPM
         working-directory: clients/typescript

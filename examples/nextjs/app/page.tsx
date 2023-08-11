@@ -1,6 +1,6 @@
-"use client"
-import Search from "./search"
-import { SearchProvider } from "retake-search"
+"use client";
+import Search from "./search";
+import { SearchProvider } from "retake-search/components";
 
 const Page = () => {
   return (

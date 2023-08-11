@@ -12,9 +12,10 @@ import {
   Flex,
   Button,
   Metric,
-} from "@tremor/react"
-import { Search, useSearch } from "retake-search"
-import { withNeural } from "retake-search/helpers"
+} from "@tremor/react";
+import { Search } from "retake-search";
+import { useSearch } from "retake-search/components";
+import { withNeural } from "retake-search/helpers";
 
 const index = process.env.DATABASE_TABLE_NAME ?? ""
 const columns = process.env.DATABASE_TABLE_COLUMNS

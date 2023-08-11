@@ -126,11 +126,11 @@ const table = new Table({
   columns: columns,
 });
 
-const index = client.create_index("table_name");
+const index = await client.createIndex("table_name");
 
 // Note: The table must have a primary key
-index.addSource(database, table);
-index.vectorize(columns);
+await index.addSource(database, table);
+await index.vectorize(columns);
 
 // Keyword (BM25) search
 const bm25Query = Search().query(matchQuery("column_to_search", "my query"));

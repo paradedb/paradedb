@@ -6,6 +6,7 @@ export default {
   input: {
     index: "src/index.ts",
     "helpers/index": "src/helpers/index.ts",
+    "components/index": "src/components/index.ts",
   },
   output: [
     {

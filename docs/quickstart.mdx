@@ -61,7 +61,8 @@ we have a Postgres table called `products` with the following data:
 | Zinc London | Stripes polyester sweetheart neck womens dress - black         | 849   | Women    |
 | Kraus       | Wide ankle length cotton mens jeans - light blue               | 2449  | Men      |
 
-The following code integrates this table with Retake:
+The following code integrates this table with Retake. Note that this code block performs an expensive
+reindexing operation and only needs to be run once as long as the Docker Compose stack is running.
 
 <CodeGroup>
 
@@ -168,7 +169,7 @@ bm25_search_query = Search().query("match", description="jeans")
 response = index.search(bm25_search_query)
 
 # This executes a hybrid keyword + semantic search
-hybrid_search_query = Search().with_neural("neural", description="jeans")
+hybrid_search_query = Search().with_neural("jeans", ["description"])
 response = index.search(hybrid_search_query)
 
 print(response)

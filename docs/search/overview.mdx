@@ -52,7 +52,7 @@ import { matchQuery } from "retake-search/helpers";
 const client = new Client("retake-test-key", "http://localhost:8000");
 
 // Use client.createIndex if the index doesn't exist
-const index = client.getIndex("my_index");
+const index = await client.getIndex("my_index");
 
 // Construct query
 const query = Search().query(matchQuery("questions", "Who am I?"));

@@ -42,9 +42,5 @@
   "dependencies": {
     "ky": "^0.33.3",
     "opensearch-js": "github:getretake/opensearch-js"
-  },
-  "peerDependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0"
   }
 }

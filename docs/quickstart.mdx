@@ -122,7 +122,7 @@ const table = new Table({
 });
 
 // Create an index
-const index = client.create_index("table_name");
+const index = await client.createIndex("table_name");
 
 // Populate the index with data from your table
 // Note: The table must have a primary key

@@ -28,7 +28,7 @@ const client = Client("retake-test-key", "http://localhost:8000");
 Creates an empty index.
 
 ```typescript Typescript
-const index = client.createIndex("test_index");
+const index = await client.createIndex("test_index");
 ```
 
 **Parameters**
@@ -39,14 +39,14 @@ const index = client.createIndex("test_index");
 
 **Returns**
 
-An [`Index`](/typescript/index) object.
+`Promise<Index>`
 
 ### `getIndex`
 
 Gets an index.
 
 ```typescript Typescript
-const index = client.getIndex("test_index");
+const index = await client.getIndex("test_index");
 ```
 
 **Parameters**
@@ -57,7 +57,7 @@ const index = client.getIndex("test_index");
 
 **Returns**
 
-An [`Index`](/typescript/index) object.
+`Promise<Index>`
 
 ### `deleteIndex`
 

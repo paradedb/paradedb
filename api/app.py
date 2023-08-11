@@ -1,5 +1,6 @@
 import os
 import urllib3
+import logging
 
 from fastapi import FastAPI, Request, status
 from starlette.middleware.cors import CORSMiddleware
@@ -14,13 +15,21 @@ from .routers import base
 
 # TODO: Add SSL and remove this
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+logging.basicConfig(level=logging.INFO)
 
 API_KEY = os.getenv("API_KEY", "")
 POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "")
 TELEMETRY = os.getenv("TELEMETRY", "enabled")
 
-if POSTHOG_API_KEY != "":
+
+if POSTHOG_API_KEY != "" and TELEMETRY != "disabled":
+    logging.info("Telemetry enabled")
     posthog = Posthog(project_api_key=POSTHOG_API_KEY, host="https://app.posthog.com")
+
+    # Keep all telemetry as anonymous
+    result = posthog.capture("Anonymous", "Retake Deployment Started")
+else:
+    logging.info("Telemetry disabled")
 
 
 class APIKeyValidator:
@@ -77,7 +86,3 @@ app.add_middleware(AuthMiddleware, api_key_validator=APIKeyValidator(API_KEY))
 app.include_router(index.router)
 app.include_router(base.router)
 app.include_router(client.router)
-
-if POSTHOG_API_KEY != "" and TELEMETRY != "disabled":
-    # Keep all telemetry as anonymous
-    posthog.capture("anonymous", "retake-deployment-started")

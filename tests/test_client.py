@@ -13,7 +13,7 @@ fake = Faker()
 
 def generate_random_vector(dim=20, min_val=-1, max_val=1):
     vector = [random.uniform(min_val, max_val) for _ in range(dim)]
-    magnitude = math.sqrt(sum([x**2 for x in vector]))
+    magnitude = math.sqrt(sum([x ** 2 for x in vector]))
     return [x / magnitude for x in vector]
 
 

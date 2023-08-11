@@ -26,6 +26,8 @@ services:
       OPENSEARCH_VERIFY_CERTS: False
       PGSYNC_HOST: pgsync
       PGSYNC_PORT: 7433
+      POSTHOG_API_KEY: phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj
+
 
   redis:
     extends:

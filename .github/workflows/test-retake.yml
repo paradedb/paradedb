@@ -60,7 +60,7 @@ jobs:
       # To avoid rate limits in Docker Hub
       - name: Manually Pull Docker Images
         run: |
-          docker pull public.ecr.aws/opensearchproject/opensearch:2.9.0
+          docker pull opensearchproject/opensearch:2.9.0
           docker pull redis:7.0.12-alpine
           docker pull postgres:latest
 

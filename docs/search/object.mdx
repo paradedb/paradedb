@@ -27,9 +27,9 @@ Search().query("match", character__name="Spongebob")
 ```
 
 ```typescript Typescript
-import { matchQuery } from "retake-search/helpers";
+import { matchQuery } from "retake-search/helpers"
 
-Search().query(matchQuery("character.name", "Spongebob"));
+Search().query(matchQuery("character.name", "Spongebob"))
 ```
 
 </CodeGroup>
@@ -66,12 +66,12 @@ Search().query("nested", path="characters", query=Q("match", name="Spongebob"))
 ```
 
 ```typescript Typescript
-import { nestedQuery, matchQuery } from "retake-search/helpers";
+import { nestedQuery, matchQuery } from "retake-search/helpers"
 
 Search()
   .nestedQuery()
   .path("characters")
-  .query(matchQuery("characters.name", "Spongebob"));
+  .query(matchQuery("characters.name", "Spongebob"))
 ```
 
 </CodeGroup>

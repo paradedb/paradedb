@@ -1,6 +1,6 @@
-"use client";
-import Search from "./search";
-import { SearchProvider } from "retake-search";
+"use client"
+import Search from "./search"
+import { SearchProvider } from "retake-search"
 
 const Page = () => {
   return (
@@ -12,7 +12,7 @@ const Page = () => {
         <Search />
       </div>
     </SearchProvider>
-  );
-};
+  )
+}
 
-export default Page;
+export default Page

@@ -107,42 +107,42 @@ npm install retake-search
 The core API is just a few functions.
 
 ```typescript
-import { Client, Database, Table, Search } from "retake-search";
-import { withSemantic, withNeural, matchQuery } from "retake-search/helpers";
+import { Client, Database, Table, Search } from "retake-search"
+import { withSemantic, withNeural, matchQuery } from "retake-search/helpers"
 
-const client = new Client("retake-test-key", "http://localhost:8000");
+const client = new Client("retake-test-key", "http://localhost:8000")
 
 // Replace with your database credentials
-const columns = ["column_to_search"];
+const columns = ["column_to_search"]
 const database = new Database({
   host: "***",
   user: "***",
   password: "***",
   dbName: "***",
   port: 5432,
-});
+})
 const table = new Table({
   table: "table_name",
   columns: columns,
-});
+})
 
-const index = await client.createIndex("table_name");
+const index = await client.createIndex("table_name")
 
 // Note: The table must have a primary key
-await index.addSource(database, table);
-await index.vectorize(columns);
+await index.addSource(database, table)
+await index.vectorize(columns)
 
 // Keyword (BM25) search
-const bm25Query = Search().query(matchQuery("column_to_search", "my query"));
-index.search(bm25Query);
+const bm25Query = Search().query(matchQuery("column_to_search", "my query"))
+index.search(bm25Query)
 
 // Semantic (vector-based) search
-const semanticQuery = Search().query(withSemantic("my query", columns));
-index.search(semanticQuery);
+const semanticQuery = Search().query(withSemantic("my query", columns))
+index.search(semanticQuery)
 
 // Neural (keyword + semantic) search
-const neuralQuery = Search().query(withNeural("my query", columns));
-index.search(neuralQuery);
+const neuralQuery = Search().query(withNeural("my query", columns))
+index.search(neuralQuery)
 ```
 
 ## Key Features

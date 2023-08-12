@@ -24,14 +24,14 @@ print(response.aggregations[bucket_name].value)
 ```
 
 ```typescript Typescript
-import { avgAggregation } from "retake-search/helpers";
+import { avgAggregation } from "retake-search/helpers"
 
-bucketName = "average_price";
+bucketName = "average_price"
 
-response = index.search(Search().avgAggregation(bucket_name, "price"));
+response = index.search(Search().avgAggregation(bucket_name, "price"))
 
 // Print the average price
-print(response.aggregations[bucket_name].value);
+print(response.aggregations[bucket_name].value)
 ```
 
 </CodeGroup>
@@ -49,9 +49,9 @@ Search().aggs.metrics(bucket_name, A("terms", field="color"))
 ```
 
 ```typescript Typescript
-import { termsAggregation } from "retake-search/helpers";
+import { termsAggregation } from "retake-search/helpers"
 
-Search().termsAggregation(bucketName, "color");
+Search().termsAggregation(bucketName, "color")
 ```
 
 </CodeGroup>
@@ -71,14 +71,14 @@ Search().aggs.metrics(
 ```
 
 ```typescript Typescript
-import { rangeAggregation } from "retake-search/helpers";
+import { rangeAggregation } from "retake-search/helpers"
 
 Search()
   .rangeAggregation(bucketName, "price")
   .ranges([
     { from: 10, to: 20 },
     { from: 20, to: 30 },
-  ]);
+  ])
 ```
 
 </CodeGroup>
@@ -97,14 +97,14 @@ Search().aggs.metrics(
 ```
 
 ```typescript Typescript
-import { dateRangeAggregation } from "retake-search/aggregations";
+import { dateRangeAggregation } from "retake-search/aggregations"
 
 Search()
   .dateRangeAggregation(bucket_name, "publish_date")
   .ranges([
     { from: "now-1d/d", to: "now/d" },
     { from: "now-1M/M", to: "now/M" },
-  ]);
+  ])
 ```
 
 </CodeGroup>
@@ -123,9 +123,9 @@ Search().aggs.metrics(
 ```
 
 ```typescript Typescript
-import { histogramAggregation } from "retake-search/aggregations";
+import { histogramAggregation } from "retake-search/aggregations"
 
-Search().histogramAggregationAggregation(bucket_name, "price", 10);
+Search().histogramAggregationAggregation(bucket_name, "price", 10)
 ```
 
 </CodeGroup>
@@ -144,9 +144,9 @@ Search().aggs.metrics(
 ```
 
 ```typescript Typescript
-import { avgAggregation } from "retake-search/aggregations";
+import { avgAggregation } from "retake-search/aggregations"
 
-Search().avgAggregation(bucket_name, "price");
+Search().avgAggregation(bucket_name, "price")
 ```
 
 </CodeGroup>
@@ -165,9 +165,9 @@ Search().aggs.metrics(
 ```
 
 ```typescript Typescript
-import { sumAggregation } from "retake-search/aggregations";
+import { sumAggregation } from "retake-search/aggregations"
 
-Search().sumAggregation(bucket_name, "price");
+Search().sumAggregation(bucket_name, "price")
 ```
 
 </CodeGroup>
@@ -191,10 +191,10 @@ Search().aggs.metrics(
 ```
 
 ```typescript Typescript
-import { minAggregation, maxAggregation } from "retake-search/aggregations";
+import { minAggregation, maxAggregation } from "retake-search/aggregations"
 
-Search().minAggregation(bucket_name, "price");
-Search().maxAggregation(bucket_name, "price");
+Search().minAggregation(bucket_name, "price")
+Search().maxAggregation(bucket_name, "price")
 ```
 
 </CodeGroup>

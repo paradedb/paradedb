@@ -100,11 +100,11 @@ index.add_source(database, table)
 ```
 
 ```typescript Typescript
-import { Client, Database, Table, Search } from "retake-search";
+import { Client, Database, Table, Search } from "retake-search"
 
 // When the Retake engine is run locally,
 // this is the default API key/URL
-const client = new Client("retake-test-key", "http://localhost:8000");
+const client = new Client("retake-test-key", "http://localhost:8000")
 
 // Provide your Postgres database credentials here
 const database = new Database({
@@ -113,21 +113,21 @@ const database = new Database({
   password: "***",
   dbName: "***",
   port: 5432,
-});
+})
 
 // Provide the table name and columns you wish to search over here
-const columns = ["column_to_search"];
+const columns = ["column_to_search"]
 const table = new Table({
   table: "table_name",
   columns: columns,
-});
+})
 
 // Create an index
-const index = await client.createIndex("table_name");
+const index = await client.createIndex("table_name")
 
 // Populate the index with data from your table
 // Note: The table must have a primary key
-index.addSource(database, table);
+index.addSource(database, table)
 ```
 
 </CodeGroup>
@@ -147,10 +147,10 @@ index.upsert(
 ```
 
 ```typescript Typescript
-const documents = [{ key: "value" }];
-const ids = ["id1"];
+const documents = [{ key: "value" }]
+const ids = ["id1"]
 
-index.upsert(documents, ids);
+index.upsert(documents, ids)
 ```
 
 </CodeGroup>
@@ -176,18 +176,18 @@ print(response)
 ```
 
 ```typescript Typescript
-import { Search } from "retake-search";
-import { withNeural } from "retake-search/helpers";
+import { Search } from "retake-search"
+import { withNeural } from "retake-search/helpers"
 
 // This executes a full-text (BM25) search
-const bm25Query = Search().query(matchQuery("description", "jeans"));
-const response = index.search(bm25Query);
+const bm25Query = Search().query(matchQuery("description", "jeans"))
+const response = index.search(bm25Query)
 
 // This executes a hybrid keyword + semantic search
-const hybridQuery = Search().query(withNeural("jeans", ["description"]));
-const response = index.search(hybridQuery);
+const hybridQuery = Search().query(withNeural("jeans", ["description"]))
+const response = index.search(hybridQuery)
 
-print(response);
+print(response)
 ```
 
 </CodeGroup>

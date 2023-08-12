@@ -12,7 +12,7 @@ The `Index` class is used to perform actions on a specific index like search and
 Upserts documents into the index.
 
 ```typescript Typescript
-index.upsert([{ questions: "Who am I?" }], ["id1"]);
+index.upsert([{ questions: "Who am I?" }], ["id1"])
 ```
 
 **Parameters**
@@ -36,7 +36,7 @@ index.upsert([{ questions: "Who am I?" }], ["id1"]);
 Establishes real-time data sync between the `Index` and a Postgres table.
 
 ```typescript Typescript
-import { Database, Table } from "retake-search";
+import { Database, Table } from "retake-search"
 
 const database = new Database({
   host: "***",
@@ -44,13 +44,13 @@ const database = new Database({
   password: "***",
   dbName: "***",
   port: 5432,
-});
+})
 const table = new Table({
   table: "table_name",
   columns: ["column_to_search"],
-});
+})
 
-index.addSource(database, table);
+index.addSource(database, table)
 ```
 
 **Parameters**
@@ -67,10 +67,10 @@ index.addSource(database, table);
 Executes a search query.
 
 ```typescript Typescript
-import { Search } from "retake-search";
+import { Search } from "retake-search"
 
-const query = Search().query(termQuery("questions", "Who am I?"));
-response = index.search(query);
+const query = Search().query(termQuery("questions", "Who am I?"))
+response = index.search(query)
 ```
 
 **Parameters**
@@ -121,7 +121,7 @@ Once vectorized, a field does not need to be vectorized again — Retake ensures
 and kept in sync.
 
 ```typescript Typescript
-index.vectorize(["questions", "answers"]);
+index.vectorize(["questions", "answers"])
 ```
 
 **Parameters**
@@ -135,7 +135,7 @@ index.vectorize(["questions", "answers"]);
 Creates a new field inside the index.
 
 ```typescript Typescript
-index.createField("new_field", "text");
+index.createField("new_field", "text")
 ```
 
 **Parameters**

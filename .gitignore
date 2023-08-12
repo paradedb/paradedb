@@ -19,3 +19,6 @@ poetry-installer-error-*.yml
 
 # VSCode
 .vscode/
+
+# NodeJS
+node_modules/

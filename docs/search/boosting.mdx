@@ -35,7 +35,7 @@ import { boostingQuery, matchQuery } from "retake-search/helpers";
 const query = Search().boostingQuery(
   matchQuery("name", "True Crime"), // Positive query
   matchQuery("description", "New York"), // Negative query
-  0.5 // Negative boost
+  0.5, // Negative boost
 );
 ```
 

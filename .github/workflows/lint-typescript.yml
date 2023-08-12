@@ -34,8 +34,14 @@ jobs:
       - name: Set up NodeJS Environment
         uses: actions/setup-node@v3
 
-      - name: Install Prettier
-        run: npm install -g prettier
+      - name: Install ESLint & ESLint Plugins
+        run: |
+          npm install -g prettier eslint eslint-config-airbnb \
+                                  eslint-plugin-import eslint-plugin-react \
+                                  eslint-plugin-react-hooks \eslint-plugin-jsx-a11y
+
+      - name: Check if TypeScript Files are ESLint Formatted
+        run: eslint '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
 
       - name: Check if TypeScript Files are Prettier Formatted
         run: prettier --check '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'

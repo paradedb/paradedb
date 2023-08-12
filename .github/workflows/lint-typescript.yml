@@ -47,15 +47,8 @@ jobs:
                          eslint-config-standard \
                          eslint-plugin-unused-imports \
 
-                         npm install @typescript-eslint/eslint-plugin@latest --save-dev
-
-                         npm install -g @typescript-eslint/eslint-plugin @typescript-eslint/parser
-
-
-
-
       - name: Check if TypeScript Files are ESLint Formatted
-        run: eslint '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
+        run: eslint --resolve-plugins-relative-to=/usr/local/lib/node_modules '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
 
       - name: Check if TypeScript Files are Prettier Formatted
         run: prettier --check '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'

@@ -1,0 +1,21 @@
+{
+    "plugins": ["@typescript-eslint", "unused-imports"],
+    "extends": ["plugin:@typescript-eslint/recommended"],
+    "rules": {
+      "@typescript-eslint/no-unused-vars": "error",
+      "unused-imports/no-unused-imports": "error",
+      "@typescript-eslint/no-explicit-any": "off",
+      "import/no-anonymous-default-export": "off",
+      "@typescript-eslint/ban-ts-comment": "off",
+      "react/display-name": "off",
+      "react-hooks/exhaustive-deps": "off"
+    },
+    "overrides": [
+      {
+        "files": ["**/*.tsx", "**/*.ts", "**/*.js", "**/*.json"],
+        "rules": {
+          "no-console": "error"
+        }
+      }
+    ]
+  }

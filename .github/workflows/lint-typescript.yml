@@ -34,8 +34,8 @@ jobs:
       - name: Set up NodeJS Environment
         uses: actions/setup-node@v3
 
-      - name: Install Prettier
-        run: npm install -g prettier
+      - name: Check if TypeScript Files are ESLint Formatted
+        run: eslint '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
 
       - name: Check if TypeScript Files are Prettier Formatted
         run: prettier --check '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'

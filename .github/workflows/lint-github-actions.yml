@@ -30,9 +30,6 @@ jobs:
       - name: Set up NodeJS Environment
         uses: actions/setup-node@v3
 
-      # We have to use npm install -g here, as the yarn
-      # equivalent "yarn global add" doesn't correctly
-      # add the command to the path in GitHub Actions.
       - name: Install Prettier
         run: npm install -g prettier
 

@@ -4,7 +4,7 @@ require("dotenv").config();
 const setup = async () => {
   const client = new Client(
     process.env.RETAKE_API_KEY,
-    process.env.RETAKE_API_URL
+    process.env.RETAKE_API_URL,
   );
 
   const database = new Database({

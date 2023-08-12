@@ -34,18 +34,8 @@ jobs:
       - name: Set up NodeJS Environment
         uses: actions/setup-node@v3
 
-      - name: Install ESLint & ESLint Plugins
-        run: |
-          npm install -g prettier \
-                         eslint \
-                         eslint-config-next \
-                         eslint-config-prettier \
-                         eslint-config-standard \
-                         eslint-plugin-unused-imports \
-                         @typescript-eslint/eslint-plugin
-
       - name: Check if TypeScript Files are ESLint Formatted
-        run: eslint --resolve-plugins-relative-to=/usr/local/lib/node_modules '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
+        run: eslint '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'
 
       - name: Check if TypeScript Files are Prettier Formatted
         run: prettier --check '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'

@@ -1,0 +1,78 @@
+{
+  "name": "eslint-plugin-promise",
+  "version": "6.1.1",
+  "description": "Enforce best practices for JavaScript promises",
+  "keywords": [
+    "eslint",
+    "eslintplugin",
+    "eslint-plugin",
+    "promise",
+    "promises"
+  ],
+  "homepage": "https://github.com/eslint-community/eslint-plugin-promise",
+  "bugs": "https://github.com/eslint-community/eslint-plugin-promise/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/eslint-community/eslint-plugin-promise"
+  },
+  "license": "ISC",
+  "author": "jden <jason@denizac.org>",
+  "contributors": [
+    "Brett Zamir",
+    "Aadit M Shah <aaditmshah@aadit.codes> (https://aadit.codes/)"
+  ],
+  "scripts": {
+    "format": "prettier --write .",
+    "lint": "eslint --report-unused-disable-directives .",
+    "prepare": "husky install",
+    "test": "jest --coverage"
+  },
+  "lint-staged": {
+    "{README.md,CONTRIBUTING.md}": [
+      "doctoc --maxlevel 3 --notitle"
+    ],
+    "*.js": [
+      "prettier --write",
+      "eslint --report-unused-disable-directives --fix"
+    ],
+    "*.+(json|md)": [
+      "prettier --write"
+    ]
+  },
+  "prettier": {
+    "proseWrap": "always",
+    "semi": false,
+    "singleQuote": true
+  },
+  "jest": {
+    "coverageThreshold": {
+      "global": {
+        "branches": 100,
+        "functions": 100,
+        "lines": 100,
+        "statements": 100
+      }
+    }
+  },
+  "devDependencies": {
+    "@typescript-eslint/parser": "^5.40.0",
+    "doctoc": "^2.2.1",
+    "eslint": "^8.24.0",
+    "eslint-config-prettier": "^8.5.0",
+    "eslint-plugin-eslint-plugin": "^4.4.1",
+    "eslint-plugin-jest": "^26.9.0",
+    "eslint-plugin-node": "^11.1.0",
+    "eslint-plugin-prettier": "^4.2.1",
+    "husky": "^7.0.4",
+    "jest": "^28.1.3",
+    "lint-staged": "^12.5.0",
+    "prettier": "^2.7.1",
+    "typescript": "^4.8.4"
+  },
+  "peerDependencies": {
+    "eslint": "^7.0.0 || ^8.0.0"
+  },
+  "engines": {
+    "node": "^12.22.0 || ^14.17.0 || >=16.0.0"
+  }
+}

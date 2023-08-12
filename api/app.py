@@ -1,6 +1,7 @@
 import os
 import urllib3
 import logging
+import uuid
 
 from fastapi import FastAPI, Request, status
 from starlette.middleware.cors import CORSMiddleware
@@ -27,7 +28,7 @@ if POSTHOG_API_KEY != "" and TELEMETRY != "disabled":
     posthog = Posthog(project_api_key=POSTHOG_API_KEY, host="https://app.posthog.com")
 
     # Keep all telemetry as anonymous
-    result = posthog.capture("Anonymous", "Retake Deployment Started")
+    posthog.capture(str(uuid.uuid4()), "New Retake Deployment")
 else:
     logging.info("Telemetry disabled")
 

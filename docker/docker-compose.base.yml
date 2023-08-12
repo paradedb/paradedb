@@ -4,7 +4,7 @@ version: "3.8"
 
 services:
   core:
-    image: public.ecr.aws/opensearchproject/opensearch:2.9.0
+    image: opensearchproject/opensearch:2.9.0
     environment:
       - discovery.type=single-node
       - plugins.security.disabled=false

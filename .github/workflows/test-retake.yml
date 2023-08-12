@@ -37,6 +37,12 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v3
 
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
       - name: Set up Python Environment
         uses: actions/setup-python@v3
 
@@ -51,7 +57,12 @@ jobs:
       - name: Install Dependencies
         run: poetry install
 
-      - name: Run Pytest
+      # To avoid rate limits in Docker Hub
+      - name: Manually Pull Docker Images
         run: |
-          docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_ACCESS_TOKEN}}
-          poetry run pytest
+          docker pull public.ecr.aws/opensearchproject/opensearch:2.9.0
+          docker pull redis:7.0.12-alpine
+          docker pull postgres:latest
+
+      - name: Run Pytest
+        run: poetry run pytest

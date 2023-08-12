@@ -1,5 +1,5 @@
-const { exec } = require("child_process")
-const path = require("path")
+import { exec } from "child_process"
+import * as path from "path"
 
 const directoryPath = path.join(__dirname, "../../../clients/typescript")
 

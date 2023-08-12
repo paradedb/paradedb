@@ -36,9 +36,10 @@ jobs:
 
       - name: Install ESLint & ESLint Plugins
         run: |
-          npm install -g prettier eslint eslint-config-airbnb \
-                                  eslint-plugin-import eslint-plugin-react \
-                                  eslint-plugin-react-hooks \eslint-plugin-jsx-a11y
+          npm install -g prettier eslint \
+                         @typescript-eslint/eslint-plugin eslint-config-next \
+                         eslint-config-prettier eslint-config-standard \
+                         eslint-plugin-unused-imports \
 
       - name: Check if TypeScript Files are ESLint Formatted
         run: eslint '{**/**.js,**/**.ts,**/**.tsx,**/**.css,**/**.json}'

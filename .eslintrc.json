@@ -1,9 +1,6 @@
 {
     "plugins": ["@typescript-eslint", "unused-imports"],
-    "extends": [
-      "plugin:@typescript-eslint/recommended",
-      "prettier"
-    ],
+    "extends": ["plugin:@typescript-eslint/recommended"],
     "rules": {
       "@typescript-eslint/no-unused-vars": "error",
       "unused-imports/no-unused-imports": "error",

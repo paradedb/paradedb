@@ -1,4 +1,4 @@
-retake-pgsync==2.5.1 
+retake-pgsync==2.5.3
 starlette==0.31.0 
 loguru==0.7.0 
 uvicorn==0.23.2

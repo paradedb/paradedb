@@ -9,7 +9,8 @@ services:
       - discovery.type=single-node
       - plugins.security.disabled=false
       - plugins.ml_commons.model_access_control_enabled=true
-      - plugins.ml_commons.only_run_on_ml_node=false
+      - plugins.ml_commons.only_run_on_ml_node=true
+      - node.roles=master,data,ml,ingest,remote_cluster_client
 
   api:
     image: retake/retakesearch:latest

@@ -150,7 +150,6 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
         body = {"source": source, "schema": [payload.pgsync_schema]}
 
         logger.info(body)
-
         logger.info(f"Preparing to send sync request to {pgsync_config.url}")
         res = requests.post(f"{pgsync_config.url}/sync", json=body)
         logger.info(f"Got sync response {res.text}")
@@ -166,6 +165,7 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
                 content=f"Could not start real time sync: {res.text}",
             )
     except Exception as e:
+        logger.error(e)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=str(e),
@@ -249,12 +249,14 @@ async def vectorize(payload: VectorizePayload) -> JSONResponse:
             space_type=payload.model_dump().get("space_type", default_space_type),
         )
         # Reindexing is necessary to generate vectors for existing document fields
-        index.reindex()
+        logger.info("Neural search fields registered. Reindexing...")
+        index.reindex(payload.field_names)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Fields {payload.field_names} vectorized successfully",
         )
     except Exception as e:
+        logger.error(e)
         return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
             content=f"Failed to vectorize fields: {e}",

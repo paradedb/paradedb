@@ -86,17 +86,17 @@ database = Database(
 )
 
 # Provide the table name and columns you wish to search over here
+columns = ["brand", "description", "price", "category"]
+table_name = "products"
+
 table = Table(
-    name="products"
-    columns=["brand", "description", "price", "category"]
+    name=table_name
+    columns=columns
 )
 
 # Create an index
-index = client.create_index("products")
-
-# Populate the index with data from your table
-# Note: The table must have a primary key
-index.add_source(database, table)
+index_name = "products"
+index = client.create_index(index_name)
 ```
 
 ```typescript Typescript
@@ -116,18 +116,50 @@ const database = new Database({
 })
 
 // Provide the table name and columns you wish to search over here
-const columns = ["column_to_search"]
+const columns = ["brand", "description", "price", "category"];
+const tableName = "products";
 const table = new Table({
-  table: "table_name",
+  table: tableName,
   columns: columns,
 })
 
 // Create an index
-const index = await client.createIndex("table_name")
+const indexName = "products";
+const index = await client.createIndex(indexName);
+```
 
-// Populate the index with data from your table
-// Note: The table must have a primary key
-index.addSource(database, table)
+</CodeGroup>
+
+Next, we can define which fields in our index we wish to vectorize. A field must be vectorized in order
+to perform semantic or hybrid search over it. You may skip this step if you only wish to perform keyword (BM25)
+search over your fields.
+
+<CodeGroup>
+
+```python Python
+fields_to_vectorize = ["description"]
+index.vectorize(fields_to_vectorize)
+```
+
+```typescript Typescript
+fieldsToVectorize = ["description"];
+await index.vectorize(fieldsToVectorize);
+```
+
+</CodeGroup>
+
+Finally, let's index the Postgres table.
+
+<CodeGroup>
+
+```python Python
+# Note: Your table must have a primary key
+index.add_source(database, table);
+```
+
+```typescript Typescript
+// Note: Your table must have a primary key
+await index.addSource(database, table);
 ```
 
 </CodeGroup>

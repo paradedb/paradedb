@@ -1,10 +1,11 @@
 import time
 import json
 
+from collections import deque
 from enum import Enum
 from loguru import logger
 from opensearchpy import OpenSearch, helpers
-from typing import Dict, List, Any, Union, cast
+from typing import Dict, List, Any, Union, Generator, cast
 
 from core.search.index_mappings import IndexMappings, FieldType
 from core.search.index_settings import IndexSettings
@@ -228,8 +229,39 @@ class Index:
             }
         )
 
-    def reindex(self) -> None:
-        helpers.reindex(self.client, self.name, self.name)
+    def reindex(self, fields: List[str]) -> None:
+        CHUNK_SIZE = 1000
+        THREAD_COUNT = 4
+
+        logger.info(f"Reindexing with {THREAD_COUNT} threads...")
+
+        def _generator() -> Generator[Dict[str, Any], Any, None]:
+            """Generator function to fetch all documents from the specified index."""
+            for hit in helpers.scan(self.client, index=self.name):
+                doc = {k: hit["_source"][k] for k in fields if k in hit["_source"]}
+
+                if not doc:
+                    continue
+
+                yield {
+                    "_op_type": "update",
+                    "_index": hit["_index"],
+                    "_id": hit["_id"],
+                    "doc": {
+                        k: hit["_source"][k] for k in fields if k in hit["_source"]
+                    },
+                    "doc_as_upsert": True,
+                }
+
+        deque(
+            helpers.parallel_bulk(
+                self.client,
+                _generator(),
+                chunk_size=CHUNK_SIZE,
+                thread_count=THREAD_COUNT,
+            ),
+            maxlen=0,
+        )
 
     def describe(self) -> Dict[str, Any]:
         count = self.client.count(index=self.name)["count"]

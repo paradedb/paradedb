@@ -1,5 +1,7 @@
-const { Client, Database, Table } = require("retake-search")
-require("dotenv").config()
+import { Client, Database, Table } from "retake-search"
+import dotenv from "dotenv"
+
+dotenv.config()
 
 const setup = async () => {
   const client = new Client(

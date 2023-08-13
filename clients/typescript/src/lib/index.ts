@@ -40,6 +40,7 @@ class Table {
   schema?: string
   transform?: { [key: string]: any }
   relationship?: { [key: string]: any }
+  // eslint-disable-next-line no-use-before-define
   children?: Table[]
 
   constructor(args: TableSchema) {
@@ -113,7 +114,7 @@ class Index {
     await ky
       .post(`${this.url}/index/add_source`, {
         headers: this.headers,
-        json: json,
+        json,
         timeout: false,
       })
       .catch(async (err) => {
@@ -130,7 +131,7 @@ class Index {
     return await ky
       .post(`${this.url}/index/search`, {
         headers: this.headers,
-        json: json,
+        json,
         timeout: false,
       })
       .then((response) => response.json())
@@ -143,12 +144,12 @@ class Index {
     documents: Record<string, any>[],
     ids: (string | number)[]
   ): Promise<any> {
-    const json = { index_name: this.indexName, documents: documents, ids: ids }
+    const json = { index_name: this.indexName, documents, ids }
 
     await ky
       .post(`${this.url}/index/upsert`, {
         headers: this.headers,
-        json: json,
+        json,
         timeout: false,
       })
       .catch(async (err) => {
@@ -166,7 +167,7 @@ class Index {
     await ky
       .post(`${this.url}/index/field/create`, {
         headers: this.headers,
-        json: json,
+        json,
         timeout: false,
       })
       .catch(async (err) => {
@@ -183,7 +184,7 @@ class Index {
     await ky
       .post(`${this.url}/index/vectorize`, {
         headers: this.headers,
-        json: json,
+        json,
         timeout: false,
       })
       .catch(async (err) => {

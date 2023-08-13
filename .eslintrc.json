@@ -1,0 +1,15 @@
+{
+  "plugins": ["@typescript-eslint", "unused-imports"],
+  "extends": ["plugin:@typescript-eslint/recommended"],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": "error",
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/ban-ts-comment": "off",
+    "react/display-name": "off",
+    "react-hooks/exhaustive-deps": "off",
+    "no-html-link-for-pages": "off",
+    "no-console": "off",
+    "import/no-anonymous-default-export": "off",
+    "unused-imports/no-unused-imports": "error"
+  }
+}

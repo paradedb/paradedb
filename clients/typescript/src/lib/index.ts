@@ -40,6 +40,7 @@ class Table {
   schema?: string
   transform?: { [key: string]: any }
   relationship?: { [key: string]: any }
+  // eslint-disable-next-line no-use-before-define
   children?: Table[]
 
   constructor(args: TableSchema) {

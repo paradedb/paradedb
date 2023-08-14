@@ -7,13 +7,33 @@ services:
     extends:
       file: ./docker-compose.base.yml
       service: core
+    container_name: core
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=core
+      - discovery.seed_hosts=core,ml-node
+      - cluster.initial_cluster_manager_nodes=core
     ports:
       - 9200:9200
+
+  ml-node:
+    extends:
+      file: ./docker-compose.base.yml
+      service: core
+    container_name: ml-node
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=ml-node
+      - node.roles=ml
+      - discovery.seed_hosts=core,ml-node
+      - cluster.initial_cluster_manager_nodes=core
 
   api:
     extends:
       file: ./docker-compose.base.yml
       service: api
+    depends_on:
+      - ml-node
     ports:
       - 8000:8000
     environment:
@@ -30,5 +50,7 @@ services:
     extends:
       file: ./docker-compose.base.yml
       service: pgsync
+    depends_on:
+      - ml-node
     ports:
       - 7433:7433

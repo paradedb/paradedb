@@ -1,6 +1,6 @@
 {
   "name": "retake-search",
-  "version": "0.1.40",
+  "version": "0.1.41",
   "license": "Apache-2.0",
   "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",
@@ -9,21 +9,18 @@
   "exports": {
     ".": {
       "import": "./dist/index.esm.js",
-      "require": "./dist/index.cjs.js"
+      "require": "./dist/index.cjs.js",
+      "types": "./dist/index.d.ts"
     },
     "./helpers": {
-      "import": {
-        "types": "./dist/helpers/index.d.ts",
-        "default": "./dist/helpers/index.esm.js"
-      },
-      "require": "./dist/helpers/index.cjs.js"
+      "import": "./dist/helpers/index.esm.js",
+      "require": "./dist/helpers/index.cjs.js",
+      "types": "./dist/helpers/index.d.ts"
     },
     "./components": {
-      "import": {
-        "types": "./dist/components/index.d.ts",
-        "default": "./dist/components/index.esm.js"
-      },
-      "require": "./dist/components/index.cjs.js"
+      "import": "./dist/components/index.esm.js",
+      "require": "./dist/components/index.cjs.js",
+      "types": "./dist/components/index.d.ts"
     }
   },
   "scripts": {

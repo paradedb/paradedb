@@ -5,8 +5,8 @@ import typescript from "@rollup/plugin-typescript"
 export default {
   input: {
     index: "src/index.ts",
-    "helpers/index": "src/helpers/index.ts",
-    "components/index": "src/components/index.ts",
+    helpers: "src/helpers.ts",
+    components: "src/components.ts",
   },
   output: [
     {

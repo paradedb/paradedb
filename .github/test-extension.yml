@@ -11,9 +11,6 @@ on:
       - dev
       - staging
       - main
-  push:
-    branches:
-      - phil/scaffold
   workflow_dispatch:
 
 # This guarantees that if you push many commits to the same PR, only the latest

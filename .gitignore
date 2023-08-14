@@ -1,6 +1,13 @@
-.DS_Store
-.idea/
-/target
-*.iml
-**/*.rs.bk
+# Cargo
+debug/
+target/
 Cargo.lock
+
+# Rustfmt
+**/*.rs.bk
+
+# macOS
+.DS_Store
+
+# MSVC
+*.pdb

@@ -32,6 +32,22 @@ def test_add_source(client, test_index_name, database):
     assert test_index_name in client.list_indices()
 
 
+def test_null_values_handled(client, test_index_name):
+    index = client.get_index(test_index_name)
+
+    query = Search().query("match", name="Retake City")
+    response = index.search(query)
+
+    assert "name" in response["hits"]["hits"][0]["_source"]
+    assert "country_name" not in response["hits"]["hits"][0]["_source"]
+
+    query = Search().query("match", country_name="Retake Country")
+    response = index.search(query)
+
+    assert "name" not in response["hits"]["hits"][0]["_source"]
+    assert "country_name" in response["hits"]["hits"][0]["_source"]
+
+
 def test_vectorize(client, test_index_name):
     index = client.get_index(test_index_name)
     index.vectorize(["name"])

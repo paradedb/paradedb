@@ -10,10 +10,17 @@ services:
     ports:
       - 9200:9200
 
+  ml-node:
+    extends:
+      file: ./docker-compose.base.yml
+      service: ml-node
+
   api:
     extends:
       file: ./docker-compose.base.yml
       service: api
+    depends_on:
+      - ml-node
     ports:
       - 8000:8000
     environment:
@@ -30,5 +37,7 @@ services:
     extends:
       file: ./docker-compose.base.yml
       service: pgsync
+    depends_on:
+      - ml-node
     ports:
       - 7433:7433

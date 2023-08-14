@@ -8,6 +8,11 @@ services:
       file: ../docker/docker-compose.dev.yml
       service: core
 
+  ml-node:
+    extends:
+      file: ../docker/docker-compose.dev.yml
+      service: ml-node
+
   api:
     extends:
       file: ../docker/docker-compose.dev.yml

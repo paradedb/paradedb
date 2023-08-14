@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 const { exec } = require("child_process")
 const path = require("path")
 

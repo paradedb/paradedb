@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 const { Client, Database, Table } = require("retake-search")
 const dotenv = require("dotenv")
 

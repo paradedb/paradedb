@@ -5,7 +5,32 @@ version: "3.8"
 services:
   core:
     image: opensearchproject/opensearch:2.9.0
+    container_name: core
     environment:
+      - cluster.name=opensearch-cluster
+      - node.name=core
+      - discovery.seed_hosts=core,ml-node
+      - cluster.initial_cluster_manager_nodes=core
+      - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
+      - plugins.ml_commons.model_access_control_enabled=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536 # maximum number of open files for the OpenSearch user, set to at least 65536 on modern systems
+        hard: 65536
+
+  ml-node:
+    image: opensearchproject/opensearch:2.9.0
+    container_name: ml-node
+    environment:
+      - cluster.name=opensearch-cluster
+      - node.name=ml-node
+      - node.roles=ml
+      - discovery.seed_hosts=core,ml-node
+      - cluster.initial_cluster_manager_nodes=core
       - bootstrap.memory_lock=true # along with the memlock settings below, disables swapping
       - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m" # minimum and maximum Java heap size, recommend setting both to 50% of system RAM
       - plugins.ml_commons.model_access_control_enabled=true
@@ -21,6 +46,7 @@ services:
     image: retake/retakesearch:latest
     depends_on:
       - core
+      - ml-node
     environment:
       API_KEY: retake-test-key
       OPENSEARCH_HOST: core
@@ -47,6 +73,7 @@ services:
       com.label-schema.service-type: "daemon"
     depends_on:
       - core
+      - ml-node
       - api
       - redis
     environment:

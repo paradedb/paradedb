@@ -10,6 +10,11 @@ services:
     ports:
       - 9200:9200
 
+  ml-node:
+    extends:
+      file: ./docker-compose.base.yml
+      service: ml-node
+
   api:
     build:
       context: ..

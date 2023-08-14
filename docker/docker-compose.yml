@@ -7,26 +7,13 @@ services:
     extends:
       file: ./docker-compose.base.yml
       service: core
-    container_name: core
-    environment:
-      - cluster.name=opensearch-cluster
-      - node.name=core
-      - discovery.seed_hosts=core,ml-node
-      - cluster.initial_cluster_manager_nodes=core
     ports:
       - 9200:9200
 
   ml-node:
     extends:
       file: ./docker-compose.base.yml
-      service: core
-    container_name: ml-node
-    environment:
-      - cluster.name=opensearch-cluster
-      - node.name=ml-node
-      - node.roles=ml
-      - discovery.seed_hosts=core,ml-node
-      - cluster.initial_cluster_manager_nodes=core
+      service: ml-node
 
   api:
     extends:

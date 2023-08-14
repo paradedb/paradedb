@@ -116,16 +116,16 @@ const database = new Database({
 })
 
 // Provide the table name and columns you wish to search over here
-const columns = ["brand", "description", "price", "category"];
-const tableName = "products";
+const columns = ["brand", "description", "price", "category"]
+const tableName = "products"
 const table = new Table({
   table: tableName,
   columns: columns,
 })
 
 // Create an index
-const indexName = "products";
-const index = await client.createIndex(indexName);
+const indexName = "products"
+const index = await client.createIndex(indexName)
 ```
 
 </CodeGroup>
@@ -142,8 +142,8 @@ index.vectorize(fields_to_vectorize)
 ```
 
 ```typescript Typescript
-const fieldsToVectorize = ["description"];
-await index.vectorize(fieldsToVectorize);
+const fieldsToVectorize = ["description"]
+await index.vectorize(fieldsToVectorize)
 ```
 
 </CodeGroup>
@@ -159,7 +159,7 @@ index.add_source(database, table);
 
 ```typescript Typescript
 // Note: Your table must have a primary key
-await index.addSource(database, table);
+await index.addSource(database, table)
 ```
 
 </CodeGroup>

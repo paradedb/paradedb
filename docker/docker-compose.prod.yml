@@ -18,6 +18,7 @@ services:
       file: ./docker-compose.base.yml
       service: api
     environment:
+      API_KEY: ${API_KEY}
       POSTHOG_API_KEY: phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj
 
   redis:

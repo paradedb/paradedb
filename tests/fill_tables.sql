@@ -19,3 +19,9 @@ SELECT
 	)
 FROM
 	GENERATE_SERIES(1, current_setting('my.number_of_cities') :: int) AS id;
+
+INSERT INTO
+	city(city_id, city_name, country_name)
+VALUES
+	(101, 'Retake City', NULL),
+	(102, NULL, 'Retake Country');

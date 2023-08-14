@@ -20,7 +20,7 @@ class Client:
             verify_certs=verify_certs,
             max_retries=3,
             retry_on_timeout=True,
-            timeout=30,
+            timeout=60 * 30,
         )
 
     # Private Methods

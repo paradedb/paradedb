@@ -28,5 +28,8 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v3
 
+      - name: Install pgrx
+        run: cargo install --locked cargo-pgrx && cargo pgrx init
+
       - name: Test Retake Extension
         run: cargo pgrx test

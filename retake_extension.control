@@ -1,0 +1,5 @@
+comment = 'retake_extension:  Created by pgrx'
+default_version = '@CARGO_VERSION@'
+module_pathname = '$libdir/retake_extension'
+relocatable = false
+superuser = true

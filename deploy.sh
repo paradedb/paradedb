@@ -4,6 +4,9 @@
 
 set -Eeuo pipefail
 
+RETAKE_API_KEY=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
+export RETAKE_API_KEY
+
 # Make sure the console is huuuge
 if test "$(tput cols)" -ge 64; then
   # Make it green!
@@ -36,32 +39,25 @@ else
     echo ""
 fi
 
-if [ -n "${RETAKE_APP_TAG:-}" ]; then
-    export RETAKE_APP_TAG=$RETAKE_APP_TAG
-else
+if [ -z "${RETAKE_APP_TAG:-}" ]; then
     echo "What version of Retake would you like to install? Browse available versions here: https://hub.docker.com/r/retake/retakesearch/tags"
     read -rp "Please enter a valid tag (i.e.: vX.Y.Z) or press Enter to default to 'latest': " RETAKE_APP_TAG
-    if [ -n "$RETAKE_APP_TAG" ]; then
-        export RETAKE_APP_TAG="${RETAKE_APP_TAG:-latest}"
-    else
-        export RETAKE_APP_TAG=$RETAKE_APP_TAG
+    if [ -z "$RETAKE_APP_TAG" ]; then
+        RETAKE_APP_TAG="${RETAKE_APP_TAG:-latest}"
     fi
     echo "Using tag: $RETAKE_APP_TAG"
 fi
 echo ""
 
-if [ -n "${DOMAIN:-}" ]; then
-    export DOMAIN=$DOMAIN
-else
+if [ -z "${DOMAIN:-}" ]; then
     echo "Let's get the exact domain Retake will be installed on. This will be used for TLS 🔐."
     echo "Make sure that you have a Host A DNS record pointing to this instance!"
     read -rp "Please enter your configured domain (i.e.: search.getretake.com): " DOMAIN
-    if [ -n "$DOMAIN" ]; then
-        echo "Domain not provided. This step is mandatory, exiting..."
-        exit 1
+    if [ -z "$DOMAIN" ]; then
+        echo "Domain not provided. Will default to localhost..."
+        DOMAIN="localhost"
     fi
 fi
-export DOMAIN=$DOMAIN
 echo ""
 
 echo "Ok! we'll set up certs for https://$DOMAIN 🎉"
@@ -73,9 +69,6 @@ echo "Thanks! 🙏"
 echo ""
 echo "Ok! We'll take it from here 🚀"
 echo ""
-
-echo "Making sure any stack that might exist is stopped..."
-sudo -E docker-compose -f docker-compose.yml stop &> /dev/null || true
 
 # Retake uses basic telemetry to monitor usage (number of deployments, and number
 # of search queries per deployment). If you prefer not to be included in our telemetry,
@@ -110,11 +103,20 @@ else
     git checkout "$releaseTag"
 fi
 
+echo "Making sure any stack that might exist is stopped..."
+cd docker
+sudo -E docker-compose -f docker-compose.prod.yml stop &> /dev/null || true
+
 # Write Caddyfile
 cat << EOF > Caddyfile
 $DOMAIN :80 :443 {
     reverse_proxy api:8000
 }
+EOF
+
+# Write .env file
+cat << EOF > .env
+API_KEY=$RETAKE_API_KEY
 EOF
 
 # Install Docker and Docker Compose
@@ -138,17 +140,18 @@ sudo usermod -aG docker "${USER}" || true
 # Start stack
 echo ""
 echo "Starting docker compose..."
-sudo -E docker compose -f docker/docker-compose.prod.yml up -d
+sudo -E docker compose -f docker-compose.prod.yml --env-file=.env up -d
 
 echo ""
 echo "⏳ Waiting for Retake to be ready (this will take a few minutes)"
-bash -c 'while [[ "$(curl -s -o /dev/null -H "Authorization: Bearer retake-test-key" -w ''%{http_code}'' localhost:8000)" != "200" ]]; do sleep 5; done'
+bash -c 'while [[ "$(curl -s -o /dev/null -H "Authorization: Bearer $RETAKE_API_KEY" -w ''%{http_code}'' localhost/)" != "200" ]]; do sleep 5; done'
 echo "⌛️ Retake looks up at https://${DOMAIN}!"
 echo ""
 echo "🎉🎉🎉 Done! 🎉🎉🎉"
 echo ""
-echo "To stop the stack, run 'docker compose down'"
-echo "To start the stack again, run 'docker compose up'"
+echo "To stop the stack, run 'docker compose -f docker-compose.prod.yml down'"
+echo "To start the stack again, run 'docker compose -f docker-compose.prod.yml up'"
+echo "You can find the Retake API key in the .env file that was generated for you"
 echo "If you have any issues at all delete everything in this directory and run the curl command again"
 echo "Happy searching!"
 echo ""

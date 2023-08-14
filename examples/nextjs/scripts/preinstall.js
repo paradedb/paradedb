@@ -1,5 +1,6 @@
-import { exec } from "child_process"
-import * as path from "path"
+/* eslint-disable @typescript-eslint/no-var-requires */
+const { exec } = require("child_process")
+const path = require("path")
 
 const directoryPath = path.join(__dirname, "../../../clients/typescript")
 

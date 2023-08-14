@@ -13,7 +13,8 @@ import {
   Button,
   Metric,
 } from "@tremor/react"
-import { Search, useSearch } from "retake-search"
+import { Search } from "retake-search"
+import { useSearch } from "retake-search/components"
 import { withNeural } from "retake-search/helpers"
 
 const index = process.env.DATABASE_TABLE_NAME ?? ""

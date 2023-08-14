@@ -1,5 +1,6 @@
-import { Client, Database, Table } from "retake-search"
-import dotenv from "dotenv"
+/* eslint-disable @typescript-eslint/no-var-requires */
+const { Client, Database, Table } = require("retake-search")
+const dotenv = require("dotenv")
 
 dotenv.config()
 

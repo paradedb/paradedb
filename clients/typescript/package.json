@@ -8,11 +8,18 @@
   "exports": {
     ".": {
       "import": "./dist/index.esm.js",
-      "require": "./dist/index.cjs.js"
+      "require": "./dist/index.cjs.js",
+      "types": "./dist/index.d.ts"
     },
     "./helpers": {
       "import": "./dist/helpers/index.esm.js",
-      "require": "./dist/helpers/index.cjs.js"
+      "require": "./dist/helpers/index.cjs.js",
+      "types": "./dist/helpers/index.d.ts"
+    },
+    "./components": {
+      "import": "./dist/components/index.esm.js",
+      "require": "./dist/components/index.cjs.js",
+      "types": "./dist/components/index.d.ts"
     }
   },
   "scripts": {
@@ -28,7 +35,7 @@
     "@tsconfig/recommended": "^1.0.2",
     "@types/react": "^18.2.15",
     "@types/react-dom": "^18.2.7",
-    "@typescript-eslint/eslint-plugin": "^6.1.0",
+    "@typescript-eslint/eslint-plugin": "^6.4.0",
     "@typescript-eslint/parser": "^6.1.0",
     "eslint": "^8.45.0",
     "eslint-config-prettier": "^8.8.0",

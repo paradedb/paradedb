@@ -19,6 +19,7 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 logging.basicConfig(level=logging.INFO)
 
 API_KEY = os.getenv("API_KEY", "")
+COMMIT_SHA = os.getenv("COMMIT_SHA", "")
 POSTHOG_API_KEY = os.getenv("POSTHOG_API_KEY", "")
 TELEMETRY = os.getenv("TELEMETRY", "enabled")
 
@@ -28,7 +29,13 @@ if POSTHOG_API_KEY != "" and TELEMETRY != "disabled":
     posthog = Posthog(project_api_key=POSTHOG_API_KEY, host="https://app.posthog.com")
 
     # Keep all telemetry as anonymous
-    posthog.capture(str(uuid.uuid4()), "New Retake Deployment")
+    posthog.capture(
+        str(uuid.uuid4()),
+        "New Retake Deployment",
+        {
+            "commit_sha": COMMIT_SHA,
+        },
+    )
 else:
     logging.info("Telemetry disabled")
 

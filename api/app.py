@@ -33,8 +33,8 @@ if POSTHOG_API_KEY != "" and TELEMETRY != "disabled":
         str(uuid.uuid4()),
         "New Retake Deployment",
         {
-            "commit_sha": COMMIT_SHA,
-        },
+            "Commit SHA": COMMIT_SHA
+        }
     )
 else:
     logging.info("Telemetry disabled")

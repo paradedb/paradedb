@@ -3,6 +3,7 @@ FROM python:3.9-slim
 WORKDIR /app
 
 ARG COMMIT_SHA
+ENV COMMIT_SHA=$COMMIT_SHA
 
 # Install poetry
 RUN apt-get update && apt-get install -y curl && \

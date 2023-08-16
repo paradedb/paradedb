@@ -177,7 +177,7 @@ class Index:
 
         return cast(Dict[str, Any], self.client.search(index=self.name, body=dsl))
 
-    def register_neural_search_fields(
+    async def register_neural_search_fields(
         self,
         fields: List[str],
         space_type: str,
@@ -229,7 +229,7 @@ class Index:
             }
         )
 
-    def reindex(self, fields: List[str]) -> None:
+    async def reindex(self, fields: List[str]) -> None:
         CHUNK_SIZE = 1000
         THREAD_COUNT = 4
 

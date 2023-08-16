@@ -1,4 +1,4 @@
-import requests
+import httpx
 from fastapi import APIRouter, status
 from loguru import logger
 from opensearchpy.exceptions import RequestError
@@ -26,6 +26,7 @@ client = Client(
     password=opensearch_config.password,
     verify_certs=opensearch_config.verify_certs,
 )
+aclient = httpx.AsyncClient()
 
 
 class IndexCreatePayload(BaseModel):
@@ -151,7 +152,7 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
 
         logger.info(body)
         logger.info(f"Preparing to send sync request to {pgsync_config.url}")
-        res = requests.post(f"{pgsync_config.url}/sync", json=body)
+        res = await aclient.post(f"{pgsync_config.url}/sync", json=body)
         logger.info(f"Got sync response {res.text}")
 
         if res.status_code == status.HTTP_200_OK:
@@ -243,14 +244,14 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
 async def vectorize(payload: VectorizePayload) -> JSONResponse:
     try:
         index = client.get_index(payload.index_name)
-        index.register_neural_search_fields(
+        await index.register_neural_search_fields(
             payload.field_names,
             engine=payload.model_dump().get("engine", default_engine),
             space_type=payload.model_dump().get("space_type", default_space_type),
         )
         # Reindexing is necessary to generate vectors for existing document fields
         logger.info("Neural search fields registered. Reindexing...")
-        index.reindex(payload.field_names)
+        await index.reindex(payload.field_names)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Fields {payload.field_names} vectorized successfully",

@@ -53,13 +53,13 @@ class Index:
 
     # Private Methods
 
-    def _wait_for_task_result(self, task_id: str) -> Dict[str, Any]:
+    async def _wait_for_task_result(self, task_id: str) -> Dict[str, Any]:
         task_status = None
         response = None
         wait_time_seconds = 2
 
         while task_status not in [TaskStatus.COMPLETED.value, TaskStatus.FAILED.value]:
-            response = self.client.transport.perform_request(
+            response = await self.client.transport.perform_request(
                 "GET", f"/_plugins/_ml/tasks/{task_id}"
             )
 
@@ -74,8 +74,8 @@ class Index:
 
         return cast(Dict[str, Any], response)
 
-    def _get_embedding_field_names(self) -> List[str]:
-        properties = self.client.indices.get_mapping(index=self.name)[self.name][
+    async def _get_embedding_field_names(self) -> List[str]:
+        properties = await self.client.indices.get_mapping(index=self.name)[self.name][
             "mappings"
         ].get("properties", dict())
 
@@ -87,47 +87,53 @@ class Index:
 
         return knn_vector_properties
 
-    def _load_model(self) -> str:
+    async def _load_model(self) -> str:
         logger.info("Loading model...")
 
-        model_group = self.model_group.get(default_model_group)
+        model_group = await self.model_group.get(default_model_group)
+        logger.info("Loaded model group")
+
         if not model_group:
-            model_group = self.model_group.create(default_model_group)
+            logger.info("Creating model group")
+            model_group = await self.model_group.create(default_model_group)
+            logger.info("Created model group")
 
         model_group_id = model_group["model_group_id"]
 
+        logger.info("Registering model")
         # Get/register model
-        model = self.model.get(default_model_name)
+        model = await self.model.get(default_model_name)
         model_id = None
 
+        logger.info("Waiting for task result")
         if not model:
-            response = self.model.register(
+            response = await self.model.register(
                 name=default_model_name,
                 version=default_model_version,
                 model_format=default_model_format,
                 model_group_id=model_group_id,
             )
             task_id = response["task_id"]
-            task_result = self._wait_for_task_result(task_id)
+            task_result = await self._wait_for_task_result(task_id)
             model_id = task_result["model_id"]
         else:
             model_id = model["model_id"]
 
         logger.info(f"Loading and deploying model: {model_id}")
-        resp = self.model.load(model_id)
-        self._wait_for_task_result(resp["task_id"])
+        resp = await self.model.load(model_id)
+        await self._wait_for_task_result(resp["task_id"])
 
         logger.info("Model loaded")
 
-        resp = self.model.deploy(model_id)
-        self._wait_for_task_result(resp["task_id"])
+        resp = await self.model.deploy(model_id)
+        await self._wait_for_task_result(resp["task_id"])
 
         logger.info(f"Model deployed: {resp}")
 
         return cast(str, model_id)
 
     # Public Methods
-    def upsert(
+    async def upsert(
         self, documents: List[Dict[str, Any]], ids: List[Union[str, int]]
     ) -> None:
         formatted_documents = [
@@ -140,10 +146,10 @@ class Index:
             }
             for document, _id in zip(documents, ids)
         ]
-        helpers.bulk(self.client, formatted_documents)
+        await helpers.bulk(self.client, formatted_documents)
         logger.info(f"Successfully bulk upserted {len(formatted_documents)} documents")
 
-    def search(self, dsl: Dict[str, Any]) -> Dict[str, Any]:
+    async def search(self, dsl: Dict[str, Any]) -> Dict[str, Any]:
         def add_model_id(nested_dict: Dict[str, Any], model_id: str) -> None:
             for key, value in nested_dict.items():
                 if isinstance(value, dict):
@@ -161,7 +167,7 @@ class Index:
                         if isinstance(item, dict):
                             add_model_id(item, model_id)
 
-        model = self.model.get(default_model_name)
+        model = await self.model.get(default_model_name)
 
         if model:
             model_id = model["model_id"]
@@ -175,7 +181,7 @@ class Index:
         else:
             dsl["_source"] = {"excludes": embedding_field_names}
 
-        return cast(Dict[str, Any], self.client.search(index=self.name, body=dsl))
+        return cast(Dict[str, Any], await self.client.search(index=self.name, body=dsl))
 
     async def register_neural_search_fields(
         self,
@@ -184,16 +190,16 @@ class Index:
         engine: str,
     ) -> None:
         # Get/create model
-        model_id = self._load_model()
+        model_id = await self._load_model()
 
         # Get/create pipeline
-        pipeline = self.pipeline.get(pipeline_id=self.pipeline_id)
+        pipeline = await self.pipeline.get(pipeline_id=self.pipeline_id)
 
         if not pipeline:
-            self.pipeline.create(pipeline_id=self.pipeline_id)
+            await self.pipeline.create(pipeline_id=self.pipeline_id)
 
         # Update index settings to use pipeline
-        self.settings.update(
+        await self.settings.update(
             settings={"index.knn": True, "default_pipeline": self.pipeline_id}
         )
 
@@ -208,13 +214,13 @@ class Index:
             }
         }
 
-        self.pipeline.create_processor(
+        await self.pipeline.create_processor(
             pipeline_id=self.pipeline_id,
             processor=processor,
         )
 
         # Update index settings to use new neural search fields
-        self.mappings.upsert(
+        await self.mappings.upsert(
             properties={
                 f"{field}{reserved_embedding_field_name_ending}": {
                     "type": FieldType.KNN_VECTOR.value,
@@ -253,7 +259,7 @@ class Index:
                     "doc_as_upsert": True,
                 }
 
-        deque(
+        await deque(
             helpers.parallel_bulk(
                 self.client,
                 _generator(),
@@ -263,9 +269,9 @@ class Index:
             maxlen=0,
         )
 
-    def describe(self) -> Dict[str, Any]:
-        count = self.client.count(index=self.name)["count"]
-        mapping = self.client.indices.get_mapping(index=self.name)
+    async def describe(self) -> Dict[str, Any]:
+        count = (await self.client.count(index=self.name))["count"]
+        mapping = await self.client.indices.get_mapping(index=self.name)
         all_properties = (
             mapping.get(self.name, dict())
             .get("mappings", dict())

@@ -7,13 +7,13 @@ class ModelGroup:
     def __init__(self, client: OpenSearch) -> None:
         self.client = client
 
-    def get(self, name: str) -> Union[Dict[str, Any], None]:
+    async def get(self, name: str) -> Union[Dict[str, Any], None]:
         request_body = {
             "query": {"term": {"name.keyword": name}},
         }
 
         try:
-            response = self.client.transport.perform_request(
+            response = await self.client.transport.perform_request(
                 "POST",
                 "/_plugins/_ml/model_groups/_search",
                 body=request_body,
@@ -28,11 +28,11 @@ class ModelGroup:
         except NotFoundError:
             return None
 
-    def create(self, name: str, access_mode: str = "public") -> Dict[str, Any]:
+    async def create(self, name: str, access_mode: str = "public") -> Dict[str, Any]:
         request_body = {"name": name, "model_access_mode": access_mode}
 
         # Send the request
-        response = self.client.transport.perform_request(
+        response = await self.client.transport.perform_request(
             "POST", "/_plugins/_ml/model_groups/_register", body=request_body
         )
 

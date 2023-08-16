@@ -1,4 +1,4 @@
-from opensearchpy import OpenSearch
+from opensearchpy import AsyncOpenSearch
 
 from core.search.index import Index
 from typing import List
@@ -12,7 +12,7 @@ class Client:
     def __init__(
         self, host: str, port: int, user: str, password: str, verify_certs: bool = True
     ) -> None:
-        self.client = OpenSearch(
+        self.client = AsyncOpenSearch(
             hosts=[{"host": host, "port": port}],
             http_compress=True,
             http_auth=(user, password),
@@ -25,13 +25,13 @@ class Client:
 
     # Private Methods
 
-    def _check_index_exists(self, index_name: str) -> bool:
-        return self.client.indices.exists(index=index_name)
+    async def _check_index_exists(self, index_name: str) -> bool:
+        return await self.client.indices.exists(index=index_name)
 
     # Public Methods
 
-    def create_index(self, index_name: str) -> Index:
-        if self._check_index_exists(index_name=index_name):
+    async def create_index(self, index_name: str) -> Index:
+        if await self._check_index_exists(index_name=index_name):
             raise ValueError(f"Index {index_name} already exists")
 
         if any(index_name.startswith(prefix) for prefix in reserved_index_prefixes):
@@ -39,20 +39,20 @@ class Client:
                 f"Index {index_name} cannot start with any of {reserved_index_prefixes}"
             )
 
-        self.client.indices.create(index=index_name)
+        await self.client.indices.create(index=index_name)
 
         return Index(name=index_name, client=self.client)
 
-    def get_index(self, index_name: str) -> Index:
-        if not self._check_index_exists(index_name=index_name):
+    async def get_index(self, index_name: str) -> Index:
+        if not await self._check_index_exists(index_name=index_name):
             raise ValueError(f"Index {index_name} does not exist")
 
         return Index(name=index_name, client=self.client)
 
-    def delete_index(self, index_name: str) -> None:
-        self.client.indices.delete(index=index_name, ignore=[400, 404])
+    async def delete_index(self, index_name: str) -> None:
+        await self.client.indices.delete(index=index_name, ignore=[400, 404])
 
-    def list_indices(self) -> List[str]:
+    async def list_indices(self) -> List[str]:
         indices = self.client.indices.get_alias()
         index_names = filter(
             lambda x: not any(

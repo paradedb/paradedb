@@ -30,11 +30,7 @@ if POSTHOG_API_KEY != "" and TELEMETRY != "disabled":
 
     # Keep all telemetry as anonymous
     posthog.capture(
-        str(uuid.uuid4()),
-        "New Retake Deployment",
-        {
-            "Commit SHA": COMMIT_SHA
-        }
+        str(uuid.uuid4()), "New Retake Deployment", {"Commit SHA": COMMIT_SHA}
     )
 else:
     logging.info("Telemetry disabled")

@@ -49,6 +49,7 @@ class Index:
         self.model = Model(client)
         self.pipeline = Pipeline(client)
         self.pipeline_id = f"{self.name}_pipeline"
+        self.model_id = None
 
     # Private Methods
 
@@ -86,7 +87,7 @@ class Index:
 
         return knn_vector_properties
 
-    async def _load_model(self) -> str:
+    async def _load_model(self, model_name: str) -> None:
         logger.info("Loading model...")
 
         model_group = await self.model_group.get(default_model_group)
@@ -100,36 +101,34 @@ class Index:
         model_group_id = model_group["model_group_id"]
 
         logger.info("Registering model")
+
         # Get/register model
-        model = await self.model.get(default_model_name)
-        model_id = None
+        model = self.model.get(model_name)
 
         logger.info("Waiting for task result")
         if not model:
             response = await self.model.register(
-                name=default_model_name,
+                name=model_name,
                 version=default_model_version,
                 model_format=default_model_format,
                 model_group_id=model_group_id,
             )
             task_id = response["task_id"]
             task_result = await self._wait_for_task_result(task_id)
-            model_id = task_result["model_id"]
+            self.model_id = task_result["model_id"]
         else:
-            model_id = model["model_id"]
+            self.model_id = model["model_id"]
 
-        logger.info(f"Loading and deploying model: {model_id}")
-        resp = await self.model.load(model_id)
+        logger.info(f"Loading and deploying model: {self.model_id}")
+        resp = await self.model.load(self.model_id)
         await self._wait_for_task_result(resp["task_id"])
 
         logger.info("Model loaded")
 
-        resp = await self.model.deploy(model_id)
+        resp = await self.model.deploy(self.model_id)
         await self._wait_for_task_result(resp["task_id"])
 
         logger.info(f"Model deployed: {resp}")
-
-        return cast(str, model_id)
 
     # Public Methods
     async def upsert(
@@ -166,11 +165,8 @@ class Index:
                         if isinstance(item, dict):
                             add_model_id(item, model_id)
 
-        model = await self.model.get(default_model_name)
-
-        if model:
-            model_id = model["model_id"]
-            add_model_id(dsl, model_id)
+        if self.model_id:
+            add_model_id(dsl, self.model_id)
 
         # Get embedding field names
         embedding_field_names = await self._get_embedding_field_names()
@@ -187,13 +183,14 @@ class Index:
         fields: List[str],
         space_type: str,
         engine: str,
+        model_name: str = default_model_name,
     ) -> None:
         logger.info("Registering neural search fields")
 
         # Get/create model
-        model_id = await self._load_model()
+        await self._load_model(model_name)
 
-        logger.info(f"Loaded model {model_id}")
+        logger.info(f"Loaded model {self.model_id}")
 
         # Get/create pipeline
         pipeline = await self.pipeline.get(pipeline_id=self.pipeline_id)
@@ -212,7 +209,7 @@ class Index:
         # Add new neural search fields to pipeline
         processor = {
             "text_embedding": {
-                "model_id": model_id,
+                "model_id": self.model_id,
                 "field_map": {
                     field: f"{field}{reserved_embedding_field_name_ending}"
                     for field in fields

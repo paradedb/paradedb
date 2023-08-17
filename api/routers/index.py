@@ -255,7 +255,7 @@ async def vectorize(payload: VectorizePayload) -> JSONResponse:
         )
         # Reindexing is necessary to generate vectors for existing document fields
         logger.info("Neural search fields registered. Reindexing...")
-        index.reindex(payload.field_names)
+        await index.reindex(payload.field_names)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Fields {payload.field_names} vectorized successfully",

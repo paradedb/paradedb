@@ -4,8 +4,8 @@ import json
 from collections import deque
 from enum import Enum
 from loguru import logger
-from opensearchpy import OpenSearch, helpers
-from typing import Dict, List, Any, Union, Generator, cast
+from opensearchpy import AsyncOpenSearch, helpers
+from typing import Dict, List, Any, Union, AsyncGenerator, cast
 
 from core.search.index_mappings import IndexMappings, FieldType
 from core.search.index_settings import IndexSettings
@@ -41,7 +41,7 @@ class ModelNotLoadedException(Exception):
 
 
 class Index:
-    def __init__(self, name: str, client: OpenSearch) -> None:
+    def __init__(self, name: str, client: AsyncOpenSearch) -> None:
         self.name = name
         self.client = client
         self.settings = IndexSettings(name, client)
@@ -75,9 +75,9 @@ class Index:
         return cast(Dict[str, Any], response)
 
     async def _get_embedding_field_names(self) -> List[str]:
-        properties = await self.client.indices.get_mapping(index=self.name)[self.name][
-            "mappings"
-        ].get("properties", dict())
+        properties = (await self.client.indices.get_mapping(index=self.name))[
+            self.name
+        ]["mappings"].get("properties", dict())
 
         knn_vector_properties = []
 
@@ -146,7 +146,7 @@ class Index:
             }
             for document, _id in zip(documents, ids)
         ]
-        await helpers.bulk(self.client, formatted_documents)
+        await helpers.async_bulk(self.client, formatted_documents)
         logger.info(f"Successfully bulk upserted {len(formatted_documents)} documents")
 
     async def search(self, dsl: Dict[str, Any]) -> Dict[str, Any]:
@@ -244,15 +244,15 @@ class Index:
             }
         )
 
-    def reindex(self, fields: List[str]) -> None:
+    async def reindex(self, fields: List[str]) -> None:
         CHUNK_SIZE = 1000
         THREAD_COUNT = 4
 
         logger.info(f"Reindexing with {THREAD_COUNT} threads...")
 
-        def _generator() -> Generator[Dict[str, Any], Any, None]:
+        async def _generator() -> AsyncGenerator[Dict[str, Any], None]:
             """Generator function to fetch all documents from the specified index."""
-            for hit in helpers.scan(self.client, index=self.name):
+            async for hit in helpers.async_scan(self.client, index=self.name):
                 doc = {k: hit["_source"][k] for k in fields if k in hit["_source"]}
 
                 if not doc:
@@ -268,7 +268,7 @@ class Index:
                     "doc_as_upsert": True,
                 }
 
-        helpers.parallel_bulk(
+        await helpers.async_bulk(
             self.client,
             _generator(),
             chunk_size=CHUNK_SIZE,

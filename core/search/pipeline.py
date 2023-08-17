@@ -1,10 +1,10 @@
-from opensearchpy import OpenSearch
+from opensearchpy import AsyncOpenSearch
 from opensearchpy.exceptions import NotFoundError
 from typing import Dict, Union, Any, cast
 
 
 class Pipeline:
-    def __init__(self, client: OpenSearch) -> None:
+    def __init__(self, client: AsyncOpenSearch) -> None:
         self.client = client
 
     async def create(self, pipeline_id: str) -> None:

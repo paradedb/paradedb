@@ -1,10 +1,10 @@
-from opensearchpy import OpenSearch
+from opensearchpy import AsyncOpenSearch
 from opensearchpy.exceptions import NotFoundError
 from typing import Dict, Union, Any, cast
 
 
 class Model:
-    def __init__(self, client: OpenSearch):
+    def __init__(self, client: AsyncOpenSearch):
         self.client = client
 
     async def get(self, name: str) -> Union[Dict[str, Any], None]:

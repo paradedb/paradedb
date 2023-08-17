@@ -1,5 +1,5 @@
 from enum import Enum
-from opensearchpy import OpenSearch
+from opensearchpy import AsyncOpenSearch
 from typing import Dict, Any
 
 
@@ -76,7 +76,7 @@ engine_space_mapping: Dict[str, Any] = {
 
 
 class IndexMappings:
-    def __init__(self, name: str, client: OpenSearch):
+    def __init__(self, name: str, client: AsyncOpenSearch):
         self.name = name
         self.client = client
 

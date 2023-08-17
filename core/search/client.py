@@ -53,7 +53,7 @@ class Client:
         await self.client.indices.delete(index=index_name, ignore=[400, 404])
 
     async def list_indices(self) -> List[str]:
-        indices = self.client.indices.get_alias()
+        indices = await self.client.indices.get_alias()
         index_names = filter(
             lambda x: not any(
                 x.startswith(prefix) for prefix in reserved_index_prefixes

@@ -1,7 +1,6 @@
 import time
 import json
 
-from collections import deque
 from enum import Enum
 from loguru import logger
 from opensearchpy import AsyncOpenSearch, helpers
@@ -245,7 +244,7 @@ class Index:
         )
 
     async def reindex(self, fields: List[str]) -> None:
-        logger.info(f"Reindexing fields")
+        logger.info("Reindexing fields")
 
         async def _generator() -> AsyncGenerator[Dict[str, Any], None]:
             """Generator function to fetch all documents from the specified index."""

@@ -250,18 +250,19 @@ class Index:
         async def _generator() -> AsyncGenerator[Dict[str, Any], None]:
             """Generator function to fetch all documents from the specified index."""
             async for hit in helpers.async_scan(self.client, index=self.name):
-                doc = {k: hit["_source"][k] for k in fields if k in hit["_source"]}
+                # Note: cast explicitly here since mypy infers the opensearch-py
+                # generator to be AsyncGenerator[int, None]
+                h = cast(Dict[str, Any], hit)
+                doc = {k: h["_source"][k] for k in fields if k in h["_source"]}
 
                 if not doc:
                     continue
 
                 yield {
                     "_op_type": "update",
-                    "_index": hit["_index"],
-                    "_id": hit["_id"],
-                    "doc": {
-                        k: hit["_source"][k] for k in fields if k in hit["_source"]
-                    },
+                    "_index": h["_index"],
+                    "_id": h["_id"],
+                    "doc": {k: h["_source"][k] for k in fields if k in h["_source"]},
                     "doc_as_upsert": True,
                 }
 

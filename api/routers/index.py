@@ -185,8 +185,9 @@ async def search_documents(payload: SearchPayload) -> JSONResponse:
             status_code=status.HTTP_200_OK, content=await index.search(payload.dsl)
         )
     except RequestError as e:
-        not_vectorized_error_stub = "is not knn_vector type"
-        if not_vectorized_error_stub in str(e):
+        not_vectorized_errors = ["is not knn_vector type", "Model not ready yet"]
+
+        if any([err in str(e) for err in not_vectorized_errors]):
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content=f"Failed to search index {payload.index_name} because not all fields were vectorized. Did you call Index.vectorize()?",

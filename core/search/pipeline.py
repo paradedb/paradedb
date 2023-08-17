@@ -2,8 +2,6 @@ from opensearchpy import AsyncOpenSearch
 from opensearchpy.exceptions import NotFoundError
 from typing import Dict, Union, Any, cast
 
-import json
-
 
 class Pipeline:
     def __init__(self, client: AsyncOpenSearch) -> None:

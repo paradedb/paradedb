@@ -1,8 +1,9 @@
-import requests
+import httpx
 from fastapi import APIRouter, status
 from loguru import logger
 from opensearchpy.exceptions import RequestError
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse
 from typing import List, Dict, Any, Optional, Union
 
@@ -26,6 +27,7 @@ client = Client(
     password=opensearch_config.password,
     verify_certs=opensearch_config.verify_certs,
 )
+aclient = httpx.AsyncClient()
 
 
 class IndexCreatePayload(BaseModel):
@@ -79,8 +81,8 @@ class AddSourcePayload(BaseModel):
 @router.get("/index/{index_name}", tags=[tag])
 async def get_index(index_name: str) -> JSONResponse:
     try:
-        index = client.get_index(index_name)
-        description = index.describe()
+        index = await client.get_index(index_name)
+        description = await index.describe()
         return JSONResponse(status_code=status.HTTP_200_OK, content=description)
     except Exception as e:
         return JSONResponse(
@@ -97,8 +99,8 @@ async def upsert(payload: UpsertPayload) -> JSONResponse:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content="Length of documents and ids arrays must be equal",
             )
-        index = client.get_index(payload.index_name)
-        index.upsert(payload.documents, payload.ids)
+        index = await client.get_index(payload.index_name)
+        await index.upsert(payload.documents, payload.ids)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content="Documents upserted successfully",
@@ -113,7 +115,7 @@ async def upsert(payload: UpsertPayload) -> JSONResponse:
 @router.post(f"/{tag}/create", tags=[tag])
 async def create_index(payload: IndexCreatePayload) -> JSONResponse:
     try:
-        client.create_index(payload.index_name)
+        await client.create_index(payload.index_name)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Index {payload.index_name} created successfully",
@@ -128,7 +130,7 @@ async def create_index(payload: IndexCreatePayload) -> JSONResponse:
 @router.post(f"/{tag}/delete", tags=[tag])
 async def delete_index(payload: IndexDeletePayload) -> JSONResponse:
     try:
-        client.delete_index(payload.index_name)
+        await client.delete_index(payload.index_name)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Index {payload.index_name} deleted successfully",
@@ -151,18 +153,21 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
 
         logger.info(body)
         logger.info(f"Preparing to send sync request to {pgsync_config.url}")
-        res = requests.post(f"{pgsync_config.url}/sync", json=body)
+
+        res = await aclient.post(f"{pgsync_config.url}/sync", json=body, timeout=None)
         logger.info(f"Got sync response {res.text}")
 
         if res.status_code == status.HTTP_200_OK:
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content="Real time sync started successfully",
+                background=BackgroundTask(res.aclose),
             )
         else:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content=f"Could not start real time sync: {res.text}",
+                background=BackgroundTask(res.aclose),
             )
     except Exception as e:
         logger.error(e)
@@ -175,9 +180,9 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
 @router.post(f"/{tag}/search", tags=[tag])
 async def search_documents(payload: SearchPayload) -> JSONResponse:
     try:
-        index = client.get_index(payload.index_name)
+        index = await client.get_index(payload.index_name)
         return JSONResponse(
-            status_code=status.HTTP_200_OK, content=index.search(payload.dsl)
+            status_code=status.HTTP_200_OK, content=await index.search(payload.dsl)
         )
     except RequestError as e:
         not_vectorized_error_stub = "is not knn_vector type"
@@ -208,10 +213,10 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
                 content=f"Invalid field type: {payload.field_type}. Accepted values are {field_types}",
             )
 
-        index = client.get_index(payload.index_name)
+        index = await client.get_index(payload.index_name)
 
         # Set index.knn = True
-        index.settings.update(settings={"index.knn": True})
+        await index.settings.update(settings={"index.knn": True})
 
         # Update index mapping
         properties: Dict[str, Any] = {payload.field_name: {"type": payload.field_type}}
@@ -226,7 +231,7 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
                 "engine": payload.model_dump().get("engine", default_engine),
             }
 
-        index.mappings.upsert(properties=properties)
+        await index.mappings.upsert(properties=properties)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -242,15 +247,15 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
 @router.post(f"/{tag}/vectorize", tags=[tag])
 async def vectorize(payload: VectorizePayload) -> JSONResponse:
     try:
-        index = client.get_index(payload.index_name)
-        index.register_neural_search_fields(
+        index = await client.get_index(payload.index_name)
+        await index.register_neural_search_fields(
             payload.field_names,
             engine=payload.model_dump().get("engine", default_engine),
             space_type=payload.model_dump().get("space_type", default_space_type),
         )
         # Reindexing is necessary to generate vectors for existing document fields
         logger.info("Neural search fields registered. Reindexing...")
-        index.reindex(payload.field_names)
+        await index.reindex(payload.field_names)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Fields {payload.field_names} vectorized successfully",

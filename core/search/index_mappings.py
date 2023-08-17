@@ -1,5 +1,5 @@
 from enum import Enum
-from opensearchpy import OpenSearch
+from opensearchpy import AsyncOpenSearch
 from typing import Dict, Any
 
 
@@ -76,7 +76,7 @@ engine_space_mapping: Dict[str, Any] = {
 
 
 class IndexMappings:
-    def __init__(self, name: str, client: OpenSearch):
+    def __init__(self, name: str, client: AsyncOpenSearch):
         self.name = name
         self.client = client
 
@@ -96,10 +96,10 @@ class IndexMappings:
                 f"The spacetype {space_type} is not supported by the engine {engine}"
             )
 
-    def upsert(self, properties: Dict[str, Any]) -> None:
+    async def upsert(self, properties: Dict[str, Any]) -> None:
         for attribute, values in properties.items():
             if values.get("type") == FieldType.KNN_VECTOR.value:
                 self._validate_knn_method(values)
 
             body = {"properties": {attribute: values}}
-            self.client.indices.put_mapping(index=self.name, body=body)
+            await self.client.indices.put_mapping(index=self.name, body=body)

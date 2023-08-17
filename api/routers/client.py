@@ -24,7 +24,7 @@ client = Client(
 @router.get("/{tag}/indices", tags=[tag])
 async def get_indices() -> JSONResponse:
     try:
-        indices = client.list_indices()
+        indices = await client.list_indices()
         return JSONResponse(status_code=status.HTTP_200_OK, content=indices)
     except Exception as e:
         return JSONResponse(

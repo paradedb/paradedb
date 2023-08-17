@@ -3,6 +3,7 @@ from fastapi import APIRouter, status
 from loguru import logger
 from opensearchpy.exceptions import RequestError
 from pydantic import BaseModel
+from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse
 from typing import List, Dict, Any, Optional, Union
 
@@ -152,18 +153,21 @@ async def add_source(payload: AddSourcePayload) -> JSONResponse:
 
         logger.info(body)
         logger.info(f"Preparing to send sync request to {pgsync_config.url}")
-        res = await aclient.post(f"{pgsync_config.url}/sync", json=body)
+
+        res = await aclient.post(f"{pgsync_config.url}/sync", json=body, timeout=None)
         logger.info(f"Got sync response {res.text}")
 
         if res.status_code == status.HTTP_200_OK:
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content="Real time sync started successfully",
+                background=BackgroundTask(res.aclose),
             )
         else:
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content=f"Could not start real time sync: {res.text}",
+                background=BackgroundTask(res.aclose),
             )
     except Exception as e:
         logger.error(e)
@@ -251,7 +255,7 @@ async def vectorize(payload: VectorizePayload) -> JSONResponse:
         )
         # Reindexing is necessary to generate vectors for existing document fields
         logger.info("Neural search fields registered. Reindexing...")
-        await index.reindex(payload.field_names)
+        index.reindex(payload.field_names)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content=f"Fields {payload.field_names} vectorized successfully",

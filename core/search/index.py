@@ -94,7 +94,7 @@ class Index:
         logger.info("Loaded model group")
 
         if not model_group:
-            logger.info("Creating model group")
+            logger.info("Model group not found, creating")
             model_group = await self.model_group.create(default_model_group)
             logger.info("Created model group")
 
@@ -189,16 +189,23 @@ class Index:
         space_type: str,
         engine: str,
     ) -> None:
+        logger.info("Registering neural search fields")
+
         # Get/create model
         model_id = await self._load_model()
 
+        logger.info(f"Loaded model {model_id}")
+
         # Get/create pipeline
         pipeline = await self.pipeline.get(pipeline_id=self.pipeline_id)
+        logger.info("Loaded pipeline")
 
         if not pipeline:
+            logger.info("Pipeline not found, creating")
             await self.pipeline.create(pipeline_id=self.pipeline_id)
 
         # Update index settings to use pipeline
+        logger.info("Updating index settings")
         await self.settings.update(
             settings={"index.knn": True, "default_pipeline": self.pipeline_id}
         )
@@ -214,12 +221,14 @@ class Index:
             }
         }
 
+        logger.info("Creating processor")
         await self.pipeline.create_processor(
             pipeline_id=self.pipeline_id,
             processor=processor,
         )
 
         # Update index settings to use new neural search fields
+        logger.info("Upserting new fields")
         await self.mappings.upsert(
             properties={
                 f"{field}{reserved_embedding_field_name_ending}": {
@@ -235,7 +244,7 @@ class Index:
             }
         )
 
-    async def reindex(self, fields: List[str]) -> None:
+    def reindex(self, fields: List[str]) -> None:
         CHUNK_SIZE = 1000
         THREAD_COUNT = 4
 
@@ -259,14 +268,11 @@ class Index:
                     "doc_as_upsert": True,
                 }
 
-        await deque(
-            helpers.parallel_bulk(
-                self.client,
-                _generator(),
-                chunk_size=CHUNK_SIZE,
-                thread_count=THREAD_COUNT,
-            ),
-            maxlen=0,
+        helpers.parallel_bulk(
+            self.client,
+            _generator(),
+            chunk_size=CHUNK_SIZE,
+            thread_count=THREAD_COUNT,
         )
 
     async def describe(self) -> Dict[str, Any]:

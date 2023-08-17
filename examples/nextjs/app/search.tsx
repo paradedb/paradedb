@@ -33,7 +33,7 @@ const SearchComponent = () => {
   if (error) {
     return (
       <Card>
-        <Text>An unexpected error occured: {error}</Text>
+        <Text>An unexpected error occured: {error.toString()}</Text>
       </Card>
     )
   }

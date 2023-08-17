@@ -174,7 +174,7 @@ class Index:
             add_model_id(dsl, model_id)
 
         # Get embedding field names
-        embedding_field_names = self._get_embedding_field_names()
+        embedding_field_names = await self._get_embedding_field_names()
 
         if "_source" in dsl and isinstance(dsl["_source"], dict):
             dsl["_source"]["excludes"] = embedding_field_names
@@ -245,10 +245,7 @@ class Index:
         )
 
     async def reindex(self, fields: List[str]) -> None:
-        CHUNK_SIZE = 1000
-        THREAD_COUNT = 4
-
-        logger.info(f"Reindexing with {THREAD_COUNT} threads...")
+        logger.info(f"Reindexing fields")
 
         async def _generator() -> AsyncGenerator[Dict[str, Any], None]:
             """Generator function to fetch all documents from the specified index."""
@@ -271,8 +268,6 @@ class Index:
         await helpers.async_bulk(
             self.client,
             _generator(),
-            chunk_size=CHUNK_SIZE,
-            thread_count=THREAD_COUNT,
         )
 
     async def describe(self) -> Dict[str, Any]:

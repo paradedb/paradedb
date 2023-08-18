@@ -138,8 +138,13 @@ index.vectorize({ fieldNames: ["questions", "answers"] })
   that `lucene` only supports `l2` and `cosinesimil`. `nmslib` supports all
   three.
 </ParamField>
-<ParamField body="modelName" type="str" default="huggingface/sentence-transformers/all-MiniLM-L12-v2">
-  A pretrained embedding model name. A list of all available pretrained models is available 
+<ParamField
+  body="modelName"
+  type="str"
+  default="huggingface/sentence-transformers/all-MiniLM-L12-v2"
+>
+  A pretrained embedding model name. A list of all available pretrained models
+  is available
   [here](https://opensearch.org/docs/latest/ml-commons-plugin/pretrained-models/#sentence-transformers).
 </ParamField>
 <ParamField body="modelDimension" type="int" default="384">

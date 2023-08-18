@@ -68,9 +68,9 @@ class CreateFieldPayload(BaseModel):
     index_name: str
     field_name: str
     field_type: str
-    dimension: Optional[int] = None
-    space_type: Optional[str] = None
-    engine: Optional[str] = None
+    dimension: Optional[int] = default_model_dimensions
+    space_type: Optional[str] = default_space_type
+    engine: Optional[str] = default_engine
 
 
 class Database(BaseModel):
@@ -237,13 +237,13 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
         properties: Dict[str, Any] = {payload.field_name: {"type": payload.field_type}}
 
         if payload.field_type == FieldType.KNN_VECTOR.value:
-            properties[payload.field_name]["dimension"] = payload.dimension
+            properties[payload.field_name]["dimension"] = cast(
+                int, payload.model_dump().get("dimension")
+            )
             properties[payload.field_name]["method"] = {
                 "name": default_algorithm,
-                "space_type": payload.model_dump().get(
-                    "space_type", default_space_type
-                ),
-                "engine": payload.model_dump().get("engine", default_engine),
+                "space_type": cast(str, payload.model_dump().get("space_type")),
+                "engine": cast(str, payload.model_dump().get("engine")),
             }
 
         await index.mappings.upsert(properties=properties)

@@ -84,7 +84,7 @@ class Index:
 
         return knn_vector_properties
 
-    async def _load_model(self, model_name: str) -> None:
+    async def _load_model(self, model_name: str) -> str:
         logger.info("Loading model...")
 
         model_group = await self.model_group.get(default_model_group)
@@ -130,7 +130,7 @@ class Index:
 
         logger.info(f"Model deployed: {resp}")
 
-        return model_id
+        return cast(str, model_id)
 
     # Public Methods
     async def upsert(

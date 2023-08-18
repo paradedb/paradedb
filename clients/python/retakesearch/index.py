@@ -129,12 +129,16 @@ class Index:
         engine: Optional[str] = None,
     ) -> None:
         json = {
-            "index_name": self.index_name,
-            "field_name": field_name,
-            "field_type": field_type,
-            "dimension": dimension,
-            "space_type": space_type,
-            "engine": engine,
+            k: v
+            for k, v in {
+                "index_name": self.index_name,
+                "field_name": field_name,
+                "field_type": field_type,
+                "dimension": dimension,
+                "space_type": space_type,
+                "engine": engine,
+            }.items()
+            if v is not None
         }
 
         with httpx.Client(timeout=None) as http:

@@ -177,9 +177,6 @@ class Index:
                 .get("model_id")
             )
             add_model_id(dsl, model_id)
-            print("the model id", model_id)
-
-        print(dsl)
 
         # Get embedding field names
         embedding_field_names = await self._get_embedding_field_names()

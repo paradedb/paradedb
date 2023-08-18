@@ -175,10 +175,20 @@ class Index {
       })
   }
 
-  async vectorize(fieldNames: string[]) {
+  async vectorize(args: {
+    fieldNames: string[]
+    spaceType?: string
+    engine?: string
+    modelName?: string
+    modelDimension?: number
+  }) {
     const json = {
       index_name: this.indexName,
-      field_names: fieldNames,
+      field_names: args.fieldNames,
+      ...(args.spaceType && { space_type: args.spaceType }),
+      ...(args.engine && { engine: args.engine }),
+      ...(args.modelName && { model_name: args.modelName }),
+      ...(args.modelDimension && { model_dimension: args.modelDimension }),
     }
 
     await ky

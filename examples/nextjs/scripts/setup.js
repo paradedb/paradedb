@@ -32,7 +32,7 @@ const setup = async () => {
 
   console.log("Vectorizing fields...")
 
-  await index.vectorize(JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]"))
+  await index.vectorize({ fieldNames: JSON.parse(process.env.DATABASE_TABLE_COLUMNS || "[]")})
   await index.addSource(database, table)
 
   return

@@ -93,6 +93,18 @@ def test_vectorize(client, test_index_name):
     )
 
 
+def test_vectorize_with_other_models(client):
+    index = client.create_index("temp_index")
+
+    index.vectorize(
+        ["field1", "field2"],
+        space_type="l2",
+        engine="faiss",
+        model_name="huggingface/sentence-transformers/paraphrase-MiniLM-L3-v2",
+        model_dimension=768,
+    )
+
+
 def test_describe_index(client, test_index_name):
     assert client.describe_index(test_index_name)["count"] > 0
 

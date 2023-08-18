@@ -121,13 +121,29 @@ Once vectorized, a field does not need to be vectorized again — Retake ensures
 and kept in sync.
 
 ```typescript Typescript
-index.vectorize(["questions", "answers"])
+index.vectorize({ fieldNames: ["questions", "answers"] })
 ```
 
 **Parameters**
 
 <ParamField body="fieldNames" type="List[str]" required>
   A list of field names to vectorize.
+</ParamField>
+<ParamField body="engine" type="str" default="faiss">
+  Must be one of `faiss`, `nmslib`, or `lucene`.
+</ParamField>
+<ParamField body="spaceType" type="str" default="l2">
+  The similarity method to use. Must be one of `l2`, `innerproduct`, or
+  `cosinesimil`. Note that `faiss` only supports `l2` and `innerproduct`, and
+  that `lucene` only supports `l2` and `cosinesimil`. `nmslib` supports all
+  three.
+</ParamField>
+<ParamField body="modelName" type="str" default="huggingface/sentence-transformers/all-MiniLM-L12-v2">
+  A pretrained embedding model name. A list of all available pretrained models is available 
+  [here](https://opensearch.org/docs/latest/ml-commons-plugin/pretrained-models/#sentence-transformers).
+</ParamField>
+<ParamField body="modelDimension" type="int" default="384">
+  The dimension of the vector produced by the embedding model.
 </ParamField>
 
 ### `createField`

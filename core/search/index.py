@@ -47,7 +47,6 @@ class Index:
         self.model = Model(client)
         self.pipeline = Pipeline(client)
         self.pipeline_id = f"{self.name}_pipeline"
-        self.model_id = None
 
     # Private Methods
 
@@ -113,23 +112,25 @@ class Index:
             )
             task_id = response["task_id"]
             task_result = await self._wait_for_task_result(task_id)
-            self.model_id = task_result.get("model_id", None)
+            model_id = task_result.get("model_id", None)
 
-            if not self.model_id:
+            if not model_id:
                 raise Exception(task_result)
         else:
-            self.model_id = model.get("model_id", None)
+            model_id = model.get("model_id", None)
 
-        logger.info(f"Loading and deploying model: {self.model_id}")
-        resp = await self.model.load(self.model_id)
+        logger.info(f"Loading and deploying model: {model_id}")
+        resp = await self.model.load(model_id)
         await self._wait_for_task_result(resp["task_id"])
 
         logger.info("Model loaded")
 
-        resp = await self.model.deploy(self.model_id)
+        resp = await self.model.deploy(model_id)
         await self._wait_for_task_result(resp["task_id"])
 
         logger.info(f"Model deployed: {resp}")
+
+        return model_id
 
     # Public Methods
     async def upsert(
@@ -201,9 +202,8 @@ class Index:
         logger.info("Registering neural search fields")
 
         # Get/create model
-        await self._load_model(model_name)
-
-        logger.info(f"Loaded model {self.model_id}")
+        model_id = await self._load_model(model_name)
+        logger.info(f"Loaded model {model_id}")
 
         # Get/create pipeline
         pipeline = await self.pipeline.get(pipeline_id=self.pipeline_id)
@@ -222,7 +222,7 @@ class Index:
         # Add new neural search fields to pipeline
         processor = {
             "text_embedding": {
-                "model_id": self.model_id,
+                "model_id": model_id,
                 "field_map": {
                     field: f"{field}{reserved_embedding_field_name_ending}"
                     for field in fields

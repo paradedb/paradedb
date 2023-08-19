@@ -35,7 +35,7 @@ jobs:
         uses: actions/setup-node@v3
 
       - name: Install Prettier & ESLint
-        run: npm install && npm install -g prettier eslint
+        run: npm install && npm install -g prettier@3.0.2 eslint
 
       - name: Check if TypeScript Files are ESLint Formatted
         run: eslint '{**/**.js,**/**.ts,**/**.tsx}'

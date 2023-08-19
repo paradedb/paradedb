@@ -31,7 +31,7 @@ jobs:
         uses: actions/setup-node@v3
 
       - name: Install Prettier
-        run: npm install -g prettier
+        run: npm install -g prettier@3.0.2
 
       - name: Check Workflow and Action formatting
         working-directory: .github

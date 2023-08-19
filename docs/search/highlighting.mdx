@@ -19,12 +19,14 @@ Search().highlight("name", "description", fragment_size=50)
 ```
 
 ```typescript Typescript
+import { highlight } from "retake-search/helpers"
+
 // Highlights matches for the name field
-Search().highlight().fields(["name"])
+Search().highlight(highlight().fields(["name"]))
 
 // Highlights matches for the name and description fields and specifies the
 // highlighted fragment size
-Search().highlight().fields(["name", "description"]).fragmentSize(50)
+Search().highlight(highlight().fields(["name", "description"]).fragmentSize(50))
 ```
 
 </CodeGroup>

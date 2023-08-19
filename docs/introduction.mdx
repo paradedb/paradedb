@@ -2,24 +2,29 @@
 title: Introduction
 ---
 
-Retake is the fastest way to unlock keyword + semantic search for enterprise databases.
+Retake is a real-time database for AI data. By integratating your Postgres data with embedding models,
+Retake enables real-time search over your database.
 
-By connecting directly to Postgres, Retake accelerates the development of AI applications that
-require searching, matching, or analyzing database documents. Retake also provides simple search
-SDKs that snap into any Python or Typescript application.
+Documents in Retake are stored in **real-time indexes**. These indexes stay in sync with Postgres and
+can be queried with keyword search, vector search, or hybrid search — a combination of the two.
 
 ## Why Retake
 
 Retake is a good fit for developers that
 
-1. Have investigated vector databases for semantic search, but also want the capabilities of traditional search
-   (e.g. keyword-based search, faceting, efficient filtering, etc.).
-2. Are looking for an opinionated, capable search library that "just works" without the overhead of managing a vector store,
-   search engine, embedding models, and data ingestion pipelines.
-3. Have large volumes of documents stored in Postgres that are expensive and time-consuming to reindex or re-embed
+1. Have large volumes of documents stored in Postgres that are expensive and time-consuming to reindex or re-embed
    with batch jobs.
+2. Have investigated vector databases for similarity search, but also want the capabilities of traditional search
+   (e.g. keyword-based search, faceting, efficient filtering, etc.).
+3. Are looking for a search library "just works" without the overhead of managing a vector store,
+   search engine, embedding models, and data ingestion pipelines.
 
 ## Use Cases
+
+**LLM Applications**
+
+Retake is the perfect solution for surfacing up-to-date, relevant database documents that can be
+fed into the prompt windows of large language models (LLMs).
 
 **Text Reconciliation**
 

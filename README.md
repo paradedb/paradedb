@@ -7,7 +7,7 @@
 </h1>
 
 <p align="center">
-    <b>Open-Source Hybrid Search for Postgres</b> <br />
+    <b>The Real-Time Database for AI Data</b> <br />
 </p>
 
 <h3 align="center">
@@ -27,13 +27,11 @@
 </a>
 </p>
 
-Retake is the fastest way to unlock keyword + semantic search for your database.
+Retake is a real-time database for AI data. By integratating your Postgres data with embedding models,
+Retake enables real-time search over your database.
 
-By connecting directly to Postgres, Retake accelerates the development of AI applications that
-require searching, matching, or analyzing database documents. Retake also provides simple search
-SDKs that snap into any Python or Typescript application.
-
-You don't need to worry about managing separate vector stores and text search engines, uploading and embedding documents, or reindexing data. Just write search queries and let Retake handle the rest.
+Documents in Retake are stored in **real-time indexes**. These indexes stay in sync with Postgres and
+can be queried with keyword search, vector search, or hybrid search — a combination of the two.
 
 To get started, run our Docker Compose file:
 

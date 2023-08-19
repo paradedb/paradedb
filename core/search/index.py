@@ -12,8 +12,7 @@ from core.search.model_group import ModelGroup
 from core.search.model import Model
 from core.search.pipeline import Pipeline
 
-# TODO: Allow these values to be updated by the user
-# Hard-coded as defaults for now
+
 default_model_group = "default_model_group"
 default_model_name = "huggingface/sentence-transformers/all-MiniLM-L12-v2"
 default_model_version = "1.0.1"
@@ -22,7 +21,6 @@ default_engine = "faiss"
 default_algorithm = "hnsw"
 default_space_type = "l2"
 default_model_dimensions = 384
-
 reserved_embedding_field_name_ending = "_retake_embedding"
 
 
@@ -86,7 +84,7 @@ class Index:
 
         return knn_vector_properties
 
-    async def _load_model(self) -> str:
+    async def _load_model(self, model_name: str) -> str:
         logger.info("Loading model...")
 
         model_group = await self.model_group.get(default_model_group)
@@ -100,23 +98,26 @@ class Index:
         model_group_id = model_group["model_group_id"]
 
         logger.info("Registering model")
+
         # Get/register model
-        model = await self.model.get(default_model_name)
-        model_id = None
+        model = await self.model.get(model_name)
 
         logger.info("Waiting for task result")
         if not model:
             response = await self.model.register(
-                name=default_model_name,
+                name=model_name,
                 version=default_model_version,
                 model_format=default_model_format,
                 model_group_id=model_group_id,
             )
             task_id = response["task_id"]
             task_result = await self._wait_for_task_result(task_id)
-            model_id = task_result["model_id"]
+            model_id = task_result.get("model_id", None)
+
+            if not model_id:
+                raise Exception(task_result)
         else:
-            model_id = model["model_id"]
+            model_id = model.get("model_id", None)
 
         logger.info(f"Loading and deploying model: {model_id}")
         resp = await self.model.load(model_id)
@@ -166,10 +167,15 @@ class Index:
                         if isinstance(item, dict):
                             add_model_id(item, model_id)
 
-        model = await self.model.get(default_model_name)
+        pipeline = await self.pipeline.get(pipeline_id=self.pipeline_id)
 
-        if model:
-            model_id = model["model_id"]
+        if pipeline:
+            model_id = (
+                pipeline.get(self.pipeline_id, dict())
+                .get("processors", [dict()])[0]
+                .get("text_embedding", dict())
+                .get("model_id")
+            )
             add_model_id(dsl, model_id)
 
         # Get embedding field names
@@ -187,12 +193,13 @@ class Index:
         fields: List[str],
         space_type: str,
         engine: str,
+        model_name: str,
+        model_dimension: int,
     ) -> None:
         logger.info("Registering neural search fields")
 
         # Get/create model
-        model_id = await self._load_model()
-
+        model_id = await self._load_model(model_name)
         logger.info(f"Loaded model {model_id}")
 
         # Get/create pipeline
@@ -232,7 +239,7 @@ class Index:
             properties={
                 f"{field}{reserved_embedding_field_name_ending}": {
                     "type": FieldType.KNN_VECTOR.value,
-                    "dimension": default_model_dimensions,
+                    "dimension": model_dimension,
                     "method": {
                         "name": default_algorithm,
                         "engine": engine,

@@ -93,6 +93,18 @@ def test_vectorize(client, test_index_name):
     )
 
 
+def test_vectorize_with_other_models(client):
+    index = client.create_index("temp_index")
+
+    index.vectorize(
+        ["field1", "field2"],
+        space_type="l2",
+        engine="faiss",
+        model_name="huggingface/sentence-transformers/paraphrase-MiniLM-L3-v2",
+        model_dimension=768,
+    )
+
+
 def test_describe_index(client, test_index_name):
     assert client.describe_index(test_index_name)["count"] > 0
 
@@ -222,13 +234,8 @@ def test_upsert_vectors(client, test_index_name):
 def test_vector_search(client, test_index_name):
     index = client.get_index(test_index_name)
 
-    # Test search over faiss field
-    query = Search().with_nearest_neighbor(
-        vector=generate_random_vector(), field="faiss_vector", k=25
-    )[0:25]
-
-    response = index.search(query)
-    assert len(response["hits"]["hits"]) == 25
+    # It takes some time to index
+    sleep(5)
 
     # Test search over lucene field
     query = Search().with_nearest_neighbor(
@@ -238,13 +245,21 @@ def test_vector_search(client, test_index_name):
     response = index.search(query)
     assert len(response["hits"]["hits"]) == 10
 
+    # Test search over faiss field
+    query = Search().with_nearest_neighbor(
+        vector=generate_random_vector(), field="faiss_vector", k=20
+    )[0:20]
+
+    response = index.search(query)
+    assert len(response["hits"]["hits"]) == 20
+
 
 def test_vector_search_with_filters(client, test_index_name):
     index = client.get_index(test_index_name)
 
     query = Search().with_nearest_neighbor(
         vector=generate_random_vector(),
-        field="faiss_vector",
+        field="lucene_vector",
         k=25,
         filter=Q("match", city="New"),
     )

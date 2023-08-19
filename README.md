@@ -79,7 +79,7 @@ table = Table(
 index = client.create_index("my_index")
 # Note: The table must have a primary key
 index.add_source(database, table)
-index.vectorize(columns)
+index.vectorize({ fieldNames: columns })
 
 # Keyword (BM25) search
 query = Search().query("match", column1="my query")
@@ -130,7 +130,7 @@ const index = await client.createIndex("table_name")
 
 // Note: The table must have a primary key
 await index.addSource(database, table)
-await index.vectorize(columns)
+await index.vectorize({ fieldNames: columns })
 
 // Keyword (BM25) search
 const bm25Query = Search().query(matchQuery("column_to_search", "my query"))

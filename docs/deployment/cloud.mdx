@@ -9,11 +9,11 @@ as it ensures that the information remains within your cloud infrastructure.
 
 1. You have deployed a Linux Ubuntu virtual machine
 2. Your instance has at least 8GB RAM and 16GB of storage
-3. There is a **DNS A** record configured and pointing to your instance using the domain you want to use to connect to Retake. 
-Alternatively, you may skip the domain and the script will default to `localhost` and setup self-signed certificates. Make sure you understand the security implications.
+3. There is a **DNS A** record configured and pointing to your instance using the domain you want to use to connect to Retake.
+   Alternatively, you may skip the domain and the script will default to `localhost` and setup self-signed certificates. Make sure you understand the security implications.
 4. Port `80` and `443` are open. Port `80` is used by the proxy server to automatically setup HTTPS on your domain
 5. Your instance has the `vm.max_map_count` setting set to at least `262144` as
-recommended by the [OpenSearch documentation](https://opensearch.org/docs/latest/install-and-configure/install-opensearch/index/#important-settings).
+   recommended by the [OpenSearch documentation](https://opensearch.org/docs/latest/install-and-configure/install-opensearch/index/#important-settings).
 
 ## Deployment
 
@@ -31,4 +31,4 @@ chmod +x deploy.sh
 ```
 
 The deploy script will guide you through the process of configuring and running Retake. It will automatically create a `.env`
-file that contains the api key used to authenticate with the Retake API. 
+file that contains the api key used to authenticate with the Retake API.

@@ -5,12 +5,18 @@ from opensearchpy.exceptions import RequestError
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from starlette.responses import JSONResponse
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, cast
 
 from api.config.opensearch import OpenSearchConfig
 from api.config.pgsync import PgSyncConfig
 
-from core.search.index import default_algorithm, default_engine, default_space_type
+from core.search.index import (
+    default_algorithm,
+    default_engine,
+    default_space_type,
+    default_model_name,
+    default_model_dimensions,
+)
 from core.search.client import Client
 from core.search.index_mappings import FieldType
 
@@ -41,6 +47,10 @@ class IndexDeletePayload(BaseModel):
 class VectorizePayload(BaseModel):
     index_name: str
     field_names: List[str]
+    engine: Optional[str] = default_engine
+    space_type: Optional[str] = default_space_type
+    model_name: Optional[str] = default_model_name
+    model_dimension: Optional[int] = default_model_dimensions
 
 
 class SearchPayload(BaseModel):
@@ -58,9 +68,9 @@ class CreateFieldPayload(BaseModel):
     index_name: str
     field_name: str
     field_type: str
-    dimension: Optional[int] = None
-    space_type: Optional[str] = None
-    engine: Optional[str] = None
+    dimension: Optional[int] = default_model_dimensions
+    space_type: Optional[str] = default_space_type
+    engine: Optional[str] = default_engine
 
 
 class Database(BaseModel):
@@ -185,8 +195,13 @@ async def search_documents(payload: SearchPayload) -> JSONResponse:
             status_code=status.HTTP_200_OK, content=await index.search(payload.dsl)
         )
     except RequestError as e:
-        not_vectorized_error_stub = "is not knn_vector type"
-        if not_vectorized_error_stub in str(e):
+        not_vectorized_errors = [
+            "is not knn_vector type",
+            "Model not ready yet",
+            "[bool] failed to parse field [should]",
+        ]
+
+        if any([err in str(e) for err in not_vectorized_errors]):
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content=f"Failed to search index {payload.index_name} because not all fields were vectorized. Did you call Index.vectorize()?",
@@ -222,13 +237,13 @@ async def create_field(payload: CreateFieldPayload) -> JSONResponse:
         properties: Dict[str, Any] = {payload.field_name: {"type": payload.field_type}}
 
         if payload.field_type == FieldType.KNN_VECTOR.value:
-            properties[payload.field_name]["dimension"] = payload.dimension
+            properties[payload.field_name]["dimension"] = cast(
+                int, payload.model_dump().get("dimension")
+            )
             properties[payload.field_name]["method"] = {
                 "name": default_algorithm,
-                "space_type": payload.model_dump().get(
-                    "space_type", default_space_type
-                ),
-                "engine": payload.model_dump().get("engine", default_engine),
+                "space_type": cast(str, payload.model_dump().get("space_type")),
+                "engine": cast(str, payload.model_dump().get("engine")),
             }
 
         await index.mappings.upsert(properties=properties)
@@ -250,8 +265,10 @@ async def vectorize(payload: VectorizePayload) -> JSONResponse:
         index = await client.get_index(payload.index_name)
         await index.register_neural_search_fields(
             payload.field_names,
-            engine=payload.model_dump().get("engine", default_engine),
-            space_type=payload.model_dump().get("space_type", default_space_type),
+            engine=cast(str, payload.model_dump().get("engine")),
+            space_type=cast(str, payload.model_dump().get("space_type")),
+            model_name=cast(str, payload.model_dump().get("model_name")),
+            model_dimension=cast(int, payload.model_dump().get("model_dimension")),
         )
         # Reindexing is necessary to generate vectors for existing document fields
         logger.info("Neural search fields registered. Reindexing...")

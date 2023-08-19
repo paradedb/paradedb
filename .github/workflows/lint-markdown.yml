@@ -33,7 +33,7 @@ jobs:
         uses: actions/setup-node@v3
 
       - name: Install Prettier
-        run: npm install -g prettier@3.0.2
+        run: npm install -g prettier
 
       - name: Check if Markdown files are Formatted
         run: prettier --check '{**/**.md,**/**.mdx}'

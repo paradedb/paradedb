@@ -234,13 +234,8 @@ def test_upsert_vectors(client, test_index_name):
 def test_vector_search(client, test_index_name):
     index = client.get_index(test_index_name)
 
-    # Test search over faiss field
-    query = Search().with_nearest_neighbor(
-        vector=generate_random_vector(), field="faiss_vector", k=25
-    )[0:25]
-
-    response = index.search(query)
-    assert len(response["hits"]["hits"]) == 25
+    # It takes some time to index
+    sleep(5)
 
     # Test search over lucene field
     query = Search().with_nearest_neighbor(
@@ -250,13 +245,21 @@ def test_vector_search(client, test_index_name):
     response = index.search(query)
     assert len(response["hits"]["hits"]) == 10
 
+    # Test search over faiss field
+    query = Search().with_nearest_neighbor(
+        vector=generate_random_vector(), field="faiss_vector", k=20
+    )[0:20]
+
+    response = index.search(query)
+    assert len(response["hits"]["hits"]) == 20
+
 
 def test_vector_search_with_filters(client, test_index_name):
     index = client.get_index(test_index_name)
 
     query = Search().with_nearest_neighbor(
         vector=generate_random_vector(),
-        field="faiss_vector",
+        field="lucene_vector",
         k=25,
         filter=Q("match", city="New"),
     )

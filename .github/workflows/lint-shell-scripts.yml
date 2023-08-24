@@ -1,0 +1,50 @@
+# workflows/lint-shell-scripts.yml
+#
+# Shell Scripts: Linting
+# Lint and enforce good practices for shell scripts.
+
+name: Linting
+
+on:
+  pull_request:
+    paths:
+      - "**/*.sh"
+      - ".github/workflows/lint-shell-scripts.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lint-shell-scripts-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  lint-shell-scripts:
+    name: Lint Shell Scripts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python Environment
+        uses: actions/setup-python@v3
+
+      - name: Install beautysh
+        run: pip install beautysh
+
+      - name: Run Beautysh to Check Scripts Formatting
+        run: |
+          # We need to use globstar for glob expansion on bash
+          shopt -s globstar nullglob
+          if compgen -G "**/*.sh" > /dev/null; then
+            beautysh **/*.sh --indent-size 2 --check
+          fi
+          shopt -u globstar nullglob
+
+      - name: Check that All Bash Scripts Start with "#!/bin/bash"
+        run: .github/workflows/helpers/check-shebang.sh
+
+      - name: Check that All Bash Scripts Contain "set -Eeuo pipefail"
+        run: .github/workflows/helpers/check-pipefail.sh
+
+      - name: Run ShellCheck on all folders
+        run: python3 .github/workflows/helpers/check-shellcheck.py

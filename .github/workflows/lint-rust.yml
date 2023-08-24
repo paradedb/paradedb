@@ -1,0 +1,38 @@
+# workflows/lint-rust.yml
+#
+# Rust: Linting
+# Lint Rust files using Clippy and Rustfmt.
+
+name: Linting
+
+on:
+  pull_request:
+    paths:
+      - "**/*.rs"
+      - ".github/workflows/lint-rust.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lint-rust-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  lint-rust:
+    name: Lint Rust
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v3
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy,rustfmt
+
+      - name: Rustfmt Check
+        uses: actions-rust-lang/rustfmt@v1
+
+    # Will configure Clippy separately in another PR
+    #   - name: Run Clippy
+    #     run: cargo clippy --all-targets --no-default-features -- -D warnings

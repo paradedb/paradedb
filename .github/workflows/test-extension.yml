@@ -1,7 +1,7 @@
 # workflows/test-extension.yml
 #
 # Extension: Unit Tests
-# Test the Retake extension with unit tests. 
+# Test the Retake extension with unit tests.
 
 name: Unit Tests
 
@@ -13,8 +13,6 @@ on:
       - main
   workflow_dispatch:
 
-# This guarantees that if you push many commits to the same PR, only the latest
-# commit will get run (others get cancelled)
 concurrency:
   group: test-extension-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
@@ -29,7 +27,10 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx && cargo pgrx init
+        run: cargo install --locked cargo-pgrx
+
+      - name: Initialize pgrx
+        run: cargo pgrx init
 
       - name: Test Retake Extension
         run: cargo pgrx test

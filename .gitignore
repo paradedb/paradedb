@@ -11,3 +11,6 @@ Cargo.lock
 
 # MSVC
 *.pdb
+
+# VSCode
+.vscode/

@@ -32,5 +32,8 @@ jobs:
       - name: Initialize pgrx
         run: cargo pgrx init
 
-      - name: Test Retake Extension
+      - name: Run Retake Extension Tests
         run: cargo pgrx test
+
+      - name: Test Packaging Retake Extension
+        run: cargo pgrx package

@@ -1,13 +1,9 @@
 <p align="center">
-  <img src="assets/retake.svg" alt="Retake" width="125px"></a>
+  <img src="assets/paradedb.svg" alt="Retake" width="500px"></a>
 </p>
 
-<h1 align="center">
-    <b>ParadeDB</b>
-</h1>
-
 <p align="center">
-    <b>Postgres for Search</b> <br />
+    <b>PostgreSQL for Search</b> <br />
 </p>
 
 <h3 align="center">
@@ -27,7 +23,7 @@
 </a>
 </p>
 
-Retake is a PostgreSQL database designed for search.
+ParadeDB is an ElasticSearch alternative built on Postgres.
 
 To get started, run our Docker Compose file:
 
@@ -36,7 +32,7 @@ git clone git@github.com:getretake/paradedb.git
 docker compose up
 ```
 
-By default, this will start the Retake database at `http://localhost:5432`.
+By default, this will start the ParadeDB database at `http://localhost:5432`.
 
 ## Usage
 
@@ -46,9 +42,9 @@ TODO
 
 TODO
 
-## How Retake Works
+## How ParadeDB Works
 
-A detailed overview of Retake's architecture can be found in our [documentation](https://docs.getretake.com/architecture).
+TODO
 
 ## Contributing
 
@@ -56,4 +52,4 @@ For more information on how to contribute, please see our [Contributing Guide](C
 
 ## License
 
-Retake is licensed under the [Apache-2.0 License](LICENSE).
+ParadeDB is licensed under the [Apache-2.0 License](LICENSE).

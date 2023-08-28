@@ -1,7 +1,7 @@
-# workflows/test-extension.yml
+# workflows/test-pg_bm25.yml
 #
-# Extension: Unit Tests
-# Test the Retake extension with unit tests.
+# pg_bm25: Unit Tests
+# Test the pg_bm25 with unit tests.
 
 name: Unit Tests
 
@@ -14,12 +14,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: test-extension-${{ github.head_ref || github.run_id }}
+  group: test-pg_bm25-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  test-retake:
-    name: Unit Test Retake Extension
+  test-pg_bm25:
+    name: Unit Test pg_bm25
     runs-on: ubuntu-latest
 
     steps:
@@ -55,10 +55,10 @@ jobs:
             --pg14=/usr/lib/postgresql/14/bin/pg_config \
             --pg15=/usr/lib/postgresql/15/bin/pg_config
 
-      - name: Run Retake Extension Tests
+      - name: Run pg_bm25 Tests
         working-directory: pg_bm25
         run: cargo pgrx test
 
-      - name: Test Packaging Retake Extension
+      - name: Test Packaging pg_bm25
         working-directory: pg_bm25
         run: cargo pgrx package

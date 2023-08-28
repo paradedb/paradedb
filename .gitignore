@@ -1,16 +1,5 @@
-# Cargo
-debug/
-target/
-Cargo.lock
-
-# Rustfmt
-**/*.rs.bk
+# VSCode
+.vscode/
 
 # macOS
 .DS_Store
-
-# MSVC
-*.pdb
-
-# VSCode
-.vscode/

@@ -1,0 +1,10 @@
+# Cargo
+debug/
+target/
+Cargo.lock
+
+# Rustfmt
+**/*.rs.bk
+
+# macOS
+.DS_Store

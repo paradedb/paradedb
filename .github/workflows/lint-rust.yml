@@ -32,6 +32,8 @@ jobs:
 
       - name: Rustfmt Check
         uses: actions-rust-lang/rustfmt@v1
+        with:
+          manifest-path: ./pg_bm25/Cargo.toml
 
     # Will configure Clippy separately in another PR
     #   - name: Run Clippy

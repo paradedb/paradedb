@@ -24,8 +24,8 @@ RUN cargo install cargo-pgrx
 # Set the working directory
 WORKDIR /usr/src/app
 
-# Copy the current directory contents into the container at /usr/src/app
-COPY . /usr/src/app
+# Copy the pg_bm25 directory contents into the container at /usr/src/app
+COPY pg_bm25/ /usr/src/app
 
 # Check the PostgreSQL installation
 RUN pg_config --version
@@ -44,9 +44,9 @@ WORKDIR /usr/src/app
 
 # Copy the built extension from the builder stage
 # Copy the control file and shared library from the builder stage
-COPY --from=builder /usr/src/app/target/release/retake_extension-pg15/usr/share/postgresql/15/extension/retake_extension.control /usr/share/postgresql/15/extension/
-COPY --from=builder /usr/src/app/target/release/retake_extension-pg15/usr/share/postgresql/15/extension/retake_extension--0.0.1.sql /usr/share/postgresql/15/extension/
-COPY --from=builder /usr/src/app/target/release/retake_extension-pg15/usr/lib/postgresql/15/lib/retake_extension.so /usr/lib/postgresql/15/lib/
+COPY --from=builder /usr/src/app/target/release/pg_bm25-pg15/usr/share/postgresql/15/extension/pg_bm25.control /usr/share/postgresql/15/extension/
+COPY --from=builder /usr/src/app/target/release/pg_bm25-pg15/usr/share/postgresql/15/extension/pg_bm25--0.0.1.sql /usr/share/postgresql/15/extension/
+COPY --from=builder /usr/src/app/target/release/pg_bm25-pg15/usr/lib/postgresql/15/lib/pg_bm25.so /usr/lib/postgresql/15/lib/
 
 # Copy the entrypoint script into the container
 COPY ./entrypoint.sh /usr/src/app

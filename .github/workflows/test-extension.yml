@@ -26,11 +26,32 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v3
 
+      - name: Install All Supported PostgreSQL Versions
+        run: |
+          # Install the public key for the repository
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+
+          # Add the repository
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+
+          # Update the package list
+          sudo apt-get update
+
+          # Install PostgreSQL 11, 12, 13, 14, and 15
+          sudo apt-get install -y postgresql-11 postgresql-12 postgresql-13 postgresql-14 postgresql-15
+          sudo apt-get install -y postgresql-server-dev-11 postgresql-server-dev-12 postgresql-server-dev-13 postgresql-server-dev-14 postgresql-server-dev-15
+
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx
+        run: cargo install cargo-pgrx
 
       - name: Initialize pgrx
-        run: cargo pgrx init
+        run: |
+          cargo pgrx init \
+            --pg11=/usr/lib/postgresql/11/bin/pg_config \
+            --pg12=/usr/lib/postgresql/12/bin/pg_config \
+            --pg13=/usr/lib/postgresql/13/bin/pg_config \
+            --pg14=/usr/lib/postgresql/14/bin/pg_config \
+            --pg15=/usr/lib/postgresql/15/bin/pg_config
 
       - name: Run Retake Extension Tests
         run: cargo pgrx test

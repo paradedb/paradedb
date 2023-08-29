@@ -1,5 +1,6 @@
 use directory::SQLDirectory;
 use pgrx::prelude::*;
+use serde_json::{Map, Value};
 use tantivy::collector::TopDocs;
 use tantivy::doc;
 use tantivy::query::QueryParser;
@@ -7,6 +8,7 @@ use tantivy::schema::*;
 use tantivy::Index;
 use tantivy::IndexSettings;
 use tantivy::SingleSegmentIndexWriter;
+
 mod directory;
 mod sql_writer;
 
@@ -144,16 +146,13 @@ fn create_docs(
 }
 
 #[pg_extern]
-fn index_bm25(table_name: String, column_names: Vec<String>) {
+fn index_bm25(table_name: String, index_name: String, column_names: Vec<String>) {
     let (schema, fields) = build_tantivy_schema(&table_name, &column_names);
-
-    let dir = SQLDirectory::new(format!("{table_name}_index"));
-
+    let dir = SQLDirectory::new(index_name.clone());
     let settings = IndexSettings {
         docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
         ..Default::default()
     };
-    info!("index settings: {:?}", settings);
 
     let index = Index::builder()
         .schema(schema)
@@ -168,37 +167,50 @@ fn index_bm25(table_name: String, column_names: Vec<String>) {
 }
 
 #[pg_extern]
-fn search_bm25(table_name: String, column_names: Vec<String>) -> String {
-    let (schema, _fields) = build_tantivy_schema(&table_name, &column_names);
-
-    let dir = SQLDirectory::new(format!("{table_name}_index"));
-
-    let index = Index::open(dir).expect("failed to get index");
+fn search_bm25<'a>(
+    query: String,
+    index_name: String,
+    field_names: Vec<String>,
+    k: i32,
+) -> TableIterator<'a, (name!(score, f32), name!(hits, pgrx::JsonB))> {
+    let dir = SQLDirectory::new(index_name.clone());
+    let index = Index::open(dir).expect(&format!("{} does not exist", &index_name));
+    let schema = index.schema();
 
     // Search for the document
     let reader = index
         .reader_builder()
-        .reload_policy(tantivy::ReloadPolicy::Manual) // Set to manual since directory.watch is unimplemented
+        .reload_policy(tantivy::ReloadPolicy::Manual)
         .try_into()
         .expect("failed to create index reader");
     let searcher = reader.searcher();
 
-    // TODO: dynamically create fields for table, using table definition
-    let title = schema.get_field("title").expect("failed to get field");
-    let query_parser = QueryParser::for_index(&index, vec![title]);
+    // Convert all column names to fields
+    let fields: Vec<Field> = field_names
+        .iter()
+        .map(|field| schema.get_field(field).expect("failed to get field"))
+        .collect();
 
-    // searcher.search(query, collector)
-    let query = query_parser.parse_query("Tantivy").unwrap();
-    let top_docs = searcher.search(&query, &TopDocs::with_limit(1)).unwrap();
+    let query_parser = QueryParser::for_index(&index, fields.clone());
+    let tantivy_query = query_parser.parse_query(&query).unwrap();
+    let top_docs = searcher
+        .search(&tantivy_query, &TopDocs::with_limit(k as usize))
+        .unwrap();
 
-    // Return the document's content
-    if let Some((_score, doc_address)) = top_docs.first() {
-        let retrieved_doc = searcher.doc(*doc_address).unwrap();
-        let retrieved_value = retrieved_doc.get_first(title).unwrap().as_text().unwrap();
-        retrieved_value.to_string()
-    } else {
-        "No results found".to_string()
-    }
+    let results = top_docs.into_iter().map(move |(score, doc_address)| {
+        let retrieved_doc = searcher.doc(doc_address).unwrap();
+
+        let mut json_map = Map::new();
+        for (&field, column_name) in fields.iter().zip(field_names.iter()) {
+            if let Some(value) = retrieved_doc.get_first(field).and_then(|f| f.as_text()) {
+                json_map.insert(column_name.to_string(), Value::String(value.to_string()));
+            }
+        }
+
+        (score, pgrx::JsonB(Value::Object(json_map)))
+    });
+
+    TableIterator::new(results)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

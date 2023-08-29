@@ -76,7 +76,6 @@ impl Debug for SQLDirectory {
 
 impl SQLDirectory {
     pub fn new(name: String) -> SQLDirectory {
-        info!("Creating SQL directory");
         let create_if_exists_q = format!(
             "CREATE TABLE IF NOT EXISTS {} (
                 path TEXT PRIMARY KEY,
@@ -84,7 +83,6 @@ impl SQLDirectory {
             );",
             name
         );
-        info!("{}", create_if_exists_q);
 
         Spi::run(&create_if_exists_q).expect("failed to create index table");
 
@@ -94,7 +92,6 @@ impl SQLDirectory {
 
 impl Directory for SQLDirectory {
     fn get_file_handle(&self, path: &Path) -> Result<Arc<dyn FileHandle>, OpenReadError> {
-        info!("Getting file handle for {}", path.display());
         let file_handle = SQLDirectoryFileHandle {
             sql_directory: self.clone(),
             path: path.to_path_buf(),
@@ -103,19 +100,16 @@ impl Directory for SQLDirectory {
     }
 
     fn exists(&self, path: &Path) -> Result<bool, OpenReadError> {
-        info!("Checking if file {} exists", path.display());
         let query: String = format!(
             "SELECT EXISTS (SELECT 1 FROM {} WHERE path = '{}')",
             self.name,
             path.display()
         );
-        info!("{}", query);
         Spi::connect(|client| {
             let mut result: bool = false;
             let mut res = client.select(&query, None, None).unwrap();
             while let Some(row) = res.next() {
                 let exists = row["exists"].value::<bool>().expect("no content").unwrap();
-                info!("File {} exists: {}", path.display(), exists);
                 result = exists
             }
             Ok(result)
@@ -123,15 +117,12 @@ impl Directory for SQLDirectory {
     }
 
     fn delete(&self, path: &Path) -> Result<(), DeleteError> {
-        info!("Deleting file {}", path.display());
         let query = format!(
             "DELETE FROM {} WHERE path = '{}'",
             self.name,
             path.display()
         );
         Spi::run(&query).expect("failed to delete file");
-
-        info!("Deleted file {}", path.display());
         Ok(())
     }
 
@@ -141,7 +132,6 @@ impl Directory for SQLDirectory {
             self.name,
             path.display()
         );
-        info!("{}", query);
 
         Spi::connect(|client| {
             let mut result: Vec<u8> = Vec::new();
@@ -160,7 +150,6 @@ impl Directory for SQLDirectory {
                     if result.is_empty() {
                         Err(OpenReadError::FileDoesNotExist(path.to_path_buf()))
                     } else {
-                        info!("Successful read for file {}", path.display());
                         Ok(result)
                     }
                 }
@@ -178,8 +167,6 @@ impl Directory for SQLDirectory {
         let args = vec![(pgrx::PgBuiltInOids::BYTEAOID.oid(), data.into_datum())];
 
         Spi::run_with_args(&query, Some(args)).expect("failed to write file");
-
-        info!("Successfuly wrote file {}", path.display());
         Ok(())
     }
 

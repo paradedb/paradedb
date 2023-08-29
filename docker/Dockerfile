@@ -1,4 +1,7 @@
+###############################################
 # First Stage: Builder
+###############################################
+
 FROM rust:latest as builder
 
 # TODO don't hardcode the versions for Postgres and for the extension, so this doesn't break later
@@ -36,7 +39,10 @@ RUN cargo pgrx init --pg15=/usr/lib/postgresql/15/bin/pg_config
 # Build the extension
 RUN cargo pgrx package
 
+###############################################
 # Second Stage: PostgreSQL
+###############################################
+
 FROM postgres:latest
 
 # Set the working directory

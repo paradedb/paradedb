@@ -1,0 +1,20 @@
+# This docker-compose.dev.yml file is for local development
+
+version: "3.8"
+
+services:
+  paradedb:
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=mydatabase
+    ports:
+      - "5432:5432"
+    volumes:
+      - paradedb_data:/var/lib/postgresql/data
+
+volumes:
+  paradedb_data:

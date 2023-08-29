@@ -29,6 +29,7 @@ To get started, run our Docker Compose file:
 
 ```bash
 git clone git@github.com:getretake/paradedb.git
+cd paradedb/docker
 docker compose up
 ```
 
@@ -52,4 +53,4 @@ For more information on how to contribute, please see our [Contributing Guide](C
 
 ## License
 
-ParadeDB is licensed under the [Apache-2.0 License](LICENSE).
+TODO

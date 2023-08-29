@@ -1,0 +1,18 @@
+# This docker-compose.yml file is for a hobby production deploy
+
+version: "3.8"
+
+services:
+  paradedb:
+    image: retake/paradedb:latest
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=mydatabase
+    ports:
+      - "5432:5432"
+    volumes:
+      - paradedb_data:/var/lib/postgresql/data
+
+volumes:
+  paradedb_data:

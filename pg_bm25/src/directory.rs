@@ -107,8 +107,8 @@ impl Directory for SQLDirectory {
         );
         Spi::connect(|client| {
             let mut result: bool = false;
-            let mut res = client.select(&query, None, None).unwrap();
-            while let Some(row) = res.next() {
+            let res = client.select(&query, None, None).unwrap();
+            for row in res {
                 let exists = row["exists"].value::<bool>().expect("no content").unwrap();
                 result = exists
             }
@@ -138,8 +138,8 @@ impl Directory for SQLDirectory {
             let res = client.select(&query, None, None);
 
             match res {
-                Ok(mut res) => {
-                    while let Some(row) = res.next() {
+                Ok(res) => {
+                    for row in res {
                         let content = row["content"]
                             .value::<Vec<u8>>()
                             .expect("no content")

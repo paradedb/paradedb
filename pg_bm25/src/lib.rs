@@ -27,9 +27,9 @@ fn extract_table_def(table_name: &str) -> Result<Vec<(String, String)>, spi::Err
 
     Spi::connect(|client| {
         let mut results: Vec<(String, String)> = Vec::new();
-        let mut tup_table = client.select(&query, None, None)?;
+        let tup_table = client.select(&query, None, None)?;
 
-        while let Some(row) = tup_table.next() {
+        for row in tup_table {
             let column_name = row["column_name"]
                 .value::<String>()
                 .expect("no column name")
@@ -49,7 +49,7 @@ fn extract_table_def(table_name: &str) -> Result<Vec<(String, String)>, spi::Err
 
 fn build_tantivy_schema(
     table_name: &str,
-    column_names: &Vec<String>,
+    column_names: &[String],
 ) -> (Schema, Vec<(String, String, Field)>) {
     let table_def: Vec<(String, String)> =
         extract_table_def(table_name).expect("failed to return table definition");
@@ -57,7 +57,7 @@ fn build_tantivy_schema(
     let mut fields = Vec::new();
 
     for (col_name, data_type) in &table_def {
-        if column_names.contains(&col_name) {
+        if column_names.contains(col_name) {
             // TODO: Support JSON, byte, and date fields
             match data_type.as_str() {
                 "text" | "varchar" => {
@@ -97,8 +97,8 @@ fn create_docs(
         let tup_table = client.select(&query, None, None);
 
         match tup_table {
-            Ok(mut tup_table) => {
-                while let Some(row) = tup_table.next() {
+            Ok(tup_table) => {
+                for row in tup_table {
                     let mut doc = Document::new();
 
                     for (col_name, data_type, field) in fields {
@@ -167,14 +167,14 @@ fn index_bm25(table_name: String, index_name: String, column_names: Vec<String>)
 }
 
 #[pg_extern]
-fn search_bm25<'a>(
+fn search_bm25(
     query: String,
     index_name: String,
     field_names: Vec<String>,
     k: i32,
-) -> TableIterator<'a, (name!(score, f32), name!(hits, pgrx::JsonB))> {
+) -> TableIterator<'static, (name!(score, f32), name!(hits, pgrx::JsonB))> {
     let dir = SQLDirectory::new(index_name.clone());
-    let index = Index::open(dir).expect(&format!("{} does not exist", &index_name));
+    let index = Index::open(dir).unwrap_or_else(|_| panic!("{} does not exist", &index_name));
     let schema = index.schema();
 
     // Search for the document
@@ -215,9 +215,7 @@ fn search_bm25<'a>(
 
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_schema]
-mod tests {
-    use pgrx::prelude::*;
-}
+mod tests {}
 
 /// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.

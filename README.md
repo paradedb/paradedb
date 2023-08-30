@@ -53,4 +53,4 @@ For more information on how to contribute, please see our [Contributing Guide](C
 
 ## License
 
-TODO
+ParadeDB is licensed under the [Elastic License 2.0](LICENSE). Our goal with choosing ELv2 is to maintain an open-source spirit and be as permissive as possible, while protecting against abuse. Our users can continue to use and contribute to ParadeDB freely, and we can safely create a sustainable business and continue to invest in our community, project and product.

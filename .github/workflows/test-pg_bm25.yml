@@ -57,7 +57,9 @@ jobs:
 
       - name: Run pg_bm25 Tests
         working-directory: pg_bm25
-        run: cargo pgrx test
+        run: |
+          sudo chown -R $(whoami) /usr/share/postgresql/15/extension/ /usr/lib/postgresql/15/lib/
+          cargo pgrx test
 
       - name: Test Packaging pg_bm25
         working-directory: pg_bm25

@@ -177,7 +177,6 @@ impl Directory for SQLDirectory {
     }
 
     fn sync_directory(&self) -> std::io::Result<()> {
-        info!("Syncing directory");
         Ok(())
     }
 

@@ -1,5 +1,5 @@
 use pgrx::IntoDatum;
-use pgrx::{info, Spi};
+use pgrx::Spi;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -184,7 +184,6 @@ impl Directory for SQLDirectory {
         // Reload Policy for index reader must be set to Manual, since this method
         // is unimplemented
         // https://docs.rs/tantivy/latest/tantivy/enum.ReloadPolicy.html#variant.Manual
-        info!("Watching directory");
         todo!()
     }
 }

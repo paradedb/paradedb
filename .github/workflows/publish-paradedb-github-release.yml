@@ -49,7 +49,7 @@ jobs:
 
           if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
             echo 'Using prod configuration...'
-            
+
             # increment version by 0.0.1
             NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}"
@@ -57,7 +57,7 @@ jobs:
             GHA_VAR_VALUE="${NEW_PATCH}"
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
-            
+
             # increment version by staging-rc.1
             NEW_STAGING_RC=$(( ${{ vars.VERSION_STAGING_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${NEW_STAGING_RC}"
@@ -65,7 +65,7 @@ jobs:
             GHA_VAR_VALUE="${NEW_STAGING_RC}"
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
-            
+
             # increment version by dev-rc.1
             NEW_DEV_RC=$(( ${{ vars.VERSION_DEV_RC }} + 1 ))
             NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${NEW_DEV_RC}"
@@ -94,7 +94,7 @@ jobs:
               /repos/getretake/paradedb/actions/variables/${{ steps.version.outputs.gha_var_name }} \
               -f name='${{ steps.version.outputs.gha_var_name }}' \
               -f value='${{ steps.version.outputs.gha_var_value }}'
-            
+
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
@@ -102,7 +102,7 @@ jobs:
               /repos/getretake/paradedb/actions/variables/VERSION_DEV_RC \
               -f name='VERSION_DEV_RC' \
               -f value='0'
-                      
+
             gh api \
               --method PATCH \
               -H "Accept: application/vnd.github+json" \

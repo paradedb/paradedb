@@ -1,9 +1,9 @@
-# VSCode
+# VS Code
 .vscode/
 
 # macOS
 .DS_Store
 
-# Generated
+# Cargo
 Cargo.lock
 target/

@@ -64,3 +64,8 @@ jobs:
       - name: Test Packaging pg_bm25
         working-directory: pg_bm25
         run: cargo pgrx package
+
+      - name: Upload Coverage Reports to Codecov
+        uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

@@ -25,6 +25,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v3
 
+      - name: Retrieve GitHub Tag
+        id: version
+        run: echo "::set-output name=version::${GITHUB_REF#refs/tags/v}"
+
       - name: Login to Docker Hub
         uses: docker/login-action@v2
         with:
@@ -50,6 +54,9 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: .
+          build-args: |
+            PG_VERSION_MAJOR=15
+            PG_BM25_VERSION=${{ steps.version.outputs.version }}}
           platforms: linux/amd64,linux/arm64
           file: Dockerfile
           push: true

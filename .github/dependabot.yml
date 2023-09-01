@@ -33,14 +33,3 @@ updates:
       dependencies:
         patterns:
           - "*"
-
-  - package-ecosystem: "pre-commit"
-    directory: "/"
-    schedule:
-      interval: "monthly"
-    ignore:
-      update-types: ["version-update:semver-patch"]
-    groups:
-      dependencies:
-        patterns:
-          - "*"

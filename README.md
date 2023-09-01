@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/paradedb.svg" alt="ParadeDB" width="500px"></a>
+  <img src="media/assets/paradedb.svg" alt="ParadeDB" width="500px"></a>
 </p>
 
 <p align="center">

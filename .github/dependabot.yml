@@ -6,7 +6,7 @@ updates:
     schedule:
       interval: "monthly"
     ignore:
-      update-types: ["version-update:semver-patch"]    
+      - update-types: ["version-update:semver-patch"]    
     groups:
       dependencies:
         patterns:
@@ -17,7 +17,7 @@ updates:
     schedule:
       interval: "monthly"
     ignore:
-      update-types: ["version-update:semver-patch"]
+      - update-types: ["version-update:semver-patch"]
     groups:
       dependencies:
         patterns:
@@ -28,7 +28,7 @@ updates:
     schedule:
       interval: "monthly"
     ignore:
-      update-types: ["version-update:semver-patch"]
+      - update-types: ["version-update:semver-patch"]
     groups:
       dependencies:
         patterns:

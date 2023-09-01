@@ -3,6 +3,7 @@
 ###############################################
 
 ARG PG_VERSION_MAJOR
+ARG PG_VERSION_MINOR
 ARG PG_BM25_VERSION
 ARG PG_IVM_VERSION
 ARG PG_GRAPHQL_VERSION
@@ -12,7 +13,7 @@ ARG PGTAP_VERSION
 # First Stage: Builder
 ###############################################
 
-FROM rust:latest as builder
+FROM rust:1.72 as builder
 
 ARG PG_VERSION_MAJOR
 
@@ -49,10 +50,8 @@ COPY pg_bm25/ /usr/src/app
 RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/" Cargo.toml
 
 # Initialize pgrx
-RUN cargo pgrx init --pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
-
-# Build the extension
-RUN cargo pgrx package
+RUN cargo pgrx init --pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config && \
+    cargo pgrx package
 
 ####################
 # 1. pg_ivm
@@ -102,9 +101,10 @@ RUN make -j && checkinstall -D --nodoc --install=no --fstrans=no --backup=no --p
 # Second Stage: PostgreSQL
 ###############################################
 
-FROM postgres:latest
+FROM postgres:${PG_VERSION_MAJOR}.${PG_VERSION_MINOR}
 
 ARG PG_VERSION_MAJOR
+ARG PG_VERSION_MINOR
 ARG PG_BM25_VERSION
 ARG PG_IVM_VERSION
 ARG PG_GRAPHQL_VERSION

@@ -56,6 +56,7 @@ jobs:
           context: .
           build-args: |
             PG_VERSION_MAJOR=15
+            PG_VERSION_MINOR=4
             PG_BM25_VERSION=${{ steps.version.outputs.version }}}
             PG_IVM_VERSION=1.5.1
             PG_GRAPHQL_VERSION=1.3.0

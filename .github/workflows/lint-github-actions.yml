@@ -31,6 +31,6 @@ jobs:
       - name: Install Prettier
         run: npm install -g prettier
 
-      - name: Check Workflow and Action formatting
+      - name: Check GitHub Workflows Formatting
         working-directory: .github
         run: prettier --check "**/*.{yml,yaml}"

@@ -31,7 +31,7 @@ ready by the end of September 2023.
   - [x] Similarity search
   - [ ] Hybrid search
   - [ ] Distributed search
-  - [ ] Incremental vector updates
+  - [ ] Real-time search
   - [ ] Generative search
   - [ ] Multimodal search
 - [ ] Cloud Database

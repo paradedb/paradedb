@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/paradedb.svg" alt="Retake" width="500px"></a>
+  <img src="assets/paradedb.svg" alt="ParadeDB" width="500px"></a>
 </p>
 
 <p align="center">
@@ -7,21 +7,8 @@
 </p>
 
 <h3 align="center">
-  <a href="https://docs.getretake.com">Documentation</a> &bull;
-  <a href="https://getretake.com">Website</a>
+  <a href="https://paradedb.com">Website</a>
 </h3>
-
-<p align="center">
-<a href="https://github.com/getretake/retake/stargazers/" target="_blank">
-    <img src="https://img.shields.io/github/stars/getretake/retake?style=social&label=Star&maxAge=60" alt="Stars">
-</a>
-<a href="https://github.com/getretake/retake/releases" target="_blank">
-    <img src="https://img.shields.io/github/v/release/getretake/retake?color=white" alt="Release">
-</a>
-<a href="https://github.com/getretake/retake/tree/main/LICENSE" target="_blank">
-    <img src="https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=white" alt="License">
-</a>
-</p>
 
 ParadeDB is an ElasticSearch alternative built on Postgres.
 
@@ -35,17 +22,22 @@ docker compose up
 
 By default, this will start the ParadeDB database at `http://localhost:5432`.
 
-## Usage
+Note that ParadeDB is still under active development and is not yet ready to use in production. We're aiming to be
+ready by the end of September 2023.
 
-TODO
-
-## Key Features
-
-TODO
-
-## How ParadeDB Works
-
-TODO
+- [ ] Search
+  - [x] Full-text search with BM25
+  - [ ] Faceted search
+  - [x] Similarity search
+  - [ ] Hybrid search
+  - [ ] Distributed search
+  - [ ] Incremental vector updates
+  - [ ] Generative search
+  - [ ] Multimodal search
+- [ ] Cloud Database
+  - [ ] Managed cloud
+  - [ ] Self-serve cloud
+- [ ] Web-based SQL Editor
 
 ## Development
 

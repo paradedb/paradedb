@@ -39,8 +39,8 @@ repos:
     rev: v1.0
     hooks:
       - id: fmt
-        args: ['--manifest-path', 'pg_bm25/Cargo.toml', '--']
+        args: ["--manifest-path", "pg_bm25/Cargo.toml", "--"]
       - id: clippy
-        args: ['--manifest-path', 'pg_bm25/Cargo.toml']
+        args: ["--manifest-path", "pg_bm25/Cargo.toml"]
       - id: cargo-check
-        args: ['--manifest-path', 'pg_bm25/Cargo.toml']
+        args: ["--manifest-path", "pg_bm25/Cargo.toml"]

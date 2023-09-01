@@ -81,12 +81,9 @@ pub fn search_bm25(
         &index,
         schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
     );
-    let tantivy_query = &query_parser
-        .parse_query(&query)
-        .expect("failed to parse query");
-
+    let (tantivy_query, _) = query_parser.parse_query_lenient(&query);
     let top_docs = searcher
-        .search(tantivy_query, &TopDocs::with_limit(k as usize))
+        .search(&tantivy_query, &TopDocs::with_limit(k as usize))
         .unwrap();
 
     let results = top_docs.into_iter().map(move |(score, doc_address)| {

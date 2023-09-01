@@ -9,7 +9,7 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
     groups:
-      dependencies:
+      github-actions-dependencies:
         patterns:
           - "*"
 
@@ -21,7 +21,7 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
     groups:
-      dependencies:
+      docker-dependencies:
         patterns:
           - "*"
 
@@ -33,6 +33,6 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
     groups:
-      dependencies:
+      rust-dependencies:
         patterns:
           - "*"

@@ -24,7 +24,13 @@ pub fn sync_index<'a>(
         .map(|s| s.trim().to_string())
         .collect();
 
-    let (schema, fields) = build_tantivy_schema(&table_name, &target_columns);
+    let result = build_tantivy_schema(&table_name, &target_columns);
+    let (schema, fields) = match result {
+        Ok((s, f)) => (s, f),
+        Err(e) => {
+            panic!("Error building schema: {}", e);
+        }
+    };
     let settings = IndexSettings {
         docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
         ..Default::default()
@@ -38,7 +44,13 @@ pub fn sync_index<'a>(
 
 #[pg_extern]
 pub fn index_bm25(table_name: String, index_name: String, target_columns: Vec<String>) {
-    let (schema, fields) = build_tantivy_schema(&table_name, &target_columns);
+    let result = build_tantivy_schema(&table_name, &target_columns);
+    let (schema, fields) = match result {
+        Ok((s, f)) => (s, f),
+        Err(e) => {
+            panic!("Error building schema: {}", e);
+        }
+    };
     let settings = IndexSettings {
         docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
         ..Default::default()
@@ -69,9 +81,12 @@ pub fn search_bm25(
         &index,
         schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
     );
-    let tantivy_query = query_parser.parse_query(&query).unwrap();
+    let tantivy_query = &query_parser
+        .parse_query(&query)
+        .expect("failed to parse query");
+
     let top_docs = searcher
-        .search(&tantivy_query, &TopDocs::with_limit(k as usize))
+        .search(tantivy_query, &TopDocs::with_limit(k as usize))
         .unwrap();
 
     let results = top_docs.into_iter().map(move |(score, doc_address)| {
@@ -98,9 +113,19 @@ pub fn search_bm25(
                         json_map.insert(field_name.to_string(), Value::Number(val.into()));
                     }
                 }
+                tantivy::schema::FieldType::F64(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_f64()) {
+                        json_map.insert(field_name.to_string(), Value::from(val));
+                    }
+                }
                 tantivy::schema::FieldType::Bool(_) => {
                     if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_bool()) {
                         json_map.insert(field_name.to_string(), Value::Bool(val));
+                    }
+                }
+                tantivy::schema::FieldType::JsonObject(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_json()) {
+                        json_map.insert(field_name.to_string(), Value::Object(val.clone()));
                     }
                 }
                 _ => {} // For now, we ignore fields we don't handle
@@ -124,7 +149,26 @@ mod tests {
 
     const TABLE_NAME: &str = "products";
     const INDEX_NAME: &str = "products_index";
-    const COLUMNS: [&str; 3] = ["description", "rating", "category"];
+    const COLUMNS: [&str; 18] = [
+        "description",
+        "rating",
+        "category",
+        "col_text",
+        "col_varchar",
+        "col_smallint",
+        "col_bigint",
+        "col_integer",
+        "col_oid",
+        "col_float4",
+        "col_float8",
+        "col_numeric",
+        "col_decimal",
+        "col_real",
+        "col_double",
+        "col_bool",
+        "col_json",
+        "col_jsonb",
+    ];
 
     #[pg_test]
     fn test_search_bm25() {
@@ -167,6 +211,21 @@ mod tests {
             "Expected exactly two results for the search query, but found {}.",
             results.len()
         );
+
+        // Check that the returned JSON map contains all the columns
+        let jsonb_value: &pgrx::JsonB = &results[0].1;
+        let json_value: &serde_json::Value = &jsonb_value.0;
+        let json_map = json_value
+            .as_object()
+            .expect("Expected the result to be a JSON object");
+
+        for &column in &COLUMNS {
+            assert!(
+                json_map.contains_key(column),
+                "Returned JSON does not contain key '{}'",
+                column
+            );
+        }
 
         // Check that search_bm25 returns no results for a query that does not match
         let query: &str = "description:ajskda";

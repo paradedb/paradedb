@@ -5,6 +5,7 @@ mod directory;
 mod helpers;
 mod index;
 mod sql_writer;
+mod types;
 
 pgrx::pg_module_magic!();
 

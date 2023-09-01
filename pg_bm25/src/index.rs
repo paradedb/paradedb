@@ -1,5 +1,4 @@
 use pgrx::{
-    info,
     prelude::PgHeapTuple,
     spi::{SpiClient, SpiTupleTable},
     AllocatedByPostgres, Spi,
@@ -9,7 +8,7 @@ use tantivy::{
     Document, Index, IndexSettings, SingleSegmentIndexWriter,
 };
 
-use crate::directory::SQLDirectory;
+use crate::{directory::SQLDirectory, types::PostgresType};
 const INDEX_WRITER_MEM_BUDGET: usize = 50_000_000;
 
 pub struct ParadeIndex {
@@ -48,7 +47,7 @@ impl ParadeIndex {
     }
 
     pub fn sync(&mut self, new: &PgHeapTuple<'_, AllocatedByPostgres>) {
-        self.create_docs_from_heap(new);
+        let _ = self.create_docs_from_heap(new);
     }
 
     fn query_all(&mut self) {
@@ -63,106 +62,260 @@ impl ParadeIndex {
             // to ensure the returned tuple table lives long enough.
             // Returning the tuple table outside of this context
             // may result in it becoming invalid when the Spi connect context is closed.
-            self.create_docs_from_tup(tup_table);
+            let _ = self.create_docs_from_tup(tup_table);
         });
     }
 
-    fn create_docs_from_heap(&self, heap: &PgHeapTuple<'_, AllocatedByPostgres>) {
+    fn create_docs_from_heap(
+        &self,
+        heap: &PgHeapTuple<'_, AllocatedByPostgres>,
+    ) -> Result<(), String> {
         let mut writer =
             SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_WRITER_MEM_BUDGET)
                 .expect("failed to create index writer");
 
-        for (column_name, data_type, field) in self.fields.as_slice() {
-            let mut doc: Document = Document::new();
+        let mut doc: Document = Document::new();
 
-            match data_type.as_str() {
-                // TODO: Support JSON, byte, and date fields
-                "text" | "varchar" | "character varying" => {
+        for (column_name, data_type, field) in self.fields.as_slice() {
+            let pg_type = PostgresType::from_str(data_type)
+                .ok_or_else(|| format!("Unrecognized Postgres type '{}'", data_type))?;
+
+            match pg_type {
+                PostgresType::Text | PostgresType::CharacterVarying => {
                     let value: String = heap
                         .get_by_name(column_name)
                         .expect("failed to get value for col")
                         .unwrap();
-                    info!("{}", value);
-                    doc.add_text(*field, value);
+                    doc.add_text(*field, &value);
                 }
-                "int2" | "int4" | "int8" | "integer" => {
+                PostgresType::SmallInt => {
+                    let value: i16 = heap
+                        .get_by_name(column_name)
+                        .expect("failed to get value for col")
+                        .unwrap();
+                    doc.add_i64(*field, value as i64);
+                }
+                PostgresType::Integer => {
+                    let value: i32 = heap
+                        .get_by_name(column_name)
+                        .expect("failed to get value for col")
+                        .unwrap();
+                    doc.add_i64(*field, value as i64);
+                }
+                PostgresType::BigInt => {
                     let value: i64 = heap
                         .get_by_name(column_name)
                         .expect("failed to get value for col")
                         .unwrap();
-                    info!("{}", value);
                     doc.add_i64(*field, value);
                 }
-                "float4" | "float8" | "numeric" => {
+                PostgresType::Oid => {
+                    let value: u32 = heap
+                        .get_by_name(column_name)
+                        .expect("failed to get value for col")
+                        .unwrap();
+                    doc.add_i64(*field, value as i64);
+                }
+                PostgresType::Real => {
+                    let value: f32 = heap
+                        .get_by_name(column_name)
+                        .expect("failed to get value for col")
+                        .unwrap();
+                    doc.add_f64(*field, value as f64);
+                }
+                PostgresType::DoublePrecision => {
                     let value: f64 = heap
                         .get_by_name(column_name)
                         .expect("failed to get value for col")
                         .unwrap();
-                    info!("{}", value);
                     doc.add_f64(*field, value);
                 }
-                "bool" => {
+                PostgresType::Numeric => {
+                    let any_numeric_value: pgrx::AnyNumeric = heap
+                        .get_by_name(column_name)
+                        .expect("failed to get value for col")
+                        .unwrap();
+
+                    let value_str = any_numeric_value.to_string();
+                    let value: f64 = value_str.parse().expect("failed to convert numeric to f64");
+
+                    doc.add_f64(*field, value);
+                }
+                PostgresType::Bool => {
                     let value: bool = heap
                         .get_by_name(column_name)
                         .expect("failed to get value for col")
                         .unwrap();
-                    info!("{}", value);
                     doc.add_bool(*field, value);
                 }
-                _ => panic!("Unsupported data type: {}", data_type),
+                PostgresType::Json => {
+                    let value: pgrx::Json = heap
+                        .get_by_name(column_name)
+                        .expect("failed to get value for col")
+                        .unwrap();
+
+                    let pgrx::Json(serde_value) = value;
+                    if let serde_json::Value::Object(map) = serde_value {
+                        doc.add_json_object(*field, map);
+                    } else {
+                        return Err(format!(
+                            "Expected JSON object for column '{}', but found a different type",
+                            column_name
+                        ));
+                    }
+                }
+                PostgresType::JsonB => {
+                    let value: pgrx::JsonB = heap
+                        .get_by_name(column_name)
+                        .expect("failed to get value for col")
+                        .unwrap();
+
+                    let pgrx::JsonB(serde_value) = value;
+                    if let serde_json::Value::Object(map) = serde_value {
+                        doc.add_json_object(*field, map);
+                    } else {
+                        return Err(format!(
+                            "Expected JSON object for column '{}', but found a different type",
+                            column_name
+                        ));
+                    }
+                }
+                _ => return Err(format!("Unhandled Postgres type for '{}'", column_name)),
             }
-            writer.add_document(doc).expect("failed to add document");
         }
 
-        writer.commit().expect("failed to finalize index writer");
+        writer.add_document(doc).expect("failed to add document");
+
+        writer
+            .commit()
+            .map(|_| ())
+            .map_err(|_| "Failed to commit index writer".to_string())
     }
 
-    fn create_docs_from_tup(&self, mut tup_table: SpiTupleTable) {
+    fn create_docs_from_tup(&self, mut tup_table: SpiTupleTable) -> Result<(), String> {
         let mut writer =
             SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_WRITER_MEM_BUDGET)
                 .expect("failed to create index writer");
 
-        for (col_name, data_type, field) in self.fields.as_slice() {
-            for row in tup_table.by_ref() {
-                let mut doc: Document = Document::new();
+        for row in tup_table.by_ref() {
+            let mut doc: Document = Document::new();
 
-                match data_type.as_str() {
-                    // TODO: Support JSON, byte, and date fields
-                    "text" | "varchar" | "character varying" => {
-                        let value = row
-                            .get_by_name::<String, &String>(col_name)
+            for (column_name, data_type, field) in self.fields.as_slice() {
+                let pg_type = PostgresType::from_str(data_type)
+                    .ok_or_else(|| format!("Unrecognized Postgres type '{}'", data_type))?;
+
+                match pg_type {
+                    PostgresType::Text | PostgresType::CharacterVarying => {
+                        let value: String = row
+                            .get_by_name(column_name)
                             .expect("failed to get value for col")
                             .unwrap();
-                        doc.add_text(*field, value);
+                        doc.add_text(*field, &value);
                     }
-                    "int2" | "int4" | "int8" | "integer" => {
-                        let value = row
-                            .get_by_name::<i64, &String>(col_name)
+                    PostgresType::SmallInt => {
+                        let value: i16 = row
+                            .get_by_name(column_name)
+                            .expect("failed to get value for col")
+                            .unwrap();
+                        doc.add_i64(*field, value as i64);
+                    }
+                    PostgresType::Integer => {
+                        let value: i32 = row
+                            .get_by_name(column_name)
+                            .expect("failed to get value for col")
+                            .unwrap();
+                        doc.add_i64(*field, value as i64);
+                    }
+                    PostgresType::BigInt => {
+                        let value: i64 = row
+                            .get_by_name(column_name)
                             .expect("failed to get value for col")
                             .unwrap();
                         doc.add_i64(*field, value);
                     }
-                    "float4" | "float8" | "numeric" => {
-                        let value = row
-                            .get_by_name::<f64, &String>(col_name)
+                    PostgresType::Oid => {
+                        let value: u32 = row
+                            .get_by_name(column_name)
+                            .expect("failed to get value for col")
+                            .unwrap();
+                        doc.add_i64(*field, value as i64);
+                    }
+                    PostgresType::Real => {
+                        let value: f32 = row
+                            .get_by_name(column_name)
+                            .expect("failed to get value for col")
+                            .unwrap();
+                        doc.add_f64(*field, value as f64);
+                    }
+                    PostgresType::DoublePrecision => {
+                        let value: f64 = row
+                            .get_by_name(column_name)
                             .expect("failed to get value for col")
                             .unwrap();
                         doc.add_f64(*field, value);
                     }
-                    "bool" => {
-                        let value = row
-                            .get_by_name::<bool, &String>(col_name)
+                    PostgresType::Numeric => {
+                        let any_numeric_value: pgrx::AnyNumeric = row
+                            .get_by_name(column_name)
+                            .expect("failed to get value for col")
+                            .unwrap();
+
+                        let value_str = any_numeric_value.to_string();
+                        let value: f64 =
+                            value_str.parse().expect("failed to convert numeric to f64");
+
+                        doc.add_f64(*field, value);
+                    }
+                    PostgresType::Bool => {
+                        let value: bool = row
+                            .get_by_name(column_name)
                             .expect("failed to get value for col")
                             .unwrap();
                         doc.add_bool(*field, value);
                     }
-                    _ => panic!("Unsupported data type: {}", data_type),
+                    PostgresType::Json => {
+                        let value: pgrx::Json = row
+                            .get_by_name(column_name)
+                            .expect("failed to get value for col")
+                            .unwrap();
+
+                        let pgrx::Json(serde_value) = value;
+                        if let serde_json::Value::Object(map) = serde_value {
+                            doc.add_json_object(*field, map);
+                        } else {
+                            return Err(format!(
+                                "Expected JSON object for column '{}', but found a different type",
+                                column_name
+                            ));
+                        }
+                    }
+                    PostgresType::JsonB => {
+                        let value: pgrx::JsonB = row
+                            .get_by_name(column_name)
+                            .expect("failed to get value for col")
+                            .unwrap();
+
+                        let pgrx::JsonB(serde_value) = value;
+                        if let serde_json::Value::Object(map) = serde_value {
+                            doc.add_json_object(*field, map);
+                        } else {
+                            return Err(format!(
+                                "Expected JSON object for column '{}', but found a different type",
+                                column_name
+                            ));
+                        }
+                    }
+                    _ => return Err(format!("Unhandled Postgres type for '{}'", column_name)),
                 }
-                writer.add_document(doc).expect("failed to add document");
             }
+
+            writer.add_document(doc).expect("failed to add document");
         }
 
-        writer.finalize().expect("failed to finalize index writer");
+        writer
+            .finalize()
+            .map(|_| ())
+            .map_err(|_| "Failed to finalize index writer".to_string())
     }
 
     fn setup_trigger(&self) {

@@ -1,7 +1,7 @@
 # workflows/test-pg_bm25.yml
 #
 # pg_bm25: Unit Tests
-# Test the pg_bm25 with unit tests.
+# Run unit and packaging tests for the pg_bm25 extension.
 
 name: Unit Tests
 
@@ -41,9 +41,9 @@ jobs:
           sudo apt-get install -y postgresql-11 postgresql-12 postgresql-13 postgresql-14 postgresql-15
           sudo apt-get install -y postgresql-server-dev-11 postgresql-server-dev-12 postgresql-server-dev-13 postgresql-server-dev-14 postgresql-server-dev-15
 
-      - name: Install pgrx
+      - name: Install pgrx, grcov & llvm-tools-preview
         working-directory: pg_bm25
-        run: cargo install cargo-pgrx
+        run: cargo install cargo-pgrx grcov && rustup component add llvm-tools-preview
 
       - name: Initialize pgrx
         working-directory: pg_bm25
@@ -55,12 +55,33 @@ jobs:
             --pg14=/usr/lib/postgresql/14/bin/pg_config \
             --pg15=/usr/lib/postgresql/15/bin/pg_config
 
-      - name: Run pg_bm25 Tests
-        working-directory: pg_bm25
-        run: |
-          sudo chown -R $(whoami) /usr/share/postgresql/15/extension/ /usr/lib/postgresql/15/lib/
-          cargo pgrx test
-
       - name: Test Packaging pg_bm25
         working-directory: pg_bm25
         run: cargo pgrx package --test
+
+      - name: Run pg_bm25 Unit Tests
+        working-directory: pg_bm25
+        run: |
+          # Set the required permissions for tests to run in GitHub Actions
+          sudo chown -R $(whoami) /usr/share/postgresql/11/extension/ /usr/lib/postgresql/11/lib/
+          sudo chown -R $(whoami) /usr/share/postgresql/12/extension/ /usr/lib/postgresql/12/lib/
+          sudo chown -R $(whoami) /usr/share/postgresql/13/extension/ /usr/lib/postgresql/13/lib/
+          sudo chown -R $(whoami) /usr/share/postgresql/14/extension/ /usr/lib/postgresql/14/lib/
+          sudo chown -R $(whoami) /usr/share/postgresql/15/extension/ /usr/lib/postgresql/15/lib/
+
+          # Configure code coverage & run tests
+          mkdir -p target/coverage target/coverage-report
+          export LLVM_PROFILE_FILE="target/coverage/pg_bm25-%p-%m.profraw"
+          export RUST_BACKTRACE=1
+          cargo pgrx test
+
+          # Run grcov to generate coverage report
+          grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
+
+      - name: Upload Coverage Reports to Codecov
+        uses: codecov/codecov-action@v3
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          directory: ./pg_bm25/target/coverage-report/
+          files: lcov
+          fail_ci_if_error: true

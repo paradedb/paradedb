@@ -8,3 +8,6 @@ Cargo.lock
 
 # macOS
 .DS_Store
+
+# Code coverage
+*.profraw

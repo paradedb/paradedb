@@ -3,26 +3,28 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# Start PostgreSQL
-docker-entrypoint.sh postgres &
+# Start the PostgreSQL server
+service postgresql start
 
-# Give PostgreSQL time to start
-sleep 10
-
-# Wait for the PostgreSQL server to start
-until pg_isready -h localhost -p 5432 -U "$POSTGRES_USER" -d "$POSTGRES_DB"; do
-  echo "PostgreSQL is unavailable - sleeping..."
-  sleep 1
-done
+# Setup users
+sudo -u postgres createuser root --superuser --login
+sudo -u postgres psql -c "CREATE ROLE $POSTGRES_USER PASSWORD '$POSTGRES_PASSWORD' SUPERUSER LOGIN"
+sudo -u postgres createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
+# TODO: is this needed?
+sudo -u postgres psql -c "ALTER ROLE $POSTGRES_USER SET search_path TO public,pgml"
 
 echo "PostgreSQL is up - installing extensions..."
 
 # Preinstall some extensions for the user
-psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS pg_bm25;"
-psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS pg_ivm;"
-psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE EXTENSION IF NOT EXISTS pg_graphql;"
+PGPASSWORD=$POSTGRES_PASSWORD psql -c 'CREATE EXTENSION IF NOT EXISTS pg_bm25' -d "$POSTGRES_DB" -U "$POSTGRES_USER" -h 127.0.0.1 -p 5432
+PGPASSWORD=$POSTGRES_PASSWORD psql -c 'CREATE EXTENSION IF NOT EXISTS pg_ivm' -d "$POSTGRES_DB" -U "$POSTGRES_USER" -h 127.0.0.1 -p 5432
+PGPASSWORD=$POSTGRES_PASSWORD psql -c 'CREATE EXTENSION IF NOT EXISTS pg_graphql' -d "$POSTGRES_DB" -U "$POSTGRES_USER" -h 127.0.0.1 -p 5432
+PGPASSWORD=$POSTGRES_PASSWORD psql -c 'CREATE EXTENSION IF NOT EXISTS pgml' -d "$POSTGRES_DB" -U "$POSTGRES_USER" -h 127.0.0.1 -p 5432
+PGPASSWORD=$POSTGRES_PASSWORD psql -c 'CREATE EXTENSION IF NOT EXISTS vector' -d "$POSTGRES_DB" -U "$POSTGRES_USER" -h 127.0.0.1 -p 5432
 
-# Wait for the PostgreSQL server to stop
-wait $!
+echo "PostgreSQL extensions installed - tailing server..."
+
+# Keep the container running
+tail -f /dev/null
 
 echo "PostgreSQL server has stopped - exiting..."

@@ -63,4 +63,4 @@ jobs:
 
       - name: Test Packaging pg_bm25
         working-directory: pg_bm25
-        run: cargo pgrx package
+        run: cargo pgrx package --test

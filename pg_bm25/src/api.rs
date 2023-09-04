@@ -63,7 +63,8 @@ pub fn index_bm25(table_name: String, index_name: String, target_columns: Vec<St
 pub fn search_bm25(
     query: String,
     index_name: String,
-    k: i32,
+    max_results: i32,
+    offset: i32,
 ) -> TableIterator<'static, (name!(score, f32), name!(hits, pgrx::JsonB))> {
     let dir = SQLDirectory::new(index_name.clone());
     let index = Index::open(dir).unwrap_or_else(|_| panic!("{} does not exist", &index_name));
@@ -83,7 +84,10 @@ pub fn search_bm25(
     );
     let (tantivy_query, _) = query_parser.parse_query_lenient(&query);
     let top_docs = searcher
-        .search(&tantivy_query, &TopDocs::with_limit(k as usize))
+        .search(
+            &tantivy_query,
+            &TopDocs::with_limit(max_results as usize).and_offset(offset as usize),
+        )
         .unwrap();
 
     let results = top_docs.into_iter().map(move |(score, doc_address)| {
@@ -201,11 +205,21 @@ mod tests {
         let query: &str = "description:keyboard";
         let k: i32 = 10;
 
-        let results: Vec<_> = search_bm25(query.to_string(), INDEX_NAME.to_string(), k).collect();
+        let results: Vec<_> =
+            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 0).collect();
 
         assert!(
             results.len() == 2,
             "Expected exactly two results for the search query, but found {}.",
+            results.len()
+        );
+
+        // Check that offsets work
+        let results: Vec<_> =
+            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 1).collect();
+        assert!(
+            results.len() == 1,
+            "Expected exactly one result for the search query, but found {}.",
             results.len()
         );
 
@@ -227,7 +241,8 @@ mod tests {
         // Check that search_bm25 returns no results for a query that does not match
         let query: &str = "description:ajskda";
 
-        let results: Vec<_> = search_bm25(query.to_string(), INDEX_NAME.to_string(), k).collect();
+        let results: Vec<_> =
+            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 0).collect();
 
         assert!(
             results.is_empty(),
@@ -273,7 +288,8 @@ mod tests {
         let query: &str = "description:watch";
         let k: i32 = 10;
 
-        let results: Vec<_> = search_bm25(query.to_string(), INDEX_NAME.to_string(), k).collect();
+        let results: Vec<_> =
+            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 0).collect();
 
         assert!(
             results.len() == 1,
@@ -286,7 +302,8 @@ mod tests {
         let query: &str = "description:keyboard";
         let k: i32 = 10;
 
-        let results: Vec<_> = search_bm25(query.to_string(), INDEX_NAME.to_string(), k).collect();
+        let results: Vec<_> =
+            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 0).collect();
 
         assert!(
             results.len() == 2,

@@ -94,11 +94,11 @@ Once the indexing is complete, you can run various search functions on it.
 Execute a search query on your indexed table:
 
 ```sql
-SELECT search_bm25('query', 'table_name', 'index_name', k);
+SELECT search_bm25('query', 'table_name', 'index_name', 10, 0);
 ```
 
-Note: You can specify specific columns in your search query using the following
-format: `column_name:query`.
+Here, `10` represents the maximum number of results to return, and `0` is the offset. You can specify specific columns
+in your search query using the following format: `column_name:query`.
 
 ### Modifying the Extension
 

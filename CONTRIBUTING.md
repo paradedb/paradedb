@@ -2,7 +2,7 @@
 
 Welcome! We're excited that you're interested in contributing to ParadeDB and want to make the process as smooth as possible.
 
-Before submitting a pull request, please review this document, which outlines what conventions to follow when submitting changes. If you have any questions not covered in this document, please reach out to us via [email](support@getretake.com).
+Before submitting a pull request, please review this document, which outlines what conventions to follow when submitting changes. If you have any questions not covered in this document, please reach out to us via [email](support@paradedb.com).
 
 ### Pull Request Worfklow
 

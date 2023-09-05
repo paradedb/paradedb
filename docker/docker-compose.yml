@@ -4,7 +4,7 @@ version: "3.8"
 
 services:
   paradedb:
-    image: retake/paradedb:latest
+    image: paradedb/paradedb:latest
     environment:
       - POSTGRES_USER=myuser
       - POSTGRES_PASSWORD=mypassword

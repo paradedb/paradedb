@@ -1,6 +1,6 @@
-# Retake Documentation
+# ParadeDB Documentation
 
-Retake [documentation](https://retake.mintlify.app) is built using [Mintlify](https://mintlify.com/docs/introduction).
+ParadeDB [documentation](https://docs.paradedb.com) is built using [Mintlify](https://mintlify.com/docs/quickstart).
 
 ### 👩‍💻 Development
 

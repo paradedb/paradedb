@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/schema.json",
-  "name": "Retake",
+  "name": "ParadeDB",
   "logo": {
     "dark": "/logo/primary.svg",
     "light": "/logo/primary.svg"
@@ -17,7 +17,7 @@
   },
   "topbarCtaButton": {
     "type": "github",
-    "url": "https://github.com/getretake/retake"
+    "url": "https://github.com/paradedb/paradedb"
   },
   "anchors": [
     {
@@ -37,7 +37,7 @@
     }
   ],
   "footerSocials": {
-    "github": "https://github.com/getretake/retake"
+    "github": "https://github.com/paradedb/paradedb"
   },
   "backgroundImage": "/background.png",
   "integrations": {

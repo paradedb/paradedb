@@ -39,7 +39,7 @@ jobs:
         id: metadata
         uses: docker/metadata-action@v4
         with:
-          images: retake/paradedb
+          images: paradedb/paradedb
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}

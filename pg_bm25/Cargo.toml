@@ -18,7 +18,7 @@ pg_test = []
 [dependencies]
 pgrx = "=0.9.8"
 serde_json = "1.0.105"
-tantivy = {git = "https://github.com/getretake/tantivy.git"}
+tantivy = {git = "https://github.com/paradedb/tantivy.git"}
 
 [dev-dependencies]
 pgrx-tests = "=0.9.8"

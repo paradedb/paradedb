@@ -91,7 +91,7 @@ jobs:
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/getretake/paradedb/actions/variables/${{ steps.version.outputs.gha_var_name }} \
+              /repos/paradedb/paradedb/actions/variables/${{ steps.version.outputs.gha_var_name }} \
               -f name='${{ steps.version.outputs.gha_var_name }}' \
               -f value='${{ steps.version.outputs.gha_var_value }}'
 
@@ -99,7 +99,7 @@ jobs:
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/getretake/paradedb/actions/variables/VERSION_DEV_RC \
+              /repos/paradedb/paradedb/actions/variables/VERSION_DEV_RC \
               -f name='VERSION_DEV_RC' \
               -f value='0'
 
@@ -107,7 +107,7 @@ jobs:
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/getretake/paradedb/actions/variables/VERSION_STAGING_RC \
+              /repos/paradedb/paradedb/actions/variables/VERSION_STAGING_RC \
               -f name='VERSION_STAGING_RC' \
               -f value='0'
           # on dev/staging we only update dev/staging RC
@@ -116,7 +116,7 @@ jobs:
               --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/getretake/paradedb/actions/variables/${{ steps.version.outputs.gha_var_name }} \
+              /repos/paradedb/paradedb/actions/variables/${{ steps.version.outputs.gha_var_name }} \
               -f name='${{ steps.version.outputs.gha_var_name }}' \
               -f value='${{ steps.version.outputs.gha_var_value }}'
           else

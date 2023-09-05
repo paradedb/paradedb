@@ -10,14 +10,14 @@
   <a href="https://paradedb.com">Website</a>
 </h3>
 
-[![codecov](https://codecov.io/gh/getretake/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/getretake/paradedb)
+[![codecov](https://codecov.io/gh/paradedb/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/paradedb/paradedb)
 
 ParadeDB is an ElasticSearch alternative built on Postgres.
 
 To get started, run our Docker Compose file:
 
 ```bash
-git clone git@github.com:getretake/paradedb.git
+git clone git@github.com:paradedb/paradedb.git
 cd paradedb/docker
 docker compose up
 ```

@@ -260,7 +260,6 @@ COPY ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
 COPY ./scripts/entrypoint.sh /usr/src/app
 
 # Expose the PostgreSQL port
-# TODO: can i remove this?
 EXPOSE 5432
 
 # Set the entrypoint script

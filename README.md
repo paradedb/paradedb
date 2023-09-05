@@ -84,7 +84,18 @@ By default, this will start the ParadeDB database at `http://localhost:5432`.
 
 ## How It Works
 
-Coming soon :)
+We are currently developing our hosted platform. In the meantime, you can
+self-host and develop locally. The following instructions assume you are self-hosting.
+
+1. CREATE the table(s) you'd like within ParadeDB.
+2. COPY your data into ParadeDB using your favourite PostgreSQL client.
+3. CREATE a ParadeDB index on the table(s) and/or column(s) you'd like to search.
+   See [here](pg_bm25/README.md#indexing-a-table) for some examples.
+4. Query your data using SELECT statements.
+   See [here](pg_bm25/README.md#performing-searches) for some examples.
+5. Experiment with different types of search (full-text, similarity, hybrid, etc.).
+
+Follow the [quickstart guide](https://docs.paradedb.com/quickstart) guide to get started right away!
 
 ## Documentation
 

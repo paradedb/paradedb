@@ -1,31 +1,55 @@
-<p align="center">
-  <img src="media/assets/paradedb.svg" alt="ParadeDB" width="500px"></a>
-</p>
+<h1 align="center">
+  <img src="media/assets/paradedb.svg" alt="ParadeDB" width="368px"></a>
+<br>
+</h1>
 
 <p align="center">
     <b>PostgreSQL for Search</b> <br />
 </p>
 
 <h3 align="center">
-  <a href="https://paradedb.com">Website</a>
+  <a href="https://paradedb.com">Website</a> &bull;
+  <a href="https://docs.paradedb.com">Documentation</a> &bull;
+  <a href="https://paradedb.com/blog">Blog</a> &bull;
+  <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ">Community</a>
 </h3>
 
-[![codecov](https://codecov.io/gh/paradedb/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/paradedb/paradedb)
+---
 
-ParadeDB is an ElasticSearch alternative built on Postgres.
+[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL.
 
-To get started, run our Docker Compose file:
+ParadeDB is a complete Postgres DBMS that provides native full-text search,
+similarity search, and hybrid search. It offers the most comprehensive,
+Postgres-native search features of any Postgres database, so you don't need to
+glue cumbersome services like a search engine or vector database on top.
 
-```bash
-git clone git@github.com:paradedb/paradedb.git
-cd paradedb/docker
-docker compose up
-```
+ParadeDB offers four primary benefits to users:
 
-By default, this will start the ParadeDB database at `http://localhost:5432`.
+- **Speed**: ParadeDB is built in Rust on top of PostgreSQL and Tantivy, a
+  Rust-based implementation of Apache Lucene. On average, ParadeDB queries are
+  2x faster than ElasticSearch. See our [benchmarks](https://github.com/paradedb/paradedb/tree/dev/benchmarks/README.md)
+  (coming soon!).
 
-Note that ParadeDB is still under active development and is not yet ready to use in production. We're aiming to be
-ready by the end of September 2023.
+- **SQL Interface**: ParadeDB allows you to write search queries in SQL and ensures
+  ACID guarantees on your search queries, so you don't need to worry about partial
+  updates.
+
+- **Consolidation**: ParadeDB consolidates your database and search engine
+  into a single system. You don't need to manage two separate
+  systems, and you don't need to worry about keeping them in sync.
+
+- **Scalability**: ParadeDB is built for scale. It supports distributed search,
+  high availability, backups, and point-in-time-recovery.
+
+## Status
+
+ParadeDB is still under active development and is not yet ready to use
+in production. We're aiming to be ready by the end of September 2023.
+
+We are currently in Private Alpha. Star & watch this repo to get notified of
+major updates.
+
+### Roadmap
 
 - [ ] Search
   - [x] Full-text search with BM25
@@ -39,93 +63,72 @@ ready by the end of September 2023.
 - [ ] Cloud Database
   - [ ] Managed cloud
   - [ ] Self-serve cloud
+  - [ ] Public Cloud (AWS, GCP, Azure) Marketplace Images
 - [ ] Web-based SQL Editor
+- [ ] GraphQL API
 
-## Development
+## Installation
 
-### Prerequisites
-
-Before developing the extension, ensure you have Rust installed (version >
-1.70).
-
-### Installation
-
-1. Install and initialize pgrx:
+To install locally or on-premise, simply run the latest Docker image:
 
 ```bash
-cargo install --locked cargo-pgrx
-cargo pgrx init
+docker run \
+  -e POSTGRES_USER=<user> \
+  -e POSTGRES_PASSWORD=<password> \
+  -e POSTGRES_DB=<dbname> \
+  -p 5432:5432 \
+  paradedb/paradedb:latest
 ```
 
-2. Start pgrx:
+By default, this will start the ParadeDB database at `http://localhost:5432`.
 
-```bash
-cargo pgrx run
-```
+## How It Works
 
-This will launch an interactive connection to Postgres.
+Coming soon :)
 
-Inside Postgres, create the extension by running:
+## Documentation
 
-```sql
-CREATE EXTENSION pg_bm25;
-```
+You can find the complete documentation for ParadeDB at [docs.paradedb.com](https://docs.paradedb.com).
 
-You can verify that the extension functions are installed by using:
+## Support
 
-```sql
-\df
-```
+If you're missing a feature or have found a bug, please open a
+[GitHub Issue](https://github.com/paradedb/paradedb/issues/new/choose).
 
-Now, you have access to all the extension functions.
+To get community support, you can:
 
-### Indexing a Table
+- Post a question on the [ParadeDB Slack Community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)
+- Ask for help on our [GitHub Discussions](https://github.com/paradedb/paradedb/discussions)
 
-To index a table, use the following SQL command:
-
-```sql
-SELECT index_bm25('table_name', 'index_name', '{col1, col2}');
-```
-
-Once the indexing is complete, you can run various search functions on it.
-
-### Performing Searches
-
-Execute a search query on your indexed table:
-
-```sql
-SELECT search_bm25('query', 'table_name', 'index_name', 10, 0);
-```
-
-Here, `10` represents the maximum number of results to return, and `0` is the offset. You can specify specific columns
-in your search query using the following format: `column_name:query`.
-
-### Modifying the Extension
-
-If you make changes to the extension code, follow these steps to update it:
-
-1. Recompile the extension:
-
-```bash
-cargo pgrx run
-```
-
-2. Recreate the extension to load the latest changes:
-
-```sql
-DROP EXTENSION pg_bm25;
-CREATE EXTENSION pg_bm25;
-```
+If you need commercial support, please [contact](mailto:sales@paradedb.com) the
+ParadeDB team.
 
 ## Contributing
+
+We welcome community contributions, big or small, and are here to guide you along
+the way. To get started contributing, check our [first timer issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue)
+or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
+Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
+
+If you're missing a feature or have found a problem with ParadeDB, please open a
+[GitHub issue](https://github.com/paradedb/paradedb/issues/new/choose).
 
 For more information on how to contribute, please see our
 [Contributing Guide](CONTRIBUTING.md).
 
+This project is released with a [Contributor Code of Conduct](https://github.com/paradedb/paradedb/blob/stable/CODE_OF_CONDUCT.md).
+By participating in this project, you agree to follow its terms.
+
+Thank you for helping us make ParadeDB better for everyone :heart:
+
+### Current Contributors
+
+<a href="https://github.com/paradedb/paradedb/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=paradedb/paradedb" />
+</a>
+
 ## License
 
 ParadeDB is licensed under the [Elastic License 2.0](LICENSE). Our goal with
-choosing ELv2 is to maintain an open-source spirit and be as permissive as
-possible, while protecting against abuse. Our users can continue to use and
-contribute to ParadeDB freely, and we can safely create a sustainable business
-and continue to invest in our community, project and product.
+choosing ELv2 is to enable our users to use and contribute to ParadeDB freely,
+while enabling us to continue investing in our community, project and product.

@@ -252,9 +252,9 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
 # Copy the database initialization script into the container
-COPY ./docker/postgresql.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/postgresql.conf
-COPY ./docker/pg_hba.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_hba.conf
-COPY ./docker/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
+COPY ./conf/postgresql.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/postgresql.conf
+COPY ./conf/pg_hba.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_hba.conf
+COPY ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
 
 # Copy the entrypoint script into the container
 COPY ./entrypoint.sh /usr/src/app

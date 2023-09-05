@@ -6,8 +6,27 @@ services:
   paradedb:
     image: paradedb/paradedb:latest
     environment:
-      - POSTGRES_USER=myuser
-      - POSTGRES_PASSWORD=mypassword
-      - POSTGRES_DB=mydatabase
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydatabase
+      POSTGRES_HOST: /var/run/postgresql
     ports:
       - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postgrest:
+    image: postgrest/postgrest:v11.2.0
+    depends_on:
+      paradedb:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://myuser:mypassword@paradedb:5432/mydatabase
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: anonymous
+      PGRST_JWT_SECRET: paradedb-api-key
+    ports:
+      - "3000:3000"

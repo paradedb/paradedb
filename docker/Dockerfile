@@ -257,7 +257,7 @@ COPY ./conf/pg_hba.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_hba.conf
 COPY ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
 
 # Copy the entrypoint script into the container
-COPY ./entrypoint.sh /usr/src/app
+COPY ./scripts/entrypoint.sh /usr/src/app
 
 # Expose the PostgreSQL port
 # TODO: can i remove this?

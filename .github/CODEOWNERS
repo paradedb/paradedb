@@ -1,6 +1,8 @@
 # Order is important. The last matching pattern has the most precedence. In each subsection folders are ordered first by depth, then alphabetically
 
 /.github/                                                      @philippemnoel
+/conf/                                                         @philippemnoel
 /docker/                                                       @philippemnoel
 /media/                                                        @rebasedming
 /pg_bm25/                                                      @rebasedming @mauaraujo
+/scripts/                                                      @philippemnoel

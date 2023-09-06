@@ -27,7 +27,9 @@ jobs:
 
       - name: Retrieve GitHub Tag
         id: version
-        run: echo "::set-output name=version::${GITHUB_REF#refs/tags/v}"
+        run: |
+          echo "::set-output name=version::${GITHUB_REF#refs/tags/v}"
+          echo "::set-output name=tag::${GITHUB_REF#refs/tags/}"
 
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
@@ -70,5 +72,5 @@ jobs:
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: |
             paradedb/paradedb:latest
-            paradedb/paradedb:${GITHUB_REF#refs/tags/}
+            paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}

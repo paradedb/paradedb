@@ -1,4 +1,4 @@
-# Ticket(s) Closed\*\*
+# Ticket(s) Closed
 
 - Closes #
 

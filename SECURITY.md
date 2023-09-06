@@ -12,8 +12,8 @@ receiving such patches can be found below:
 ## Reporting a Vulnerability
 
 Please do NOT raise a GitHub Issue to report a security vulnerability. Please report (suspected) security vulnerabilities to
-**[security@paradedb.com](mailto:security@paradedb.com)**, preferably with a proof of concept.. You will receive a response from
+**[security@paradedb.com](mailto:security@paradedb.com)**, preferably with a proof of concept. You will receive a response from
 us within 24 hours. If the issue is confirmed, we will release a patch as soon
 as possible depending on complexity but historically within a few days.
 
-Non-vulnerability related security issues such as new great new ideas for security features are welcome on GitHub Issues.
+Non-vulnerability related security issues such as new ideas for security features are welcome on GitHub Issues.

@@ -43,7 +43,10 @@ jobs:
 
       - name: Install pgrx, grcov & llvm-tools-preview
         working-directory: pg_bm25
-        run: cargo install cargo-pgrx grcov && rustup component add llvm-tools-preview
+        run: |
+          cargo install cargo-pgrx --version 0.9.8
+          cargo install grcov
+          rustup component add llvm-tools-preview
 
       - name: Initialize pgrx
         working-directory: pg_bm25

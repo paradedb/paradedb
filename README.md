@@ -18,9 +18,7 @@
 
 [ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL.
 
-ParadeDB is a complete Postgres DBMS that provides native full-text search,
-similarity search, and hybrid search. It offers the most comprehensive,
-Postgres-native search features of any Postgres database, so you don't need to
+It offers the most comprehensive, Postgres-native search features of any Postgres database, so you don't need to
 glue cumbersome services like a search engine or vector database on top.
 
 ParadeDB offers four primary benefits to users:
@@ -31,12 +29,10 @@ ParadeDB offers four primary benefits to users:
   (coming soon!).
 
 - **SQL Interface**: ParadeDB allows you to write search queries in SQL and ensures
-  ACID guarantees on your search queries, so you don't need to worry about partial
-  updates.
+  ACID transactions.
 
 - **Consolidation**: ParadeDB consolidates your database and search engine
-  into a single system. You don't need to manage two separate
-  systems, and you don't need to worry about keeping them in sync.
+  into a single system, so you don't need to worry about keeping separate services in sync.
 
 - **Scalability**: ParadeDB is built for scale. It supports distributed search,
   high availability, backups, and point-in-time-recovery.

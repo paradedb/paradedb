@@ -1,15 +1,17 @@
-# This docker-compose.yml file is for a hobby production deploy
+# This docker-compose.yml file is for hobby production deployments
 
 version: "3.8"
+
+common_environment: &common_env
+  POSTGRES_USER: myuser
+  POSTGRES_PASSWORD: mypassword
+  POSTGRES_DB: mydatabase
 
 services:
   paradedb:
     image: paradedb/paradedb:latest
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
-      POSTGRES_HOST: /var/run/postgresql
+      <<: *common_env
     ports:
       - "5432:5432"
       - "9700:9700"
@@ -25,7 +27,7 @@ services:
       paradedb:
         condition: service_healthy
     environment:
-      PGRST_DB_URI: postgres://myuser:mypassword@paradedb:5432/mydatabase
+      PGRST_DB_URI: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@paradedb:5432/${POSTGRES_DB}
       PGRST_DB_SCHEMA: public
       PGRST_DB_ANON_ROLE: anonymous
       PGRST_JWT_SECRET: paradedb-api-key

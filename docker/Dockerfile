@@ -63,11 +63,9 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
 
-# Set the PGX_HOME environment variable
 ENV PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-# Install cargo-pgrx
-RUN cargo install cargo-pgrx --version 0.10.0
+RUN cargo install cargo-pgrx --version 0.9.8
 
 ######################
 # pg_bm25
@@ -78,16 +76,13 @@ FROM builder as builder-pg_bm25
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
 
-# Set the working directory
 WORKDIR /usr/src/app
 
-# Copy the pg_bm25 directory contents into the container at /usr/src/app
 COPY pg_bm25/ /usr/src/app
 
 # Use the build argument to update the version in Cargo.toml
 RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/" Cargo.toml
 
-# Initialize pgrx
 RUN cargo pgrx init --pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config && \
     cargo pgrx package --pg-config /usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
@@ -145,9 +140,9 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libxslt1-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the install_pg_extension.sh script into the container
 COPY scripts/install_pg_extensions.sh /usr/local/bin/
 
+# Compile and install extensions from source
 RUN /usr/local/bin/install_pg_extensions.sh \
     "pg_cron,${PG_CRON_VERSION},https://github.com/citusdata/pg_cron/archive/refs/tags/v${PG_CRON_VERSION}.tar.gz" \
     "pg_ivm,${PG_IVM_VERSION},https://github.com/sraoss/pg_ivm/archive/refs/tags/v${PG_IVM_VERSION}.tar.gz" \
@@ -199,7 +194,6 @@ RUN git submodule update --init --recursive && \
     git fetch --depth 1 origin tag v${PGML_VERSION} && \
     git checkout v${PGML_VERSION}
 
-# Initialize pgrx
 RUN cargo pgrx init --pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config && \
     cargo pgrx package --pg-config /usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
@@ -211,7 +205,6 @@ FROM base as paradedb
 
 ARG PG_VERSION_MAJOR
 
-# Set the working directory
 WORKDIR /usr/src/app
 
 # Install pgml runtime dependencies
@@ -224,23 +217,19 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libprotobuf-c1 \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
-# # Copy the pg_bm25 extension from the builder stage
+# # Copy the pg_bm25 & pgml extensions from their builder stages
 COPY --from=builder-pg_bm25 /usr/src/app/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /usr/src/app/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-
-# # Copy the pgml extension from the builder stage
 COPY --from=builder-pgml /tmp/postgresml/pgml-extension/target/release/pgml-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pgml /tmp/postgresml/pgml-extension/target/release/pgml-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 
-# Load extensions
+# Copy all other extensions from the builder stage & install them
 COPY --from=builder-generic /tmp/*.deb /tmp/
-
-# Install the Postgres extensions
 RUN apt-get update && apt-fast install -y --no-install-recommends \
     /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
-# Copy the database initialization script into the container
+# Copy the database initialization scripts into the container
 COPY ./conf/postgresql.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/postgresql.conf
 COPY ./conf/pg_hba.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_hba.conf
 COPY ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
@@ -251,5 +240,4 @@ COPY ./scripts/entrypoint.sh /usr/src/app
 # Expose the PostgreSQL & Citus ports
 EXPOSE 5432 9700
 
-# Set the entrypoint script
 ENTRYPOINT ["/usr/src/app/entrypoint.sh"]

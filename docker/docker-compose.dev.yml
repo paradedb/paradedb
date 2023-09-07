@@ -1,6 +1,11 @@
-# This docker-compose.dev.yml file is for local development
+# This docker-compose.dev.yml file is for local development only
 
 version: "3.8"
+
+common_environment: &common_env
+  POSTGRES_USER: myuser
+  POSTGRES_PASSWORD: mypassword
+  POSTGRES_DB: mydatabase
 
 services:
   paradedb:
@@ -30,9 +35,7 @@ services:
         RUM_VERSION: 1.3.13
         CITUS_VERSION: 12.0.0
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
+      <<: *common_env
     ports:
       - "5432:5432"
       - "9700:9700"
@@ -48,7 +51,7 @@ services:
       paradedb:
         condition: service_healthy
     environment:
-      PGRST_DB_URI: postgres://myuser:mypassword@paradedb:5432/mydatabase
+      PGRST_DB_URI: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@paradedb:5432/${POSTGRES_DB}
       PGRST_DB_SCHEMA: public
       PGRST_DB_ANON_ROLE: anonymous
       PGRST_JWT_SECRET: paradedb-api-key

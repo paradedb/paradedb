@@ -52,9 +52,13 @@ jobs:
         with:
           components: clippy,rustfmt
 
+      # Check if cargo-pgrx is in the cache, and install if not
       - name: Install pgrx
         working-directory: pg_bm25
-        run: cargo install cargo-pgrx --version 0.10.0
+        run: |
+          if ! command -v cargo-pgrx &> /dev/null; then
+            cargo install cargo-pgrx --version 0.9.8
+          fi
 
       - name: Initialize pgrx
         working-directory: pg_bm25

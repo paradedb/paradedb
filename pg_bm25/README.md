@@ -1,9 +1,6 @@
 # pg_bm25
 
-<a href="https://codecov.io/gh/paradedb/paradedb">
-<img src="https://codecov.io/gh/paradedb/paradedb/graph/badge.svg?token=PHV8CAMHNQ"
-    alt="codecov">
-</a>
+[![codecov](https://codecov.io/gh/getretake/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/getretake/paradedb)
 
 The pg_bm25 extension is a PostgreSQL extension that enables full-text search
 using the Okapi BM25 algorithm, which is the state-of-the-art ranking function

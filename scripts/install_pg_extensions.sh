@@ -10,8 +10,8 @@ set -Eeuo pipefail
 # sanitize_version "REL15_1_5_0" --> 1.5.0
 # sanitize_version "2.3.4" --> 2.3.4
 sanitize_version() {
-  local version="$1"
-  echo "$version" | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/;s/[^0-9]*[0-9]+_([0-9]+)_([0-9]+)_([0-9]+).*/\1.\2.\3/'
+  local VERSION="$1"
+  echo "$VERSION" | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/;s/[^0-9]*[0-9]+_([0-9]+)_([0-9]+)_([0-9]+).*/\1.\2.\3/'
 }
 
 
@@ -48,7 +48,7 @@ install_pg_extension() {
 
 
 # Iterate over all arguments, which are expected to be comma-separated values of the format NAME,VERSION,URL
-for extension in "$@"; do
-  IFS=',' read -ra EXTENSION_DETAILS <<< "$extension"
+for EXTENSION in "$@"; do
+  IFS=',' read -ra EXTENSION_DETAILS <<< "$EXTENSION"
   install_pg_extension "${EXTENSION_DETAILS[0]}" "${EXTENSION_DETAILS[1]}" "${EXTENSION_DETAILS[2]}"
 done

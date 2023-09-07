@@ -11,7 +11,7 @@ use tantivy::directory::{
 };
 use tantivy::HasLen;
 
-use crate::sql_writer::SQLWriter;
+use crate::parade_index::sql_writer::SQLWriter;
 
 struct SQLDirectoryFileHandle {
     sql_directory: SQLDirectory,

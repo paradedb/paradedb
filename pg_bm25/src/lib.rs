@@ -1,13 +1,13 @@
-use pgrx::prelude::*;
+use pgrx::*;
 
-mod api;
-mod directory;
-mod helpers;
-mod index;
-mod sql_writer;
-mod types;
+mod index_access;
+mod json;
+mod operator;
+mod parade_index;
 
 pgrx::pg_module_magic!();
+
+extension_sql_file!("../sql/_bootstrap.sql", bootstrap);
 
 /// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.

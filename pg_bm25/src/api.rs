@@ -1,70 +1,16 @@
-use crate::{directory::SQLDirectory, helpers::build_tantivy_schema, index::ParadeIndex};
+use crate::{
+    parade_index::directory::SQLDirectory, parade_index::helpers::build_tantivy_schema,
+    parade_index::index::ParadeIndex,
+};
 use pgrx::prelude::*;
 use serde_json::{Map, Value};
 use tantivy::{collector::TopDocs, query::QueryParser, Index, IndexSettings};
-
-#[pg_trigger]
-pub fn sync_index<'a>(
-    trigger: &'a pgrx::PgTrigger<'a>,
-) -> Result<Option<PgHeapTuple<'a, impl WhoAllocated>>, pgrx::PgTriggerError> {
-    let table_name = trigger
-        .table_name()
-        .expect("failed to get table name from trigger");
-    let args = trigger
-        .extra_args()
-        .expect("failed to get extra arguments from trigger");
-    let new = trigger.new().expect("failed to get new rows from trigger");
-
-    let index_name = args.get(0).unwrap().to_string();
-    let target_columns: Vec<String> = args
-        .get(1)
-        .unwrap()
-        .trim_matches(|c| c == '{' || c == '}' || c == ',' || c == ' ')
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .collect();
-
-    let result = build_tantivy_schema(&table_name, &target_columns);
-    let (schema, fields) = match result {
-        Ok((s, f)) => (s, f),
-        Err(e) => {
-            panic!("Error building schema: {}", e);
-        }
-    };
-    let settings = IndexSettings {
-        docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
-        ..Default::default()
-    };
-
-    let mut index = ParadeIndex::new(index_name, table_name, schema, fields, settings);
-    index.sync(&new);
-
-    Ok(Some(new))
-}
-
-#[pg_extern]
-pub fn index_bm25(table_name: String, index_name: String, target_columns: Vec<String>) {
-    let result = build_tantivy_schema(&table_name, &target_columns);
-    let (schema, fields) = match result {
-        Ok((s, f)) => (s, f),
-        Err(e) => {
-            panic!("Error building schema: {}", e);
-        }
-    };
-    let settings = IndexSettings {
-        docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
-        ..Default::default()
-    };
-    let mut index = ParadeIndex::new(index_name, table_name, schema, fields, settings);
-    index.build();
-}
 
 #[pg_extern]
 pub fn search_bm25(
     query: String,
     index_name: String,
-    max_results: i32,
-    offset: i32,
+    k: i32,
 ) -> TableIterator<'static, (name!(score, f32), name!(hits, pgrx::JsonB))> {
     let dir = SQLDirectory::new(index_name.clone());
     let index = Index::open(dir).unwrap_or_else(|_| panic!("{} does not exist", &index_name));
@@ -84,10 +30,7 @@ pub fn search_bm25(
     );
     let (tantivy_query, _) = query_parser.parse_query_lenient(&query);
     let top_docs = searcher
-        .search(
-            &tantivy_query,
-            &TopDocs::with_limit(max_results as usize).and_offset(offset as usize),
-        )
+        .search(&tantivy_query, &TopDocs::with_limit(k as usize))
         .unwrap();
 
     let results = top_docs.into_iter().map(move |(score, doc_address)| {
@@ -137,190 +80,4 @@ pub fn search_bm25(
     });
 
     TableIterator::new(results)
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pg_schema]
-mod tests {
-    use super::*;
-    use pgrx::Spi;
-    use pgrx::*;
-    use pgrx_macros::pg_test;
-    use std::collections::HashSet;
-
-    const TABLE_NAME: &str = "products";
-    const INDEX_NAME: &str = "products_index";
-    const COLUMNS: [&str; 18] = [
-        "description",
-        "rating",
-        "category",
-        "col_text",
-        "col_varchar",
-        "col_smallint",
-        "col_bigint",
-        "col_integer",
-        "col_oid",
-        "col_float4",
-        "col_float8",
-        "col_numeric",
-        "col_decimal",
-        "col_real",
-        "col_double",
-        "col_bool",
-        "col_json",
-        "col_jsonb",
-    ];
-
-    #[pg_test]
-    fn test_search_bm25() {
-        bootstrap_test_db();
-
-        // Call index_bm25
-        let columns_vec: Vec<String> = COLUMNS.iter().cloned().map(String::from).collect();
-        index_bm25(
-            TABLE_NAME.to_string(),
-            INDEX_NAME.to_string(),
-            columns_vec.clone(),
-        );
-
-        // Check that index was created correctly
-        let column_names: HashSet<String> = crate::helpers::extract_table_def(INDEX_NAME)
-            .expect("Failed to extract index definition")
-            .into_iter()
-            .map(|(col_name, _)| col_name)
-            .collect();
-
-        let required_columns: HashSet<_> = ["path", "content"]
-            .iter()
-            .cloned()
-            .map(String::from)
-            .collect();
-
-        assert!(
-            column_names.is_superset(&required_columns),
-            "The index does not contain the required columns 'path' and 'content'."
-        );
-
-        // Check that search_bm25 returns results
-        let query: &str = "description:keyboard";
-        let k: i32 = 10;
-
-        let results: Vec<_> =
-            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 0).collect();
-
-        assert!(
-            results.len() == 2,
-            "Expected exactly two results for the search query, but found {}.",
-            results.len()
-        );
-
-        // Check that offsets work
-        let results: Vec<_> =
-            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 1).collect();
-        assert!(
-            results.len() == 1,
-            "Expected exactly one result for the search query, but found {}.",
-            results.len()
-        );
-
-        // Check that the returned JSON map contains all the columns
-        let jsonb_value: &pgrx::JsonB = &results[0].1;
-        let json_value: &serde_json::Value = &jsonb_value.0;
-        let json_map = json_value
-            .as_object()
-            .expect("Expected the result to be a JSON object");
-
-        for &column in &COLUMNS {
-            assert!(
-                json_map.contains_key(column),
-                "Returned JSON does not contain key '{}'",
-                column
-            );
-        }
-
-        // Check that search_bm25 returns no results for a query that does not match
-        let query: &str = "description:ajskda";
-
-        let results: Vec<_> =
-            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 0).collect();
-
-        assert!(
-            results.is_empty(),
-            "Expected no results for the search query."
-        );
-    }
-
-    #[pg_test]
-    fn test_index_sync() {
-        bootstrap_test_db();
-
-        // Call index_bm25
-        let columns_vec: Vec<String> = COLUMNS.iter().cloned().map(String::from).collect();
-        index_bm25(
-            TABLE_NAME.to_string(),
-            INDEX_NAME.to_string(),
-            columns_vec.clone(),
-        );
-
-        // Check that index was created correctly
-        let column_names: HashSet<String> = crate::helpers::extract_table_def(INDEX_NAME)
-            .expect("Failed to extract index definition")
-            .into_iter()
-            .map(|(col_name, _)| col_name)
-            .collect();
-
-        let required_columns: HashSet<_> = ["path", "content"]
-            .iter()
-            .cloned()
-            .map(String::from)
-            .collect();
-
-        assert!(
-            column_names.is_superset(&required_columns),
-            "The index does not contain the required columns 'path' and 'content'."
-        );
-
-        // Insert new rows
-        let query = format!("INSERT INTO {} (description, rating, category) VALUES ('Smart watch', 5, 'Electronics')", TABLE_NAME);
-        Spi::run(&query).expect("SPI failed inserting new row");
-
-        // Search for new row
-        let query: &str = "description:watch";
-        let k: i32 = 10;
-
-        let results: Vec<_> =
-            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 0).collect();
-
-        assert!(
-            results.len() == 1,
-            "Expected exactly one result for the search query, but found {}.",
-            results.len()
-        );
-
-        // Search for old rows to make sure
-        // they weren't overwritten
-        let query: &str = "description:keyboard";
-        let k: i32 = 10;
-
-        let results: Vec<_> =
-            search_bm25(query.to_string(), INDEX_NAME.to_string(), k, 0).collect();
-
-        assert!(
-            results.len() == 2,
-            "Expected exactly two results for the search query, but found {}.",
-            results.len()
-        );
-    }
-
-    fn bootstrap_test_db() {
-        let mut path = std::path::PathBuf::from(
-            std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"),
-        );
-        path.push("sql");
-        path.push("_bootstrap_test.sql");
-
-        let sql_content = std::fs::read_to_string(&path).expect("Unable to read the SQL file");
-
-        Spi::run(&sql_content).expect("SPI failed executing SQL content");
-    }
 }

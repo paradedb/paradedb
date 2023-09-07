@@ -17,6 +17,8 @@ pg_test = []
 
 [dependencies]
 pgrx = "=0.9.8"
+rustc-hash = "1.1.0"
+serde = "1.0.188"
 serde_json = "1.0.105"
 tantivy = {git = "https://github.com/paradedb/tantivy.git"}
 

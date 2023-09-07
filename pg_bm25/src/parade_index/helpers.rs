@@ -1,4 +1,6 @@
-use crate::types::{postgres_to_tantivy_map, PostgresType, TantivyType};
+use std::collections::HashMap;
+
+use crate::parade_index::types::{postgres_to_tantivy_map, PostgresType, TantivyType};
 use pgrx::{spi, Spi};
 use tantivy::schema::{Field, Schema, INDEXED, STORED, TEXT};
 
@@ -39,11 +41,11 @@ pub fn extract_table_def(table_name: &str) -> Result<Vec<(String, String)>, spi:
 pub fn build_tantivy_schema(
     table_name: &str,
     column_names: &[String],
-) -> Result<(Schema, Vec<(String, String, Field)>), String> {
+) -> Result<(Schema, HashMap<String, Field>), String> {
     let table_def: Vec<(String, String)> =
         extract_table_def(table_name).expect("failed to return table definition");
     let mut schema_builder = Schema::builder();
-    let mut fields = Vec::new();
+    let mut fields: HashMap<String, Field> = HashMap::new();
     let type_map = postgres_to_tantivy_map();
 
     for (col_name, data_type) in &table_def {
@@ -70,9 +72,12 @@ pub fn build_tantivy_schema(
                 TantivyType::Json => schema_builder.add_json_field(col_name, STORED),
             };
 
-            fields.push((col_name.clone(), data_type.clone(), field));
+            fields.insert(col_name.to_string(), field);
         }
     }
+
+    let field = schema_builder.add_u64_field("heap_tid", INDEXED | STORED);
+    fields.insert("heap_tid".to_string(), field);
 
     Ok((schema_builder.build(), fields))
 }

@@ -194,9 +194,9 @@ checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
 
 [[package]]
 name = "bytes"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "89b2fd2a0dcf38d7971e2194b6b6eebab45ae01067456a7fd93d5547a61b70be"
+checksum = "a2bd12c1caf447e69cd4528f47f94d203fd2582878ecb9e9465484c4148a8223"
 
 [[package]]
 name = "cargo_toml"
@@ -457,9 +457,9 @@ checksum = "a26ae43d7bcc3b814de94796a5e736d4029efb0ee900c12e2d54c993ad1a1e07"
 
 [[package]]
 name = "enum-map"
-version = "2.6.1"
+version = "2.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9705d8de4776df900a4a0b2384f8b0ab42f775e93b083b42f8ce71bdc32a47e3"
+checksum = "4e10d4d903e79b6181943defcdc36f61f8f608e5892eca719fb0677799d3f8fe"
 dependencies = [
  "enum-map-derive",
 ]
@@ -1139,6 +1139,8 @@ version = "0.0.0"
 dependencies = [
  "pgrx",
  "pgrx-tests",
+ "rustc-hash",
+ "serde",
  "serde_json",
  "tantivy",
 ]

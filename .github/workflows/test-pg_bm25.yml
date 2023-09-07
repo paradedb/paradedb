@@ -26,18 +26,32 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v3
 
+      - name: Cache Cargo Registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo Index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache Cargo Build
+        uses: actions/cache@v3
+        with:
+          path: ./pg_bm25/target
+          key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Install All Supported PostgreSQL Versions
         run: |
           # Install the public key for the repository
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-
-          # Add the repository
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
 
-          # Update the package list
-          sudo apt-get update
-
           # Install PostgreSQL 11, 12, 13, 14, and 15
+          sudo apt-get update
           sudo apt-get install -y postgresql-11 postgresql-12 postgresql-13 postgresql-14 postgresql-15
           sudo apt-get install -y postgresql-server-dev-11 postgresql-server-dev-12 postgresql-server-dev-13 postgresql-server-dev-14 postgresql-server-dev-15
 
@@ -78,13 +92,14 @@ jobs:
           export RUST_BACKTRACE=1
           cargo pgrx test
 
-          # Run grcov to generate coverage report
-          grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
+      - name: Generate Code Coverage Report
+        working-directory: pg_bm25
+        run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
       - name: Upload Coverage Reports to Codecov
         uses: codecov/codecov-action@v3
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./pg_bm25/target/coverage-report/
           files: lcov
           fail_ci_if_error: true

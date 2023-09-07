@@ -12,7 +12,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
 # Install common dependencies to builder and runtime
-# TODO: Do we need all these 4 python packages? It's for pgml
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     wget \
@@ -70,9 +69,9 @@ ENV PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 # Install cargo-pgrx
 RUN cargo install cargo-pgrx --version 0.9.8
 
-# ####################
+######################
 # pg_bm25
-# ####################
+######################
 
 FROM builder as builder-pg_bm25
 
@@ -92,8 +91,8 @@ RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION
 RUN cargo pgrx init --pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config && \
     cargo pgrx package --pg-config /usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config
 
-# ####################
-# other extensions
+######################
+# Other extensions
 ######################
 
 FROM builder as builder-generic
@@ -110,58 +109,40 @@ ARG PG_STAT_MONITOR_VERSION
 ARG PG_HINT_PLAN_VERSION
 ARG PGTAP_VERSION
 ARG PGVECTOR_VERSION
-ARG POSTGIS_VERSION
 ARG PGAUDIT_VERSION
+ARG POSTGIS_VERSION
 ARG PGROUTING_VERSION
 ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
+ARG CITUS_VERSION
 ARG TARGETARCH
-
-# TODOs: Left to install
-# ARG PG_STAT_STATEMENTS_VERSION
-# ARG PGROONGA_VERSION
-# ARG PLPGSQL_CHECK_VERSION
-# ARG PLV8_VERSION
-# ARG TIMESCALEDB_VERSION
-# ARG PG_WAL2JSON_VERSION
-# ARG PGSODIUM_VERSION
-# ARG SFCGAL_VERSION
-# ARG PG_SAFEUPDATE_VERSION
-# ARG PLJAVA_VERSION
-# ARG VAULT_VERSION
-# ARG WRAPPERS_VERSION
-# ARG PG_TLE_VERSION
-# ARG WAL_G_VERSION
-# ARG MYSQL_FDW_VERSION
-# ARG PARQUET_S3_FDW_VERSION
 
 ENV USE_PGXS=1
 
-# Rum requirements
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-fast install -y --no-install-recommends \
+    # rum requirements
     systemtap-sdt-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# PostGIS requirements
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libproj-dev \
-    libgeos-dev \
-    libxml2-dev \
-    gettext \
-    libtool \
-    libjson-c-dev \
-    libgdal-dev \
-    libsfcgal-dev \
-    libprotobuf-c-dev \
-    protobuf-c-compiler \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
     # pg_repack requirements
     libreadline-dev \
     # pgaudit requirements
     libkrb5-dev \
+    # postgis requirements
+    libgeos-dev \
+    libproj-dev \
+    libprotobuf-c-dev \
+    libsfcgal-dev \
+    libxml2-dev \
+    libjson-c-dev \
+    libgdal-dev \
+    gdal-bin \    
+    gettext \
+    libtool \
+    xsltproc \
+    protobuf-c-compiler \
+    # citus requirements
+    libselinux1-dev \
+    libxslt1-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the install_pg_extension.sh script into the container
@@ -176,12 +157,13 @@ RUN /usr/local/bin/install_pg_extensions.sh \
     "pg_hint_plan,${PG_HINT_PLAN_VERSION},https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/${PG_HINT_PLAN_VERSION}.tar.gz" \
     "pgtap,${PGTAP_VERSION},https://github.com/theory/pgtap/archive/refs/tags/v${PGTAP_VERSION}.tar.gz" \
     "pgvector,${PGVECTOR_VERSION},https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz" \
-    "postgis,${POSTGIS_VERSION},https://github.com/postgis/postgis/archive/refs/tags/${POSTGIS_VERSION}.tar.gz" \
     "pgaudit,${PGAUDIT_VERSION},https://github.com/pgaudit/pgaudit/archive/refs/tags/${PGAUDIT_VERSION}.tar.gz" \
+    "postgis,${POSTGIS_VERSION},https://github.com/postgis/postgis/archive/refs/tags/${POSTGIS_VERSION}.tar.gz" \
     "pgrouting,${PGROUTING_VERSION},https://github.com/pgRouting/pgrouting/archive/refs/tags/v${PGROUTING_VERSION}.tar.gz" \
     "pgsql-http,${PGSQL_HTTP_VERSION},https://github.com/pramsey/pgsql-http/archive/refs/tags/v${PGSQL_HTTP_VERSION}.tar.gz" \
     "hypopg,${HYPOPG_VERSION},https://github.com/HypoPG/hypopg/archive/refs/tags/${HYPOPG_VERSION}.tar.gz" \
-    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz"
+    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz" \
+    "citus,${CITUS_VERSION},https://github.com/citusdata/citus/archive/refs/tags/v${CITUS_VERSION}.tar.gz"
 
 # Install pre-compiled extensions
 ADD "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" /tmp/pg_net.deb
@@ -235,6 +217,13 @@ WORKDIR /usr/src/app
 # Install pgml runtime dependencies
 RUN pip3 install --no-cache-dir xgboost lightgbm scikit-learn
 
+# Install postgis runtime dependencies
+RUN apt-get update && apt-fast install -y --no-install-recommends \
+    libgeos-c1v5 \
+    libproj-dev \
+    libprotobuf-c1 \
+    && rm -rf /var/lib/apt/lists/* /tmp/*
+
 # # Copy the pg_bm25 extension from the builder stage
 COPY --from=builder-pg_bm25 /usr/src/app/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /usr/src/app/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
@@ -259,8 +248,8 @@ COPY ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
 # Copy the entrypoint script into the container
 COPY ./scripts/entrypoint.sh /usr/src/app
 
-# Expose the PostgreSQL port
-EXPOSE 5432
+# Expose the PostgreSQL & Citus ports
+EXPOSE 5432 9700
 
 # Set the entrypoint script
 ENTRYPOINT ["/usr/src/app/entrypoint.sh"]

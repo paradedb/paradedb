@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/logo/primary.svg" alt="ParadeDB" width="368px"></a>
+  <img src="docs/logo/readme.svg" alt="ParadeDB" width="368px"></a>
 <br>
 </h1>
 

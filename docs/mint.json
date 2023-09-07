@@ -2,8 +2,8 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "ParadeDB",
   "logo": {
-    "dark": "/logo/primary.svg",
-    "light": "/logo/primary.svg"
+    "dark": "/logo/docs.svg",
+    "light": "/logo/docs.svg"
   },
   "favicon": "/favicon.png",
   "colors": {

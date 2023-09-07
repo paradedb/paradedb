@@ -19,7 +19,11 @@ coverage:
         target: auto
         threshold: 1%
 
-comment: off
+comment:
+  layout: "diff, flags, files, footer"
+  require_base: no
+  require_head: no
+  show_carryforward_flags: true
 
 flags:
   pg_bm25:

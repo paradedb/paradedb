@@ -3,7 +3,3 @@
 
 # macOS
 .DS_Store
-
-# Cargo
-Cargo.lock
-target/

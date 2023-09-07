@@ -67,7 +67,7 @@ ENV PATH="/root/.cargo/bin:$PATH"
 ENV PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
 # Install cargo-pgrx
-RUN cargo install cargo-pgrx --version 0.9.8
+RUN cargo install cargo-pgrx --version 0.10.0
 
 ######################
 # pg_bm25

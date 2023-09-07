@@ -1,13 +1,15 @@
-# Cargo
-debug/
-target/
-Cargo.lock
-
-# Rustfmt
-**/*.rs.bk
+# VS Code
+.vscode/
 
 # macOS
 .DS_Store
 
-# Code coverage
+# Cargo
+target/
+debug/
+
+# Rustfmt
+**/*.rs.bk
+
+# Code Coverage
 *.profraw

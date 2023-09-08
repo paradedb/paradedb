@@ -46,10 +46,14 @@ Now, you have access to all the extension functions.
 
 ### Indexing a Table
 
+By default, the `pg_bm25` extension creates a table called `paradedb.mock_items` that you can
+use for quick experimentation.
+
 To index a table, use the following SQL command:
 
 ```sql
-SELECT index_bm25('table_name', 'index_name', '{col1, col2}');
+CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
 ```
 
 Once the indexing is complete, you can run various search functions on it.
@@ -59,12 +63,10 @@ Once the indexing is complete, you can run various search functions on it.
 Execute a search query on your indexed table:
 
 ```sql
-SELECT search_bm25('query', 'table_name', 'index_name', 10, 0);
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics OR rating>2';
 ```
-
-Here, `10` represents the maximum number of results to return, and `0` is the
-offset. You can specify columns in your search query by using the following
-format: `column_name:query`.
 
 ### Modifying the Extension
 

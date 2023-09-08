@@ -28,13 +28,12 @@ ParadeDB offers four primary benefits to users:
   2x faster than ElasticSearch. See our [benchmarks](https://github.com/paradedb/paradedb/tree/dev/benchmarks/README.md)
   (coming soon!).
 
-- **SQL Interface**: ParadeDB allows you to write search queries in SQL and ensures
-  ACID transactions.
-
-- **Consolidation**: ParadeDB consolidates your database and search engine
+- **Simplicity**: Consolidate your database and search engine
   into a single system, so you don't need to worry about keeping separate services in sync.
 
-- **Scalability**: ParadeDB is built for scale. It supports distributed search,
+- **SQL First**: Write search queries in SQL with ACID transactions.
+
+- **Scalability**: Scale to millions of rows with support for distributed search,
   high availability, backups, and point-in-time-recovery.
 
 ## Status

@@ -29,7 +29,7 @@
   "navigation": [
     {
       "group": "Documentation",
-      "pages": ["introduction"]
+      "pages": ["introduction", "quickstart"]
     },
     {
       "group": "Blog",

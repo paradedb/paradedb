@@ -10,6 +10,7 @@ mod parade_index;
 pgrx::pg_module_magic!();
 
 extension_sql_file!("../sql/_bootstrap.sql", bootstrap);
+extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 
 /// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.

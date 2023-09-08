@@ -2,15 +2,42 @@
 title: Welcome to ParadeDB
 ---
 
-ParadeDB a Postgres-based ElasticSearch alternative, engineered for lightning-fast full text, similarity, and hybrid search.
+## What is ParadeDB?
 
-We're currently in private beta.
-The focus of the core team is on developing the open-source version of ParadeDB, which we will be launching in winter 2023.
-We're also building a self-serve managed cloud version, which will launch in early 2024.
+ParadeDB a Postgres-based ElasticSearch alternative, engineered for lightning-fast full text,
+similarity, and hybrid search.
 
-Our full documentation hasn't gone live yet, but will soon. In the meantime, check out our blog for the latest!
+Today, developers implementing search face one of two options: adopt an external service like ElasticSearch,
+which is powerful but painful to run, tune, and sync, or use Postgres' native search features, which are pleasant to
+use but nowhere near as capable as a full search engine.
+
+ParadeDB aims to be the best of both worlds, providing developers with the simplicity of one Postgres
+database with the search capabilities of a world-class search engine.
+
+## Why ParadeDB
+
+ParadeDB provides the most comprehensive search features of any Postgres database. ParadeDB is a good fit for you if:
+
+- You want a single, Postgres-based source of truth and hate duplicating data across multiple services
+- You want to perform full-text search over large volumes of documents stored in Postgres without compromising on performance or scalability
+- You want to combine ANN/similarity search with full text search for improved semantic matching
+
+## Current Status
+
+ParadeDB is currently in private beta.
+
+The focus of the core team is on developing the open-source version of ParadeDB. We're also building a
+self-serve managed cloud version, which will launch in early 2024. We've started giving access to select
+cohorts from our [waitlist](https://paradedb.typeform.com/to/jHkLmIzx?typeform-source=www.paradedb.com).
+
+For users who have been selected for the private beta, we've put up documentation to help you get started.
+We're actively fleshing out the documentation — if you have any questions in the meantime, please use the
+Intercom widget in the bottom right corner of the screen for live chat support with a member of our team.
 
 <CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get started with ParadeDB.
+  </Card>
   <Card title="Blog" icon="rss" href="/blog">
     Read the ParadeDB blog for the latest updates.
   </Card>

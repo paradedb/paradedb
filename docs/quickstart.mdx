@@ -1,0 +1,109 @@
+---
+title: Quickstart
+---
+
+This guide will walk you through the following steps to get started with ParadeDB:
+
+1. Run ParadeDB locally
+2. Connect to ParadeDB
+3. Execute full text search
+4. Execute similarity search
+5. Execute hybrid search
+
+## Run ParadeDB Locally
+
+<Note>
+  This step is for developers who wish to run ParadeDB themselves. If you are
+  using ParadeDB Cloud, you may skip this step.
+</Note>
+
+To start ParadeDB, run the Docker image:
+
+```bash
+docker run \
+  -e POSTGRES_USER=<user> \
+  -e POSTGRES_PASSWORD=<password> \
+  -e POSTGRES_DB=<dbname> \
+  -p 5432:5432 \
+  paradedb/paradedb:latest
+```
+
+You may set `user`, `password`, and `dbname` to whatever values you want — these will be your database
+connection credentials. By default, this will start a ParadeDB instance at `http://localhost:5432`.
+
+## Connect to ParadeDB
+
+<Info>
+  **Prerequisite** Ensure that you have `psql` installed on your machine.
+</Info>
+
+To connect to ParadeDB, run
+
+```bash
+psql -h <hostname> -U <user> -d <dbname> -p <port> -W
+```
+
+If your ParadeDB database is running at `http://localhost:5432`, `hostname` is `localhost` and `port` is 5432. If you are using ParadeDB cloud, your connection credentials can be found in the cloud console.
+
+## Execute Full Text Search
+
+ParadeDB comes with a pre-populated table called `paradedb.mock_items` to help you get started.
+Once connected with `psql`, run the following command to preview the first five rows:
+
+```sql
+CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+SELECT * FROM mock_items LIMIT 5;
+```
+
+This should return
+
+```bash
+ id |       description        | rating |  category
+----+--------------------------+--------+-------------
+  1 | Ergonomic metal keyboard |      4 | Electronics
+  2 | Plastic Keyboard         |      4 | Electronics
+  3 | Sleek running shoes      |      5 | Footwear
+  4 | White jogging shoes      |      3 | Footwear
+  5 | Generic shoes            |      4 | Footwear
+(5 rows)
+```
+
+Next, let's index this table for full-text search:
+
+```sql
+CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
+```
+
+Under the hood, this creates a Postgres-native, inverted index called `idx_mock_items` for your table.
+Finally, let's execute a full-text search:
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics OR rating>2';
+```
+
+This should return
+
+```bash
+ id |         description         | rating |  category
+----+-----------------------------+--------+-------------
+  2 | Plastic Keyboard            |      4 | Electronics
+  1 | Ergonomic metal keyboard    |      4 | Electronics
+ 12 | Innovative wireless earbuds |      5 | Electronics
+ 22 | Fast charging power bank    |      4 | Electronics
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics
+(5 rows)
+```
+
+You may have noticed the above SQL query makes use of
+the custom `@@@` operator and a mini query language. This mini language supports boolean queries, filtering,
+range queries, and more. Detailed documentation of this mini language is coming in the next few days.
+
+## Execute Similarity Search
+
+Docs coming soon - stay tuned!
+
+## Execute Hybrid Search
+
+Docs coming soon — stay tuned!

@@ -5,7 +5,7 @@ use tantivy::SingleSegmentIndexWriter;
 use crate::index_access::utils::{
     categorize_tupdesc, create_parade_index, lookup_index_tupdesc, row_to_json,
 };
-use crate::parade_index::{helpers::extract_table_def, index::ParadeIndex};
+use crate::parade_index::index::ParadeIndex;
 
 const INDEX_WRITER_MEM_BUDGET: usize = 50_000_000;
 
@@ -42,13 +42,7 @@ pub extern "C" fn ambuild(
     let index_name = index_relation.name().to_string();
     let table_name = heap_relation.name().to_string();
 
-    let column_names = extract_table_def(&table_name)
-        .expect("Failed to extract index definition")
-        .into_iter()
-        .map(|(col_name, _)| col_name)
-        .collect();
-
-    let mut parade_index = create_parade_index(index_name, table_name, column_names);
+    let mut parade_index = create_parade_index(index_name, table_name);
     let tantivy_index = parade_index.copy_tantivy_index();
     let mut writer = SingleSegmentIndexWriter::new(tantivy_index, INDEX_WRITER_MEM_BUDGET)
         .expect("failed to create index writer");

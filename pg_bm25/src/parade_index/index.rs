@@ -1,11 +1,9 @@
-use crate::{
-    json::builder::JsonBuilder, parade_index::directory::SQLDirectory, parade_index::helpers,
-};
+use crate::{json::builder::JsonBuilder, parade_index::directory::SQLDirectory};
 use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use std::collections::HashMap;
 use tantivy::{
     query::QueryParser,
-    schema::{Field, Schema, Value},
+    schema::{Field, Schema, Value, INDEXED, STORED, TEXT},
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
 
@@ -26,9 +24,9 @@ pub struct ParadeIndex {
 }
 
 impl ParadeIndex {
-    pub fn new(name: String, table_name: String, target_columns: Vec<String>) -> Self {
+    pub fn new(name: String, table_name: String) -> Self {
         let dir: SQLDirectory = SQLDirectory::new(Self::parade_table_name(&name));
-        let result = helpers::build_tantivy_schema(&table_name, &target_columns);
+        let result = Self::build_index_schema(&table_name);
         let (schema, fields) = match result {
             Ok((s, f)) => (s, f),
             Err(e) => {
@@ -180,5 +178,59 @@ impl ParadeIndex {
 
     fn parade_table_name(name: &str) -> String {
         format!("paradedb.{}_index", name)
+    }
+
+    fn build_index_schema(name: &str) -> Result<(Schema, HashMap<String, Field>), String> {
+        let indexrel =
+            unsafe { PgRelation::open_with_name(name).expect("failed to open relation") };
+        let tupdesc = indexrel.tuple_desc();
+        let mut schema_builder = Schema::builder();
+        let mut fields: HashMap<String, Field> = HashMap::new();
+
+        for (_, attribute) in tupdesc.iter().enumerate() {
+            if attribute.is_dropped() {
+                continue;
+            }
+
+            let attribute_type_oid = attribute.type_oid();
+            let attname = attribute.name();
+
+            let field = match &attribute_type_oid {
+                PgOid::BuiltIn(builtin) => match builtin {
+                    PgBuiltInOids::BOOLOID => {
+                        Some(schema_builder.add_bool_field(attname, INDEXED | STORED))
+                    }
+                    PgBuiltInOids::INT2OID
+                    | PgBuiltInOids::INT4OID
+                    | PgBuiltInOids::INT8OID
+                    | PgBuiltInOids::OIDOID
+                    | PgBuiltInOids::XIDOID => {
+                        Some(schema_builder.add_i64_field(attname, INDEXED | STORED))
+                    }
+                    PgBuiltInOids::FLOAT4OID
+                    | PgBuiltInOids::FLOAT8OID
+                    | PgBuiltInOids::NUMERICOID => {
+                        Some(schema_builder.add_f64_field(attname, INDEXED | STORED))
+                    }
+                    PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
+                        Some(schema_builder.add_text_field(attname, TEXT | STORED))
+                    }
+                    PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
+                        Some(schema_builder.add_json_field(attname, STORED))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+
+            if let Some(valid_field) = field {
+                fields.insert(attname.to_string(), valid_field);
+            }
+        }
+
+        let field = schema_builder.add_u64_field("heap_tid", INDEXED | STORED);
+        fields.insert("heap_tid".to_string(), field);
+
+        Ok((schema_builder.build(), fields))
     }
 }

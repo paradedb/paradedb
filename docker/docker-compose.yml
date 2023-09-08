@@ -6,6 +6,7 @@ services:
   paradedb:
     image: paradedb/paradedb:latest
     environment:
+      POSTGRES_VERSION_MAJOR: 15
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: mydatabase

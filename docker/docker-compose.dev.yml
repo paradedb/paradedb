@@ -30,9 +30,10 @@ services:
         RUM_VERSION: 1.3.13
         CITUS_VERSION: 12.0.0
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_VERSION_MAJOR: 15
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydatabase
     ports:
       - "5432:5432"
       - "9700:9700"

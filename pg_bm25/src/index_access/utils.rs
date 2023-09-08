@@ -20,6 +20,10 @@ pub fn get_parade_index(index_name: String) -> ParadeIndex {
     ParadeIndex::from_index_name(index_name)
 }
 
+pub fn delete_parade_index(index_name: String) {
+    ParadeIndex::delete_directory(index_name);
+}
+
 pub fn lookup_index_tupdesc(indexrel: &PgRelation) -> PgTupleDesc<'static> {
     let tupdesc = indexrel.tuple_desc();
 

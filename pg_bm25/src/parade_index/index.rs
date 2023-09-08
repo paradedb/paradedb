@@ -70,6 +70,11 @@ impl ParadeIndex {
         }
     }
 
+    pub fn delete_directory(name: String) {
+        let drop_if_exists_q = format!("DROP TABLE IF EXISTS {};", Self::parade_table_name(&name));
+        Spi::run(&drop_if_exists_q).expect("failed to drop index table");
+    }
+
     pub fn insert(
         &mut self,
         writer: &mut SingleSegmentIndexWriter,

@@ -1,7 +1,10 @@
 use pgrx::*;
 use tantivy::collector::TopDocs;
 
-use crate::{index_access::utils::get_parade_index, parade_index::index::TantivyScanState};
+use crate::{
+    index_access::utils::get_parade_index, manager::get_executor_manager,
+    parade_index::index::TantivyScanState,
+};
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -75,7 +78,7 @@ pub extern "C" fn amgettuple(
     let iter = unsafe { state.iterator.as_mut() }.expect("no iterator in state");
 
     match iter.next() {
-        Some((_score, doc_address)) => {
+        Some((score, doc_address)) => {
             #[cfg(any(feature = "pg10", feature = "pg11"))]
             let tid = &mut scan.xs_ctup.t_self;
             #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
@@ -99,6 +102,8 @@ pub extern "C" fn amgettuple(
             if unsafe { !item_pointer_is_valid(tid) } {
                 panic!("invalid item pointer: {:?}", item_pointer_get_both(*tid));
             }
+
+            get_executor_manager().add_score(item_pointer_get_both(*tid), score);
 
             true
         }

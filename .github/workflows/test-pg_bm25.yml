@@ -11,6 +11,9 @@ on:
       - dev
       - staging
       - main
+    paths:
+      - "pg_bm25/**"
+      - ".github/workflows/test-pg_bm25.yml"
   workflow_dispatch:
 
 concurrency:

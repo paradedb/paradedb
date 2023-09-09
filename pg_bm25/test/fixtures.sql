@@ -1,4 +1,6 @@
-CREATE TABLE paradedb.products (
+CREATE EXTENSION IF NOT EXISTS pg_bm25;
+
+CREATE TABLE products (
     id SERIAL PRIMARY KEY,
     description TEXT,
     rating INTEGER CHECK (
@@ -9,7 +11,7 @@ CREATE TABLE paradedb.products (
 );
 
 INSERT INTO
-    paradedb.products (description, rating, category)
+    products (description, rating, category)
 VALUES
     ('Ergonomic metal keyboard', 4, 'Electronics'),
     ('Plastic Keyboard', 4, 'Electronics'),
@@ -73,3 +75,5 @@ ALTER TABLE products
     
     ADD COLUMN col_json JSON DEFAULT '{"key": "value"}'::json,
     ADD COLUMN col_jsonb JSONB DEFAULT '{"key": "value"}'::jsonb;
+
+

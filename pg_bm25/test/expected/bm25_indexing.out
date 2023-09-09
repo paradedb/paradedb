@@ -1,0 +1,2 @@
+CREATE INDEX idxproducts ON products USING bm25 ((products.*));
+NOTICE:  table "idxproducts_index" does not exist, skipping

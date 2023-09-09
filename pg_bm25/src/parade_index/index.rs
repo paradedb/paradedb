@@ -186,8 +186,10 @@ impl ParadeIndex {
     }
 
     fn build_index_schema(name: &str) -> Result<(Schema, HashMap<String, Field>), String> {
-        let indexrel =
-            unsafe { PgRelation::open_with_name(name).expect("failed to open relation") };
+        let indexrel = unsafe {
+            PgRelation::open_with_name(name)
+                .unwrap_or_else(|_| panic!("failed to open relation {}", name))
+        };
         let tupdesc = indexrel.tuple_desc();
         let mut schema_builder = Schema::builder();
         let mut fields: HashMap<String, Field> = HashMap::new();

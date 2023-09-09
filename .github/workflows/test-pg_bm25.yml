@@ -51,6 +51,22 @@ jobs:
           sudo apt-get install -y postgresql-11 postgresql-12 postgresql-13 postgresql-14 postgresql-15
           sudo apt-get install -y postgresql-server-dev-11 postgresql-server-dev-12 postgresql-server-dev-13 postgresql-server-dev-14 postgresql-server-dev-15
 
+      - name: Configure PostgreSQL Directories
+        run: |
+          # Set the required permissions for unit tests to run in GitHub Actions
+          sudo chown -R $(whoami) /usr/share/postgresql/11/extension/ /usr/lib/postgresql/11/lib/
+          sudo chown -R $(whoami) /usr/share/postgresql/12/extension/ /usr/lib/postgresql/12/lib/
+          sudo chown -R $(whoami) /usr/share/postgresql/13/extension/ /usr/lib/postgresql/13/lib/
+          sudo chown -R $(whoami) /usr/share/postgresql/14/extension/ /usr/lib/postgresql/14/lib/
+          sudo chown -R $(whoami) /usr/share/postgresql/15/extension/ /usr/lib/postgresql/15/lib/
+
+          # Add PostgreSQL binaries to the PATH for regression tests
+          echo "/usr/lib/postgresql/11/bin" >> $GITHUB_PATH
+          echo "/usr/lib/postgresql/12/bin" >> $GITHUB_PATH
+          echo "/usr/lib/postgresql/13/bin" >> $GITHUB_PATH
+          echo "/usr/lib/postgresql/14/bin" >> $GITHUB_PATH
+          echo "/usr/lib/postgresql/15/bin" >> $GITHUB_PATH
+
       # Check if cargo-pgrx, grcov, and llvm-tools-preview are in the cache, and install if not
       - name: Install pgrx, grcov & llvm-tools-preview
         working-directory: pg_bm25
@@ -75,22 +91,21 @@ jobs:
             --pg14=/usr/lib/postgresql/14/bin/pg_config \
             --pg15=/usr/lib/postgresql/15/bin/pg_config
 
-      # This also tests packaging the extension
       - name: Run pg_bm25 Unit Tests
         working-directory: pg_bm25
         run: |
-          # Set the required permissions for tests to run in GitHub Actions
-          sudo chown -R $(whoami) /usr/share/postgresql/11/extension/ /usr/lib/postgresql/11/lib/
-          sudo chown -R $(whoami) /usr/share/postgresql/12/extension/ /usr/lib/postgresql/12/lib/
-          sudo chown -R $(whoami) /usr/share/postgresql/13/extension/ /usr/lib/postgresql/13/lib/
-          sudo chown -R $(whoami) /usr/share/postgresql/14/extension/ /usr/lib/postgresql/14/lib/
-          sudo chown -R $(whoami) /usr/share/postgresql/15/extension/ /usr/lib/postgresql/15/lib/
-
           # Configure code coverage & run tests
           mkdir -p target/coverage target/coverage-report
           export LLVM_PROFILE_FILE="target/coverage/pg_bm25-%p-%m.profraw"
           export RUST_BACKTRACE=1
           cargo pgrx test
+
+      - name: Run pg_bm25 Regression Tests
+        working-directory: pg_bm25
+        run: |
+          # Install the extension on the runner & run regression tests
+          cargo pgrx install
+          ./test/runtests.sh
 
       - name: Generate Code Coverage Report
         working-directory: pg_bm25

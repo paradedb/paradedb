@@ -13,3 +13,8 @@ debug/
 
 # Code Coverage
 *.profraw
+
+# pg_regress
+results/
+regression.diffs
+regression.out

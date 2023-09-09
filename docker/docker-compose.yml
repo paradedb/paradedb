@@ -1,4 +1,9 @@
-# This docker-compose.yml file is for hobby production deployments
+#
+# This docker-compose.yml file is for production deployments of the Parade DBMS. It pulls the latest
+# ParadeDB image from Docker Hub, which has all extensions pre-installed, and runs it with all other
+# ParadeDB services, to allow for production use of the ParadeDB system. It is intended for hobby
+# production use.
+#
 
 version: "3.8"
 
@@ -6,7 +11,6 @@ services:
   paradedb:
     image: paradedb/paradedb:latest
     environment:
-      POSTGRES_VERSION_MAJOR: 15
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: mydatabase

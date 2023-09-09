@@ -16,10 +16,13 @@
 
 ---
 
+[![Publishing](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb-to-dockerhub.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb-to-dockerhub.yml)
+
 [ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL.
 
-It offers the most comprehensive, Postgres-native search features of any Postgres database, so you don't need to
-glue cumbersome services like a search engine or vector database on top.
+It offers the most comprehensive, Postgres-native search features of any Postgres
+database, so you don't need to glue cumbersome services like a search engine or
+vector database on top.
 
 ParadeDB offers four primary benefits to users:
 
@@ -29,12 +32,13 @@ ParadeDB offers four primary benefits to users:
   (coming soon!).
 
 - **Simplicity**: Consolidate your database and search engine
-  into a single system, so you don't need to worry about keeping separate services in sync.
+  into a single system, so you don't need to worry about keeping separate services
+  in sync.
 
 - **SQL First**: Write search queries in SQL with ACID transactions.
 
 - **Scalability**: Scale to millions of rows with support for distributed search,
-  high availability, backups, and point-in-time-recovery.
+  high availability, backups, and point-in-time-recovery (coming soon!).
 
 ## Status
 
@@ -52,7 +56,7 @@ major updates.
   - [x] Similarity search
   - [ ] Hybrid search
   - [ ] Distributed search
-  - [ ] Real-time search
+  - [x] Real-time search
   - [ ] Generative search
   - [ ] Multimodal search
 - [ ] Cloud Database

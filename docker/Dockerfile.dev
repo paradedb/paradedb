@@ -8,46 +8,12 @@ FROM ubuntu:22.04 as base
 # environment variables for use in build and runtime
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
-ARG PG_CRON_VERSION
-ARG PG_NET_VERSION
-ARG PG_IVM_VERSION
-ARG PG_GRAPHQL_VERSION
-ARG PG_HASHIDS_VERSION
-ARG PG_JSONSCHEMA_VERSION
-ARG PG_REPACK_VERSION
-ARG PG_STAT_MONITOR_VERSION
-ARG PG_HINT_PLAN_VERSION
 ARG PGML_VERSION
-ARG PGTAP_VERSION
 ARG PGVECTOR_VERSION
-ARG PGAUDIT_VERSION
-ARG POSTGIS_VERSION
-ARG PGROUTING_VERSION
-ARG PGSQL_HTTP_VERSION
-ARG HYPOPG_VERSION
-ARG RUM_VERSION
-ARG CITUS_VERSION
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 ENV PG_BM25_VERSION=${PG_BM25_VERSION}
-ENV PG_CRON_VERSION=${PG_CRON_VERSION}
-ENV PG_NET_VERSION=${PG_NET_VERSION}
-ENV PG_IVM_VERSION=${PG_IVM_VERSION}
-ENV PG_GRAPHQL_VERSION=${PG_GRAPHQL_VERSION}
-ENV PG_HASHIDS_VERSION=${PG_HASHIDS_VERSION}
-ENV PG_JSONSCHEMA_VERSION=${PG_JSONSCHEMA_VERSION}
-ENV PG_REPACK_VERSION=${PG_REPACK_VERSION}
-ENV PG_STAT_MONITOR_VERSION=${PG_STAT_MONITOR_VERSION}
-ENV PG_HINT_PLAN_VERSION=${PG_HINT_PLAN_VERSION}
 ENV PGML_VERSION=${PGML_VERSION}
-ENV PGTAP_VERSION=${PGTAP_VERSION}
 ENV PGVECTOR_VERSION=${PGVECTOR_VERSION}
-ENV PGAUDIT_VERSION=${PGAUDIT_VERSION}
-ENV POSTGIS_VERSION=${POSTGIS_VERSION}
-ENV PGROUTING_VERSION=${PGROUTING_VERSION}
-ENV PGSQL_HTTP_VERSION=${PGSQL_HTTP_VERSION}
-ENV HYPOPG_VERSION=${HYPOPG_VERSION}
-ENV RUM_VERSION=${RUM_VERSION}
-ENV CITUS_VERSION=${CITUS_VERSION}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -130,59 +96,11 @@ RUN cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MA
 
 FROM builder as builder-generic
 
-ARG TARGETARCH
-
-ENV USE_PGXS=1
-
-RUN apt-get update && apt-fast install -y --no-install-recommends \
-    # rum requirements
-    systemtap-sdt-dev \
-    # pg_repack requirements
-    libreadline-dev \
-    # pgaudit requirements
-    libkrb5-dev \
-    # postgis requirements
-    libgeos-dev \
-    libproj-dev \
-    libprotobuf-c-dev \
-    libsfcgal-dev \
-    libxml2-dev \
-    libjson-c-dev \
-    libgdal-dev \
-    gdal-bin \    
-    gettext \
-    libtool \
-    xsltproc \
-    protobuf-c-compiler \
-    # citus requirements
-    libselinux1-dev \
-    libxslt1-dev \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY scripts/install_pg_extensions.sh /usr/local/bin/
 
 # Compile and install extensions from source
 RUN /usr/local/bin/install_pg_extensions.sh \
-    "pg_cron,${PG_CRON_VERSION},https://github.com/citusdata/pg_cron/archive/refs/tags/v${PG_CRON_VERSION}.tar.gz" \
-    "pg_ivm,${PG_IVM_VERSION},https://github.com/sraoss/pg_ivm/archive/refs/tags/v${PG_IVM_VERSION}.tar.gz" \
-    "pg_hashids,${PG_HASHIDS_VERSION},https://github.com/iCyberon/pg_hashids/archive/refs/tags/v${PG_HASHIDS_VERSION}.tar.gz" \
-    "pg_repack,${PG_REPACK_VERSION},https://github.com/reorg/pg_repack/archive/refs/tags/${PG_REPACK_VERSION}.tar.gz" \
-    "pg_stat_monitor,${PG_STAT_MONITOR_VERSION},https://github.com/percona/pg_stat_monitor/archive/refs/tags/${PG_STAT_MONITOR_VERSION}.tar.gz" \
-    "pg_hint_plan,${PG_HINT_PLAN_VERSION},https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/${PG_HINT_PLAN_VERSION}.tar.gz" \
-    "pgtap,${PGTAP_VERSION},https://github.com/theory/pgtap/archive/refs/tags/v${PGTAP_VERSION}.tar.gz" \
-    "pgvector,${PGVECTOR_VERSION},https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz" \
-    "pgaudit,${PGAUDIT_VERSION},https://github.com/pgaudit/pgaudit/archive/refs/tags/${PGAUDIT_VERSION}.tar.gz" \
-    "postgis,${POSTGIS_VERSION},https://github.com/postgis/postgis/archive/refs/tags/${POSTGIS_VERSION}.tar.gz" \
-    "pgrouting,${PGROUTING_VERSION},https://github.com/pgRouting/pgrouting/archive/refs/tags/v${PGROUTING_VERSION}.tar.gz" \
-    "pgsql-http,${PGSQL_HTTP_VERSION},https://github.com/pramsey/pgsql-http/archive/refs/tags/v${PGSQL_HTTP_VERSION}.tar.gz" \
-    "hypopg,${HYPOPG_VERSION},https://github.com/HypoPG/hypopg/archive/refs/tags/${HYPOPG_VERSION}.tar.gz" \
-    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz" \
-    "citus,${CITUS_VERSION},https://github.com/citusdata/citus/archive/refs/tags/v${CITUS_VERSION}.tar.gz"
-
-# Install pre-compiled extensions
-ADD "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" /tmp/pg_net.deb
-ADD "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" /tmp/pg_graphql.deb
-ADD "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" /tmp/pg_jsonschema.deb
+    "pgvector,${PGVECTOR_VERSION},https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz"
 
 ####################
 # pgml
@@ -224,13 +142,6 @@ WORKDIR /usr/src/app
 # Install pgml runtime dependencies
 RUN pip3 install --no-cache-dir xgboost lightgbm scikit-learn
 
-# Install postgis runtime dependencies
-RUN apt-get update && apt-fast install -y --no-install-recommends \
-    libgeos-c1v5 \
-    libproj-dev \
-    libprotobuf-c1 \
-    && rm -rf /var/lib/apt/lists/* /tmp/*
-
 # Copy the pg_bm25 & pgml extensions from their builder stages
 COPY --from=builder-pg_bm25 /usr/src/app/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /usr/src/app/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
@@ -251,7 +162,7 @@ COPY ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
 # Copy the entrypoint script into the container
 COPY ./scripts/entrypoint.sh /usr/src/app
 
-# Expose the PostgreSQL & Citus ports
-EXPOSE 5432 9700
+# Expose the PostgreSQL
+EXPOSE 5432
 
 ENTRYPOINT ["/usr/src/app/entrypoint.sh"]

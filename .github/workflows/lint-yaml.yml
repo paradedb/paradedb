@@ -1,24 +1,24 @@
-# workflows/lint-github-actions.yml
+# workflows/lint-yaml.yml
 #
-# GitHub Actions: Linting
-# Lint GitHub Actions YAML workflows/actions using Prettier.
+# YAML: Linting
+# Lint YAML files using Prettier.
 
 name: Linting
 
 on:
   pull_request:
     paths:
-      - ".github/workflows/**"
-      - "!.github/workflows/README.md"
+      - "**/*.yaml"
+      - "**/*.yml"
   workflow_dispatch:
 
 concurrency:
-  group: lint-github-actions-${{ github.head_ref || github.run_id }}
+  group: lint-yaml-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  lint-github-actions:
-    name: Lint GitHub Actions Workflows
+  lint-yaml:
+    name: Lint YAML Files
     runs-on: ubuntu-latest
 
     steps:
@@ -31,6 +31,5 @@ jobs:
       - name: Install Prettier
         run: npm install -g prettier
 
-      - name: Check GitHub Workflows Formatting
-        working-directory: .github
+      - name: Check YAML Formatting
         run: prettier --check "**/*.{yml,yaml}"

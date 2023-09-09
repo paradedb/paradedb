@@ -9,7 +9,7 @@ on:
   pull_request:
     paths:
       - "docker/*"
-      - ".github/workflows/lint-docker.yml"
+      - ".github/workflows/lint-dockerfiles.yml"
   workflow_dispatch:
 
 concurrency:
@@ -26,6 +26,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Run Hadolint
-        uses: hadolint/hadolint-action@v3.1.0
+        uses: jbergstroem/hadolint-gh-action@v1
         with:
-          dockerfile: docker/Dockerfile
+          dockerfile: "**/Dockerfile*"
+          error_level: 2

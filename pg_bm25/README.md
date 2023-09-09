@@ -1,5 +1,6 @@
 # pg_bm25
 
+[![Testing](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml)
 [![codecov](https://codecov.io/gh/getretake/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/getretake/paradedb)
 
 The pg_bm25 extension is a PostgreSQL extension that enables full-text search
@@ -87,16 +88,26 @@ CREATE EXTENSION pg_bm25;
 
 ## Testing
 
-To run the test suite, use the following command:
+To run the unit test suite, use the following command:
 
 ```bash
 cargo pgrx test
 ```
 
-This will run all unit tests defined in `/src` and all integration tests defined
-in `/test/sql` and `/test/expected`. To add a new integration test, simply add a
-new `.sql` file to `/test/sql` and a corresponding `.out` file to
-`/test/expected` for the expected output.
+This will run all unit tests defined in `/src`. To add a new unit test, simply add
+tests inline in the relevant files, using the `#[cfg(test)]` attribute.
+
+To run the integration test suite, use the following command:
+
+```bash
+./test/runtests.sh
+```
+
+This will create a temporary database, initialize it with the SQL commands defined
+in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test,
+simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
+`/test/expected` for the expected output, and it will automatically get picked up
+by the test suite.
 
 ## Packaging
 

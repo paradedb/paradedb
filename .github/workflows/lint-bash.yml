@@ -1,7 +1,7 @@
-# workflows/lint-shell-scripts.yml
+# workflows/lint-bash.yml
 #
-# Shell Scripts: Linting
-# Lint and enforce good practices for shell scripts.
+# Bash: Linting
+# Lint and enforce good practices for bash scripts.
 
 name: Linting
 
@@ -9,16 +9,16 @@ on:
   pull_request:
     paths:
       - "**/*.sh"
-      - ".github/workflows/lint-shell-scripts.yml"
+      - ".github/workflows/lint-bash.yml"
   workflow_dispatch:
 
 concurrency:
-  group: lint-shell-scripts-${{ github.head_ref || github.run_id }}
+  group: lint-bash-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
-  lint-shell-scripts:
-    name: Lint Shell Scripts
+  lint-bash:
+    name: Lint Bash Scripts
     runs-on: ubuntu-latest
 
     steps:
@@ -40,11 +40,11 @@ jobs:
           fi
           shopt -u globstar nullglob
 
-      - name: Check that All Bash Scripts Start with "#!/bin/bash"
+      - name: Check That Bash Scripts Start With "#!/bin/bash"
         run: .github/workflows/helpers/check-shebang.sh
 
-      - name: Check that All Bash Scripts Contain "set -Eeuo pipefail"
+      - name: Check That Bash Scripts Contain "set -Eeuo pipefail"
         run: .github/workflows/helpers/check-pipefail.sh
 
-      - name: Run ShellCheck on all folders
+      - name: Run ShellCheck
         run: python3 .github/workflows/helpers/check-shellcheck.py

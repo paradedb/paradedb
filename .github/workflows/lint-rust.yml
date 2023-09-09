@@ -76,5 +76,5 @@ jobs:
           manifest-path: ./pg_bm25/Cargo.toml
 
       - name: Run Clippy
-        working-directory: ./pg_bm25
+        working-directory: pg_bm25
         run: cargo clippy --all-targets

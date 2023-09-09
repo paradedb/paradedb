@@ -7,11 +7,6 @@ name: Linting
 
 on:
   pull_request:
-    paths:
-      - "**.md"
-      - "**/**.md"
-      - ".github/**/**.md"
-      - ".github/workflows/lint-markdown.yml"
   workflow_dispatch:
 
 concurrency:
@@ -27,7 +22,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v3
 
-      - name: Check for CRLF files
+      - name: Check for CRLF Files
         run: |
           FILES=$(git ls-files --eol | grep crlf || true)
           if [[ ! -z "$FILES" ]]; then
@@ -36,7 +31,7 @@ jobs:
             false
           fi
 
-      - name: Install fd search tool
+      - name: Install fd Search Tool
         run: |
           sudo apt-get update
           sudo apt-get install -y fd-find
@@ -44,10 +39,10 @@ jobs:
           sudo ln -s $(which fdfind) "$HOME/.local/bin/fd"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Add trailing newlines to all relevant files
+      - name: Add Trailing Newlines to All Relevant Files
         run: .github/workflows/helpers/lint_trailing_newlines.sh
 
-      - name: Print modified files
+      - name: Print Modified Files
         run: |
           FILES=$(git ls-files --modified)
           if [[ ! -z "$FILES" ]]; then

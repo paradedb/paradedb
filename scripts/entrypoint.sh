@@ -8,8 +8,7 @@ POSTGRES_VERSION_FULL=$(pg_config --version)
 POSTGRES_VERSION_MAJOR=$(echo "$POSTGRES_VERSION_FULL" | awk '{print $2}' | cut -d '.' -f1)
 
 # List of extensions to possibly install (if a version variable is set)
-declare -A extensions
-extensions=(
+declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
   [pg_net]=${PG_NET_VERSION:-}

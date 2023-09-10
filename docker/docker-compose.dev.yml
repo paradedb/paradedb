@@ -22,3 +22,10 @@ services:
       POSTGRES_DB: mydatabase
     ports:
       - "5432:5432"
+    volumes:
+      - paradedb-dev-ccache:/cache/ccache
+      - paradedb-dev-sccache:/root/.cache/sccache
+
+volumes:
+  paradedb-dev-ccache:
+  paradedb-dev-sccache:

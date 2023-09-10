@@ -45,6 +45,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    volumes:
+      - paradedb-local-ccache:/cache/ccache
+      - paradedb-local-sccache:/root/.cache/sccache
 
   postgrest:
     image: postgrest/postgrest:v11.2.0
@@ -58,3 +61,7 @@ services:
       PGRST_JWT_SECRET: paradedb-api-key
     ports:
       - "3000:3000"
+
+volumes:
+  paradedb-local-ccache:
+  paradedb-local-sccache:

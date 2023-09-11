@@ -1,0 +1,78 @@
+---
+title: BM25 Index
+---
+
+## What is BM25?
+
+BM25, which stands for Best Matching 25, is the go-to choice for many modern search engines like ElasticSearch.
+It ranks documents by considering how often a term appears and how unique that term is across all
+documents. BM25 is especially useful when you need to find exact keywords or phrases within documents.
+
+The BM25 index enables full text search over a table and relevance scoring using the BM25 algorithm.
+
+## Creating a BM25 Index
+
+The following command creates a BM25 index over a table:
+
+```sql
+CREATE INDEX [index_name]
+ON [schema_name].[table_name]
+USING bm25 (([table_name].*));
+```
+
+<ParamField body="index_name" required>
+  The name of the index. The index name can be anything, as long as doesn't
+  conflict with an existing index.
+</ParamField>
+<ParamField body="table_name" required>
+  The name of the table being indexed.
+</ParamField>
+<ParamField body="schema_name">
+  The name of the schema, or namespace, of the table. The schema name only needs
+  to be provided if the table is not in the `public` schema.
+</ParamField>
+
+Once an index is created, it automatically stays in sync with the underlying table as the data changes.
+
+## Deleting a BM25 Index
+
+The following command deletes a BM25 index:
+
+```sql
+DROP INDEX [index_name];
+```
+
+<ParamField body="index_name" required>
+  The name of the index you wish to delete.
+</ParamField>
+
+## Recreating a BM25 Index
+
+A BM25 index only needs to be recreated if the underlying table schema changes — for instance, if a new
+column is added or the name of a column changes. To recreate the index, simply drop and create it:
+
+```sql
+DROP INDEX [index_name];
+
+CREATE INDEX [index_name]
+ON [schema_name].[table_name]
+USING bm25 (([table_name].*));
+```
+
+<ParamField body="index_name" required>
+  The name of the index. The index name can be anything, as long as doesn't
+  conflict with an existing index.
+</ParamField>
+<ParamField body="table_name" required>
+  The name of the table being indexed.
+</ParamField>
+<ParamField body="schema_name">
+  The name of the schema, or namespace, of the table. The schema name only needs
+  to be provided if the table is not in the `public` schema.
+</ParamField>
+
+## Supported Data Types
+
+The BM25 index will index columns with following Postgres data types: `text`, `varchar`, `boolean`, `int2`,
+`int4`, `int8`, `oid`, `xid`, `float4`, `float8`, `numeric`, `json`, and `jsonb`. If your table has columns
+with other data types, they are ignored and not added to the index.

@@ -60,6 +60,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     sudo \
     gnupg \
+    gcc \
     software-properties-common \
     ca-certificates \
     python3.10 \
@@ -229,7 +230,8 @@ FROM base as paradedb
 WORKDIR /usr/src/app
 
 # Install pgml runtime dependencies
-RUN pip3 install --no-cache-dir xgboost lightgbm scikit-learn
+COPY --from=builder-pgml /tmp/postgresml/pgml-extension/requirements.txt /usr/src/app/
+RUN pip3 install --no-cache-dir -r requirements.txt && rm -rf requirements.txt
 
 # Install postgis runtime dependencies
 RUN apt-get update && apt-fast install -y --no-install-recommends \

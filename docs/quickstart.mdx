@@ -6,15 +6,13 @@ This guide will walk you through the following steps to get started with ParadeD
 
 1. Run ParadeDB locally
 2. Connect to ParadeDB
-3. Execute full text search
-4. Execute similarity search
-5. Execute hybrid search
+3. Execute full text, similarity, and hybrid search
 
 ## Run ParadeDB Locally
 
 <Note>
-  This step is for developers who wish to run ParadeDB themselves. If you are
-  using ParadeDB Cloud, you may skip this step.
+  This step is for developers who wish to run ParadeDB locally. If you are using
+  ParadeDB Cloud, you may skip this step.
 </Note>
 
 To start ParadeDB, run the Docker image:
@@ -45,7 +43,7 @@ psql -h <hostname> -U <user> -d <dbname> -p <port> -W
 
 If your ParadeDB database is running at `http://localhost:5432`, `hostname` is `localhost` and `port` is 5432. If you are using ParadeDB cloud, your connection credentials can be found in the cloud console.
 
-## Execute Full Text Search
+## Full Text Search
 
 ParadeDB comes with a pre-populated table called `paradedb.mock_items` to help you get started.
 Once connected with `psql`, run the following command to preview the first five rows:
@@ -55,18 +53,13 @@ CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
 SELECT * FROM mock_items LIMIT 5;
 ```
 
-This should return
-
-```bash
- id |       description        | rating |  category
-----+--------------------------+--------+-------------
-  1 | Ergonomic metal keyboard |      4 | Electronics
-  2 | Plastic Keyboard         |      4 | Electronics
-  3 | Sleek running shoes      |      5 | Footwear
-  4 | White jogging shoes      |      3 | Footwear
-  5 | Generic shoes            |      4 | Footwear
-(5 rows)
-```
+<Accordion title="Expected Response">
+  ```csv id | description | rating | category
+  ----+--------------------------+--------+------------- 1 | Ergonomic metal
+  keyboard | 4 | Electronics 2 | Plastic Keyboard | 4 | Electronics 3 | Sleek
+  running shoes | 5 | Footwear 4 | White jogging shoes | 3 | Footwear 5 |
+  Generic shoes | 4 | Footwear (5 rows) ```
+</Accordion>
 
 Next, let's index this table for full-text search:
 
@@ -74,8 +67,10 @@ Next, let's index this table for full-text search:
 CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
 ```
 
-Under the hood, this creates a Postgres-native, inverted index called `idx_mock_items` for your table.
-Finally, let's execute a full-text search:
+<Accordion title="Expected Response">```bash CREATE INDEX ```</Accordion>
+Under the hood, this creates a Postgres-native index called `idx_mock_items`, which
+stores the necessary information for full text search over the `mock_items` table.
+Let's execute a full-text search:
 
 ```sql
 SELECT *
@@ -83,27 +78,56 @@ FROM mock_items
 WHERE mock_items @@@ 'description:keyboard OR category:electronics OR rating>2';
 ```
 
-This should return
-
-```bash
- id |         description         | rating |  category
-----+-----------------------------+--------+-------------
-  2 | Plastic Keyboard            |      4 | Electronics
-  1 | Ergonomic metal keyboard    |      4 | Electronics
- 12 | Innovative wireless earbuds |      5 | Electronics
- 22 | Fast charging power bank    |      4 | Electronics
- 32 | Bluetooth-enabled speaker   |      3 | Electronics
-(5 rows)
-```
+<Accordion title="Expected Response">
+  ``` csv id | description | rating | category
+  ----+-----------------------------+--------+------------- 2 | Plastic Keyboard
+  | 4 | Electronics 1 | Ergonomic metal keyboard | 4 | Electronics 12 |
+  Innovative wireless earbuds | 5 | Electronics 22 | Fast charging power bank |
+  4 | Electronics 32 | Bluetooth-enabled speaker | 3 | Electronics (5 rows) ```
+</Accordion>
 
 You may have noticed the above SQL query makes use of
 the custom `@@@` operator and a mini query language. This mini language supports boolean queries, filtering,
 range queries, and more. Detailed documentation of this mini language is coming in the next few days.
 
-## Execute Similarity Search
+## Similarity Search
 
-Docs coming soon - stay tuned!
+Let's vectorize the `description` column so we can query it with natural language:
 
-## Execute Hybrid Search
+```sql
+ALTER TABLE mock_items
+ADD COLUMN embeddings vector(384)
+GENERATED ALWAYS AS (pgml.embed('all-minilm-l6-v2', description || ' ' || category)) STORED;
+```
+
+<Accordion title="Expected Response">``` bash ALTER TABLE ```</Accordion>
+
+<Note>
+  This command may take some time depending on the size of your table.
+</Note>
+
+This SQL command creates a new column called `embeddings`, which stores the embeddings representations
+of the `category` column appended to the `description` column using the HuggingFace `all-MiniLM-L6-v2` model.
+The `GENERATED ALWAYS AS` command ensures that these embeddings are updated in real time whenever the values
+in `description` or `category` change.
+
+Now, let's query our table using the natural language query "Something a kid would play with":
+
+```sql
+WITH query AS (
+    SELECT pgml.embed('all-minilm-l6-v2', 'Something a kid would play with')::vector AS embedding
+)
+SELECT description, category, rating
+FROM mock_items, query ORDER BY mock_items.embeddings <-> query.embedding LIMIT 4;
+```
+
+<Accordion title="Expected Response">
+  ``` csv description | category | rating
+  ------------------------+----------+-------- Colorful kids toy | Toys | 1
+  Interactive board game | Toys | 3 Plush teddy bear | Toys | 4 Robot building
+  kit | Toys | 4 (4 rows) ```
+</Accordion>
+
+## Hybrid Search
 
 Docs coming soon — stay tuned!

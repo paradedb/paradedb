@@ -29,7 +29,14 @@
   "navigation": [
     {
       "group": "Documentation",
-      "pages": ["introduction", "quickstart"]
+      "pages": [
+        "introduction",
+        "quickstart",
+        {
+          "group": "Indexing",
+          "pages": ["indexing/overview", "indexing/bm25", "indexing/hnsw"]
+        }
+      ]
     },
     {
       "group": "Blog",

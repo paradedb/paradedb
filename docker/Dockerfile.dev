@@ -136,6 +136,10 @@ RUN git submodule update --init --recursive && \
     git fetch --depth 1 origin tag "v${PGML_VERSION}" && \
     git checkout "v${PGML_VERSION}"
 
+# Update pgml schema to paradedb
+RUN sed -i "s/\(schema = \).*/\1'paradedb'/" pgml.control && \
+    find . -type f -exec sed -i 's/pgml\./paradedb\./g' {} +
+
 RUN cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 

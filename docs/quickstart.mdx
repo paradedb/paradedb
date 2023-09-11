@@ -54,11 +54,16 @@ SELECT * FROM mock_items LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-  ```csv id | description | rating | category
-  ----+--------------------------+--------+------------- 1 | Ergonomic metal
-  keyboard | 4 | Electronics 2 | Plastic Keyboard | 4 | Electronics 3 | Sleek
-  running shoes | 5 | Footwear 4 | White jogging shoes | 3 | Footwear 5 |
-  Generic shoes | 4 | Footwear (5 rows) ```
+```csv
+ id |       description        | rating |  category
+----+--------------------------+--------+-------------
+  1 | Ergonomic metal keyboard |      4 | Electronics
+  2 | Plastic Keyboard         |      4 | Electronics
+  3 | Sleek running shoes      |      5 | Footwear
+  4 | White jogging shoes      |      3 | Footwear
+  5 | Generic shoes            |      4 | Footwear
+(5 rows)
+```
 </Accordion>
 
 Next, let's index this table for full-text search:
@@ -79,11 +84,16 @@ WHERE mock_items @@@ 'description:keyboard OR category:electronics OR rating>2';
 ```
 
 <Accordion title="Expected Response">
-  ``` csv id | description | rating | category
-  ----+-----------------------------+--------+------------- 2 | Plastic Keyboard
-  | 4 | Electronics 1 | Ergonomic metal keyboard | 4 | Electronics 12 |
-  Innovative wireless earbuds | 5 | Electronics 22 | Fast charging power bank |
-  4 | Electronics 32 | Bluetooth-enabled speaker | 3 | Electronics (5 rows) ```
+``` csv
+ id |         description         | rating |  category
+----+-----------------------------+--------+-------------
+  2 | Plastic Keyboard            |      4 | Electronics
+  1 | Ergonomic metal keyboard    |      4 | Electronics
+ 12 | Innovative wireless earbuds |      5 | Electronics
+ 22 | Fast charging power bank    |      4 | Electronics
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics
+(5 rows)
+```
 </Accordion>
 
 You may have noticed the above SQL query makes use of
@@ -97,7 +107,7 @@ Let's vectorize the `description` column so we can query it with natural languag
 ```sql
 ALTER TABLE mock_items
 ADD COLUMN embeddings vector(384)
-GENERATED ALWAYS AS (pgml.embed('all-minilm-l6-v2', description || ' ' || category)) STORED;
+GENERATED ALWAYS AS (paradedb.embed('all-minilm-l6-v2', description || ' ' || category)) STORED;
 ```
 
 <Accordion title="Expected Response">``` bash ALTER TABLE ```</Accordion>
@@ -115,17 +125,22 @@ Now, let's query our table using the natural language query "Something a kid wou
 
 ```sql
 WITH query AS (
-    SELECT pgml.embed('all-minilm-l6-v2', 'Something a kid would play with')::vector AS embedding
+    SELECT paradedb.embed('all-minilm-l6-v2', 'Something a kid would play with')::vector AS embedding
 )
 SELECT description, category, rating
 FROM mock_items, query ORDER BY mock_items.embeddings <-> query.embedding LIMIT 4;
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | category | rating
-  ------------------------+----------+-------- Colorful kids toy | Toys | 1
-  Interactive board game | Toys | 3 Plush teddy bear | Toys | 4 Robot building
-  kit | Toys | 4 (4 rows) ```
+``` csv 
+      description       | category | rating
+------------------------+----------+--------
+ Colorful kids toy      | Toys     |      1
+ Interactive board game | Toys     |      3
+ Plush teddy bear       | Toys     |      4
+ Robot building kit     | Toys     |      4
+(4 rows)
+```
 </Accordion>
 
 ## Hybrid Search

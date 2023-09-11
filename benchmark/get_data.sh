@@ -2,7 +2,7 @@
 
 # First download and unzip the json corpus of wikipedia pages at https://www.dropbox.com/s/wwnfnu441w1ec9p/wiki-articles.json.bz2?dl=0 
 #    and keep it in this folder named as "wiki-articles.json"
-WIKI_ARTICLES_FILE=wiki-articles-1000.json
+WIKI_ARTICLES_FILE=wiki-articles.json
 if [ ! -f "$WIKI_ARTICLES_FILE" ]; then
        echo "Please download and unzip the data from https://www.dropbox.com/s/wwnfnu441w1ec9p/wiki-articles.json.bz2?dl=0 and store it in this folder as wiki-articles.json"
        exit

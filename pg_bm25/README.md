@@ -1,12 +1,15 @@
-# pg_bm25
+<h1 align="center">
+  <img src="../docs/logo/pg_bm25.svg" alt="pg_bm25" width="800px"></a>
+<br>
 
 [![Testing](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml)
 [![codecov](https://codecov.io/gh/getretake/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/getretake/paradedb)
 
-The pg_bm25 extension is a PostgreSQL extension that enables full-text search
-using the Okapi BM25 algorithm, which is the state-of-the-art ranking function
-for full-text search information retrieval. It is built in Rust using `pgrx` and
-supported on PostgreSQL 11+.
+## Overview
+
+`pg_bm25` is a PostgreSQL extension that enables full-text search
+using the Okapi BM25 algorithm, the state-of-the-art ranking function
+for full text search. It is built in Rust using `pgrx` and supported on PostgreSQL 11+.
 
 ## Development
 

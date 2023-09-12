@@ -1,4 +1,4 @@
 *.json
 *.bz2
-search_output.txt
+search_output*.txt
 *.cert

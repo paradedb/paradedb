@@ -6,11 +6,13 @@ source "get_data.sh"
 echo "Spinning up paradedb server..."
 docker run \
  -d \
+ --name paradedb \
  -e POSTGRES_USER=myuser \
  -e POSTGRES_PASSWORD=mypassword \
  -e POSTGRES_DB=mydatabase \
  -p 5432:5432 \
- paradedb/paradedb:latest 
+ docker-paradedb
+ # paradedb/paradedb:latest 
 
 # Wait for docker container to spin up
 echo "Waiting for server to spin up..."
@@ -28,9 +30,9 @@ INDEX_NAME=search_index
 echo "Time indexing..."
 time db_query localhost 5432 mydatabase myuser mypassword "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING bm25 (($TABLE_NAME.*));"
 
-# 4. Run and time search
+# 4. Run and time search - TODO: rank
 # SELECT * FROM wikipedia_articles WHERE wikipedia_articles @@@ 'america' LIMIT 10
 echo "Time search query..."
-time db_query localhost 5432 mydatabase myuser mypassword "SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'america' LIMIT 10" >> search_output.txt;
+time db_query localhost 5432 mydatabase myuser mypassword "SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'america' LIMIT 10" >> search_output_paradedb.txt;
 
 # 5. Destroy db?

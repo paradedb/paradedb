@@ -39,12 +39,16 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
     let table_name = heap_relation.name().to_string();
+    let schema_name = heap_relation.namespace().to_string();
 
     // Wipe old ParadeDB index
     delete_parade_index(index_name.clone());
 
     // Create ParadeDB Index
-    let mut parade_index = create_parade_index(index_name.clone(), table_name);
+    let mut parade_index = create_parade_index(
+        index_name.clone(),
+        format!("{}.{}", schema_name, table_name),
+    );
     let tantivy_index = parade_index.copy_tantivy_index();
     let mut writer = SingleSegmentIndexWriter::new(tantivy_index, INDEX_WRITER_MEM_BUDGET)
         .expect("failed to create index writer");

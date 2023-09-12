@@ -40,3 +40,13 @@ WHERE products @@@ 'description:keyboard OR category:electronics OR rating>2';
  32 | Bluetooth-enabled speaker   |      3 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
 (5 rows)
 
+-- Test search in another namespace/schema
+SELECT *
+FROM paradedb.mock_items
+WHERE mock_items @@@ 'description:keyboard';
+ id |       description        | rating |  category   
+----+--------------------------+--------+-------------
+  2 | Plastic Keyboard         |      4 | Electronics
+  1 | Ergonomic metal keyboard |      4 | Electronics
+(2 rows)
+

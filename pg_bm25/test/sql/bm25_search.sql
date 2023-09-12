@@ -13,3 +13,7 @@ UPDATE products SET description = 'PVC Keyboard' WHERE id = 2;
 SELECT *
 FROM products
 WHERE products @@@ 'description:keyboard OR category:electronics OR rating>2';
+-- Test search in another namespace/schema
+SELECT *
+FROM paradedb.mock_items
+WHERE mock_items @@@ 'description:keyboard';

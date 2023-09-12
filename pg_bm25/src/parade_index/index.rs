@@ -2,7 +2,7 @@ use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerDa
 use pgrx::*;
 use std::collections::HashMap;
 use tantivy::{
-    query::QueryParser,
+    query::{Query, QueryParser},
     schema::{Field, Schema, Value, INDEXED, STORED, TEXT},
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
@@ -16,6 +16,7 @@ const CACHE_NUM_BLOCKS: usize = 10;
 
 pub struct TantivyScanState {
     pub schema: Schema,
+    pub query: Box<dyn Query>,
     pub query_parser: QueryParser,
     pub searcher: Searcher,
     pub iterator: *mut std::vec::IntoIter<(Score, DocAddress)>,
@@ -174,9 +175,11 @@ impl ParadeIndex {
             &self.underlying_index,
             schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
         );
+        let empty_query = query_parser.parse_query("").unwrap();
 
         TantivyScanState {
             schema,
+            query: empty_query,
             query_parser,
             searcher,
             iterator: std::ptr::null_mut(),

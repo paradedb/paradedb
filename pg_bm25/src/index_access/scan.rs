@@ -1,5 +1,5 @@
 use pgrx::*;
-use tantivy::collector::TopDocs;
+use tantivy::{collector::TopDocs, schema::FieldType, SnippetGenerator};
 
 use crate::{
     index_access::utils::get_parade_index, manager::get_executor_manager,
@@ -57,6 +57,9 @@ pub extern "C" fn amrescan(
         .search(&tantivy_query, &TopDocs::with_limit(k))
         .unwrap();
 
+    // Add query to scan state
+    state.query = tantivy_query;
+
     state.iterator =
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(top_docs.into_iter());
 }
@@ -103,7 +106,23 @@ pub extern "C" fn amgettuple(
                 panic!("invalid item pointer: {:?}", item_pointer_get_both(*tid));
             }
 
+            // Add score
             get_executor_manager().add_score(item_pointer_get_both(*tid), score);
+
+            // Add highlighting
+            for field in schema.fields() {
+                let field_name = field.1.name().to_string();
+
+                if let FieldType::Str(_) = field.1.field_type() {
+                    let snippet_generator =
+                        SnippetGenerator::create(searcher, &state.query, field.0);
+
+                    let snippet = snippet_generator
+                        .unwrap_or_else(|_| panic!("failed to highlight field: {}", field_name))
+                        .snippet_from_doc(&retrieved_doc);
+                    get_executor_manager().add_highlight(*tid, field_name, snippet)
+                }
+            }
 
             true
         }

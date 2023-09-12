@@ -1,5 +1,5 @@
-use crate::{json::builder::JsonBuilder, parade_index::directory::SQLDirectory};
 use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
+use pgrx::*;
 use std::collections::HashMap;
 use tantivy::{
     query::QueryParser,
@@ -7,7 +7,10 @@ use tantivy::{
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
 
-use pgrx::*;
+use crate::{
+    json::builder::JsonBuilder, parade_index::directory::SQLDirectory,
+    parade_index::utils::with_notice_suppressed,
+};
 
 const CACHE_NUM_BLOCKS: usize = 10;
 
@@ -51,7 +54,7 @@ impl ParadeIndex {
     }
 
     pub fn from_index_name(name: String) -> Self {
-        let dir = SQLDirectory::new(Self::parade_table_name(&name));
+        let dir = SQLDirectory::from_index(Self::parade_table_name(&name));
 
         let underlying_index = Index::open(dir).expect("failed to open index");
         let schema = underlying_index.schema();
@@ -71,8 +74,11 @@ impl ParadeIndex {
     }
 
     pub fn delete_directory(name: String) {
-        let drop_if_exists_q = format!("DROP TABLE IF EXISTS {};", Self::parade_table_name(&name));
-        Spi::run(&drop_if_exists_q).expect("failed to drop index table");
+        with_notice_suppressed(|| {
+            let drop_if_exists_q =
+                format!("DROP TABLE IF EXISTS {};", Self::parade_table_name(&name));
+            Spi::run(&drop_if_exists_q).expect("failed to drop index table");
+        });
     }
 
     pub fn insert(

@@ -11,7 +11,7 @@ use tantivy::directory::{
 };
 use tantivy::HasLen;
 
-use crate::parade_index::sql_writer::SQLWriter;
+use crate::parade_index::{sql_writer::SQLWriter, utils::with_notice_suppressed};
 
 struct SQLDirectoryFileHandle {
     sql_directory: SQLDirectory,
@@ -76,16 +76,22 @@ impl Debug for SQLDirectory {
 
 impl SQLDirectory {
     pub fn new(name: String) -> SQLDirectory {
-        let create_if_exists_q = format!(
-            "CREATE TABLE IF NOT EXISTS {} (
-                path TEXT PRIMARY KEY,
-                content BYTEA
-            );",
-            name
-        );
+        with_notice_suppressed(|| {
+            let create_if_exists_q = format!(
+                "CREATE TABLE IF NOT EXISTS {} (
+                    path TEXT PRIMARY KEY,
+                    content BYTEA
+                );",
+                name
+            );
 
-        Spi::run(&create_if_exists_q).expect("failed to create index table");
+            Spi::run(&create_if_exists_q).expect("failed to create index table");
+        });
 
+        SQLDirectory { name }
+    }
+
+    pub fn from_index(name: String) -> SQLDirectory {
         SQLDirectory { name }
     }
 }

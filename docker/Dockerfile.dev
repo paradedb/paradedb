@@ -182,6 +182,9 @@ COPY ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
 # Copy the entrypoint script into the container
 COPY ./scripts/entrypoint.sh /usr/src/app
 
+# Add postgres binaries to path
+ENV PATH="${PATH}:/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin"
+
 # Create the postgres user and change to it
 USER 1001
 

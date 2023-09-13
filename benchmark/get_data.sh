@@ -1,13 +1,5 @@
 #!/bin/bash
 
-# First download and unzip the json corpus of wikipedia pages at https://www.dropbox.com/s/wwnfnu441w1ec9p/wiki-articles.json.bz2?dl=0 
-#    and keep it in this folder named as "wiki-articles.json"
-WIKI_ARTICLES_FILE=wiki-articles-1000.json
-if [ ! -f "$WIKI_ARTICLES_FILE" ]; then
-       echo "Please download and unzip the data from https://www.dropbox.com/s/wwnfnu441w1ec9p/wiki-articles.json.bz2?dl=0 and store it in this folder as wiki-articles.json"
-       exit
-fi
-
 # TODO: simplify these functions down further (they're still repetitive)
 db_query () {
        HOST=$1
@@ -35,6 +27,14 @@ load_data () {
        DATABASE=$3
        USER=$4
        PASSWORD=$5
+       WIKI_ARTICLES_FILE=$6
+
+       # First download and unzip the json corpus of wikipedia pages at https://www.dropbox.com/s/wwnfnu441w1ec9p/wiki-articles.json.bz2?dl=0 
+       #    and keep it in this folder named as "wiki-articles.json"
+       if [ ! -f "$WIKI_ARTICLES_FILE" ]; then
+              echo "Please download and unzip the data from https://www.dropbox.com/s/wwnfnu441w1ec9p/wiki-articles.json.bz2?dl=0 and store it in this folder as wiki-articles.json"
+              exit
+       fi
 
        # Create table for json entries and load entries from file into table.
        #     In order to pull entries from your local files, you have to use the combo of cat and COPY FROM STDIN with the -c option

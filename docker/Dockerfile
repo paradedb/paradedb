@@ -6,6 +6,7 @@ FROM ubuntu:22.04 as base
 
 # Declare all the build arguments and set them to
 # environment variables for use in build and runtime
+ARG USE_SCCACHE
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
 ARG PG_CRON_VERSION
@@ -27,6 +28,7 @@ ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
 ARG CITUS_VERSION
+ENV USE_SCCACHE=${USE_SCCACHE}
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 ENV PG_BM25_VERSION=${PG_BM25_VERSION}
 ENV PG_CRON_VERSION=${PG_CRON_VERSION}
@@ -105,12 +107,14 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
 # Install Rust & sccache
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
-RUN cargo install sccache
 
 # Set up environment for sccache (Rust) and ccache (C/C++), to speed up builds
 # We use both since some extensions are written in Rust and some in C/C++
-ENV RUSTC_WRAPPER=sccache
-ENV PATH="/usr/lib/ccache:$PATH"
+RUN if [ "${USE_SCCACHE}" = "True" ]; then \
+        cargo install sccache && \
+        echo "ENV RUSTC_WRAPPER=sccache" >> /root/.bashrc; \
+        echo "ENV PATH="/usr/lib/ccache:$PATH"" >> /root/.bashrc; \
+    fi
 
 ENV PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 

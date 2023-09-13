@@ -12,6 +12,7 @@ services:
       context: ..
       dockerfile: ./docker/Dockerfile
       args:
+        USE_SCCACHE: True
         PG_VERSION_MAJOR: 15
         PG_BM25_VERSION: 0.0.0
         PG_CRON_VERSION: 1.6.0

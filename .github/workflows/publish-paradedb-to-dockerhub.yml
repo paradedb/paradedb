@@ -28,8 +28,8 @@ jobs:
       - name: Retrieve GitHub Tag
         id: version
         run: |
-          echo "::set-output name=version::${GITHUB_REF#refs/tags/v}"
-          echo "::set-output name=tag::${GITHUB_REF#refs/tags/}"
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
@@ -40,11 +40,13 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
+      # We don't use sccache in deployment CI, since Depot is already caching the build
       - name: Build and Push Docker Image to Docker Hub
         uses: depot/build-push-action@v1
         with:
           context: .
           build-args: |
+            USE_SCCACHE=False
             PG_VERSION_MAJOR=15
             PG_BM25_VERSION=${{ steps.version.outputs.version }}
             PG_CRON_VERSION=1.6.0

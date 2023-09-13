@@ -1,7 +1,8 @@
 # Postgres symbols won't be available until runtime
 
 [target.'cfg(target_os="macos")']
-rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup","-Cinstrument-coverage"]
+rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
 
-[target.'cfg(not(target_os="macos"))']
+# Enable code coverage for CI builds
+[target.'cfg(target_os="linux")']
 rustflags = ["-Cinstrument-coverage"]

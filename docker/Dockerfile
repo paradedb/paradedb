@@ -56,6 +56,9 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
+# Create postgres user with uid 
+RUN mkdir -p /var/lib/postgresql && useradd -u 1001 -o -m -d /var/lib/postgresql postgres
+
 # Install common dependencies to builder and runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -269,7 +272,7 @@ COPY ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
 COPY ./scripts/entrypoint.sh /usr/src/app
 
 # Create the postgres user and change to it
-USER postgres
+USER 1001
 
 # Expose the PostgreSQL & Citus ports
 EXPOSE 5432 9700

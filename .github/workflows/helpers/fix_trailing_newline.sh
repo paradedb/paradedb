@@ -1,5 +1,6 @@
 #!/bin/bash
 
+# Exit on subcommand errors
 set -Eeuo pipefail
 
 if [[ -f "$1" ]]; then

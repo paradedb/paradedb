@@ -264,6 +264,9 @@ COPY ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/pg_ident.conf
 # Copy the entrypoint script into the container
 COPY ./scripts/entrypoint.sh /usr/src/app
 
+# Create the postgres user and change to it
+USER postgres
+
 # Expose the PostgreSQL & Citus ports
 EXPOSE 5432 9700
 

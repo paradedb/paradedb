@@ -10,6 +10,9 @@ POSTGRES_VERSION_MAJOR=$(echo "$POSTGRES_VERSION_FULL" | awk '{print $2}' | cut 
 # List of extensions to possibly install (if a version variable is set)
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
+  [pgml]=${PGML_VERSION:-}
+  [vector]=${PGVECTOR_VERSION:-}
+  [pg_search]=${PG_SEARCH_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
   [pg_net]=${PG_NET_VERSION:-}
   [pg_ivm]=${PG_IVM_VERSION:-}
@@ -19,12 +22,10 @@ declare -A extensions=(
   [pg_repack]=${PG_REPACK_VERSION:-}
   [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
   [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
-  [pgml]=${PGML_VERSION:-}
   [pgtap]=${PGTAP_VERSION:-}
   [pgaudit]=${PGAUDIT_VERSION:-}
   [postgis]=${POSTGIS_VERSION:-}
   [pgrouting]=${PGROUTING_VERSION:-}
-  [vector]=${PGVECTOR_VERSION:-}
   [http]=${PGSQL_HTTP_VERSION:-}
   [hypopg]=${HYPOPG_VERSION:-}
   [rum]=${RUM_VERSION:-}
@@ -33,11 +34,11 @@ declare -A extensions=(
 
 # List of extensions that must be added to shared_preload_libraries
 declare -A preload_names=(
-  [citus]=citus # Must be first in shared_preload_libraries
-  [pg_cron]=pg_cron
-  [pg_net]=pg_net
+  # [citus]=citus # Must be first in shared_preload_libraries
   [pgml]=pgml
-  [pgaudit]=pgaudit
+  # [pg_cron]=pg_cron
+  # [pg_net]=pg_net
+  # [pgaudit]=pgaudit
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed
@@ -53,7 +54,8 @@ done
 shared_preload_list=${shared_preload_list%,}
 
 # Update the PostgreSQL configuration
-sed -i "s/^cron\.database_name = .*/cron\.database_name = '$POSTGRES_DB'/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
+# Todo: Uncomment this line once we re-enable pg_cron
+# sed -i "s/^cron\.database_name = .*/cron\.database_name = '$POSTGRES_DB'/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
 sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
 
 # Start the PostgreSQL server

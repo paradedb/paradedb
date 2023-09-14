@@ -72,7 +72,7 @@ echo "PostgreSQL is up - installing extensions..."
 for extension in "${!extensions[@]}"; do
   version=${extensions[$extension]}
   if [ -n "$version" ]; then
-    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension" -d "$POSTGRES_DB" -U "$POSTGRES_USER" -h 127.0.0.1 -p 5432 || echo "Failed to install extension $extension"
+    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" -h 127.0.0.1 -p 5432 || echo "Failed to install extension $extension"
   fi
 done
 

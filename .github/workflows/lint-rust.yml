@@ -57,7 +57,7 @@ jobs:
         working-directory: pg_bm25
         run: |
           if ! command -v cargo-pgrx &> /dev/null; then
-            cargo install cargo-pgrx --version 0.9.8
+            cargo install cargo-pgrx --version 0.10.0
           fi
 
       - name: Initialize pgrx

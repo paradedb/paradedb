@@ -3,7 +3,3 @@
 
 # macOS
 .DS_Store
-
-# Rust
-Cargo.lock
-target/

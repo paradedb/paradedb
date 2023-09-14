@@ -7,6 +7,7 @@
 # Cargo
 target/
 debug/
+results/
 
 # Rustfmt
 **/*.rs.bk

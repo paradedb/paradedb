@@ -72,7 +72,7 @@ jobs:
         working-directory: pg_search
         run: |
           if ! command -v cargo-pgrx &> /dev/null; then
-            cargo install cargo-pgrx --version 0.9.8
+            cargo install cargo-pgrx --version 0.10.0
           fi
           if ! command -v grcov &> /dev/null; then
             cargo install grcov

@@ -1,9 +1,9 @@
 [package]
 name = "pg_bm25"
-description = "Full text search for Postgres using BM25"
+description = "Full text search for PostgreSQL using BM25"
 version = "0.0.0"
 edition = "2021"
-license = "Elastic-2.0"
+license = "Elastic License 2.0"
 
 [lib]
 crate-type = ["cdylib"]

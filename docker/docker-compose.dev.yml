@@ -1,7 +1,7 @@
 #
 # This docker-compose.dev.yml file is for development of the ParadeDB extensions only. It
-# builds the Dockerfile.dev, which currently only builds pg_bm25 and pgvector, to allow
-# for rapid testing of changes to these extensions. It is not intended for production use.
+# builds the Dockerfile.dev, which currently only builds pg_bm25, pg_search, pgml, and pgvector,
+# to allow for rapid testing of changes to these extensions. It is not intended for production use.
 #
 
 version: "3.8"
@@ -15,6 +15,7 @@ services:
         USE_SCCACHE: True
         PG_VERSION_MAJOR: 15
         PG_BM25_VERSION: 0.0.0
+        PG_SEARCH_VERSION: 0.0.0
         PGML_VERSION: 2.7.8
         PGVECTOR_VERSION: 0.5.0
     environment:

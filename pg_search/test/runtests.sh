@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script runs integration tests on the pg_bm25 extension using pg_regress. To add new tests, add
+# This script runs integration tests on the pg_search extension using pg_regress. To add new tests, add
 # a new .sql file to the test/sql directory and add the corresponding .out file to the test/expected
 # directory, and it will automatically get executed by this script. To run unit tests, use `cargo pgrx test`.
 
@@ -34,19 +34,34 @@ PG_VERSION=$(pg_config --version | awk '{print $2}' | cut -d '.' -f1)
 case "$OS_NAME" in
   Darwin)
     REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
-    CONTROL_FILE_PATH="/opt/homebrew/opt/postgresql@$PG_VERSION/share/postgresql@$PG_VERSION/extension/pg_bm25.control"
     ;;
   Linux)
     REGRESS="/usr/lib/postgresql/$PG_VERSION/lib/pgxs/src/test/regress/pg_regress"
-    CONTROL_FILE_PATH="/usr/share/postgresql/$PG_VERSION/extension/pg_bm25.control"
     ;;
 esac
 
-# Check that the pg_bm25 extension is installed on the test system
-if [[ ! -f "$CONTROL_FILE_PATH" ]]; then
-  echo "Error: The pg_bm25 PostgreSQL extension isn't installed. Please install the extension with 'cargo pgrx install' and re-run this script."
-  exit 1
-fi
+# Check that the required extensions are installed on the test system
+REQUIRED_EXTENSIONS=("pg_search" "pg_bm25" "vector")
+for ext in "${REQUIRED_EXTENSIONS[@]}"; do
+  CONTROL_FILE_PATH=""
+  case "$OS_NAME" in
+    Darwin)
+      CONTROL_FILE_PATH="/opt/homebrew/opt/postgresql@$PG_VERSION/share/postgresql@$PG_VERSION/extension/$ext.control"
+      ;;
+    Linux)
+      CONTROL_FILE_PATH="/usr/share/postgresql/$PG_VERSION/extension/$ext.control"
+      ;;
+  esac
+
+  if [[ ! -f "$CONTROL_FILE_PATH" ]]; then
+    if [[ "$ext" == "pg_search" ]]; then
+      echo "Error: The $ext PostgreSQL extension isn't installed. Please install it with 'cargo pgrx install' and re-run this script."
+    else
+      echo "Error: The $ext PostgreSQL extension isn't installed. Please install it with './configure.sh' and re-run this script."
+    fi
+    exit 1
+  fi
+done
 
 # Get a list of all tests
 while IFS= read -r line; do

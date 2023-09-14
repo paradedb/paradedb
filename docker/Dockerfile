@@ -9,6 +9,7 @@ FROM ubuntu:22.04 as base
 ARG USE_SCCACHE
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
+ARG PG_SEARCH_VERSION
 ARG PG_CRON_VERSION
 ARG PG_NET_VERSION
 ARG PG_IVM_VERSION
@@ -31,6 +32,7 @@ ARG CITUS_VERSION
 ENV USE_SCCACHE=${USE_SCCACHE}
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 ENV PG_BM25_VERSION=${PG_BM25_VERSION}
+ENV PG_SEARCH_VERSION=${PG_SEARCH_VERSION}
 ENV PG_CRON_VERSION=${PG_CRON_VERSION}
 ENV PG_NET_VERSION=${PG_NET_VERSION}
 ENV PG_IVM_VERSION=${PG_IVM_VERSION}
@@ -139,6 +141,55 @@ RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION
 RUN cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
+####################
+# pgml
+####################
+
+FROM builder as builder-pgml
+
+RUN apt-get update && apt-fast install -y --no-install-recommends \
+    libssl-dev \
+    bison \
+    flex \
+    libreadline-dev \
+    libz-dev \
+    tzdata \
+    libpq-dev \
+    libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --branch "v${PGML_VERSION}" "https://github.com/postgresml/postgresml" /tmp/postgresml
+
+WORKDIR /tmp/postgresml/pgml-extension
+
+RUN git submodule update --init --recursive && \
+    git fetch --tags && \
+    git fetch --depth 1 origin tag "v${PGML_VERSION}" && \
+    git checkout "v${PGML_VERSION}"
+
+# Update pgml schema to paradedb
+RUN sed -i "s/\(schema = \).*/\1'paradedb'/" pgml.control && \
+    find . -type f -exec sed -i 's/pgml\./paradedb\./g' {} +
+
+RUN cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+######################
+# pg_search
+######################
+
+FROM builder as builder-pg_search
+
+WORKDIR /tmp/pg_search
+
+COPY pg_search/ /tmp/pg_search
+
+# Use the build argument to update the version in Cargo.toml
+RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/" Cargo.toml
+
+RUN cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
 ######################
 # Other extensions
 ######################
@@ -199,39 +250,6 @@ ADD "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_
 ADD "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" /tmp/pg_graphql.deb
 ADD "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" /tmp/pg_jsonschema.deb
 
-####################
-# pgml
-####################
-
-FROM builder as builder-pgml
-
-RUN apt-get update && apt-fast install -y --no-install-recommends \
-    libssl-dev \
-    bison \
-    flex \
-    libreadline-dev \
-    libz-dev \
-    tzdata \
-    libpq-dev \
-    libclang-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN git clone --branch "v${PGML_VERSION}" "https://github.com/postgresml/postgresml" /tmp/postgresml
-
-WORKDIR /tmp/postgresml/pgml-extension
-
-RUN git submodule update --init --recursive && \
-    git fetch --tags && \
-    git fetch --depth 1 origin tag "v${PGML_VERSION}" && \
-    git checkout "v${PGML_VERSION}"
-
-# Update pgml schema to paradedb
-RUN sed -i "s/\(schema = \).*/\1'paradedb'/" pgml.control && \
-    find . -type f -exec sed -i 's/pgml\./paradedb\./g' {} +
-
-RUN cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
 ###############################################
 # Third Stage: PostgreSQL
 ###############################################
@@ -251,11 +269,13 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libprotobuf-c1 \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
-# Copy the pg_bm25 & pgml extensions from their builder stages
+# Copy the pg_bm25, pgml & pg_search extensions from their builder stages
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pgml /tmp/postgresml/pgml-extension/target/release/pgml-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pgml /tmp/postgresml/pgml-extension/target/release/pgml-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 
 # Copy all other extensions from the builder stage & install them
 COPY --from=builder-generic /tmp/*.deb /tmp/

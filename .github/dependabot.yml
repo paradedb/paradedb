@@ -36,3 +36,15 @@ updates:
       rust-dependencies:
         patterns:
           - "*"
+
+  - package-ecosystem: "cargo"
+    directory: "/pg_search"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+    groups:
+      rust-dependencies:
+        patterns:
+          - "*"

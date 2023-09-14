@@ -38,9 +38,17 @@ repos:
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
+      # pg_bm25
       - id: fmt
         args: ["--manifest-path", "pg_bm25/Cargo.toml", "--"]
       - id: clippy
         args: ["--manifest-path", "pg_bm25/Cargo.toml"]
       - id: cargo-check
         args: ["--manifest-path", "pg_bm25/Cargo.toml"]
+      # pg_search
+      - id: fmt
+        args: ["--manifest-path", "pg_search/Cargo.toml", "--"]
+      - id: clippy
+        args: ["--manifest-path", "pg_search/Cargo.toml"]
+      - id: cargo-check
+        args: ["--manifest-path", "pg_search/Cargo.toml"]

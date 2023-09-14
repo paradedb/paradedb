@@ -16,8 +16,8 @@ arrays might be indexed using a GIN (Generalized Inverted Index) index.
 ## ParadeDB Indexes
 
 ParadeDB relies on two new index types to power its search capabilities: the BM25 index, for full text search,
-and the HNSW index, for similarity search. These indexes must be created over specific tables or columns with
-SQL queries.
+and the HNSW index, for similarity search. These indexes must be created over the tables or columns you wish to
+search over.
 
 Once an index is created, it will automatically stay in sync with the underlying table data, and
 does not need to be re-created unless the table schema changes (for instance, if a column is renamed or deleted).

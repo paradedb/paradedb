@@ -6,7 +6,7 @@ This guide will walk you through the following steps to get started with ParadeD
 
 1. Run ParadeDB locally
 2. Connect to ParadeDB
-3. Execute full text, similarity, and hybrid search
+3. Execute full text, similarity, and hybrid search with SQL
 
 ## Run ParadeDB Locally
 
@@ -50,19 +50,17 @@ Once connected with `psql`, run the following command to preview the first five 
 
 ```sql
 CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
-SELECT * FROM mock_items LIMIT 5;
+SELECT * FROM mock_items LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
 ```csv
- id |       description        | rating |  category
-----+--------------------------+--------+-------------
-  1 | Ergonomic metal keyboard |      4 | Electronics
-  2 | Plastic Keyboard         |      4 | Electronics
-  3 | Sleek running shoes      |      5 | Footwear
-  4 | White jogging shoes      |      3 | Footwear
-  5 | Generic shoes            |      4 | Footwear
-(5 rows)
+ id |       description        | rating |  category   | embedding
+----+--------------------------+--------+-------------+-----------
+  1 | Ergonomic metal keyboard |      4 | Electronics | [3,4,5]
+  2 | Plastic Keyboard         |      4 | Electronics | [4,5,6]
+  3 | Sleek running shoes      |      5 | Footwear    | [5,6,7]
+(3 rows)
 ```
 </Accordion>
 
@@ -72,33 +70,38 @@ Next, let's index this table for full-text search:
 CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
 ```
 
-<Accordion title="Expected Response">```bash CREATE INDEX ```</Accordion>
+<Accordion title="Expected Response">
+```bash 
+CREATE INDEX 
+```
+</Accordion>
+
 Under the hood, this creates a Postgres-native index called `idx_mock_items`, which
 stores the necessary information for full text search over the `mock_items` table.
 Let's execute a full-text search:
 
 ```sql
-SELECT *
+SELECT description, rating, category
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics OR rating>2';
+WHERE mock_items @@@ 'description:keyboard OR category:electronics';
 ```
 
 <Accordion title="Expected Response">
 ``` csv
- id |         description         | rating |  category
-----+-----------------------------+--------+-------------
-  2 | Plastic Keyboard            |      4 | Electronics
-  1 | Ergonomic metal keyboard    |      4 | Electronics
- 12 | Innovative wireless earbuds |      5 | Electronics
- 22 | Fast charging power bank    |      4 | Electronics
- 32 | Bluetooth-enabled speaker   |      3 | Electronics
+         description         | rating |  category
+-----------------------------+--------+-------------
+ Plastic Keyboard            |      4 | Electronics
+ Ergonomic metal keyboard    |      4 | Electronics
+ Innovative wireless earbuds |      5 | Electronics
+ Fast charging power bank    |      4 | Electronics
+ Bluetooth-enabled speaker   |      3 | Electronics
 (5 rows)
 ```
 </Accordion>
 
 You may have noticed the above SQL query makes use of
-the custom `@@@` operator and a mini query language. This mini language supports boolean queries, filtering,
-range queries, and more. Detailed documentation of this mini language is coming in the next few days.
+the custom `@@@` operator and a [mini query language](search/bm25). This mini language supports phrase queries, 
+set queries, boolean queries and more.
 
 ## Similarity Search
 
@@ -106,20 +109,24 @@ Let's vectorize the `description` column so we can query it with natural languag
 
 ```sql
 ALTER TABLE mock_items
-ADD COLUMN embeddings vector(384)
-GENERATED ALWAYS AS (paradedb.embed('all-minilm-l6-v2', description || ' ' || category)) STORED;
+ADD COLUMN description_embeddings vector(384)
+GENERATED ALWAYS AS (paradedb.embed('all-minilm-l6-v2', description)) STORED;
 ```
 
-<Accordion title="Expected Response">``` bash ALTER TABLE ```</Accordion>
+<Accordion title="Expected Response">
+``` bash 
+ALTER TABLE 
+```
+</Accordion>
 
 <Note>
   This command may take some time depending on the size of your table.
 </Note>
 
-This SQL command creates a new column called `embeddings`, which stores the embeddings representations
-of the `category` column appended to the `description` column using the HuggingFace `all-MiniLM-L6-v2` model.
+This SQL command creates a new column called `description_embeddings`, which stores the embeddings representations
+of the `description` column using the HuggingFace `all-MiniLM-L6-v2` model.
 The `GENERATED ALWAYS AS` command ensures that these embeddings are updated in real time whenever the values
-in `description` or `category` change.
+in `description` change.
 
 Now, let's query our table using the natural language query "Something a kid would play with":
 
@@ -128,7 +135,8 @@ WITH query AS (
     SELECT paradedb.embed('all-minilm-l6-v2', 'Something a kid would play with')::vector AS embedding
 )
 SELECT description, category, rating
-FROM mock_items, query ORDER BY mock_items.embeddings <-> query.embedding LIMIT 4;
+FROM mock_items, query 
+ORDER BY mock_items.description_embeddings <-> query.embedding LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
@@ -138,11 +146,48 @@ FROM mock_items, query ORDER BY mock_items.embeddings <-> query.embedding LIMIT 
  Colorful kids toy      | Toys     |      1
  Interactive board game | Toys     |      3
  Plush teddy bear       | Toys     |      4
- Robot building kit     | Toys     |      4
-(4 rows)
+(3 rows)
 ```
 </Accordion>
 
 ## Hybrid Search
 
-Docs coming soon — stay tuned!
+Finally, let's implement hybrid search, which combines BM25-based full text scores with vector-based 
+similarity scores. Hybrid search is especially useful in scenarios where you want to match by both 
+exact keywords and semantic meaning.
+
+Let's execute a simple hybrid search:
+
+```sql 
+SELECT 
+    description,
+    category,
+    rating,
+    paradedb.weighted_mean(
+        paradedb.score_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        '[1,2,3]' <-> embedding,
+        ARRAY[0.8, 0.2]
+    ) AS score_hybrid
+FROM mock_items
+ORDER BY score_hybrid DESC
+LIMIT 3;
+```
+<Accordion title="Expected Response">
+```csv 
+       description        |  category   | rating |    score_hybrid
+--------------------------+-------------+--------+--------------------
+ Plastic Keyboard         | Electronics |      4 |  3.652718109663397
+ Ergonomic metal keyboard | Electronics |      4 | 2.9499232893361444
+ Compact digital camera   | Photography |      5 | 2.4248711305964283
+(3 rows)
+```
+</Accordion>
+
+In this query, we first use `paradedb.score_bm25` to calculate each row's BM25 score with respect to 
+the query "keyboard." Next, we use the `<->` operator to compute a similarity score. Finally, we combine 
+the two scores as a weighted average, assigning a weight of `0.8` to the first BM25 score and a weight of 
+`0.2` to the latter score.
+
+## Congratulations!
+
+You've now seen how ParadeDB serves as both a Postgres database and search engine.

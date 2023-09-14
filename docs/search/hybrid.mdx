@@ -1,0 +1,51 @@
+---
+title: Hybrid Search
+---
+
+<Info>
+  **Prerequisite** Before performing full text search over a table, please
+  ensure that you have created both BM25 and HNSW indexes.
+</Info>
+
+## Overview
+
+Hybrid search, which combines BM25-based full text scores with vector-based
+similarity scores, is especially useful in scenarios where you want to match by both
+exact keywords and semantic meaning.
+
+## Basic Usage
+
+To calculate a row's hybrid score, ParadeDB introduces a `paradedb.weighted_mean` function.
+
+```sql
+SELECT
+    paradedb.weighted_mean(
+        paradedb.score_bm25(ctid, '[index_name]', '[query]'),
+        [vector] <-> [embedding_column_name],
+        [weights]
+    ) AS score_hybrid
+FROM [table_name]
+ORDER BY score_hybrid DESC;
+```
+
+<ParamField body="index_name" required>
+  The name of the BM25 index associated with this table. For instance, if you
+  ran `CREATE INDEX my_index ON my_table USING bm25 ((my_table.*))`, the index
+  name would be `'my_index'`.
+</ParamField>
+<ParamField body="query" required>
+  The full text search query. For instance, `'description:keyboard'`.
+</ParamField>
+<ParamField body="vector" required>
+  The vectorized representation of your query. For instance, `'[1,2,3]'`
+</ParamField>
+<ParamField body="embedding_column_name" required>
+  The name of the column containing the embeddings you wish to compare with the
+  vector.
+</ParamField>
+<ParamField body="weights" required>
+  An array of length 2. The first element of the array is the weight assigned to
+  the first argument of `paradedb.weighted_mean`. The two weights must be
+  between `0` and `1` and add up to `1`. For instance, `ARRAY[0.5,0.5]` applies
+  an equal weight to both scores.
+</ParamField>

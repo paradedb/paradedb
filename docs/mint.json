@@ -35,6 +35,10 @@
         {
           "group": "Indexing",
           "pages": ["indexing/overview", "indexing/bm25", "indexing/hnsw"]
+        },
+        {
+          "group": "Search",
+          "pages": ["search/bm25", "search/hnsw", "search/hybrid"]
         }
       ]
     },

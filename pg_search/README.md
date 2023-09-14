@@ -1,17 +1,12 @@
 <h1 align="center">
-  <img src="../docs/logo/pg_bm25.svg" alt="pg_bm25" width="400px"></a>
+  <img src="../docs/logo/pg_search.svg" alt="pg_search" width="400px"></a>
 <br>
 </h1>
 
-[![Testing](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml)
+[![Testing](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml)
 [![codecov](https://codecov.io/gh/getretake/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/getretake/paradedb)
 
-## Overview
-
-`pg_bm25` is a PostgreSQL extension that enables full-text search
-using the Okapi BM25 algorithm, the state-of-the-art ranking function
-for full text search. It is built in Rust using `pgrx` and supported on PostgreSQL
-11+.
+`pg_search` enables hybrid search in Postgres. Hybrid search is a search technique that combines BM25-based full text search with vector-based similarity search. This extension is built in Rust using `pgrx` and supported on PostgreSQL 11+.
 
 ## Development
 
@@ -30,7 +25,16 @@ cargo pgrx init
 
 ### Running the Extension
 
-First, start pgrx:
+`pg_search` is built on top of two extensions: `pg_bm25` and `pgvector`. To install these two
+extensions, run the configure script (this must be done _after_ initializing pgrx):
+
+```bash
+./configure.sh
+```
+
+Note that you need to run this script every time you'd like to update these dependencies.
+
+Then, start pgrx``:
 
 ```bash
 cargo pgrx run
@@ -40,40 +44,53 @@ This will launch an interactive connection to Postgres. Inside Postgres, create
 the extension by running:
 
 ```sql
-CREATE EXTENSION pg_bm25;
+CREATE EXTENSION pg_search CASCADE;
 ```
 
-You can verify that the extension functions are installed by using:
-
-```sql
-\df
-```
-
-Now, you have access to all the extension functions.
-
-### Indexing a Table
-
-By default, the `pg_bm25` extension creates a table called `paradedb.mock_items` that you can
-use for quick experimentation.
-
-To index a table, use the following SQL command:
+Now, you have access to all the extension functions. `pg_search` comes with a table
+called `paradedb.mock_items`, which contains some pre-populated data:
 
 ```sql
 CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+SELECT * FROM mock_items LIMIT 5;
+```
+
+### Indexing a Table
+
+To perform a hybrid search, you'll first need to create a BM25 and HNSW index on your table.
+
+To create a BM25 index:
+
+```sql
 CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
 ```
 
-Once the indexing is complete, you can run various search functions on it.
+To create a HNSW index:
+
+```sql
+CREATE INDEX ON mock_items USING hnsw (embedding vector_l2_ops);
+```
 
 ### Performing Searches
 
-Execute a search query on your indexed table:
+The following query executes a hybrid search on `mock_items`:
 
 ```sql
-SELECT *
+SELECT
+    description,
+    category,
+    rating,
+    paradedb.weighted_mean(
+        paradedb.score_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        '[1,2,3]' <-> embedding,
+        ARRAY[0.8, 0.2]
+    ) AS score_hybrid
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics';
+ORDER BY score_hybrid DESC
+LIMIT 3;
 ```
+
+See the [documentation](https://docs.paradedb.com/search/hybrid) for more details.
 
 ### Modifying the Extension
 
@@ -88,8 +105,8 @@ cargo pgrx run
 2. Recreate the extension to load the latest changes:
 
 ```sql
-DROP EXTENSION pg_bm25;
-CREATE EXTENSION pg_bm25;
+DROP EXTENSION pg_search;
+CREATE EXTENSION pg_search;
 ```
 
 ## Testing

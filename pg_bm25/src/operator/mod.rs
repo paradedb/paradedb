@@ -47,7 +47,7 @@ fn search_tantivy(element: AnyElement, query: &str, fcinfo: pg_sys::FunctionCall
 }
 
 #[inline]
-fn scan_index(query: &str, index_oid: pg_sys::Oid) -> FxHashSet<u64> {
+pub fn scan_index(query: &str, index_oid: pg_sys::Oid) -> FxHashSet<u64> {
     unsafe {
         let index = pg_sys::index_open(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
         let heap = pg_sys::relation_open(

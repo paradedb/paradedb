@@ -54,7 +54,7 @@ major updates.
   - [x] Full-text search with BM25
   - [ ] Faceted search
   - [x] Similarity search
-  - [ ] Hybrid search
+  - [x] Hybrid search
   - [ ] Distributed search
   - [x] Real-time search
   - [ ] Generative search

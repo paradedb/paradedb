@@ -3,7 +3,7 @@ SELECT *
 FROM products
 WHERE products @@@ 'description:keyboard OR category:electronics OR rating>2';
 -- With BM25 scoring
-SELECT paradedb.score_bm25(ctid), * 
+SELECT paradedb.rank_bm25(ctid), * 
 FROM products 
 WHERE products @@@ 'category:electronics OR description:keyboard';
 -- Test real-time search

@@ -1,0 +1,133 @@
+---
+title: Full Text (BM25) Search
+---
+
+<Info>
+  **Prerequisite** Before performing full text search over a table, it must
+  first be [indexed](indexing/bm25).
+</Info>
+
+## Overview
+
+Full text search uses the BM25 algorithm to find rows in a table that match a query. This type of search
+is especially useful for matching exact keywords inside documents.
+
+## Basic Usage
+
+The custom `@@@` operator signifies a full text search. The left-hand side of the `@@@` accepts the
+name of the table, and the right-hand side accepts the query.
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'keyboard'
+```
+
+## Column-Specific Queries
+
+If your table has multiple text columns, you can specify which column to search:
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard'
+```
+
+## Phrases
+
+Phrases should be wrapped in double quotes:
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ '"metal keyboard"'
+```
+
+## BM25 Scoring
+
+The `paradedb.rank_bm25` function returns a column with each row's BM25 score. It makes use of the
+hidden `ctid` Postgres system column to match each row to a score:
+
+```sql
+SELECT *, paradedb.rank_bm25(ctid)
+FROM mock_items
+WHERE mock_items @@@ 'keyboard'
+```
+
+## Highlighting
+
+The `paradedb.highlight_bm25` function returns highlighted fragments of text that match your
+query. This function only works over text fields.
+
+```sql
+SELECT *, paradedb.highlight_bm25(ctid, 'description')
+FROM mock_items
+WHERE mock_items @@@ 'keyboard'
+```
+
+## Filtering
+
+The standard SQL `WHERE` clause is used perform range and filter queries:
+
+### Numeric
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'keyboard'
+AND rating>=3;
+```
+
+### Timestamp
+
+```sql
+SELECT *
+FROM your_table
+WHERE mock_items @@@ 'keyboard'
+WHERE purchase_date > '2023-01-01 12:00:00-05';
+```
+
+## Boolean Operators
+
+`AND`, `OR`, and `NOT` can be used to combine and filter multiple terms:
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'keyboard OR toy NOT metal'
+```
+
+Use parentheses to group terms and control the order of operations:
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ '(keyboard OR toy) AND metal'
+```
+
+## Set Operator
+
+The set operator is a more CPU-efficient way of combining multiple `OR`s:
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'description:IN [keyboard, toy]'
+```
+
+## Slop Operator
+
+The `~` slop operator is used to match phrases separated by words in between. For instance, let's say
+there exists a row with `description` set to "ergonomic metal keyboard." Because words "ergonomic" and "keyboard"
+are separated by one word, the following query would return find row:
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ '"ergonomic keyboard"~1'
+```
+
+## Special Characters
+
+The special characters `+` , `^`, ```, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `~`, `!`, `\\`, `\*`, and `SPACE`
+must be escaped by a \ inside the query term.

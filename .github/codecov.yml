@@ -13,9 +13,17 @@ coverage:
         flags: pg_bm25
         target: auto
         threshold: 1%
+      pg_search:
+        flags: pg_search
+        target: auto
+        threshold: 1%
     patch:
       pg_bm25:
         flags: pg_bm25
+        target: auto
+        threshold: 1%
+      pg_search:
+        flags: pg_search
         target: auto
         threshold: 1%
 
@@ -29,4 +37,8 @@ flags:
   pg_bm25:
     paths:
       - pg_bm25/*
+    carryforward: true
+  pg_search:
+    paths:
+      - pg_search/*
     carryforward: true

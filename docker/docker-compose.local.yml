@@ -15,6 +15,7 @@ services:
         USE_SCCACHE: True
         PG_VERSION_MAJOR: 15
         PG_BM25_VERSION: 0.0.0
+        PG_SEARCH_VERSION: 0.0.0
         PG_CRON_VERSION: 1.6.0
         PG_NET_VERSION: 0.7.2
         PG_IVM_VERSION: 1.5.1

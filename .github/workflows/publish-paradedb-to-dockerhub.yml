@@ -50,7 +50,7 @@ jobs:
             USE_SCCACHE=False
             PG_VERSION_MAJOR=15
             PG_BM25_VERSION=${{ steps.version.outputs.version }}
-            PGML_VERSION=2.7.9
+            PGML_VERSION=2.7.8
             PGVECTOR_VERSION=0.5.0
             PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
           platforms: linux/amd64,linux/arm64

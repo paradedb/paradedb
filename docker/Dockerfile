@@ -123,7 +123,7 @@ RUN if [ "${USE_SCCACHE}" = "True" ]; then \
 
 ENV PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install cargo-pgrx --version 0.10.0 && \
+RUN cargo install cargo-pgrx --version 0.9.8 && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################

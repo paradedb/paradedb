@@ -100,13 +100,6 @@ jobs:
           export RUST_BACKTRACE=1
           cargo pgrx test
 
-      - name: Run pg_bm25 Integration Tests
-        working-directory: pg_bm25
-        run: |
-          # Install the extension on the runner & run integration tests
-          cargo pgrx install
-          ./test/runtests.sh
-
       - name: Generate Code Coverage Report
         working-directory: pg_bm25
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
@@ -118,3 +111,7 @@ jobs:
           directory: ./pg_bm25/target/coverage-report/
           files: lcov
           fail_ci_if_error: true
+
+      - name: Run pg_bm25 Integration Tests
+        working-directory: pg_bm25
+        run: ./test/runtests.sh

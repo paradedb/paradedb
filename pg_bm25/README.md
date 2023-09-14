@@ -24,7 +24,7 @@ via Homebrew on macOS).
 Then, install and initialize pgrx:
 
 ```bash
-cargo install --locked cargo-pgrx
+cargo install cargo-pgrx --version 0.9.8
 cargo pgrx init
 ```
 
@@ -53,8 +53,8 @@ Now, you have access to all the extension functions.
 
 ### Indexing a Table
 
-By default, the `pg_bm25` extension creates a table called `paradedb.mock_items` that you can
-use for quick experimentation.
+By default, the `pg_bm25` extension creates a table called `paradedb.mock_items`
+that you can use for quick experimentation.
 
 To index a table, use the following SQL command:
 
@@ -103,14 +103,7 @@ cargo pgrx test
 This will run all unit tests defined in `/src`. To add a new unit test, simply add
 tests inline in the relevant files, using the `#[cfg(test)]` attribute.
 
-To run the integration test suite, first install the extension on your system with:
-
-```bash
-cargo pgrx install
-```
-
-You'll need to run this command every time you make changes to the extension that
-you want reflected in the integration test suite. Then, run the tests with:
+To run the integration test suite, simply run:
 
 ```bash
 ./test/runtests.sh

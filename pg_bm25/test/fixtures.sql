@@ -75,5 +75,3 @@ ALTER TABLE products
     
     ADD COLUMN col_json JSON DEFAULT '{"key": "value"}'::json,
     ADD COLUMN col_jsonb JSONB DEFAULT '{"key": "value"}'::jsonb;
-
-

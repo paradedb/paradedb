@@ -6,7 +6,9 @@
 [![Testing](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml)
 [![codecov](https://codecov.io/gh/getretake/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/getretake/paradedb)
 
-`pg_search` enables hybrid search in Postgres. Hybrid search is a search technique that combines BM25-based full text search with vector-based similarity search. This extension is built in Rust using `pgrx` and supported on PostgreSQL 11+.
+`pg_search` enables hybrid search in Postgres. Hybrid search is a search technique
+that combines BM25-based full text search with vector-based similarity search. This
+extension is built in Rust using `pgrx` and supported on PostgreSQL 11+.
 
 ## Development
 
@@ -19,14 +21,15 @@ via Homebrew on macOS).
 Then, install and initialize pgrx:
 
 ```bash
-cargo install --locked cargo-pgrx
+cargo install cargo-pgrx --version 0.9.8
 cargo pgrx init
 ```
 
 ### Running the Extension
 
-`pg_search` is built on top of two extensions: `pg_bm25` and `pgvector`. To install these two
-extensions, run the configure script (this must be done _after_ initializing pgrx):
+`pg_search` is built on top of two extensions: `pg_bm25` and `pgvector`. To install
+these two extensions, run the configure script (this must be done _after_ initializing
+pgrx):
 
 ```bash
 ./configure.sh
@@ -57,7 +60,8 @@ SELECT * FROM mock_items LIMIT 5;
 
 ### Indexing a Table
 
-To perform a hybrid search, you'll first need to create a BM25 and HNSW index on your table.
+To perform a hybrid search, you'll first need to create a BM25 and HNSW index on
+your table.
 
 To create a BM25 index:
 
@@ -120,14 +124,7 @@ cargo pgrx test
 This will run all unit tests defined in `/src`. To add a new unit test, simply add
 tests inline in the relevant files, using the `#[cfg(test)]` attribute.
 
-To run the integration test suite, first install the extension on your system with:
-
-```bash
-cargo pgrx install
-```
-
-You'll need to run this command every time you make changes to the extension that
-you want reflected in the integration test suite. Then, run the tests with:
+To run the integration test suite, simply run:
 
 ```bash
 ./test/runtests.sh

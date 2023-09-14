@@ -14,14 +14,19 @@ PGVECTOR_VERSION="v0.5.0"
 
 # Set the proper path and variables based on OS
 OS_NAME=$(uname)
-case "$OS_NAME" in
-  Darwin)
-    PG_VERSIONS=("15.4" "14.9")  # All pgrx-supported PostgreSQL versions on macOS
-    ;;
-  Linux)
-    PG_VERSIONS=("15" "14")  # All pgrx-supported PostgreSQL versions on Linux
-    ;;
-esac
+if [ $# -eq 0 ]; then
+  # No arguments provided; use default versions
+  case "$OS_NAME" in
+    Darwin)
+      PG_VERSIONS=("15.4" "14.9")  # All pgrx-supported PostgreSQL versions on macOS
+      ;;
+    Linux)
+      PG_VERSIONS=("15" "14")  # All pgrx-supported PostgreSQL versions on Linux
+      ;;
+  esac
+else
+  IFS=',' read -ra PG_VERSIONS <<< "$1"  # Split the argument by comma into an array
+fi
 
 echo "Installing pgvector and pg_bm25 into your pgrx environment..."
 

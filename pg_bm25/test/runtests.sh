@@ -7,52 +7,70 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-TMPDIR="$(mktemp -d)"
+OS_NAME=$(uname)
 TESTDIR="$(dirname "$0")"
-export PGDATA="$TMPDIR"
-export PGHOST="$TMPDIR"
 export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
 
-# Create a temporary password file
-PWFILE=$(mktemp)
-echo "$PGPASSWORD" > "$PWFILE"
-
-# Ensure a clean environment
-trap 'pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
-rm -rf "$TMPDIR"
-
-# Initialize the test database
-initdb --no-locale --encoding=UTF8 --nosync -U "$PGUSER" --auth-local=md5 --auth-host=md5 --pwfile="$PWFILE"
-pg_ctl start -o "-F -c listen_addresses=\"\" -c log_min_messages=WARNING -k $PGDATA"
-createdb test_db
-
-# Determine paths based on OS and PostgreSQL version
-OS_NAME=$(uname)
-PG_VERSION=$(pg_config --version | awk '{print $2}' | cut -d '.' -f1)
+# All pgrx-supported PostgreSQL versions to run tests over
+# TODO: Add support for Postgres 11.21/11
 case "$OS_NAME" in
   Darwin)
-    REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
-    CONTROL_FILE_PATH="/opt/homebrew/opt/postgresql@$PG_VERSION/share/postgresql@$PG_VERSION/extension/pg_bm25.control"
+    PG_VERSIONS=("15.4" "14.9" "13.12" "12.16")
     ;;
   Linux)
-    REGRESS="/usr/lib/postgresql/$PG_VERSION/lib/pgxs/src/test/regress/pg_regress"
-    CONTROL_FILE_PATH="/usr/share/postgresql/$PG_VERSION/extension/pg_bm25.control"
+    PG_VERSIONS=("15" "14" "13" "12")
     ;;
 esac
 
-# Check that the pg_bm25 extension is installed on the test system
-if [[ ! -f "$CONTROL_FILE_PATH" ]]; then
-  echo "Error: The pg_bm25 PostgreSQL extension isn't installed. Please install the extension with 'cargo pgrx install' and re-run this script."
-  exit 1
-fi
+# Loop over PostgreSQL versions from 11 to 15
+for PG_VERSION in "${PG_VERSIONS[@]}"; do
+  TMPDIR="$(mktemp -d)"
+  export PGDATA="$TMPDIR"
+  export PGHOST="$TMPDIR"
 
-# Get a list of all tests
-while IFS= read -r line; do
-  TESTS+=("$line")
-done < <(find "${TESTDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
+  echo ""
+  echo "*************************************************"
+  echo "Running tests for PostgreSQL version: $PG_VERSION"
+  echo "*************************************************"
+  echo ""
 
-# Execute tests using pg_regress
-psql -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db
-${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
+  # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
+  case "$OS_NAME" in
+    Darwin)
+      PG_BIN_PATH="$HOME/.pgrx/$PG_VERSION/pgrx-install/bin"
+      REGRESS="$HOME/.pgrx/$PG_VERSION/pgrx-install/lib/postgresql/pgxs/src/test/regress/pg_regress"
+      ;;
+    Linux)
+      PG_BIN_PATH="/usr/lib/postgresql/$PG_VERSION/bin"
+      REGRESS="/usr/lib/postgresql/$PG_VERSION/lib/pgxs/src/test/regress/pg_regress"
+      ;;
+  esac
+
+  # Create a temporary password file
+  PWFILE=$(mktemp)
+  echo "$PGPASSWORD" > "$PWFILE"
+
+  # Ensure a clean environment
+  trap '$PG_BIN_PATH/pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
+  rm -rf "$TMPDIR"
+  unset TESTS
+
+  # Initialize the test database
+  "$PG_BIN_PATH/initdb" --no-locale --encoding=UTF8 --nosync -U "$PGUSER" --auth-local=md5 --auth-host=md5 --pwfile="$PWFILE"
+  "$PG_BIN_PATH/pg_ctl" start -o "-F -c listen_addresses=\"\" -c log_min_messages=WARNING -k $PGDATA"
+  "$PG_BIN_PATH/createdb" test_db
+
+  # Use cargo-pgx to install the extension for the specified version
+  cargo clean && cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config"
+
+  # Get a list of all tests
+  while IFS= read -r line; do
+    TESTS+=("$line")
+  done < <(find "${TESTDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
+
+  # Execute tests using pg_regress
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db
+  ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
+done

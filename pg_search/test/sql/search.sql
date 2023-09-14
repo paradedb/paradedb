@@ -12,4 +12,3 @@ SELECT
     ) AS score_hybrid
 FROM mock_items
 ORDER BY score_hybrid DESC;
-

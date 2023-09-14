@@ -22,7 +22,7 @@ sleep 5
 
 # 2. Load data into database 
 echo "Loading data into database..."
-WIKI_ARTICLES_FILE=wiki-articles-1000.json
+WIKI_ARTICLES_FILE=wiki-articles.json
 load_data localhost $PORT mydatabase myuser mypassword $WIKI_ARTICLES_FILE
 
 TABLE_NAME=wikipedia_articles

@@ -48,6 +48,6 @@ time curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X GET "https://loca
 
 # 4. Destroy 
 echo "Destroying container..."
-docker kill es01
-docker rm es01
-docker network rm elastic
+# docker kill es01
+# docker rm es01
+# docker network rm elastic

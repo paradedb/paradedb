@@ -22,7 +22,7 @@ sleep 5
 
 # 2. Load data into database mydatabase via load_data.sql
 echo "Loading data into database..."
-WIKI_ARTICLES_FILE=wiki-articles-1000.json
+WIKI_ARTICLES_FILE=wiki-articles.json
 load_data localhost $PORT mydatabase myuser mypassword $WIKI_ARTICLES_FILE
 
 TABLE_NAME=wikipedia_articles
@@ -40,5 +40,5 @@ time db_query localhost $PORT mydatabase myuser mypassword "SELECT * FROM $TABLE
 
 # 5. Destroy db
 echo "Destroying container..."
-docker kill paradedb
-docker rm paradedb
+# docker kill paradedb
+# docker rm paradedb

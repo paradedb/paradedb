@@ -12,16 +12,17 @@ set -Eeuo pipefail
 # The pgvector version to install
 PGVECTOR_VERSION="v0.5.0"
 
-# Set the proper path and variables based on OS
+# All pgrx-supported PostgreSQL versions to configure for
+# TODO: Add support for Postgres 11.21/11
 OS_NAME=$(uname)
 if [ $# -eq 0 ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
     Darwin)
-      PG_VERSIONS=("15.4" "14.9")  # All pgrx-supported PostgreSQL versions on macOS
+      PG_VERSIONS=("15.4" "14.9" "13.12" "12.16")
       ;;
     Linux)
-      PG_VERSIONS=("15" "14")  # All pgrx-supported PostgreSQL versions on Linux
+      PG_VERSIONS=("15" "14" "13" "12")
       ;;
   esac
 else
@@ -47,11 +48,11 @@ for version in "${PG_VERSIONS[@]}"; do
   case "$OS_NAME" in
     Darwin)
       make clean
-      make && make install PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config"
+      PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" make && PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" make install
       ;;
     Linux)
       sudo make clean
-      PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" sudo make && sudo make install
+      sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make && sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make install
       ;;
   esac
 done

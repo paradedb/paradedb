@@ -14,6 +14,7 @@ on:
     paths:
       - "pg_bm25/**"
       - ".github/workflows/test-pg_bm25.yml"
+      - "!pg_bm25/README.md"
   workflow_dispatch:
 
 concurrency:

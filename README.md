@@ -18,27 +18,28 @@
 
 [![Publishing](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb-to-dockerhub.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb-to-dockerhub.yml)
 
-[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL.
+[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL,
+engineered for lightning-fast full text, similarity, and hybrid search.
 
 It offers the most comprehensive, Postgres-native search features of any Postgres
 database, so you don't need to glue cumbersome services like a search engine or
 vector database on top.
 
-ParadeDB offers four primary benefits to users:
+## Key Benefits
 
-- **Speed**: ParadeDB is built in Rust on top of PostgreSQL and Tantivy, a
-  Rust-based implementation of Apache Lucene. On average, ParadeDB queries are
+- ⚡ **Speed**: ParadeDB is built in Rust on top of PostgreSQL and Tantivy,
+  a Rust-based implementation of Apache Lucene. On average, ParadeDB queries are
   2x faster than ElasticSearch. See our [benchmarks](https://github.com/paradedb/paradedb/tree/dev/benchmarks/README.md)
   (coming soon!).
 
-- **Simplicity**: Consolidate your database and search engine
+- 🌿 **Simplicity**: Consolidate your database and search engine
   into a single system, so you don't need to worry about keeping separate services
   in sync.
 
-- **SQL First**: Write search queries in SQL with ACID transactions.
+- 🐘 **SQL First**: Write search queries in SQL with ACID transactions.
 
-- **Scalability**: Scale to millions of rows with support for distributed search,
-  high availability, backups, and point-in-time-recovery (coming soon!).
+- 🚀 **Scalability**: Scale to millions of rows with support for distributed
+  search, high availability, backups, and point-in-time-recovery (coming soon!).
 
 ## Status
 
@@ -59,6 +60,9 @@ major updates.
   - [x] Real-time search
   - [ ] Generative search
   - [ ] Multimodal search
+- [ ] Self-hosting
+  - [x] Docker image & [instructions](TODO)
+  - [ ] Kubernetes Helm chart & [instructions](TODO)
 - [ ] Cloud Database
   - [ ] Managed cloud
   - [ ] Self-serve cloud
@@ -68,7 +72,14 @@ major updates.
 
 ## Installation
 
-To install locally or on-premise, simply run the latest Docker image:
+### ParadeDB Cloud
+
+Coming soon! Sign up for the [ParadeDB Cloud waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
+
+### Self-Hosted
+
+To install ParadeDB locally or on-premise, simply pull and run the latest Docker
+image:
 
 ```bash
 docker run \
@@ -79,11 +90,22 @@ docker run \
   paradedb/paradedb:latest
 ```
 
-By default, this will start the ParadeDB database at `http://localhost:5432`.
+By default, this will start the ParadeDB database at `http://localhost:5432`. Use
+`psql` to connect:
+
+```bash
+psql -h <hostname> -U <user> -d <dbname> -p 5432 -W
+```
+
+To install the ParadeDB extension(s) manually within an existing self-hosted Postgres,
+see the extension(s)' README. We strongly recommend using the ParadeDB Docker image,
+which is optimized for running search in Postgres. If you're self-hosting Postgres
+and are interested in ParadeDB, please [contact the ParadeDB team](mailto:hello@paradedb.com)
+and we'll be happy to help!
 
 ## Get Started
 
-Follow the [quickstart guide](https://docs.paradedb.com/quickstart) to get started!
+To get started using ParadeDB, please follow the [quickstart guide](https://docs.paradedb.com/quickstart)!
 
 ## Documentation
 
@@ -120,14 +142,9 @@ By participating in this project, you agree to follow its terms.
 
 Thank you for helping us make ParadeDB better for everyone :heart:
 
-### Current Contributors
-
-<a href="https://github.com/paradedb/paradedb/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=paradedb/paradedb" />
-</a>
-
 ## License
 
 ParadeDB is licensed under the [Elastic License 2.0](LICENSE). Our goal with
 choosing ELv2 is to enable our users to use and contribute to ParadeDB freely,
-while enabling us to continue investing in our community, project and product.
+while enabling us to continue investing in our community, project and product. If
+you have any questions regarding licensing, please [contact us](mailto:hello@paradedb.com).

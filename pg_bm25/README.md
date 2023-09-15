@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="../docs/logo/pg_bm25.svg" alt="pg_bm25" width="400px"></a>
+  <img src="../docs/logo/pg_bm25.svg" alt="pg_bm25" width="500px"></a>
 <br>
 </h1>
 
@@ -8,8 +8,8 @@
 
 ## Overview
 
-`pg_bm25` is a PostgreSQL extension that enables full-text search
-using the Okapi BM25 algorithm, the state-of-the-art ranking function
+`pg_bm25` is a PostgreSQL extension that enables full text search over SQL tables
+using the BM25 algorithm, the state-of-the-art ranking function
 for full text search. It is built in Rust using `pgrx` and supported on PostgreSQL
 11+.
 
@@ -115,12 +115,33 @@ simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
 `/test/expected` for the expected output, and it will automatically get picked up
 by the test suite.
 
-## Packaging
+## Installation
 
-The extension gets packaged into our Docker image(s) as part of the build process.
-If you want to package the extension locally, you can do so by running the
-following command:
+If you'd like to install the extension on a local machine, for instance if you
+are self-hosting Postgres and would like to use the extension within your existing
+Postgres database, follow these steps:
+
+1. Install Rust and cargo-pgrx:
 
 ```bash
-cargo pgrx package [--test]
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install cargo-pgrx --version 0.9.8
+```
+
+2. Then, run:
+
+```bash
+# Clone the repo (optionally pick a specific version)
+git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
+
+# Install pg_bm25
+cd pg_bm25/
+cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
+cargo pgrx install
+```
+
+You can then create the extension in your database by running:
+
+```sql
+CREATE EXTENSION pg_bm25;
 ```

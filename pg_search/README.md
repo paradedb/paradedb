@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="../docs/logo/pg_search.svg" alt="pg_search" width="400px"></a>
+  <img src="../docs/logo/pg_search.svg" alt="pg_search" width="600px"></a>
 <br>
 </h1>
 
@@ -136,12 +136,47 @@ simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
 `/test/expected` for the expected output, and it will automatically get picked up
 by the test suite.
 
-## Packaging
+## Installation
 
-The extension gets packaged into our Docker image(s) as part of the build process.
-If you want to package the extension locally, you can do so by running the
-following command:
+If you'd like to install the extension on a local machine, for instance if you
+are self-hosting Postgres and would like to use the extension within your existing
+Postgres database, follow these steps:
+
+1. Install Rust and cargo-pgrx:
 
 ```bash
-cargo pgrx package [--test]
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install cargo-pgrx --version 0.9.8
+```
+
+2. Then, run:
+
+```bash
+# Clone & install pgvector
+git clone https://github.com/pgvector/pgvector.git --tag <VERSION>
+cd pgvector/
+PG_CONFIG=`which pg_config` make
+PG_CONFIG=`which pg_config` make install
+cd ..
+
+# Clone & install pgml
+git clone https://github.com/postgresml/postgresml.git --tag <VERSION>
+cd postgresml/pgml-extension
+pip install -r requirements.txt
+cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
+cargo pgrx install
+cd ..
+
+# Clone & install pg_bm25 and pg_search
+git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
+cd pg_bm25
+cargo pgrx install
+cd ../pg_search
+cargo pgrx install
+```
+
+You can then create the extension in your database by running:
+
+```sql
+CREATE EXTENSION pg_search CASCADE;
 ```

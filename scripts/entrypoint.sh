@@ -34,7 +34,7 @@ declare -A extensions=(
 
 # List of extensions that must be added to shared_preload_libraries
 declare -A preload_names=(
-  [citus]=citus # Must be first in shared_preload_libraries
+  # [citus]=citus # Must be first in shared_preload_libraries
   [pgml]=pgml
   [pg_cron]=pg_cron
   [pg_net]=pg_net

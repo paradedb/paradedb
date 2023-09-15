@@ -27,7 +27,7 @@ ARG PGROUTING_VERSION
 ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
-ARG CITUS_VERSION
+# ARG CITUS_VERSION
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
@@ -50,7 +50,7 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PGSQL_HTTP_VERSION=${PGSQL_HTTP_VERSION} \
     HYPOPG_VERSION=${HYPOPG_VERSION} \
     RUM_VERSION=${RUM_VERSION} \
-    CITUS_VERSION=${CITUS_VERSION} \
+    # CITUS_VERSION=${CITUS_VERSION} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
@@ -224,8 +224,8 @@ RUN /usr/local/bin/install_pg_extensions.sh \
     "pgrouting,${PGROUTING_VERSION},https://github.com/pgRouting/pgrouting/archive/refs/tags/v${PGROUTING_VERSION}.tar.gz" \
     "pgsql-http,${PGSQL_HTTP_VERSION},https://github.com/pramsey/pgsql-http/archive/refs/tags/v${PGSQL_HTTP_VERSION}.tar.gz" \
     "hypopg,${HYPOPG_VERSION},https://github.com/HypoPG/hypopg/archive/refs/tags/${HYPOPG_VERSION}.tar.gz" \
-    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz" \
-    "citus,${CITUS_VERSION},https://github.com/citusdata/citus/archive/refs/tags/v${CITUS_VERSION}.tar.gz"
+    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz"
+    # "citus,${CITUS_VERSION},https://github.com/citusdata/citus/archive/refs/tags/v${CITUS_VERSION}.tar.gz"
 
 # Install pre-compiled extensions
 RUN curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \

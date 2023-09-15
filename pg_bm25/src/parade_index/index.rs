@@ -1,16 +1,16 @@
 use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use pgrx::*;
 use std::collections::HashMap;
+use std::ffi::{CStr, CString};
+use std::fs::{create_dir_all, remove_dir_all};
+use std::path::Path;
 use tantivy::{
     query::{Query, QueryParser},
     schema::{Field, Schema, Value, INDEXED, STORED, TEXT},
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
 
-use crate::{
-    json::builder::JsonBuilder, parade_index::directory::SQLDirectory,
-    parade_index::utils::with_notice_suppressed,
-};
+use crate::json::builder::JsonBuilder;
 
 const CACHE_NUM_BLOCKS: usize = 10;
 
@@ -29,7 +29,14 @@ pub struct ParadeIndex {
 
 impl ParadeIndex {
     pub fn new(name: String, table_name: String) -> Self {
-        let dir: SQLDirectory = SQLDirectory::new(Self::parade_table_name(&name));
+        let dir = Self::get_data_directory(&name);
+        let path = Path::new(&dir);
+        if path.exists() {
+            remove_dir_all(path).expect("failed to remove paradedb directory");
+        }
+
+        create_dir_all(path).expect("failed to create paradedb directory");
+
         let result = Self::build_index_schema(&table_name);
         let (schema, fields) = match result {
             Ok((s, f)) => (s, f),
@@ -45,7 +52,7 @@ impl ParadeIndex {
         let underlying_index = Index::builder()
             .schema(schema.clone())
             .settings(settings.clone())
-            .open_or_create(dir)
+            .create_in_dir(dir)
             .expect("failed to create index");
 
         Self {
@@ -55,9 +62,9 @@ impl ParadeIndex {
     }
 
     pub fn from_index_name(name: String) -> Self {
-        let dir = SQLDirectory::from_index(Self::parade_table_name(&name));
+        let dir = Self::get_data_directory(&name);
 
-        let underlying_index = Index::open(dir).expect("failed to open index");
+        let underlying_index = Index::open_in_dir(dir).expect("failed to open index");
         let schema = underlying_index.schema();
 
         let fields = schema
@@ -72,14 +79,6 @@ impl ParadeIndex {
             fields,
             underlying_index,
         }
-    }
-
-    pub fn delete_directory(name: String) {
-        with_notice_suppressed(|| {
-            let drop_if_exists_q =
-                format!("DROP TABLE IF EXISTS {};", Self::parade_table_name(&name));
-            Spi::run(&drop_if_exists_q).expect("failed to drop index table");
-        });
     }
 
     pub fn insert(
@@ -190,8 +189,23 @@ impl ParadeIndex {
         self.underlying_index.clone()
     }
 
-    fn parade_table_name(name: &str) -> String {
-        format!("paradedb.{}_index", name)
+    fn get_data_directory(name: &str) -> String {
+        unsafe {
+            let option_name_cstr =
+                CString::new("data_directory").expect("failed to create CString");
+            let data_dir_str = String::from_utf8(
+                CStr::from_ptr(pg_sys::GetConfigOptionByName(
+                    option_name_cstr.as_ptr(),
+                    std::ptr::null_mut(),
+                    true,
+                ))
+                .to_bytes()
+                .to_vec(),
+            )
+            .expect("Failed to convert C string to Rust string");
+
+            format!("{}/{}/{}", data_dir_str, "paradedb", name)
+        }
     }
 
     fn build_index_schema(name: &str) -> Result<(Schema, HashMap<String, Field>), String> {

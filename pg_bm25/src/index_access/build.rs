@@ -3,7 +3,7 @@ use std::panic::{self, AssertUnwindSafe};
 use tantivy::SingleSegmentIndexWriter;
 
 use crate::index_access::utils::{
-    categorize_tupdesc, create_parade_index, delete_parade_index, lookup_index_tupdesc, row_to_json,
+    categorize_tupdesc, create_parade_index, lookup_index_tupdesc, row_to_json,
 };
 use crate::parade_index::index::ParadeIndex;
 
@@ -40,9 +40,6 @@ pub extern "C" fn ambuild(
     let index_name = index_relation.name().to_string();
     let table_name = heap_relation.name().to_string();
     let schema_name = heap_relation.namespace().to_string();
-
-    // Wipe old ParadeDB index
-    delete_parade_index(index_name.clone());
 
     // Create ParadeDB Index
     let mut parade_index = create_parade_index(

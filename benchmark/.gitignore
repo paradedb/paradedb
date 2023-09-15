@@ -1,4 +1,4 @@
 *.json
 *.bz2
 *.txt
-*.cert
+*.crt

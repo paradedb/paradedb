@@ -34,11 +34,11 @@ declare -A extensions=(
 
 # List of extensions that must be added to shared_preload_libraries
 declare -A preload_names=(
-  # [citus]=citus # Must be first in shared_preload_libraries
+  [citus]=citus # Must be first in shared_preload_libraries
   [pgml]=pgml
-  # [pg_cron]=pg_cron
-  # [pg_net]=pg_net
-  # [pgaudit]=pgaudit
+  [pg_cron]=pg_cron
+  [pg_net]=pg_net
+  [pgaudit]=pgaudit
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed
@@ -54,8 +54,7 @@ done
 shared_preload_list=${shared_preload_list%,}
 
 # Update the PostgreSQL configuration
-# Todo: Uncomment this line once we re-enable pg_cron
-# sed -i "s/^cron\.database_name = .*/cron\.database_name = '$POSTGRES_DB'/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
+sed -i "s/^cron\.database_name = .*/cron\.database_name = '$POSTGRES_DB'/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
 sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
 
 # Start the PostgreSQL server

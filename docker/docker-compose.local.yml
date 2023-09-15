@@ -12,7 +12,6 @@ services:
       context: ..
       dockerfile: ./docker/Dockerfile
       args:
-        USE_SCCACHE: True
         PG_VERSION_MAJOR: 15
         PG_BM25_VERSION: 0.0.0
         PG_SEARCH_VERSION: 0.0.0
@@ -35,6 +34,10 @@ services:
         HYPOPG_VERSION: 1.4.0
         RUM_VERSION: 1.3.13
         CITUS_VERSION: 12.0.0
+      cache_from:
+        - type=local,src=./.docker_cache_local
+      cache_to:
+        - type=local,dest=./.docker_cache_local
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
@@ -47,9 +50,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    volumes:
-      - paradedb-local-ccache:/cache/ccache
-      - paradedb-local-sccache:/root/.cache/sccache
 
   postgrest:
     image: postgrest/postgrest:v11.2.0
@@ -63,7 +63,3 @@ services:
       PGRST_JWT_SECRET: paradedb-api-key
     ports:
       - "3000:3000"
-
-volumes:
-  paradedb-local-ccache:
-  paradedb-local-sccache:

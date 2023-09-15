@@ -94,7 +94,6 @@ jobs:
       - name: Run pg_bm25 Unit Tests
         working-directory: pg_bm25
         run: |
-          # Configure code coverage & run tests
           mkdir -p target/coverage target/coverage-report
           export LLVM_PROFILE_FILE="target/coverage/pg_bm25-%p-%m.profraw"
           export RUST_BACKTRACE=1

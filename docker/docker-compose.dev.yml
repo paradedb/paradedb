@@ -12,22 +12,18 @@ services:
       context: ..
       dockerfile: ./docker/Dockerfile.dev
       args:
-        USE_SCCACHE: True
         PG_VERSION_MAJOR: 15
         PG_BM25_VERSION: 0.0.0
         PG_SEARCH_VERSION: 0.0.0
         PGML_VERSION: 2.7.8
         PGVECTOR_VERSION: 0.5.0
+      cache_from:
+        - type=local,src=./.docker_cache_dev
+      cache_to:
+        - type=local,dest=./.docker_cache_dev
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: mydatabase
     ports:
       - "5432:5432"
-    volumes:
-      - paradedb-dev-ccache:/cache/ccache
-      - paradedb-dev-sccache:/root/.cache/sccache
-
-volumes:
-  paradedb-dev-ccache:
-  paradedb-dev-sccache:

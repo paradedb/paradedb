@@ -7,7 +7,7 @@ are eligible for receiving such patches can be found below:
 
 | Version | Supported          |
 | ------- | ------------------ |
-| Latest  | :white_check_mark: |
+| latest  | :white_check_mark: |
 
 ## Reporting a Vulnerability
 

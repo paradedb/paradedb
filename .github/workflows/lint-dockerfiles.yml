@@ -29,4 +29,4 @@ jobs:
         uses: jbergstroem/hadolint-gh-action@v1
         with:
           dockerfile: "**/Dockerfile*"
-          error_level: 2
+          error_level: 2 # Treat INFO as error

@@ -94,7 +94,6 @@ jobs:
       - name: Run pg_search Unit Tests
         working-directory: pg_search
         run: |
-          # Configure code coverage & run tests
           mkdir -p target/coverage target/coverage-report
           export LLVM_PROFILE_FILE="target/coverage/pg_search-%p-%m.profraw"
           export RUST_BACKTRACE=1

@@ -2,11 +2,11 @@ use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 use tantivy::SingleSegmentIndexWriter;
 
+use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{
     categorize_tupdesc, create_parade_index, lookup_index_tupdesc, row_to_json,
 };
 use crate::parade_index::index::ParadeIndex;
-use crate::index_access::options::ParadeOptions;
 
 const INDEX_WRITER_MEM_BUDGET: usize = 50_000_000;
 
@@ -44,7 +44,7 @@ pub extern "C" fn ambuild(
     let schema_name = heap_relation.namespace().to_string();
 
     // rdopts are passed on to create_parade_index
-    let rdopts : PgBox<ParadeOptions>;
+    let rdopts: PgBox<ParadeOptions>;
     if !index_relation.rd_options.is_null() {
         rdopts = unsafe { PgBox::from_pg(index_relation.rd_options as *mut ParadeOptions) };
         let token_option = rdopts.get_tokenizer();

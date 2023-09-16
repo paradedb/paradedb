@@ -1,6 +1,20 @@
-use pgrx::*;
 use pgrx::pg_sys::AsPgCStr;
-use std::ffi::CStr; // TODO: remove this later
+use pgrx::*;
+use std::ffi::CStr;
+
+/* ADDING OPTIONS (modeled after ZomboDB)
+ * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
+ * add the corresponding entries to ParadeOptions struct definition
+ * in amoptions(), add a relopt_parse_elt entry to the options array and change NUM_REL_OPTS
+ * Note that for string options, postgres will give you the offset of the string, and you have to read the string
+ * yourself (see get_tokenizer)
+*/
+
+/* READING OPTIONS
+ * options are placed in relation.rd_options
+ * As in ambuild(), cast relation.rd_options into ParadeOptions using PgBox (because ParadeOptions
+ * is a postgres-allocated object) and use getters and setters
+*/
 
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind = 0;
 
@@ -21,7 +35,8 @@ extern "C" fn validate_tokenizer(value: *const std::os::raw::c_char) {
         return;
     }
 
-    let value = unsafe { CStr::from_ptr(value) }.to_str()
+    let value = unsafe { CStr::from_ptr(value) }
+        .to_str()
         .expect("failed to convert tokenizer to utf-8");
 
     info!("tokenizer: {}", value);
@@ -32,26 +47,25 @@ extern "C" fn validate_tokenizer(value: *const std::os::raw::c_char) {
     }
 }
 // For now, we support changing the tokenizer between default, raw, and en_stem
+const NUM_REL_OPTS: usize = 1;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
     validate: bool,
 ) -> *mut pg_sys::bytea {
     // TODO: not hardcode offset
-    let options: [pg_sys::relopt_parse_elt; 1] = [
-    pg_sys::relopt_parse_elt {
+    let options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS] = [pg_sys::relopt_parse_elt {
         optname: "tokenizer".as_pg_cstr(),
         opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
         offset: 4,
-    },
-    ];
+    }];
     let rdopts = pg_sys::build_reloptions(
         reloptions,
         validate,
         RELOPT_KIND_PDB,
         std::mem::size_of::<ParadeOptions>(), // TODO: proper size calculator
         options.as_ptr(),
-        1
+        NUM_REL_OPTS,
     );
     rdopts as *mut pg_sys::bytea
 }
@@ -63,7 +77,9 @@ impl ParadeOptions {
             return "default".to_string();
         }
         let opts = self as *const _ as void_ptr as usize;
-        let value = unsafe {CStr::from_ptr((opts + self.tokenizer_offset as usize) as *const std::os::raw::c_char) };
+        let value = unsafe {
+            CStr::from_ptr((opts + self.tokenizer_offset as usize) as *const std::os::raw::c_char)
+        };
         value.to_str().unwrap().to_owned()
     }
 }
@@ -87,4 +103,3 @@ pub unsafe fn init() {
         },
     );
 }
-

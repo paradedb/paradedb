@@ -10,8 +10,8 @@ use tantivy::{
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
 
-use crate::json::builder::JsonBuilder;
 use crate::index_access::options::ParadeOptions;
+use crate::json::builder::JsonBuilder;
 
 const CACHE_NUM_BLOCKS: usize = 10;
 
@@ -209,7 +209,10 @@ impl ParadeIndex {
         }
     }
 
-    fn build_index_schema(name: &str, options: PgBox<ParadeOptions>) -> Result<(Schema, HashMap<String, Field>), String> {
+    fn build_index_schema(
+        name: &str,
+        options: PgBox<ParadeOptions>,
+    ) -> Result<(Schema, HashMap<String, Field>), String> {
         let indexrel = unsafe {
             PgRelation::open_with_name(name)
                 .unwrap_or_else(|_| panic!("failed to open relation {}", name))
@@ -222,10 +225,11 @@ impl ParadeIndex {
 
         // set text_options: originally we wanted TEXT | STORED but we want to switch the tokenizer
         let text_options = (TEXT | STORED).clone().set_indexing_options(
-            (TEXT | STORED).get_indexing_options()
-            .expect("TEXT | STORED has no indexing options?")
-            .clone()
-            .set_tokenizer(token_option.as_str())
+            (TEXT | STORED)
+                .get_indexing_options()
+                .expect("TEXT | STORED has no indexing options?")
+                .clone()
+                .set_tokenizer(token_option.as_str()),
         );
 
         for (_, attribute) in tupdesc.iter().enumerate() {

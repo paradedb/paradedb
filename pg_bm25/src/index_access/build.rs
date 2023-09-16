@@ -6,6 +6,7 @@ use crate::index_access::utils::{
     categorize_tupdesc, create_parade_index, lookup_index_tupdesc, row_to_json,
 };
 use crate::parade_index::index::ParadeIndex;
+use crate::index_access::options::ParadeOptions;
 
 const INDEX_WRITER_MEM_BUDGET: usize = 50_000_000;
 
@@ -30,6 +31,7 @@ impl<'a> BuildState<'a> {
 }
 
 #[pg_guard]
+// TODO: remove the unsafe
 pub extern "C" fn ambuild(
     heaprel: pg_sys::Relation,
     indexrel: pg_sys::Relation,
@@ -40,11 +42,25 @@ pub extern "C" fn ambuild(
     let index_name = index_relation.name().to_string();
     let table_name = heap_relation.name().to_string();
     let schema_name = heap_relation.namespace().to_string();
+    // TODO: do something with the options
+    // log the options
+    let rdopts : PgBox<ParadeOptions>;
+    if !index_relation.rd_options.is_null() {
+        rdopts = unsafe { PgBox::from_pg(index_relation.rd_options as *mut ParadeOptions) };
+        let token_option = rdopts.get_tokenizer();
+        info!("token option: {}", token_option);
+        // info!("dummy: {}", rdopts.get_dummy());
+    } else {
+        info!("index relation has no options");
+        let ops = unsafe { PgBox::<ParadeOptions>::alloc0() };
+        rdopts = ops.into_pg_boxed();
+    }
 
     // Create ParadeDB Index
     let mut parade_index = create_parade_index(
         index_name.clone(),
         format!("{}.{}", schema_name, table_name),
+        rdopts,
     );
     let tantivy_index = parade_index.copy_tantivy_index();
     let mut writer = SingleSegmentIndexWriter::new(tantivy_index, INDEX_WRITER_MEM_BUDGET)

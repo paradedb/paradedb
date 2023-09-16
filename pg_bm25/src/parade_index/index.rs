@@ -6,11 +6,12 @@ use std::fs::{create_dir_all, remove_dir_all};
 use std::path::Path;
 use tantivy::{
     query::{Query, QueryParser},
-    schema::{Field, Schema, Value, INDEXED, STORED, TEXT},
+    schema::{Field, Schema, Value, INDEXED, STORED, IndexRecordOption, TextFieldIndexing, TextOptions},
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
 
 use crate::json::builder::JsonBuilder;
+use crate::index_access::options::ParadeOptions;
 
 const CACHE_NUM_BLOCKS: usize = 10;
 
@@ -28,7 +29,7 @@ pub struct ParadeIndex {
 }
 
 impl ParadeIndex {
-    pub fn new(name: String, table_name: String) -> Self {
+    pub fn new(name: String, table_name: String, options: PgBox<ParadeOptions>) -> Self {
         let dir = Self::get_data_directory(&name);
         let path = Path::new(&dir);
         if path.exists() {
@@ -37,7 +38,7 @@ impl ParadeIndex {
 
         create_dir_all(path).expect("failed to create paradedb directory");
 
-        let result = Self::build_index_schema(&table_name);
+        let result = Self::build_index_schema(&table_name, options);
         let (schema, fields) = match result {
             Ok((s, f)) => (s, f),
             Err(e) => {
@@ -208,14 +209,23 @@ impl ParadeIndex {
         }
     }
 
-    fn build_index_schema(name: &str) -> Result<(Schema, HashMap<String, Field>), String> {
+    fn build_index_schema(name: &str, options: PgBox<ParadeOptions>) -> Result<(Schema, HashMap<String, Field>), String> {
         let indexrel = unsafe {
             PgRelation::open_with_name(name)
                 .unwrap_or_else(|_| panic!("failed to open relation {}", name))
         };
+        let token_option = options.get_tokenizer();
+        info!("build_index_schema token_option: {}", token_option);
         let tupdesc = indexrel.tuple_desc();
         let mut schema_builder = Schema::builder();
         let mut fields: HashMap<String, Field> = HashMap::new();
+
+        // set text_options as described in tantivy docs
+        let text_options = TextOptions::default()
+            .set_indexing_options(TextFieldIndexing::default()
+                                  .set_tokenizer(token_option.as_str())
+                                  .set_index_option(IndexRecordOption::Basic)
+                                  ).set_stored();
 
         for (_, attribute) in tupdesc.iter().enumerate() {
             if attribute.is_dropped() {
@@ -228,7 +238,10 @@ impl ParadeIndex {
             let field = match &attribute_type_oid {
                 PgOid::BuiltIn(builtin) => match builtin {
                     PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                        Some(schema_builder.add_text_field(attname, TEXT | STORED))
+                        // Some(schema_builder.add_text_field(attname, TEXT | STORED))
+                        // I have to clone because something something not movable?
+                        // TODO: how to check the tokenizer actually changed?
+                        Some(schema_builder.add_text_field(attname, text_options.clone()))
                     }
                     PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
                         Some(schema_builder.add_json_field(attname, STORED))

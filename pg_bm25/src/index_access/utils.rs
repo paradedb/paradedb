@@ -10,6 +10,7 @@ use std::str::FromStr;
 
 use crate::json::builder::JsonBuilder;
 use crate::parade_index::index::ParadeIndex;
+use crate::index_access::options::ParadeOptions;
 
 type ConversionFunc = dyn Fn(&mut JsonBuilder, String, pg_sys::Datum, pg_sys::Oid);
 pub struct CategorizedAttribute {
@@ -56,8 +57,8 @@ impl FromStr for SearchQuery {
     }
 }
 
-pub fn create_parade_index(index_name: String, table_name: String) -> ParadeIndex {
-    ParadeIndex::new(index_name, table_name)
+pub fn create_parade_index(index_name: String, table_name: String, options: PgBox<ParadeOptions>) -> ParadeIndex {
+    ParadeIndex::new(index_name, table_name, options)
 }
 
 pub fn get_parade_index(index_name: String) -> ParadeIndex {

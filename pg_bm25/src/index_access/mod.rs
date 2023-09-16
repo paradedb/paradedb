@@ -4,7 +4,7 @@ mod build;
 mod cost;
 mod delete;
 mod insert;
-mod options;
+pub mod options;
 mod scan;
 mod utils;
 mod vacuum;

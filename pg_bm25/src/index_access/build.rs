@@ -47,7 +47,6 @@ pub extern "C" fn ambuild(
     let rdopts: PgBox<ParadeOptions>;
     if !index_relation.rd_options.is_null() {
         rdopts = unsafe { PgBox::from_pg(index_relation.rd_options as *mut ParadeOptions) };
-        let token_option = rdopts.get_tokenizer();
     } else {
         let ops = unsafe { PgBox::<ParadeOptions>::alloc0() };
         rdopts = ops.into_pg_boxed();

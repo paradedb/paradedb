@@ -31,6 +31,7 @@ INDEX_NAME=search_index
 # 3. Run and time indexing
 # CREATE INDEX search_index ON wikipedia_articles USING bm25 ((wikipedia_articles.*));
 echo "Time indexing..."
+db_query localhost $PORT mydatabase myuser mypassword "DROP INDEX IF EXISTS $INDEX_NAME;"
 time db_query localhost $PORT mydatabase myuser mypassword "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING bm25 (($TABLE_NAME.*));"
 
 # 4. Run and time search - TODO: rank

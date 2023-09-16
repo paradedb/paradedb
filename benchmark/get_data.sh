@@ -38,6 +38,7 @@ load_data () {
 
        # Create table for json entries and load entries from file into table.
        #     In order to pull entries from your local files, you have to use the combo of cat and COPY FROM STDIN with the -c option
+       db_query $HOST $PORT $DATABASE $USER $PASSWORD "DROP TABLE IF EXISTS temp_json;"
        db_query $HOST $PORT $DATABASE $USER $PASSWORD "CREATE TABLE temp_json ( j JSONB );"
        cat $WIKI_ARTICLES_FILE | db_query $HOST $PORT $DATABASE $USER $PASSWORD "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';"
        

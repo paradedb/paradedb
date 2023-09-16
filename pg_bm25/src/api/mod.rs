@@ -23,7 +23,7 @@ pub fn highlight_bm25(ctid: Option<ItemPointerData>, field_name: String) -> Stri
 }
 
 #[pg_extern]
-pub fn score_bm25(
+pub fn l2_normalized_bm25(
     ctid: pg_sys::ItemPointerData,
     index_name: &str,
     query: &str,
@@ -46,6 +46,7 @@ pub fn score_bm25(
                 .contains(&tid);
 
             get_executor_manager().get_score(ctid).unwrap_or(0.0)
+                / get_executor_manager().get_l2_norm()
         },
         None => 0.0,
     }

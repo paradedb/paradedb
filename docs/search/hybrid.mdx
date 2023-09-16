@@ -18,13 +18,21 @@ exact keywords and semantic meaning.
 To calculate a row's hybrid score, ParadeDB introduces a `paradedb.weighted_mean` function.
 
 ```sql
+WITH query AS (
+    SELECT
+        ctid,
+        paradedb.l2_normalized_bm25(ctid, '[index_name]', '[query]') as bm25,
+        ([vector] <-> [vector_column]) / paradedb.l2_norm([vector] <-> [vector_column]) OVER () as hnsw
+    FROM
+        mock_items
+)
 SELECT
-    paradedb.weighted_mean(
-        paradedb.score_bm25(ctid, '[index_name]', '[query]'),
-        [vector] <-> [embedding_column_name],
-        [weights]
-    ) AS score_hybrid
-FROM [table_name]
+    mock_items.description,
+    mock_items.category,
+    mock_items.rating,
+    paradedb.weighted_mean(query.bm25, query.hnsw, [weights]) as score_hybrid
+FROM mock_items
+JOIN query ON mock_items.ctid = query.ctid
 ORDER BY score_hybrid DESC;
 ```
 
@@ -39,7 +47,7 @@ ORDER BY score_hybrid DESC;
 <ParamField body="vector" required>
   The vectorized representation of your query. For instance, `'[1,2,3]'`
 </ParamField>
-<ParamField body="embedding_column_name" required>
+<ParamField body="vector_column" required>
   The name of the column containing the embeddings you wish to compare with the
   vector.
 </ParamField>

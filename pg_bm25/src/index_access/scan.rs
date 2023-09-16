@@ -57,6 +57,15 @@ pub extern "C" fn amrescan(
         .search(&tantivy_query, &TopDocs::with_limit(k))
         .unwrap();
 
+    // Cache L2 norm of the scores
+    let scores: Vec<f32> = top_docs.iter().map(|(score, _)| *score).collect();
+    let l2_norm = scores
+        .iter()
+        .map(|&score| score * score)
+        .sum::<f32>()
+        .sqrt();
+    get_executor_manager().set_l2_norm(l2_norm);
+
     // Add query to scan state
     state.query = tantivy_query;
 

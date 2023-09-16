@@ -159,34 +159,39 @@ exact keywords and semantic meaning.
 Let's execute a simple hybrid search:
 
 ```sql 
+WITH query AS (
+    SELECT 
+        ctid,
+        paradedb.l2_normalized_bm25(ctid, 'idx_mock_items', 'keyboard') as bm25,
+        ('[1,2,3]' <-> embedding) / paradedb.l2_norm('[1,2,3]' <-> embedding) OVER () as hnsw
+    FROM
+        mock_items 
+)
 SELECT 
-    description,
-    category,
-    rating,
-    paradedb.weighted_mean(
-        paradedb.score_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
-        '[1,2,3]' <-> embedding,
-        ARRAY[0.8, 0.2]
-    ) AS score_hybrid
+    mock_items.description,
+    mock_items.category,
+    mock_items.rating,
+    paradedb.weighted_mean(query.bm25, query.hnsw, ARRAY[0.8, 0.2]) as score_hybrid 
 FROM mock_items
+JOIN query ON mock_items.ctid = query.ctid
 ORDER BY score_hybrid DESC
 LIMIT 3;
 ```
 <Accordion title="Expected Response">
 ```csv 
        description        |  category   | rating |    score_hybrid
---------------------------+-------------+--------+--------------------
- Plastic Keyboard         | Electronics |      4 |  3.652718109663397
- Ergonomic metal keyboard | Electronics |      4 | 2.9499232893361444
- Compact digital camera   | Photography |      5 | 2.4248711305964283
+--------------------------+-------------+--------+---------------------
+ Plastic Keyboard         | Electronics |      4 |  0.7371819661243477
+ Ergonomic metal keyboard | Electronics |      4 |     0.6107116173495
+ Compact digital camera   | Photography |      5 | 0.30735498147825496
 (3 rows)
 ```
 </Accordion>
 
-In this query, we first use `paradedb.score_bm25` to calculate each row's BM25 score with respect to 
-the query "keyboard." Next, we use the `<->` operator to compute a similarity score. Finally, we combine 
-the two scores as a weighted average, assigning a weight of `0.8` to the first BM25 score and a weight of 
-`0.2` to the latter score.
+In this query, we first use `paradedb.l2_normalized_bm25` to calculate each row's normalized BM25 score with respect to 
+the query "keyboard." Next, we use a window function called `paradedb.l2_norm` to calculate each row's normalized 
+vector similarity score. Finally, we combine the two scores as a weighted average, assigning a weight of `0.8` to the first BM25 score and 
+a weight of `0.2` to the latter score.
 
 ## Congratulations!
 

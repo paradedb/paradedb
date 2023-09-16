@@ -65,7 +65,7 @@ pub unsafe extern "C" fn amoptions(
         RELOPT_KIND_PDB,
         std::mem::size_of::<ParadeOptions>(), // TODO: proper size calculator
         options.as_ptr(),
-        NUM_REL_OPTS,
+        NUM_REL_OPTS as i32,
     );
     rdopts as *mut pg_sys::bytea
 }

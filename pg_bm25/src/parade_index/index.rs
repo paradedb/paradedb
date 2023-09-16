@@ -218,7 +218,6 @@ impl ParadeIndex {
                 .unwrap_or_else(|_| panic!("failed to open relation {}", name))
         };
         let token_option = options.get_tokenizer();
-        info!("build_index_schema token_option: {}", token_option);
         let tupdesc = indexrel.tuple_desc();
         let mut schema_builder = Schema::builder();
         let mut fields: HashMap<String, Field> = HashMap::new();

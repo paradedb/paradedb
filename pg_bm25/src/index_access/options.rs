@@ -39,8 +39,6 @@ extern "C" fn validate_tokenizer(value: *const std::os::raw::c_char) {
         .to_str()
         .expect("failed to convert tokenizer to utf-8");
 
-    info!("tokenizer: {}", value);
-
     // TODO: not hardcode this
     if value != "default" && value != "raw" && value != "en_stem" {
         panic!("invalid tokenizer: {}", value);
@@ -72,7 +70,6 @@ pub unsafe extern "C" fn amoptions(
 
 impl ParadeOptions {
     pub fn get_tokenizer(&self) -> String {
-        info!("tokenizer offset is {}", self.tokenizer_offset);
         if self.tokenizer_offset == 0 {
             return "default".to_string();
         }

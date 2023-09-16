@@ -1,3 +1,4 @@
+#![allow(clippy::missing_safety_doc)] // from zombodb
 use pgrx::*;
 
 mod api;

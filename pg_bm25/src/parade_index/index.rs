@@ -6,7 +6,7 @@ use std::fs::{create_dir_all, remove_dir_all};
 use std::path::Path;
 use tantivy::{
     query::{Query, QueryParser},
-    schema::{Field, Schema, Value, INDEXED, STORED, IndexRecordOption, TextFieldIndexing, TextOptions},
+    schema::{Field, Schema, Value, INDEXED, STORED, TEXT},
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
 
@@ -220,12 +220,13 @@ impl ParadeIndex {
         let mut schema_builder = Schema::builder();
         let mut fields: HashMap<String, Field> = HashMap::new();
 
-        // set text_options as described in tantivy docs
-        let text_options = TextOptions::default()
-            .set_indexing_options(TextFieldIndexing::default()
-                                  .set_tokenizer(token_option.as_str())
-                                  .set_index_option(IndexRecordOption::Basic)
-                                  ).set_stored();
+        // set text_options: originally we wanted TEXT | STORED but we want to switch the tokenizer
+        let text_options = (TEXT | STORED).clone().set_indexing_options(
+            (TEXT | STORED).get_indexing_options()
+            .expect("TEXT | STORED has no indexing options?")
+            .clone()
+            .set_tokenizer(token_option.as_str())
+        );
 
         for (_, attribute) in tupdesc.iter().enumerate() {
             if attribute.is_dropped() {

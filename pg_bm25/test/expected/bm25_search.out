@@ -67,3 +67,4 @@ WHERE mock_items @@@ 'description:earbud';
 ----+-----------------------------+--------+-------------
  12 | Innovative wireless earbuds |      5 | Electronics
 (1 row)
+

@@ -17,4 +17,6 @@ FROM   (SELECT j AS values from temp_json) A;
 
 DROP TABLE temp_json;
 
+SELECT COUNT(*) as num_rows FROM wikipedia_articles;
+
 COMMIT;

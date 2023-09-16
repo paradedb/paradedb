@@ -34,16 +34,25 @@ install_pg_extension() {
   cd "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
 
   # Build and package as a .deb
-  if [ "$PG_EXTENSION_NAME" == "postgis" ]; then
+  if [ "$PG_EXTENSION_NAME" == "pgvector" ]; then
+    # Disable -march=native to avoid "illegal instruction" errors on macOS arm64
+    # TODO: Re-enable this conditionally and ship a separate image for Linux arm64
+    # for people self-hosting ParadeDB on Linux ARM servers (e.g. AWS Graviton) to
+    # get the best performance
+    make OPTFLAGS="" "-j$(nproc)"
+  elif [ "$PG_EXTENSION_NAME" == "postgis" ]; then
     ./autogen.sh
     ./configure
+    make "-j$(nproc)"
   elif [ "$PG_EXTENSION_NAME" == "pgrouting" ]; then
     mkdir build && cd build
     cmake ..
+    make "-j$(nproc)"
   elif [ "$PG_EXTENSION_NAME" == "citus" ]; then
     ./configure
+    make "-j$(nproc)"
   fi
-  make "-j$(nproc)" && checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
+  checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 
 

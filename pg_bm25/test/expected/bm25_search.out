@@ -63,7 +63,7 @@ WHERE mock_items @@@ 'description:keyboard';
 SELECT *
 FROM paradedb.mock_items
 WHERE mock_items @@@ 'description:earbud';
- id |         description         | rating |  category
+ id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
  12 | Innovative wireless earbuds |      5 | Electronics
 (1 row)

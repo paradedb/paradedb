@@ -6,6 +6,7 @@ static mut RELOPT_KIND_PDB: pg_sys::relopt_kind = 0;
 
 // postgres handles string options by placing each option offset bytes from the start of rdopts and
 // plops the offset in the struct
+#[repr(C)]
 pub struct ParadeOptions {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,

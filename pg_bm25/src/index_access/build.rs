@@ -42,14 +42,13 @@ pub extern "C" fn ambuild(
     let index_name = index_relation.name().to_string();
     let table_name = heap_relation.name().to_string();
     let schema_name = heap_relation.namespace().to_string();
-    // TODO: do something with the options
-    // log the options
+
+    // rdopts are passed on to create_parade_index
     let rdopts : PgBox<ParadeOptions>;
     if !index_relation.rd_options.is_null() {
         rdopts = unsafe { PgBox::from_pg(index_relation.rd_options as *mut ParadeOptions) };
         let token_option = rdopts.get_tokenizer();
         info!("token option: {}", token_option);
-        // info!("dummy: {}", rdopts.get_dummy());
     } else {
         info!("index relation has no options");
         let ops = unsafe { PgBox::<ParadeOptions>::alloc0() };

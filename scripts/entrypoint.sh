@@ -10,17 +10,19 @@ POSTHOG_API_KEY="phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj"
 POSTHOG_ENDPOINT="https://app.posthog.com/api/event/"
 
 # Event data (you can adjust this as needed)
-EVENT_NAME="user signed up"
-DISTINCT_ID="distinct_id_of_the_user"
+# need to install uuidgen in the dockerfile!
+DISTINCT_ID=$(uuidgen)
 COMMIT_SHA="testcommitsha123"  # Example of fetching the latest git commit SHA
 
 # curl
 curl -v -L --header "Content-Type: application/json" -d '{
     "api_key": "'$POSTHOG_API_KEY'",
     "event": "ParadeDB Deployment",
-    "distinct_id": "'$DISTINCT_ID'"
+    "distinct_id": "'$DISTINCT_ID'",
+    "properties": {
+            "commit_sha": "'$COMMIT_SHA'"
+        }
 }' https://app.posthog.com/capture/
-
 
 exit 1
 

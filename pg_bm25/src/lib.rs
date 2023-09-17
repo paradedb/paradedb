@@ -24,7 +24,7 @@ pub unsafe extern "C" fn _PG_init() {
     // Retrieve the API key from the environment variable
     if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
         let client = posthog_rs::client(api_key.as_str());
-        let mut event = Event::new("user signed up", &user_uuid);
+        let mut event = Event::new("pg_bm25 Deployment", &user_uuid);
 
         if let Ok(commit_sha) = env::var("COMMIT_SHA") {
             event.insert_prop("commit_sha", &commit_sha).unwrap();

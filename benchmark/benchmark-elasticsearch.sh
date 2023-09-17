@@ -1,8 +1,11 @@
 #!/bin/bash
 
+# Prepare
+OUTPUT_CSV=out/benchmark_elasticsearch.csv
+echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
+TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000)
+
 # 1. Download and run docker container for Elasticsearch
-# Follow instructions for using the Elasticsearch docker container:
-# https://www.elastic.co/guide/en/elasticsearch/reference/current/docker.html
 echo "Creating Elasticsearch node..."
 docker network create elastic
 docker pull docker.elastic.co/elasticsearch/elasticsearch:8.9.2
@@ -26,30 +29,43 @@ docker cp es01:/usr/share/elasticsearch/config/certs/http_ca.crt .
 # 2. Convert data to be consumed by Elasticsearch
 echo "Converting data to bulk format consumable by Elasticsearch..."
 WIKI_ARTICLES_FILE=wiki-articles.json
-ELASTIC_BULK_FOLDER=elastic_bulk_output
-# python3 elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER
+ELASTIC_BULK_FOLDER=out/elastic_bulk_output
 
-# 3. Load data into Elasticsearch node
-echo "Creating wikipedia_articles index..."
-curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X PUT https://localhost:9200/wikipedia_articles
+for SIZE in "${TABLE_SIZES[@]}"; do
+    # TODO: Adjust the elastify-data.py script to output data for the specific SIZE into a folder
+    python3 elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER $SIZE
 
-echo "Loading data into wikipedia_articles index..."
-INDEX_START_TIME=$SECONDS
-for data_filename in $ELASTIC_BULK_FOLDER/*; do curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X POST -H "Content-Type:application/json" "https://localhost:9200/wikipedia_articles/_bulk" --data-binary @$data_filename; done > bulk_load_elasticsearch.txt
-INDEXING_TIME=$(($SECONDS - $INDEX_START_TIME))
-echo "Indexing time: $((INDEXING_TIME / 60)):$((INDEXING_TIME % 60))"
+    # 3. Clear the old index
+    # 4. Load data into Elasticsearch node
+    curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X DELETE https://localhost:9200/wikipedia_articles
 
-# 4. Run and time search (TODO: does this already only return the top 10?)
-echo "Time search query..."
-time curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X GET "https://localhost:9200/wikipedia_articles/_search?pretty" -H 'Content-Type: application/json' -d' 
-{ "query": { 
-	"query_string": {
-      "query": "america"
-    } 
-} }
-' > search_output_elasticsearch.txt
+    echo "Loading data of size $SIZE into wikipedia_articles index..."
+    start_time=$( (time for data_filename in $(find $ELASTIC_BULK_FOLDER -type f -name "${SIZE}_*.json"); do
+        curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X POST -H "Content-Type:application/json" "https://localhost:9200/wikipedia_articles/_bulk" --data-binary @$data_filename; 
+    done > bulk_load_elasticsearch.txt) 2>&1 )
+    index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
-# 4. Destroy 
+    curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X POST "https://localhost:9200/wikipedia_articles/_refresh"
+
+    # 4. Run and time search
+    echo "Time search query for size $SIZE..."
+    start_time=$( (time curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X GET "https://localhost:9200/wikipedia_articles/_search?pretty" -H 'Content-Type: application/json' -d' 
+    { "query": { 
+        "query_string": {
+            "query": "Canada"
+        } 
+    } }
+    ' > search_output_elasticsearch.txt) 2>&1 )
+    search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
+
+    doc_count=$(curl --silent --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD "https://localhost:9200/_cat/count/wikipedia_articles?format=json" | jq '.[0].count')
+    echo "Number of documents in wikipedia_articles index for size $SIZE: $doc_count"
+
+    # Record times to CSV
+    echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
+done
+
+# 5. Destroy 
 echo "Destroying container..."
 docker kill es01
 docker rm es01

@@ -28,9 +28,7 @@ vector database on top.
 ## Key Benefits
 
 - ⚡ **Speed**: ParadeDB is built in Rust on top of PostgreSQL and Tantivy,
-  a Rust-based implementation of Apache Lucene. On average, ParadeDB queries are
-  2x faster than ElasticSearch. See our [benchmarks](https://github.com/paradedb/paradedb/tree/dev/benchmarks/README.md)
-  (coming soon!).
+  a Rust-based implementation of Apache Lucene.
 
 - 🌿 **Simplicity**: Consolidate your database and search engine
   into a single system, so you don't need to worry about keeping separate services

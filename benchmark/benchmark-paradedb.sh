@@ -25,7 +25,7 @@ WIKI_ARTICLES_FILE=wiki-articles.json
 load_data localhost $PORT mydatabase myuser mypassword $WIKI_ARTICLES_FILE
 
 # Output file for recording times
-OUTPUT_CSV=times.csv
+OUTPUT_CSV=out/benchmark_paradedb.csv
 echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 
 # Table sizes to be processed
@@ -58,5 +58,5 @@ done
 
 # 5. Destroy db
 echo "Destroying container..."
-docker kill paradedb
+# docker kill paradedb
 # docker rm paradedb

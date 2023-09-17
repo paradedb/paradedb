@@ -1,4 +1,7 @@
 *.json
+*.csv
 *.bz2
 *.txt
 *.crt
+
+out/

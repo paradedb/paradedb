@@ -13,7 +13,7 @@ INSERT INTO wikipedia_articles ("url", "title", "body")
 SELECT values->>'url' AS url,
        values->>'title' AS title,
        values->>'body' AS body
-FROM   (SELECT j AS values from temp_json) A;
+FROM   (SELECT j AS values from temp_json LIMIT 2000000) A;
 
 DROP TABLE temp_json;
 

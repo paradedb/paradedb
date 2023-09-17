@@ -17,14 +17,21 @@ extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
-    let client = posthog_rs::client("phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj");
-    let mut event = Event::new("user signed up", "distinct_id_of_the_user");
-    if let Ok(commit_sha) = env::var("COMMIT_SHA") {
-        event.insert_prop("commit_sha", &commit_sha).unwrap();
+    // Retrieve the API key from the environment variable
+    if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
+        let client = posthog_rs::client(api_key.as_str());
+        let mut event = Event::new("user signed up", "distinct_id_of_the_user");
+        
+        if let Ok(commit_sha) = env::var("COMMIT_SHA") {
+            event.insert_prop("commit_sha", &commit_sha).unwrap();
+        } else {
+            eprintln!("Failed to retrieve COMMIT_SHA from environment variables!");
+        }
+
+        client.capture(event).unwrap();
     } else {
-        eprintln!("Failed to retrieve COMMIT_SHA from environment variables!");
+        eprintln!("Failed to retrieve POSTHOG_API_KEY from environment variables!");
     }
-    client.capture(event).unwrap();
 }
 
 /// This module is required by `cargo pgrx test` invocations.

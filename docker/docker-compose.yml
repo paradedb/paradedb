@@ -14,7 +14,6 @@ services:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: mydatabase
-      POSTHOG_API_KEY: phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj
     ports:
       - "5432:5432"
       - "9700:9700"

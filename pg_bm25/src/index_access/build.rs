@@ -44,13 +44,12 @@ pub extern "C" fn ambuild(
     let schema_name = heap_relation.namespace().to_string();
 
     // rdopts are passed on to create_parade_index
-    let rdopts: PgBox<ParadeOptions>;
-    if !index_relation.rd_options.is_null() {
-        rdopts = unsafe { PgBox::from_pg(index_relation.rd_options as *mut ParadeOptions) };
+    let rdopts: PgBox<ParadeOptions> = if !index_relation.rd_options.is_null() {
+        unsafe { PgBox::from_pg(index_relation.rd_options as *mut ParadeOptions) }
     } else {
         let ops = unsafe { PgBox::<ParadeOptions>::alloc0() };
-        rdopts = ops.into_pg_boxed();
-    }
+        ops.into_pg_boxed()
+    };
 
     // Create ParadeDB Index
     let mut parade_index = create_parade_index(

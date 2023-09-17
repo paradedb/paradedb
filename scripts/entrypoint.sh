@@ -3,6 +3,30 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
+
+
+# Variables
+POSTHOG_API_KEY="phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj"
+POSTHOG_ENDPOINT="https://app.posthog.com/api/event/"
+
+# Event data (you can adjust this as needed)
+EVENT_NAME="user signed up"
+DISTINCT_ID="distinct_id_of_the_user"
+COMMIT_SHA="testcommitsha123"  # Example of fetching the latest git commit SHA
+
+# curl
+curl -v -L --header "Content-Type: application/json" -d '{
+    "api_key": "'$POSTHOG_API_KEY'",
+    "event": "ParadeDB Deployment",
+    "distinct_id": "'$DISTINCT_ID'"
+}' https://app.posthog.com/capture/
+
+
+exit 1
+
+
+
+
 # Determine the PostgreSQL major version
 POSTGRES_VERSION_FULL=$(pg_config --version)
 POSTGRES_VERSION_MAJOR=$(echo "$POSTGRES_VERSION_FULL" | awk '{print $2}' | cut -d '.' -f1)
@@ -77,6 +101,17 @@ echo "PostgreSQL extensions installed - tailing server..."
 
 # Trap SIGINT and SIGTERM signals, stop PostgreSQL, and gracefully shut down
 trap "service postgresql stop; echo 'PostgreSQL server has stopped - exiting...'; exit 0" SIGINT SIGTERM
+
+
+
+
+
+
+
+
+
+
+
 
 # Keep the container running
 tail -f /dev/null

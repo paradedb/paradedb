@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 # TODO: simplify these functions down further (they're still repetitive)
 db_query () {
   HOST=$1

@@ -41,7 +41,10 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   python3 elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER $SIZE
 
   # 3. Clear the old index
-  curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X DELETE https://localhost:9200/wikipedia_articles
+  INDEX_STATUS=$(curl -o /dev/null -sw '%{http_code}' --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD "https://localhost:9200/wikipedia_articles")
+  if [ "$INDEX_STATUS" == "200" ]; then
+    curl --cacert http_ca.crt -u elastic:$ELASTIC_PASSWORD -X DELETE https://localhost:9200/wikipedia_articles
+  fi
 
   # 4. Load data into Elasticsearch node
   echo "Loading data of size $SIZE into wikipedia_articles index..."

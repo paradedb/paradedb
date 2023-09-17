@@ -1,63 +1,72 @@
+-- this is needed to ensure consistency of printouts with postgres versions older than 12. Can be
+-- deleted if we drop support for postgres 11.
+ALTER SYSTEM SET extra_float_digits TO 0;
+select pg_reload_conf();
+ pg_reload_conf 
+----------------
+ t
+(1 row)
+
 CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
 CREATE INDEX ON mock_items USING hnsw (embedding vector_l2_ops);
 WITH query AS (
-    SELECT 
+    SELECT
         ctid,
         paradedb.l2_normalized_bm25(ctid, 'idx_mock_items', 'keyboard') as bm25,
         ('[1,2,3]' <-> embedding) / paradedb.l2_norm('[1,2,3]' <-> embedding) OVER () as hnsw
     FROM
-        mock_items 
+        mock_items
 )
-SELECT 
+SELECT
     mock_items.description,
     mock_items.category,
     mock_items.rating,
-    paradedb.weighted_mean(query.bm25, query.hnsw, ARRAY[0.8, 0.2]) as score_hybrid 
+    paradedb.weighted_mean(query.bm25, query.hnsw, ARRAY[0.8, 0.2]) as score_hybrid
 FROM mock_items
 JOIN query ON mock_items.ctid = query.ctid
 ORDER BY score_hybrid DESC;
-         description         |  category   | rating |     score_hybrid     
------------------------------+-------------+--------+----------------------
- Plastic Keyboard            | Electronics |      4 |   0.7371819661243477
- Ergonomic metal keyboard    | Electronics |      4 |      0.6107116173495
- Compact digital camera      | Photography |      5 |  0.30735498147825496
- High-resolution DSLR        | Photography |      4 |  0.30735498147825496
- Portable tripod stand       | Photography |      4 |  0.30735498147825496
- Lightweight camera bag      | Photography |      5 |  0.30735498147825496
- Hardcover book on history   | Books       |      2 |  0.29125175743143006
- Mystery detective novel     | Books       |      2 |  0.29125175743143006
- Paperback romantic novel    | Books       |      3 |  0.29125175743143006
- Historical fiction book     | Books       |      3 |  0.29125175743143006
- Refreshing face wash        | Beauty      |      2 |  0.26344712698136136
- Moisturizing lip balm       | Beauty      |      4 |  0.26344712698136136
- Generic shoes               | Footwear    |      4 |  0.26344712698136136
- Anti-aging serum            | Beauty      |      4 |  0.26344712698136136
- Freshly ground coffee beans | Groceries   |      5 |  0.23095141912040812
- Pure honey jar              | Groceries   |      4 |  0.23095141912040812
- Organic breakfast cereal    | Groceries   |      5 |  0.23095141912040812
- Organic green tea           | Groceries   |      3 |  0.23095141912040812
- Classic leather sofa        | Furniture   |      5 |   0.2195392724844678
- Elegant glass table         | Furniture   |      3 |   0.2195392724844678
- Rustic bookshelf            | Furniture   |      4 |   0.2195392724844678
- White jogging shoes         | Footwear    |      3 |   0.2195392724844678
- Sturdy hiking boots         | Footwear    |      4 |  0.17563141798757426
- Comfortable slippers        | Footwear    |      3 |  0.17563141798757426
- Sleek running shoes         | Footwear    |      5 |  0.17563141798757426
- Winter woolen socks         | Footwear    |      5 |  0.17563141798757426
- Fast charging power bank    | Electronics |      4 |  0.13172356349068068
- Bluetooth-enabled speaker   | Electronics |      3 |  0.13172356349068068
- Innovative wireless earbuds | Electronics |      5 |  0.13172356349068068
- Soft cotton shirt           | Apparel     |      5 |  0.08781570899378713
- Slim-fit denim jeans        | Apparel     |      5 |  0.08781570899378713
- Warm woolen sweater         | Apparel     |      3 |  0.08781570899378713
- Sporty tank top             | Apparel     |      4 |  0.08781570899378713
- Robot building kit          | Toys        |      4 | 0.043907854496893564
- Plush teddy bear            | Toys        |      4 | 0.043907854496893564
- Interactive board game      | Toys        |      3 | 0.043907854496893564
- Colorful kids toy           | Toys        |      1 | 0.043907854496893564
- Designer wall paintings     | Home Decor  |      5 |                    0
- Artistic ceramic vase       | Home Decor  |      4 |                    0
- Handcrafted wooden frame    | Home Decor  |      5 |                    0
- Modern wall clock           | Home Decor  |      4 |                    0
+         description         |  category   | rating |    score_hybrid    
+-----------------------------+-------------+--------+--------------------
+ Plastic Keyboard            | Electronics |      4 |  0.737181966124348
+ Ergonomic metal keyboard    | Electronics |      4 |    0.6107116173495
+ Compact digital camera      | Photography |      5 |  0.307354981478255
+ High-resolution DSLR        | Photography |      4 |  0.307354981478255
+ Portable tripod stand       | Photography |      4 |  0.307354981478255
+ Lightweight camera bag      | Photography |      5 |  0.307354981478255
+ Hardcover book on history   | Books       |      2 |   0.29125175743143
+ Mystery detective novel     | Books       |      2 |   0.29125175743143
+ Paperback romantic novel    | Books       |      3 |   0.29125175743143
+ Historical fiction book     | Books       |      3 |   0.29125175743143
+ Refreshing face wash        | Beauty      |      2 |  0.263447126981361
+ Moisturizing lip balm       | Beauty      |      4 |  0.263447126981361
+ Generic shoes               | Footwear    |      4 |  0.263447126981361
+ Anti-aging serum            | Beauty      |      4 |  0.263447126981361
+ Freshly ground coffee beans | Groceries   |      5 |  0.230951419120408
+ Pure honey jar              | Groceries   |      4 |  0.230951419120408
+ Organic breakfast cereal    | Groceries   |      5 |  0.230951419120408
+ Organic green tea           | Groceries   |      3 |  0.230951419120408
+ Classic leather sofa        | Furniture   |      5 |  0.219539272484468
+ Elegant glass table         | Furniture   |      3 |  0.219539272484468
+ Rustic bookshelf            | Furniture   |      4 |  0.219539272484468
+ White jogging shoes         | Footwear    |      3 |  0.219539272484468
+ Sturdy hiking boots         | Footwear    |      4 |  0.175631417987574
+ Comfortable slippers        | Footwear    |      3 |  0.175631417987574
+ Sleek running shoes         | Footwear    |      5 |  0.175631417987574
+ Winter woolen socks         | Footwear    |      5 |  0.175631417987574
+ Fast charging power bank    | Electronics |      4 |  0.131723563490681
+ Bluetooth-enabled speaker   | Electronics |      3 |  0.131723563490681
+ Innovative wireless earbuds | Electronics |      5 |  0.131723563490681
+ Soft cotton shirt           | Apparel     |      5 | 0.0878157089937871
+ Slim-fit denim jeans        | Apparel     |      5 | 0.0878157089937871
+ Warm woolen sweater         | Apparel     |      3 | 0.0878157089937871
+ Sporty tank top             | Apparel     |      4 | 0.0878157089937871
+ Robot building kit          | Toys        |      4 | 0.0439078544968936
+ Plush teddy bear            | Toys        |      4 | 0.0439078544968936
+ Interactive board game      | Toys        |      3 | 0.0439078544968936
+ Colorful kids toy           | Toys        |      1 | 0.0439078544968936
+ Designer wall paintings     | Home Decor  |      5 |                  0
+ Artistic ceramic vase       | Home Decor  |      4 |                  0
+ Handcrafted wooden frame    | Home Decor  |      5 |                  0
+ Modern wall clock           | Home Decor  |      4 |                  0
 (41 rows)
 

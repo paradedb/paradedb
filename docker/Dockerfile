@@ -242,13 +242,21 @@ WORKDIR /usr/src/app
 
 COPY --from=builder-pgml /tmp/postgresml/pgml-extension/requirements.txt /usr/src/app/
 
-# Install postgis & pgml runtime dependencies
+# Install postgis, pgml, patroni & Crunchy operator runtime dependencies
 RUN apt-get update && apt-fast install -y --no-install-recommends \
+    # postgis
     libgeos-c1v5 \
     libproj-dev \
     libprotobuf-c1 \
+    # Crunchy operator
+    libnss-wrapper \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
-    pip3 install --no-cache-dir -r requirements.txt && rm -rf requirements.txt
+    # pgml
+    pip3 install --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
+    # patroni
+    pip3 install --no-cache-dir patroni[etcd3] psycopg[binary]>=3.0.0 && \
+    # Crunchy operator
+    cp /usr/lib/x86_64-linux-gnu/libnss_wrapper.so /usr/lib64/
 
 # Copy & install the non-pgrx extensions from their builder stage
 COPY --from=builder-others /tmp/*.deb /tmp/

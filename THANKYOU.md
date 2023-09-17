@@ -53,3 +53,16 @@ ParadeDB uses Docker to develop, package, and deploy our software.
 [Kubernetes](https://kubernetes.io), also known as K8s, is an open-source system
 for automating deployment, scaling, and management of containerized applications.
 ParadeDB uses Kubernetes to deploy our software.
+
+## Patroni
+
+[Patroni](https://github.com/zalando/patroni) is a template for high availability
+(HA) PostgreSQL solutions. ParadeDB uses Patroni to enable high availability within
+our PostgreSQL clusters.
+
+## PGO
+
+[PGO](https://github.com/CrunchyData/postgres-operator) is a PostgreSQL Operator
+for production-grade PostgreSQL clusters on Kubernetes. It enables features like
+high availability, disaster recovery, and monitoring. ParadeDB uses PGO to manage
+our PostgreSQL clusters.

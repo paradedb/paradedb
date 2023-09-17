@@ -1,4 +1,5 @@
 use pgrx::prelude::*;
+use std::env;
 use posthog_rs::Event;
 
 mod api;
@@ -11,7 +12,12 @@ extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
     let client = posthog_rs::client("phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj");
-    let event = Event::new("user signed up", "distinct_id_of_the_user");
+    let mut event = Event::new("user signed up", "distinct_id_of_the_user");
+    if let Ok(commit_sha) = env::var("COMMIT_SHA") {
+        event.insert_prop("commit_sha", &commit_sha).unwrap();
+    } else {
+        eprintln!("Failed to retrieve COMMIT_SHA from environment variables!");
+    }
     client.capture(event).unwrap();
 }
 

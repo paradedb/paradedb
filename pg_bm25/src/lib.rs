@@ -1,4 +1,5 @@
 use pgrx::*;
+use posthog_rs::Event;
 
 mod api;
 mod index_access;
@@ -11,6 +12,14 @@ pgrx::pg_module_magic!();
 
 extension_sql_file!("../sql/_bootstrap.sql", bootstrap);
 extension_sql_file!("../sql/_bootstrap_quickstart.sql");
+
+#[allow(non_snake_case)]
+#[pg_guard]
+pub unsafe extern "C" fn _PG_init() {
+    let client = posthog_rs::client("phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj");
+    let event = Event::new("user signed up", "distinct_id_of_the_user");
+    client.capture(event).unwrap();
+}
 
 /// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.

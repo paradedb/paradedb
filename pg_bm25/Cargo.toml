@@ -20,6 +20,7 @@ pg_test = []
 [dependencies]
 csv = "1.2.2"
 pgrx = "=0.9.8"
+posthog-rs = "0.2.2"
 rustc-hash = "1.1.0"
 serde = "1.0.188"
 serde_json = "1.0.105"

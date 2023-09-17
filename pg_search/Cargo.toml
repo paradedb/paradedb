@@ -19,6 +19,7 @@ pg_test = []
 
 [dependencies]
 pgrx = "=0.9.8"
+posthog-rs = "0.2.2"
 serde = "1.0.188"
 
 [dev-dependencies]

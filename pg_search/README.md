@@ -37,7 +37,7 @@ pgrx):
 
 Note that you need to run this script every time you'd like to update these dependencies.
 
-Then, start pgrx``:
+Then, start pgrx:
 
 ```bash
 cargo pgrx run

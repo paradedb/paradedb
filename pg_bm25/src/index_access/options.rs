@@ -39,8 +39,7 @@ extern "C" fn validate_tokenizer(value: *const std::os::raw::c_char) {
         .to_str()
         .expect("failed to convert tokenizer to utf-8");
 
-    // TODO: not hardcode this
-    if !["default", "raw", "en_stem"].contains(&value) {
+    if !["default", "raw", "en_stem", "whitespace"].contains(&value) {
         panic!("invalid tokenizer: {}", value);
     }
 }

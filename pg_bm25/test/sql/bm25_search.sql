@@ -23,7 +23,11 @@ WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2'
 SELECT *
 FROM paradedb.mock_items
 WHERE mock_items @@@ 'description:keyboard';
--- Test search with stem tokenizer: this should have results even though no description contains exactly the word "earbud"
+-- Test search with default tokenizer: no results
 SELECT *
 FROM paradedb.mock_items
 WHERE mock_items @@@ 'description:earbud';
+-- Test search with stem tokenizer: includes "earbuds"
+SELECT *
+FROM token_items
+WHERE token_items @@@ 'description:earbud';

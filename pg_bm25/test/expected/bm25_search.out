@@ -59,10 +59,18 @@ WHERE mock_items @@@ 'description:keyboard';
   1 | Ergonomic metal keyboard |      4 | Electronics
 (2 rows)
 
--- Test search with stem tokenizer: this should have results even though no description contains exactly the word "earbud"
+-- Test search with default tokenizer: no results
 SELECT *
 FROM paradedb.mock_items
 WHERE mock_items @@@ 'description:earbud';
+ id | description | rating | category 
+----+-------------+--------+----------
+(0 rows)
+
+-- Test search with stem tokenizer: includes "earbuds"
+SELECT *
+FROM token_items
+WHERE token_items @@@ 'description:earbud';
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
  12 | Innovative wireless earbuds |      5 | Electronics

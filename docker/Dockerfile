@@ -238,6 +238,8 @@ RUN curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERS
 
 FROM base as paradedb
 
+ARG TARGETARCH
+
 WORKDIR /usr/src/app
 
 COPY --from=builder-pgml /tmp/postgresml/pgml-extension/requirements.txt /usr/src/app/
@@ -256,7 +258,14 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     # patroni
     pip3 install --no-cache-dir patroni[etcd3] psycopg[binary]>=3.0.0 && \
     # Crunchy operator
-    cp /usr/lib/x86_64-linux-gnu/libnss_wrapper.so /usr/lib64/
+    if [ "$TARGETARCH" == "amd64" ]; then \
+        cp /usr/lib/x86_64-linux-gnu/libnss_wrapper.so /usr/lib64/; \
+    elif [ "$TARGETARCH" == "arm64" ]; then \
+        cp /usr/lib/aarch64-linux-gnu/libnss_wrapper.so /usr/lib64/; \
+    else \
+        echo "Unsupported architecture"; \
+        exit 1; \
+    fi
 
 # Copy & install the non-pgrx extensions from their builder stage
 COPY --from=builder-others /tmp/*.deb /tmp/

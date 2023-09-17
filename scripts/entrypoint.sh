@@ -5,14 +5,10 @@ set -Eeuo pipefail
 
 
 
-# Variables
-POSTHOG_API_KEY="phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj"
-POSTHOG_ENDPOINT="https://app.posthog.com/api/event/"
 
 # Event data (you can adjust this as needed)
 # need to install uuidgen in the dockerfile!
 DISTINCT_ID=$(uuidgen)
-COMMIT_SHA="testcommitsha123"  # Example of fetching the latest git commit SHA
 
 # curl
 curl -v -L --header "Content-Type: application/json" -d '{
@@ -22,7 +18,7 @@ curl -v -L --header "Content-Type: application/json" -d '{
     "properties": {
             "commit_sha": "'$COMMIT_SHA'"
         }
-}' https://app.posthog.com/capture/
+}' $POSTHOG_ENDPOINT/capture/
 
 exit 1
 

@@ -1,4 +1,4 @@
-## ParadeDB Benchmarking Tool
+# ParadeDB Benchmarking Tool
 
 This folder contains scripts that benchmark ParadeDB against other search engines and databases.
 

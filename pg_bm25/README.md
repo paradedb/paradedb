@@ -19,10 +19,10 @@ for full text search. It is built in Rust using `pgrx` and supported on PostgreS
 - [x] Highlighting
 - [x] Boosted queries
 - [x] Filtering
-- [] Faceting/aggregations
-- [] Autocomplete
-- [] Fuzzy queries
-- [] Custom tokenizers
+- [ ] Faceting/aggregations
+- [ ] Autocomplete
+- [ ] Fuzzy queries
+- [ ] Custom tokenizers
 
 ## Usage
 
@@ -116,9 +116,9 @@ On a table with 1 million rows, `pg_bm25` indexes 50 seconds faster than `tsvect
 results 20x faster. Indexing and search times are nearly identical to those of a dedicated ElasticSearch
 instance.
 
-<img src="../docs/images/bm25_index_benchmark.png" alt="" width="500px">
+<img src="../docs/images/bm25_index_benchmark.png" alt="" width="100%">
 
-<img src="../docs/images/bm25_search_benchmark.png" alt="" width="500px">
+<img src="../docs/images/bm25_search_benchmark.png" alt="" width="100%">
 
 ## Development
 

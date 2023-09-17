@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
+# Ensure the "out" directory exists
+mkdir -p out
+
 source "get_data.sh"
 
 PORT=5431

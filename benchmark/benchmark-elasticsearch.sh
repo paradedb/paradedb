@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
+# Ensure the "out" directory exists
+mkdir -p out
+
 # Prepare
 OUTPUT_CSV=out/benchmark_elasticsearch.csv
 echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV

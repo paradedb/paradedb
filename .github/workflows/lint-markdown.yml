@@ -8,14 +8,11 @@ name: Linting
 on:
   pull_request:
     paths:
-      - "**.md"
-      - "**/**.md"
-      - ".github/**/**.md"
+      - "**/*.md"
+      - "**/*.mdx"
       - ".github/workflows/lint-markdown.yml"
   workflow_dispatch:
 
-# This guarantees that if you push many commits to the same PR, only the latest
-# commit will get run (others get cancelled)
 concurrency:
   group: lint-markdown-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
@@ -27,7 +24,7 @@ jobs:
 
     steps:
       - name: Checkout Git Repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up NodeJS Environment
         uses: actions/setup-node@v3

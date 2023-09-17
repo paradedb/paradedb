@@ -1,11 +1,11 @@
-**Ticket(s) Closed**
+# Ticket(s) Closed
 
 - Closes #
 
-**What**
+## What
 
-**Why**
+## Why
 
-**How**
+## How
 
-**Tests**
+## Tests

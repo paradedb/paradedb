@@ -1,0 +1,6 @@
+comment = 'pg_bm25: PostgreSQL-native, full text search using BM25'
+default_version = '@CARGO_VERSION@'
+module_pathname = '$libdir/pg_bm25'
+relocatable = false
+superuser = true
+schema = paradedb

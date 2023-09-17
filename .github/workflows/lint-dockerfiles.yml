@@ -1,0 +1,32 @@
+# workflows/lint-dockerfiles.yml
+#
+# Linting: Dockerfiles
+# Lint Dockerfiles using Hadolint.
+
+name: Linting
+
+on:
+  pull_request:
+    paths:
+      - "docker/*"
+      - ".github/workflows/lint-dockerfiles.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lint-dockerfiles-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  lint-dockerfiles:
+    name: Lint Dockerfiles
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Run Hadolint
+        uses: jbergstroem/hadolint-gh-action@v1
+        with:
+          dockerfile: "**/Dockerfile*"
+          error_level: 2 # Treat INFO as error

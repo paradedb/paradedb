@@ -1,9 +1,9 @@
 {
   "$schema": "https://mintlify.com/schema.json",
-  "name": "Retake",
+  "name": "ParadeDB",
   "logo": {
-    "dark": "/logo/primary.svg",
-    "light": "/logo/primary.svg"
+    "dark": "/logo/docs.svg",
+    "light": "/logo/docs.svg"
   },
   "favicon": "/favicon.png",
   "colors": {
@@ -17,84 +17,38 @@
   },
   "topbarCtaButton": {
     "type": "github",
-    "url": "https://github.com/getretake/retake"
+    "url": "https://github.com/paradedb/paradedb"
   },
   "anchors": [
     {
-      "name": "How to Search",
-      "icon": "magnifying-glass",
-      "url": "search"
-    },
-    {
-      "name": "Python Client",
-      "icon": "python",
-      "url": "python"
-    },
-    {
-      "name": "Typescript Client",
-      "icon": "js",
-      "url": "typescript"
+      "name": "Blog",
+      "icon": "rss",
+      "url": "blog"
     }
   ],
   "navigation": [
     {
-      "group": "Welcome",
+      "group": "Documentation",
       "pages": [
         "introduction",
-        "setup",
         "quickstart",
-        "architecture",
-        "concepts"
+        {
+          "group": "Indexing",
+          "pages": ["indexing/overview", "indexing/bm25", "indexing/hnsw"]
+        },
+        {
+          "group": "Search",
+          "pages": ["search/bm25", "search/hnsw", "search/hybrid"]
+        }
       ]
     },
     {
-      "group": "How to Search",
-      "pages": [
-        "search/overview",
-        "search/keyword",
-        "search/neural",
-        "search/vector",
-        "search/sorting",
-        "search/filtering",
-        "search/aggregation",
-        "search/pagination",
-        "search/highlighting",
-        "search/boosting",
-        "search/object",
-        "search/custom"
-      ]
-    },
-    {
-      "group": "Deployment",
-      "pages": ["deployment/local", "deployment/cloud", "deployment/managed"]
-    },
-    {
-      "group": "Product",
-      "pages": ["product/roadmap", "product/changelog"]
-    },
-    {
-      "group": "Python",
-      "pages": [
-        "python/client",
-        "python/index",
-        "python/search",
-        "python/database",
-        "python/table"
-      ]
-    },
-    {
-      "group": "Typescript",
-      "pages": [
-        "typescript/client",
-        "typescript/index",
-        "typescript/search",
-        "typescript/database",
-        "typescript/table"
-      ]
+      "group": "Blog",
+      "pages": ["blog/introducing_paradedb"]
     }
   ],
   "footerSocials": {
-    "github": "https://github.com/getretake/retake"
+    "github": "https://github.com/paradedb/paradedb"
   },
   "backgroundImage": "/background.png",
   "integrations": {

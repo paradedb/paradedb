@@ -1,9 +1,9 @@
-# Order is important. The last matching pattern has the most precedence. In each subsection folders are ordered first by depth, then alphabetically
+# Order is important. The last matching pattern has the most precedence.
 
 /.github/                                                      @philippemnoel
-/api/                                                          @rebasedming
-/assets/                                                       @rebasedming @philippemnoel
-/clients/                                                      @rebasedming
-/core/                                                         @rebasedming
+/conf/                                                         @philippemnoel
+/docker/                                                       @philippemnoel
 /docs/                                                         @rebasedming
-/examples/                                                     @rebasedming
+/pg_bm25/                                                      @rebasedming @mauaraujo
+/pg_search/                                                    @rebasedming @mauaraujo
+/scripts/                                                      @philippemnoel

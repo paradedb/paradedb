@@ -1,0 +1,52 @@
+-- Basic search query
+SELECT *
+FROM products
+WHERE products @@@ 'description:keyboard OR category:electronics OR rating>2';
+ id |         description         | rating |  category   |  col_text   | col_varchar | col_smallint | col_bigint | col_integer | col_oid | col_float4 | col_float8 | col_numeric | col_decimal | col_real | col_double | col_bool |     col_json     |    col_jsonb     
+----+-----------------------------+--------+-------------+-------------+-------------+--------------+------------+-------------+---------+------------+------------+-------------+-------------+----------+------------+----------+------------------+------------------
+  2 | Plastic Keyboard            |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+  1 | Ergonomic metal keyboard    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ 12 | Innovative wireless earbuds |      5 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ 22 | Fast charging power bank    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+(5 rows)
+
+-- With BM25 scoring
+SELECT paradedb.rank_bm25(ctid), * 
+FROM products 
+WHERE products @@@ 'category:electronics OR description:keyboard';
+ rank_bm25 | id |         description         | rating |  category   |  col_text   | col_varchar | col_smallint | col_bigint | col_integer | col_oid | col_float4 | col_float8 | col_numeric | col_decimal | col_real | col_double | col_bool |     col_json     |    col_jsonb     
+-----------+----+-----------------------------+--------+-------------+-------------+-------------+--------------+------------+-------------+---------+------------+------------+-------------+-------------+----------+------------+----------+------------------+------------------
+ 5.3764954 |  2 | Plastic Keyboard            |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+  4.931014 |  1 | Ergonomic metal keyboard    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ 2.1096356 | 12 | Innovative wireless earbuds |      5 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ 2.1096356 | 22 | Fast charging power bank    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ 2.1096356 | 32 | Bluetooth-enabled speaker   |      3 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+(5 rows)
+
+-- Test real-time search
+INSERT INTO products (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
+DELETE FROM products WHERE id = 1;
+UPDATE products SET description = 'PVC Keyboard' WHERE id = 2;
+SELECT *
+FROM products
+WHERE products @@@ 'description:keyboard OR category:electronics OR rating>2';
+ id |         description         | rating |  category   |  col_text   | col_varchar | col_smallint | col_bigint | col_integer | col_oid | col_float4 | col_float8 | col_numeric | col_decimal | col_real | col_double | col_bool |     col_json     |    col_jsonb     
+----+-----------------------------+--------+-------------+-------------+-------------+--------------+------------+-------------+---------+------------+------------+-------------+-------------+----------+------------+----------+------------------+------------------
+ 42 | New keyboard                |      5 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+  2 | PVC Keyboard                |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ 12 | Innovative wireless earbuds |      5 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ 22 | Fast charging power bank    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+(5 rows)
+
+-- Test search in another namespace/schema
+SELECT *
+FROM paradedb.mock_items
+WHERE mock_items @@@ 'description:keyboard';
+ id |       description        | rating |  category   
+----+--------------------------+--------+-------------
+  2 | Plastic Keyboard         |      4 | Electronics
+  1 | Ergonomic metal keyboard |      4 | Electronics
+(2 rows)
+

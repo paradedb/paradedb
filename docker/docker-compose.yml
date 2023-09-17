@@ -1,43 +1,37 @@
-# This docker-compose.yml file can be used for testing and development.
+#
+# This docker-compose.yml file is for production deployments of the Parade DBMS. It pulls the latest
+# ParadeDB image from Docker Hub, which has all extensions pre-installed, and runs it with all other
+# ParadeDB services, to allow for production use of the ParadeDB system. It is intended for hobby
+# production use. Make sure to change the POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_DB!
+#
 
 version: "3.8"
 
 services:
-  core:
-    extends:
-      file: ./docker-compose.base.yml
-      service: core
-    ports:
-      - 9200:9200
-
-  ml-node:
-    extends:
-      file: ./docker-compose.base.yml
-      service: ml-node
-
-  api:
-    extends:
-      file: ./docker-compose.base.yml
-      service: api
-    depends_on:
-      - ml-node
-    ports:
-      - 8000:8000
+  paradedb:
+    image: paradedb/paradedb:latest
     environment:
-      POSTHOG_API_KEY: phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj
-
-  redis:
-    extends:
-      file: ./docker-compose.base.yml
-      service: redis
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydatabase
     ports:
-      - 6379:6379
+      - "5432:5432"
+      - "9700:9700"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U myuser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  pgsync:
-    extends:
-      file: ./docker-compose.base.yml
-      service: pgsync
+  postgrest:
+    image: postgrest/postgrest:v11.2.0
     depends_on:
-      - ml-node
+      paradedb:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://myuser:mypassword@paradedb:5432/mydatabase
+      PGRST_DB_SCHEMA: public
+      PGRST_DB_ANON_ROLE: anonymous
+      PGRST_JWT_SECRET: paradedb-api-key
     ports:
-      - 7433:7433
+      - "3000:3000"

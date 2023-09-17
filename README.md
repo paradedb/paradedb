@@ -1,178 +1,150 @@
-<p align="center">
-  <img src="assets/retake.svg" alt="Retake" width="125px"></a>
-</p>
-
 <h1 align="center">
-    <b>Retake</b>
+  <img src="docs/logo/readme.svg" alt="ParadeDB" width="368px"></a>
+<br>
 </h1>
 
 <p align="center">
-    <b>The Real-Time Database for AI Data</b> <br />
+    <b>PostgreSQL for Search</b> <br />
 </p>
 
 <h3 align="center">
-  <a href="https://docs.getretake.com">Documentation</a> &bull;
-  <a href="https://getretake.com">Website</a>
+  <a href="https://paradedb.com">Website</a> &bull;
+  <a href="https://docs.paradedb.com">Documentation</a> &bull;
+  <a href="https://paradedb.com/blog">Blog</a> &bull;
+  <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ">Community</a>
 </h3>
 
-<p align="center">
-<a href="https://github.com/getretake/retake/stargazers/" target="_blank">
-    <img src="https://img.shields.io/github/stars/getretake/retake?style=social&label=Star&maxAge=60" alt="Stars">
-</a>
-<a href="https://github.com/getretake/retake/releases" target="_blank">
-    <img src="https://img.shields.io/github/v/release/getretake/retake?color=white" alt="Release">
-</a>
-<a href="https://github.com/getretake/retake/tree/main/LICENSE" target="_blank">
-    <img src="https://img.shields.io/static/v1?label=license&message=Apache-2.0&color=white" alt="License">
-</a>
-</p>
+---
 
-Retake is a real-time database for AI data. By integratating your Postgres data with embedding models,
-Retake enables real-time search over your database.
+[![Publishing](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb-to-dockerhub.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb-to-dockerhub.yml)
 
-Documents in Retake are stored in **real-time indexes**. These indexes stay in sync with Postgres and
-can be queried with keyword search, vector search, or hybrid search — a combination of the two.
+[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL,
+engineered for lightning-fast full text, similarity, and hybrid search.
 
-To get started, run our Docker Compose file:
+It offers the most comprehensive, Postgres-native search features of any Postgres
+database, so you don't need to glue cumbersome services like a search engine or
+vector database on top.
+
+## Key Benefits
+
+- ⚡ **Speed**: ParadeDB is built in Rust on top of PostgreSQL and Tantivy,
+  a Rust-based implementation of Apache Lucene. On average, ParadeDB queries are
+  2x faster than ElasticSearch. See our [benchmarks](https://github.com/paradedb/paradedb/tree/dev/benchmarks/README.md)
+  (coming soon!).
+
+- 🌿 **Simplicity**: Consolidate your database and search engine
+  into a single system, so you don't need to worry about keeping separate services
+  in sync.
+
+- 🐘 **SQL First**: Write search queries in SQL with ACID transactions.
+
+- 🚀 **Scalability**: Scale to millions of rows with support for distributed
+  search, high availability, backups, and point-in-time-recovery (coming soon!).
+
+## Status
+
+ParadeDB is still under active development and is not yet ready to use
+in production. We're aiming to be ready by the end of September 2023.
+
+We are currently in Private Alpha. Star & watch this repo to get notified of
+major updates.
+
+### Roadmap
+
+- [ ] Search
+  - [x] Full-text search with BM25
+  - [ ] Faceted search
+  - [x] Similarity search
+  - [x] Hybrid search
+  - [ ] Distributed search
+  - [x] Real-time search
+  - [ ] Generative search
+  - [ ] Multimodal search
+- [ ] Self-hosting
+  - [x] Docker image & [instructions](TODO)
+  - [ ] Kubernetes Helm chart & [instructions](TODO)
+- [ ] Cloud Database
+  - [ ] Managed cloud
+  - [ ] Self-serve cloud
+  - [ ] Public Cloud (AWS, GCP, Azure) Marketplace Images
+  - [ ] High availability
+- [ ] Web-based SQL Editor
+
+## Installation
+
+### ParadeDB Cloud
+
+Coming soon! Sign up for the [ParadeDB Cloud waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
+
+### Self-Hosted
+
+To install ParadeDB locally or on-premise, simply pull and run the latest Docker
+image:
 
 ```bash
-git clone git@github.com:getretake/retake.git
-cd retake/docker
-docker compose up
+docker run \
+  -e POSTGRES_USER=<user> \
+  -e POSTGRES_PASSWORD=<password> \
+  -e POSTGRES_DB=<dbname> \
+  -p 5432:5432 \
+  paradedb/paradedb:latest
 ```
 
-By default, this will start the Retake engine at `http://localhost:8000` with API key `retake-test-key`.
-
-## Usage
-
-### Python
-
-Install the SDK
+By default, this will start the ParadeDB database at `http://localhost:5432`. Use
+`psql` to connect:
 
 ```bash
-pip install retakesearch
+psql -h <hostname> -U <user> -d <dbname> -p 5432 -W
 ```
 
-The core API is just a few functions.
+To install the ParadeDB extension(s) manually within an existing self-hosted Postgres,
+see the extension(s)' README. We strongly recommend using the ParadeDB Docker image,
+which is optimized for running search in Postgres. If you're self-hosting Postgres
+and are interested in ParadeDB, please [contact the ParadeDB team](mailto:hello@paradedb.com)
+and we'll be happy to help!
 
-```python
-from retakesearch import Client, Index, Database, Table, Search
+## Get Started
 
-client = Client(api_key="retake-test-key", url="http://localhost:8000")
+To get started using ParadeDB, please follow the [quickstart guide](https://docs.paradedb.com/quickstart)!
 
-database = Database(
-    host="***",
-    user="***",
-    password="***",
-    port=5432
-    dbname="***"
-)
+## Documentation
 
-columns = ["column1"]
-table = Table(
-    name="table_name",
-    columns=columns
-)
+You can find the complete documentation for ParadeDB at [docs.paradedb.com](https://docs.paradedb.com).
 
-index = client.create_index("my_index")
-# Note: The table must have a primary key
-index.add_source(database, table)
-index.vectorize({ fieldNames: columns })
+## Support
 
-# Keyword (BM25) search
-query = Search().query("match", column1="my query")
-response = index.search(query)
+If you're missing a feature or have found a bug, please open a
+[GitHub Issue](https://github.com/paradedb/paradedb/issues/new/choose).
 
-# Semantic (vector-based) search
-query = Search().with_semantic("my_query", columns)
-response = index.search(query)
+To get community support, you can:
 
-# Neural (keyword + semantic) search
-query = Search().with_neural("my_query", columns)
-response = index.search(query)
+- Post a question on the [ParadeDB Slack Community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)
+- Ask for help on our [GitHub Discussions](https://github.com/paradedb/paradedb/discussions)
 
-print(response)
-```
-
-### Typescript
-
-Install the SDK
-
-```
-npm install retake-search
-```
-
-The core API is just a few functions.
-
-```typescript
-import { Client, Database, Table, Search } from "retake-search"
-import { withSemantic, withNeural, matchQuery } from "retake-search/helpers"
-
-const client = new Client("retake-test-key", "http://localhost:8000")
-
-// Replace with your database credentials
-const columns = ["column_to_search"]
-const database = new Database({
-  host: "***",
-  user: "***",
-  password: "***",
-  dbName: "***",
-  port: 5432,
-})
-const table = new Table({
-  table: "table_name",
-  columns: columns,
-})
-
-const index = await client.createIndex("table_name")
-
-// Note: The table must have a primary key
-await index.addSource(database, table)
-await index.vectorize({ fieldNames: columns })
-
-// Keyword (BM25) search
-const bm25Query = Search().query(matchQuery("column_to_search", "my query"))
-index.search(bm25Query)
-
-// Semantic (vector-based) search
-const semanticQuery = Search().query(withSemantic("my query", columns))
-index.search(semanticQuery)
-
-// Neural (keyword + semantic) search
-const neuralQuery = Search().query(withNeural("my query", columns))
-index.search(neuralQuery)
-```
-
-## Key Features
-
-:arrows_counterclockwise: **Always in Sync**
-
-Retake leverages logical-replication-based Change-Data-Capture (CDC) to integrate directly with Postgres. As data changes or new data arrives, Retake ensures that the indexed data is kept in sync.
-
-:brain: **Intelligent Vector Cache**
-
-Whenever data is changed in Postgres, Retake also updates the embedding/vector representation of that data behind the scenes. Vectors are automatically cached for lightning-fast query results with semantic understanding.
-
-:rocket: **Low-Code SDK**
-
-Retake provides intuitive search SDKs that drop into any Python or Typescript application (other languages coming soon). The core API is just a few functions.
-
-:zap: **Open/ElasticSearch DSL Compatible**
-
-Retake enables developers to query with the full expressiveness of the OpenSearch DSL (domain-specific language).
-
-:globe_with_meridians: **Deployable Anywhere**
-
-Retake is deployable anywhere, from a laptop to a distributed cloud system.
-
-## How Retake Works
-
-A detailed overview of Retake's architecture can be found in our [documentation](https://docs.getretake.com/architecture).
+If you need commercial support, please [contact](mailto:sales@paradedb.com) the
+ParadeDB team.
 
 ## Contributing
 
-For more information on how to contribute, please see our [Contributing Guide](CONTRIBUTING.md).
+We welcome community contributions, big or small, and are here to guide you along
+the way. To get started contributing, check our [first timer issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue)
+or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
+Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
+
+If you're missing a feature or have found a problem with ParadeDB, please open a
+[GitHub issue](https://github.com/paradedb/paradedb/issues/new/choose).
+
+For more information on how to contribute, please see our
+[Contributing Guide](CONTRIBUTING.md).
+
+This project is released with a [Contributor Code of Conduct](https://github.com/paradedb/paradedb/blob/stable/CODE_OF_CONDUCT.md).
+By participating in this project, you agree to follow its terms.
+
+Thank you for helping us make ParadeDB better for everyone :heart:
 
 ## License
 
-Retake is licensed under the [Apache-2.0 License](LICENSE).
+ParadeDB is licensed under the [Elastic License 2.0](LICENSE). Our goal with
+choosing ELv2 is to enable our users to use and contribute to ParadeDB freely,
+while enabling us to continue investing in our community, project and product. If
+you have any questions regarding licensing, please [contact us](mailto:hello@paradedb.com).

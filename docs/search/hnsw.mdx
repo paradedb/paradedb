@@ -1,0 +1,57 @@
+---
+title: Similarity (HNSW) Search
+---
+
+<Info>
+  **Prerequisite** Before performing full text search over a column, it should
+  first be [indexed](indexing/hnsw).
+</Info>
+
+## Overview
+
+Similarity search uses the HNSW algorithm to find rows in a table that match a given vector.
+This type of search is especially useful for fuzzy or semantic search.
+
+## Real-Time Vectorization
+
+The `paradedb.embed` function is a helpful shortcut that vectorizes any column using any HuggingFace
+embedding model. To vectorize a column:
+
+```sql
+ALTER TABLE mock_items
+ADD COLUMN embeddings vector(384)
+GENERATED ALWAYS AS (paradedb.embed('all-minilm-l6-v2', description)) STORED;
+```
+
+Columns can be combined before vectorization:
+
+```sql
+ALTER TABLE mock_items
+ADD COLUMN embeddings vector(384)
+GENERATED ALWAYS AS (paradedb.embed('all-minilm-l6-v2', description || ' ' || category)) STORED;
+```
+
+The `GENERATED ALWAYS AS` command ensures that vectors are updated in real time whenever the underlying
+columns change.
+
+## Similarity Search
+
+You can search with a raw vector:
+
+```sql
+SELECT * FROM items ORDER BY embeddings <-> '[3,1,2]'
+```
+
+or with a query string:
+
+```sql
+WITH query AS (
+    SELECT paradedb.embed('all-minilm-l6-v2', 'My query string')::vector AS embedding
+)
+SELECT description, category, rating
+FROM mock_items, query
+ORDER BY mock_items.embeddings <-> query.embedding;
+```
+
+Under the hood, ParadeDB uses `pgvector` for similarity search. Please refer to the
+[`pgvector` documentation](https://github.com/pgvector/pgvector) for more detailed documentation.

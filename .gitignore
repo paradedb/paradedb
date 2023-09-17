@@ -1,24 +1,9 @@
-# Automatically generated folders
-__pycache__/
-dist/
-build/
-
-# Automatically generated files
-.DS_Store
-.mypy_cache
-.pytest_cache
-
-# Env
-env/
-.env
-.venv
-
-# Poetry
-poetry-installer-error-*.yml
-**/poetry.lock
-
-# VSCode
+# VS Code
 .vscode/
 
-# NodeJS
-node_modules/
+# macOS
+.DS_Store
+
+# Docker
+docker/.docker_cache_dev/
+docker/.docker_cache_local/

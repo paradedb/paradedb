@@ -1,0 +1,35 @@
+# workflows/lint-yaml.yml
+#
+# YAML: Linting
+# Lint YAML files using Prettier.
+
+name: Linting
+
+on:
+  pull_request:
+    paths:
+      - "**/*.yaml"
+      - "**/*.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lint-yaml-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  lint-yaml:
+    name: Lint YAML Files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Set up NodeJS Environment
+        uses: actions/setup-node@v3
+
+      - name: Install Prettier
+        run: npm install -g prettier
+
+      - name: Check YAML Formatting
+        run: prettier --check "**/*.{yml,yaml}"

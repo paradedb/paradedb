@@ -1,61 +1,29 @@
-# This docker-compose.dev.yml file is for local development of retake search.
+#
+# This docker-compose.dev.yml file is for development of the ParadeDB extensions only. It
+# builds the Dockerfile.dev, which currently only builds pg_bm25, pg_search, pgml, and pgvector,
+# to allow for rapid testing of changes to these extensions. It is not intended for production use.
+#
 
 version: "3.8"
 
 services:
-  core:
-    extends:
-      file: ./docker-compose.base.yml
-      service: core
-    ports:
-      - 9200:9200
-
-  ml-node:
-    extends:
-      file: ./docker-compose.base.yml
-      service: ml-node
-
-  api:
+  paradedb:
     build:
       context: ..
-      dockerfile: ./docker/search.Dockerfile
-    command: uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
-    ports:
-      - 8000:8000
+      dockerfile: ./docker/Dockerfile.dev
+      args:
+        PG_VERSION_MAJOR: 15
+        PG_BM25_VERSION: 0.0.0
+        PG_SEARCH_VERSION: 0.0.0
+        PGML_VERSION: 2.7.8
+        PGVECTOR_VERSION: 0.5.0
+      cache_from:
+        - type=local,src=./.docker_cache_dev
+      cache_to:
+        - type=local,dest=./.docker_cache_dev
     environment:
-      API_KEY: retake-test-key
-      OPENSEARCH_HOST: core
-      OPENSEARCH_PORT: 9200
-      OPENSEARCH_USER: admin
-      OPENSEARCH_PASSWORD: admin
-      OPENSEARCH_VERIFY_CERTS: False
-      PGSYNC_HOST: pgsync
-      PGSYNC_PORT: 7433
-
-  redis:
-    extends:
-      file: ./docker-compose.base.yml
-      service: redis
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: mydatabase
     ports:
-      - 6379:6379
-
-  pgsync:
-    build:
-      context: ..
-      dockerfile: ./docker/sync.Dockerfile
-    command: uvicorn sidecar:app --host 0.0.0.0 --port 7433 --reload
-    ports:
-      - 7433:7433
-    environment:
-      LOG_LEVEL: WARNING
-      ELASTICSEARCH_HOST: core
-      ELASTICSEARCH_PORT: 9200
-      ELASTICSEARCH_USER: admin
-      ELASTICSEARCH_PASSWORD: admin
-      ELASTICSEARCH_SCHEME: https
-      ELASTICSEARCH_USE_SSL: True
-      ELASTICSEARCH_VERIFY_CERTS: False
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      ELASTICSEARCH: false
-      OPENSEARCH: true
+      - "5432:5432"

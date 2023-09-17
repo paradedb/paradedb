@@ -1,282 +1,198 @@
 ---
-title: Quick Start
-description: Implement hybrid search over Postgres in under five minutes
+title: Quickstart
 ---
 
+This guide will walk you through the following steps to get started with ParadeDB:
+
+1. Run ParadeDB locally
+2. Connect to ParadeDB
+3. Execute full text, similarity, and hybrid search with SQL
+
+## Run ParadeDB Locally
+
 <Note>
-  This guide will show you how to run Retake in a development environment. For
-  assistance in deploying to production, please [contact our
-  team](http://calendly.com/philippemnoel).
+  This step is for developers who wish to run ParadeDB locally. If you are using
+  ParadeDB Cloud, you may skip this step.
 </Note>
 
-This guide will walk you through the following steps to get started with Retake:
-
-1. Install and run Retake
-2. Upload data to Retake via Postgres integration or batch upload
-3. Execute your first search
-
-## Install and Run Retake
-
-<Info>**Prerequisite** Docker and Docker Compose must be installed.</Info>
-
-Clone the repo, `cd` into the `docker` folder, and run the Docker Compose file:
+To start ParadeDB, run the Docker image:
 
 ```bash
-git clone git@github.com:getretake/retake.git
-cd retake/docker
-docker compose up
+docker run \
+  -e POSTGRES_USER=<user> \
+  -e POSTGRES_PASSWORD=<password> \
+  -e POSTGRES_DB=<dbname> \
+  -p 5432:5432 \
+  paradedb/paradedb:latest
 ```
 
-This spins up the Retake engine, which is responsible for executing search queries and storing search data.
-Next, install the Retake SDK in your Python or Typescript environment.
+You may set `user`, `password`, and `dbname` to whatever values you want — these will be your database
+connection credentials. By default, this will start a ParadeDB instance at `http://localhost:5432`.
 
-<CodeGroup>
-
-```bash Python
-pip install retakesearch
-```
-
-```bash Typescript
-npm install retake-search
-```
-
-</CodeGroup>
-
-## Upload Data to Retake
+## Connect to ParadeDB
 
 <Info>
-  **Prerequisite** Please ensure that you have [enabled logical
-  replication](/setup) in your Postgres database. If you are using a
-  non-Postgres data store or a Postgres service that does not support logical
-  replication, you can still use Retake but will have to batch upload data using
-  `Index.upsert`.
+  **Prerequisite** Ensure that you have `psql` installed on your machine.
 </Info>
 
-Next, we use the Retake Python SDK to tell the Retake engine what table(s) we wish to search over. Let's pretend
-we have a Postgres table called `products` with the following data:
+To connect to ParadeDB, run
 
-| brand       | description                                                    | price | category |
-| ----------- | -------------------------------------------------------------- | ----- | -------- |
-| Fratini     | Solid polyester blend wide neck womens regular top - off white | 74    | Women    |
-| Zinc London | Stripes polyester sweetheart neck womens dress - black         | 849   | Women    |
-| Kraus       | Wide ankle length cotton mens jeans - light blue               | 2449  | Men      |
-
-The following code integrates this table with Retake. Note that this code block performs an expensive
-reindexing operation and only needs to be run once as long as the Docker Compose stack is running.
-
-<CodeGroup>
-
-```python Python
-from retakesearch import Client, Index, Database, Table
-
-# When the Retake engine is run locally,
-# this is the default API key/URL
-client = Client(
-  api_key="retake-test-key",
-  url="http://localhost:8000"
-)
-
-# Provide your Postgres database credentials here
-database = Database(
-    host="***",
-    user="***",
-    password="***",
-    dbname="***",
-    port=5432,
-)
-
-# Provide the table name and columns you wish to search over here
-columns = ["brand", "description", "price", "category"]
-table_name = "products"
-
-table = Table(
-    name=table_name
-    columns=columns
-)
-
-# Create an index
-index_name = "products"
-index = client.create_index(index_name)
+```bash
+psql -h <hostname> -U <user> -d <dbname> -p <port> -W
 ```
 
-```typescript Typescript
-import { Client, Database, Table, Search } from "retake-search"
+If your ParadeDB database is running at `http://localhost:5432`, `hostname` is `localhost` and `port` is 5432. If you are using ParadeDB cloud, your connection credentials can be found in the cloud console.
 
-// When the Retake engine is run locally,
-// this is the default API key/URL
-const client = new Client("retake-test-key", "http://localhost:8000")
+## Full Text Search
 
-// Provide your Postgres database credentials here
-const database = new Database({
-  host: "***",
-  user: "***",
-  password: "***",
-  dbName: "***",
-  port: 5432,
-})
+ParadeDB comes with a pre-populated table called `paradedb.mock_items` to help you get started.
+Once connected with `psql`, run the following command to preview the first five rows:
 
-// Provide the table name and columns you wish to search over here
-const columns = ["brand", "description", "price", "category"]
-const tableName = "products"
-const table = new Table({
-  table: tableName,
-  columns: columns,
-})
-
-// Create an index
-const indexName = "products"
-const index = await client.createIndex(indexName)
+```sql
+CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+SELECT * FROM mock_items LIMIT 3;
 ```
 
-</CodeGroup>
-
-Next, we can define which fields in our index we wish to vectorize. A field must be vectorized in order
-to perform semantic or hybrid search over it. You may skip this step if you only wish to perform keyword (BM25)
-search over your fields.
-
-By default, Retake uses the Sentence Transformers `all-MiniLM-L12-v2` model to vectorize a field. This setting
-is [configurable](/python/index#vectorize).
-
-<CodeGroup>
-
-```python Python
-fields_to_vectorize = ["description"]
-index.vectorize(fields_to_vectorize)
-```
-
-```typescript Typescript
-const fieldsToVectorize = ["description"]
-await index.vectorize({ fieldNames: fieldsToVectorize })
-```
-
-</CodeGroup>
-
-Finally, let's index the Postgres table.
-
-<CodeGroup>
-
-```python Python
-# Note: Your table must have a primary key
-index.add_source(database, table);
-```
-
-```typescript Typescript
-// Note: Your table must have a primary key
-await index.addSource(database, table)
-```
-
-</CodeGroup>
-
-Optionally, data stored outside of Postgres can also be added to an index via batch upload.
-
-<CodeGroup>
-
-```python Python
-documents = [{"key": "value"}]
-ids = ["id1"]
-
-index.upsert(
-  documents=documents,
-  ids=ids
-)
-```
-
-```typescript Typescript
-const documents = [{ key: "value" }]
-const ids = ["id1"]
-
-index.upsert(documents, ids)
-```
-
-</CodeGroup>
-
-## Execute a Search
-
-Inside our application, we are ready to write and execute our first search query.
-
-<CodeGroup>
-
-```python Python
-from retakesearch import Search
-
-# This executes a full-text (BM25) search
-bm25_search_query = Search().query("match", description="jeans")
-response = index.search(bm25_search_query)
-
-# This executes a hybrid keyword + semantic search
-hybrid_search_query = Search().with_neural("jeans", ["description"])
-response = index.search(hybrid_search_query)
-
-print(response)
-```
-
-```typescript Typescript
-import { Search } from "retake-search"
-import { withNeural } from "retake-search/helpers"
-
-// This executes a full-text (BM25) search
-const bm25Query = Search().query(matchQuery("description", "jeans"))
-const response = index.search(bm25Query)
-
-// This executes a hybrid keyword + semantic search
-const hybridQuery = Search().query(withNeural("jeans", ["description"]))
-const response = index.search(hybridQuery)
-
-print(response)
-```
-
-</CodeGroup>
-
-This would print the following response (`hits` shortened for illustrative purposes):
-
-<Accordion title="Response Object">
-```json 
-{
-  "took": 34,
-  "timed_out": false,
-  "_shards": {
-    "total": 5,
-    "successful": 5,
-    "skipped": 0,
-    "failed": 0
-  },
-  "hits": {
-    "total": {
-      "value": 100,
-      "relation": "eq"
-    },
-    "max_score": 1.0,
-    "hits": [
-      {
-        "_index": "products",
-        "_type": "_doc",
-        "_id": "id1",
-        "_score": 1.0,
-        "_source": {
-          "description": "Wide ankle length cotton mens jeans - light blue",
-          "brand": "Fratini",
-          "price": 74,
-          "category": "Women"
-        }
-      }
-    ]
-  }
-}
+<Accordion title="Expected Response">
+```csv
+ id |       description        | rating |  category   | embedding
+----+--------------------------+--------+-------------+-----------
+  1 | Ergonomic metal keyboard |      4 | Electronics | [3,4,5]
+  2 | Plastic Keyboard         |      4 | Electronics | [4,5,6]
+  3 | Sleek running shoes      |      5 | Footwear    | [5,6,7]
+(3 rows)
 ```
 </Accordion>
 
-Note that Retake's `Search` query builder is a forked version of the
-[high-level OpenSearch client](https://opensearch.org/docs/latest/clients/python-high-level) for Python and
-[elastic-builder](https://elastic-builder.js.org/docs/) for Typescript.
-Please refer to the [search guide](search/overview) for the essentials of writing search queries.
+Next, let's index this table for full-text search:
 
-## Congrats!
+```sql
+CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
+```
 
-You've successfully executed a neural search query over your Postgres database. To see full examples
-of applications built with Retake, please refer to our [demo Flask and Nextjs apps](https://github.com/getretake/retake/tree/main/examples).
+<Accordion title="Expected Response">
+```bash 
+CREATE INDEX 
+```
+</Accordion>
 
-<CardGroup cols={2}>
-  <Card title="Search Reference" icon="circle-play" href="/search/overview">
-    How to write different kinds of search queries
-  </Card>
-</CardGroup>
+Under the hood, this creates a Postgres-native index called `idx_mock_items`, which
+stores the necessary information for full text search over the `mock_items` table.
+Let's execute a full-text search:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics';
+```
+
+<Accordion title="Expected Response">
+``` csv
+         description         | rating |  category
+-----------------------------+--------+-------------
+ Plastic Keyboard            |      4 | Electronics
+ Ergonomic metal keyboard    |      4 | Electronics
+ Innovative wireless earbuds |      5 | Electronics
+ Fast charging power bank    |      4 | Electronics
+ Bluetooth-enabled speaker   |      3 | Electronics
+(5 rows)
+```
+</Accordion>
+
+You may have noticed the above SQL query makes use of
+the custom `@@@` operator and a [mini query language](search/bm25). This mini language supports phrase queries, 
+set queries, boolean queries and more.
+
+## Similarity Search
+
+Let's vectorize the `description` column so we can query it with natural language:
+
+```sql
+ALTER TABLE mock_items
+ADD COLUMN description_embeddings vector(384)
+GENERATED ALWAYS AS (paradedb.embed('all-minilm-l6-v2', description)) STORED;
+```
+
+<Accordion title="Expected Response">
+``` bash 
+ALTER TABLE 
+```
+</Accordion>
+
+<Note>
+  This command may take some time depending on the size of your table.
+</Note>
+
+This SQL command creates a new column called `description_embeddings`, which stores the embeddings representations
+of the `description` column using the HuggingFace `all-MiniLM-L6-v2` model.
+The `GENERATED ALWAYS AS` command ensures that these embeddings are updated in real time whenever the values
+in `description` change.
+
+Now, let's query our table using the natural language query "Something a kid would play with":
+
+```sql
+WITH query AS (
+    SELECT paradedb.embed('all-minilm-l6-v2', 'Something a kid would play with')::vector AS embedding
+)
+SELECT description, category, rating
+FROM mock_items, query 
+ORDER BY mock_items.description_embeddings <-> query.embedding LIMIT 3;
+```
+
+<Accordion title="Expected Response">
+``` csv 
+      description       | category | rating
+------------------------+----------+--------
+ Colorful kids toy      | Toys     |      1
+ Interactive board game | Toys     |      3
+ Plush teddy bear       | Toys     |      4
+(3 rows)
+```
+</Accordion>
+
+## Hybrid Search
+
+Finally, let's implement hybrid search, which combines BM25-based full text scores with vector-based 
+similarity scores. Hybrid search is especially useful in scenarios where you want to match by both 
+exact keywords and semantic meaning.
+
+Let's execute a simple hybrid search:
+
+```sql 
+WITH query AS (
+    SELECT 
+        ctid,
+        paradedb.l2_normalized_bm25(ctid, 'idx_mock_items', 'keyboard') as bm25,
+        ('[1,2,3]' <-> embedding) / paradedb.l2_norm('[1,2,3]' <-> embedding) OVER () as hnsw
+    FROM
+        mock_items 
+)
+SELECT 
+    mock_items.description,
+    mock_items.category,
+    mock_items.rating,
+    paradedb.weighted_mean(query.bm25, query.hnsw, ARRAY[0.8, 0.2]) as score_hybrid 
+FROM mock_items
+JOIN query ON mock_items.ctid = query.ctid
+ORDER BY score_hybrid DESC
+LIMIT 3;
+```
+<Accordion title="Expected Response">
+```csv 
+       description        |  category   | rating |    score_hybrid
+--------------------------+-------------+--------+---------------------
+ Plastic Keyboard         | Electronics |      4 |  0.7371819661243477
+ Ergonomic metal keyboard | Electronics |      4 |     0.6107116173495
+ Compact digital camera   | Photography |      5 | 0.30735498147825496
+(3 rows)
+```
+</Accordion>
+
+In this query, we first use `paradedb.l2_normalized_bm25` to calculate each row's normalized BM25 score with respect to 
+the query "keyboard." Next, we use a window function called `paradedb.l2_norm` to calculate each row's normalized 
+vector similarity score. Finally, we combine the two scores as a weighted average, assigning a weight of `0.8` to the first BM25 score and 
+a weight of `0.2` to the latter score.
+
+## Congratulations!
+
+You've now seen how ParadeDB serves as both a Postgres database and search engine.

@@ -21,6 +21,7 @@ pg_test = []
 pgrx = "=0.9.8"
 posthog-rs = "0.2.2"
 serde = "1.0.188"
+uuid = "1.4.1"
 
 [dev-dependencies]
 pgrx-tests = "=0.9.8"

@@ -1,5 +1,6 @@
 use pgrx::prelude::*;
 use std::env;
+use uuid::Uuid;
 use posthog_rs::Event;
 
 mod api;
@@ -11,10 +12,13 @@ extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
+    // Generate a distinct UUID for the user
+    let user_uuid = Uuid::new_v4().to_string();
+
     // Retrieve the API key from the environment variable
     if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
         let client = posthog_rs::client(api_key.as_str());
-        let mut event = Event::new("user signed up", "distinct_id_of_the_user");
+        let mut event = Event::new("user signed up", &user_uuid);  // Use the generated UUID here
         
         if let Ok(commit_sha) = env::var("COMMIT_SHA") {
             event.insert_prop("commit_sha", &commit_sha).unwrap();

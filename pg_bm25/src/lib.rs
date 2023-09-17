@@ -1,7 +1,7 @@
 use pgrx::*;
+use posthog_rs::Event;
 use std::env;
 use uuid::Uuid;
-use posthog_rs::Event;
 
 mod api;
 mod index_access;
@@ -24,7 +24,7 @@ pub unsafe extern "C" fn _PG_init() {
     // Retrieve the API key from the environment variable
     if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
         let client = posthog_rs::client(api_key.as_str());
-        let mut event = Event::new("user signed up", &user_uuid);  // Use the generated UUID here
+        let mut event = Event::new("user signed up", &user_uuid);
         
         if let Ok(commit_sha) = env::var("COMMIT_SHA") {
             event.insert_prop("commit_sha", &commit_sha).unwrap();

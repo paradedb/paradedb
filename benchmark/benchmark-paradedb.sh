@@ -7,13 +7,13 @@ PORT=5431
 # 1. Install and run docker container for paradedb in detached mode
 echo "Spinning up paradedb server..."
 docker run \
- -d \
- --name paradedb \
- -e POSTGRES_USER=myuser \
- -e POSTGRES_PASSWORD=mypassword \
- -e POSTGRES_DB=mydatabase \
- -p $PORT:5432 \
- docker-paradedb
+    -d \
+    --name paradedb \
+    -e POSTGRES_USER=myuser \
+    -e POSTGRES_PASSWORD=mypassword \
+    -e POSTGRES_DB=mydatabase \
+    -p $PORT:5432 \
+    docker-paradedb
 
 # Wait for docker container to spin up
 echo "Waiting for server to spin up..."

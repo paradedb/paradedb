@@ -8,13 +8,13 @@ PORT=5431
 echo "Spinning up postgres server..."
 docker pull postgres:15.4
 docker run \
--d \
---name postgres \
--e POSTGRES_USER=myuser \
--e POSTGRES_PASSWORD=mypassword \
--e POSTGRES_DB=mydatabase \
--p $PORT:5432 \
-postgres:15.4
+    -d \
+    --name postgres \
+    -e POSTGRES_USER=myuser \
+    -e POSTGRES_PASSWORD=mypassword \
+    -e POSTGRES_DB=mydatabase \
+    -p $PORT:5432 \
+    postgres:15.4
 
 # Wait for docker container to spin up
 echo "Waiting for server to spin up..."

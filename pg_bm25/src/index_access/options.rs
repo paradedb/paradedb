@@ -57,6 +57,16 @@ pub unsafe extern "C" fn amoptions(
         opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
         offset: 4,
     }];
+    build_relopts(reloptions, validate, options)
+}
+
+// Following ZomboDB, build_reloptions is not available when pg<13, so we need our own
+#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+unsafe fn build_relopts(
+    reloptions: pg_sys::Datum,
+    validate: bool,
+    options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS],
+) -> *mut pg_sys::bytea {
     let rdopts = pg_sys::build_reloptions(
         reloptions,
         validate,
@@ -65,6 +75,40 @@ pub unsafe extern "C" fn amoptions(
         options.as_ptr(),
         NUM_REL_OPTS as i32,
     );
+
+    rdopts as *mut pg_sys::bytea
+}
+
+// copied from zombodb
+#[cfg(any(feature = "pg10", feature = "pg11", feature = "pg12"))]
+unsafe fn build_relopts(
+    reloptions: pg_sys::Datum,
+    validate: bool,
+    options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS],
+) -> *mut pg_sys::bytea {
+    let mut n_options = 0;
+    let p_options = pg_sys::parseRelOptions(reloptions, validate, RELOPT_KIND_PDB, &mut n_options);
+    if n_options == 0 {
+        return std::ptr::null_mut();
+    }
+
+    for relopt in std::slice::from_raw_parts_mut(p_options, n_options as usize) {
+        relopt.gen.as_mut().unwrap().lockmode = pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE;
+    }
+
+    let rdopts =
+        pg_sys::allocateReloptStruct(std::mem::size_of::<ParadeOptions>(), p_options, n_options);
+    pg_sys::fillRelOptions(
+        rdopts,
+        std::mem::size_of::<ParadeOptions>(),
+        p_options,
+        n_options,
+        validate,
+        options.as_ptr(),
+        options.len() as i32,
+    );
+    pg_sys::pfree(p_options as void_mut_ptr);
+
     rdopts as *mut pg_sys::bytea
 }
 

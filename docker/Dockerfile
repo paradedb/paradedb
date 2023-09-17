@@ -258,13 +258,9 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     # patroni
     pip3 install --no-cache-dir patroni[etcd3] psycopg[binary]>=3.0.0 && \
     # Crunchy operator
+    # Only need to copy on x84_64, since the lib is already in the right place on arm64
     if [ "$TARGETARCH" = "amd64" ]; then \
         cp /usr/lib/x86_64-linux-gnu/libnss_wrapper.so /usr/lib64/; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        cp /usr/lib/aarch64-linux-gnu/libnss_wrapper.so /usr/lib64/; \
-    else \
-        echo "Unsupported architecture"; \
-        exit 1; \
     fi
 
 # Copy & install the non-pgrx extensions from their builder stage

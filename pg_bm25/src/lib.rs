@@ -1,4 +1,4 @@
-#![allow(clippy::missing_safety_doc)] // from zombodb
+#![allow(clippy::missing_safety_doc)] // because _PG_init is unsafe
 use pgrx::*;
 
 mod api;
@@ -13,8 +13,7 @@ pgrx::pg_module_magic!();
 extension_sql_file!("../sql/_bootstrap.sql", bootstrap);
 extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 
-// following zombodb, we init option parsing here
-#[allow(non_snake_case)]
+// initializes option parsing
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
     index_access::options::init();

@@ -2,7 +2,7 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use std::ffi::CStr;
 
-/* ADDING OPTIONS (modeled after ZomboDB)
+/* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
  * add the corresponding entries to ParadeOptions struct definition
  * in amoptions(), add a relopt_parse_elt entry to the options array and change NUM_REL_OPTS
@@ -60,7 +60,6 @@ pub unsafe extern "C" fn amoptions(
     build_relopts(reloptions, validate, options)
 }
 
-// Following ZomboDB, build_reloptions is not available when pg<13, so we need our own
 #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
 unsafe fn build_relopts(
     reloptions: pg_sys::Datum,
@@ -79,7 +78,7 @@ unsafe fn build_relopts(
     rdopts as *mut pg_sys::bytea
 }
 
-// copied from zombodb
+// build_reloptions is not available when pg<13, so we need our own
 #[cfg(any(feature = "pg10", feature = "pg11", feature = "pg12"))]
 unsafe fn build_relopts(
     reloptions: pg_sys::Datum,
@@ -125,11 +124,9 @@ impl ParadeOptions {
     }
 }
 
-// this is modeled after ZomboDB's function
 // it adds the tokenizer option to the list of relation options so we can parse it in amoptions
 pub unsafe fn init() {
-    // following ZomboDB, I'm adding our own relopt type
-    // but one of the built-in Postgres ones might be more appropriate
+    // adding our own relopt type because zombodb does, but one of the built-in Postgres ones might be more appropriate
     RELOPT_KIND_PDB = pg_sys::add_reloption_kind();
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,

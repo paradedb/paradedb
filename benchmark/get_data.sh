@@ -11,7 +11,7 @@ db_query () {
   USER=$4
   PASSWORD=$5
   QUERY=$6
-  PGPASSWORD=$PASSWORD psql -h $HOST -p $PORT -d $DATABASE -a -U $USER -c "$QUERY"
+  PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -a -U "$USER" -c "$QUERY"
 }
 
 db_file () {
@@ -21,7 +21,7 @@ db_file () {
   USER=$4
   PASSWORD=$5
   FILE=$6
-  PGPASSWORD=$PASSWORD psql -h $HOST -p $PORT -d $DATABASE -a -U $USER -f $FILE
+  PGPASSWORD=$PASSWORD psql -h "$HOST" -p "$PORT" -d "$DATABASE" -a -U "$USER" -f "$FILE"
 }
 
 load_data () {
@@ -41,12 +41,12 @@ load_data () {
 
   # Create table for json entries and load entries from file into table.
   #     In order to pull entries from your local files, you have to use the combo of cat and COPY FROM STDIN with the -c option
-  db_query $HOST $PORT $DATABASE $USER $PASSWORD "DROP TABLE IF EXISTS temp_json;"
-  db_query $HOST $PORT $DATABASE $USER $PASSWORD "CREATE TABLE temp_json ( j JSONB );"
-  cat $WIKI_ARTICLES_FILE | db_query $HOST $PORT $DATABASE $USER $PASSWORD "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';"
+  db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "DROP TABLE IF EXISTS temp_json;"
+  db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "CREATE TABLE temp_json ( j JSONB );"
+  db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';" < "$WIKI_ARTICLES_FILE"
 
   # Load the json data into the wikipedia_articles table
-  db_file $HOST $PORT $DATABASE $USER $PASSWORD load_data.sql
+  db_file "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" load_data.sql
 }
 
 export -f load_data

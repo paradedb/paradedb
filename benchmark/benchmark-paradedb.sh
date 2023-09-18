@@ -19,7 +19,7 @@ docker run \
   -e POSTGRES_PASSWORD=mypassword \
   -e POSTGRES_DB=mydatabase \
   -p $PORT:5432 \
-  docker-paradedb
+  paradedb/paradedb:latest
 
 # Wait for docker container to spin up
 echo "Waiting for server to spin up..."
@@ -28,7 +28,7 @@ sleep 5
 # 2. Load data into database mydatabase via load_data.sql
 echo "Loading data into database..."
 WIKI_ARTICLES_FILE=wiki-articles.json
-load_data localhost $PORT mydatabase myuser mypassword $WIKI_ARTICLES_FILE
+load_data localhost "$PORT" mydatabase myuser mypassword $WIKI_ARTICLES_FILE
 
 # Output file for recording times
 OUTPUT_CSV=out/benchmark_paradedb.csv
@@ -42,24 +42,22 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   INDEX_NAME="search_index_$SIZE"
 
   # Create temporary table with limit
-  db_query localhost $PORT mydatabase myuser mypassword "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
+  db_query localhost "$PORT" mydatabase myuser mypassword "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
 
   # Time indexing
-  echo "Time indexing for table size $SIZE..."
-  start_time=$( (time db_query localhost $PORT mydatabase myuser mypassword "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING bm25 (($TABLE_NAME.*));" > /dev/null) 2>&1 )
+  start_time=$( (time db_query localhost "$PORT" mydatabase myuser mypassword "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING bm25 (($TABLE_NAME.*));" > /dev/null) 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
-  echo "Time search query for table size $SIZE..."
-  start_time=$( (time db_query localhost $PORT mydatabase myuser mypassword "SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'Canada' LIMIT 10" > /dev/null) 2>&1 )
+  start_time=$( (time db_query localhost "$PORT" mydatabase myuser mypassword "SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'Canada' LIMIT 10" > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Record times to CSV
   echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
 
   # Cleanup: drop temporary table and index
-  db_query localhost $PORT mydatabase myuser mypassword "DROP TABLE $TABLE_NAME;"
-  db_query localhost $PORT mydatabase myuser mypassword "DROP INDEX IF EXISTS $INDEX_NAME;"
+  db_query localhost "$PORT" mydatabase myuser mypassword "DROP TABLE $TABLE_NAME;"
+  db_query localhost "$PORT" mydatabase myuser mypassword "DROP INDEX IF EXISTS $INDEX_NAME;"
 done
 
 # 5. Destroy db

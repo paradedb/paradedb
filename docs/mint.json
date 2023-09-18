@@ -2,8 +2,9 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "ParadeDB",
   "logo": {
+    "light": "/logo/docs.svg",
     "dark": "/logo/docs.svg",
-    "light": "/logo/docs.svg"
+    "href": "https://paradedb.com"
   },
   "favicon": "/favicon.png",
   "colors": {
@@ -15,9 +16,19 @@
     "default": "dark",
     "isHidden": true
   },
+  "topbarLinks": [
+    {
+      "name": "Community",
+      "url": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ"
+    }
+  ],
   "topbarCtaButton": {
     "type": "github",
     "url": "https://github.com/paradedb/paradedb"
+  },
+  "feedback": {
+    "thumbsRating": true,
+    "suggestEdit": true
   },
   "anchors": [
     {
@@ -49,13 +60,17 @@
     }
   ],
   "footerSocials": {
-    "github": "https://github.com/paradedb/paradedb"
+    "github": "https://github.com/paradedb/paradedb",
+    "slack": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ",
+    "twitter": "https://twitter.com/paradedb"
+  },
+  "analytics": {
+    "ga4": {
+      "measurementId": "G-GB3C03LVY5"
+    }
   },
   "backgroundImage": "/background.png",
   "integrations": {
     "intercom": "d3sdz6rs"
-  },
-  "feedback": {
-    "suggestEdit": true
   }
 }

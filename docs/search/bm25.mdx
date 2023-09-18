@@ -97,6 +97,28 @@ FROM mock_items
 WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics'
 ```
 
+## Fuzzy Search (Typo Tolerance)
+
+A trailing `:::` at the end of a query string marks the beginning of a config string, which uses standard
+URL param syntax. Here, fields can be marked as fuzzy for typo tolerance.
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'description:keybroadd OR category:elecrontisc:::fuzzy_fields=description,category'
+```
+
+## Limit and Offset
+
+Similarly, limit and offset can be passed into the config string. This provides a more efficient way of iterating
+through search results than through SQL's `LIMIT` and `OFFSET` clauses.
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'keyboard:::limit=2&offset=1'
+```
+
 ## Boolean Operators
 
 `AND`, `OR`, and `NOT` can be used to combine and filter multiple terms:

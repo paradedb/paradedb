@@ -6,19 +6,19 @@ select pg_reload_conf();
 
 -- Basic search query
 SELECT *
-FROM products
-WHERE products @@@ 'description:keyboard OR category:electronics OR rating>2';
+FROM bm25_search
+WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2';
 -- With BM25 scoring
 SELECT paradedb.rank_bm25(ctid), * 
-FROM products 
-WHERE products @@@ 'category:electronics OR description:keyboard';
+FROM bm25_search 
+WHERE bm25_search @@@ 'category:electronics OR description:keyboard';
 -- Test real-time search
-INSERT INTO products (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
-DELETE FROM products WHERE id = 1;
-UPDATE products SET description = 'PVC Keyboard' WHERE id = 2;
+INSERT INTO bm25_search (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
+DELETE FROM bm25_search WHERE id = 1;
+UPDATE bm25_search SET description = 'PVC Keyboard' WHERE id = 2;
 SELECT *
-FROM products
-WHERE products @@@ 'description:keyboard OR category:electronics OR rating>2';
+FROM bm25_search
+WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2';
 -- Test search in another namespace/schema
 SELECT *
 FROM paradedb.mock_items

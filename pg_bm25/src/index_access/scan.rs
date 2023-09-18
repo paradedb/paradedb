@@ -2,7 +2,8 @@ use pgrx::*;
 use tantivy::{collector::TopDocs, schema::FieldType, SnippetGenerator};
 
 use crate::{
-    index_access::utils::get_parade_index, manager::get_executor_manager,
+    index_access::utils::{get_parade_index, SearchQuery},
+    manager::get_executor_manager,
     parade_index::index::TantivyScanState,
 };
 
@@ -44,17 +45,32 @@ pub extern "C" fn amrescan(
         unsafe { (scan.opaque as *mut TantivyScanState).as_mut() }.expect("no scandesc state");
     let nkeys = nkeys as usize;
     let keys = unsafe { std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys) };
-    let query = unsafe {
+    let raw_query = unsafe {
         String::from_datum(keys[0].sk_argument, false).expect("failed to convert query to string")
     };
 
+    // Parse a SearchQuery from the raw query string.
+    // This will parse paradedb-specific config from the string.
+
+    let query_config: SearchQuery = raw_query.parse().unwrap_or_else(|err| {
+        panic!("Failed to parse query: {}", err);
+    });
+
     let query_parser = &state.query_parser;
     let searcher = &state.searcher;
-    let k = searcher.num_docs() as usize;
 
-    let (tantivy_query, _) = query_parser.parse_query_lenient(&query);
+    let limit = query_config
+        .config
+        .limit
+        .unwrap_or(searcher.num_docs() as usize);
+    let offset = query_config.config.offset.unwrap_or(0);
+
+    let (tantivy_query, _) = query_parser.parse_query_lenient(&query_config.query);
     let top_docs = searcher
-        .search(&tantivy_query, &TopDocs::with_limit(k))
+        .search(
+            &tantivy_query,
+            &TopDocs::with_limit(limit).and_offset(offset),
+        )
         .unwrap();
 
     // Cache L2 norm of the scores

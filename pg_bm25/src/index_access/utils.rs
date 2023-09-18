@@ -1,5 +1,8 @@
 use pgrx::*;
-use serde_json::*;
+use serde::Deserialize;
+use serde_json::json;
+
+use std::str::FromStr;
 
 use crate::json::builder::JsonBuilder;
 use crate::parade_index::index::ParadeIndex;
@@ -10,6 +13,39 @@ pub struct CategorizedAttribute {
     pub typoid: pg_sys::Oid,
     pub conversion_func: Box<ConversionFunc>,
     pub attno: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    pub query: String,
+    pub config: SearchQueryConfig,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct SearchQueryConfig {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+impl FromStr for SearchQuery {
+    type Err = serde_qs::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut parts = s.rsplitn(2, ":::");
+
+        let config_part = parts.next().unwrap_or("");
+        let query = parts.next().unwrap_or_default().to_string();
+
+        if query.is_empty() {
+            Ok(SearchQuery {
+                query: config_part.to_string(),
+                config: SearchQueryConfig::default(),
+            })
+        } else {
+            let config: SearchQueryConfig = serde_qs::from_str(config_part)?;
+            Ok(SearchQuery { query, config })
+        }
+    }
 }
 
 pub fn create_parade_index(index_name: String, table_name: String) -> ParadeIndex {

@@ -12,6 +12,9 @@ CREATE TABLE products
     category VARCHAR(255)
 );
 
+CREATE INDEX idxproducts ON products USING bm25 ((products.*));
+CREATE INDEX idxparadedb_mock_items ON paradedb.mock_items USING bm25 ((paradedb.mock_items.*));
+
 INSERT INTO
     products
     (description, rating, category)
@@ -81,3 +84,8 @@ ADD COLUMN col_bool BOOLEAN DEFAULT TRUE,
 
 ADD COLUMN col_json JSON DEFAULT '{"key": "value"}'::json,
 ADD COLUMN col_jsonb JSONB DEFAULT '{"key": "value"}'::jsonb;
+
+CREATE TABLE bm25_search AS SELECT * FROM products;
+CREATE INDEX idxbm25_search ON bm25_search USING bm25 ((bm25_search.*));
+CREATE TABLE search_config AS SELECT * FROM products;
+CREATE INDEX idxsearch_config ON search_config USING bm25 ((search_config.*));

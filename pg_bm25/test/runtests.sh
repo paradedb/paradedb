@@ -14,13 +14,12 @@ export PGDATABASE=postgres
 export PGPASSWORD=password
 
 # All pgrx-supported PostgreSQL versions to run tests over
-# TODO: Add support for Postgres 11.21/11
 case "$OS_NAME" in
   Darwin)
-    PG_VERSIONS=("15.4" "14.9" "13.12" "12.16")
+    PG_VERSIONS=("15.4" "14.9" "13.12" "12.16" "11.21")
     ;;
   Linux)
-    PG_VERSIONS=("15" "14" "13" "12")
+    PG_VERSIONS=("15" "14" "13" "12" "11")
     ;;
 esac
 

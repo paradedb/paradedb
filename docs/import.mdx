@@ -1,0 +1,23 @@
+---
+title: Import Data
+---
+
+This topic covers how to quickly import data from an existing Postgres database or CSV file into ParadeDB.
+
+## From Postgres
+
+<Info>
+  **Prerequisite** Ensure that you have `psql` installed on your machine. This will provide the necessary 
+  `pg_dump` and `pg_restore` command line utilities.
+</Info>
+
+From your terminal, run `pg_dump` to create a copy of your existing database.
+
+```
+pg_dump -Fc --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    <db_name> > old_db.dump
+```
+
+

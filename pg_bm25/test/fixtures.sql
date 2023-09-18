@@ -1,6 +1,8 @@
-CREATE EXTENSION IF NOT EXISTS pg_bm25;
+CREATE EXTENSION
+IF NOT EXISTS pg_bm25;
 
-CREATE TABLE products (
+CREATE TABLE products
+(
     id SERIAL PRIMARY KEY,
     description TEXT,
     rating INTEGER CHECK (
@@ -11,7 +13,8 @@ CREATE TABLE products (
 );
 
 INSERT INTO
-    products (description, rating, category)
+    products
+    (description, rating, category)
 VALUES
     ('Ergonomic metal keyboard', 4, 'Electronics'),
     ('Plastic Keyboard', 4, 'Electronics'),
@@ -55,23 +58,26 @@ VALUES
     ('Plush teddy bear', 4, 'Toys'),
     ('Warm woolen sweater', 3, 'Apparel');
 
-ALTER TABLE products 
+ALTER TABLE products
     ADD COLUMN col_text TEXT DEFAULT 'Sample text',
-    ADD COLUMN col_varchar VARCHAR(255) DEFAULT 'Sample text',
+ADD COLUMN col_varchar VARCHAR
+(255) DEFAULT 'Sample text',
 
-    ADD COLUMN col_smallint SMALLINT DEFAULT 10,
-    ADD COLUMN col_bigint BIGINT DEFAULT 1000000,
-    ADD COLUMN col_integer INTEGER DEFAULT 100,
-    ADD COLUMN col_oid OID DEFAULT 1,
+ADD COLUMN col_smallint SMALLINT DEFAULT 10,
+ADD COLUMN col_bigint BIGINT DEFAULT 1000000,
+ADD COLUMN col_integer INTEGER DEFAULT 100,
+ADD COLUMN col_oid OID DEFAULT 1,
 
-    ADD COLUMN col_float4 FLOAT4 DEFAULT 10.5,
-    ADD COLUMN col_float8 FLOAT8 DEFAULT 100.55,
-    ADD COLUMN col_numeric NUMERIC(5,2) DEFAULT 99.99,
-    ADD COLUMN col_decimal DECIMAL(5,2) DEFAULT 88.88,
-    ADD COLUMN col_real REAL DEFAULT 77.77,
-    ADD COLUMN col_double DOUBLE PRECISION DEFAULT 66.66,
+ADD COLUMN col_float4 FLOAT4 DEFAULT 10.5,
+ADD COLUMN col_float8 FLOAT8 DEFAULT 100.55,
+ADD COLUMN col_numeric NUMERIC
+(5,2) DEFAULT 99.99,
+ADD COLUMN col_decimal DECIMAL
+(5,2) DEFAULT 88.88,
+ADD COLUMN col_real REAL DEFAULT 77.77,
+ADD COLUMN col_double DOUBLE PRECISION DEFAULT 66.66,
 
-    ADD COLUMN col_bool BOOLEAN DEFAULT TRUE,
-    
-    ADD COLUMN col_json JSON DEFAULT '{"key": "value"}'::json,
-    ADD COLUMN col_jsonb JSONB DEFAULT '{"key": "value"}'::jsonb;
+ADD COLUMN col_bool BOOLEAN DEFAULT TRUE,
+
+ADD COLUMN col_json JSON DEFAULT '{"key": "value"}'::json,
+ADD COLUMN col_jsonb JSONB DEFAULT '{"key": "value"}'::jsonb;

@@ -13,16 +13,15 @@ set -Eeuo pipefail
 PGVECTOR_VERSION="v0.5.0"
 
 # All pgrx-supported PostgreSQL versions to configure for
-# TODO: Add support for Postgres 11.21/11
 OS_NAME=$(uname)
 if [ $# -eq 0 ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
     Darwin)
-      PG_VERSIONS=("15.4" "14.9" "13.12" "12.16")
+      PG_VERSIONS=("15.4" "14.9" "13.12" "12.16" "11.21")
       ;;
     Linux)
-      PG_VERSIONS=("15" "14" "13" "12")
+      PG_VERSIONS=("15" "14" "13" "12" "11")
       ;;
   esac
 else

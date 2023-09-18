@@ -1,3 +1,9 @@
+-- this is needed to ensure consistency of printouts with postgres versions older than 12. Can be
+-- deleted if we drop support for postgres 11.
+ALTER SYSTEM SET extra_float_digits TO 0;
+select pg_reload_conf();
+
+
 -- Basic search query
 SELECT *
 FROM products

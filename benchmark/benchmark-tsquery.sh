@@ -30,7 +30,7 @@ sleep 5
 # 2. Load data into database
 echo "Loading data into database..."
 WIKI_ARTICLES_FILE=wiki-articles.json
-load_data localhost "$PORT" mydatabase myuser mypassword $WIKI_ARTICLES_FILE
+load_data localhost "$PORT" mydatabase myuser mypassword "$WIKI_ARTICLES_FILE"
 
 # Output file for recording times
 OUTPUT_CSV=out/benchmark_tsquery.csv

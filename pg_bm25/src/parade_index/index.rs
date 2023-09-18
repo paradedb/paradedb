@@ -227,21 +227,6 @@ impl ParadeIndex {
 
             let field = match &attribute_type_oid {
                 PgOid::BuiltIn(builtin) => match builtin {
-                    PgBuiltInOids::BOOLOID => {
-                        Some(schema_builder.add_bool_field(attname, INDEXED | STORED))
-                    }
-                    PgBuiltInOids::INT2OID
-                    | PgBuiltInOids::INT4OID
-                    | PgBuiltInOids::INT8OID
-                    | PgBuiltInOids::OIDOID
-                    | PgBuiltInOids::XIDOID => {
-                        Some(schema_builder.add_i64_field(attname, INDEXED | STORED))
-                    }
-                    PgBuiltInOids::FLOAT4OID
-                    | PgBuiltInOids::FLOAT8OID
-                    | PgBuiltInOids::NUMERICOID => {
-                        Some(schema_builder.add_f64_field(attname, INDEXED | STORED))
-                    }
                     PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
                         Some(schema_builder.add_text_field(attname, TEXT | STORED))
                     }

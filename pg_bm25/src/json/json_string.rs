@@ -1,10 +1,6 @@
 use pgrx::{Json, JsonB};
 use serde_json::json;
 
-use crate::json::timestamp::{
-    ParadeDate, ParadeTime, ParadeTimeWithTimeZone, ParadeTimestamp, ParadeTimestampWithTimeZone,
-};
-
 pub trait JsonString: Send + Sync {
     fn push_json(&self, target: &mut Vec<u8>);
 }
@@ -62,41 +58,6 @@ impl JsonString for bool {
     #[inline]
     fn push_json(&self, target: &mut Vec<u8>) {
         target.extend_from_slice(self.to_string().as_bytes());
-    }
-}
-
-impl JsonString for ParadeTime {
-    #[inline]
-    fn push_json(&self, target: &mut Vec<u8>) {
-        serde_json::to_writer(target, self).ok();
-    }
-}
-
-impl JsonString for ParadeTimeWithTimeZone {
-    #[inline]
-    fn push_json(&self, target: &mut Vec<u8>) {
-        serde_json::to_writer(target, self).ok();
-    }
-}
-
-impl JsonString for ParadeTimestamp {
-    #[inline]
-    fn push_json(&self, target: &mut Vec<u8>) {
-        serde_json::to_writer(target, self).ok();
-    }
-}
-
-impl JsonString for ParadeTimestampWithTimeZone {
-    #[inline]
-    fn push_json(&self, target: &mut Vec<u8>) {
-        serde_json::to_writer(target, self).ok();
-    }
-}
-
-impl JsonString for ParadeDate {
-    #[inline]
-    fn push_json(&self, target: &mut Vec<u8>) {
-        serde_json::to_writer(target, self).ok();
     }
 }
 

@@ -32,6 +32,7 @@
       "pages": [
         "introduction",
         "quickstart",
+        "import",
         {
           "group": "Indexing",
           "pages": ["indexing/overview", "indexing/bm25", "indexing/hnsw"]

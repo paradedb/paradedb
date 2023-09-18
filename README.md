@@ -59,8 +59,8 @@ major updates.
   - [ ] Generative search
   - [ ] Multimodal search
 - [ ] Self-hosting
-  - [x] Docker image & [instructions](TODO)
-  - [ ] Kubernetes Helm chart & [instructions](TODO)
+  - [x] Docker image & instructions (Instructions coming soon!)
+  - [ ] Kubernetes Helm chart & instructions
 - [ ] Cloud Database
   - [ ] Managed cloud
   - [ ] Self-serve cloud

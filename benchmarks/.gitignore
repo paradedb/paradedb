@@ -1,7 +1,9 @@
+# Inputs
 *.json
 *.csv
 *.bz2
 *.txt
 *.crt
 
+# Outputs
 out/

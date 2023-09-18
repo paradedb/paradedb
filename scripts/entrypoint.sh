@@ -29,12 +29,10 @@ declare -A extensions=(
   [http]=${PGSQL_HTTP_VERSION:-}
   [hypopg]=${HYPOPG_VERSION:-}
   [rum]=${RUM_VERSION:-}
-  [citus]=${CITUS_VERSION:-}
 )
 
 # List of extensions that must be added to shared_preload_libraries
 declare -A preload_names=(
-  # [citus]=citus # Must be first in shared_preload_libraries
   [pgml]=pgml
   [pg_cron]=pg_cron
   [pg_net]=pg_net

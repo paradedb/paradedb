@@ -57,7 +57,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 
 -- Without fuzzy field
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics';
- id |         description         | rating |  category      
-----+-----------------------------+--------+-------------
+ id | description | rating | category 
+----+-------------+--------+----------
 (0 rows)
 

@@ -1,7 +1,7 @@
 use pgrx::*;
 use serde::Deserialize;
 use serde_json::json;
-use serde_qs;
+
 use std::str::FromStr;
 
 use crate::json::builder::JsonBuilder;

@@ -92,13 +92,13 @@ WHERE mock_items @@@ 'description:keyboard OR category:electronics';
 This will return:
 
 ```csv
- id |         description         | rating |  category   | rating2 | rank_bm25 |         highlight_bm25
-----+-----------------------------+--------+-------------+---------+-----------+---------------------------------
-  1 | Ergonomic metal keyboard    |      4 | Electronics |       5 | 4.9403534 | Ergonomic metal <b>keyboard</b>
-  2 | Very plasticy keyboard      |      4 | Electronics |       4 | 4.9403534 | Very plasticy <b>keyboard</b>
- 12 | Innovative wireless earbuds |      5 | Electronics |       1 | 2.1096356 |
- 22 | Fast charging power bank    |      4 | Electronics |       1 | 2.1096356 |
- 32 | Bluetooth-enabled speaker   |      3 | Electronics |       1 | 2.1096356 |
+ id |         description         | rating |  category   | rank_bm25 |         highlight_bm25
+----+-----------------------------+--------+-------------+-----------+---------------------------------
+  1 | Ergonomic metal keyboard    |      4 | Electronics | 4.9403534 | Ergonomic metal <b>keyboard</b>
+  2 | Very plasticy keyboard      |      4 | Electronics | 4.9403534 | Very plasticy <b>keyboard</b>
+ 12 | Innovative wireless earbuds |      5 | Electronics | 2.1096356 |
+ 22 | Fast charging power bank    |      4 | Electronics | 2.1096356 |
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | 2.1096356 |
 (5 rows)
 ```
 

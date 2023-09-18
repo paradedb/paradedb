@@ -53,5 +53,8 @@
   "backgroundImage": "/background.png",
   "integrations": {
     "intercom": "d3sdz6rs"
+  },
+  "feedback": {
+    "suggestEdit": true
   }
 }

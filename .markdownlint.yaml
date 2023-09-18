@@ -1,3 +1,4 @@
+MD013: false # Line length
 MD026: false # Trailing punctuation in header
 MD029: false # Ordered list item prefix
 MD033: false # Inline HTML

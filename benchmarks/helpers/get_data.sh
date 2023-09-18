@@ -46,7 +46,7 @@ load_data () {
   db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';" < "$WIKI_ARTICLES_FILE"
 
   # Load the json data into the wikipedia_articles table
-  db_file "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" load_data.sql
+  db_file "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" helpers/load_data.sql
 }
 
 export -f load_data

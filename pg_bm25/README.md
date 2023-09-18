@@ -29,7 +29,7 @@ Lucene, using `pgrx`.
 
 ## Usage
 
-### Running the Extension
+### Installing
 
 The easiest way to test the extension is to run the ParadeDB Dockerfile:
 

@@ -189,7 +189,7 @@ ENV PATH="${PATH}:/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin"
 # Create the postgres user and change to it
 USER 1001
 
-# Expose the PostgreSQL
+# Expose the PostgreSQL port
 EXPOSE 5432
 
 ENTRYPOINT ["/usr/src/app/entrypoint.sh"]

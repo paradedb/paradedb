@@ -36,7 +36,7 @@ ELASTIC_BULK_FOLDER=out/elastic_bulk_output
 
 for SIZE in "${TABLE_SIZES[@]}"; do
   # TODO: Adjust the elastify-data.py script to output data for the specific SIZE into a folder
-  python3 elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER "$SIZE"
+  python3 helpers/elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER "$SIZE"
 
   # 3. Clear the old index
   # 4. Load data into Elasticsearch node

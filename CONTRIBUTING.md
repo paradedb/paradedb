@@ -5,7 +5,23 @@ to make the process as smooth as possible.
 
 Before submitting a pull request, please review this document, which outlines what
 conventions to follow when submitting changes. If you have any questions not covered
-in this document, please reach out to us via [email](support@paradedb.com).
+in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)
+or via [email](support@paradedb.com).
+
+## Development Workflow
+
+ParadeDB is structured as a monorepo containing all the projects, PostgreSQL extensions, and other
+tools which together make ParadeDB. For development instructions regarding a specific project or Postgres extension,
+please refer to the README in the project's subfolder. For developing ParadeDB itself as the combination
+of all its subprojects, please see below.
+
+All development of ParadeDB is done via Docker and Compose. Our Docker setup is split into three:
+
+- The `docker-compose.dev.yml` file builds `Dockerfile.dev`, a minified version of ParadeDB with only actively-developed PostgreSQL extensions (those built by ParadeDB and their dependencies). It is used to develop and test ParadeDB Postgres extensions and features without needing to build the entire ParadeDB image. We recommend using it for day-to-day development.
+
+- The `docker-compose.local.yml` file builds `Dockerfile`, the ParadeDB production image with all its features and extensions enabled. It is used to develop and test new features and extensions outside of those actively developed by ParadeDB (for instance, installing a new open-source PostgreSQL extension). We recommend using it when developing new features beyond the ParadeDB extensions and subprojects.
+
+- The `docker-compose.yml` file pulls the latest published ParadeDB image from DockerHub. It is used for hobby production deployments. We recommend using it to deploy ParadeDB in your own infrastructure.
 
 ## Pull Request Worfklow
 
@@ -15,15 +31,15 @@ flow for making a change:
 1. Before working on a change, please check to see if there is already a GitHub
    issue open for that change.
 2. If there is not, please open an issue first. This gives the community visibility
-   into what you're working on and allowsothers to make suggestions and leave comments.
+   into what you're working on and allows others to make suggestions and leave comments.
 3. Fork the ParadeDB repo and branch out from the `dev` branch.
-4. Make your changes. If you've added new functionality, add tests.
+4. Make your changes. If you've added new functionality, please add tests.
 5. Open a pull request towards the `dev` branch. Ensure that all tests and checks
    pass. Note that the ParadeDB repository has pull request title linting in place
    and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
 6. Congratulations! Our team will review your pull request.
 
-## **Documentation**
+## Documentation
 
 ParadeDB's public-facing documentation is stored in the `docs` folder. If you are
 adding a new feature that requires new documentation, please open a separate pull
@@ -31,7 +47,7 @@ request containing changes to the documentation only. Once your main pull reques
 is merged, the ParadeDB team will review and eventually merge your documentation
 changes as well.
 
-## **Licensing**
+## Licensing
 
 By contributing to ParadeDB, you agree that your contributions will be licensed
 under the [Elastic License 2.0](LICENSE).

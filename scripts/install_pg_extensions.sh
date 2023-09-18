@@ -48,9 +48,6 @@ install_pg_extension() {
     mkdir build && cd build
     cmake ..
     make "-j$(nproc)"
-  elif [ "$PG_EXTENSION_NAME" == "citus" ]; then
-    ./configure
-    make "-j$(nproc)"
   fi
   checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }

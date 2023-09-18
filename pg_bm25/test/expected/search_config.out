@@ -44,3 +44,20 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
  12 | Innovative wireless earbuds |      5 | Electronics
 (2 rows)
 
+-- With fuzzy field
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics:::fuzzy_fields=category';
+ id |         description         | rating |  category   
+----+-----------------------------+--------+-------------
+  1 | Ergonomic metal keyboard    |      4 | Electronics
+  2 | Plastic Keyboard            |      4 | Electronics
+ 12 | Innovative wireless earbuds |      5 | Electronics
+ 22 | Fast charging power bank    |      4 | Electronics
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics
+(5 rows)
+
+-- Without fuzzy field
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics';
+ id |         description         | rating |  category      
+----+-----------------------------+--------+-------------
+(0 rows)
+

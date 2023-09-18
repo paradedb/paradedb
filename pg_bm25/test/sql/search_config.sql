@@ -8,5 +8,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&';
 -- With limit and offset
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&offset=1';
-
-
+-- With fuzzy field
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics:::fuzzy_fields=category';
+-- Without fuzzy field
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics';

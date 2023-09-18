@@ -51,7 +51,6 @@ pub extern "C" fn amrescan(
 
     // Parse a SearchQuery from the raw query string.
     // This will parse paradedb-specific config from the string.
-
     let query_config: SearchQuery = raw_query.parse().unwrap_or_else(|err| {
         panic!("Failed to parse query: {}", err);
     });

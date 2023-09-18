@@ -24,7 +24,7 @@ Lucene, using `pgrx`.
 - [x] JSON field search
 - [ ] Faceting/aggregations
 - [ ] Autocomplete
-- [ ] Fuzzy search
+- [x] Fuzzy search
 - [ ] Custom tokenizers
 
 ## Usage

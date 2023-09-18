@@ -1,8 +1,5 @@
 use crate::json::json_string::JsonString;
-use crate::json::timestamp::{
-    ParadeDate, ParadeTime, ParadeTimeWithTimeZone, ParadeTimestamp, ParadeTimestampWithTimeZone,
-};
-use pgrx::{Date, JsonB, Time, TimeWithTimeZone, Timestamp, TimestampWithTimeZone};
+use pgrx::JsonB;
 use tantivy::schema::Field;
 use tantivy::Document;
 
@@ -17,11 +14,6 @@ pub enum JsonBuilderValue {
     u64(u64),
     f32(f32),
     f64(f64),
-    time(ParadeTime),
-    time_with_time_zone(ParadeTimeWithTimeZone),
-    timestamp(ParadeTimestamp),
-    timestamp_with_time_zone(ParadeTimestampWithTimeZone),
-    date(ParadeDate),
     string(String),
     json_string(pgrx::JsonString),
     jsonb(JsonB),
@@ -34,11 +26,6 @@ pub enum JsonBuilderValue {
     u32_array(Vec<Option<u32>>),
     f32_array(Vec<Option<f32>>),
     f64_array(Vec<Option<f64>>),
-    time_array(Vec<Option<ParadeTime>>),
-    time_with_time_zone_array(Vec<Option<ParadeTimeWithTimeZone>>),
-    timestamp_array(Vec<Option<ParadeTimestamp>>),
-    timestamp_with_time_zone_array(Vec<Option<ParadeTimestampWithTimeZone>>),
-    date_array(Vec<Option<ParadeDate>>),
     string_array(Vec<Option<String>>),
     json_string_array(Vec<Option<pgrx::JsonString>>),
     jsonb_array(Vec<Option<JsonB>>),
@@ -95,38 +82,6 @@ impl JsonBuilder {
     #[inline]
     pub fn add_f64(&mut self, attname: String, value: f64) {
         self.values.push((attname, JsonBuilderValue::f64(value)));
-    }
-
-    #[inline]
-    pub fn add_time(&mut self, attname: String, value: Time) {
-        self.values
-            .push((attname, JsonBuilderValue::time(value.into())));
-    }
-
-    #[inline]
-    pub fn add_time_with_time_zone(&mut self, attname: String, value: TimeWithTimeZone) {
-        self.values
-            .push((attname, JsonBuilderValue::time_with_time_zone(value.into())));
-    }
-
-    #[inline]
-    pub fn add_timestamp(&mut self, attname: String, value: Timestamp) {
-        self.values
-            .push((attname, JsonBuilderValue::timestamp(value.into())));
-    }
-
-    #[inline]
-    pub fn add_timestamp_with_time_zone(&mut self, attname: String, value: TimestampWithTimeZone) {
-        self.values.push((
-            attname,
-            JsonBuilderValue::timestamp_with_time_zone(value.into()),
-        ));
-    }
-
-    #[inline]
-    pub fn add_date(&mut self, attname: String, value: Date) {
-        self.values
-            .push((attname, JsonBuilderValue::date(value.into())));
     }
 
     #[inline]
@@ -194,58 +149,6 @@ impl JsonBuilder {
     }
 
     #[inline]
-    pub fn add_time_array(&mut self, attname: String, value: Vec<Option<Time>>) {
-        let value = value.into_iter().map(|t| t.map(|t| t.into())).collect();
-        self.values
-            .push((attname, JsonBuilderValue::time_array(value)));
-    }
-
-    #[inline]
-    pub fn add_time_with_time_zone_array(
-        &mut self,
-        attname: String,
-        value: Vec<Option<TimeWithTimeZone>>,
-    ) {
-        let value = value.into_iter().map(|t| t.map(|t| t.into())).collect();
-        self.values
-            .push((attname, JsonBuilderValue::time_with_time_zone_array(value)));
-    }
-
-    #[inline]
-    pub fn add_timestamp_array(&mut self, attname: String, value: Vec<Option<Timestamp>>) {
-        self.values.push((
-            attname,
-            JsonBuilderValue::timestamp_array(
-                value.into_iter().map(|ts| ts.map(|ts| ts.into())).collect(),
-            ),
-        ));
-    }
-
-    #[inline]
-    pub fn add_timestamp_with_time_zone_array(
-        &mut self,
-        attname: String,
-        value: Vec<Option<TimestampWithTimeZone>>,
-    ) {
-        self.values.push((
-            attname,
-            JsonBuilderValue::timestamp_with_time_zone_array(
-                value
-                    .into_iter()
-                    .map(|tsz| tsz.map(|tsz| tsz.into()))
-                    .collect(),
-            ),
-        ));
-    }
-
-    #[inline]
-    pub fn add_date_array(&mut self, attname: String, value: Vec<Option<Date>>) {
-        let value = value.into_iter().map(|d| d.map(|d| d.into())).collect();
-        self.values
-            .push((attname, JsonBuilderValue::date_array(value)));
-    }
-
-    #[inline]
     pub fn add_string_array(&mut self, attname: String, value: Vec<Option<String>>) {
         self.values
             .push((attname, JsonBuilderValue::string_array(value)));
@@ -283,11 +186,6 @@ impl JsonBuilder {
                 JsonBuilderValue::u64(v) => v.push_json(json),
                 JsonBuilderValue::f32(v) => v.push_json(json),
                 JsonBuilderValue::f64(v) => v.push_json(json),
-                JsonBuilderValue::time(v) => v.push_json(json),
-                JsonBuilderValue::time_with_time_zone(v) => v.push_json(json),
-                JsonBuilderValue::timestamp(v) => v.push_json(json),
-                JsonBuilderValue::timestamp_with_time_zone(v) => v.push_json(json),
-                JsonBuilderValue::date(v) => v.push_json(json),
                 JsonBuilderValue::string(v) => v.push_json(json),
                 JsonBuilderValue::json_string(v) => v.push_json(json),
                 JsonBuilderValue::jsonb(v) => v.push_json(json),
@@ -299,11 +197,6 @@ impl JsonBuilder {
                 JsonBuilderValue::u32_array(v) => v.push_json(json),
                 JsonBuilderValue::f32_array(v) => v.push_json(json),
                 JsonBuilderValue::f64_array(v) => v.push_json(json),
-                JsonBuilderValue::time_array(v) => v.push_json(json),
-                JsonBuilderValue::time_with_time_zone_array(v) => v.push_json(json),
-                JsonBuilderValue::timestamp_array(v) => v.push_json(json),
-                JsonBuilderValue::timestamp_with_time_zone_array(v) => v.push_json(json),
-                JsonBuilderValue::date_array(v) => v.push_json(json),
                 JsonBuilderValue::string_array(v) => v.push_json(json),
                 JsonBuilderValue::json_string_array(v) => v.push_json(json),
                 JsonBuilderValue::jsonb_array(v) => v.push_json(json),

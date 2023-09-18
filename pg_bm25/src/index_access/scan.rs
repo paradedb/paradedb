@@ -48,7 +48,7 @@ pub extern "C" fn amrescan(
         String::from_datum(keys[0].sk_argument, false).expect("failed to convert query to string")
     };
 
-    let query_parser = &state.query_parser;
+    let query_parser = &mut state.query_parser;
     let searcher = &state.searcher;
     let k = searcher.num_docs() as usize;
 

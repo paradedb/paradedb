@@ -44,7 +44,7 @@
     },
     {
       "group": "Blog",
-      "pages": ["blog/introducing_paradedb"]
+      "pages": ["blog/introducing_bm25", "blog/introducing_paradedb"]
     }
   ],
   "footerSocials": {

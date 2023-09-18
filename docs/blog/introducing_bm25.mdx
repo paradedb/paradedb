@@ -1,0 +1,177 @@
+---
+title: "pg_bm25: A Rust-based, full text search engine for Postgres"
+---
+
+<img src="blog/images/bm25.png" noZoom />
+
+We're unveiling `pg_bm25`: a Postgres extension that enables Elastic-quality, full text search 
+natively within Postgres.
+
+Today, Postgres’ full text queries are sluggish over large tables, have limited query and tokenization support, 
+and have no support for BM25 relevance scoring. `pg_bm25` is our first step in bridging the gap between the 
+native capabilities of Postgres’ full text search and those of a specialized search engine like ElasticSearch. 
+By collapsing a search engine natively within Postgres, we aim to simplify the development of search experiences 
+while eliminating the need to bring a cumbersome service like ElasticSearch into the data stack.
+
+Some features of `pg_bm25` include:
+
+- 100% Rust-based and Postgres native, with zero dependencies on an external search engine like ElasticSearch
+- Query times over 1M rows are 20x faster compared to `tsvector`, Postgres’ native data type for full-text search
+- Support for boolean and range queries, boosting, highlighting, filtering, and BM25 scoring
+- Real-time search — new data is immediately searchable without manual reindexing
+- No complex query language — just search over your tables with SQL
+
+## What is BM25?
+
+BM25, which stands for Best Matching 25, is the go-to choice for most modern search engines. 
+It ranks documents by considering how often a term appears and how unique that term is across all documents. 
+What sets BM25 apart from other algorithms, including the algorithm used by Postgres’ full text search, 
+is the sophisticated way it accounts for factors like term frequency and document length.
+
+While vector-based semantic search is rising in popularity, traditional BM25-based search remains 
+an indispensible tool for matching by exact keywords, abbreviations, and proper nouns that are poorly 
+captured by semantic search.
+
+## Using pg_bm25
+
+To run `pg_bm25` or install it into an existing, self-managed Postgres database, please see the extension’s 
+[README](https://github.com/paradedb/paradedb/tree/dev/pg_bm25).
+
+Out of the box, `pg_bm25` provides a table called `paradedb.mock_items` you can use for testing. 
+To begin, let’s index this table:
+
+```sql 
+CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
+```
+
+Now that the table is indexed, you can run full text queries against it:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+         description         | rating |  category
+-----------------------------+--------+-------------
+ Plastic Keyboard            |      4 | Electronics
+ Ergonomic metal keyboard    |      4 | Electronics
+ Innovative wireless earbuds |      5 | Electronics
+ Fast charging power bank    |      4 | Electronics
+ Bluetooth-enabled speaker   |      3 | Electronics
+(5 rows)
+```
+</Accordion>
+
+BM25 scoring and highlighting are supported:
+
+```sql
+SELECT description, rating, category, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'description')
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+ id |         description         | rating |  category   | rank_bm25 |         highlight_bm25
+----+-----------------------------+--------+-------------+-----------+---------------------------------
+  1 | Ergonomic metal keyboard    |      4 | Electronics | 4.9403534 | Ergonomic metal <b>keyboard</b>
+  2 | Very plasticy keyboard      |      4 | Electronics | 4.9403534 | Very plasticy <b>keyboard</b>
+ 12 | Innovative wireless earbuds |      5 | Electronics | 2.1096356 |
+ 22 | Fast charging power bank    |      4 | Electronics | 2.1096356 |
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | 2.1096356 |
+(5 rows)
+```
+</Accordion>
+
+In NoSQL search engines, metadata filtering requires a complex query language. In
+ParadeDB, filtering is done entirely through SQL:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+AND rating > 4;
+```
+
+As queries become more complex, the readability of SQL begins to shine. For reference, here's what 
+an equivalent query would look like if this table were stored in ElasticSearch:
+
+```json
+{
+  "query": {
+    "bool": {
+      "must": [
+        {
+          "bool": {
+            "should": [
+              { "match": { "description": "keyboard" } },
+              { "match": { "category": "electronics" } }
+            ]
+          }
+        }
+      ],
+      "filter": [
+        { "range": { "rating": { "gt": 4 } } }
+      ]
+    }
+  },
+  "_source": ["description", "rating", "category"]
+}
+```
+
+New data that arrives or rows that are changed are automatically reindexed and searchable. For instance,
+let's create and search for a new row in our table: 
+
+```sql
+INSERT INTO mock_items (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
+
+SELECT description, rating, category
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+         description         | rating |  category
+-----------------------------+--------+-------------
+ New keyboard                |      5 | Electronics
+ Plastic Keyboard            |      4 | Electronics
+ Ergonomic metal keyboard    |      4 | Electronics
+ Innovative wireless earbuds |      5 | Electronics
+ Fast charging power bank    |      4 | Electronics
+(5 rows)
+```
+</Accordion>
+
+## Benchmarks 
+
+On a table with one million rows, `pg_bm25` indexes 50 seconds faster than `tsvector` and ranks results 
+20x faster. Indexing and search times are nearly identical to those of a dedicated ElasticSearch instance.
+With further optimizations, we're aiming to reduce the query times compared to ElasticSearch 
+by an additional 2x. 
+
+More detailed benchmark results can be found in the extension 
+[README](https://github.com/paradedb/paradedb/tree/dev/pg_bm25#benchmarks).
+
+## Wrapping Up 
+
+While we're thrilled by our progress so far, several important features remain before `pg_bm25`
+can fully rival ElasticSearch's full suite of capabilities. These features include: 
+- Faceted search/aggregations 
+- Autocomplete (i.e. search as you type)
+- Fuzzy search 
+- Custom tokenizers
+- Distributed search
+
+As an open source project, we invite community members to contribute to our 
+[Github issues](https://github.com/paradedb/paradedb/issues). The core team is focused on bringing 
+`pg_bm25` to feature completion — you can show your support by 
+[giving us a star](https://github.com/paradedb/paradedb) or [trying out `pg_bm25`](https://github.com/paradedb/paradedb/tree/dev/pg_bm25#usage) 
+for yourself.

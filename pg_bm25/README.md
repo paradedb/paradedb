@@ -65,7 +65,8 @@ Execute a search query on your indexed table:
 ```sql
 SELECT *
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics';
+WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+LIMIT 5;
 ```
 
 This will return:
@@ -86,19 +87,20 @@ Scoring and highlighting are supported:
 ```sql
 SELECT *, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'description')
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics';
+WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+LIMIT 5;
 ```
 
 This will return:
 
 ```csv
- id |         description         | rating |  category   | rating2 | rank_bm25 |         highlight_bm25
-----+-----------------------------+--------+-------------+---------+-----------+---------------------------------
-  1 | Ergonomic metal keyboard    |      4 | Electronics |       5 | 4.9403534 | Ergonomic metal <b>keyboard</b>
-  2 | Very plasticy keyboard      |      4 | Electronics |       4 | 4.9403534 | Very plasticy <b>keyboard</b>
- 12 | Innovative wireless earbuds |      5 | Electronics |       1 | 2.1096356 |
- 22 | Fast charging power bank    |      4 | Electronics |       1 | 2.1096356 |
- 32 | Bluetooth-enabled speaker   |      3 | Electronics |       1 | 2.1096356 |
+ id |         description         | rating |  category   | rank_bm25 |         highlight_bm25
+----+-----------------------------+--------+-------------+-----------+---------------------------------
+  1 | Ergonomic metal keyboard    |      4 | Electronics | 4.9403534 | Ergonomic metal <b>keyboard</b>
+  2 | Very plasticy keyboard      |      4 | Electronics | 4.9403534 | Very plasticy <b>keyboard</b>
+ 12 | Innovative wireless earbuds |      5 | Electronics | 2.1096356 |
+ 22 | Fast charging power bank    |      4 | Electronics | 2.1096356 |
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | 2.1096356 |
 (5 rows)
 ```
 
@@ -108,6 +110,31 @@ Scores can be tuned via boosted queries:
 SELECT *
 FROM mock_items
 WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics';
+```
+
+New data that arrives or rows that are changed are automatically reindexed and searchable. For instance,
+let's create and search for a new row in our table:
+
+```sql
+INSERT INTO mock_items (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
+
+SELECT description, rating, category
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+LIMIT 5;
+```
+
+This will return:
+
+```csv
+         description         | rating |  category
+-----------------------------+--------+-------------
+ New keyboard                |      5 | Electronics
+ Plastic Keyboard            |      4 | Electronics
+ Ergonomic metal keyboard    |      4 | Electronics
+ Innovative wireless earbuds |      5 | Electronics
+ Fast charging power bank    |      4 | Electronics
+(5 rows)
 ```
 
 Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview

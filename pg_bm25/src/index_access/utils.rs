@@ -25,6 +25,7 @@ pub struct SearchQuery {
 pub struct SearchQueryConfig {
     pub offset: Option<usize>,
     pub limit: Option<usize>,
+    pub fuzzy_fields: Option<String>,
 }
 
 impl FromStr for SearchQuery {

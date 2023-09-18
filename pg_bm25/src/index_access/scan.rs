@@ -56,15 +56,38 @@ pub extern "C" fn amrescan(
         panic!("Failed to parse query: {}", err);
     });
 
-    let query_parser = &state.query_parser;
+    let query_parser = &mut state.query_parser;
     let searcher = &state.searcher;
+    let schema = &state.schema;
 
+    // Extract limit/offset
     let limit = query_config
         .config
         .limit
         .unwrap_or(searcher.num_docs() as usize);
     let offset = query_config.config.offset.unwrap_or(0);
 
+    // Set fuzzy fields
+    let fuzzy_fields: Vec<&str> = query_config
+        .config
+        .fuzzy_fields
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let require_prefix = false;
+    let transpose_cost_one = true;
+    let max_distance = 2;
+
+    for field_name in &fuzzy_fields {
+        if let Ok(field) = schema.get_field(field_name) {
+            query_parser.set_field_fuzzy(field, require_prefix, max_distance, transpose_cost_one);
+        }
+    }
+
+    // Construct query
     let (tantivy_query, _) = query_parser.parse_query_lenient(&query_config.query);
     let top_docs = searcher
         .search(

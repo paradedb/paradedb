@@ -1,5 +1,5 @@
 ---
-title: Import Data
+title: Importing Data
 ---
 
 This topic covers how to quickly import data from an existing Postgres database or CSV file into ParadeDB.
@@ -7,17 +7,82 @@ This topic covers how to quickly import data from an existing Postgres database 
 ## From Postgres
 
 <Info>
-  **Prerequisite** Ensure that you have `psql` installed on your machine. This will provide the necessary 
-  `pg_dump` and `pg_restore` command line utilities.
+  **Prerequisite** Ensure that you have `psql` installed on your machine. This
+  will provide the necessary `pg_dump` and `pg_restore` command line utilities.
 </Info>
 
-From your terminal, run `pg_dump` to create a copy of your existing database.
+1. From your terminal, run `pg_dump` to create a copy of your existing database.
 
-```
+```bash
 pg_dump -Fc --no-acl --no-owner \
     -h <host> \
     -U <username> \
-    <db_name> > old_db.dump
+    <dbname> > old_db.dump
 ```
 
+Note that `host`, `username`, and `dbname` are the host address, username, and database name of your existing
+database, respectively.
 
+You can also create copies of certain tables:
+
+```bash
+pg_dump -Fc --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    -t <table_name_1> -t <table_name_2>
+    <dbname> > old_db.dump
+```
+
+2. Run `pg_restore` to copy your data into ParadeDB:
+
+```bash
+pg_restore --verbose --clean --no-acl --no-owner \
+    -h <host> \
+    -U <username> \
+    -d <dbname> \
+    old_db.dump
+```
+
+Note that `host`, `username`, and `dbname` are now the credentials of your ParadeDB database.
+
+## From CSV File
+
+1. Prepare a `actors.csv` file on your machine at `/path/to/actors.csv` with the following data.
+
+```csv
+First Name,Last Name
+1,Will,Smith
+2,Denzel,Washington
+```
+
+2. Use `psql` to connect to ParadeDB.
+
+```bash
+psql -h <hostname> -U <user> -d <dbname> -p <port> -W
+```
+
+3. Inside the `psql` shell, create a table that matches the `actors.csv` schema.
+
+```sql
+CREATE TABLE actors (
+  id SERIAL,
+  first_name TEXT,
+  last_name TEXT,
+);
+```
+
+4. Load the data using the `\copy` option.
+
+```sql
+\copy actors FROM '/path/to/actors.csv' DELIMITER ',' CSV HEADER;
+```
+
+5. Ensure that the CSV file was uploaded successfully.
+
+```sql
+SELECT * FROM actors;
+```
+
+## For Further Assistance
+
+Please contact our support team using the live chat button at the bottom right corner of the screen.

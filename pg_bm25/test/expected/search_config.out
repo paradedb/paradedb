@@ -1,6 +1,6 @@
 -- Basic seach query
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics';
- id |         description         | rating |  category
+ id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics
   2 | Plastic Keyboard            |      4 | Electronics
@@ -11,7 +11,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 
 -- With trailing delimiter
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::';
- id |         description         | rating |  category
+ id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics
   2 | Plastic Keyboard            |      4 | Electronics
@@ -22,7 +22,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 
 -- With limit
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2';
- id |       description        | rating |  category
+ id |       description        | rating |  category   
 ----+--------------------------+--------+-------------
   1 | Ergonomic metal keyboard |      4 | Electronics
   2 | Plastic Keyboard         |      4 | Electronics
@@ -30,16 +30,15 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 
 -- With limit and trailing &
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&';
- id |       description        | rating |  category
+ id |       description        | rating |  category   
 ----+--------------------------+--------+-------------
   1 | Ergonomic metal keyboard |      4 | Electronics
   2 | Plastic Keyboard         |      4 | Electronics
 (2 rows)
 
--- With trailing delimiter
+-- With limit and offset
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&offset=1';
-
- id |         description         | rating |  category
+ id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   2 | Plastic Keyboard            |      4 | Electronics
  12 | Innovative wireless earbuds |      5 | Electronics

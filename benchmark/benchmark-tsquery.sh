@@ -6,6 +6,7 @@ set -Eeuo pipefail
 # Ensure the "out" directory exists
 mkdir -p out
 
+# shellcheck disable=SC1091
 source "get_data.sh"
 
 PORT=5431

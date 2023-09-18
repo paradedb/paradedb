@@ -1,7 +1,7 @@
 use pgrx::*;
 use serde::Deserialize;
 use serde_json::json;
-use serde_qs;
+
 use std::str::FromStr;
 
 use crate::json::builder::JsonBuilder;
@@ -37,13 +37,13 @@ impl FromStr for SearchQuery {
         let query = parts.next().unwrap_or_default().to_string();
 
         if query.is_empty() {
-            return Ok(SearchQuery {
+            Ok(SearchQuery {
                 query: config_part.to_string(),
                 config: SearchQueryConfig::default(),
-            });
+            })
         } else {
             let config: SearchQueryConfig = serde_qs::from_str(config_part)?;
-            return Ok(SearchQuery { query, config });
+            Ok(SearchQuery { query, config })
         }
     }
 }

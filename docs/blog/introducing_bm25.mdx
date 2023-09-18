@@ -1,11 +1,10 @@
 ---
-title: "pg_bm25: A Rust-based, full text search engine for Postgres"
+title: "pg_bm25: Elastic-Quality Search Inside Postgres"
 ---
 
-<img src="blog/images/bm25.png" noZoom />
+<img src="/blog/images/bm25.png" noZoom />
 
-We're unveiling `pg_bm25`: a Postgres extension that enables Elastic-quality, full text search 
-natively within Postgres.
+We're unveiling `pg_bm25`: a Rust-based Postgres extension that enables full text search with BM25 within Postgres.
 
 Today, Postgres’ full text queries are sluggish over large tables, have limited query and tokenization support, 
 and have no support for BM25 relevance scoring. `pg_bm25` is our first step in bridging the gap between the 

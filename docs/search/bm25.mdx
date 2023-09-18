@@ -87,6 +87,16 @@ WHERE mock_items @@@ 'keyboard'
 WHERE purchase_date > '2023-01-01 12:00:00-05';
 ```
 
+## Boosting
+
+Scores can be tuned via boosted queries, which adjust the impact of individual columns on the final score:
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics'
+```
+
 ## Boolean Operators
 
 `AND`, `OR`, and `NOT` can be used to combine and filter multiple terms:

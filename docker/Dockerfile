@@ -29,6 +29,7 @@ ARG HYPOPG_VERSION
 ARG RUM_VERSION
 ARG POSTHOG_API_KEY
 ARG COMMIT_SHA
+ARG TELEMETRY
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
@@ -53,6 +54,7 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     RUM_VERSION=${RUM_VERSION} \
     POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
+    TELEMETRY=${TELEMETRY} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
@@ -68,6 +70,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     gnupg \
     gcc \
+    uuidgen \
     software-properties-common \
     ca-certificates \
     python3.10 \

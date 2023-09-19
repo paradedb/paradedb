@@ -3,31 +3,6 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-
-if [ -z "$EVENT_SENT" ] && [ "$TELEMETRY" != "False" ]; then
-  # Event data (you can adjust this as needed)
-  # need to install uuidgen in the dockerfile!
-  DISTINCT_ID=$(uuidgen)
-  # Send the event with curl
-  curl -v -L --header "Content-Type: application/json" -d '{
-    "api_key": "'$POSTHOG_API_KEY'",
-    "event": "ParadeDB Deployment",
-    "distinct_id": "'$DISTINCT_ID'",
-    "properties": {
-      "commit_sha": "'$COMMIT_SHA'"
-    }
-  }' $POSTHOG_ENDPOINT/capture/
-  
-  # Mark the event as sent
-  export EVENT_SENT="true"
-fi
-
-exit 1
-
-
-
-
-
 # Determine the PostgreSQL major version
 POSTGRES_VERSION_FULL=$(pg_config --version)
 POSTGRES_VERSION_MAJOR=$(echo "$POSTGRES_VERSION_FULL" | awk '{print $2}' | cut -d '.' -f1)
@@ -88,6 +63,25 @@ psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'" | grep -q 1 || createuse
 psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'" | grep -q 1 || psql -c "CREATE ROLE $POSTGRES_USER PASSWORD '$POSTGRES_PASSWORD' SUPERUSER LOGIN"
 psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 || createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
 
+# We send basic, anonymous deployment events to PostHog to help us understand
+# how many people are using the project and to track deployment success. We 
+# only do see if TELEMETRY is not set to "False", and only do it once per
+# deployment (i.e. if the environment variable TELEMETRY_SENT is set, we don't
+# send the event again in the PostgreSQL extensions)
+if [ "$TELEMETRY" != "False" ] && [ -z "$TELEMETRY_SENT" ]; then
+  curl -v -L --header "Content-Type: application/json" -d '{
+    "api_key": "'$POSTHOG_API_KEY'",
+    "event": "ParadeDB Deployment",
+    "distinct_id": "'$(uuidgen)'",
+    "properties": {
+      "commit_sha": "'$COMMIT_SHA'"
+    }
+  }' $POSTHOG_ENDPOINT/capture/
+  
+  # Mark telemetry as sent
+  export TELEMETRY_SENT="True"
+fi
+
 echo "PostgreSQL is up - installing extensions..."
 
 # Preinstall extensions for which a version is specified
@@ -102,17 +96,6 @@ echo "PostgreSQL extensions installed - tailing server..."
 
 # Trap SIGINT and SIGTERM signals, stop PostgreSQL, and gracefully shut down
 trap "service postgresql stop; echo 'PostgreSQL server has stopped - exiting...'; exit 0" SIGINT SIGTERM
-
-
-
-
-
-
-
-
-
-
-
 
 # Keep the container running
 tail -f /dev/null

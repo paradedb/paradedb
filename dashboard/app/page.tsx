@@ -1,5 +1,8 @@
-import { withPageAuthRequired } from '@auth0/nextjs-auth0';
+import { withPageAuthRequired } from "@auth0/nextjs-auth0";
 
-export default withPageAuthRequired(async function Home() {
-  return <div>Hello World</div>
-}, { returnTo: '/' })
+export default withPageAuthRequired(
+  async function Home() {
+    return <div>Hello World</div>;
+  },
+  { returnTo: "/" },
+);

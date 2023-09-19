@@ -4,23 +4,26 @@
 set -Eeuo pipefail
 
 
-
-
-# Event data (you can adjust this as needed)
-# need to install uuidgen in the dockerfile!
-DISTINCT_ID=$(uuidgen)
-
-# curl
-curl -v -L --header "Content-Type: application/json" -d '{
+if [ -z "$EVENT_SENT" ] && [ "$TELEMETRY" != "False" ]; then
+  # Event data (you can adjust this as needed)
+  # need to install uuidgen in the dockerfile!
+  DISTINCT_ID=$(uuidgen)
+  # Send the event with curl
+  curl -v -L --header "Content-Type: application/json" -d '{
     "api_key": "'$POSTHOG_API_KEY'",
     "event": "ParadeDB Deployment",
     "distinct_id": "'$DISTINCT_ID'",
     "properties": {
-            "commit_sha": "'$COMMIT_SHA'"
-        }
-}' $POSTHOG_ENDPOINT/capture/
+      "commit_sha": "'$COMMIT_SHA'"
+    }
+  }' $POSTHOG_ENDPOINT/capture/
+  
+  # Mark the event as sent
+  export EVENT_SENT="true"
+fi
 
 exit 1
+
 
 
 

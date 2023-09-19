@@ -32,8 +32,6 @@ jobs:
     steps:
       - name: Sparse Checkout Git Repository
         uses: actions/checkout@v4
-        with:
-          path: pg_bm25
 
       - name: Cache Cargo Dependencies
         uses: actions/cache@v3
@@ -74,8 +72,7 @@ jobs:
 
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_bm25
-        run: |
-          cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       # The || true ensures that the step doesn't fail if the tool is already installed (i.e. in the cache)
       - name: Run pg_bm25 Unit Tests

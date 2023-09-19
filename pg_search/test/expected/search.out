@@ -9,64 +9,84 @@ select pg_reload_conf();
 
 CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
 CREATE INDEX ON mock_items USING hnsw (embedding vector_l2_ops);
-WITH query AS (
-    SELECT
-        ctid,
-        paradedb.l2_normalized_bm25(ctid, 'idx_mock_items', 'keyboard') as bm25,
-        ('[1,2,3]' <-> embedding) / paradedb.l2_norm('[1,2,3]' <-> embedding) OVER () as hnsw
-    FROM
-        mock_items
-)
+-- Hybrid search with equal weights
 SELECT
-    mock_items.description,
-    mock_items.category,
-    mock_items.rating,
-    paradedb.weighted_mean(query.bm25, query.hnsw, ARRAY[0.8, 0.2]) as score_hybrid
+    description,
+    category,
+    rating,
+    embedding,
+    paradedb.weighted_mean(
+        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        1 - paradedb.minmax_norm(
+          '[1,2,3]' <-> embedding, 
+          MIN('[1,2,3]' <-> embedding) OVER (), 
+          MAX('[1,2,3]' <-> embedding) OVER ()
+        ),
+        ARRAY[0.5,0.5]
+    ) as score_hybrid
 FROM mock_items
-JOIN query ON mock_items.ctid = query.ctid
-ORDER BY score_hybrid DESC;
-         description         |  category   | rating |    score_hybrid    
------------------------------+-------------+--------+--------------------
- Plastic Keyboard            | Electronics |      4 |  0.737181966124348
- Ergonomic metal keyboard    | Electronics |      4 |    0.6107116173495
- Compact digital camera      | Photography |      5 |  0.307354981478255
- High-resolution DSLR        | Photography |      4 |  0.307354981478255
- Portable tripod stand       | Photography |      4 |  0.307354981478255
- Lightweight camera bag      | Photography |      5 |  0.307354981478255
- Hardcover book on history   | Books       |      2 |   0.29125175743143
- Mystery detective novel     | Books       |      2 |   0.29125175743143
- Paperback romantic novel    | Books       |      3 |   0.29125175743143
- Historical fiction book     | Books       |      3 |   0.29125175743143
- Refreshing face wash        | Beauty      |      2 |  0.263447126981361
- Moisturizing lip balm       | Beauty      |      4 |  0.263447126981361
- Generic shoes               | Footwear    |      4 |  0.263447126981361
- Anti-aging serum            | Beauty      |      4 |  0.263447126981361
- Freshly ground coffee beans | Groceries   |      5 |  0.230951419120408
- Pure honey jar              | Groceries   |      4 |  0.230951419120408
- Organic breakfast cereal    | Groceries   |      5 |  0.230951419120408
- Organic green tea           | Groceries   |      3 |  0.230951419120408
- Classic leather sofa        | Furniture   |      5 |  0.219539272484468
- Elegant glass table         | Furniture   |      3 |  0.219539272484468
- Rustic bookshelf            | Furniture   |      4 |  0.219539272484468
- White jogging shoes         | Footwear    |      3 |  0.219539272484468
- Sturdy hiking boots         | Footwear    |      4 |  0.175631417987574
- Comfortable slippers        | Footwear    |      3 |  0.175631417987574
- Sleek running shoes         | Footwear    |      5 |  0.175631417987574
- Winter woolen socks         | Footwear    |      5 |  0.175631417987574
- Fast charging power bank    | Electronics |      4 |  0.131723563490681
- Bluetooth-enabled speaker   | Electronics |      3 |  0.131723563490681
- Innovative wireless earbuds | Electronics |      5 |  0.131723563490681
- Soft cotton shirt           | Apparel     |      5 | 0.0878157089937871
- Slim-fit denim jeans        | Apparel     |      5 | 0.0878157089937871
- Warm woolen sweater         | Apparel     |      3 | 0.0878157089937871
- Sporty tank top             | Apparel     |      4 | 0.0878157089937871
- Robot building kit          | Toys        |      4 | 0.0439078544968936
- Plush teddy bear            | Toys        |      4 | 0.0439078544968936
- Interactive board game      | Toys        |      3 | 0.0439078544968936
- Colorful kids toy           | Toys        |      1 | 0.0439078544968936
- Designer wall paintings     | Home Decor  |      5 |                  0
- Artistic ceramic vase       | Home Decor  |      4 |                  0
- Handcrafted wooden frame    | Home Decor  |      5 |                  0
- Modern wall clock           | Home Decor  |      4 |                  0
-(41 rows)
+ORDER BY score_hybrid DESC
+LIMIT 5;
+       description        |  category   | rating | embedding |   score_hybrid    
+--------------------------+-------------+--------+-----------+-------------------
+ Ergonomic metal keyboard | Electronics |      4 | [3,4,5]   | 0.788961044379643
+ Plastic Keyboard         | Electronics |      4 | [4,5,6]   | 0.785714285714286
+ Artistic ceramic vase    | Home Decor  |      4 | [1,2,3]   |               0.5
+ Modern wall clock        | Home Decor  |      4 | [1,2,3]   |               0.5
+ Designer wall paintings  | Home Decor  |      5 | [1,2,3]   |               0.5
+(5 rows)
+
+-- All weighted on BM25
+SELECT
+    description,
+    category,
+    rating,
+    embedding,
+    paradedb.weighted_mean(
+        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        1 - paradedb.minmax_norm(
+          '[1,2,3]' <-> embedding, 
+          MIN('[1,2,3]' <-> embedding) OVER (), 
+          MAX('[1,2,3]' <-> embedding) OVER ()
+        ),
+        ARRAY[1,0]
+    ) as score_hybrid
+FROM mock_items
+ORDER BY score_hybrid DESC
+LIMIT 5;
+       description        |  category   | rating | embedding |   score_hybrid    
+--------------------------+-------------+--------+-----------+-------------------
+ Plastic Keyboard         | Electronics |      4 | [4,5,6]   |                 1
+ Ergonomic metal keyboard | Electronics |      4 | [3,4,5]   | 0.863636374473572
+ White jogging shoes      | Footwear    |      3 | [6,7,8]   |                 0
+ Generic shoes            | Footwear    |      4 | [7,8,9]   |                 0
+ Sleek running shoes      | Footwear    |      5 | [5,6,7]   |                 0
+(5 rows)
+
+-- All weighted on HNSW
+SELECT
+    description,
+    category,
+    rating,
+    embedding,
+    paradedb.weighted_mean(
+        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        1 - paradedb.minmax_norm(
+          '[1,2,3]' <-> embedding, 
+          MIN('[1,2,3]' <-> embedding) OVER (), 
+          MAX('[1,2,3]' <-> embedding) OVER ()
+        ),
+        ARRAY[0,1]
+    ) as score_hybrid
+FROM mock_items
+ORDER BY score_hybrid DESC
+LIMIT 5;
+       description        |  category  | rating | embedding |   score_hybrid    
+--------------------------+------------+--------+-----------+-------------------
+ Designer wall paintings  | Home Decor |      5 | [1,2,3]   |                 1
+ Handcrafted wooden frame | Home Decor |      5 | [1,2,3]   |                 1
+ Artistic ceramic vase    | Home Decor |      4 | [1,2,3]   |                 1
+ Modern wall clock        | Home Decor |      4 | [1,2,3]   |                 1
+ Interactive board game   | Toys       |      3 | [2,3,4]   | 0.857142857142857
+(5 rows)
 

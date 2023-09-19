@@ -156,24 +156,23 @@ Finally, let's implement hybrid search, which combines BM25-based full text scor
 similarity scores. Hybrid search is especially useful in scenarios where you want to match by both 
 exact keywords and semantic meaning.
 
-Let's execute a simple hybrid search:
+Let's execute a hybrid search:
 
 ```sql 
-WITH query AS (
-    SELECT 
-        ctid,
-        paradedb.l2_normalized_bm25(ctid, 'idx_mock_items', 'keyboard') as bm25,
-        ('[1,2,3]' <-> embedding) / paradedb.l2_norm('[1,2,3]' <-> embedding) OVER () as hnsw
-    FROM
-        mock_items 
-)
-SELECT 
-    mock_items.description,
-    mock_items.category,
-    mock_items.rating,
-    paradedb.weighted_mean(query.bm25, query.hnsw, ARRAY[0.8, 0.2]) as score_hybrid 
+SELECT
+    description,
+    category,
+    rating,
+    paradedb.weighted_mean(
+        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'keyboard'),
+        1 - paradedb.minmax_norm(
+          '[1,2,3]' <-> embedding, 
+          MIN('[1,2,3]' <-> embedding) OVER (), 
+          MAX('[1,2,3]' <-> embedding) OVER ()
+        ),
+        ARRAY[0.8,0.2]
+    ) as score_hybrid
 FROM mock_items
-JOIN query ON mock_items.ctid = query.ctid
 ORDER BY score_hybrid DESC
 LIMIT 3;
 ```
@@ -188,9 +187,9 @@ LIMIT 3;
 ```
 </Accordion>
 
-In this query, we first use `paradedb.l2_normalized_bm25` to calculate each row's normalized BM25 score with respect to 
-the query "keyboard." Next, we use a window function called `paradedb.l2_norm` to calculate each row's normalized 
-vector similarity score. Finally, we combine the two scores as a weighted average, assigning a weight of `0.8` to the first BM25 score and 
+In this query, we first use `paradedb.minmax_bm25` to calculate each row's normalized BM25 score with respect to 
+the query "keyboard." Next, we use a function called `paradedb.minmax_norm` to normalize the HNSW scores, and invert 
+the scores such that the lowest HNSW score is ranked the highest. Finally, we combine the two scores as a weighted average, assigning a weight of `0.8` to the first BM25 score and 
 a weight of `0.2` to the latter score.
 
 ## Congratulations!

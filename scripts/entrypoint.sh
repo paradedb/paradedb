@@ -77,7 +77,7 @@ if [ "$TELEMETRY" != "False" ] && [ -z "$TELEMETRY_SENT" ]; then
       "commit_sha": "'$COMMIT_SHA'"
     }
   }' $POSTHOG_ENDPOINT/capture/
-  
+
   # Mark telemetry as sent
   export TELEMETRY_SENT="True"
 fi

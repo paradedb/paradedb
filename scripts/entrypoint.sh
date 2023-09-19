@@ -64,7 +64,7 @@ psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'" | grep -q 1 ||
 psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 || createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
 
 # We send basic, anonymous deployment events to PostHog to help us understand
-# how many people are using the project and to track deployment success. We 
+# how many people are using the project and to track deployment success. We
 # only do see if TELEMETRY is not set to "False", and only do it once per
 # deployment (i.e. if the environment variable TELEMETRY_SENT is set, we don't
 # send the event again in the PostgreSQL extensions)

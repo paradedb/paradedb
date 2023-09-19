@@ -23,7 +23,7 @@ pub fn highlight_bm25(ctid: Option<ItemPointerData>, field_name: String) -> Stri
 }
 
 #[pg_extern]
-pub fn l2_normalized_bm25(
+pub fn minmax_bm25(
     ctid: pg_sys::ItemPointerData,
     index_name: &str,
     query: &str,
@@ -45,8 +45,19 @@ pub fn l2_normalized_bm25(
                 .or_insert_with(|| scan_index(query, index_oid))
                 .contains(&tid);
 
-            get_executor_manager().get_score(ctid).unwrap_or(0.0)
-                / get_executor_manager().get_l2_norm()
+            let max_score = get_executor_manager().get_max_score();
+            let min_score = get_executor_manager().get_min_score();
+            let raw_score = get_executor_manager().get_score(ctid).unwrap_or(0.0);
+
+            if raw_score == 0.0 && min_score == max_score {
+                return 0.0;
+            }
+
+            if min_score == max_score {
+                return 1.0;
+            }
+
+            (raw_score - min_score) / (max_score - min_score)
         },
         None => 0.0,
     }

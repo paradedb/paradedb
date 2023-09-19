@@ -16,7 +16,8 @@ type BlockInfo = (BlockNumber, OffsetNumber);
 
 #[derive(Debug, PartialEq)]
 pub struct Manager {
-    l2_norm: f32,
+    max_score: f32,
+    min_score: f32,
     scores: Option<HashMap<BlockInfo, f32>>,
     highlights: Option<HashMap<(BlockInfo, String), String>>,
 }
@@ -26,7 +27,8 @@ impl Manager {
         Self {
             scores: None,
             highlights: None,
-            l2_norm: 1.0,
+            max_score: 0.0,
+            min_score: 0.0
         }
     }
 
@@ -43,12 +45,20 @@ impl Manager {
         self.scores.as_mut().unwrap().get(&(block, offset)).copied()
     }
 
-    pub fn set_l2_norm(&mut self, l2_norm: f32) {
-        self.l2_norm = l2_norm;
+    pub fn set_max_score(&mut self, max_score: f32) {
+        self.max_score = max_score;
     }
 
-    pub fn get_l2_norm(&self) -> f32 {
-        self.l2_norm
+    pub fn get_max_score(&self) -> f32 {
+        self.max_score
+    }
+
+    pub fn set_min_score(&mut self, min_score: f32) {
+        self.min_score = min_score;
+    }
+
+    pub fn get_min_score(&self) -> f32 {
+        self.min_score
     }
 
     pub fn add_highlight(&mut self, ctid: ItemPointerData, field_name: String, snippet: Snippet) {

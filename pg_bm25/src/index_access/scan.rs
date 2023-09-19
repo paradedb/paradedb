@@ -1,5 +1,12 @@
 use pgrx::*;
-use tantivy::{collector::TopDocs, schema::Document, schema::FieldType, SnippetGenerator};
+use tantivy::{
+    collector::TopDocs,
+    query::{BooleanQuery, Query, RegexQuery},
+    query_grammar::Occur,
+    schema::FieldType,
+    schema::Document,
+    SnippetGenerator,
+};
 
 use crate::{
     index_access::utils::{get_parade_index, SearchQuery},
@@ -27,6 +34,7 @@ pub extern "C" fn ambeginscan(
     scandesc.into_pg()
 }
 
+// An annotation to guard the function for PostgreSQL's threading model.
 #[pg_guard]
 pub extern "C" fn amrescan(
     scan: pg_sys::IndexScanDesc,
@@ -35,52 +43,102 @@ pub extern "C" fn amrescan(
     _orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
 ) {
+    // Ensure there's at least one key provided for the search.
     if nkeys == 0 {
         panic!("no ScanKeys provided");
     }
 
+    // Convert the raw pointer to a safe wrapper. This action takes ownership of the object
+    // pointed to by the raw pointer in a safe way.
     let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
 
+    // Extract the scan state from the opaque field of the scan descriptor.
     let state =
         unsafe { (scan.opaque as *mut TantivyScanState).as_mut() }.expect("no scandesc state");
+
+    // Convert the raw keys into a slice for easier access.
     let nkeys = nkeys as usize;
     let keys = unsafe { std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys) };
+
+    // Convert the first scan key argument into a string. This is assumed to be the query string.
     let raw_query = unsafe {
         String::from_datum(keys[0].sk_argument, false).expect("failed to convert query to string")
     };
 
-    // Parse a SearchQuery from the raw query string.
-    // This will parse paradedb-specific config from the string.
+    // Parse the raw query into a SearchQuery object, which has additional configuration.
     let query_config: SearchQuery = raw_query.parse().unwrap_or_else(|err| {
         panic!("Failed to parse query: {}", err);
     });
 
+    let fuzzy_fields = query_config.config.fuzzy_fields;
+    let prefix_fields = query_config.config.prefix_fields;
+
+    // Determine if we're using prefix fields based on the presence or absence of prefix and fuzzy fields.
+    // It panics if both are provided as that's considered an invalid input.
+    let using_prefix_fields = match (!prefix_fields.is_empty(), !fuzzy_fields.is_empty()) {
+        (true, true) => panic!("cannot search with both prefix_fields and fuzzy_fields"),
+        (true, false) => true,
+        _ => false,
+    };
+
+    // Fetching references to state components for building the query.
     let query_parser = &mut state.query_parser;
     let searcher = &state.searcher;
     let schema = &state.schema;
 
-    // Extract limit/offset
+    // Extract limit and offset from the query config or set defaults.
     let limit = query_config
         .config
         .limit
         .unwrap_or(searcher.num_docs() as usize);
     let offset = query_config.config.offset.unwrap_or(0);
 
-    // Set fuzzy fields
-    let fuzzy_fields: Vec<String> = query_config.config.fuzzy_fields;
+    // Construct the actual Tantivy search query based on the mode determined above.
+    let tantivy_query: Box<dyn Query> = if using_prefix_fields {
+        let regex_pattern = format!("{}.*", &query_config.query);
+        let mut queries: Vec<Box<dyn Query>> = Vec::new();
 
-    let require_prefix = false;
-    let transpose_cost_one = true;
-    let max_distance = 2;
-
-    for field_name in &fuzzy_fields {
-        if let Ok(field) = schema.get_field(field_name) {
-            query_parser.set_field_fuzzy(field, require_prefix, max_distance, transpose_cost_one);
+        // Build a regex query for each specified prefix field.
+        for field_name in &prefix_fields {
+            if let Ok(field) = schema.get_field(field_name) {
+                let regex_query =
+                    Box::new(RegexQuery::from_pattern(&regex_pattern, field).unwrap());
+                queries.push(regex_query);
+            }
         }
-    }
 
-    // Construct query
-    let (tantivy_query, _) = query_parser.parse_query_lenient(&query_config.query);
+        // If there's only one query, use it directly; otherwise, combine the queries.
+        if queries.len() == 1 {
+            queries.remove(0)
+        } else {
+            let boolean_query =
+                BooleanQuery::new(queries.into_iter().map(|q| (Occur::Should, q)).collect());
+            Box::new(boolean_query)
+        }
+    } else {
+        // Set fuzzy search configuration for each specified fuzzy field.
+        let fuzzy_fields: Vec<String> = fuzzy_fields;
+
+        let require_prefix = false;
+        let transpose_cost_one = true;
+        let max_distance = 2;
+
+        for field_name in &fuzzy_fields {
+            if let Ok(field) = schema.get_field(field_name) {
+                query_parser.set_field_fuzzy(
+                    field,
+                    require_prefix,
+                    max_distance,
+                    transpose_cost_one,
+                );
+            }
+        }
+
+        // Construct the query using the lenient parser to tolerate minor errors in the input.
+        query_parser.parse_query_lenient(&query_config.query).0
+    };
+
+    // Execute the constructed search query on Tantivy.
     let top_docs = searcher
         .search(
             &tantivy_query,
@@ -95,9 +153,10 @@ pub extern "C" fn amrescan(
     get_executor_manager().set_max_score(max_score);
     get_executor_manager().set_min_score(min_score);
 
-    // Add query to scan state
+    // Cache the constructed query in the scan state for potential subsequent use.
     state.query = tantivy_query;
 
+    // Store the search results in the scan state, ensuring they get freed when the current memory context is deleted.
     state.iterator =
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(top_docs.into_iter());
 }

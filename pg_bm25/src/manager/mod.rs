@@ -28,7 +28,7 @@ impl Manager {
             scores: None,
             highlights: None,
             max_score: 0.0,
-            min_score: 0.0
+            min_score: 0.0,
         }
     }
 

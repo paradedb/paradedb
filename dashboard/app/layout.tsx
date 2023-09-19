@@ -10,11 +10,7 @@ export const metadata: Metadata = {
   description: "ParadeDB cloud dashboard",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+const RootLayout = ({ children }: { children: React.ReactNode }) => {
   return (
     <html lang="en">
       <UserProvider>
@@ -22,4 +18,6 @@ export default function RootLayout({
       </UserProvider>
     </html>
   );
-}
+};
+
+export default RootLayout;

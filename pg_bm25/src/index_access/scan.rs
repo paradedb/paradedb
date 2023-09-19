@@ -90,12 +90,10 @@ pub extern "C" fn amrescan(
 
     // Cache L2 norm of the scores
     let scores: Vec<f32> = top_docs.iter().map(|(score, _)| *score).collect();
-    let l2_norm = scores
-        .iter()
-        .map(|&score| score * score)
-        .sum::<f32>()
-        .sqrt();
-    get_executor_manager().set_l2_norm(l2_norm);
+    let max_score = scores.iter().fold(0.0f32, |a, b| a.max(*b));
+    let min_score = scores.iter().fold(0.0f32, |a, b| a.min(*b));
+    get_executor_manager().set_max_score(max_score);
+    get_executor_manager().set_min_score(min_score);
 
     // Add query to scan state
     state.query = tantivy_query;

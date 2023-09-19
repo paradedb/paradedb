@@ -62,7 +62,6 @@ cd ../../pg_bm25
 # Build and install pg_bm25 into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pg_bm25 for pgrx PostgreSQL $version..."
-  cargo clean
   case "$OS_NAME" in
     Darwin)
       cargo pgrx install --pg-config="$HOME/.pgrx/$version/pgrx-install/bin/pg_config"

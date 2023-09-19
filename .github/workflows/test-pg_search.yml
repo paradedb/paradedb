@@ -27,8 +27,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Git Repository
+      - name: Sparse Checkout Git Repository
         uses: actions/checkout@v4
+        with:
+          path: pg_search
 
       - name: Cache Cargo Dependencies
         uses: actions/cache@v3

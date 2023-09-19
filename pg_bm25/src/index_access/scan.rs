@@ -67,14 +67,7 @@ pub extern "C" fn amrescan(
     let offset = query_config.config.offset.unwrap_or(0);
 
     // Set fuzzy fields
-    let fuzzy_fields: Vec<&str> = query_config
-        .config
-        .fuzzy_fields
-        .as_deref()
-        .unwrap_or("")
-        .split(',')
-        .filter(|s| !s.is_empty())
-        .collect();
+    let fuzzy_fields: Vec<String> = query_config.config.fuzzy_fields;
 
     let require_prefix = false;
     let transpose_cost_one = true;

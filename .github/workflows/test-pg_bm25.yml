@@ -33,26 +33,26 @@ jobs:
       - name: Sparse Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v3
+      # Attempt to download the Rust binaries artifact
+      - name: Download Rust binaries artifact
+        uses: actions/download-artifact@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin/
-            ~/.rustup/
-            pg_bm25/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('pg_bm25/Cargo.lock') }}xw
+          name: rust-binaries
+          path: ~/.cargo/bin/
+        continue-on-error: true  # Don't fail the workflow if the artifact isn't found
 
-      - name: Cache PostgreSQL Binaries
-        id: cache-pg
-        uses: actions/cache@v3
-        with:
-          path: /usr/share/postgresql/
-          key: ${{ runner.os }}-postgresql-${{ matrix.pg_version }}
+      # - name: Cache Cargo Dependencies
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: |
+      #       ~/.cargo/registry
+      #       ~/.cargo/git
+      #       ~/.cargo/bin/
+      #       ~/.rustup/
+      #       pg_bm25/target
+      #     key: ${{ runner.os }}-cargo-${{ hashFiles('pg_bm25/Cargo.lock') }}xw
 
       - name: Install Supported PostgreSQL Version
-        if: steps.cache-pg.outputs.cache-hit != 'true'
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
@@ -66,15 +66,26 @@ jobs:
       - name: Install pgrx, grcov & llvm-tools-preview
         working-directory: pg_bm25
         run: |
-          cargo install cargo-pgrx --version 0.9.8 || true
-          cargo install grcov || true
-          rustup component add llvm-tools-preview || true
+          if ! command -v cargo-pgrx &> /dev/null; then
+            cargo install cargo-pgrx --version 0.9.8
+          fi
+          if ! command -v grcov &> /dev/null; then
+            cargo install grcov
+          fi
+          if ! rustup component list | grep -q 'llvm-tools-preview.*(installed)'; then
+            rustup component add llvm-tools-preview
+          fi
+
+      - name: Upload Rust binaries as artifacts
+        uses: actions/upload-artifact@v2
+        with:
+          name: rust-binaries
+          path: ~/.cargo/bin/
 
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_bm25
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      # The || true ensures that the step doesn't fail if the tool is already installed (i.e. in the cache)
       - name: Run pg_bm25 Unit Tests
         working-directory: pg_bm25
         run: |

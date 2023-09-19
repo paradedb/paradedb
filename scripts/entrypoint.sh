@@ -70,13 +70,13 @@ psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 |
 # send the event again in the PostgreSQL extensions)
 if [ "$TELEMETRY" != "False" ] && [ -z "$TELEMETRY_SENT" ]; then
   curl -v -L --header "Content-Type: application/json" -d '{
-    "api_key": "'$POSTHOG_API_KEY'",
+    "api_key": "'"$POSTHOG_API_KEY"'",
     "event": "ParadeDB Deployment",
-    "distinct_id": "'$(uuidgen)'",
+    "distinct_id": "'"$(uuidgen)"'",
     "properties": {
-      "commit_sha": "'$COMMIT_SHA'"
+      "commit_sha": "'"$COMMIT_SHA"'"
     }
-  }' $POSTHOG_ENDPOINT/capture/
+  }' "$POSTHOG_ENDPOINT/capture/"
 
   # Mark telemetry as sent
   export TELEMETRY_SENT="True"

@@ -88,7 +88,7 @@ pub extern "C" fn amrescan(
         )
         .unwrap();
 
-    // Cache L2 norm of the scores
+    // Cache min/max score
     let scores: Vec<f32> = top_docs.iter().map(|(score, _)| *score).collect();
     let max_score = scores.iter().fold(0.0f32, |a, b| a.max(*b));
     let min_score = scores.iter().fold(0.0f32, |a, b| a.min(*b));

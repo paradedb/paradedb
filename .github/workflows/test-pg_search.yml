@@ -91,7 +91,7 @@ jobs:
           mkdir -p target/coverage target/coverage-report
           export LLVM_PROFILE_FILE="target/coverage/pg_search-%p-%m.profraw"
           export RUST_BACKTRACE=1
-          cargo pgrx test
+          cargo pgrx test --pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Report
         working-directory: pg_search

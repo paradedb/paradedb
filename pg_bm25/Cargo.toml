@@ -28,12 +28,3 @@ tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "paradedb
 
 [dev-dependencies]
 pgrx-tests = "=0.9.8"
-
-[profile.dev]
-panic = "unwind"
-
-[profile.release]
-panic = "unwind"
-opt-level = 3
-lto = "fat"
-codegen-units = 1

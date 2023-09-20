@@ -39,15 +39,15 @@ jobs:
           sudo ln -s $(which fdfind) "$HOME/.local/bin/fd"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Add Trailing Newlines to All Relevant Files
+      - name: Add Trailing Newlines
         run: .github/workflows/helpers/lint_trailing_newlines.sh
 
       - name: Print Modified Files
         run: |
           FILES=$(git ls-files --modified)
           if [[ ! -z "$FILES" ]]; then
-              echo "The following files have incorrect trailing newlines:"
-              echo "$FILES"
-              echo "Please fix them using .github/workflows/helpers/lint_trailing_newlines.sh"
-              false
+            echo "The following files have incorrect trailing newlines:"
+            echo "$FILES"
+            echo "Please fix them using .github/workflows/helpers/lint_trailing_newlines.sh"
+            false
           fi

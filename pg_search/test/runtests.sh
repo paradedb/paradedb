@@ -13,15 +13,20 @@ export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
 
-# All pgrx-supported PostgreSQL versions to run tests over
-case "$OS_NAME" in
-  Darwin)
-    PG_VERSIONS=("15.4" "14.9" "13.12" "12.16" "11.21")
-    ;;
-  Linux)
-    PG_VERSIONS=("15" "14" "13" "12" "11")
-    ;;
-esac
+# All pgrx-supported PostgreSQL versions to configure for
+if [ $# -eq 0 ]; then
+  # No arguments provided; use default versions
+  case "$OS_NAME" in
+    Darwin)
+      PG_VERSIONS=("15.4" "14.9" "13.12" "12.16" "11.21")
+      ;;
+    Linux)
+      PG_VERSIONS=("15" "14" "13" "12" "11")
+      ;;
+  esac
+else
+  IFS=',' read -ra PG_VERSIONS <<< "$1"  # Split the argument by comma into an array
+fi
 
 # Loop over PostgreSQL versions from 11 to 15
 for PG_VERSION in "${PG_VERSIONS[@]}"; do
@@ -65,7 +70,7 @@ for PG_VERSION in "${PG_VERSIONS[@]}"; do
   "$TESTDIR/../configure.sh" "$PG_VERSION"
 
   # Use cargo-pgx to install the extension for the specified version
-  cargo clean && cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config"
+  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config"
 
   # Get a list of all tests
   while IFS= read -r line; do

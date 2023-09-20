@@ -28,22 +28,21 @@ jobs:
       - name: Set up Python Environment
         uses: actions/setup-python@v4
 
-      - name: Install beautysh
+      - name: Install Beautysh
         run: pip install beautysh
 
-      - name: Run Beautysh to Check Scripts Formatting
+      - name: Run Beautysh
         run: |
-          # We need to use globstar for glob expansion on bash
           shopt -s globstar nullglob
           if compgen -G "**/*.sh" > /dev/null; then
             beautysh **/*.sh --indent-size 2 --check
           fi
           shopt -u globstar nullglob
 
-      - name: Check That Bash Scripts Start With "#!/bin/bash"
+      - name: Check Bash Scripts for "#!/bin/bash"
         run: .github/workflows/helpers/check-shebang.sh
 
-      - name: Check That Bash Scripts Contain "set -Eeuo pipefail"
+      - name: Check Bash Scripts for "set -Eeuo pipefail"
         run: .github/workflows/helpers/check-pipefail.sh
 
       - name: Run ShellCheck

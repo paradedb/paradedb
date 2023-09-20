@@ -4,7 +4,6 @@
 </h1>
 
 [![Testing](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml)
-[![codecov](https://codecov.io/gh/getretake/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/getretake/paradedb)
 
 `pg_search` enables hybrid search in Postgres. Hybrid search is a search technique
 that combines BM25-based full text search with vector-based similarity search. This

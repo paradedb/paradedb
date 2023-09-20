@@ -1,5 +1,15 @@
 [workspace]
+resolver = "2"
 members = [
     "pg_bm25",
     "pg_search"
 ]
+
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"
+opt-level = 3
+lto = "fat"
+codegen-units = 1

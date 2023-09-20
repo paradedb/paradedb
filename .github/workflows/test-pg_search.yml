@@ -72,7 +72,7 @@ jobs:
           RUST_BACKTRACE: 1
         run: |
           mkdir -p target/coverage target/coverage-report
-          cargo pgrx test -- --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+          cargo pgrx test --features pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Report
         working-directory: pg_search/

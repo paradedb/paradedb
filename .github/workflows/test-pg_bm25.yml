@@ -65,6 +65,7 @@ jobs:
         run: ./test/runtests.sh "${{ matrix.pg_version }}"
 
       # TODO: Add "--all-features" and fix the errors
+      # TODO: Check if some of the ZomboDB test settings are relevant to us: RUST_BACKTRACE=1 cargo test --all --no-default-features --features "pg${{ matrix.version }} pg_test" -- --nocapture
       - name: Run pg_bm25 Unit Tests
         working-directory: pg_bm25/
         env:
@@ -72,7 +73,7 @@ jobs:
           RUST_BACKTRACE: 1
         run: |
           mkdir -p target/coverage target/coverage-report
-          cargo pgrx test -- --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+          cargo pgrx test --features pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Reports
         working-directory: pg_bm25/

@@ -61,3 +61,14 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 ----+-------------+--------+----------
 (0 rows)
 
+-- With fuzzy and prefix field
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::prefix_fields=description&fuzzy_fields=description';
+ERROR:  cannot search with both prefix_fields and fuzzy_fields
+-- With prefix field 
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::prefix_fields=description';
+ id |      description       | rating |  category   
+----+------------------------+--------+-------------
+  6 | Compact digital camera |      5 | Photography
+ 23 | Comfortable slippers   |      3 | Footwear
+(2 rows)
+

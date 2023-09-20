@@ -12,3 +12,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics:::fuzzy_fields=category';
 -- Without fuzzy field
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics';
+-- With fuzzy and prefix field
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::prefix_fields=description&fuzzy_fields=description';
+-- With prefix field 
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::prefix_fields=description';

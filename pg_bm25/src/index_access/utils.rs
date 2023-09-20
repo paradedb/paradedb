@@ -31,6 +31,8 @@ pub struct SearchQueryConfig {
     pub limit: Option<usize>,
     #[serde(default, deserialize_with = "from_csv")]
     pub fuzzy_fields: Vec<String>,
+    #[serde(default, deserialize_with = "from_csv")]
+    pub prefix_fields: Vec<String>,
 }
 
 impl FromStr for SearchQuery {

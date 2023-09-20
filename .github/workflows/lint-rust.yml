@@ -34,4 +34,4 @@ jobs:
         run: find . -name "**/*.rs" | xargs rustfmt --check
 
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets

@@ -40,6 +40,17 @@ jobs:
           path: ~/.pgrx/
           key: pgrx-pg${{ matrix.pg_version }}
 
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/
+            ~/.rustup/
+          key: cargo-pg${{ matrix.pg_version }}
+
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
@@ -51,7 +62,7 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
-        working-directory: pg_bm25/
+        if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: |
           cargo install cargo-pgrx --version 0.9.8
           cargo install grcov
@@ -62,7 +73,7 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      - name: Run pg_bm25 Integration Tests
+      - name: Run pg_search Integration Tests
         working-directory: pg_search/
         run: ./test/runtests.sh "${{ matrix.pg_version }}"
 

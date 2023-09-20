@@ -25,52 +25,43 @@ jobs:
   test-pg_search:
     name: Test pg_search
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [11, 12, 13, 14, 15]
 
     steps:
       - name: Sparse Checkout Git Repository
         uses: actions/checkout@v4
-        with:
-          path: pg_search
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v3
+      # Attempt to download the Rust binaries artifact
+      - name: Download Rust binaries artifact
+        uses: actions/download-artifact@v3
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            ~/.cargo/bin/
-            ~/.rustup/
-            pg_search/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('pg_search/Cargo.lock') }}
+          name: rust-binaries
+          path: ~/.cargo/bin/
+        continue-on-error: true # Don't fail the workflow if the artifact isn't found
 
-      - name: Install All Supported PostgreSQL Versions
+      # - name: Cache Cargo Dependencies
+      #   uses: actions/cache@v3
+      #   with:
+      #     path: |
+      #       ~/.cargo/registry
+      #       ~/.cargo/git
+      #       ~/.cargo/bin/
+      #       ~/.rustup/
+      #       pg_search/target
+      #     key: ${{ runner.os }}-cargo-${{ hashFiles('pg_search/Cargo.lock') }}
+
+      - name: Install & Configure Supported PostgreSQL Version
         run: |
-          # Install the public key for the repository
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-
-          # Install PostgreSQL 11, 12, 13, 14, and 15
           sudo apt-get update
-          sudo apt-get install -y postgresql-11 postgresql-12 postgresql-13 postgresql-14 postgresql-15
-          sudo apt-get install -y postgresql-server-dev-11 postgresql-server-dev-12 postgresql-server-dev-13 postgresql-server-dev-14 postgresql-server-dev-15
+          sudo apt-get install -y postgresql-${{ matrix.pg_version }}
+          sudo apt-get install -y postgresql-server-dev-${{ matrix.pg_version }}
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Configure PostgreSQL Directories
-        run: |
-          # Set the required permissions for unit tests to run in GitHub Actions
-          sudo chown -R $(whoami) /usr/share/postgresql/11/extension/ /usr/lib/postgresql/11/lib/
-          sudo chown -R $(whoami) /usr/share/postgresql/12/extension/ /usr/lib/postgresql/12/lib/
-          sudo chown -R $(whoami) /usr/share/postgresql/13/extension/ /usr/lib/postgresql/13/lib/
-          sudo chown -R $(whoami) /usr/share/postgresql/14/extension/ /usr/lib/postgresql/14/lib/
-          sudo chown -R $(whoami) /usr/share/postgresql/15/extension/ /usr/lib/postgresql/15/lib/
-
-          # Add PostgreSQL binaries to the PATH for integration tests
-          echo "/usr/lib/postgresql/11/bin" >> $GITHUB_PATH
-          echo "/usr/lib/postgresql/12/bin" >> $GITHUB_PATH
-          echo "/usr/lib/postgresql/13/bin" >> $GITHUB_PATH
-          echo "/usr/lib/postgresql/14/bin" >> $GITHUB_PATH
-          echo "/usr/lib/postgresql/15/bin" >> $GITHUB_PATH
-
-      # Check if cargo-pgrx, grcov, and llvm-tools-preview are in the cache, and install if not
       - name: Install pgrx, grcov & llvm-tools-preview
         working-directory: pg_search
         run: |
@@ -84,15 +75,15 @@ jobs:
             rustup component add llvm-tools-preview
           fi
 
-      - name: Initialize pgrx
+      - name: Upload Rust binaries as artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: rust-binaries
+          path: ~/.cargo/bin/
+
+      - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_search
-        run: |
-          cargo pgrx init \
-            --pg11=/usr/lib/postgresql/11/bin/pg_config \
-            --pg12=/usr/lib/postgresql/12/bin/pg_config \
-            --pg13=/usr/lib/postgresql/13/bin/pg_config \
-            --pg14=/usr/lib/postgresql/14/bin/pg_config \
-            --pg15=/usr/lib/postgresql/15/bin/pg_config
+        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Run pg_search Unit Tests
         working-directory: pg_search
@@ -114,6 +105,6 @@ jobs:
           files: lcov
           fail_ci_if_error: true
 
-      - name: Run pg_search Integration Tests
+      - name: Run pg_bm25 Integration Tests
         working-directory: pg_search
-        run: ./test/runtests.sh
+        run: ./test/runtests.sh "${{ matrix.pg_version }}"

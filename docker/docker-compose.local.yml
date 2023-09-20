@@ -41,7 +41,7 @@ services:
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabaseye
+      POSTGRES_DB: mydatabase
     ports:
       - "5432:5432"
       - "9700:9700"

@@ -93,7 +93,7 @@ jobs:
           export RUST_BACKTRACE=1
           cargo pgrx test --pg${{ matrix.pg_version }}
 
-      - name: Generate Code Coverage Report
+      - name: Generate Code Coverage Reports
         working-directory: pg_bm25
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 

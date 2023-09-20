@@ -9,11 +9,11 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# The pgvector version to install
+OS_NAME=$(uname)
+CONFIGDIR="$(dirname "$0")"
 PGVECTOR_VERSION="v0.5.0"
 
 # All pgrx-supported PostgreSQL versions to configure for
-OS_NAME=$(uname)
 if [ $# -eq 0 ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
@@ -46,18 +46,16 @@ for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pgvector for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
-      make clean
       PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" make && PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" make install
       ;;
     Linux)
-      sudo make clean
       sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make && sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make install
       ;;
   esac
 done
 
 echo "Installing pg_bm25..."
-cd ../../pg_bm25
+cd "$CONFIGDIR/../../pg_bm25"
 
 # Build and install pg_bm25 into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do

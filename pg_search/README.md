@@ -163,7 +163,7 @@ PG_CONFIG=`which pg_config` make install
 cd ..
 
 # Clone & install pgml
-git clone https://github.com/postgresml/postgresml.git --tag <VERSION>
+git clone https://github.com/paradedb/postgresml.git --tag <VERSION>
 cd postgresml/pgml-extension
 pip install -r requirements.txt
 cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`

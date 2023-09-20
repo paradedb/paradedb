@@ -65,11 +65,9 @@ psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 |
 
 # We send basic, anonymous deployment events to PostHog to help us understand
 # how many people are using the project and to track deployment success. We
-# only do this if TELEMETRY is not set to "False", and only do it once per
-# deployment (i.e. if the environment variable TELEMETRY_SENT is set, we don't
-# send the event again in the PostgreSQL extension(s))
+# only do this if TELEMETRY is not set to "False", and only do it once per deployment
 if [[ ${TELEMETRY:-} != "False" ]]; then
-  if [[ -z ${POSTHOG_API_KEY:-} || -z ${POSTHOG_ENDPOINT:-} ]]; then
+  if [[ -z ${POSTHOG_API_KEY:-} || -z ${POSTHOG_HOST:-} ]]; then
     echo "Failed to retrieve POSTHOG_API_KEY or POSTHOG_ENDPOINT from environment variables, not sending telemetry!" 
   else
     curl -v -L --header "Content-Type: application/json" -d '{
@@ -79,9 +77,10 @@ if [[ ${TELEMETRY:-} != "False" ]]; then
       "properties": {
         "commit_sha": "'"${COMMIT_SHA:-}"'"
       }
-    }' "$POSTHOG_ENDPOINT/capture/"
+    }' "$POSTHOG_HOST/capture/"
 
-    # Mark telemetry as sent
+    # Mark telemetry as sent so we don't send it again when
+    # initializing our PostgreSQL extensions
     export TELEMETRY_SENT="True"
   fi
 else

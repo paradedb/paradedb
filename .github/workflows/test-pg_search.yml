@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   test-pg_search:
-    name: Test pg_search
+    name: Test pg_search on PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:

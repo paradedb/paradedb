@@ -56,6 +56,5 @@ jobs:
       - name: Run Rustfmt
         run: find . -name "*.rs" | xargs rustfmt --check
 
-      # TODO: Add "--all-features" and fix the errors
       - name: Run Clippy
-        run: cargo clippy --workspace --all-targets
+        run: cargo clippy --workspace --all-targets -- -D warnings

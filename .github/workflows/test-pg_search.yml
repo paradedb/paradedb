@@ -64,7 +64,6 @@ jobs:
         working-directory: pg_search/
         run: ./test/runtests.sh "${{ matrix.pg_version }}"
 
-      # TODO: Add "--all-features" and fix the errors
       - name: Run pg_search Unit Tests
         working-directory: pg_search/
         env:
@@ -72,7 +71,7 @@ jobs:
           RUST_BACKTRACE: 1
         run: |
           mkdir -p target/coverage target/coverage-report
-          cargo pgrx test --features pg${{ matrix.pg_version }}
+          cargo pgrx test --features pg${{ matrix.pg_version }} -- --nocapture
 
       - name: Generate Code Coverage Report
         working-directory: pg_search/

@@ -1,35 +1,36 @@
-codecov:
-  branch: dev
-  require_ci_to_pass: no
+# TODO: Reenable Codecov when we start writing unit tests
+# codecov:
+#   branch: dev
+#   require_ci_to_pass: no
 
-coverage:
-  precision: 2
-  round: down
-  range: "70...100"
+# coverage:
+#   precision: 2
+#   round: down
+#   range: "70...100"
 
-  status:
-    project:
-      pg_bm25:
-        flags: pg_bm25
-        target: auto
-        threshold: 1%
-      pg_search:
-        flags: pg_search
-        target: auto
-        threshold: 1%
+#   status:
+#     project:
+#       pg_bm25:
+#         flags: pg_bm25
+#         target: auto
+#         threshold: 1%
+#       pg_search:
+#         flags: pg_search
+#         target: auto
+#         threshold: 1%
 
-comment:
-  layout: "diff, flags, files"
-  require_base: no
-  require_head: no
-  show_carryforward_flags: true
+# comment:
+#   layout: "diff, flags, files"
+#   require_base: no
+#   require_head: no
+#   show_carryforward_flags: true
 
-flags:
-  pg_bm25:
-    paths:
-      - pg_bm25/*
-    carryforward: true
-  pg_search:
-    paths:
-      - pg_search/*
-    carryforward: true
+# flags:
+#   pg_bm25:
+#     paths:
+#       - pg_bm25/*
+#     carryforward: true
+#   pg_search:
+#     paths:
+#       - pg_search/*
+#     carryforward: true

@@ -3,8 +3,8 @@ use tantivy::{
     collector::TopDocs,
     query::{BooleanQuery, Query, RegexQuery},
     query_grammar::Occur,
-    schema::FieldType,
     schema::Document,
+    schema::FieldType,
     SnippetGenerator,
 };
 

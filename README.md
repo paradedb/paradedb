@@ -76,8 +76,7 @@ Coming soon! Sign up for the [ParadeDB Cloud waitlist](https://paradedb.typeform
 
 ### Self-Hosted
 
-To install ParadeDB locally or on-premise, simply pull and run the latest Docker
-image:
+To install ParadeDB locally or on-premise, simply pull and run the latest Docker image:
 
 ```bash
 docker run \
@@ -87,6 +86,8 @@ docker run \
   -p 5432:5432 \
   paradedb/paradedb:latest
 ```
+
+Alternatively, you can clone this repo and run our `docker-compose.yml` file.
 
 By default, this will start the ParadeDB database at `http://localhost:5432`. Use
 `psql` to connect:

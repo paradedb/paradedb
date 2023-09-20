@@ -38,7 +38,7 @@ jobs:
         id: cache-pgrx
         with:
           path: ~/.pgrx/
-          key: pgrx-${{ runner.os }}-pg${{ matrix.pg_version }}
+          key: pgrx-pg${{ matrix.pg_version }}
 
 
 
@@ -54,7 +54,7 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
-        working-directory: pg_bm25
+        working-directory: pg_bm25/
         run: |
           cargo install cargo-pgrx --version 0.9.8
           cargo install grcov
@@ -63,15 +63,15 @@ jobs:
        # Only run if cache miss
       - name: Initialize pgrx for Current PostgreSQL Version
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
-        working-directory: pg_bm25
+        working-directory: pg_bm25/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Run pg_bm25 Integration Tests
-        working-directory: pg_bm25
+        working-directory: pg_bm25/
         run: ./test/runtests.sh "${{ matrix.pg_version }}"
 
       - name: Run pg_bm25 Unit Tests
-        working-directory: pg_bm25
+        working-directory: pg_bm25/
         run: |
           mkdir -p target/coverage target/coverage-report
           export LLVM_PROFILE_FILE="target/coverage/pg_bm25-%p-%m.profraw"
@@ -79,7 +79,7 @@ jobs:
           cargo pgrx test --pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Reports
-        working-directory: pg_bm25
+        working-directory: pg_bm25/
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
       - name: Upload Coverage Reports to Codecov

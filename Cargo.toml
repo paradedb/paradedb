@@ -1,0 +1,5 @@
+[workspace]
+members = [
+    "pg_bm25",
+    "pg_search"
+]

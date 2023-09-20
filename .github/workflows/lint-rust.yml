@@ -31,7 +31,7 @@ jobs:
           components: clippy,rustfmt
 
       - name: Run Rustfmt
-        run: find . -name "*.rs" | xargs rustfmt --check
+        run: find . -name "**/*.rs" | xargs rustfmt --check
 
       - name: Run Clippy
-        run: cargo clippy --all-targets
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings

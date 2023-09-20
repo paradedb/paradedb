@@ -33,6 +33,15 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Cache pgrx Initialization
+        uses: actions/cache@v3
+        id: cache-pgrx
+        with:
+          path: ~/.pgrx/
+          key: pgrx-pg${{ matrix.pg_version }}
+
+
+
       # Attempt to download the Rust binaries artifact
       - name: Download Rust binaries artifact
         uses: actions/download-artifact@v3
@@ -63,7 +72,7 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
-        working-directory: pg_search
+        working-directory: pg_search/
         run: |
           if ! command -v cargo-pgrx &> /dev/null; then
             cargo install cargo-pgrx --version 0.9.8
@@ -82,15 +91,15 @@ jobs:
           path: ~/.cargo/bin/
 
       - name: Initialize pgrx for Current PostgreSQL Version
-        working-directory: pg_search
+        working-directory: pg_search/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Run pg_bm25 Integration Tests
-        working-directory: pg_search
+        working-directory: pg_search/
         run: ./test/runtests.sh "${{ matrix.pg_version }}"
 
       - name: Run pg_search Unit Tests
-        working-directory: pg_search
+        working-directory: pg_search/
         run: |
           mkdir -p target/coverage target/coverage-report
           export LLVM_PROFILE_FILE="target/coverage/pg_search-%p-%m.profraw"
@@ -98,7 +107,7 @@ jobs:
           cargo pgrx test --pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Report
-        working-directory: pg_search
+        working-directory: pg_search/
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
       - name: Upload Coverage Reports to Codecov

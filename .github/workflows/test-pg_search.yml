@@ -65,13 +65,12 @@ jobs:
         run: ./test/runtests.sh "${{ matrix.pg_version }}"
 
       - name: Run pg_search Unit Tests
-        working-directory: pg_search/
         env:
           LLVM_PROFILE_FILE: target/coverage/pg_search-%p-%m.profraw
           RUST_BACKTRACE: 1
         run: |
-          mkdir -p ../target/coverage ../target/coverage-report
-          cargo pgrx test --features pg${{ matrix.pg_version }}
+          mkdir -p target/coverage target/coverage-report
+          cd pg_search/ && cargo pgrx test --features pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Report
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/

@@ -31,9 +31,7 @@ jobs:
           components: clippy,rustfmt
 
       - name: Run Rustfmt
-        working-directory: pg_bm25
         run: find . -name "*.rs" | xargs rustfmt --check
 
       - name: Run Clippy
-        working-directory: pg_bm25
         run: cargo clippy --all-targets

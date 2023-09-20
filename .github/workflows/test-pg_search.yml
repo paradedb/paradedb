@@ -12,9 +12,9 @@ on:
       - staging
       - main
     paths:
-      - ".github/workflows/test-pg_search.yml"
       - "pg_search/**"
       - "!pg_search/README.md"
+      - ".github/workflows/test-pg_search.yml"
   workflow_dispatch:
 
 concurrency:
@@ -30,7 +30,7 @@ jobs:
         pg_version: [11, 12, 13, 14, 15]
 
     steps:
-      - name: Sparse Checkout Git Repository
+      - name: Checkout Git Repository
         uses: actions/checkout@v4
 
       # Attempt to download the Rust binaries artifact
@@ -85,6 +85,10 @@ jobs:
         working-directory: pg_search
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
+      - name: Run pg_bm25 Integration Tests
+        working-directory: pg_search
+        run: ./test/runtests.sh "${{ matrix.pg_version }}"
+
       - name: Run pg_search Unit Tests
         working-directory: pg_search
         run: |
@@ -104,7 +108,3 @@ jobs:
           directory: ./pg_search/target/coverage-report/
           files: lcov
           fail_ci_if_error: true
-
-      - name: Run pg_bm25 Integration Tests
-        working-directory: pg_search
-        run: ./test/runtests.sh "${{ matrix.pg_version }}"

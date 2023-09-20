@@ -12,9 +12,9 @@ on:
       - staging
       - main
     paths:
-      - ".github/workflows/test-pg_bm25.yml"
       - "pg_bm25/**"
       - "!pg_bm25/README.md"
+      - ".github/workflows/test-pg_bm25.yml"
   workflow_dispatch:
 
 concurrency:
@@ -30,27 +30,18 @@ jobs:
         pg_version: [11, 12, 13, 14, 15]
 
     steps:
-      - name: Sparse Checkout Git Repository
+      - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      # Attempt to download the Rust binaries artifact
-      - name: Download Rust binaries artifact
-        uses: actions/download-artifact@v3
+      - name: Cache pgrx Initialization
+        uses: actions/cache@v3
+        id: cache-pgrx
         with:
-          name: rust-binaries-pg_bm25-${{ matrix.pg_version }}
-          path: ~/.cargo/bin/
-        continue-on-error: true # Don't fail the workflow if the artifact isn't found
+          path: ~/.pgrx/
+          key: pgrx-${{ runner.os }}-pg${{ matrix.pg_version }}
 
-      # - name: Cache Cargo Dependencies
-      #   uses: actions/cache@v3
-      #   with:
-      #     path: |
-      #       ~/.cargo/registry
-      #       ~/.cargo/git
-      #       ~/.cargo/bin/
-      #       ~/.rustup/
-      #       pg_bm25/target
-      #     key: ${{ runner.os }}-cargo-${{ hashFiles('pg_bm25/Cargo.lock') }}xw
+
+
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -65,25 +56,19 @@ jobs:
       - name: Install pgrx, grcov & llvm-tools-preview
         working-directory: pg_bm25
         run: |
-          if ! command -v cargo-pgrx &> /dev/null; then
-            cargo install cargo-pgrx --version 0.9.8
-          fi
-          if ! command -v grcov &> /dev/null; then
-            cargo install grcov
-          fi
-          if ! rustup component list | grep -q 'llvm-tools-preview.*(installed)'; then
-            rustup component add llvm-tools-preview
-          fi
+          cargo install cargo-pgrx --version 0.9.8
+          cargo install grcov
+          rustup component add llvm-tools-preview
 
-      - name: Upload Rust binaries as artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: rust-binaries-pg_bm25-${{ matrix.pg_version }}
-          path: ~/.cargo/bin/
-
+       # Only run if cache miss
       - name: Initialize pgrx for Current PostgreSQL Version
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         working-directory: pg_bm25
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+
+      - name: Run pg_bm25 Integration Tests
+        working-directory: pg_bm25
+        run: ./test/runtests.sh "${{ matrix.pg_version }}"
 
       - name: Run pg_bm25 Unit Tests
         working-directory: pg_bm25
@@ -104,7 +89,3 @@ jobs:
           directory: ./pg_bm25/target/coverage-report/
           files: lcov
           fail_ci_if_error: true
-
-      - name: Run pg_bm25 Integration Tests
-        working-directory: pg_bm25
-        run: ./test/runtests.sh "${{ matrix.pg_version }}"

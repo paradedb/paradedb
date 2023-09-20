@@ -17,6 +17,7 @@
 ---
 
 [![Publishing](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb-to-dockerhub.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb-to-dockerhub.yml)
+[![codecov](https://codecov.io/gh/paradedb/paradedb/graph/badge.svg?token=PI3TWD558R)](https://codecov.io/gh/paradedb/paradedb)
 
 [ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL,
 engineered for lightning-fast full text, similarity, and hybrid search.

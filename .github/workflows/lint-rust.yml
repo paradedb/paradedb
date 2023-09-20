@@ -25,36 +25,14 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update
-          sudo apt-get install -y postgresql-15
-          sudo apt-get install -y postgresql-server-dev-15
-
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy,rustfmt
 
-      # Check if cargo-pgrx is in the cache, and install if not
-      - name: Install pgrx
-        working-directory: pg_bm25
-        run: |
-          if ! command -v cargo-pgrx &> /dev/null; then
-            cargo install cargo-pgrx --version 0.9.8
-          fi
-
-      - name: Initialize pgrx
-        working-directory: pg_bm25
-        run: |
-          cargo pgrx init --pg15=/usr/lib/postgresql/15/bin/pg_config
-
       - name: Run Rustfmt
-        uses: actions-rust-lang/rustfmt@v1
-        with:
-          manifest-path: ./pg_bm25/Cargo.toml
+        working-directory: pg_bm25
+        run: find . -name "*.rs" | xargs rustfmt --check
 
       - name: Run Clippy
         working-directory: pg_bm25

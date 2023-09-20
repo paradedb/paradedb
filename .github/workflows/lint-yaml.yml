@@ -8,8 +8,8 @@ name: Linting
 on:
   pull_request:
     paths:
-      - "**/*.yaml"
       - "**/*.yml"
+      - "**/*.yaml"
   workflow_dispatch:
 
 concurrency:

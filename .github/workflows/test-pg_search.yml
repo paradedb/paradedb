@@ -12,8 +12,8 @@ on:
       - staging
       - main
     paths:
-      - "pg_search/**"
       - ".github/workflows/test-pg_search.yml"
+      - "pg_search/**"
       - "!pg_search/README.md"
   workflow_dispatch:
 

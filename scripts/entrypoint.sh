@@ -68,18 +68,24 @@ psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 |
 # only do this if TELEMETRY is not set to "False", and only do it once per
 # deployment (i.e. if the environment variable TELEMETRY_SENT is set, we don't
 # send the event again in the PostgreSQL extension(s))
-if [ "$TELEMETRY" != "False" ] && [ -z "$TELEMETRY_SENT" ]; then
-  curl -v -L --header "Content-Type: application/json" -d '{
-    "api_key": "'"$POSTHOG_API_KEY"'",
-    "event": "ParadeDB Deployment",
-    "distinct_id": "'"$(uuidgen)"'",
-    "properties": {
-      "commit_sha": "'"$COMMIT_SHA"'"
-    }
-  }' "$POSTHOG_ENDPOINT/capture/"
+if [[ ${TELEMETRY:-} != "False" ]]; then
+  if [[ -z ${POSTHOG_API_KEY:-} || -z ${POSTHOG_ENDPOINT:-} ]]; then
+    echo "Failed to retrieve POSTHOG_API_KEY or POSTHOG_ENDPOINT from environment variables, not sending telemetry!" 
+  else
+    curl -v -L --header "Content-Type: application/json" -d '{
+      "api_key": "'"$POSTHOG_API_KEY"'",
+      "event": "ParadeDB Deployment",
+      "distinct_id": "'"$(uuidgen)"'",
+      "properties": {
+        "commit_sha": "'"${COMMIT_SHA:-}"'"
+      }
+    }' "$POSTHOG_ENDPOINT/capture/"
 
-  # Mark telemetry as sent
-  export TELEMETRY_SENT="True"
+    # Mark telemetry as sent
+    export TELEMETRY_SENT="True"
+  fi
+else
+  echo "Telemetry is disabled."
 fi
 
 echo "PostgreSQL is up - installing extensions..."

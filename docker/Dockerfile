@@ -64,7 +64,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     gnupg \
     gcc \
-    gettext \
     software-properties-common \
     ca-certificates \
     python3.10 \
@@ -276,9 +275,8 @@ COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_M
 # Copy the database initialization scripts into the container
 COPY ./conf/postgresql.conf /conf/pg_hba.conf ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/
 
-# Copy the entrypoint scripts into the container
+# Copy the entrypoint script into the container
 COPY ./scripts/entrypoint.sh /usr/src/app
-COPY ./scripts/init.sql /usr/src/app/
 
 # Add postgres binaries to path
 ENV PATH="${PATH}:/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin"

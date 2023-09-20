@@ -1,5 +1,5 @@
 use pgrx::*;
-use tantivy::{collector::TopDocs, schema::FieldType, SnippetGenerator};
+use tantivy::{collector::TopDocs, schema::Document, schema::FieldType, SnippetGenerator};
 
 use crate::{
     index_access::utils::{get_parade_index, SearchQuery},
@@ -88,7 +88,7 @@ pub extern "C" fn amrescan(
         )
         .unwrap();
 
-    // Cache L2 norm of the scores
+    // Cache min/max score
     let scores: Vec<f32> = top_docs.iter().map(|(score, _)| *score).collect();
     let max_score = scores.iter().fold(0.0f32, |a, b| a.max(*b));
     let min_score = scores.iter().fold(0.0f32, |a, b| a.min(*b));
@@ -144,23 +144,7 @@ pub extern "C" fn amgettuple(
                 panic!("invalid item pointer: {:?}", item_pointer_get_both(*tid));
             }
 
-            // Add score
-            get_executor_manager().add_score(item_pointer_get_both(*tid), score);
-
-            // Add highlighting
-            for field in schema.fields() {
-                let field_name = field.1.name().to_string();
-
-                if let FieldType::Str(_) = field.1.field_type() {
-                    let snippet_generator =
-                        SnippetGenerator::create(searcher, &state.query, field.0);
-
-                    let snippet = snippet_generator
-                        .unwrap_or_else(|_| panic!("failed to highlight field: {}", field_name))
-                        .snippet_from_doc(&retrieved_doc);
-                    get_executor_manager().add_highlight(*tid, field_name, snippet)
-                }
-            }
+            write_to_manager(*tid, score, state, &retrieved_doc);
 
             true
         }
@@ -178,7 +162,7 @@ pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TI
 
     let mut cnt = 0i64;
     let iterator = unsafe { state.iterator.as_mut() }.expect("no iterator in state");
-    for (_score, doc_address) in iterator {
+    for (score, doc_address) in iterator {
         let retrieved_doc = searcher.doc(doc_address).unwrap();
         let heap_tid_field = schema
             .get_field("heap_tid")
@@ -195,9 +179,36 @@ pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TI
                 pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
             }
 
+            write_to_manager(tid, score, state, &retrieved_doc);
             cnt += 1;
         }
     }
 
     cnt
+}
+
+#[inline]
+fn write_to_manager(
+    ctid: pg_sys::ItemPointerData,
+    score: f32,
+    state: &TantivyScanState,
+    retrieved_doc: &Document,
+) {
+    // Add score
+    get_executor_manager().add_score(item_pointer_get_both(ctid), score);
+
+    // Add highlighting
+    for field in state.schema.fields() {
+        let field_name = field.1.name().to_string();
+
+        if let FieldType::Str(_) = field.1.field_type() {
+            let snippet_generator =
+                SnippetGenerator::create(&state.searcher, &state.query, field.0);
+
+            let snippet = snippet_generator
+                .unwrap_or_else(|_| panic!("failed to highlight field: {}", field_name))
+                .snippet_from_doc(retrieved_doc);
+            get_executor_manager().add_highlight(ctid, field_name, snippet)
+        }
+    }
 }

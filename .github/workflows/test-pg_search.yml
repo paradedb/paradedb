@@ -40,27 +40,6 @@ jobs:
           path: ~/.pgrx/
           key: pgrx-pg${{ matrix.pg_version }}
 
-
-
-      # Attempt to download the Rust binaries artifact
-      - name: Download Rust binaries artifact
-        uses: actions/download-artifact@v3
-        with:
-          name: rust-binaries-pg_search-${{ matrix.pg_version }}
-          path: ~/.cargo/bin/
-        continue-on-error: true # Don't fail the workflow if the artifact isn't found
-
-      # - name: Cache Cargo Dependencies
-      #   uses: actions/cache@v3
-      #   with:
-      #     path: |
-      #       ~/.cargo/registry
-      #       ~/.cargo/git
-      #       ~/.cargo/bin/
-      #       ~/.rustup/
-      #       pg_search/target
-      #     key: ${{ runner.os }}-cargo-${{ hashFiles('pg_search/Cargo.lock') }}
-
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
@@ -72,25 +51,14 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
-        working-directory: pg_search/
+        working-directory: pg_bm25/
         run: |
-          if ! command -v cargo-pgrx &> /dev/null; then
-            cargo install cargo-pgrx --version 0.9.8
-          fi
-          if ! command -v grcov &> /dev/null; then
-            cargo install grcov
-          fi
-          if ! rustup component list | grep -q 'llvm-tools-preview.*(installed)'; then
-            rustup component add llvm-tools-preview
-          fi
-
-      - name: Upload Rust binaries as artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: rust-binaries-pg_search-${{ matrix.pg_version }}
-          path: ~/.cargo/bin/
+          cargo install cargo-pgrx --version 0.9.8
+          cargo install grcov
+          rustup component add llvm-tools-preview
 
       - name: Initialize pgrx for Current PostgreSQL Version
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         working-directory: pg_search/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 

@@ -40,9 +40,6 @@ jobs:
           path: ~/.pgrx/
           key: pgrx-pg${{ matrix.pg_version }}
 
-
-
-
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
@@ -60,7 +57,6 @@ jobs:
           cargo install grcov
           rustup component add llvm-tools-preview
 
-       # Only run if cache miss
       - name: Initialize pgrx for Current PostgreSQL Version
         if: steps.cache-pgrx.outputs.cache-hit != 'true'
         working-directory: pg_bm25/

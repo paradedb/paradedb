@@ -142,7 +142,7 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --branch "v${PGML_VERSION}" "https://github.com/postgresml/postgresml" /tmp/postgresml
+RUN git clone --branch "v${PGML_VERSION}" "https://github.com/paradedb/postgresml" /tmp/postgresml
 
 WORKDIR /tmp/postgresml/pgml-extension
 

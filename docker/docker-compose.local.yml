@@ -36,8 +36,10 @@ services:
         TELEMETRY: False
       cache_from:
         - type=local,src=./.docker_cache_local
+        - type=registry,src=paradedb/paradedb-local:cache
       cache_to:
         - type=local,dest=./.docker_cache_local
+        - type=registry,src=paradedb/paradedb-local:cache
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword

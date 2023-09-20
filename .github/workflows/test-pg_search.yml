@@ -72,7 +72,7 @@ jobs:
           mkdir -p target/coverage target/coverage-report
           cd pg_search/ && cargo pgrx test --features pg${{ matrix.pg_version }}
 
-      - name: Generate Code Coverage Report
+      - name: Generate Code Coverage Reports
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
       - name: Upload Coverage Reports to Codecov

@@ -19,10 +19,8 @@ services:
         PGVECTOR_VERSION: 0.5.0
       cache_from:
         - type=local,src=./.docker_cache_dev
-        # - type=registry,src=paradedb/paradedb-dev:cache
       cache_to:
         - type=local,dest=./.docker_cache_dev
-        # - type=registry,src=paradedb/paradedb-dev:cache
     environment:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword

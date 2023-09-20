@@ -70,7 +70,7 @@ jobs:
           LLVM_PROFILE_FILE: target/coverage/pg_search-%p-%m.profraw
           RUST_BACKTRACE: 1
         run: |
-          mkdir -p target/coverage target/coverage-report
+          mkdir -p ../target/coverage ../target/coverage-report
           cargo pgrx test --features pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Report

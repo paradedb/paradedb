@@ -74,13 +74,12 @@ jobs:
           cargo pgrx test --features pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Report
-        working-directory: pg_search/
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
       - name: Upload Coverage Reports to Codecov
         uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          directory: ./pg_search/target/coverage-report/
+          directory: ./target/coverage-report/
           files: lcov
           fail_ci_if_error: true

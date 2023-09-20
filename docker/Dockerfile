@@ -70,7 +70,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     gnupg \
     gcc \
-    uuidgen-runtime \
+    uuid-runtime \
     software-properties-common \
     ca-certificates \
     python3.10 \

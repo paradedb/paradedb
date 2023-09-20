@@ -25,10 +25,44 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Cache pgrx Initialization
+        uses: actions/cache@v3
+        id: cache-pgrx
+        with:
+          path: ~/.pgrx/
+          key: ${{ runner.os }}-pgrx-pg15
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/
+            ~/.rustup/
+          key: ${{ runner.os }}-cargo-pgrx-0.9.8
+
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: clippy,rustfmt
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update
+          sudo apt-get install -y postgresql-15
+          sudo apt-get install -y postgresql-server-dev-15
+
+      - name: Install pgrx, grcov & llvm-tools-preview
+        if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: cargo install cargo-pgrx --version 0.9.8
+
+      - name: Initialize pgrx for Current PostgreSQL Version
+        if: steps.cache-pgrx.outputs.cache-hit != 'true'
+        run: cargo pgrx init --pg15=/usr/lib/postgresql/15/bin/pg_config
 
       - name: Run Rustfmt
         run: find . -name "**/*.rs" | xargs rustfmt --check

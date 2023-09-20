@@ -38,7 +38,7 @@ jobs:
         id: cache-pgrx
         with:
           path: ~/.pgrx/
-          key: pgrx-pg${{ matrix.pg_version }}
+          key: ${{ runner.os }}-pgrx-pg${{ matrix.pg_version }}
 
       - name: Cache Cargo Dependencies
         uses: actions/cache@v3
@@ -49,7 +49,7 @@ jobs:
             ~/.cargo/git
             ~/.cargo/bin/
             ~/.rustup/
-          key: cargo-pg${{ matrix.pg_version }}
+          key: ${{ runner.os }}-cargo-pgrx-0.9.8
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -83,7 +83,7 @@ jobs:
           mkdir -p target/coverage target/coverage-report
           export LLVM_PROFILE_FILE="target/coverage/pg_bm25-%p-%m.profraw"
           export RUST_BACKTRACE=1
-          cargo pgrx test --pg${{ matrix.pg_version }}
+          cargo pgrx test -- --pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Reports
         working-directory: pg_bm25/

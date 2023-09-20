@@ -33,13 +33,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Cache pgrx Initialization
-        uses: actions/cache@v3
-        id: cache-pgrx
-        with:
-          path: ~/.pgrx/
-          key: ${{ runner.os }}-pgrx-pg${{ matrix.pg_version }}
-
       - name: Cache Cargo Dependencies
         uses: actions/cache@v3
         id: cache-cargo
@@ -56,8 +49,7 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update
-          sudo apt-get install -y postgresql-${{ matrix.pg_version }}
-          sudo apt-get install -y postgresql-server-dev-${{ matrix.pg_version }}
+          sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
@@ -69,7 +61,6 @@ jobs:
           rustup component add llvm-tools-preview
 
       - name: Initialize pgrx for Current PostgreSQL Version
-        if: steps.cache-pgrx.outputs.cache-hit != 'true'
         working-directory: pg_search/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
@@ -77,13 +68,14 @@ jobs:
         working-directory: pg_search/
         run: ./test/runtests.sh "${{ matrix.pg_version }}"
 
+      # TODO: Add "--all-features" and fix the errors
       - name: Run pg_search Unit Tests
         working-directory: pg_search/
         run: |
           mkdir -p target/coverage target/coverage-report
           export LLVM_PROFILE_FILE="target/coverage/pg_search-%p-%m.profraw"
           export RUST_BACKTRACE=1
-          cargo pgrx test -- --pg${{ matrix.pg_version }}
+          cargo pgrx test --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       - name: Generate Code Coverage Report
         working-directory: pg_search/

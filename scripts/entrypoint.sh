@@ -59,9 +59,9 @@ sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = '$shared_pre
 service postgresql start
 
 # Setup users
-createuser root --superuser --login
-psql -c "CREATE ROLE $POSTGRES_USER PASSWORD '$POSTGRES_PASSWORD' SUPERUSER LOGIN"
-createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
+psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'" | grep -q 1 || createuser root --superuser --login
+psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'" | grep -q 1 || psql -c "CREATE ROLE $POSTGRES_USER PASSWORD '$POSTGRES_PASSWORD' SUPERUSER LOGIN"
+psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 || createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
 
 echo "PostgreSQL is up - installing extensions..."
 

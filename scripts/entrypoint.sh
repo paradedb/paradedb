@@ -68,7 +68,7 @@ psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 |
 # only do this if TELEMETRY is not set to "False", and only do it once per deployment
 if [[ ${TELEMETRY:-} != "False" ]]; then
   if [[ -z ${POSTHOG_API_KEY:-} || -z ${POSTHOG_HOST:-} ]]; then
-    echo "Failed to retrieve POSTHOG_API_KEY or POSTHOG_ENDPOINT from environment variables, not sending telemetry!" 
+    echo "Failed to retrieve POSTHOG_API_KEY or POSTHOG_ENDPOINT from environment variables, not sending telemetry!"
   else
     curl -v -L --header "Content-Type: application/json" -d '{
       "api_key": "'"$POSTHOG_API_KEY"'",

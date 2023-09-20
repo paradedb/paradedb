@@ -17,18 +17,9 @@ coverage:
         flags: pg_search
         target: auto
         threshold: 1%
-    patch:
-      pg_bm25:
-        flags: pg_bm25
-        target: auto
-        threshold: 1%
-      pg_search:
-        flags: pg_search
-        target: auto
-        threshold: 1%
 
 comment:
-  layout: "diff, flags, files, footer"
+  layout: "diff, flags, files"
   require_base: no
   require_head: no
   show_carryforward_flags: true

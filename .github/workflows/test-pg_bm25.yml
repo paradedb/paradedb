@@ -37,7 +37,7 @@ jobs:
       - name: Download Rust binaries artifact
         uses: actions/download-artifact@v3
         with:
-          name: rust-binaries
+          name: rust-binaries-pg_bm25-${{ matrix.pg_version }}
           path: ~/.cargo/bin/
         continue-on-error: true # Don't fail the workflow if the artifact isn't found
 
@@ -78,7 +78,7 @@ jobs:
       - name: Upload Rust binaries as artifacts
         uses: actions/upload-artifact@v3
         with:
-          name: rust-binaries
+          name: rust-binaries-pg_bm25-${{ matrix.pg_version }}
           path: ~/.cargo/bin/
 
       - name: Initialize pgrx for Current PostgreSQL Version
@@ -91,7 +91,7 @@ jobs:
           mkdir -p target/coverage target/coverage-report
           export LLVM_PROFILE_FILE="target/coverage/pg_bm25-%p-%m.profraw"
           export RUST_BACKTRACE=1
-          cargo pgrx test pg${{ matrix.pg_version }}
+          cargo pgrx test --pg${{ matrix.pg_version }}
 
       - name: Generate Code Coverage Report
         working-directory: pg_bm25

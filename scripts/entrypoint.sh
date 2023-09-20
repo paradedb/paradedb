@@ -58,10 +58,9 @@ sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = '$shared_pre
 # Start the PostgreSQL server
 service postgresql start
 
-# Setup users
-createuser root --superuser --login
-psql -c "CREATE ROLE $POSTGRES_USER PASSWORD '$POSTGRES_PASSWORD' SUPERUSER LOGIN"
-createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
+# Subsitutde environment variables in the init.sql file and initialize the database
+envsubst < /usr/src/app/init.sql > /tmp/init_substituted.sql
+psql -f /tmp/init_substituted.sql
 
 echo "PostgreSQL is up - installing extensions..."
 

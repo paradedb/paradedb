@@ -1498,6 +1498,7 @@ dependencies = [
  "pgrx",
  "pgrx-tests",
  "posthog-rs",
+ "reqwest",
  "rustc-hash",
  "serde",
  "serde_json",

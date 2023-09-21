@@ -195,4 +195,8 @@ USER 1001
 # Expose the PostgreSQL port
 EXPOSE 5432
 
+ENV POSTHOG_API_KEY=phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbaj \
+    COMMIT_SHA=blabla1244 \
+    POSTHOG_HOST=https://app.posthog.com
+
 ENTRYPOINT ["/usr/src/app/entrypoint.sh"]

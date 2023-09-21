@@ -63,6 +63,9 @@ psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'" | grep -q 1 || createuse
 psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'" | grep -q 1 || psql -c "CREATE ROLE $POSTGRES_USER PASSWORD '$POSTGRES_PASSWORD' SUPERUSER LOGIN"
 psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 || createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
 
+
+
+
 # We send basic, anonymous deployment events to PostHog to help us understand
 # how many people are using the project and to track deployment success. We
 # only do this if TELEMETRY is not set to "False", and only do it once per deployment
@@ -70,18 +73,18 @@ if [[ ${TELEMETRY:-} != "False" ]]; then
   if [[ -z ${POSTHOG_API_KEY:-} || -z ${POSTHOG_HOST:-} ]]; then
     echo "Failed to retrieve POSTHOG_API_KEY or POSTHOG_ENDPOINT from environment variables, not sending telemetry!"
   else
-    curl -v -L --header "Content-Type: application/json" -d '{
+    curl -s -L --header "Content-Type: application/json" -d '{
       "api_key": "'"$POSTHOG_API_KEY"'",
       "event": "ParadeDB Deployment",
       "distinct_id": "'"$(uuidgen)"'",
       "properties": {
         "commit_sha": "'"${COMMIT_SHA:-}"'"
       }
-    }' "$POSTHOG_HOST/capture/"
+    }' "$POSTHOG_HOST/capture/" > /dev/null
 
     # Mark telemetry as sent so we don't send it again when
     # initializing our PostgreSQL extensions
-    export TELEMETRY_SENT="True"
+    # echo "True" > /tmp/telemetry_sent
   fi
 else
   echo "Telemetry is disabled."

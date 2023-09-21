@@ -1,6 +1,7 @@
 use pgrx::prelude::*;
 use posthog_rs::Event;
 use std::env;
+use std::fs;
 use uuid::Uuid;
 
 mod api;
@@ -13,22 +14,29 @@ extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
+    info!("Initializing pg_search extension");
     let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("True"));
-    let telemetry_sent = env::var("TELEMETRY_SENT").unwrap_or_else(|_| String::from("False"));
+    
+    // Read TELEMETRY_SENT from a file
+    let telemetry_sent = match fs::read_to_string("/tmp/telemetry_sent") {
+        Ok(content) => content.trim().to_string(),
+        Err(_) => String::from("False"),
+    };
+
     if telemetry == "False" {
-        println!("Telemetry is disabled.");
+        info!("Telemetry is disabled.");
     } else if telemetry_sent != "True" {
         if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
             let client = posthog_rs::client(api_key.as_str());
-            let mut event = Event::new("pg_bm25 Deployment", &Uuid::new_v4().to_string());
+            let mut event = Event::new("pg_search Deployment", &Uuid::new_v4().to_string());
             if let Ok(commit_sha) = env::var("COMMIT_SHA") {
                 event.insert_prop("commit_sha", &commit_sha).unwrap();
             } else {
-                eprintln!("Failed to retrieve COMMIT_SHA from environment variables, sending telemetry without commit_sha!");
+                info!("Failed to retrieve COMMIT_SHA from environment variables, sending telemetry without commit_sha!");
             }
             client.capture(event).unwrap();
         } else {
-            eprintln!("Failed to retrieve POSTHOG_API_KEY from environment variables, not sending telemetry!");
+            info!("Failed to retrieve POSTHOG_API_KEY from environment variables, not sending telemetry!");
         }
     }
 }

@@ -1,8 +1,8 @@
 use pgrx::*;
-use std::env;
-use std::fs;
 use reqwest;
 use serde_json::json;
+use std::env;
+use std::fs;
 
 mod api;
 mod index_access;
@@ -22,7 +22,7 @@ extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 pub unsafe extern "C" fn _PG_init() {
     info!("Initializing pg_bm25 extension");
     let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("True"));
-    
+
     // Read TELEMETRY_SENT from a file
     let telemetry_sent = match fs::read_to_string("/tmp/telemetry_sent") {
         Ok(content) => content.trim().to_string(),
@@ -46,10 +46,11 @@ pub unsafe extern "C" fn _PG_init() {
                         "commit_sha": commit_sha
                     }
                 });
-            
+
                 // Create a new HTTP client and send the event
                 let client = reqwest::blocking::Client::new();
-                let response = client.post(endpoint)
+                let response = client
+                    .post(endpoint)
                     .header("Content-Type", "application/json")
                     .body(data.to_string())
                     .send();
@@ -58,12 +59,14 @@ pub unsafe extern "C" fn _PG_init() {
                 match response {
                     Ok(res) if res.status().is_success() => {
                         info!("Event sent successfully!");
-                        let body = res.text().unwrap_or_else(|_| String::from("Failed to read response body"));
+                        let body = res
+                            .text()
+                            .unwrap_or_else(|_| String::from("Failed to read response body"));
                         info!("Response body: {}", body);
-                    },
+                    }
                     Ok(res) => {
                         info!("Failed to send event. Status: {}", res.status());
-                    },
+                    }
                     Err(e) => {
                         info!("Error sending request: {}", e);
                     }

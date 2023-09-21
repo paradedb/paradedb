@@ -63,9 +63,6 @@ psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'" | grep -q 1 || createuse
 psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'" | grep -q 1 || psql -c "CREATE ROLE $POSTGRES_USER PASSWORD '$POSTGRES_PASSWORD' SUPERUSER LOGIN"
 psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 || createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
 
-
-
-
 # We send basic, anonymous deployment events to PostHog to help us understand
 # how many people are using the project and to track deployment success. We
 # only do this if TELEMETRY is not set to "False", and only do it once per deployment
@@ -83,8 +80,9 @@ if [[ ${TELEMETRY:-} != "False" ]]; then
     }' "$POSTHOG_HOST/capture/" > /dev/null
 
     # Mark telemetry as sent so we don't send it again when
-    # initializing our PostgreSQL extensions
-    # echo "True" > /tmp/telemetry_sent
+    # initializing our PostgreSQL extensions. We use a file for IPC
+    # between this script and our PostgreSQL extensions
+    echo "True" > /tmp/telemetry_sent
   fi
 else
   echo "Telemetry is disabled."

@@ -1,8 +1,8 @@
 use pgrx::prelude::*;
-use posthog_rs::Event;
 use std::env;
 use std::fs;
-use uuid::Uuid;
+use reqwest;
+use serde_json::json;
 
 mod api;
 
@@ -27,14 +27,44 @@ pub unsafe extern "C" fn _PG_init() {
         info!("Telemetry is disabled.");
     } else if telemetry_sent != "True" {
         if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
-            let client = posthog_rs::client(api_key.as_str());
-            let mut event = Event::new("pg_search Deployment", &Uuid::new_v4().to_string());
             if let Ok(commit_sha) = env::var("COMMIT_SHA") {
-                event.insert_prop("commit_sha", &commit_sha).unwrap();
+                // The endpoint for sending events to PostHog
+                let endpoint = "https://app.posthog.com/capture/";
+
+                // Define the event data
+                let data = json!({
+                    "api_key": api_key,
+                    "event": "pg_search Deployment",
+                    "distinct_id": uuid::Uuid::new_v4().to_string(),
+                    "properties": {
+                        "commit_sha": commit_sha
+                    }
+                });
+            
+                // Create a new HTTP client and send the event
+                let client = reqwest::blocking::Client::new();
+                let response = client.post(endpoint)
+                    .header("Content-Type", "application/json")
+                    .body(data.to_string())
+                    .send();
+
+                // Check if the request was successful
+                match response {
+                    Ok(res) if res.status().is_success() => {
+                        info!("Event sent successfully!");
+                        let body = res.text().unwrap_or_else(|_| String::from("Failed to read response body"));
+                        info!("Response body: {}", body);
+                    },
+                    Ok(res) => {
+                        info!("Failed to send event. Status: {}", res.status());
+                    },
+                    Err(e) => {
+                        info!("Error sending request: {}", e);
+                    }
+                }
             } else {
                 info!("Failed to retrieve COMMIT_SHA from environment variables, sending telemetry without commit_sha!");
             }
-            client.capture(event).unwrap();
         } else {
             info!("Failed to retrieve POSTHOG_API_KEY from environment variables, not sending telemetry!");
         }

@@ -1,5 +1,4 @@
 use pgrx::prelude::*;
-use reqwest;
 use serde_json::json;
 use std::env;
 use std::fs;
@@ -14,7 +13,6 @@ extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
-    info!("Initializing pg_search extension");
     let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("True"));
 
     // Read TELEMETRY_SENT from a file

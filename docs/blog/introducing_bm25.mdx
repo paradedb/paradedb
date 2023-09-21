@@ -1,22 +1,29 @@
 ---
-title: "pg_bm25: Elastic-Quality Search Inside Postgres"
+title: "pg_bm25: Elastic-Quality, Full Text Search Inside Postgres"
+og:image: "/blog/images/bm25.png"
 ---
 
 <img src="/blog/images/bm25.png" noZoom />
 
-We're unveiling `pg_bm25`: a Rust-based Postgres extension that enables full text search with BM25 within Postgres.
+We're unveiling `pg_bm25`: a Rust-based Postgres extension that enables full text search using the BM25 algorithm 
+inside Postgres.
 
-Today, Postgres’ full text queries are sluggish over large tables, have limited query and tokenization support, 
-and have no support for BM25 relevance scoring. `pg_bm25` is our first step in bridging the gap between the 
-native capabilities of Postgres’ full text search and those of a specialized search engine like ElasticSearch. 
-By collapsing a search engine natively within Postgres, we aim to simplify the development of search experiences 
-while eliminating the need to bring a cumbersome service like ElasticSearch into the data stack.
+Today, Postgres' native full text search, which uses the `tsvector` type, has two main problems:
+
+1. **Performance**: Searching and ranking over large tables is sluggish. When tables grow to millions of rows, a single full text search can take several minutes to complete.
+2. **Functionality**: Postgres has limited support for functionalities like fuzzy search, relevance tuning, or 
+BM25 relevance scoring, which are the bread and butter of modern search engines.
+
+`pg_bm25` aims to bridge the gap between the native capabilities of Postgres’ full text search and those of a specialized search engine like ElasticSearch. 
+The long-term goal is to eliminate the need to bring a cumbersome service like ElasticSearch into the data stack.
 
 Some features of `pg_bm25` include:
 
-- 100% Rust-based and Postgres native, with zero dependencies on an external search engine like ElasticSearch
-- Query times over 1M rows are 20x faster compared to `tsvector`, Postgres’ native data type for full-text search
-- Support for boolean and range queries, boosting, highlighting, filtering, and BM25 scoring
+- 100% Postgres native, with zero dependencies on an external search engine 
+- Built on top of Tantivy, a Rust-based alternative to the Apache Lucene search library
+- Query times over 1M rows are 20x faster compared to `tsquery` and `ts_rank`, Postgres' built-in full text search and sort functions
+- Support for autocomplete, fuzzy search, highlighting, relevance tuning, and boolean queries
+- BM25 relevance scoring
 - Real-time search — new data is immediately searchable without manual reindexing
 - No complex query language — just search over your tables with SQL
 
@@ -24,16 +31,13 @@ Some features of `pg_bm25` include:
 
 BM25, which stands for Best Matching 25, is the go-to choice for most modern search engines. 
 It ranks documents by considering how often a term appears and how unique that term is across all documents. 
-What sets BM25 apart from other algorithms, including the algorithm used by Postgres’ full text search, 
-is the sophisticated way it accounts for factors like term frequency and document length.
-
-While vector-based semantic search is rising in popularity, traditional BM25-based search remains 
-an indispensible tool for matching by exact keywords, abbreviations, and proper nouns that are poorly 
-captured by semantic search.
+This type of search is especially useful for matching by exact keywords, abbreviations, and proper nouns. 
+When used in conjunction with a vector search extension like `pgvector`, `pg_bm25` is the missing puzzle piece that 
+unlocks powerful hybrid search functionalities within Postgres itself (subject of a future blog post).
 
 ## Using pg_bm25
 
-To run `pg_bm25` or install it into an existing, self-managed Postgres database, please see the extension’s 
+To run `pg_bm25` or install it inside an existing, self-managed Postgres database, please see the extension’s 
 [README](https://github.com/paradedb/paradedb/tree/dev/pg_bm25).
 
 Out of the box, `pg_bm25` provides a table called `paradedb.mock_items` you can use for testing. 
@@ -66,30 +70,8 @@ LIMIT 5;
 ```
 </Accordion>
 
-BM25 scoring and highlighting are supported:
-
-```sql
-SELECT description, rating, category, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'description')
-FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics'
-LIMIT 5;
-```
-
-<Accordion title="Expected Response">
-```csv
- id |         description         | rating |  category   | rank_bm25 |         highlight_bm25
-----+-----------------------------+--------+-------------+-----------+---------------------------------
-  1 | Ergonomic metal keyboard    |      4 | Electronics | 4.9403534 | Ergonomic metal <b>keyboard</b>
-  2 | Very plasticy keyboard      |      4 | Electronics | 4.9403534 | Very plasticy <b>keyboard</b>
- 12 | Innovative wireless earbuds |      5 | Electronics | 2.1096356 |
- 22 | Fast charging power bank    |      4 | Electronics | 2.1096356 |
- 32 | Bluetooth-enabled speaker   |      3 | Electronics | 2.1096356 |
-(5 rows)
-```
-</Accordion>
-
-In NoSQL search engines, metadata filtering requires a complex query language. In
-ParadeDB, filtering is done entirely through SQL:
+In NoSQL search engines, metadata filtering requires a complex query language. Fortunately, SQL 
+provides an ergonomic interface for filtering:
 
 ```sql
 SELECT description, rating, category
@@ -124,11 +106,82 @@ an equivalent query would look like if this table were stored in ElasticSearch:
 }
 ```
 
+## Scoring and Highlighting 
+
+BM25 scoring, which ranks the relevance of each row, and highlighting, which returns the exact snippets of 
+text that match a given keyword, are provided as Postgres functions:
+
+```sql
+SELECT description, rating, category, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'description')
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+```csv
+ id |         description         | rating |  category   | rank_bm25 |         highlight_bm25
+----+-----------------------------+--------+-------------+-----------+---------------------------------
+  1 | Ergonomic metal keyboard    |      4 | Electronics | 4.9403534 | Ergonomic metal <b>keyboard</b>
+  2 | Very plasticy keyboard      |      4 | Electronics | 4.9403534 | Very plasticy <b>keyboard</b>
+ 12 | Innovative wireless earbuds |      5 | Electronics | 2.1096356 |
+ 22 | Fast charging power bank    |      4 | Electronics | 2.1096356 |
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | 2.1096356 |
+(5 rows)
+```
+</Accordion>
+
+## Typo-Tolerant Fuzzy Search 
+
+One feature we're especially proud of is `pg_bm25`'s support for typo-tolerant `SELECT` queries via fuzzy search.
+For instance, consider a query with the text string `keybroadd`. Whereas a normal SQL query would return nothing,
+`pg_bm25` finds results with the word `keyboard`.
+
+```sql 
+SELECT description, rating, category
+FROM mock_items
+WHERE mock_items @@@ 'keybroadd:::fuzzy_fields=description';
+```
+
+<Accordion title="Expected Response">
+```csv
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+(2 rows)
+```
+</Accordion>
+
+## Autocomplete
+
+`pg_bm25` supports basic regex syntax, which enables autocomplete. Autocomplete is useful for search boxes that 
+show suggestions to users as they type:
+
+```sql 
+SELECT description, rating, category
+FROM mock_items
+WHERE mock_items @@@ 'key:::prefix_fields=description';
+```
+
+<Accordion title="Expected Response">
+```csv
+       description        | rating |  category
+--------------------------+--------+-------------
+ Ergonomic metal keyboard |      4 | Electronics
+ Plastic Keyboard         |      4 | Electronics
+(2 rows)
+```
+</Accordion>
+
+## Real-Time Search
+
 New data that arrives or rows that are changed are automatically reindexed and searchable. For instance,
 let's create and search for a new row in our table: 
 
 ```sql
-INSERT INTO mock_items (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
+INSERT INTO mock_items (description, rating, category) 
+VALUES ('New keyboard', 5, 'Electronics');
 
 SELECT description, rating, category
 FROM mock_items
@@ -161,16 +214,12 @@ More detailed benchmark results can be found in the extension
 
 ## Wrapping Up 
 
-While we're thrilled by our progress so far, several important features remain before `pg_bm25`
-can fully rival ElasticSearch's full suite of capabilities. These features include: 
-- Faceted search/aggregations 
-- Autocomplete (i.e. search as you type)
-- Fuzzy search 
-- Custom tokenizers
-- Distributed search
+`pg_bm25`'s API is built transparently on top of Tantivy. The immediate goal of the core team is to enable all of
+Tantivy's query types and custom tokenizers within `pg_bm25` by exposing more of Tantivy's API through Postgres. 
+This will unlock missing features like faceted search, while providing users of `pg_bm25` with a familiar 
+interface — `pg_bm25` aims to use the same query names and parameters used by Tantivy.
 
 As an open source project, we invite community members to contribute to our 
-[Github issues](https://github.com/paradedb/paradedb/issues). The core team is focused on bringing 
-`pg_bm25` to feature completion — you can show your support by 
+[Github issues](https://github.com/paradedb/paradedb/issues). You can show your support by 
 [giving us a star](https://github.com/paradedb/paradedb) or [trying out `pg_bm25`](https://github.com/paradedb/paradedb/tree/dev/pg_bm25#usage) 
 for yourself.

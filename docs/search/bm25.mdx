@@ -43,6 +43,17 @@ FROM mock_items
 WHERE mock_items @@@ '"metal keyboard"'
 ```
 
+## Tokenizers
+
+You can specify a different tokenizer from the default during inedx creation. We currently support the default Tantivy tokenizers: `default`, `en_stem`, and `raw`.
+
+```sql
+CREATE INDEX stem_index
+ON mock_items
+USING bm25 (mock_items.*)
+WITH (tokenizer=en_stem)
+```
+
 ## BM25 Scoring
 
 The `paradedb.rank_bm25` function returns a column with each row's BM25 score. It makes use of the

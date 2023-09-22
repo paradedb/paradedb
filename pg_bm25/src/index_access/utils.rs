@@ -61,7 +61,7 @@ pub fn create_parade_index(
     index_name: String,
     table_name: String,
     options: PgBox<ParadeOptions>,
-) -> ParadeIndex {    
+) -> ParadeIndex {
     ParadeIndex::new(index_name, table_name, options)
 }
 

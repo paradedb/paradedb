@@ -73,10 +73,5 @@ for extension in "${!extensions[@]}"; do
   fi
 done
 
-echo "PostgreSQL extensions installed - tailing server..."
-
-# Trap SIGINT and SIGTERM signals, stop PostgreSQL, and gracefully shut down
-trap "service postgresql stop; echo 'PostgreSQL server has stopped - exiting...'; exit 0" SIGINT SIGTERM
-
-# Keep the container running
-tail -f /dev/null
+echo "PostgreSQL extensions installed - initialization completed!"
+echo "ParadeDB is ready for connections!"

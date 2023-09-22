@@ -1,6 +1,9 @@
+use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
+use serde_json::Value;
 use std::ffi::CStr;
+use std::str::FromStr;
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
@@ -24,25 +27,86 @@ static mut RELOPT_KIND_PDB: pg_sys::relopt_kind = 0;
 pub struct ParadeOptions {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
-
-    tokenizer_offset: i32,
+    fields_offset: i32,
 }
 
-// pg_guard the validators so the panic only exits the query
+#[derive(Debug, PartialEq, Eq)]
+enum OptionKey {
+    Tokenizer,
+    Fast,
+    IndexOption,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum TokenizerOption {
+    Default,
+    Raw,
+    EnStem,
+    Whitespace,
+}
+
+impl FromStr for OptionKey {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "tokenizer" => Ok(OptionKey::Tokenizer),
+            "fast" => Ok(OptionKey::Fast),
+            "index_option" => Ok(OptionKey::IndexOption),
+            _ => Err(()),
+        }
+    }
+}
+
+impl FromStr for TokenizerOption {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "default" => Ok(TokenizerOption::Default),
+            "raw" => Ok(TokenizerOption::Raw),
+            "en_stem" => Ok(TokenizerOption::EnStem),
+            "whitespace" => Ok(TokenizerOption::Whitespace),
+            _ => Err(()),
+        }
+    }
+}
+
 #[pg_guard]
-extern "C" fn validate_tokenizer(value: *const std::os::raw::c_char) {
+extern "C" fn validate_fields(value: *const std::os::raw::c_char) {
     if value.is_null() {
         return;
     }
 
-    let value = unsafe { CStr::from_ptr(value) }
+    let rust_str = unsafe { CStr::from_ptr(value) }
         .to_str()
-        .expect("failed to convert tokenizer to utf-8");
+        .expect("failed to parse fields as utf-8");
 
-    if !["default", "raw", "en_stem", "whitespace"].contains(&value) {
-        panic!("invalid tokenizer: {}", value);
+    let json = serde_json::from_str::<Value>(rust_str).expect("fields is not valid JSON");
+
+    if let Value::Object(columns) = &json {
+        for options in columns.values() {
+            if let Value::Object(options_map) = options {
+                for (key, value) in options_map {
+                    let key_enum = key.parse::<OptionKey>().expect("Invalid key in options");
+                    match key_enum {
+                        OptionKey::Tokenizer => {
+                            value
+                                .as_str()
+                                .expect("Tokenizer should be a string")
+                                .parse::<TokenizerOption>()
+                                .expect("Invalid tokenizer");
+                        }
+                        _ => {}
+                    }
+                }
+            } else {
+                panic!("Options should be a JSON object");
+            }
+        }
+    } else {
+        panic!("The JSON should be an object with columns as keys");
     }
 }
+
 // For now, we support changing the tokenizer between default, raw, and en_stem
 const NUM_REL_OPTS: usize = 1;
 #[pg_guard]
@@ -50,11 +114,10 @@ pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
     validate: bool,
 ) -> *mut pg_sys::bytea {
-    // TODO: not hardcode offset
     let options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS] = [pg_sys::relopt_parse_elt {
-        optname: "tokenizer".as_pg_cstr(),
+        optname: "fields".as_pg_cstr(),
         opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
-        offset: 4,
+        offset: offset_of!(ParadeOptions, fields_offset) as i32,
     }];
     build_relopts(reloptions, validate, options)
 }
@@ -111,15 +174,21 @@ unsafe fn build_relopts(
 }
 
 impl ParadeOptions {
-    pub fn get_tokenizer(&self) -> String {
-        if self.tokenizer_offset == 0 {
-            return "default".to_string();
+    pub fn get_fields(&self) -> Value {
+        let fields = self.get_str(self.fields_offset, "".to_string());
+        serde_json::from_str::<Value>(&fields).expect("fields is not valid JSON")
+    }
+
+    fn get_str(&self, offset: i32, default: String) -> String {
+        if offset == 0 {
+            default
+        } else {
+            let opts = self as *const _ as void_ptr as usize;
+            let value =
+                unsafe { CStr::from_ptr((opts + offset as usize) as *const std::os::raw::c_char) };
+
+            value.to_str().unwrap().to_owned()
         }
-        let opts = self as *const _ as void_ptr as usize;
-        let value = unsafe {
-            CStr::from_ptr((opts + self.tokenizer_offset as usize) as *const std::os::raw::c_char)
-        };
-        value.to_str().unwrap().to_owned()
     }
 }
 
@@ -129,13 +198,12 @@ pub unsafe fn init() {
     RELOPT_KIND_PDB = pg_sys::add_reloption_kind();
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
-        "tokenizer".as_pg_cstr(),
-        "Tantivy tokenizer used".as_pg_cstr(),
-        "default".as_pg_cstr(),
-        Some(validate_tokenizer),
+        "fields".as_pg_cstr(),
+        "JSON specifying how fields should be indexed".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_fields),
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
         {
-            // "The default choice for any new option should be AccessExclusiveLock." - postgres
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
     );

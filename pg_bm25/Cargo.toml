@@ -19,6 +19,7 @@ pg_test = []
 
 [dependencies]
 csv = "1.2.2"
+memoffset = "0.9.0"
 pgrx = "=0.9.8"
 rustc-hash = "1.1.0"
 serde = "1.0.188"

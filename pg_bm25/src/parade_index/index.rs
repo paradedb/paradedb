@@ -6,7 +6,7 @@ use std::fs::{create_dir_all, remove_dir_all};
 use std::path::Path;
 use tantivy::{
     query::{Query, QueryParser},
-    schema::{Field, Schema, Value, INDEXED, STORED, TEXT},
+    schema::*,
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
 
@@ -217,52 +217,84 @@ impl ParadeIndex {
             PgRelation::open_with_name(name)
                 .unwrap_or_else(|_| panic!("failed to open relation {}", name))
         };
-        let token_option = options.get_tokenizer();
+        let field_options = options.get_fields();
+
         let tupdesc = indexrel.tuple_desc();
+        let attributes: HashMap<String, PgOid> = tupdesc
+            .iter()
+            .filter(|&attribute| !attribute.is_dropped())
+            .map(|attribute| (attribute.name().to_string(), attribute.type_oid()))
+            .collect();
+
         let mut schema_builder = Schema::builder();
-        let mut fields: HashMap<String, Field> = HashMap::new();
+        let mut tantivy_fields: HashMap<String, Field> = HashMap::new();
 
-        // set text_options: originally we wanted TEXT | STORED but we want to switch the tokenizer
-        let text_options = (TEXT | STORED).clone().set_indexing_options(
-            (TEXT | STORED)
-                .get_indexing_options()
-                .expect("TEXT | STORED has no indexing options?")
-                .clone()
-                .set_tokenizer(token_option.as_str()),
-        );
+        if let Some(field_options_map) = field_options.as_object() {
+            for (field_name, options) in field_options_map {
+                assert!(
+                    attributes.contains_key(field_name),
+                    "{} is not a recognized column name",
+                    field_name
+                );
+                let attribute_type_oid = attributes.get(field_name).unwrap();
 
-        for (_, attribute) in tupdesc.iter().enumerate() {
-            if attribute.is_dropped() {
-                continue;
-            }
-
-            let attribute_type_oid = attribute.type_oid();
-            let attname = attribute.name();
-
-            let field = match &attribute_type_oid {
-                PgOid::BuiltIn(builtin) => match builtin {
-                    PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                        // Some(schema_builder.add_text_field(attname, TEXT | STORED))
-                        // I have to clone because something something not movable?
-                        // TODO: how to check the tokenizer actually changed?
-                        Some(schema_builder.add_text_field(attname, text_options.clone()))
-                    }
-                    PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
-                        Some(schema_builder.add_json_field(attname, STORED))
-                    }
+                let field = match &attribute_type_oid {
+                    PgOid::BuiltIn(builtin) => match builtin {
+                        PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
+                            let text_options = Self::build_text_options(options, field_name)
+                                .expect("failed to build TextOptions");
+                            Some(schema_builder.add_text_field(field_name, text_options))
+                        }
+                        PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
+                            Some(schema_builder.add_json_field(field_name, STORED))
+                        }
+                        _ => None,
+                    },
                     _ => None,
-                },
-                _ => None,
-            };
+                };
 
-            if let Some(valid_field) = field {
-                fields.insert(attname.to_string(), valid_field);
+                if let Some(valid_field) = field {
+                    tantivy_fields.insert(field_name.clone(), valid_field);
+                }
             }
         }
 
         let field = schema_builder.add_u64_field("heap_tid", INDEXED | STORED);
-        fields.insert("heap_tid".to_string(), field);
+        tantivy_fields.insert("heap_tid".to_string(), field);
 
-        Ok((schema_builder.build(), fields))
+        Ok((schema_builder.build(), tantivy_fields))
+    }
+
+    fn build_text_options(
+        json_value: &serde_json::Value,
+        field_name: &str,
+    ) -> Result<TextOptions, String> {
+        let mut text_options = TextOptions::default();
+
+        if let Some(obj) = json_value.as_object() {
+            if let Some(fast) = obj.get("fast").and_then(&serde_json::Value::as_bool) {
+                if fast {
+                    text_options = text_options.set_fast(None);
+                } else {
+                    text_options = text_options.set_stored();
+                }
+            }
+
+            if let Some(tokenizer) = obj.get("tokenizer").and_then(serde_json::Value::as_str) {
+                text_options = text_options
+                    .set_indexing_options(TextFieldIndexing::default().set_tokenizer(tokenizer));
+            }
+
+            if let Some(index_option) = obj.get("index_option").and_then(serde_json::Value::as_str)
+            {
+                text_options = text_options.set_indexing_options(
+                    TextFieldIndexing::default().set_index_option(IndexRecordOption::Basic),
+                );
+            }
+
+            Ok(text_options)
+        } else {
+            return Err(format!("options for {} is not an object", field_name));
+        }
     }
 }

@@ -5,7 +5,9 @@ use serde_json::from_str;
 use std::collections::HashMap;
 use std::ffi::CStr;
 
-use crate::parade_index::fields::{ParadeBooleanOptions, ParadeNumericOptions, ParadeTextOptions};
+use crate::parade_index::fields::{
+    ParadeBooleanOptions, ParadeJsonOptions, ParadeNumericOptions, ParadeTextOptions,
+};
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
@@ -32,6 +34,7 @@ pub struct ParadeOptions {
     text_fields_offset: i32,
     numeric_fields_offset: i32,
     boolean_fields_offset: i32,
+    json_fields_offset: i32,
 }
 
 #[pg_guard]
@@ -70,6 +73,18 @@ extern "C" fn validate_boolean_fields(value: *const std::os::raw::c_char) {
         from_str(&json_str).expect("failed to validate boolean_fields");
 }
 
+#[pg_guard]
+extern "C" fn validate_json_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+
+    if json_str.is_empty() {
+        return;
+    }
+
+    let _options: HashMap<String, ParadeJsonOptions> =
+        from_str(&json_str).expect("failed to validate boolean_fields");
+}
+
 #[inline]
 fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
     if value.is_null() {
@@ -83,7 +98,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
 }
 
 // For now, we support changing the tokenizer between default, raw, and en_stem
-const NUM_REL_OPTS: usize = 3;
+const NUM_REL_OPTS: usize = 4;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -104,6 +119,11 @@ pub unsafe extern "C" fn amoptions(
             optname: "boolean_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
             offset: offset_of!(ParadeOptions, boolean_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "json_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            offset: offset_of!(ParadeOptions, json_fields_offset) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -179,7 +199,7 @@ impl ParadeOptions {
         }
 
         from_str::<HashMap<String, ParadeNumericOptions>>(&fields)
-            .expect("failed to get numeric_fields")
+            .expect("failed to parse numeric_fields")
     }
 
     pub fn get_boolean_fields(&self) -> HashMap<String, ParadeBooleanOptions> {
@@ -190,7 +210,18 @@ impl ParadeOptions {
         }
 
         from_str::<HashMap<String, ParadeBooleanOptions>>(&fields)
-            .expect("failed to get boolean_fields")
+            .expect("failed to parse boolean_fields")
+    }
+
+    pub fn get_json_fields(&self) -> HashMap<String, ParadeJsonOptions> {
+        let fields = self.get_str(self.json_fields_offset, "".to_string());
+
+        if fields.is_empty() {
+            return HashMap::new();
+        }
+
+        from_str::<HashMap<String, ParadeJsonOptions>>(&fields)
+            .expect("failed to parse json_fields")
     }
 
     fn get_str(&self, offset: i32, default: String) -> String {
@@ -238,6 +269,17 @@ pub unsafe fn init() {
         "JSON string specifying how boolean fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_boolean_fields),
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+        {
+            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
+        },
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "json_fields".as_pg_cstr(),
+        "JSON string specifying how JSON fields should be indexed".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_json_fields),
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE

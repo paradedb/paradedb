@@ -224,6 +224,7 @@ impl ParadeIndex {
         let text_fields = options.get_text_fields();
         let numeric_fields = options.get_numeric_fields();
         let boolean_fields = options.get_boolean_fields();
+        let json_fields = options.get_json_fields();
 
         // TODO: Panic if all fields are empty
 
@@ -262,7 +263,10 @@ impl ParadeIndex {
                         schema_builder.add_bool_field(attname, boolean_options)
                     }),
                     PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
-                        Some(schema_builder.add_json_field(attname, STORED))
+                        json_fields.get(attname).map(|options| {
+                            let json_options: JsonObjectOptions = (*options).into();
+                            schema_builder.add_json_field(attname, json_options)
+                        })
                     }
                     _ => None,
                 },

@@ -3,9 +3,10 @@ use tantivy::schema::*;
 
 // Tokenizers
 // TODO: Custom tokenizers like CJK and ngrams
-#[derive(Copy, Clone, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Default, Copy, Clone, Deserialize, Debug, PartialEq, Eq)]
 pub enum ParadeTokenizer {
     #[serde(rename = "default")]
+    #[default]
     Default,
     #[serde(rename = "raw")]
     Raw,
@@ -26,16 +27,11 @@ impl ParadeTokenizer {
     }
 }
 
-impl Default for ParadeTokenizer {
-    fn default() -> Self {
-        ParadeTokenizer::Default
-    }
-}
-
 // Normalizers for fast fields
-#[derive(Copy, Clone, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Default, Copy, Clone, Deserialize, Debug, PartialEq, Eq)]
 pub enum ParadeNormalizer {
     #[serde(rename = "raw")]
+    #[default]
     Raw,
     #[serde(rename = "lowercase")]
     Lowercase,
@@ -47,12 +43,6 @@ impl ParadeNormalizer {
             ParadeNormalizer::Raw => "raw",
             ParadeNormalizer::Lowercase => "lowercase",
         }
-    }
-}
-
-impl Default for ParadeNormalizer {
-    fn default() -> Self {
-        ParadeNormalizer::Raw
     }
 }
 
@@ -209,4 +199,63 @@ impl From<ParadeBooleanOptions> for NumericOptions {
     }
 }
 
-// TODO: JSON options
+// Json options
+#[derive(Copy, Clone, Debug, Deserialize, utoipa::ToSchema)]
+pub struct ParadeJsonOptions {
+    #[serde(default)]
+    indexed: bool,
+    #[serde(default)]
+    fast: bool,
+    #[serde(default)]
+    stored: bool,
+    #[serde(default)]
+    expand_dots: bool,
+    #[serde(default)]
+    tokenizer: ParadeTokenizer,
+    #[schema(value_type = IndexRecordOptionSchema)]
+    #[serde(default)]
+    record: IndexRecordOption,
+    #[serde(default)]
+    normalizer: ParadeNormalizer,
+}
+
+impl Default for ParadeJsonOptions {
+    fn default() -> Self {
+        Self {
+            indexed: true,
+            fast: false,
+            stored: true,
+            expand_dots: true,
+            tokenizer: ParadeTokenizer::Default,
+            record: IndexRecordOption::Basic,
+            normalizer: ParadeNormalizer::Raw,
+        }
+    }
+}
+
+impl From<ParadeJsonOptions> for JsonObjectOptions {
+    fn from(parade_options: ParadeJsonOptions) -> Self {
+        let mut json_options = JsonObjectOptions::default();
+
+        if parade_options.stored {
+            json_options = json_options.set_stored();
+        }
+        if parade_options.fast {
+            json_options = json_options.set_fast(Some(parade_options.normalizer.name()));
+        }
+        if parade_options.expand_dots {
+            json_options = json_options.set_expand_dots_enabled();
+        }
+        if parade_options.indexed {
+            let text_field_indexing = TextFieldIndexing::default()
+                .set_index_option(parade_options.record)
+                .set_tokenizer(parade_options.tokenizer.name());
+
+            json_options = json_options.set_indexing_options(text_field_indexing);
+        }
+
+        json_options
+    }
+}
+
+// TODO: Enable DateTime and IP fields

@@ -42,7 +42,7 @@ impl ParadeIndex {
         let (schema, fields) = match result {
             Ok((s, f)) => (s, f),
             Err(e) => {
-                panic!("Error building schema: {}", e);
+                panic!("{}", e);
             }
         };
         let settings = IndexSettings {
@@ -226,7 +226,16 @@ impl ParadeIndex {
         let boolean_fields = options.get_boolean_fields();
         let json_fields = options.get_json_fields();
 
-        // TODO: Panic if all fields are empty
+        if text_fields.is_empty()
+            && numeric_fields.is_empty()
+            && boolean_fields.is_empty()
+            && json_fields.is_empty()
+        {
+            return Err(
+                "no text_fields, numeric_fields, boolean_fields, or json_fields were specified"
+                    .to_string(),
+            );
+        }
 
         for (_, attribute) in tupdesc.iter().enumerate() {
             if attribute.is_dropped() {

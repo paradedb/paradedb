@@ -135,7 +135,7 @@ pub struct ParadeNumericOptions {
     #[serde(default)]
     stored: bool,
     #[serde(default)]
-    coerce: bool
+    coerce: bool,
 }
 
 impl Default for ParadeNumericOptions {
@@ -170,4 +170,43 @@ impl From<ParadeNumericOptions> for NumericOptions {
     }
 }
 
-// TODO: Boolean, JSON options
+#[derive(Copy, Clone, Debug, Deserialize)]
+pub struct ParadeBooleanOptions {
+    #[serde(default)]
+    indexed: bool,
+    #[serde(default)]
+    fast: bool,
+    #[serde(default)]
+    stored: bool,
+}
+
+impl Default for ParadeBooleanOptions {
+    fn default() -> Self {
+        Self {
+            indexed: true,
+            fast: true,
+            stored: true,
+        }
+    }
+}
+
+// Following the example of Quickwit, which uses NumericOptions for boolean options
+impl From<ParadeBooleanOptions> for NumericOptions {
+    fn from(parade_options: ParadeBooleanOptions) -> Self {
+        let mut boolean_options = NumericOptions::default();
+
+        if parade_options.stored {
+            boolean_options = boolean_options.set_stored();
+        }
+        if parade_options.fast {
+            boolean_options = boolean_options.set_fast();
+        }
+        if parade_options.indexed {
+            boolean_options = boolean_options.set_indexed();
+        }
+
+        boolean_options
+    }
+}
+
+// TODO: JSON options

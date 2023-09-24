@@ -65,7 +65,12 @@ pub unsafe extern "C" fn amcostestimate(
         }
     }
 
-    let reltuples = heap_relation.reltuples().unwrap_or(1f32) as f64;
+    let mut reltuples = heap_relation.reltuples().unwrap_or(1f32) as f64;
+    if reltuples < 0.0 {
+        // https://github.com/paradedb/paradedb/issues/323
+        warning!("amcostestimate: reltuples is negative! value: {reltuples}");
+        reltuples *= -1.0;
+    }
     *index_total_cost += *index_selectivity * reltuples * pg_sys::cpu_index_tuple_cost;
     *index_total_cost -= pg_sys::random_page_cost;
 }

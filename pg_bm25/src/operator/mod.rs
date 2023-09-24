@@ -139,10 +139,96 @@ pub fn get_index_oid(
     })
 }
 
+// implementation of `restrict` partially derived from [0] [Apache 2.0 license]. Some useful
+// references to understand this implementation:
+// - [0] https://github.com/zombodb/zombodb/blob/ebf9e8c766c555fdafb80d2421eff9f820eba8c7/src/zdbquery/opclass.rs#L108
+// - [1] https://github.com/postgres/postgres/blob/master/src/backend/utils/adt/selfuncs.c
+// - [2] https://www.postgresql.org/docs/current/xoper-optimization.html#XOPER-RESTRICT
+#[pg_extern(immutable, parallel_safe)]
+fn restrict(planner_info: Internal, _oid: pg_sys::Oid, args: Internal, var_rel_id: i32) -> f64 {
+    // Unless we can calculate otherwise, we assume that the baseline selectivity is double of
+    // Postgres' default for the `eqsel` operator. According to [2], this doubled value is the
+    // defualt selectivity for the `matchingsel` operator. We believe this is a decent approximation
+    // for baseline selectivity.
+    const DEFAULT_BASELINE_FREQ: f64 = 2.0 * pg_sys::DEFAULT_EQ_SEL;
+
+    let root: *mut pg_sys::PlannerInfo =
+        unsafe { planner_info.get_mut::<pg_sys::PlannerInfo>().unwrap() as *mut _ };
+
+    let limit = unsafe { (*root).limit_tuples };
+
+    if limit <= 0.0 {
+        info!("no limit on query, returning default baseline selectivity {DEFAULT_BASELINE_FREQ}");
+        return DEFAULT_BASELINE_FREQ;
+    }
+
+    let args = unsafe { args.get_mut::<pg_sys::List>().unwrap() as *mut _ };
+    let args = unsafe { PgList::<pg_sys::Node>::from_pg(args) };
+    let left = args.get_ptr(0);
+    let right = args.get_ptr(1);
+    if left.is_none() {
+        panic!("left argument is null");
+    } else if right.is_none() {
+        panic!("right argument is null");
+    }
+
+    let left = left.unwrap();
+    let mut heap_relation = None;
+
+    if unsafe { is_a(left, pg_sys::NodeTag_T_Var) } {
+        let mut ldata = pg_sys::VariableStatData::default();
+
+        unsafe {
+            pg_sys::examine_variable(root, left, var_rel_id, &mut ldata);
+
+            let type_oid = ldata.vartype;
+            let tce: PgBox<pg_sys::TypeCacheEntry> =
+                PgBox::from_pg(pg_sys::lookup_type_cache(type_oid, 0));
+            let heaprel_id = tce.typrelid;
+
+            if heaprel_id == pg_sys::InvalidOid {
+                heap_relation = None;
+            } else {
+                heap_relation = Some(PgRelation::with_lock(
+                    heaprel_id,
+                    pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+                ));
+            }
+
+            // free the ldata struct
+            if !ldata.statsTuple.is_null() {
+                (ldata.freefunc.unwrap())(ldata.statsTuple);
+            }
+        }
+    }
+
+    if let Some(heap_relation) = heap_relation {
+        info!(
+            "heap relation namespace {}, name {}",
+            heap_relation.namespace(),
+            heap_relation.name()
+        );
+
+        // -2 chosen as debugging sentinel since apparently `heap_relation.reltuples()` is returning -1 in some (all?) cases
+        // https://github.com/paradedb/paradedb/issues/323
+        let reltuples = heap_relation.reltuples().unwrap_or(-2f32) as f64;
+
+        if reltuples > 0.0 {
+            let result = (limit / reltuples).clamp(0.0, 1.0);
+            info!("parsed limit of {limit} and computed tuple count {reltuples} --- returning clamped selectivity {result}");
+            return result;
+        }
+    }
+
+    info!("could not compute tuple count, returning default baseline selectivity {DEFAULT_BASELINE_FREQ}");
+    DEFAULT_BASELINE_FREQ
+}
+
 extension_sql!(
     r#"
 CREATE OPERATOR pg_catalog.@@@ (
     PROCEDURE = search_tantivy,
+    RESTRICT = restrict,
     LEFTARG = anyelement,
     RIGHTARG = text
 );

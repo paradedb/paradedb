@@ -203,12 +203,6 @@ fn restrict(planner_info: Internal, _oid: pg_sys::Oid, args: Internal, var_rel_i
     }
 
     if let Some(heap_relation) = heap_relation {
-        info!(
-            "heap relation namespace {}, name {}",
-            heap_relation.namespace(),
-            heap_relation.name()
-        );
-
         // -2 chosen as debugging sentinel since apparently `heap_relation.reltuples()` is returning -1 in some (all?) cases
         // https://github.com/paradedb/paradedb/issues/323
         let reltuples = heap_relation.reltuples().unwrap_or(-2f32) as f64;

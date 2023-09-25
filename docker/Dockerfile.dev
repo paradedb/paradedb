@@ -1,3 +1,11 @@
+ARG PG_VERSION_MAJOR
+
+###############################################
+# First Stage: Base
+###############################################
+
+FROM postgres:${PG_VERSION_MAJOR}-bullseye as base
+
 # Declare all the build arguments and set them to
 # environment variables for use in build and runtime
 ARG PG_VERSION_MAJOR
@@ -5,12 +13,6 @@ ARG PG_BM25_VERSION
 ARG PG_SEARCH_VERSION
 ARG PGML_VERSION
 ARG PGVECTOR_VERSION
-
-###############################################
-# First Stage: Base
-###############################################
-
-FROM postgres:${PG_VERSION_MAJOR}-bullseye as base
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
@@ -173,4 +175,6 @@ COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VER
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 
+# Copy entrypoint script, which will be handled by the official image
+# initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh

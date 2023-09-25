@@ -52,8 +52,27 @@ done
 shared_preload_list=${shared_preload_list%,}
 
 # Update the PostgreSQL configuration
-sed -i "s/^#cron\.database_name = .*/cron\.database_name = '$POSTGRES_DB'/" "${PGDATA}/postgresql.conf"
+echo "pg_net.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
+echo "cron.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
+
+# Setup users
+ROOT_ROLE_EXISTS=$(psql -U $POSTGRES_USER -d $POSTGRES_DB -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'")
+POSTGRES_ROLE_EXISTS=$(psql -U $POSTGRES_USER -d $POSTGRES_DB -tAc "SELECT 1 FROM pg_roles WHERE rolname='postgres'")
+
+if [ -z "$ROOT_ROLE_EXISTS" ]; then
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+	CREATE USER root;
+	CREATE DATABASE root;
+	GRANT ALL PRIVILEGES ON DATABASE root TO root;
+EOSQL
+fi
+
+if [ -z "$POSTGRES_ROLE_EXISTS" ]; then
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+  CREATE ROLE postgres WITH SUPERUSER CREATEDB CREATEROLE LOGIN;
+EOSQL
+fi
 
 # We need to restart the server for the changes above
 # to be reflected

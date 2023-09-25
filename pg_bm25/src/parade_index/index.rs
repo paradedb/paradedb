@@ -24,8 +24,8 @@ pub struct TantivyScanState {
 }
 
 pub struct ParadeIndex {
-    fields: HashMap<String, Field>,
-    underlying_index: Index,
+    pub fields: HashMap<String, Field>,
+    pub underlying_index: Index,
 }
 
 impl ParadeIndex {

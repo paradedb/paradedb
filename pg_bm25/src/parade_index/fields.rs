@@ -54,20 +54,34 @@ pub enum IndexRecordOptionSchema {
     Basic,
     #[schema(rename = "freq")]
     WithFreqs,
-    #[schema(rename = "freqandposition")]
+    #[schema(rename = "position")]
     WithFreqsAndPositions,
+}
+
+pub trait ToString {
+    fn to_string(&self) -> String;
+}
+
+impl ToString for IndexRecordOption {
+    fn to_string(&self) -> String {
+        match self {
+            IndexRecordOption::Basic => "basic".to_string(),
+            IndexRecordOption::WithFreqs => "freq".to_string(),
+            IndexRecordOption::WithFreqsAndPositions => "position".to_string(),
+        }
+    }
 }
 
 // Text options
 #[derive(Copy, Clone, Debug, Deserialize, utoipa::ToSchema)]
 pub struct ParadeTextOptions {
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     indexed: bool,
     #[serde(default)]
     fast: bool,
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     stored: bool,
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     fieldnorms: bool,
     #[serde(default)]
     tokenizer: ParadeTokenizer,
@@ -118,14 +132,12 @@ impl From<ParadeTextOptions> for TextOptions {
 // Numeric options
 #[derive(Copy, Clone, Debug, Deserialize)]
 pub struct ParadeNumericOptions {
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     indexed: bool,
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     fast: bool,
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     stored: bool,
-    #[serde(default)]
-    coerce: bool,
 }
 
 impl Default for ParadeNumericOptions {
@@ -134,7 +146,6 @@ impl Default for ParadeNumericOptions {
             indexed: true,
             fast: true,
             stored: true,
-            coerce: true,
         }
     }
 }
@@ -152,9 +163,6 @@ impl From<ParadeNumericOptions> for NumericOptions {
         if parade_options.indexed {
             numeric_options = numeric_options.set_indexed();
         }
-        if parade_options.coerce {
-            numeric_options = numeric_options.set_coerce();
-        }
 
         numeric_options
     }
@@ -162,11 +170,11 @@ impl From<ParadeNumericOptions> for NumericOptions {
 
 #[derive(Copy, Clone, Debug, Deserialize)]
 pub struct ParadeBooleanOptions {
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     indexed: bool,
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     fast: bool,
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     stored: bool,
 }
 
@@ -202,13 +210,13 @@ impl From<ParadeBooleanOptions> for NumericOptions {
 // Json options
 #[derive(Copy, Clone, Debug, Deserialize, utoipa::ToSchema)]
 pub struct ParadeJsonOptions {
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     indexed: bool,
     #[serde(default)]
     fast: bool,
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     stored: bool,
-    #[serde(default)]
+    #[serde(default = "default_as_true")]
     expand_dots: bool,
     #[serde(default)]
     tokenizer: ParadeTokenizer,
@@ -259,3 +267,7 @@ impl From<ParadeJsonOptions> for JsonObjectOptions {
 }
 
 // TODO: Enable DateTime and IP fields
+
+fn default_as_true() -> bool {
+    true
+}

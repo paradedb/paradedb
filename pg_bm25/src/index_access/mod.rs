@@ -6,9 +6,10 @@ mod delete;
 mod insert;
 pub mod options;
 mod scan;
-mod utils;
 mod vacuum;
 mod validate;
+
+pub mod utils;
 
 #[pg_extern(sql = "
 CREATE FUNCTION bm25_handler(internal) RETURNS index_am_handler PARALLEL SAFE IMMUTABLE STRICT COST 0.0001 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';

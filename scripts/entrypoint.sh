@@ -61,7 +61,7 @@ ROOT_ROLE_EXISTS=$(psql -U $POSTGRES_USER -d $POSTGRES_DB -tAc "SELECT 1 FROM pg
 POSTGRES_ROLE_EXISTS=$(psql -U $POSTGRES_USER -d $POSTGRES_DB -tAc "SELECT 1 FROM pg_roles WHERE rolname='postgres'")
 
 if [ -z "$ROOT_ROLE_EXISTS" ]; then
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
 	CREATE USER root;
 	CREATE DATABASE root;
 	GRANT ALL PRIVILEGES ON DATABASE root TO root;
@@ -69,7 +69,7 @@ EOSQL
 fi
 
 if [ -z "$POSTGRES_ROLE_EXISTS" ]; then
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
   CREATE ROLE postgres WITH SUPERUSER CREATEDB CREATEROLE LOGIN;
 EOSQL
 fi

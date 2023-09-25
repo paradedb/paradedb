@@ -52,16 +52,12 @@ done
 shared_preload_list=${shared_preload_list%,}
 
 # Update the PostgreSQL configuration
-sed -i "s/^cron\.database_name = .*/cron\.database_name = '$POSTGRES_DB'/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
-sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
+sed -i "s/^#cron\.database_name = .*/cron\.database_name = '$POSTGRES_DB'/" "${PGDATA}/postgresql.conf"
+sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
 
-# Start the PostgreSQL server
-service postgresql start
-
-# Setup users
-psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'" | grep -q 1 || createuser root --superuser --login
-psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'" | grep -q 1 || psql -c "CREATE ROLE $POSTGRES_USER PASSWORD '$POSTGRES_PASSWORD' SUPERUSER LOGIN"
-psql -tAc "SELECT 1 FROM pg_database WHERE datname='$POSTGRES_DB'" | grep -q 1 || createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
+# We need to restart the server for the changes above
+# to be reflected
+pg_ctl restart
 
 echo "PostgreSQL is up - installing extensions..."
 
@@ -69,7 +65,7 @@ echo "PostgreSQL is up - installing extensions..."
 for extension in "${!extensions[@]}"; do
   version=${extensions[$extension]}
   if [ -n "$version" ]; then
-    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" -h 127.0.0.1 -p 5432 || echo "Failed to install extension $extension"
+    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done
 

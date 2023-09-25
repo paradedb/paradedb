@@ -12,6 +12,7 @@ use tantivy::{
 
 use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
+use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 const CACHE_NUM_BLOCKS: usize = 10;
 
@@ -50,11 +51,14 @@ impl ParadeIndex {
             ..Default::default()
         };
 
-        let underlying_index = Index::builder()
+        let mut underlying_index = Index::builder()
             .schema(schema.clone())
             .settings(settings.clone())
             .create_in_dir(dir)
             .expect("failed to create index");
+
+        underlying_index.set_tokenizers(create_tokenizer_manager());
+        underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
 
         Self {
             fields,

@@ -14,6 +14,8 @@ pub enum ParadeTokenizer {
     EnStem,
     #[serde(rename = "whitespace")]
     WhiteSpace,
+    #[serde(rename = "chinese_compatible")]
+    ChineseCompatible,
 }
 
 impl ParadeTokenizer {
@@ -23,6 +25,7 @@ impl ParadeTokenizer {
             ParadeTokenizer::Raw => "raw",
             ParadeTokenizer::EnStem => "en_stem",
             ParadeTokenizer::WhiteSpace => "whitespace",
+            ParadeTokenizer::ChineseCompatible => "chinese_compatible",
         }
     }
 }

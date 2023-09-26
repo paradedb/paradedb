@@ -143,15 +143,11 @@ impl JsonBuilderValue {
                     }
                 }
             }
-            JsonBuilderValue::jsonb(JsonB(val)) => {
-                if let serde_json::Value::Object(map) = val {
-                    doc.add_json_object(*field, map.clone());
-                }
+            JsonBuilderValue::jsonb(JsonB(serde_json::Value::Object(map))) => {
+                doc.add_json_object(*field, map.clone());
             }
-            JsonBuilderValue::json_value(val) => {
-                if let serde_json::Value::Object(map) = val {
-                    doc.add_json_object(*field, map.clone());
-                }
+            JsonBuilderValue::json_value(serde_json::Value::Object(map)) => {
+                doc.add_json_object(*field, map.clone());
             }
             _ => {} // Ignore other types for now
         }

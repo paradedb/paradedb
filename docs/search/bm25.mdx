@@ -43,15 +43,14 @@ FROM mock_items
 WHERE mock_items @@@ '"metal keyboard"'
 ```
 
-## Tokenizers
+## JSON Fields
 
-You can specify a different tokenizer from the default during inedx creation. We currently support the default Tantivy tokenizers: `default`, `en_stem`, and `raw`.
+Use `.` to search over text values nested inside JSON:
 
 ```sql
-CREATE INDEX stem_index
-ON mock_items
-USING bm25 (mock_items.*)
-WITH (tokenizer=en_stem)
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'metadata.color:white'
 ```
 
 ## BM25 Scoring

@@ -14,6 +14,11 @@ SELECT paradedb.rank_bm25(ctid), *
 FROM bm25_search 
 WHERE bm25_search @@@ 'category:electronics OR description:keyboard';
 
+-- Test JSON search 
+SELECT *
+FROM bm25_search
+WHERE bm25_search @@@ 'metadata.color:white';
+
 -- Test real-time search
 INSERT INTO bm25_search (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
 DELETE FROM bm25_search WHERE id = 1;
@@ -31,5 +36,4 @@ WHERE mock_items @@@ 'description:keyboard';
 SELECT *
 FROM paradedb.mock_items
 WHERE mock_items @@@ 'description:earbud';
-
 

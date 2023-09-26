@@ -65,7 +65,10 @@ your table.
 To create a BM25 index:
 
 ```sql
-CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
+CREATE INDEX idx_mock_items
+ON mock_items
+USING bm25 ((mock_items.*))
+WITH (text_fields='{"description": {}, "category": {}}');
 ```
 
 To create a HNSW index:

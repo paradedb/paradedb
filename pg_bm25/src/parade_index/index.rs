@@ -96,7 +96,6 @@ impl ParadeIndex {
 
         for (col_name, value) in builder.values {
             let field_option = self.fields.get(col_name.trim_matches('"'));
-
             if let Some(field) = field_option {
                 value.add_to_tantivy_doc(&mut doc, field);
             }

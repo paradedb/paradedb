@@ -1,6 +1,13 @@
+use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
+use serde_json::from_str;
+use std::collections::HashMap;
 use std::ffi::CStr;
+
+use crate::parade_index::fields::{
+    ParadeBooleanOptions, ParadeJsonOptions, ParadeNumericOptions, ParadeTextOptions,
+};
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
@@ -18,44 +25,107 @@ use std::ffi::CStr;
 
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind = 0;
 
-// postgres handles string options by placing each option offset bytes from the start of rdopts and
+// Postgres handles string options by placing each option offset bytes from the start of rdopts and
 // plops the offset in the struct
 #[repr(C)]
 pub struct ParadeOptions {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
-
-    tokenizer_offset: i32,
+    text_fields_offset: i32,
+    numeric_fields_offset: i32,
+    boolean_fields_offset: i32,
+    json_fields_offset: i32,
 }
 
-// pg_guard the validators so the panic only exits the query
 #[pg_guard]
-extern "C" fn validate_tokenizer(value: *const std::os::raw::c_char) {
-    if value.is_null() {
+extern "C" fn validate_text_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+
+    if json_str.is_empty() {
         return;
     }
 
-    let value = unsafe { CStr::from_ptr(value) }
-        .to_str()
-        .expect("failed to convert tokenizer to utf-8");
-
-    if !["default", "raw", "en_stem", "whitespace"].contains(&value) {
-        panic!("invalid tokenizer: {}", value);
-    }
+    let _options: HashMap<String, ParadeTextOptions> =
+        from_str(&json_str).expect("failed to validate text_fields");
 }
+
+#[pg_guard]
+extern "C" fn validate_numeric_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+
+    if json_str.is_empty() {
+        return;
+    }
+
+    let _options: HashMap<String, ParadeNumericOptions> =
+        from_str(&json_str).expect("failed to validate numeric_fields");
+}
+
+#[pg_guard]
+extern "C" fn validate_boolean_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+
+    if json_str.is_empty() {
+        return;
+    }
+
+    let _options: HashMap<String, ParadeBooleanOptions> =
+        from_str(&json_str).expect("failed to validate boolean_fields");
+}
+
+#[pg_guard]
+extern "C" fn validate_json_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+
+    if json_str.is_empty() {
+        return;
+    }
+
+    let _options: HashMap<String, ParadeJsonOptions> =
+        from_str(&json_str).expect("failed to validate boolean_fields");
+}
+
+#[inline]
+fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
+    if value.is_null() {
+        return "".to_string();
+    }
+
+    unsafe { CStr::from_ptr(value) }
+        .to_str()
+        .expect("failed to parse fields as utf-8")
+        .to_string()
+}
+
 // For now, we support changing the tokenizer between default, raw, and en_stem
-const NUM_REL_OPTS: usize = 1;
+const NUM_REL_OPTS: usize = 4;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
     validate: bool,
 ) -> *mut pg_sys::bytea {
-    // TODO: not hardcode offset
-    let options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS] = [pg_sys::relopt_parse_elt {
-        optname: "tokenizer".as_pg_cstr(),
-        opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
-        offset: 4,
-    }];
+    let options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS] = [
+        pg_sys::relopt_parse_elt {
+            optname: "text_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            offset: offset_of!(ParadeOptions, text_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "numeric_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            offset: offset_of!(ParadeOptions, numeric_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "boolean_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            offset: offset_of!(ParadeOptions, boolean_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "json_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            offset: offset_of!(ParadeOptions, json_fields_offset) as i32,
+        },
+    ];
     build_relopts(reloptions, validate, options)
 }
 
@@ -111,15 +181,59 @@ unsafe fn build_relopts(
 }
 
 impl ParadeOptions {
-    pub fn get_tokenizer(&self) -> String {
-        if self.tokenizer_offset == 0 {
-            return "default".to_string();
+    pub fn get_text_fields(&self) -> HashMap<String, ParadeTextOptions> {
+        let fields = self.get_str(self.text_fields_offset, "".to_string());
+
+        if fields.is_empty() {
+            return HashMap::new();
         }
-        let opts = self as *const _ as void_ptr as usize;
-        let value = unsafe {
-            CStr::from_ptr((opts + self.tokenizer_offset as usize) as *const std::os::raw::c_char)
-        };
-        value.to_str().unwrap().to_owned()
+
+        from_str::<HashMap<String, ParadeTextOptions>>(&fields).expect("failed to get text_fields")
+    }
+
+    pub fn get_numeric_fields(&self) -> HashMap<String, ParadeNumericOptions> {
+        let fields = self.get_str(self.numeric_fields_offset, "".to_string());
+
+        if fields.is_empty() {
+            return HashMap::new();
+        }
+
+        from_str::<HashMap<String, ParadeNumericOptions>>(&fields)
+            .expect("failed to parse numeric_fields")
+    }
+
+    pub fn get_boolean_fields(&self) -> HashMap<String, ParadeBooleanOptions> {
+        let fields = self.get_str(self.boolean_fields_offset, "".to_string());
+
+        if fields.is_empty() {
+            return HashMap::new();
+        }
+
+        from_str::<HashMap<String, ParadeBooleanOptions>>(&fields)
+            .expect("failed to parse boolean_fields")
+    }
+
+    pub fn get_json_fields(&self) -> HashMap<String, ParadeJsonOptions> {
+        let fields = self.get_str(self.json_fields_offset, "".to_string());
+
+        if fields.is_empty() {
+            return HashMap::new();
+        }
+
+        from_str::<HashMap<String, ParadeJsonOptions>>(&fields)
+            .expect("failed to parse json_fields")
+    }
+
+    fn get_str(&self, offset: i32, default: String) -> String {
+        if offset == 0 {
+            default
+        } else {
+            let opts = self as *const _ as void_ptr as usize;
+            let value =
+                unsafe { CStr::from_ptr((opts + offset as usize) as *const std::os::raw::c_char) };
+
+            value.to_str().unwrap().to_owned()
+        }
     }
 }
 
@@ -129,13 +243,45 @@ pub unsafe fn init() {
     RELOPT_KIND_PDB = pg_sys::add_reloption_kind();
     pg_sys::add_string_reloption(
         RELOPT_KIND_PDB,
-        "tokenizer".as_pg_cstr(),
-        "Tantivy tokenizer used".as_pg_cstr(),
-        "default".as_pg_cstr(),
-        Some(validate_tokenizer),
+        "text_fields".as_pg_cstr(),
+        "JSON string specifying how text fields should be indexed".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_text_fields),
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
         {
-            // "The default choice for any new option should be AccessExclusiveLock." - postgres
+            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
+        },
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "numeric_fields".as_pg_cstr(),
+        "JSON string specifying how numeric fields should be indexed".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_numeric_fields),
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+        {
+            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
+        },
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "boolean_fields".as_pg_cstr(),
+        "JSON string specifying how boolean fields should be indexed".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_boolean_fields),
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+        {
+            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
+        },
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "json_fields".as_pg_cstr(),
+        "JSON string specifying how JSON fields should be indexed".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_json_fields),
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+        {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
     );

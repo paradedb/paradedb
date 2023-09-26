@@ -6,12 +6,13 @@ use std::fs::{create_dir_all, remove_dir_all};
 use std::path::Path;
 use tantivy::{
     query::{Query, QueryParser},
-    schema::{Field, Schema, Value, INDEXED, STORED, TEXT},
+    schema::*,
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
 
 use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
+use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 const CACHE_NUM_BLOCKS: usize = 10;
 
@@ -24,8 +25,8 @@ pub struct TantivyScanState {
 }
 
 pub struct ParadeIndex {
-    fields: HashMap<String, Field>,
-    underlying_index: Index,
+    pub fields: HashMap<String, Field>,
+    pub underlying_index: Index,
 }
 
 impl ParadeIndex {
@@ -42,7 +43,7 @@ impl ParadeIndex {
         let (schema, fields) = match result {
             Ok((s, f)) => (s, f),
             Err(e) => {
-                panic!("Error building schema: {}", e);
+                panic!("{}", e);
             }
         };
         let settings = IndexSettings {
@@ -50,11 +51,14 @@ impl ParadeIndex {
             ..Default::default()
         };
 
-        let underlying_index = Index::builder()
+        let mut underlying_index = Index::builder()
             .schema(schema.clone())
             .settings(settings.clone())
             .create_in_dir(dir)
             .expect("failed to create index");
+
+        underlying_index.set_tokenizers(create_tokenizer_manager());
+        underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
 
         Self {
             fields,
@@ -92,7 +96,6 @@ impl ParadeIndex {
 
         for (col_name, value) in builder.values {
             let field_option = self.fields.get(col_name.trim_matches('"'));
-
             if let Some(field) = field_option {
                 value.add_to_tantivy_doc(&mut doc, field);
             }
@@ -217,19 +220,25 @@ impl ParadeIndex {
             PgRelation::open_with_name(name)
                 .unwrap_or_else(|_| panic!("failed to open relation {}", name))
         };
-        let token_option = options.get_tokenizer();
         let tupdesc = indexrel.tuple_desc();
         let mut schema_builder = Schema::builder();
         let mut fields: HashMap<String, Field> = HashMap::new();
 
-        // set text_options: originally we wanted TEXT | STORED but we want to switch the tokenizer
-        let text_options = (TEXT | STORED).clone().set_indexing_options(
-            (TEXT | STORED)
-                .get_indexing_options()
-                .expect("TEXT | STORED has no indexing options?")
-                .clone()
-                .set_tokenizer(token_option.as_str()),
-        );
+        let text_fields = options.get_text_fields();
+        let numeric_fields = options.get_numeric_fields();
+        let boolean_fields = options.get_boolean_fields();
+        let json_fields = options.get_json_fields();
+
+        if text_fields.is_empty()
+            && numeric_fields.is_empty()
+            && boolean_fields.is_empty()
+            && json_fields.is_empty()
+        {
+            return Err(
+                "no text_fields, numeric_fields, boolean_fields, or json_fields were specified"
+                    .to_string(),
+            );
+        }
 
         for (_, attribute) in tupdesc.iter().enumerate() {
             if attribute.is_dropped() {
@@ -242,13 +251,34 @@ impl ParadeIndex {
             let field = match &attribute_type_oid {
                 PgOid::BuiltIn(builtin) => match builtin {
                     PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                        // Some(schema_builder.add_text_field(attname, TEXT | STORED))
-                        // I have to clone because something something not movable?
-                        // TODO: how to check the tokenizer actually changed?
-                        Some(schema_builder.add_text_field(attname, text_options.clone()))
+                        text_fields.get(attname).map(|options| {
+                            let text_options: TextOptions = (*options).into();
+                            schema_builder.add_text_field(attname, text_options)
+                        })
                     }
+                    PgBuiltInOids::INT2OID
+                    | PgBuiltInOids::INT4OID
+                    | PgBuiltInOids::INT8OID
+                    | PgBuiltInOids::OIDOID
+                    | PgBuiltInOids::XIDOID => numeric_fields.get(attname).map(|options| {
+                        let numeric_options: NumericOptions = (*options).into();
+                        schema_builder.add_i64_field(attname, numeric_options)
+                    }),
+                    PgBuiltInOids::FLOAT4OID
+                    | PgBuiltInOids::FLOAT8OID
+                    | PgBuiltInOids::NUMERICOID => numeric_fields.get(attname).map(|options| {
+                        let numeric_options: NumericOptions = (*options).into();
+                        schema_builder.add_f64_field(attname, numeric_options)
+                    }),
+                    PgBuiltInOids::BOOLOID => boolean_fields.get(attname).map(|options| {
+                        let boolean_options: NumericOptions = (*options).into();
+                        schema_builder.add_bool_field(attname, boolean_options)
+                    }),
                     PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
-                        Some(schema_builder.add_json_field(attname, STORED))
+                        json_fields.get(attname).map(|options| {
+                            let json_options: JsonObjectOptions = (*options).into();
+                            schema_builder.add_json_field(attname, json_options)
+                        })
                     }
                     _ => None,
                 },

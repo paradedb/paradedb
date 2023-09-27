@@ -50,7 +50,7 @@ Once connected with `psql`, run the following command to preview the first five 
 
 ```sql
 CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
-SELECT * FROM mock_items LIMIT 3;
+SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
@@ -67,7 +67,12 @@ SELECT * FROM mock_items LIMIT 3;
 Next, let's index this table for full-text search:
 
 ```sql
-CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
+CREATE INDEX idx_mock_items 
+ON mock_items 
+USING bm25 ((mock_items.*))
+WITH (
+  text_fields='{"description": {"tokenizer": "en_stem"}, "category": {}}'
+);
 ```
 
 <Accordion title="Expected Response">
@@ -76,8 +81,10 @@ CREATE INDEX
 ```
 </Accordion>
 
-Under the hood, this creates a Postgres-native index called `idx_mock_items`, which
-stores the necessary information for full text search over the `mock_items` table.
+Under the hood, this command creates a Postgres-native index called `idx_mock_items`, which contains 
+an inverted index of the `mock_items` table. [Custom index configuration options](/indexing/bm25), such as 
+tokenizers, can be specified in the `WITH` option.
+
 Let's execute a full-text search:
 
 ```sql

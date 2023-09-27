@@ -18,17 +18,6 @@ pub enum JsonBuilderValue {
     json_string(pgrx::JsonString),
     jsonb(JsonB),
     json_value(serde_json::Value),
-
-    bool_array(Vec<Option<bool>>),
-    i16_array(Vec<Option<i16>>),
-    i32_array(Vec<Option<i32>>),
-    i64_array(Vec<Option<i64>>),
-    u32_array(Vec<Option<u32>>),
-    f32_array(Vec<Option<f32>>),
-    f64_array(Vec<Option<f64>>),
-    string_array(Vec<Option<String>>),
-    json_string_array(Vec<Option<pgrx::JsonString>>),
-    jsonb_array(Vec<Option<JsonB>>),
 }
 
 #[derive(Debug)]
@@ -106,66 +95,6 @@ impl JsonBuilder {
             .push((attname, JsonBuilderValue::json_value(value)));
     }
 
-    #[inline]
-    pub fn add_bool_array(&mut self, attname: String, value: Vec<Option<bool>>) {
-        self.values
-            .push((attname, JsonBuilderValue::bool_array(value)));
-    }
-
-    #[inline]
-    pub fn add_i16_array(&mut self, attname: String, value: Vec<Option<i16>>) {
-        self.values
-            .push((attname, JsonBuilderValue::i16_array(value)));
-    }
-
-    #[inline]
-    pub fn add_i32_array(&mut self, attname: String, value: Vec<Option<i32>>) {
-        self.values
-            .push((attname, JsonBuilderValue::i32_array(value)));
-    }
-
-    #[inline]
-    pub fn add_i64_array(&mut self, attname: String, value: Vec<Option<i64>>) {
-        self.values
-            .push((attname, JsonBuilderValue::i64_array(value)));
-    }
-
-    #[inline]
-    pub fn add_u32_array(&mut self, attname: String, value: Vec<Option<u32>>) {
-        self.values
-            .push((attname, JsonBuilderValue::u32_array(value)));
-    }
-
-    #[inline]
-    pub fn add_f32_array(&mut self, attname: String, value: Vec<Option<f32>>) {
-        self.values
-            .push((attname, JsonBuilderValue::f32_array(value)));
-    }
-
-    #[inline]
-    pub fn add_f64_array(&mut self, attname: String, value: Vec<Option<f64>>) {
-        self.values
-            .push((attname, JsonBuilderValue::f64_array(value)));
-    }
-
-    #[inline]
-    pub fn add_string_array(&mut self, attname: String, value: Vec<Option<String>>) {
-        self.values
-            .push((attname, JsonBuilderValue::string_array(value)));
-    }
-
-    #[inline]
-    pub fn add_json_string_array(&mut self, attname: String, value: Vec<Option<pgrx::JsonString>>) {
-        self.values
-            .push((attname, JsonBuilderValue::json_string_array(value)));
-    }
-
-    #[inline]
-    pub fn add_jsonb_array(&mut self, attname: String, value: Vec<Option<JsonB>>) {
-        self.values
-            .push((attname, JsonBuilderValue::jsonb_array(value)));
-    }
-
     pub fn build(&self, json: &mut Vec<u8>) {
         json.push(b'{');
         for (idx, (key, value)) in self.values.iter().enumerate() {
@@ -190,16 +119,6 @@ impl JsonBuilder {
                 JsonBuilderValue::json_string(v) => v.push_json(json),
                 JsonBuilderValue::jsonb(v) => v.push_json(json),
                 JsonBuilderValue::json_value(v) => v.push_json(json),
-                JsonBuilderValue::bool_array(v) => v.push_json(json),
-                JsonBuilderValue::i16_array(v) => v.push_json(json),
-                JsonBuilderValue::i32_array(v) => v.push_json(json),
-                JsonBuilderValue::i64_array(v) => v.push_json(json),
-                JsonBuilderValue::u32_array(v) => v.push_json(json),
-                JsonBuilderValue::f32_array(v) => v.push_json(json),
-                JsonBuilderValue::f64_array(v) => v.push_json(json),
-                JsonBuilderValue::string_array(v) => v.push_json(json),
-                JsonBuilderValue::json_string_array(v) => v.push_json(json),
-                JsonBuilderValue::jsonb_array(v) => v.push_json(json),
             }
         }
         json.push(b'}');
@@ -215,6 +134,21 @@ impl JsonBuilderValue {
             JsonBuilderValue::f32(val) => doc.add_f64(*field, *val as f64),
             JsonBuilderValue::f64(val) => doc.add_f64(*field, *val),
             JsonBuilderValue::string(val) => doc.add_text(*field, val),
+            JsonBuilderValue::json_string(val) => {
+                let mut s = Vec::new();
+                val.push_json(&mut s);
+                if let Ok(json_str) = String::from_utf8(s) {
+                    if let Ok(serde_json::Value::Object(map)) = serde_json::from_str(&json_str) {
+                        doc.add_json_object(*field, map.clone());
+                    }
+                }
+            }
+            JsonBuilderValue::jsonb(JsonB(serde_json::Value::Object(map))) => {
+                doc.add_json_object(*field, map.clone());
+            }
+            JsonBuilderValue::json_value(serde_json::Value::Object(map)) => {
+                doc.add_json_object(*field, map.clone());
+            }
             _ => {} // Ignore other types for now
         }
     }

@@ -43,6 +43,16 @@ FROM mock_items
 WHERE mock_items @@@ '"metal keyboard"'
 ```
 
+## JSON Fields
+
+Use `.` to search over text values nested inside JSON:
+
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'metadata.color:white'
+```
+
 ## BM25 Scoring
 
 The `paradedb.rank_bm25` function returns a column with each row's BM25 score. It makes use of the

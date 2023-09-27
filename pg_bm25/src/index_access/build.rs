@@ -2,6 +2,7 @@ use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 use tantivy::SingleSegmentIndexWriter;
 
+use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{
     categorize_tupdesc, create_parade_index, lookup_index_tupdesc, row_to_json,
 };
@@ -30,6 +31,7 @@ impl<'a> BuildState<'a> {
 }
 
 #[pg_guard]
+// TODO: remove the unsafe
 pub extern "C" fn ambuild(
     heaprel: pg_sys::Relation,
     indexrel: pg_sys::Relation,
@@ -41,10 +43,19 @@ pub extern "C" fn ambuild(
     let table_name = heap_relation.name().to_string();
     let schema_name = heap_relation.namespace().to_string();
 
+    // rdopts are passed on to create_parade_index
+    let rdopts: PgBox<ParadeOptions> = if !index_relation.rd_options.is_null() {
+        unsafe { PgBox::from_pg(index_relation.rd_options as *mut ParadeOptions) }
+    } else {
+        let ops = unsafe { PgBox::<ParadeOptions>::alloc0() };
+        ops.into_pg_boxed()
+    };
+
     // Create ParadeDB Index
     let mut parade_index = create_parade_index(
         index_name.clone(),
         format!("{}.{}", schema_name, table_name),
+        rdopts,
     );
     let tantivy_index = parade_index.copy_tantivy_index();
     let mut writer = SingleSegmentIndexWriter::new(tantivy_index, INDEX_WRITER_MEM_BUDGET)

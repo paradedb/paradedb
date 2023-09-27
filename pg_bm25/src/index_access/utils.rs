@@ -8,6 +8,7 @@ use std::default::Default;
 
 use std::str::FromStr;
 
+use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
 use crate::parade_index::index::ParadeIndex;
 
@@ -56,8 +57,12 @@ impl FromStr for SearchQuery {
     }
 }
 
-pub fn create_parade_index(index_name: String, table_name: String) -> ParadeIndex {
-    ParadeIndex::new(index_name, table_name)
+pub fn create_parade_index(
+    index_name: String,
+    table_name: String,
+    options: PgBox<ParadeOptions>,
+) -> ParadeIndex {
+    ParadeIndex::new(index_name, table_name, options)
 }
 
 pub fn get_parade_index(index_name: String) -> ParadeIndex {
@@ -102,6 +107,31 @@ pub fn categorize_tupdesc(tupdesc: &PgTupleDesc) -> Vec<CategorizedAttribute> {
 
             match &attribute_type_oid {
                 PgOid::BuiltIn(builtin) => match builtin {
+                    PgBuiltInOids::BOOLOID => Box::new(|builder, name, datum, _oid| {
+                        builder.add_bool(name, unsafe { bool::from_datum(datum, false) }.unwrap())
+                    }),
+                    PgBuiltInOids::INT2OID => Box::new(|builder, name, datum, _oid| {
+                        builder.add_i16(name, unsafe { i16::from_datum(datum, false) }.unwrap())
+                    }),
+                    PgBuiltInOids::INT4OID => Box::new(|builder, name, datum, _oid| {
+                        builder.add_i32(name, unsafe { i32::from_datum(datum, false) }.unwrap())
+                    }),
+                    PgBuiltInOids::INT8OID => Box::new(|builder, name, datum, _oid| {
+                        builder.add_i64(name, unsafe { i64::from_datum(datum, false) }.unwrap())
+                    }),
+                    PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => {
+                        Box::new(|builder, name, datum, _oid| {
+                            builder.add_u32(name, unsafe { u32::from_datum(datum, false) }.unwrap())
+                        })
+                    }
+                    PgBuiltInOids::FLOAT4OID => Box::new(|builder, name, datum, _oid| {
+                        builder.add_f32(name, unsafe { f32::from_datum(datum, false) }.unwrap())
+                    }),
+                    PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
+                        Box::new(|builder, name, datum, _oid| {
+                            builder.add_f64(name, unsafe { f64::from_datum(datum, false) }.unwrap())
+                        })
+                    }
                     PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
                         handle_as_generic_string(attribute_type_oid.value())
                     }

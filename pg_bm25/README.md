@@ -22,9 +22,9 @@ Lucene, using `pgrx`.
 - [x] Filtering
 - [x] JSON field search
 - [ ] Faceting/aggregations
-- [ ] Autocomplete
+- [x] Autocomplete
 - [x] Fuzzy search
-- [ ] Custom tokenizers
+- [x] Custom tokenizers
 
 ## Usage
 
@@ -52,7 +52,11 @@ To index a table, use the following SQL command:
 
 ```sql
 CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
-CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
+
+CREATE INDEX idx_mock_items
+ON mock_items
+USING bm25 ((mock_items.*))
+WITH (text_fields='{"description": {}, "category": {}}');
 ```
 
 Once the indexing is complete, you can run various search functions on it.
@@ -62,7 +66,7 @@ Once the indexing is complete, you can run various search functions on it.
 Execute a search query on your indexed table:
 
 ```sql
-SELECT *
+SELECT description, rating, category
 FROM mock_items
 WHERE mock_items @@@ 'description:keyboard OR category:electronics'
 LIMIT 5;
@@ -84,7 +88,7 @@ This will return:
 Scoring and highlighting are supported:
 
 ```sql
-SELECT *, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'description')
+SELECT description, rating, category, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'description')
 FROM mock_items
 WHERE mock_items @@@ 'description:keyboard OR category:electronics'
 LIMIT 5;
@@ -106,7 +110,7 @@ This will return:
 Scores can be tuned via boosted queries:
 
 ```sql
-SELECT *
+SELECT description, rating, category
 FROM mock_items
 WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics';
 ```

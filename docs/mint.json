@@ -51,6 +51,10 @@
         {
           "group": "Search",
           "pages": ["search/bm25", "search/hnsw", "search/hybrid"]
+        },
+        {
+          "group": "Deploy",
+          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         }
       ]
     },

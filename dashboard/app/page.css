@@ -1,0 +1,32 @@
+.container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* This will center the items horizontally */
+    justify-content: center;
+    /* This will center the items vertically */
+    height: 100vh;
+    /* Use full viewport height */
+    padding: 20px;
+    /* Add some padding around the content */
+}
+
+.userInfo {
+    margin-bottom: 20px;
+    /* Add space between the user info and the button */
+}
+
+.buttonContainer {
+    display: flex;
+    justify-content: center;
+    /* Center the button horizontally */
+}
+
+.freePlanButton {
+    padding: 10px 20px;
+    /* Add some padding to the button */
+    font-size: 16px;
+    /* Increase font size for the button */
+    cursor: pointer;
+    /* Change cursor to pointer when hovering over the button */
+}

@@ -5,15 +5,15 @@ title: Helm
 # Deploying Using the ParadeDB Helm Chart
 
 ## Introduction:
-Welcome to the ParadeDB Helm deployment guide! Helm is a powerful Kubernetes package manager that simplifies the deployment of applications in a Kubernetes cluster. This guide will walk you through deploying applications using the ParadeDB Helm chart.Prerequisites:
 
-    A Kubernetes cluster up and running.
-    Helm installed. If not, please refer to the official Helm documentation for installation guidelines.
+**Prerequisites**
+- A Kubernetes cluster up and running.
+- Helm installed. If not, please refer to the official Helm documentation for installation guidelines.
 
 ## Deployment Steps:
 
 **Step 1: Add the ParadeDB Helm Repository**
-First, we need to add the ParadeDB repository to our Helm client. This repo contains all the necessary charts for ParadeDB.
+First, add the ParadeDB repository to Helm. This repo contains all the necessary charts for ParadeDB.
 
 ```bash
 helm repo add paradedb https://paradedb.github.io/helm-charts
@@ -21,7 +21,7 @@ helm repo add paradedb https://paradedb.github.io/helm-charts
 
 **Step 2: Update the Helm Repository**
 
-If you've previously added the ParadeDB repo, it's a good practice to update it to ensure you have the latest charts.
+Update the repo to ensure you have the latest chart version.
 
 ```bash
 helm repo update
@@ -37,7 +37,7 @@ helm search repo paradedb
 
 **Step 4: Install the ParadeDB Chart**
 
-Now, let's deploy ParadeDB using the Helm chart. The helm install command will deploy the application in your Kubernetes cluster.
+Install the chart. You can customize the values using a values file or the `set` flag. Refer to the documentation for all values that can be set.
 
 ```bash
 helm install my-db paradedb/paradedb

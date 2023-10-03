@@ -44,4 +44,3 @@ repos:
         args: ["--manifest-path", "Cargo.toml"]
       - id: cargo-check
         args: ["--manifest-path", "Cargo.toml"]
-

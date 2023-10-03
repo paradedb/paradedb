@@ -41,6 +41,10 @@ jobs:
             ~/.cargo/
             ~/.rustup/
           key: ${{ runner.os }}-cargo-pgrx-0.9.8-grcov
+          restore-keys: |
+            ${{ runner.os }}-cargo-pgrx-0.9.8-grcov
+            ${{ runner.os }}-cargo-pgrx
+            ${{ runner.os }}-cargo
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

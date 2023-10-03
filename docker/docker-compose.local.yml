@@ -37,6 +37,7 @@ services:
         HYPOPG_VERSION: 1.4.0
         RUM_VERSION: 1.3.13
         AGE_VERSION: 1.4.0-rc0
+        TELEMETRY: False
       cache_from:
         - type=local,src=./.docker_cache_local
       cache_to:

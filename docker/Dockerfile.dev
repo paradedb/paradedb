@@ -13,12 +13,14 @@ ARG PG_BM25_VERSION
 ARG PG_SEARCH_VERSION
 ARG PGML_VERSION
 ARG PGVECTOR_VERSION
+ARG TELEMETRY
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
     PG_SEARCH_VERSION=${PG_SEARCH_VERSION} \
     PGML_VERSION=${PGML_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
+    TELEMETRY=${TELEMETRY} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
@@ -31,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     gnupg \
     gcc \
+    uuid-runtime \
     software-properties-common \
     ca-certificates \
     python3.10 \

@@ -33,6 +33,10 @@ ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
 ARG AGE_VERSION
+ARG POSTHOG_API_KEY
+ARG POSTHOG_HOST
+ARG COMMIT_SHA
+ARG TELEMETRY
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
@@ -59,6 +63,10 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     HYPOPG_VERSION=${HYPOPG_VERSION} \
     RUM_VERSION=${RUM_VERSION} \
     AGE_VERSION=${AGE_VERSION} \
+    POSTHOG_API_KEY=${POSTHOG_API_KEY} \
+    POSTHOG_HOST=${POSTHOG_HOST} \
+    COMMIT_SHA=${COMMIT_SHA} \
+    TELEMETRY=${TELEMETRY} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
@@ -71,6 +79,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     gnupg \
     gcc \
+    uuid-runtime \
     software-properties-common \
     ca-certificates \
     python3.10 \

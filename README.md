@@ -44,7 +44,7 @@ vector database on top.
 ParadeDB is still under active development and is not yet ready to use
 in production. We're aiming to be ready by the end of September 2023.
 
-We are currently in Private Alpha. Star & watch this repo to get notified of
+We are currently in Private Beta. Star & watch this repo to get notified of
 major updates.
 
 ### Roadmap

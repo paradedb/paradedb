@@ -33,6 +33,10 @@ jobs:
             ~/.cargo/
             ~/.rustup/
           key: ${{ runner.os }}-cargo-pgrx-0.9.8
+          restore-keys: |
+            ${{ runner.os }}-cargo-pgrx-0.9.8
+            ${{ runner.os }}-cargo-pgrx
+            ${{ runner.os }}-cargo
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

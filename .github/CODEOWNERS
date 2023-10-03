@@ -2,7 +2,6 @@
 
 /.github/                                                      @philippemnoel
 /benchmarks/                                                   @sardination
-/conf/                                                         @philippemnoel
 /docker/                                                       @philippemnoel
 /docs/                                                         @rebasedming
 /pg_bm25/                                                      @rebasedming @mauaraujo

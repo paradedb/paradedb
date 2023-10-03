@@ -1,7 +1,7 @@
 #![allow(clippy::missing_safety_doc)] // because _PG_init is unsafe
 use pgrx::*;
 
-mod api;
+pub mod api;
 mod index_access;
 mod json;
 mod manager;

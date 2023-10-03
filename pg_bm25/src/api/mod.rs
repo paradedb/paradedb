@@ -1,2 +1,3 @@
-mod index;
-mod search;
+pub mod aggregation;
+pub mod index;
+pub mod search;

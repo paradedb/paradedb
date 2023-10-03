@@ -1,5 +1,5 @@
 ---
-title: Full Text (BM25) Search
+title: Basic Full Text Search
 ---
 
 <Info>
@@ -9,8 +9,8 @@ title: Full Text (BM25) Search
 
 ## Overview
 
-Full text search uses the BM25 algorithm to find rows in a table that match a query. This type of search
-is especially useful for matching exact keywords inside documents.
+Full text search uses the [BM25 index](/indexing/bm25) to find rows in a table that match a query.
+This type of search is especially useful for matching keywords inside documents.
 
 ## Basic Usage
 
@@ -19,60 +19,112 @@ name of the table, and the right-hand side accepts the query.
 
 ```sql
 SELECT *
-FROM mock_items
-WHERE mock_items @@@ 'keyboard'
+FROM <table_name>
+WHERE <table_name> @@@ '<query>'
 ```
 
-## Column-Specific Queries
+<ParamField body="table_name" required>
+  The name of the table.
+</ParamField>
+<ParamField body="query" required>
+  The query string. See the query options below for how to construct this
+  string.
+</ParamField>
 
-If your table has multiple text columns, you can specify which column to search:
+## Mini Query Language
+
+The query string accepts a mini query language which can be used to construct more expressive queries.
+
+### Specifying Fields
+
+If your table has multiple text fields, you can specify which field to search.
+
+```sql
+'description:keyboard'
+```
+
+### Phrases
+
+Phrases should be wrapped in double quotes.
+
+```sql
+'"metal keyboard"'
+```
+
+### JSON Fields
+
+Use `.` to search over text values nested inside JSON. For instance, the following query would search
+over a field with values like `{"metadata": {"color": "white"}}`.
+
+```sql
+'metadata.color:white'
+```
+
+Note that JSON search only works over `json` and `jsonb` Postgres columns that have been indexed as
+[`json_fields`](/indexing/bm25#creating-a-bm25-index).
+
+### Boosting
+
+The `^` character is used to boost the scores of individual fields. Boosting is helpful for tuning
+the relevance scores of results.
+
+```sql
+'description:keyboard^2 OR category:electronics^3'
+```
+
+### Boolean Operators
+
+`AND`, `OR`, and `NOT` can be used to combine and filter multiple terms.
+
+```sql
+'keyboard OR toy NOT metal'
+```
+
+Use parentheses to group terms and control the order of operations.
+
+```sql
+'(keyboard OR toy) AND metal'
+```
+
+### Set Operator
+
+The set operator is a more CPU-efficient way of combining multiple `OR`s.
+
+```sql
+'description:IN [keyboard, toy]'
+```
+
+### Slop Operator
+
+The `~` slop operator is used to match phrases separated by words in between. For instance, let's say
+there exists a row with `description` set to "ergonomic metal keyboard." Because words "ergonomic" and "keyboard"
+are separated by one word, the following query would find this row.
+
+```sql
+'"ergonomic keyboard"~1'
+```
+
+Note that the slop operator is distinct from [fuzzy search](/search/fuzzy).
+
+### Special Characters
+
+The special characters `+` , `^`, ```, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `~`, `!`, `\\`, `\*`, and `SPACE`
+must be escaped by a \ inside the query term.
+
+## Configuration Options
+
+A trailing `:::` at the end of a query string marks the beginning of a config string, which uses standard
+URL param syntax. Individual options are separated by `&` and set with `=`.
+
+### Limit and Offset
+
+Specifying a limit and offset is a more efficient way of iterating through search results compared to
+SQL's `LIMIT` and `OFFSET` options.
 
 ```sql
 SELECT *
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard'
-```
-
-## Phrases
-
-Phrases should be wrapped in double quotes:
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ '"metal keyboard"'
-```
-
-## JSON Fields
-
-Use `.` to search over text values nested inside JSON:
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ 'metadata.color:white'
-```
-
-## BM25 Scoring
-
-The `paradedb.rank_bm25` function returns a column with each row's BM25 score. It makes use of the
-hidden `ctid` Postgres system column to match each row to a score:
-
-```sql
-SELECT *, paradedb.rank_bm25(ctid)
-FROM mock_items
-WHERE mock_items @@@ 'keyboard'
-```
-
-## Highlighting
-
-The `paradedb.highlight_bm25` function returns highlighted fragments of text that match your
-query. This function only works over text fields.
-
-```sql
-SELECT *, paradedb.highlight_bm25(ctid, 'description')
-FROM mock_items
-WHERE mock_items @@@ 'keyboard'
+WHERE mock_items @@@ 'keyboard:::limit=100&offset=50'
 ```
 
 ## Filtering
@@ -96,80 +148,3 @@ FROM your_table
 WHERE mock_items @@@ 'keyboard'
 WHERE purchase_date > '2023-01-01 12:00:00-05';
 ```
-
-## Boosting
-
-Scores can be tuned via boosted queries, which adjust the impact of individual columns on the final score:
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics'
-```
-
-## Fuzzy Search (Typo Tolerance)
-
-A trailing `:::` at the end of a query string marks the beginning of a config string, which uses standard
-URL param syntax. Here, fields can be marked as fuzzy for typo tolerance.
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ 'description:keybroadd OR category:elecrontisc:::fuzzy_fields=description,category'
-```
-
-## Limit and Offset
-
-Similarly, limit and offset can be passed into the config string. This provides a more efficient way of iterating
-through search results than through SQL's `LIMIT` and `OFFSET` clauses.
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ 'keyboard:::limit=2&offset=1'
-```
-
-## Boolean Operators
-
-`AND`, `OR`, and `NOT` can be used to combine and filter multiple terms:
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ 'keyboard OR toy NOT metal'
-```
-
-Use parentheses to group terms and control the order of operations:
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ '(keyboard OR toy) AND metal'
-```
-
-## Set Operator
-
-The set operator is a more CPU-efficient way of combining multiple `OR`s:
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ 'description:IN [keyboard, toy]'
-```
-
-## Slop Operator
-
-The `~` slop operator is used to match phrases separated by words in between. For instance, let's say
-there exists a row with `description` set to "ergonomic metal keyboard." Because words "ergonomic" and "keyboard"
-are separated by one word, the following query would return find row:
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ '"ergonomic keyboard"~1'
-```
-
-## Special Characters
-
-The special characters `+` , `^`, ```, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `~`, `!`, `\\`, `\*`, and `SPACE`
-must be escaped by a \ inside the query term.

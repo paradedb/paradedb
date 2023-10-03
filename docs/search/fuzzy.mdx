@@ -1,0 +1,40 @@
+---
+title: Fuzzy Search
+---
+
+## Overview
+
+Fuzzy search allows users to obtain search results that approximately match the query term, 
+accommodating minor typos, spelling errors, or variations in the input. This enhances the search experience by 
+providing relevant results even when the query is not spelled exactly.
+
+## Basic Usage 
+
+```sql
+SELECT *
+FROM <table_name>
+WHERE <table_name> @@@ '<query>:::<fuzzy_field_options>'
+```
+
+<Accordion title="Example Usage">
+```sql
+SELECT *
+FROM mock_items
+WHERE mock_items @@@ 'keybroadd:::fuzzy_fields=description,category'
+```
+</Accordion>
+
+<ParamField body="table_name" required>
+  The name of the table.
+</ParamField>
+<ParamField body="query" required>
+  The query string.
+</ParamField>
+<ParamField body="fuzzy_field_options" required>
+  Fuzzy field config options.
+    <Expandable title="Config Options">
+    <ParamField body="fuzzy_fields">
+      A comma-separated string list of column names to perform fuzzy search over.
+    </ParamField>
+    </Expandable>
+</ParamField>

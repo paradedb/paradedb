@@ -1,7 +1,9 @@
 /docker/.docker_cache_dev/
 /docker/.docker_cache_local/
-/docs/quickstart.mdx
-/docs/blog/introducing_bm25.mdx
+/ocs/quickstart.mdx
+docs/blog/introducing_bm25.mdx
+docs/search/autocomplete.mdx
+docs/search/fuzzy.mdx
 /pg_bm25/target/
 /pg_search/pgvector/
 /pg_search/target/

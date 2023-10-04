@@ -3,7 +3,7 @@ name = "pg_search"
 description = "Hybrid search for PostgreSQL"
 version = "0.0.0"
 edition = "2021"
-license = "Elastic License 2.0"
+license = "AGPL-3.0"
 
 [lib]
 crate-type = ["cdylib"]

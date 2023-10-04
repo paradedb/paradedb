@@ -142,7 +142,4 @@ Thank you for helping us make ParadeDB better for everyone :heart:
 
 ## License
 
-ParadeDB is licensed under the [Elastic License 2.0](LICENSE). Our goal with
-choosing ELv2 is to enable our users to use and contribute to ParadeDB freely,
-while enabling us to continue investing in our community, project and product. If
-you have any questions regarding licensing, please [contact us](mailto:hello@paradedb.com).
+ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE).

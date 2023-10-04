@@ -129,7 +129,10 @@ impl JsonBuilderValue {
     pub fn add_to_tantivy_doc(&self, doc: &mut Document, field: &Field) {
         match self {
             JsonBuilderValue::bool(val) => doc.add_bool(*field, *val),
+            JsonBuilderValue::i16(val) => doc.add_i64(*field, *val as i64),
+            JsonBuilderValue::i32(val) => doc.add_i64(*field, *val as i64),
             JsonBuilderValue::i64(val) => doc.add_i64(*field, *val),
+            JsonBuilderValue::u32(val) => doc.add_u64(*field, *val as u64),
             JsonBuilderValue::u64(val) => doc.add_u64(*field, *val),
             JsonBuilderValue::f32(val) => doc.add_f64(*field, *val as f64),
             JsonBuilderValue::f64(val) => doc.add_f64(*field, *val),

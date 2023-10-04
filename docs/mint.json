@@ -71,6 +71,14 @@
           ]
         },
         {
+          "group": "Aggregations",
+          "pages": [
+            "aggregations/overview",
+            "aggregations/bucket",
+            "aggregations/metrics"
+          ]
+        },
+        {
           "group": "Deployment",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         }

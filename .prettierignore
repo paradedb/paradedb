@@ -1,6 +1,6 @@
 /docker/.docker_cache_dev/
 /docker/.docker_cache_local/
-ocs/quickstart.mdx
+docs/quickstart.mdx
 docs/blog/introducing_bm25.mdx
 docs/search/autocomplete.mdx
 docs/search/fuzzy.mdx

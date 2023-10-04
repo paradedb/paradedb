@@ -20,15 +20,17 @@ Lucene, using `pgrx`.
 - [x] Highlighting
 - [x] Boosted queries
 - [x] Filtering
-- [x] JSON field search
-- [ ] Faceting/aggregations
+- [x] Bucket and metrics aggregations
 - [x] Autocomplete
 - [x] Fuzzy search
 - [x] Custom tokenizers
+- [x] JSON field search
+- [ ] Datetime aggregations
+- [ ] Facet fields
 
-## Usage
+## Running `pg_bm25`
 
-### Installing
+### From ParadeDB
 
 The easiest way to test the extension is to run the ParadeDB Dockerfile:
 
@@ -42,6 +44,41 @@ docker run \
 ```
 
 This will spin up a Postgres instance with `pg_bm25` preinstalled.
+
+### From Self-Hosted Postgres
+
+If you are self-hosting Postgres and would like to use the extension within your existing
+Postgres, follow these steps:
+
+1. Install Rust and cargo-pgrx:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install cargo-pgrx --version 0.9.8
+```
+
+2. Then, run:
+
+```bash
+# Clone the repo (optionally pick a specific version)
+git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
+
+# Install pg_bm25
+cd pg_bm25/
+cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
+cargo pgrx install
+```
+
+You can then create the extension in your database by running:
+
+```sql
+CREATE EXTENSION pg_bm25;
+```
+
+If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25`
+until the Postgres service explicitly supports it.
+
+## Usage
 
 ### Indexing
 
@@ -225,32 +262,6 @@ simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
 `/test/expected` for the expected output, and it will automatically get picked up
 by the test suite.
 
-## Installation
+## License
 
-If you are self-hosting Postgres and would like to use the extension within your existing
-Postgres, follow these steps:
-
-1. Install Rust and cargo-pgrx:
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install cargo-pgrx --version 0.9.8
-```
-
-2. Then, run:
-
-```bash
-# Clone the repo (optionally pick a specific version)
-git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
-
-# Install pg_bm25
-cd pg_bm25/
-cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
-cargo pgrx install
-```
-
-You can then create the extension in your database by running:
-
-```sql
-CREATE EXTENSION pg_bm25;
-```
+`pg_bm25` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

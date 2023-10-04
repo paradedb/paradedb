@@ -49,11 +49,29 @@
           "pages": ["indexing/overview", "indexing/bm25", "indexing/hnsw"]
         },
         {
-          "group": "Search",
-          "pages": ["search/bm25", "search/hnsw", "search/hybrid"]
+          "group": "Full Text Search",
+          "pages": [
+            "search/bm25", 
+            "search/scoring", 
+            "search/highlighting", 
+            "search/fuzzy", 
+            "search/autocomplete"
+          ]
         },
         {
-          "group": "Deploy",
+          "group": "Similarity Search",
+          "pages": [
+            "search/hnsw"
+          ]
+        },
+        {
+          "group": "Hybrid Search",
+          "pages": [
+            "search/hybrid"
+          ]
+        },
+        {
+          "group": "Deployment",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         }
       ]

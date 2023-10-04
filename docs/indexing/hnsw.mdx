@@ -17,8 +17,8 @@ IVFFlat `pgvector` index.
 The following command creates a BM25 index over a column:
 
 ```sql
-CREATE INDEX ON [schema_name].[table_name]
-USING hnsw ([column_name] [distance_metric]);
+CREATE INDEX ON <schema_name>.<table_name>
+USING hnsw (<column_name> <distance_metric>);
 ```
 
 <ParamField body="schema_name">
@@ -44,7 +44,7 @@ Additional HNSW parameters are listed in the [`pgvector` documentation](https://
 The following command deletes a HNSW index:
 
 ```sql
-DROP INDEX [index_name];
+DROP INDEX <index_name>;
 ```
 
 <ParamField body="index_name" required>

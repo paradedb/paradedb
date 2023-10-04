@@ -16,14 +16,14 @@ The following command creates a BM25 index over a table. Once an index is create
 stays in sync with the underlying table as the data changes.
 
 ```sql
-CREATE INDEX [index_name]
-ON [schema_name].[table_name]
-USING bm25 (([table_name].*))
+CREATE INDEX <index_name>
+ON <schema_name>.<table_name>
+USING bm25 ((<table_name>.*))
 WITH (
-  text_fields='[text_fields]',
-  numeric_fields='[numeric_fields]',
-  boolean_fields='[boolean_fields]',
-  json_fields='[json_fields]',
+  text_fields='<text_fields>',
+  numeric_fields='<numeric_fields>',
+  boolean_fields='<boolean_fields>',
+  json_fields='<json_fields>',
 );
 ```
 
@@ -158,7 +158,7 @@ WITH (
 The following command deletes a BM25 index:
 
 ```sql
-DROP INDEX [index_name];
+DROP INDEX <index_name>;
 ```
 
 <Accordion title="Example Usage">

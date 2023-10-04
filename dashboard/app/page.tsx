@@ -1,9 +1,7 @@
 // pages/index.js
 'use client';
 import { useUser } from '@auth0/nextjs-auth0/client';
-import { hostname } from 'os';
 import { useState, useEffect } from 'react';
-import './page.css';
 
 export default function Index() {
     const { user, error, isLoading } = useUser();

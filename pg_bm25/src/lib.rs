@@ -15,6 +15,7 @@ extension_sql_file!("../sql/_bootstrap.sql", bootstrap);
 extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 
 // initializes option parsing and telemetry
+#[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {

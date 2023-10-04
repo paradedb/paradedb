@@ -5,6 +5,7 @@ title: GCP
 This section provides a guide on deploying ParadeDB to a Google Cloud Platform (GCP) Compute Engine instance. Before proceeding, ensure that you have a Google Cloud account and optionally, the gcloud SDK installed.
 
 # Step-by-Step Guide
+
 ## Launching a GCP Compute Engine Instance
 
 **Instance Type**
@@ -69,7 +70,9 @@ sudo usermod -aG docker $USER
 newgrp docker
 ```
 
-<Note>It's recommended to log out and log back in for group changes to take effect.</Note>
+<Note>
+  It's recommended to log out and log back in for group changes to take effect.
+</Note>
 
 **Step 3: Run the ParadeDB image**
 

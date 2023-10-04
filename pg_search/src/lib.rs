@@ -12,7 +12,7 @@ extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
-    telemetry::telemetry::init();
+    telemetry::posthog::init();
 }
 
 /// This module is required by `cargo pgrx test` invocations.

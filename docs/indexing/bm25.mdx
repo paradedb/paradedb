@@ -179,6 +179,19 @@ A BM25 index only needs to be recreated if the underlying table schema changes â
 column is added or the name of a column changes. To recreate the index, simply delete the index and create
 a new one using the commands provided above.
 
+## Getting Info on a BM25 Index
+
+The `paradedb.schema_bm25` function returns a table with information about the index schema.
+
+```sql
+SELECT *
+FROM paradedb.schema_bm25('<index_name>');
+```
+
+<ParamField body="index_name" required>
+  The name of the index.
+</ParamField>
+
 ## Tokenizers
 
 <Note>`ngrams` and `chinese_compatible` tokenizers are coming soon.</Note>

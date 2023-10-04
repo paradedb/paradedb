@@ -19,7 +19,7 @@ WHERE <table_name> @@@ '<query>:::<regex_field_options>'
 ```sql
 SELECT *
 FROM mock_items
-WHERE mock_items @@@ 'key:::prefix_fields=description,category'
+WHERE mock_items @@@ 'key:::regex_fields=description,category'
 ```
 </Accordion>
 
@@ -32,7 +32,7 @@ WHERE mock_items @@@ 'key:::prefix_fields=description,category'
 <ParamField body="regex_field_options" required>
   Regex field config options.
     <Expandable title="Config Options">
-    <ParamField body="prefix_fields">
+    <ParamField body="regex_fields" required>
       A comma-separated string list of column names to perform regex search over.
     </ParamField>
     </Expandable>

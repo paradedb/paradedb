@@ -19,7 +19,7 @@ FROM paradedb.aggregation('<index_name>', '<aggregation_query>');
 ```sql
 SELECT *
 FROM paradedb.aggregation(
-    'mock_items',
+    'idx_mock_items',
     '{"aggs": {"histogram": {"field": "rating", "interval": 2}}}'
 )
 ```

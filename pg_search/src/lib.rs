@@ -1,6 +1,7 @@
 use pgrx::prelude::*;
 
 mod api;
+mod telemetry;
 
 pgrx::pg_module_magic!();
 

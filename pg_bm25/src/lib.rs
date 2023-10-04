@@ -6,6 +6,7 @@ mod json;
 mod manager;
 mod operator;
 mod parade_index;
+mod telemetry;
 mod tokenizers;
 
 pgrx::pg_module_magic!();

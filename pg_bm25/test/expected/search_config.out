@@ -1,5 +1,6 @@
 -- Basic seach query
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics';
+INFO:  Telemetry is disabled.
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics

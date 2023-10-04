@@ -8,6 +8,7 @@ select pg_reload_conf();
 (1 row)
 
 CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*)) WITH (text_fields='{"description": {}, "category": {}}', numeric_fields='{"rating": {}}', boolean_fields='{"in_stock": {}}', json_fields='{"metadata": {}}');;;
+INFO:  Telemetry is disabled.
 CREATE INDEX ON mock_items USING hnsw (embedding vector_l2_ops);
 -- Hybrid search with equal weights
 SELECT
@@ -27,6 +28,7 @@ SELECT
 FROM mock_items
 ORDER BY score_hybrid DESC
 LIMIT 5;
+INFO:  Telemetry is disabled.
        description        |  category   | rating | embedding |   score_hybrid    
 --------------------------+-------------+--------+-----------+-------------------
  Ergonomic metal keyboard | Electronics |      4 | [3,4,5]   | 0.788961044379643

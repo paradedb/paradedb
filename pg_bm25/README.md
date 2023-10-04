@@ -28,7 +28,7 @@ Lucene, using `pgrx`.
 - [ ] Datetime aggregations
 - [ ] Facet fields
 
-## Running `pg_bm25`
+## Running the Extension
 
 ### From ParadeDB
 

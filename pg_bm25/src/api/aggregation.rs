@@ -1,5 +1,5 @@
 use pgrx::*;
-use serde_json::{from_str, to_string, Value as JsonValue};
+use serde_json::{from_str, Value as JsonValue};
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::AggregationCollector;
@@ -8,7 +8,7 @@ use tantivy::query::AllQuery;
 use crate::index_access::utils::get_parade_index;
 
 #[pg_extern]
-pub fn aggregation(index_name: &str, query: &str) -> String {
+pub fn aggregation(index_name: &str, query: &str) -> JsonB {
     // Get Parade index
     let parade_index = get_parade_index(index_name.to_string());
     let underlying_index = parade_index.underlying_index;
@@ -27,5 +27,5 @@ pub fn aggregation(index_name: &str, query: &str) -> String {
         .expect("error collecting aggregation results");
     let res: JsonValue = serde_json::to_value(agg_res).unwrap();
 
-    to_string(&res).expect("could not convert aggregation result to string")
+    JsonB(res)
 }

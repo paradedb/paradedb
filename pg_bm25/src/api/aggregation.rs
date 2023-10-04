@@ -21,6 +21,7 @@ pub fn aggregation(index_name: &str, query: &str) -> String {
     let agg_req: Aggregations = from_str(query).expect("error parsing query");
     let collector = AggregationCollector::from_aggs(agg_req, Default::default());
 
+    // Collect aggregation results
     let agg_res: AggregationResults = searcher
         .search(&AllQuery, &collector)
         .expect("error collecting aggregation results");

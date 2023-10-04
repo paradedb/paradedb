@@ -22,6 +22,7 @@ pub fn highlight_bm25(ctid: Option<ItemPointerData>, field_name: String) -> Stri
     }
 }
 
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[pg_extern]
 pub fn minmax_bm25(
     ctid: pg_sys::ItemPointerData,

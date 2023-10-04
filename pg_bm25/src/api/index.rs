@@ -6,7 +6,7 @@ use crate::parade_index::fields::ToString;
 
 #[allow(clippy::type_complexity)]
 #[pg_extern]
-pub fn index_info(
+pub fn schema_bm25(
     index_name: &str,
 ) -> TableIterator<(
     name!(name, String),

@@ -54,35 +54,28 @@ SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-```csv
- id |       description        | rating |  category   | embedding
-----+--------------------------+--------+-------------+-----------
-  1 | Ergonomic metal keyboard |      4 | Electronics | [3,4,5]
-  2 | Plastic Keyboard         |      4 | Electronics | [4,5,6]
-  3 | Sleek running shoes      |      5 | Footwear    | [5,6,7]
-(3 rows)
-```
+  ```csv id | description | rating | category | embedding
+  ----+--------------------------+--------+-------------+----------- 1 |
+  Ergonomic metal keyboard | 4 | Electronics | [3,4,5] 2 | Plastic Keyboard | 4
+  | Electronics | [4,5,6] 3 | Sleek running shoes | 5 | Footwear | [5,6,7] (3
+  rows) ```
 </Accordion>
 
 Next, let's index this table for full-text search:
 
 ```sql
-CREATE INDEX idx_mock_items 
-ON mock_items 
+CREATE INDEX idx_mock_items
+ON mock_items
 USING bm25 ((mock_items.*))
 WITH (
   text_fields='{"description": {"tokenizer": "en_stem"}, "category": {}}'
 );
 ```
 
-<Accordion title="Expected Response">
-```bash 
-CREATE INDEX 
-```
-</Accordion>
+<Accordion title="Expected Response">```bash CREATE INDEX ```</Accordion>
 
-Under the hood, this command creates a Postgres-native index called `idx_mock_items`, which contains 
-an inverted index of the `mock_items` table. [Custom index configuration options](/indexing/bm25), such as 
+Under the hood, this command creates a Postgres-native index called `idx_mock_items`, which contains
+an inverted index of the `mock_items` table. [Custom index configuration options](/indexing/bm25), such as
 tokenizers, can be specified in the `WITH` option.
 
 Let's execute a full-text search:
@@ -94,20 +87,15 @@ WHERE mock_items @@@ 'description:keyboard OR category:electronics';
 ```
 
 <Accordion title="Expected Response">
-``` csv
-         description         | rating |  category
------------------------------+--------+-------------
- Plastic Keyboard            |      4 | Electronics
- Ergonomic metal keyboard    |      4 | Electronics
- Innovative wireless earbuds |      5 | Electronics
- Fast charging power bank    |      4 | Electronics
- Bluetooth-enabled speaker   |      3 | Electronics
-(5 rows)
-```
+  ``` csv description | rating | category
+  -----------------------------+--------+------------- Plastic Keyboard | 4 |
+  Electronics Ergonomic metal keyboard | 4 | Electronics Innovative wireless
+  earbuds | 5 | Electronics Fast charging power bank | 4 | Electronics
+  Bluetooth-enabled speaker | 3 | Electronics (5 rows) ```
 </Accordion>
 
 You may have noticed the above SQL query makes use of
-the custom `@@@` operator and a [mini query language](search/bm25). This mini language supports phrase queries, 
+the custom `@@@` operator and a [mini query language](search/bm25). This mini language supports phrase queries,
 set queries, boolean queries and more.
 
 ## Similarity Search
@@ -120,11 +108,7 @@ ADD COLUMN description_embeddings vector(384)
 GENERATED ALWAYS AS (paradedb.embed('all-minilm-l6-v2', description)) STORED;
 ```
 
-<Accordion title="Expected Response">
-``` bash 
-ALTER TABLE 
-```
-</Accordion>
+<Accordion title="Expected Response">``` bash ALTER TABLE ```</Accordion>
 
 <Note>
   This command may take some time depending on the size of your table.
@@ -142,30 +126,25 @@ WITH query AS (
     SELECT paradedb.embed('all-minilm-l6-v2', 'Something a kid would play with')::vector AS embedding
 )
 SELECT description, category, rating
-FROM mock_items, query 
+FROM mock_items, query
 ORDER BY mock_items.description_embeddings <-> query.embedding LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-``` csv 
-      description       | category | rating
-------------------------+----------+--------
- Colorful kids toy      | Toys     |      1
- Interactive board game | Toys     |      3
- Plush teddy bear       | Toys     |      4
-(3 rows)
-```
+  ``` csv description | category | rating
+  ------------------------+----------+-------- Colorful kids toy | Toys | 1
+  Interactive board game | Toys | 3 Plush teddy bear | Toys | 4 (3 rows) ```
 </Accordion>
 
 ## Hybrid Search
 
-Finally, let's implement hybrid search, which combines BM25-based full text scores with vector-based 
-similarity scores. Hybrid search is especially useful in scenarios where you want to match by both 
+Finally, let's implement hybrid search, which combines BM25-based full text scores with vector-based
+similarity scores. Hybrid search is especially useful in scenarios where you want to match by both
 exact keywords and semantic meaning.
 
 Let's execute a hybrid search:
 
-```sql 
+```sql
 SELECT
     description,
     category,
@@ -173,8 +152,8 @@ SELECT
     paradedb.weighted_mean(
         paradedb.minmax_bm25(ctid, 'idx_mock_items', 'keyboard'),
         1 - paradedb.minmax_norm(
-          '[1,2,3]' <-> embedding, 
-          MIN('[1,2,3]' <-> embedding) OVER (), 
+          '[1,2,3]' <-> embedding,
+          MIN('[1,2,3]' <-> embedding) OVER (),
           MAX('[1,2,3]' <-> embedding) OVER ()
         ),
         ARRAY[0.8,0.2]
@@ -183,20 +162,18 @@ FROM mock_items
 ORDER BY score_hybrid DESC
 LIMIT 3;
 ```
+
 <Accordion title="Expected Response">
-```csv 
-         description         |  category   | rating |    score_hybrid
------------------------------+-------------+--------+--------------------
- Plastic Keyboard            | Electronics |      4 | 0.9142857142857144
- Ergonomic metal keyboard    | Electronics |      4 | 0.8337662424360004
- Innovative wireless earbuds | Electronics |      5 | 0.6309006759098599
-(3 rows)
-```
+  ```csv description | category | rating | score_hybrid
+  -----------------------------+-------------+--------+--------------------
+  Plastic Keyboard | Electronics | 4 | 0.9142857142857144 Ergonomic metal
+  keyboard | Electronics | 4 | 0.8337662424360004 Innovative wireless earbuds |
+  Electronics | 5 | 0.6309006759098599 (3 rows) ```
 </Accordion>
 
-In this query, we first use `paradedb.minmax_bm25` to calculate each row's normalized BM25 score with respect to 
-the query "keyboard." Next, we use a function called `paradedb.minmax_norm` to normalize the HNSW scores, and invert 
-the scores such that the lowest HNSW score is ranked the highest. Finally, we combine the two scores as a weighted average, assigning a weight of `0.8` to the first BM25 score and 
+In this query, we first use `paradedb.minmax_bm25` to calculate each row's normalized BM25 score with respect to
+the query "keyboard." Next, we use a function called `paradedb.minmax_norm` to normalize the HNSW scores, and invert
+the scores such that the lowest HNSW score is ranked the highest. Finally, we combine the two scores as a weighted average, assigning a weight of `0.8` to the first BM25 score and
 a weight of `0.2` to the latter score.
 
 ## Congratulations!

@@ -43,7 +43,7 @@ const SidebarButton = ({
       <Button
         icon={icon}
         variant="light"
-        color={active ? "black" : ("slate" as any)}
+        color={active ? "black" : ("neutral" as any)}
       >
         {name}
       </Button>
@@ -62,12 +62,12 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <section className="fixed">
-      <Grid numItemsLg={10} className="gap-6">
+      <Grid numItemsLg={10} className="w-screen">
         <Col
           numColSpanLg={2}
           numColSpanMd={2}
           numColSpanSm={0}
-          className="min-h-screen bg-stone-100 p-4 border-r-[1px] border-stone-800"
+          className="min-h-screen bg-stone-900 px-4 py-6 border-r-[1px] border-stone-800 min-w-[220px]"
         >
           <Image src={Logo} width={125} height={50} alt="ParadeDB" />
           <Flex
@@ -101,10 +101,10 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           numColSpanLg={8}
           numColSpanMd={8}
           numColSpanSm={10}
-          className="px-4 py-8"
+          className="px-12 py-6 bg-stone-100"
         >
           <Metric color="slate">{titleMap[pathname]}</Metric>
-          <div className="mt-4">{children}</div>
+          <div className="mt-6">{children}</div>
         </Col>
       </Grid>
     </section>

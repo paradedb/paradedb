@@ -1,4 +1,4 @@
--- This script is inteneded to be run after the temp_json table has been filled.
+-- This script is intended to be run after the temp_json table has been filled.
 
 BEGIN;
 

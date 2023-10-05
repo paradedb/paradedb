@@ -12,7 +12,7 @@ source "helpers/get_data.sh"
 PORT=5431
 
 # 1. Install and run docker container for paradedb in detached mode
-echo "Spinning up paradedb server..."
+echo "Spinning up ParadeDB server..."
 docker run \
   -d \
   --name paradedb \

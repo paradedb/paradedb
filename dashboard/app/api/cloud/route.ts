@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
-import { getAccessToken } from "@auth0/nextjs-auth0";
+import { getAccessToken, withApiAuthRequired } from "@auth0/nextjs-auth0";
 
-export async function GET(req) {
+const GET = withApiAuthRequired(async (req, res) => {
   try {
-    const res = new NextResponse();
-    const { accessToken } = await getAccessToken(req, res);
+    // const res = new NextResponse();
+    console.log("REQUESTINg", req, res);
+    const { accessToken } = await getAccessToken();
+    console.log("REQUESTED", accessToken);
 
     const apiKey = "Bearer " + accessToken;
     const url = `${process.env.PROVISIONER_URL}/database/credentials`;
@@ -38,7 +40,9 @@ export async function GET(req) {
       { status: 500 },
     ); // 500 for Internal Server Error
   }
-}
+});
+
+export { GET };
 
 export async function POST(req) {
   try {

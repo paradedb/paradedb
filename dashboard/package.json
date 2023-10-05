@@ -11,11 +11,13 @@
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^3.1.0",
+    "@heroicons/react": "v1",
     "@tremor/react": "^3.7.9",
     "@types/node": "20.6.2",
     "@types/react": "18.2.22",
     "@types/react-dom": "18.2.7",
     "autoprefixer": "10.4.15",
+    "classnames": "^2.3.2",
     "eslint": "8.49.0",
     "eslint-config-next": "13.4.19",
     "next": "13.4.19",
@@ -23,6 +25,7 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "server-only": "^0.0.1",
+    "swr": "^2.2.4",
     "tailwindcss": "3.3.3",
     "typescript": "5.2.2"
   },

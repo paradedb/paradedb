@@ -61,7 +61,8 @@ echo "Done!"
 echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 
 # Table sizes to be processed (in number of rows). You can modify this to go up to 5 million rows with the Wikipedia dataset.
-TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000)
+#TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000)
+TABLE_SIZES=(10000 2500000)
 
 for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""

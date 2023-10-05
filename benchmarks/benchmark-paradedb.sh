@@ -35,7 +35,7 @@ echo "*******************************************************"
 echo ""
 
 # 1. Install and run docker container for paradedb in detached mode
-echo "Spinning up ParadeDB server..."
+echo "Spinning up ParadeDB $PARADEDB_VERSION server..."
 docker run \
   -d \
   --name paradedb \

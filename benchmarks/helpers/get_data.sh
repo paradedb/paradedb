@@ -50,8 +50,8 @@ load_data () {
 
   # In order to pull entries from your local files, you have to use the combo of cat and COPY FROM STDIN with the -c option
   echo "-- Creating table for JSON entries and loading entries from file into table (this may take a few minutes)..."
-  db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "DROP TABLE IF EXISTS temp_json;"
-  db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "CREATE TABLE temp_json ( j JSONB );"
+  db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "DROP TABLE IF EXISTS temp_json;" > /dev/null 2>&1
+  db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "CREATE TABLE temp_json ( j JSONB );" > /dev/null 2>&1
   db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';" < "$WIKI_ARTICLES_FILE"
 
   echo "-- Loading JSON data into the wikipedia_articles table..."

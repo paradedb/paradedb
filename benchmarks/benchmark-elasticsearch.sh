@@ -3,24 +3,47 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# Prepare
-OUTPUT_CSV=out/benchmark_elasticsearch.csv
-echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
-TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000)
+# Ensure the "out" directory exists
+mkdir -p out
 
-# 1. Download and run docker container for Elasticsearch
-echo "Creating Elasticsearch node..."
+PORT=9200
+ES_VERSION=8.9.2
+WIKI_ARTICLES_FILE=wiki-articles.json
+OUTPUT_CSV=out/benchmark_elasticsearch.csv
+
+# Cleanup function to stop and remove the Docker container
+cleanup() {
+  echo ""
+  echo "Cleaning up benchmark environment..."
+  if docker ps -q --filter "name=es01" | grep -q .; then
+    docker kill es01
+  fi
+  docker rm es01
+  docker docker rm elastic
+  echo "Done!"
+}
+
+# Register the cleanup function to run when the script exits
+trap cleanup EXIT
+
+echo ""
+echo "*******************************************************"
+echo "Benchmarking ElasticSearch version: $ES_VERSION"
+echo "*******************************************************"
+echo ""
+
+# 1. Download and run docker container for ElasticSearch
+echo "Creating ElasticSearch node..."
 docker network create elastic
-docker pull docker.elastic.co/elasticsearch/elasticsearch:8.9.2
 docker run \
   -d \
   --name es01 \
   --net elastic \
-  -p 9200:9200 \
+  -p $PORT:9200 \
   -it \
-  docker.elastic.co/elasticsearch/elasticsearch:8.9.2
+  docker.elastic.co/elasticsearch/elasticsearch:$ES_VERSION
 
-# Wait for docker container to spin up
+# Wait for Docker container to spin up
 echo "Waiting for server to spin up..."
 sleep 15
 
@@ -34,25 +57,31 @@ echo "Converting data to bulk format consumable by Elasticsearch..."
 WIKI_ARTICLES_FILE=wiki-articles.json
 ELASTIC_BULK_FOLDER=out/elastic_bulk_output
 
+# Output file for recording times
+echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
+
+# Table sizes to be processed (in number of rows). You can modify this to go up to 5 million rows with the Wikipedia dataset.
+TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000)
+
 for SIZE in "${TABLE_SIZES[@]}"; do
   # TODO: Adjust the elastify-data.py script to output data for the specific SIZE into a folder
   python3 helpers/elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER "$SIZE"
 
   # 3. Clear the old index
-  # 4. Load data into Elasticsearch node
-  curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X DELETE https://localhost:9200/wikipedia_articles
+  # 4. Load data into ElasticSearch node
+  curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X DELETE https://localhost:$PORT/wikipedia_articles
 
   echo "Loading data of size $SIZE into wikipedia_articles index..."
   start_time=$( (time find "$ELASTIC_BULK_FOLDER" -type f -name "${SIZE}_*.json" | while IFS= read -r data_filename; do
-        curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST -H "Content-Type:application/json" "https://localhost:9200/wikipedia_articles/_bulk" --data-binary @"$data_filename"
+        curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST -H "Content-Type:application/json" "https://localhost:$PORT/wikipedia_articles/_bulk" --data-binary @"$data_filename"
   done) 2>&1 )
 
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
-  curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST "https://localhost:9200/wikipedia_articles/_refresh"
+  curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST "https://localhost:$PORT/wikipedia_articles/_refresh"
 
   # 4. Run and time search
-  start_time=$( (time curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X GET "https://localhost:9200/wikipedia_articles/_search?pretty" -H 'Content-Type: application/json' -d'
+  start_time=$( (time curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X GET "https://localhost:$PORT/wikipedia_articles/_search?pretty" -H 'Content-Type: application/json' -d'
       {
         "query": {
           "query_string": {
@@ -62,15 +91,9 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   }' > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
-  doc_count=$(curl --silent --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" "https://localhost:9200/_cat/count/wikipedia_articles?format=json" | jq '.[0].count')
+  doc_count=$(curl --silent --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" "https://localhost:$PORT/_cat/count/wikipedia_articles?format=json" | jq '.[0].count')
   echo "Number of documents in wikipedia_articles index for size $SIZE: $doc_count"
 
   # Record times to CSV
   echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
 done
-
-# 5. Destroy
-echo "Destroying container..."
-docker kill es01
-docker rm es01
-docker network rm elastic

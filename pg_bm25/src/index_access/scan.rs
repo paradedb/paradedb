@@ -144,7 +144,7 @@ pub extern "C" fn amrescan(
             &tantivy_query,
             &TopDocs::with_limit(limit).and_offset(offset),
         )
-        .unwrap();
+        .expect("failed to search");
 
     // Cache min/max score
     let scores: Vec<f32> = top_docs.iter().map(|(score, _)| *score).collect();

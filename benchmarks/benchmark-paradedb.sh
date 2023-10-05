@@ -9,7 +9,7 @@ mkdir -p out
 # shellcheck disable=SC1091
 source "helpers/get_data.sh"
 
-PORT=5432
+PORT=5431
 PARADEDB_VERSION=latest
 WIKI_ARTICLES_FILE=wiki-articles.json
 OUTPUT_CSV=out/benchmark_paradedb.csv
@@ -18,7 +18,9 @@ OUTPUT_CSV=out/benchmark_paradedb.csv
 cleanup() {
   echo ""
   echo "Cleaning up benchmark environment..."
-  docker kill paradedb
+  if docker ps -q --filter "name=paradedb" | grep -q .; then
+    docker kill paradedb
+  fi
   docker rm paradedb
   echo "Done!"
 }
@@ -68,21 +70,24 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   INDEX_NAME="search_index_$SIZE"
 
   # Create temporary table with limit
+  echo "-- Creating temporary table with $SIZE rows..."
   db_query localhost "$PORT" mydatabase myuser mypassword "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
 
   # Time indexing
-  start_time=$( (time db_query localhost "$PORT" mydatabase myuser mypassword "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING bm25 (($TABLE_NAME.*));" > /dev/null) 2>&1 )
+  echo "-- Timing indexing..."
+  start_time=$( (time db_query localhost "$PORT" mydatabase myuser mypassword "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING bm25 (($TABLE_NAME.*)) WITH (text_fields='{\"url\": {}, \"title\": {}, \"body\": {}}');" > /dev/null) 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
+  echo "-- Timing search..."
   start_time=$( (time db_query localhost "$PORT" mydatabase myuser mypassword "SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'Canada' LIMIT 10" > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Record times to CSV
-  echo "Writing results to $OUTPUT_CSV..."
   echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
 
   # Cleanup: drop temporary table and index
+  echo "-- Cleaning up..."
   db_query localhost "$PORT" mydatabase myuser mypassword "DROP TABLE $TABLE_NAME;"
   db_query localhost "$PORT" mydatabase myuser mypassword "DROP INDEX IF EXISTS $INDEX_NAME;"
   echo "Done!"

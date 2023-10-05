@@ -53,11 +53,9 @@ load_data () {
   db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "DROP TABLE IF EXISTS temp_json;"
   db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "CREATE TABLE temp_json ( j JSONB );"
   db_query "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';" < "$WIKI_ARTICLES_FILE"
-  echo "-- Done!"
 
   echo "-- Loading JSON data into the wikipedia_articles table..."
   db_file "$HOST" "$PORT" "$DATABASE" "$USER" "$PASSWORD" helpers/load_data.sql
-  echo "-- Done!"
 }
 
 export -f load_data

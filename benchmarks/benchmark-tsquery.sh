@@ -18,7 +18,9 @@ OUTPUT_CSV=out/benchmark_tsquery.csv
 cleanup() {
   echo ""
   echo "Cleaning up benchmark environment..."
-  docker kill postgres
+  if docker ps -q --filter "name=postgres" | grep -q .; then
+    docker kill postgres
+  fi
   docker rm postgres
   echo "Done!"
 }
@@ -67,24 +69,25 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   TABLE_NAME="wikipedia_articles_$SIZE"
 
   # Create temporary table with limit
+  echo "-- Creating temporary table with $SIZE rows..."
   db_query localhost "$PORT" mydatabase myuser mypassword "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
-
-  # Add the search_vector column to the temporary table
   db_query localhost "$PORT" mydatabase myuser mypassword "ALTER TABLE $TABLE_NAME ADD COLUMN search_vector tsvector;"
 
   # Time indexing
+  echo "-- Timing indexing..."
   start_time=$( (time db_query localhost "$PORT" mydatabase myuser mypassword "UPDATE $TABLE_NAME SET search_vector = to_tsvector('english', title) || to_tsvector('english', body);" > /dev/null) 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
+  echo "-- Timing search..."
   start_time=$( (time db_query localhost "$PORT" mydatabase myuser mypassword "SELECT title, body, ts_rank_cd(search_vector, query) as rank FROM $TABLE_NAME, to_tsquery('canada') query WHERE query @@ search_vector ORDER BY rank DESC LIMIT 10;" > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Record times to CSV
-  echo "Writing results to $OUTPUT_CSV..."
   echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
 
   # Cleanup: drop temporary table
+  echo "-- Cleaning up..."
   db_query localhost "$PORT" mydatabase myuser mypassword "DROP TABLE $TABLE_NAME;"
   echo "Done!"
 done

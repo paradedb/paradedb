@@ -9,6 +9,7 @@ import {
   HomeIcon,
   CogIcon,
   ArrowNarrowLeftIcon,
+  BookOpenIcon,
 } from "@heroicons/react/outline";
 import { usePathname } from "next/navigation";
 
@@ -16,6 +17,7 @@ enum Route {
   Dashboard = "/dashboard",
   Settings = "/settings",
   Logout = "/api/auth/logout",
+  Documentation = "https://docs.paradedb.com",
 }
 
 const SIDEBAR_BUTTON_DEFAULT = "w-full px-6 pb-2 pt-3 rounded-md";
@@ -25,15 +27,18 @@ const SidebarButton = ({
   active,
   name,
   href,
+  target,
   icon,
 }: {
   active: boolean;
   name: string;
   href: string;
+  target?: string;
   icon: (props: React.ComponentProps<"svg">) => JSX.Element;
 }) => {
   return (
     <Link
+      target={target ?? "_self"}
       href={href}
       className={classname(
         SIDEBAR_BUTTON_DEFAULT,
@@ -87,13 +92,22 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
               name="Settings"
               icon={CogIcon}
             />
-            <div className="absolute bottom-6 -left-[1px]">
-              <SidebarButton
-                active={false}
-                href={Route.Logout}
-                name="Log Out"
-                icon={ArrowNarrowLeftIcon}
-              />
+            <div className="absolute bottom-6">
+              <Flex flexDirection="col" alignItems="start">
+                <SidebarButton
+                  active={false}
+                  href={Route.Documentation}
+                  name="Documentation"
+                  target="_blank"
+                  icon={BookOpenIcon}
+                />
+                <SidebarButton
+                  active={false}
+                  href={Route.Logout}
+                  name="Log Out"
+                  icon={ArrowNarrowLeftIcon}
+                />
+              </Flex>
             </div>
           </Flex>
         </Col>

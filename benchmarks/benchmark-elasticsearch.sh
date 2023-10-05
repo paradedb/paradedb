@@ -9,6 +9,7 @@ mkdir -p out
 PORT=9200
 ES_VERSION=8.9.2
 WIKI_ARTICLES_FILE=wiki-articles.json
+ELASTIC_BULK_FOLDER=out/elastic_bulk_output
 OUTPUT_CSV=out/benchmark_elasticsearch.csv
 
 # Cleanup function to stop and remove the Docker container
@@ -52,11 +53,6 @@ docker exec es01 /usr/share/elasticsearch/bin/elasticsearch-reset-password --bat
 read -r -p "Copy elastic password here: " ELASTIC_PASSWORD
 docker cp es01:/usr/share/elasticsearch/config/certs/http_ca.crt .
 
-# 2. Convert data to be consumed by Elasticsearch
-echo "Converting data to bulk format consumable by Elasticsearch..."
-WIKI_ARTICLES_FILE=wiki-articles.json
-ELASTIC_BULK_FOLDER=out/elastic_bulk_output
-
 # Output file for recording times
 echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 
@@ -64,6 +60,8 @@ echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000)
 
 for SIZE in "${TABLE_SIZES[@]}"; do
+  # 2. Convert data to be consumed by Elasticsearch
+  echo "Converting data to bulk format consumable by Elasticsearch..."
   # TODO: Adjust the elastify-data.py script to output data for the specific SIZE into a folder
   python3 helpers/elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER "$SIZE"
 

@@ -54,7 +54,7 @@ echo "Done!"
 # 2. Load data into database
 echo ""
 echo "Loading data into database..."
-load_data localhost "$PORT" mydatabase myuser mypassword "$WIKI_ARTICLES_FILE"
+load_data
 echo "Done!"
 
 # Output file for recording times

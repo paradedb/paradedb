@@ -40,7 +40,7 @@ const SidebarButton = ({
   icon: (props: React.ComponentProps<"svg">) => JSX.Element;
 }) => {
   const SIDEBAR_BUTTON_DEFAULT =
-    "w-full px-6 pb-2 pt-3 rounded-none duration-500";
+    "w-full px-6 pb-2 pt-3 rounded-sm duration-500";
   const SIDEBAR_BUTTON_ACTIVE = "bg-emerald-400 hover:bg-emerald-300";
 
   return (

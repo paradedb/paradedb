@@ -2,7 +2,7 @@ import React, { forwardRef } from "react";
 import { Card as TremorCard } from "@tremor/react";
 
 const DEFAULT_CARD =
-  "shadow-none bg-neutral-900 ring-neutral-800 rounded-none px-12 py-8";
+  "shadow-none bg-neutral-900 ring-neutral-800 rounded-sm px-12 py-8";
 
 const Card = forwardRef<
   HTMLDivElement,

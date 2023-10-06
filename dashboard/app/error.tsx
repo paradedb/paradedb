@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect } from "react";
-import { Title, Text, Icon, Flex, Card } from "@tremor/react";
+import { Title, Text, Icon, Flex } from "@tremor/react";
 import { ExclamationCircleIcon } from "@heroicons/react/outline";
+
+import { DarkCard } from "@/components/tremor/card";
 
 export default function Error({
   error,
@@ -16,7 +18,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <Card className="shadow-none">
+    <DarkCard>
       <Flex flexDirection="col">
         <Icon
           icon={ExclamationCircleIcon}
@@ -24,12 +26,14 @@ export default function Error({
           color="red"
           variant="light"
         />
-        <Title className="mt-4">An unexpected error occured</Title>
+        <Title className="mt-4 text-neutral-100">
+          An unexpected error occured
+        </Title>
         <Text className="mt-2">
           We&apos;re extremely sorry. If the error persists after reloading,
           please contact support@paradedb.com.
         </Text>
       </Flex>
-    </Card>
+    </DarkCard>
   );
 }

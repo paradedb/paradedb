@@ -37,7 +37,7 @@ vector database on top.
 - 🐘 **SQL First**: Write search queries in SQL with ACID transactions.
 
 - 🚀 **Scalability**: Scale to millions of rows with support for distributed
-  search, high availability, backups, and point-in-time-recovery (coming soon!).
+  search, high availability, backups, and point-in-time-recovery.
 
 ## Status
 
@@ -51,16 +51,16 @@ major updates.
 
 - [ ] Search
   - [x] Full-text search with BM25
-  - [ ] Faceted search
   - [x] Similarity search
   - [x] Hybrid search
-  - [ ] Distributed search
   - [x] Real-time search
+  - [ ] Faceted search
+  - [ ] Distributed search
   - [ ] Generative search
   - [ ] Multimodal search
-- [ ] Self-hosting
-  - [x] Docker image & instructions (Instructions coming soon!)
-  - [ ] Kubernetes Helm chart & instructions
+- [x] Self-hosting
+  - [x] Docker image & [deployment instructions](https://docs.paradedb.com/deploy/aws)
+  - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [ ] Cloud Database
   - [ ] Managed cloud
   - [ ] Self-serve cloud

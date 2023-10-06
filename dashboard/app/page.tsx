@@ -83,7 +83,7 @@ const Dashboard = async () => {
   const creds = response.ok ? await response.json() : null;
 
   return (
-    <Grid numItemsLg={5} className="gap-12 h-full">
+    <Grid numItemsLg={5} className="gap-10 h-full">
       <Col numColSpanLg={3} className="h-full">
         <Card>
           <Title className="text-neutral-100">My Instance</Title>

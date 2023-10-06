@@ -40,7 +40,7 @@ const SidebarButton = ({
   icon: (props: React.ComponentProps<"svg">) => JSX.Element;
 }) => {
   const SIDEBAR_BUTTON_DEFAULT =
-    "w-full px-6 pb-2 pt-3 rounded-sm duration-500";
+    "w-full px-6 pb-2 pt-3 rounded-none duration-500";
   const SIDEBAR_BUTTON_ACTIVE = "bg-emerald-400 hover:bg-emerald-300";
 
   return (
@@ -87,7 +87,7 @@ const RootLayout = ({ children }: { children: React.ReactNode }) => {
                 numColSpanLg={2}
                 numColSpanMd={2}
                 numColSpanSm={0}
-                className="min-h-screen bg-neutral-900 px-8 py-8 border-r-[1px] border-neutral-700 min-w-[220px]"
+                className="min-h-screen bg-black px-8 py-8 border-r-[1px] border-neutral-800 min-w-[220px]"
               >
                 <Image src={Logo} width={125} height={50} alt="ParadeDB" />
                 <Flex
@@ -131,7 +131,7 @@ const RootLayout = ({ children }: { children: React.ReactNode }) => {
                 numColSpanLg={8}
                 numColSpanMd={8}
                 numColSpanSm={10}
-                className="px-12 py-6 bg-neutral-900 overflow-y-scroll"
+                className="px-12 py-6 bg-black overflow-y-scroll"
               >
                 <Metric className="text-neutral-100">
                   {titleMap[pathname]}

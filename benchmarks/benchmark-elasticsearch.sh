@@ -90,7 +90,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
         }
   }' > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
-  
+
   # Confirm document count
   doc_count=$(curl --silent --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" "https://localhost:$PORT/_cat/count/wikipedia_articles?format=json" | jq '.[0].count')
   echo ""

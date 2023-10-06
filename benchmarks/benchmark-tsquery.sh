@@ -11,7 +11,6 @@ source "helpers/get_data.sh"
 
 PORT=5431
 PG_VERSION=15.4
-WIKI_ARTICLES_FILE=wiki-articles.json
 OUTPUT_CSV=out/benchmark_tsquery.csv
 
 # Cleanup function to stop and remove the Docker container

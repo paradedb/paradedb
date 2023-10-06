@@ -1,4 +1,4 @@
--- This script is inteneded to be run after the temp_json table has been filled.
+-- This script is intended to be run after the temp_json table has been filled.
 
 BEGIN;
 
@@ -10,10 +10,11 @@ CREATE TABLE wikipedia_articles ( url TEXT, title TEXT, body TEXT );
 
 INSERT INTO wikipedia_articles ("url", "title", "body")
 
+-- The Wikipedia dataset is ~5.03M rows, so we limit to 5M rows
 SELECT values->>'url' AS url,
        values->>'title' AS title,
        values->>'body' AS body
-FROM   (SELECT j AS values from temp_json LIMIT 2000000) A;
+FROM   (SELECT j AS values from temp_json LIMIT 5000000) A;
 
 DROP TABLE temp_json;
 

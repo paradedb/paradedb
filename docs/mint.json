@@ -51,24 +51,20 @@
         {
           "group": "Full Text Search",
           "pages": [
-            "search/bm25", 
-            "search/scoring", 
-            "search/highlighting", 
-            "search/fuzzy", 
+            "search/bm25",
+            "search/scoring",
+            "search/highlighting",
+            "search/fuzzy",
             "search/autocomplete"
           ]
         },
         {
           "group": "Similarity Search",
-          "pages": [
-            "search/hnsw"
-          ]
+          "pages": ["search/hnsw"]
         },
         {
           "group": "Hybrid Search",
-          "pages": [
-            "search/hybrid"
-          ]
+          "pages": ["search/hybrid"]
         },
         {
           "group": "Aggregations",

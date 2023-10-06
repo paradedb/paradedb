@@ -54,6 +54,7 @@ jobs:
             PG_NET_VERSION=0.7.2
             PG_GRAPHQL_VERSION=1.3.0
             PG_JSONSCHEMA_VERSION=0.1.4
+            PGNODEMX_VERSION=1.6
             PG_CRON_VERSION=1.6.0
             PG_IVM_VERSION=1.5.1
             PG_HASHIDS_VERSION=1.2.1

@@ -11,7 +11,6 @@ source "helpers/get_data.sh"
 
 PORT=5431
 PARADEDB_VERSION=latest
-WIKI_ARTICLES_FILE=wiki-articles.json
 OUTPUT_CSV=out/benchmark_paradedb.csv
 
 # Cleanup function to stop and remove the Docker container

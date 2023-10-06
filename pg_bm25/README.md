@@ -14,6 +14,8 @@ Lucene, using `pgrx`.
 
 `pg_bm25` is supported on PostgreSQL 11+.
 
+Check out the `pg_bm25` benchmarks [here](../benchmarks/README.md).
+
 ### Roadmap
 
 - [x] BM25 scoring
@@ -179,16 +181,6 @@ This will return:
 
 Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview
 of `pg_bm25`'s query support.
-
-## Benchmarks
-
-On a table with 1 million rows, `pg_bm25` indexes 50 seconds faster than `tsvector` and searches + ranks
-results 20x faster. Indexing and search times are nearly identical to those of a dedicated ElasticSearch
-instance.
-
-<img src="../docs/images/bm25_index_benchmark.png" alt="" width="100%">
-
-<img src="../docs/images/bm25_search_benchmark.png" alt="" width="100%">
 
 ## Development
 

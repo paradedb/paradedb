@@ -1,3 +1,5 @@
+/benchmarks/out/
+/benchmarks/wiki-articles.json
 /docker/.docker_cache_dev/
 /docker/.docker_cache_local/
 docs/quickstart.mdx

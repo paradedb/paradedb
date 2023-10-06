@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { Title, Text, Icon, Flex } from "@tremor/react";
 import { ExclamationCircleIcon } from "@heroicons/react/outline";
 
-import { DarkCard } from "@/components/tremor/card";
+import { Card } from "@/components/tremor/card";
 
 export default function Error({
   error,
@@ -18,7 +18,7 @@ export default function Error({
   }, [error]);
 
   return (
-    <DarkCard>
+    <Card>
       <Flex flexDirection="col">
         <Icon
           icon={ExclamationCircleIcon}
@@ -34,6 +34,6 @@ export default function Error({
           please contact support@paradedb.com.
         </Text>
       </Flex>
-    </DarkCard>
+    </Card>
   );
 }

@@ -24,8 +24,6 @@ enum Route {
   Documentation = "https://docs.paradedb.com",
 }
 
-const SIDEBAR_BUTTON_DEFAULT = "w-full px-6 pb-2 pt-3 rounded-sm";
-const SIDEBAR_BUTTON_ACTIVE = "bg-emerald-400";
 const inter = Inter({ subsets: ["latin"] });
 
 const SidebarButton = ({
@@ -41,6 +39,10 @@ const SidebarButton = ({
   target?: string;
   icon: (props: React.ComponentProps<"svg">) => JSX.Element;
 }) => {
+  const SIDEBAR_BUTTON_DEFAULT =
+    "w-full px-6 pb-2 pt-3 rounded-sm duration-500";
+  const SIDEBAR_BUTTON_ACTIVE = "bg-emerald-400 hover:bg-emerald-300";
+
   return (
     <Link
       target={target ?? "_self"}
@@ -53,8 +55,12 @@ const SidebarButton = ({
       <Button
         icon={icon}
         variant="light"
-        color={active ? "black" : ("neutral" as any)}
-        className="hover:text-emerald-400 duration-500"
+        className={classname(
+          "duration-500",
+          active
+            ? "text-neutral-900 hover:text-neutral-900"
+            : "text-neutral-500 hover:text-emerald-400",
+        )}
       >
         {name}
       </Button>
@@ -125,7 +131,7 @@ const RootLayout = ({ children }: { children: React.ReactNode }) => {
                 numColSpanLg={8}
                 numColSpanMd={8}
                 numColSpanSm={10}
-                className="px-12 py-6 bg-neutral-900"
+                className="px-12 py-6 bg-neutral-900 overflow-y-scroll"
               >
                 <Metric className="text-neutral-100">
                   {titleMap[pathname]}

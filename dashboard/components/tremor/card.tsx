@@ -1,23 +1,24 @@
 import React, { forwardRef } from "react";
-import { Card } from "@tremor/react";
+import { Card as TremorCard } from "@tremor/react";
 
-const DARK_CARD =
+const DEFAULT_CARD =
   "shadow-none bg-neutral-900 ring-neutral-700 rounded-sm px-12 py-8";
 
-const DarkCard = forwardRef<HTMLDivElement, React.ComponentProps<typeof Card>>(
-  ({ children, ...props }, ref) => {
-    return (
-      <Card
-        ref={ref}
-        className={`${DARK_CARD} ${props.className ?? ""}`}
-        {...props}
-      >
-        {children}
-      </Card>
-    );
-  },
-);
+const Card = forwardRef<
+  HTMLDivElement,
+  React.ComponentProps<typeof TremorCard>
+>(({ children, ...props }, ref) => {
+  return (
+    <TremorCard
+      ref={ref}
+      className={`${DEFAULT_CARD} ${props.className ?? ""}`}
+      {...props}
+    >
+      {children}
+    </TremorCard>
+  );
+});
 
-DarkCard.displayName = "DarkCard";
+Card.displayName = "Card";
 
-export { DarkCard };
+export { Card };

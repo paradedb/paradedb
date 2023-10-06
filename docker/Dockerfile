@@ -11,6 +11,7 @@ FROM postgres:${PG_VERSION_MAJOR}-bullseye as base
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
 ARG PG_SEARCH_VERSION
+ARG PGNODEMX_VERSION
 ARG PG_CRON_VERSION
 ARG PG_NET_VERSION
 ARG PG_IVM_VERSION
@@ -33,6 +34,7 @@ ARG RUM_VERSION
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
     PG_SEARCH_VERSION=${PG_SEARCH_VERSION} \
+    PGNODEMX_VERSION=${PGNODEMX_VERSION} \
     PG_CRON_VERSION=${PG_CRON_VERSION} \
     PG_NET_VERSION=${PG_NET_VERSION} \
     PG_IVM_VERSION=${PG_IVM_VERSION} \
@@ -207,6 +209,7 @@ COPY scripts/install_pg_extensions.sh /usr/local/bin/
 RUN /usr/local/bin/install_pg_extensions.sh \
     "pgvector,${PGVECTOR_VERSION},https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz" \
     "pgaudit,${PGAUDIT_VERSION},https://github.com/pgaudit/pgaudit/archive/refs/tags/${PGAUDIT_VERSION}.tar.gz" \
+    "pgnodemx,${PGNODEMX_VERSION},https://github.com/crunchydata/pgnodemx/archive/refs/tags/${PGNODEMX_VERSION}.tar.gz" \
     "pg_cron,${PG_CRON_VERSION},https://github.com/citusdata/pg_cron/archive/refs/tags/v${PG_CRON_VERSION}.tar.gz" \
     "pg_ivm,${PG_IVM_VERSION},https://github.com/sraoss/pg_ivm/archive/refs/tags/v${PG_IVM_VERSION}.tar.gz" \
     "pg_hashids,${PG_HASHIDS_VERSION},https://github.com/iCyberon/pg_hashids/archive/refs/tags/v${PG_HASHIDS_VERSION}.tar.gz" \
@@ -245,6 +248,7 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libprotobuf-c1 \
     # Crunchy operator
     libnss-wrapper \
+    pgbackrest \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
     # pgml
     pip3 install --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
@@ -275,3 +279,5 @@ COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_M
 # Copy entrypoint script, which will be handled by the official image
 # initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
+
+USER 999

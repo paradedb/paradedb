@@ -1,4 +1,5 @@
 "use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import Logo from "../../images/logo-with-name.svg";
@@ -7,7 +8,6 @@ import classname from "classnames";
 import { Grid, Col, Flex, Button, Metric } from "@tremor/react";
 import {
   HomeIcon,
-  CogIcon,
   ArrowNarrowLeftIcon,
   BookOpenIcon,
 } from "@heroicons/react/outline";
@@ -76,7 +76,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
         >
           <Image src={Logo} width={125} height={50} alt="ParadeDB" />
           <Flex
-            className="mt-12 space-y-2"
+            className="mt-8 space-y-2"
             flexDirection="col"
             alignItems="start"
           >
@@ -86,12 +86,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
               name="Dashboard"
               icon={HomeIcon}
             />
-            <SidebarButton
+            {/* TODO: Create settings page */}
+            {/* <SidebarButton
               active={pathname === Route.Settings}
               href={Route.Settings}
               name="Settings"
               icon={CogIcon}
-            />
+            /> */}
             <div className="absolute bottom-6">
               <Flex flexDirection="col" alignItems="start">
                 <SidebarButton

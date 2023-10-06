@@ -23,13 +23,10 @@ const getDatabaseCredentials = async (accessToken: string | undefined) =>
     },
   });
 
-const Index = async () => {
+const Dashboard = async () => {
   const session = await getSession();
-  const accessToken = session?.accessToken;
-  const response = await getDatabaseCredentials(accessToken);
-
+  const response = await getDatabaseCredentials(session?.accessToken);
   const creds = response.ok ? await response.json() : null;
-  const noInstanceCreated = !creds;
 
   return (
     <Grid numItemsLg={2} className="gap-6 h-full">
@@ -40,7 +37,7 @@ const Index = async () => {
           className="shadow-none"
         >
           <Title>My Instance</Title>
-          {!noInstanceCreated ? (
+          {!creds ? (
             <List className="mt-2">
               <ListItem>
                 <Bold>Host</Bold>
@@ -75,4 +72,4 @@ const Index = async () => {
   );
 };
 
-export default withPageAuthRequired(Index, { returnTo: "/dashboard" });
+export default withPageAuthRequired(Dashboard, { returnTo: "/dashboard" });

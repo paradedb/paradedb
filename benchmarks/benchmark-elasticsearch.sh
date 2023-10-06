@@ -60,7 +60,7 @@ echo "Done!"
 # Output file for recording times
 echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 
-# Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset 
+# Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset
 TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 2000000 3000000 4000000 5000000)
 
 for SIZE in "${TABLE_SIZES[@]}"; do
@@ -80,7 +80,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
   curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST "https://localhost:$PORT/wikipedia_articles/_refresh"
 
-  # Time search 
+  # Time search
   start_time=$( (time curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X GET "https://localhost:$PORT/wikipedia_articles/_search?pretty" -H 'Content-Type: application/json' -d'
       {
         "query": {

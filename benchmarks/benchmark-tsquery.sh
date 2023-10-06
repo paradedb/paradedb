@@ -29,11 +29,11 @@ trap cleanup EXIT
 
 echo ""
 echo "*******************************************************"
-echo "Benchmarking tsquery for PostgreSQL version: $PG_VERSION"
+echo "* Benchmarking tsquery for PostgreSQL version: $PG_VERSION"
 echo "*******************************************************"
 echo ""
 
-# 1. Start a PostgreSQL Docker container
+# Install and run Docker container for PostgreSQL in detached mode
 echo "Spinning up official PostgreSQL $PG_VERSION server..."
 docker run \
   -d \
@@ -50,7 +50,7 @@ echo "Waiting for server to spin up..."
 sleep 5
 echo "Done!"
 
-# 2. Load data into database
+# Load data into database
 echo ""
 echo "Loading data into database..."
 load_data
@@ -59,8 +59,8 @@ echo "Done!"
 # Output file for recording times
 echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 
-# Table sizes to be processed (in number of rows). You can modify this to go up to 5 million rows with the Wikipedia dataset.
-TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000)
+# Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset 
+TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 2000000 3000000 4000000 5000000)
 
 for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""
@@ -69,17 +69,17 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Create temporary table with limit
   echo "-- Creating temporary table with $SIZE rows..."
-  db_query localhost "$PORT" mydatabase myuser mypassword "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
-  db_query localhost "$PORT" mydatabase myuser mypassword "ALTER TABLE $TABLE_NAME ADD COLUMN search_vector tsvector;"
+  db_query "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
+  db_query "ALTER TABLE $TABLE_NAME ADD COLUMN search_vector tsvector;"
 
   # Time indexing
   echo "-- Timing indexing..."
-  start_time=$( (time db_query localhost "$PORT" mydatabase myuser mypassword "UPDATE $TABLE_NAME SET search_vector = to_tsvector('english', title) || to_tsvector('english', body);" > /dev/null) 2>&1 )
+  start_time=$( (time db_query "UPDATE $TABLE_NAME SET search_vector = to_tsvector('english', title) || to_tsvector('english', body);" > /dev/null) 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
   echo "-- Timing search..."
-  start_time=$( (time db_query localhost "$PORT" mydatabase myuser mypassword "SELECT title, body, ts_rank_cd(search_vector, query) as rank FROM $TABLE_NAME, to_tsquery('canada') query WHERE query @@ search_vector ORDER BY rank DESC LIMIT 10;" > /dev/null) 2>&1 )
+  start_time=$( (time db_query "SELECT title, body, ts_rank_cd(search_vector, query) as rank FROM $TABLE_NAME, to_tsquery('canada') query WHERE query @@ search_vector ORDER BY rank DESC LIMIT 10;" > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Record times to CSV
@@ -87,6 +87,6 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Cleanup: drop temporary table
   echo "-- Cleaning up..."
-  db_query localhost "$PORT" mydatabase myuser mypassword "DROP TABLE $TABLE_NAME;"
+  db_query "DROP TABLE $TABLE_NAME;"
   echo "Done!"
 done

@@ -37,7 +37,7 @@ for PG_VERSION in "${PG_VERSIONS[@]}"; do
 
   echo ""
   echo "*************************************************"
-  echo "Running tests for PostgreSQL version: $PG_VERSION"
+  echo "* Running tests for PostgreSQL version: $PG_VERSION"
   echo "*************************************************"
   echo ""
 

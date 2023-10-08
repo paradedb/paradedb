@@ -30,11 +30,11 @@ Check out the `pg_bm25` benchmarks [here](../benchmarks/README.md).
 - [ ] Datetime aggregations
 - [ ] Facet fields
 
-## Running the Extension
+## Installation
 
 ### From ParadeDB
 
-The easiest way to test the extension is to run the ParadeDB Dockerfile:
+The easiest way to use the extension is to run the ParadeDB Dockerfile:
 
 ```bash
 docker run \

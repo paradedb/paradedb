@@ -12,11 +12,11 @@ that combines BM25-based full text search with vector-based similarity search. I
 
 `pg_search` is supported on PostgreSQL 11+.
 
-## Running the Extension
+## Installation
 
 ### From ParadeDB
 
-The easiest way to test the extension is to run the ParadeDB Dockerfile:
+The easiest way to use the extension is to run the ParadeDB Dockerfile:
 
 ```bash
 docker run \
@@ -67,7 +67,7 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_search CASCADE;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_search` until the Postgres service explicitly supports it.
+If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_search` until the Postgres service explicitly supports it and its dependencies.
 
 ## Usage
 
@@ -136,8 +136,8 @@ cargo pgrx init
 ### Running the Extension
 
 `pg_search` is built on top of two extensions: `pg_bm25` and `pgvector`. To install
-these two extensions, run the configure script (this must be done _after_ initializing
-pgrx):
+these two extensions, run the configure script. This must be done _after_ initializing
+pgrx:
 
 ```bash
 ./configure.sh

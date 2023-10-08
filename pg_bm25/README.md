@@ -255,4 +255,4 @@ by the test suite.
 
 ## License
 
-`pg_bm25` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).
+The `pg_bm25` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

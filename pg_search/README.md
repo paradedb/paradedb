@@ -202,4 +202,4 @@ by the test suite.
 
 ## License
 
-`pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).
+The `pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

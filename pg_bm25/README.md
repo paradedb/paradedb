@@ -179,8 +179,7 @@ This will return:
 (5 rows)
 ```
 
-Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview
-of `pg_bm25`'s query support.
+Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview of `pg_bm25`'s query support.
 
 ## Development
 

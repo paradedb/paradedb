@@ -30,11 +30,11 @@ Check out the `pg_bm25` benchmarks [here](../benchmarks/README.md).
 - [ ] Datetime aggregations
 - [ ] Facet fields
 
-## Running the Extension
+## Installation
 
 ### From ParadeDB
 
-The easiest way to test the extension is to run the ParadeDB Dockerfile:
+The easiest way to use the extension is to run the ParadeDB Dockerfile:
 
 ```bash
 docker run \
@@ -78,8 +78,7 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_bm25;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25`
-until the Postgres service explicitly supports it.
+If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
 
 ## Usage
 
@@ -180,8 +179,7 @@ This will return:
 (5 rows)
 ```
 
-Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview
-of `pg_bm25`'s query support.
+Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview of `pg_bm25`'s query support.
 
 ## Development
 
@@ -257,4 +255,4 @@ by the test suite.
 
 ## License
 
-`pg_bm25` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).
+The `pg_bm25` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

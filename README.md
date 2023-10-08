@@ -41,8 +41,7 @@ vector database on top.
 
 ## Status
 
-ParadeDB is still under active development and is not yet ready to use
-in production. We're aiming to be ready by the end of October 2023.
+ParadeDB is still under active development and should be used in production with caution. We're aiming to be fully stable by the end of October 2023.
 
 We are currently in Private Beta. Star & watch this repo to get notified of
 major updates.
@@ -98,11 +97,11 @@ psql -h <hostname> -U <user> -d <dbname> -p 5432 -W
 
 To install the ParadeDB extension(s) manually within an existing self-hosted Postgres,
 see the extension(s)' README. We strongly recommend using the ParadeDB Docker image,
-which is optimized for running search in Postgres. If you're self-hosting Postgres
-and are interested in ParadeDB, please [contact the ParadeDB team](mailto:hello@paradedb.com)
-and we'll be happy to help!
+which is optimized for running search in Postgres.
 
-## Get Started
+If you are self-hosting Postgres and are interested in ParadeDB, please [contact the ParadeDB team](mailto:hello@paradedb.com) and we'll be happy to help!
+
+## Getting Started
 
 To get started using ParadeDB, please follow the [quickstart guide](https://docs.paradedb.com/quickstart)!
 
@@ -117,21 +116,16 @@ If you're missing a feature or have found a bug, please open a
 
 To get community support, you can:
 
-- Post a question on the [ParadeDB Slack Community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)
+- Post a question in the [ParadeDB Slack Community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)
 - Ask for help on our [GitHub Discussions](https://github.com/paradedb/paradedb/discussions)
 
-If you need commercial support, please [contact](mailto:sales@paradedb.com) the
-ParadeDB team.
+If you need commercial support, please [contact the ParadeDB team](mailto:sales@paradedb.com).
 
 ## Contributing
 
 We welcome community contributions, big or small, and are here to guide you along
 the way. To get started contributing, check our [first timer issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue)
-or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
-Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
-
-If you're missing a feature or have found a problem with ParadeDB, please open a
-[GitHub issue](https://github.com/paradedb/paradedb/issues/new/choose).
+or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ). Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
 
 For more information on how to contribute, please see our
 [Contributing Guide](CONTRIBUTING.md).
@@ -139,7 +133,7 @@ For more information on how to contribute, please see our
 This project is released with a [Contributor Code of Conduct](https://github.com/paradedb/paradedb/blob/stable/CODE_OF_CONDUCT.md).
 By participating in this project, you agree to follow its terms.
 
-Thank you for helping us make ParadeDB better for everyone :heart:
+Thank you for helping us make ParadeDB better for everyone :heart:.
 
 ## License
 

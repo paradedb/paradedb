@@ -50,9 +50,9 @@ major updates.
 ### Roadmap
 
 - [ ] Search
-  - [x] Full-text search with BM25 with `pg_bm25`
-  - [x] Similarity search with `pgvector`
-  - [x] Hybrid search with `pg_search`
+  - [x] Full-text search with BM25 with [pg_bm25](https://github.com/paradedb/paradedb/tree/dev/pg_bm25#overview)
+  - [x] Similarity search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
+  - [x] Hybrid search with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [x] Real-time search
   - [ ] Faceted search
   - [ ] Distributed search

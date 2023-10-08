@@ -5,11 +5,13 @@ import { PrimaryButton } from "@/components/tremor";
 
 const CreateInstanceButton = ({
   onCreateInstance,
+  isCreating,
   ...props
 }: React.ComponentProps<typeof PrimaryButton> & {
   onCreateInstance: () => void;
+  isCreating: boolean;
 }) => {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(isCreating);
 
   const createInstance = () => {
     fetch("/api/databases", { method: "POST" });

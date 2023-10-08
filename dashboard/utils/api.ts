@@ -9,6 +9,8 @@ const withRequest = (
       const { accessToken } = await getAccessToken();
       const response = await customFetch(accessToken ?? "");
 
+      console.log(response);
+
       if (!response.ok) {
         const errorData = await response.json();
         const errorMessage = errorData.message || "An error occurred";

@@ -1,11 +1,16 @@
 "use client";
 
 import { useState } from "react";
+import { ExclamationCircleIcon } from "@heroicons/react/outline";
+
 import { SecondaryButton } from "@/components/tremor";
 
 const DeleteInstanceButton = ({
+  onDeleteInstance,
   ...props
-}: React.ComponentProps<typeof SecondaryButton>) => {
+}: React.ComponentProps<typeof SecondaryButton> & {
+  onDeleteInstance: () => void;
+}) => {
   const [loading, setLoading] = useState(false);
 
   const deleteInstance = () => {
@@ -14,11 +19,18 @@ const DeleteInstanceButton = ({
 
   const onClick = () => {
     setLoading(true);
+    onDeleteInstance();
     deleteInstance();
   };
 
   return (
-    <SecondaryButton size="xl" onClick={onClick} loading={loading} {...props}>
+    <SecondaryButton
+      icon={ExclamationCircleIcon}
+      size="xl"
+      onClick={onClick}
+      loading={loading}
+      {...props}
+    >
       Delete Instance
     </SecondaryButton>
   );

@@ -4,8 +4,11 @@ import { useState } from "react";
 import { PrimaryButton } from "@/components/tremor";
 
 const CreateInstanceButton = ({
+  onCreateInstance,
   ...props
-}: React.ComponentProps<typeof PrimaryButton>) => {
+}: React.ComponentProps<typeof PrimaryButton> & {
+  onCreateInstance: () => void;
+}) => {
   const [loading, setLoading] = useState(false);
 
   const createInstance = () => {
@@ -15,6 +18,7 @@ const CreateInstanceButton = ({
   const onClick = () => {
     setLoading(true);
     createInstance();
+    onCreateInstance();
   };
 
   return (

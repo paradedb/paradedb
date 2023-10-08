@@ -3,7 +3,6 @@
 import Link from "next/link";
 import useSWR, { mutate } from "swr";
 
-import { useState } from "react";
 import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
 import {
   Title,
@@ -14,6 +13,7 @@ import {
   List,
   ListItem,
   Divider,
+  ProgressBar,
 } from "@tremor/react";
 import {
   ServerIcon,
@@ -26,7 +26,10 @@ import {
 } from "@heroicons/react/outline";
 
 import { Card } from "@/components/tremor";
-import { CreateInstanceButton } from "@/components/button";
+import {
+  CreateInstanceButton,
+  DeleteInstanceButton,
+} from "@/components/button";
 
 const DATABASE_CREDENTIALS_URL = `/api/databases/credentials`;
 const DATABASE_STATUS_URL = `/api/databases/status`;
@@ -39,16 +42,6 @@ enum DeployStatus {
 }
 
 const fetcher = (uri: string) => fetch(uri).then((res) => res.json());
-
-// const getDatabaseCredentials = async () =>
-//   await fetch(DATABASE_CREDENTIALS_URL, {
-//     method: "GET",
-//   });
-
-// const getDatabaseStatus = async () =>
-//   await fetch(DATABASE_STATUS_URL, {
-//     method: "GET",
-//   });
 
 const CredentialsListItem = ({
   name,
@@ -89,8 +82,29 @@ const GuideListItem = ({
 );
 
 const Dashboard = () => {
-  const { data: creds } = useSWR(DATABASE_CREDENTIALS_URL, fetcher);
+  const { data: creds, error: credsError } = useSWR(
+    DATABASE_CREDENTIALS_URL,
+    fetcher,
+  );
   const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher);
+
+  const noInstanceCreated = creds?.status === "error";
+
+  console.log(status);
+
+  const onCreateInstance = async () => {
+    while (!creds?.host) {
+      await mutate(DATABASE_CREDENTIALS_URL);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  };
+
+  const onDeleteInstance = async () => {
+    while (true) {
+      await mutate(DATABASE_STATUS_URL);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  };
 
   return (
     <Grid numItemsLg={5} className="gap-10 h-full">
@@ -98,38 +112,46 @@ const Dashboard = () => {
         <Card>
           <Title className="text-neutral-100">My Instance</Title>
           <Divider className="bg-neutral-600" />
-          {creds ? (
-            <List className="divide-none space-y-2">
-              <CredentialsListItem
-                name="Host"
-                value={creds?.host}
-                icon={<ServerIcon className="w-4 text-blue-400" />}
-              />
-              <CredentialsListItem
-                name="User"
-                value={creds?.user}
-                icon={<UserIcon className="w-4 text-pink-400" />}
-              />
-              <CredentialsListItem
-                name="Password"
-                value={creds?.password}
-                icon={<KeyIcon className="w-4 text-amber-400" />}
-              />
-              <CredentialsListItem
-                name="Port"
-                value={creds?.port}
-                icon={<ArrowRightIcon className="w-4 text-purple-400" />}
-              />
-            </List>
-          ) : status === DeployStatus.UNKNOWN ? (
+          {creds && !noInstanceCreated ? (
+            <Flex flexDirection="col" alignItems="start" className="space-y-6">
+              <List className="divide-none space-y-2">
+                <CredentialsListItem
+                  name="Host"
+                  value={creds?.host}
+                  icon={<ServerIcon className="w-4 text-blue-400" />}
+                />
+                <CredentialsListItem
+                  name="User"
+                  value={creds?.user}
+                  icon={<UserIcon className="w-4 text-pink-400" />}
+                />
+                <CredentialsListItem
+                  name="Password"
+                  value={creds?.password}
+                  icon={<KeyIcon className="w-4 text-amber-400" />}
+                />
+                <CredentialsListItem
+                  name="Port"
+                  value={creds?.port}
+                  icon={<ArrowRightIcon className="w-4 text-purple-400" />}
+                />
+              </List>
+              <DeleteInstanceButton onDeleteInstance={onDeleteInstance} />
+            </Flex>
+          ) : noInstanceCreated ? (
             <Flex flexDirection="col" alignItems="start" className="space-y-6">
               <Text className="mt-2 text-neutral-300">
                 You have not created a database instance.
               </Text>
-              <CreateInstanceButton />
+              <CreateInstanceButton onCreateInstance={onCreateInstance} />
             </Flex>
           ) : (
-            <>Creating Instance</>
+            <Flex flexDirection="col" alignItems="start" className="space-y-6">
+              <Text className="mt-2 text-neutral-300">
+                Creating instance...
+              </Text>
+              <ProgressBar value={45} color="emerald" className="mt-3" />
+            </Flex>
           )}
         </Card>
       </Col>

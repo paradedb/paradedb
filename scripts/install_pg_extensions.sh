@@ -52,6 +52,7 @@ install_pg_extension() {
   checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 
+
 # Iterate over all arguments, which are expected to be comma-separated values of the format NAME,VERSION,URL
 for EXTENSION in "$@"; do
   IFS=',' read -ra EXTENSION_DETAILS <<< "$EXTENSION"

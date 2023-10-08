@@ -50,6 +50,7 @@ git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
 
 # Install pgvector and pg_bm25
 cd pg_search/
+cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
 ./configure.sh
 ```
 
@@ -57,7 +58,6 @@ cd pg_search/
 
 ```bash
 # Install pg_search
-cd ../pg_search
 cargo pgrx install
 ```
 

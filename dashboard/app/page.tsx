@@ -3,6 +3,7 @@
 import Link from "next/link";
 import useSWR, { mutate } from "swr";
 
+import { Suspense } from "react";
 import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
 import {
   Title,
@@ -82,15 +83,15 @@ const GuideListItem = ({
 );
 
 const Dashboard = () => {
-  const { data: creds, error: credsError } = useSWR(
-    DATABASE_CREDENTIALS_URL,
-    fetcher,
-  );
-  const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher);
+  const { data: creds } = useSWR(DATABASE_CREDENTIALS_URL, fetcher, {
+    suspense: true,
+  });
+  const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher, {
+    suspense: true,
+  });
 
-  const noInstanceCreated = creds?.status === "error";
-
-  console.log(status);
+  const deployStatus = status?.deploy_status;
+  const noInstanceCreated = creds?.status === 404;
 
   const onCreateInstance = async () => {
     while (!creds?.host) {
@@ -112,7 +113,7 @@ const Dashboard = () => {
         <Card>
           <Title className="text-neutral-100">My Instance</Title>
           <Divider className="bg-neutral-600" />
-          {creds && !noInstanceCreated ? (
+          {creds?.host ? (
             <Flex flexDirection="col" alignItems="start" className="space-y-6">
               <List className="divide-none space-y-2">
                 <CredentialsListItem

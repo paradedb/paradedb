@@ -18,6 +18,7 @@ declare -A extensions=(
   [pg_jsonschema]=${PG_JSONSCHEMA_VERSION:-}
   [pg_repack]=${PG_REPACK_VERSION:-}
   [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
+  [pg_roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
   [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
   [pgtap]=${PGTAP_VERSION:-}
   [pgaudit]=${PGAUDIT_VERSION:-}

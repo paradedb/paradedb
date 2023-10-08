@@ -21,6 +21,8 @@ ARG PG_JSONSCHEMA_VERSION
 ARG PG_REPACK_VERSION
 ARG PG_STAT_MONITOR_VERSION
 ARG PG_HINT_PLAN_VERSION
+ARG PG_ROARINGBITMAP_VERSION
+ARG PG_FACETING_VERSION
 ARG PGML_VERSION
 ARG PGTAP_VERSION
 ARG PGVECTOR_VERSION
@@ -30,6 +32,7 @@ ARG PGROUTING_VERSION
 ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
+ARG AGE_VERSION
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
@@ -44,6 +47,8 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_REPACK_VERSION=${PG_REPACK_VERSION} \
     PG_STAT_MONITOR_VERSION=${PG_STAT_MONITOR_VERSION} \
     PG_HINT_PLAN_VERSION=${PG_HINT_PLAN_VERSION} \
+    PG_ROARINGBITMAP_VERSION=${PG_ROARINGBITMAP_VERSION} \
+    PG_FACETING_VERSION=${PG_FACETING_VERSION} \
     PGML_VERSION=${PGML_VERSION} \
     PGTAP_VERSION=${PGTAP_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
@@ -53,6 +58,7 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PGSQL_HTTP_VERSION=${PGSQL_HTTP_VERSION} \
     HYPOPG_VERSION=${HYPOPG_VERSION} \
     RUM_VERSION=${RUM_VERSION} \
+    AGE_VERSION=${AGE_VERSION} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
@@ -216,6 +222,7 @@ RUN /usr/local/bin/install_pg_extensions.sh \
     "pg_repack,${PG_REPACK_VERSION},https://github.com/reorg/pg_repack/archive/refs/tags/${PG_REPACK_VERSION}.tar.gz" \
     "pg_stat_monitor,${PG_STAT_MONITOR_VERSION},https://github.com/percona/pg_stat_monitor/archive/refs/tags/${PG_STAT_MONITOR_VERSION}.tar.gz" \
     "pg_hint_plan,${PG_HINT_PLAN_VERSION},https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/${PG_HINT_PLAN_VERSION}.tar.gz" \
+    "pg_faceting,${PG_FACETING_VERSION},https://github.com/ChenHuajun/pg_roaringbitmap/archive/refs/tags/v${PG_FACETING_VERSION}.tar.gz" \
     "pgtap,${PGTAP_VERSION},https://github.com/theory/pgtap/archive/refs/tags/v${PGTAP_VERSION}.tar.gz" \
     "postgis,${POSTGIS_VERSION},https://github.com/postgis/postgis/archive/refs/tags/${POSTGIS_VERSION}.tar.gz" \
     "pgrouting,${PGROUTING_VERSION},https://github.com/pgRouting/pgrouting/archive/refs/tags/v${PGROUTING_VERSION}.tar.gz" \
@@ -280,4 +287,5 @@ COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_M
 # initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
+# Postgres user for Crunchy operator
 USER 999

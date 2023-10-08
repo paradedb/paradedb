@@ -224,6 +224,7 @@ RUN /usr/local/bin/install_pg_extensions.sh \
     "pg_stat_monitor,${PG_STAT_MONITOR_VERSION},https://github.com/percona/pg_stat_monitor/archive/refs/tags/${PG_STAT_MONITOR_VERSION}.tar.gz" \
     "pg_hint_plan,${PG_HINT_PLAN_VERSION},https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/${PG_HINT_PLAN_VERSION}.tar.gz" \
     "pg_roaringbitmap,${PG_ROARINGBITMAP_VERSION},https://github.com/ChenHuajun/pg_roaringbitmap/archive/refs/tags/v${PG_ROARINGBITMAP_VERSION}.tar.gz" \
+    "pgfaceting,${PGFACETING_VERSION},https://github.com/cybertec-postgresql/pgfaceting/archive/refs/tags/v${PGFACETING_VERSION}.tar.gz" \
     "pgtap,${PGTAP_VERSION},https://github.com/theory/pgtap/archive/refs/tags/v${PGTAP_VERSION}.tar.gz" \
     "postgis,${POSTGIS_VERSION},https://github.com/postgis/postgis/archive/refs/tags/${POSTGIS_VERSION}.tar.gz" \
     "pgrouting,${PGROUTING_VERSION},https://github.com/pgRouting/pgrouting/archive/refs/tags/v${PGROUTING_VERSION}.tar.gz" \
@@ -275,14 +276,6 @@ COPY --from=builder-others /tmp/*.deb /tmp/
 RUN apt-get update && apt-fast install -y --no-install-recommends \
     /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
-
-# Install pgfaceting, which is not available as a package since it doesn't have a "make" target, only "make install"
-RUN curl -L "pgfaceting,${PGFACETING_VERSION},https://github.com/cybertec-postgresql/pgfaceting/archive/refs/tags/v${PGFACETING_VERSION}.tar.gz" -o /tmp/pgfaceting.tar.gz && \
-    tar -xzf /tmp/pgfaceting.tar.gz -C /tmp && \
-    cd /tmp/pgfaceting-${PGFACETING_VERSION} && \
-    make USE_PGXS=1 && \
-    make USE_PGXS=1 install && \
-    rm -rf /tmp/pgfaceting*
 
 # Copy the pg_bm25, pgml & pg_search extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds

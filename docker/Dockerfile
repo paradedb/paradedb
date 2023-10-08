@@ -109,6 +109,11 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     pkg-config \
     liblz4-dev \
     libcurl4-openssl-dev \
+    # pgml & AGE
+    bison \
+    flex \
+    # pgml & pg_repack
+    libreadline-dev \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
@@ -139,10 +144,6 @@ RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION
 FROM builder as builder-pgml
 
 RUN apt-get update && apt-fast install -y --no-install-recommends \
-    libssl-dev \
-    bison \
-    flex \
-    libreadline-dev \
     libz-dev \
     tzdata \
     libpq-dev \
@@ -190,8 +191,6 @@ ENV USE_PGXS=1
 RUN apt-get update && apt-fast install -y --no-install-recommends \
     # rum requirements
     systemtap-sdt-dev \
-    # pg_repack requirements
-    libreadline-dev \
     # pgaudit requirements
     libkrb5-dev \
     # postgis requirements
@@ -207,6 +206,8 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libtool \
     xsltproc \
     protobuf-c-compiler \
+    # AGE
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/install_pg_extensions.sh /usr/local/bin/
@@ -228,7 +229,8 @@ RUN /usr/local/bin/install_pg_extensions.sh \
     "pgrouting,${PGROUTING_VERSION},https://github.com/pgRouting/pgrouting/archive/refs/tags/v${PGROUTING_VERSION}.tar.gz" \
     "pgsql-http,${PGSQL_HTTP_VERSION},https://github.com/pramsey/pgsql-http/archive/refs/tags/v${PGSQL_HTTP_VERSION}.tar.gz" \
     "hypopg,${HYPOPG_VERSION},https://github.com/HypoPG/hypopg/archive/refs/tags/${HYPOPG_VERSION}.tar.gz" \
-    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz"
+    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz" \
+    "age,${AGE_VERSION},https://github.com/apache/age/archive/refs/tags/PG${PG_VERSION_MAJOR}/v${AGE_VERSION}.tar.gz"
 
 # Install pre-compiled extensions
 RUN curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \

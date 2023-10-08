@@ -50,9 +50,9 @@ major updates.
 ### Roadmap
 
 - [ ] Search
-  - [x] Full-text search with BM25
-  - [x] Similarity search
-  - [x] Hybrid search
+  - [x] Full-text search with BM25 with `pg_bm25`
+  - [x] Similarity search with `pgvector`
+  - [x] Hybrid search with `pg_search`
   - [x] Real-time search
   - [ ] Faceted search
   - [ ] Distributed search

@@ -47,3 +47,8 @@ repos:
     rev: v2.12.0
     hooks:
       - id: hadolint
+
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.0.3
+    hooks:
+      - id: prettier

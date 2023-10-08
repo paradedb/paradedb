@@ -14,14 +14,14 @@ OUTPUT_CSV=out/benchmark_elasticsearch.csv
 
 # Cleanup function to stop and remove the Docker container
 cleanup() {
-  echo ""
-  echo "Cleaning up benchmark environment..."
-  if docker ps -q --filter "name=es01" | grep -q .; then
-    docker kill es01
-  fi
-  docker rm es01
-  docker network rm elastic
-  echo "Done!"
+    echo ""
+    echo "Cleaning up benchmark environment..."
+    if docker ps -q --filter "name=es01" | grep -q .; then
+        docker kill es01
+    fi
+    docker rm es01
+    docker network rm elastic
+    echo "Done!"
 }
 
 # Register the cleanup function to run when the script exits
@@ -37,12 +37,12 @@ echo ""
 echo "Creating ElasticSearch node..."
 docker network create elastic
 docker run \
-  -d \
-  --name es01 \
-  --net elastic \
-  -p $PORT:9200 \
-  -it \
-  docker.elastic.co/elasticsearch/elasticsearch:$ES_VERSION
+    -d \
+    --name es01 \
+    --net elastic \
+    -p $PORT:9200 \
+    -it \
+    docker.elastic.co/elasticsearch/elasticsearch:$ES_VERSION
 
 # Wait for Docker container to spin up
 echo ""
@@ -64,44 +64,44 @@ echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 2000000 3000000 4000000 5000000)
 
 for SIZE in "${TABLE_SIZES[@]}"; do
-  echo ""
-  echo "Running benchmarking suite on index with $SIZE documents..."
+    echo ""
+    echo "Running benchmarking suite on index with $SIZE documents..."
 
-  # Convert data to be consumed by ElasticSearch
-  echo "-- Converting data to bulk format consumable by ElasticSearch..."
-  python3 helpers/elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER "$SIZE"
+    # Convert data to be consumed by ElasticSearch
+    echo "-- Converting data to bulk format consumable by ElasticSearch..."
+    python3 helpers/elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER "$SIZE"
 
-  # Time indexing
-  echo "-- Loading data of size $SIZE into wikipedia_articles index..."
-  echo "-- Timing indexing..."
-  start_time=$( (time find "$ELASTIC_BULK_FOLDER" -type f -name "${SIZE}_*.json" | while IFS= read -r data_filename; do
-        curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST -H "Content-Type:application/json" "https://localhost:$PORT/wikipedia_articles/_bulk" --data-binary @"$data_filename"
-  done) 2>&1 )
-  index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
-  curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST "https://localhost:$PORT/wikipedia_articles/_refresh"
+    # Time indexing
+    echo "-- Loading data of size $SIZE into wikipedia_articles index..."
+    echo "-- Timing indexing..."
+    start_time=$( (time find "$ELASTIC_BULK_FOLDER" -type f -name "${SIZE}_*.json" | while IFS= read -r data_filename; do
+                curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST -H "Content-Type:application/json" "https://localhost:$PORT/wikipedia_articles/_bulk" --data-binary @"$data_filename"
+    done) 2>&1 )
+    index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
+    curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST "https://localhost:$PORT/wikipedia_articles/_refresh"
 
-  # Time search
-  start_time=$( (time curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X GET "https://localhost:$PORT/wikipedia_articles/_search?pretty" -H 'Content-Type: application/json' -d'
-      {
-        "query": {
-          "query_string": {
-            "query": "Canada"
-          }
-        }
-  }' > /dev/null) 2>&1 )
-  search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
+    # Time search
+    start_time=$( (time curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X GET "https://localhost:$PORT/wikipedia_articles/_search?pretty" -H 'Content-Type: application/json' -d'
+            {
+                "query": {
+                    "query_string": {
+                        "query": "Canada"
+                    }
+                }
+    }' > /dev/null) 2>&1 )
+    search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
-  # Confirm document count
-  doc_count=$(curl --silent --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" "https://localhost:$PORT/_cat/count/wikipedia_articles?format=json" | jq '.[0].count')
-  echo ""
-  echo "-- Number of documents in wikipedia_articles index for size $SIZE: $doc_count"
+    # Confirm document count
+    doc_count=$(curl --silent --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" "https://localhost:$PORT/_cat/count/wikipedia_articles?format=json" | jq '.[0].count')
+    echo ""
+    echo "-- Number of documents in wikipedia_articles index for size $SIZE: $doc_count"
 
-  # Record times to CSV
-  echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
+    # Record times to CSV
+    echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
 
-  # Cleanup: delete the index
-  echo "-- Cleaning up..."
-  curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X DELETE https://localhost:$PORT/wikipedia_articles
-  echo ""
-  echo "Done!"
+    # Cleanup: delete the index
+    echo "-- Cleaning up..."
+    curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X DELETE https://localhost:$PORT/wikipedia_articles
+    echo ""
+    echo "Done!"
 done

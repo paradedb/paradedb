@@ -24,6 +24,7 @@ repos:
     rev: v6.2.1
     hooks:
       - id: beautysh
+        args: ["--indent-size", "2"]
 
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.9.0.5

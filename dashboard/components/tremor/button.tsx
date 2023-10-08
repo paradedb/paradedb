@@ -1,20 +1,47 @@
+import classNames from "classnames";
 import React from "react";
 import { Button } from "@tremor/react";
 
-const PRIMARY_BUTTON =
-  "text-emerald-400 bg-emerald-400 border border-emerald-400 bg-opacity-20 rounded-sm hover:bg-emerald-400 hover:bg-opacity-30 hover:border-emerald-400 duration-500 mt-6 rounded-sm";
+const DEFAULT_BUTTON =
+  "border bg-opacity-20 rounded-sm hover:bg-opacity-30 duration-500";
+const PRIMARY_BUTTON = classNames(
+  DEFAULT_BUTTON,
+  "text-emerald-400 bg-emerald-400 border-emerald-400 hover:bg-emerald-400 hover:border-emerald-400",
+);
+const SECONDARY_BUTTON = classNames(
+  DEFAULT_BUTTON,
+  "text-neutral-400 bg-neutral-400 border-neutral-400 hover:bg-neutral-400 hover:border-neutral-400",
+);
 
 const PrimaryButton = ({
   children,
   ...props
 }: React.ComponentProps<typeof Button>) => {
   return (
-    <Button className={`${PRIMARY_BUTTON} ${props.className ?? ""}`} {...props}>
+    <Button
+      className={classNames(PRIMARY_BUTTON, props.className ?? "")}
+      {...props}
+    >
+      {children}
+    </Button>
+  );
+};
+
+const SecondaryButton = ({
+  children,
+  ...props
+}: React.ComponentProps<typeof Button>) => {
+  return (
+    <Button
+      className={classNames(SECONDARY_BUTTON, props.className ?? "")}
+      {...props}
+    >
       {children}
     </Button>
   );
 };
 
 PrimaryButton.displayName = "PrimaryButton";
+SecondaryButton.displayName = "SecondaryButton";
 
-export { PrimaryButton };
+export { PrimaryButton, SecondaryButton };

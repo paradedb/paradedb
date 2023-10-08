@@ -9,7 +9,7 @@ const CreateInstanceButton = ({
   const [loading, setLoading] = useState(false);
 
   const createInstance = () => {
-    fetch("/api/cloud", { method: "POST" });
+    fetch("/api/databases", { method: "POST" });
   };
 
   const onClick = () => {

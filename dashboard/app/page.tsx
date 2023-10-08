@@ -1,8 +1,10 @@
-import Link from "next/link";
+"use client";
 
-import type { Metadata } from "next";
-import { withPageAuthRequired } from "@auth0/nextjs-auth0";
-import { getSession } from "@auth0/nextjs-auth0";
+import Link from "next/link";
+import useSWR, { mutate } from "swr";
+
+import { useState } from "react";
+import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
 import {
   Title,
   Grid,
@@ -26,18 +28,27 @@ import {
 import { Card } from "@/components/tremor";
 import { CreateInstanceButton } from "@/components/button";
 
-const DATABASE_CREDENTIALS_URL = `${process.env.PROVISIONER_URL}/database/credentials`;
+const DATABASE_CREDENTIALS_URL = `/api/databases/credentials`;
+const DATABASE_STATUS_URL = `/api/databases/status`;
 const IMPORTING_DATA_URL = "https://docs.paradedb.com/import";
 const QUICKSTART_URL = "https://docs.paradedb.com/quickstart";
 const SEARCH_BASICS_URL = "https://docs.paradedb.com/search/bm25";
 
-const getDatabaseCredentials = async (accessToken: string | undefined) =>
-  await fetch(DATABASE_CREDENTIALS_URL, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
+enum DeployStatus {
+  UNKNOWN = "unknown",
+}
+
+const fetcher = (uri: string) => fetch(uri).then((res) => res.json());
+
+// const getDatabaseCredentials = async () =>
+//   await fetch(DATABASE_CREDENTIALS_URL, {
+//     method: "GET",
+//   });
+
+// const getDatabaseStatus = async () =>
+//   await fetch(DATABASE_STATUS_URL, {
+//     method: "GET",
+//   });
 
 const CredentialsListItem = ({
   name,
@@ -77,10 +88,9 @@ const GuideListItem = ({
   </Link>
 );
 
-const Dashboard = async () => {
-  const session = await getSession();
-  const response = await getDatabaseCredentials(session?.accessToken);
-  const creds = response.ok ? await response.json() : null;
+const Dashboard = () => {
+  const { data: creds } = useSWR(DATABASE_CREDENTIALS_URL, fetcher);
+  const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher);
 
   return (
     <Grid numItemsLg={5} className="gap-10 h-full">
@@ -111,13 +121,15 @@ const Dashboard = async () => {
                 icon={<ArrowRightIcon className="w-4 text-purple-400" />}
               />
             </List>
-          ) : (
-            <Flex flexDirection="col" alignItems="start">
+          ) : status === DeployStatus.UNKNOWN ? (
+            <Flex flexDirection="col" alignItems="start" className="space-y-6">
               <Text className="mt-2 text-neutral-300">
                 You have not created a database instance.
               </Text>
               <CreateInstanceButton />
             </Flex>
+          ) : (
+            <>Creating Instance</>
           )}
         </Card>
       </Col>
@@ -148,9 +160,4 @@ const Dashboard = async () => {
   );
 };
 
-export const metadata: Metadata = {
-  title: "ParadeDB",
-  description: "ParadeDB cloud dashboard",
-};
-
-export default withPageAuthRequired(Dashboard, { returnTo: "/" });
+export default withPageAuthRequired(Dashboard);

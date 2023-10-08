@@ -9,7 +9,7 @@ import classname from "classnames";
 
 import { Inter } from "next/font/google";
 import { UserProvider } from "@auth0/nextjs-auth0/client";
-import { Grid, Col, Flex, Button, Metric } from "@tremor/react";
+import { Grid, Col, Flex, Button, Metric, Divider } from "@tremor/react";
 import {
   HomeIcon,
   ArrowNarrowLeftIcon,
@@ -136,6 +136,7 @@ const RootLayout = ({ children }: { children: React.ReactNode }) => {
                 <Metric className="text-neutral-100">
                   {titleMap[pathname]}
                 </Metric>
+                <Divider className="bg-neutral-800" />
                 <div className="mt-8">{children}</div>
               </Col>
             </Grid>

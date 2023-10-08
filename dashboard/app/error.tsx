@@ -29,7 +29,7 @@ export default function Error({
         <Title className="mt-4 text-neutral-100">
           An unexpected error occured
         </Title>
-        <Text className="mt-2">
+        <Text className="mt-2 text-neutral-400">
           We&apos;re extremely sorry. If the error persists after reloading,
           please contact support@paradedb.com.
         </Text>

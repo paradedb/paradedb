@@ -19,13 +19,16 @@ declare -A extensions=(
   [pg_repack]=${PG_REPACK_VERSION:-}
   [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
   [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
+  [pgfaceting]=${PGFACETING_VERSION:-}
   [pgtap]=${PGTAP_VERSION:-}
   [pgaudit]=${PGAUDIT_VERSION:-}
   [postgis]=${POSTGIS_VERSION:-}
   [pgrouting]=${PGROUTING_VERSION:-}
+  [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
   [http]=${PGSQL_HTTP_VERSION:-}
   [hypopg]=${HYPOPG_VERSION:-}
   [rum]=${RUM_VERSION:-}
+  [age]=${AGE_VERSION:-}
 )
 
 # List of extensions that must be added to shared_preload_libraries

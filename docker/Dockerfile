@@ -21,6 +21,8 @@ ARG PG_JSONSCHEMA_VERSION
 ARG PG_REPACK_VERSION
 ARG PG_STAT_MONITOR_VERSION
 ARG PG_HINT_PLAN_VERSION
+ARG PG_ROARINGBITMAP_VERSION
+ARG PGFACETING_VERSION
 ARG PGML_VERSION
 ARG PGTAP_VERSION
 ARG PGVECTOR_VERSION
@@ -30,6 +32,7 @@ ARG PGROUTING_VERSION
 ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
+ARG AGE_VERSION
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
@@ -44,6 +47,8 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_REPACK_VERSION=${PG_REPACK_VERSION} \
     PG_STAT_MONITOR_VERSION=${PG_STAT_MONITOR_VERSION} \
     PG_HINT_PLAN_VERSION=${PG_HINT_PLAN_VERSION} \
+    PG_ROARINGBITMAP_VERSION=${PG_ROARINGBITMAP_VERSION} \
+    PGFACETING_VERSION=${PGFACETING_VERSION} \
     PGML_VERSION=${PGML_VERSION} \
     PGTAP_VERSION=${PGTAP_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
@@ -53,6 +58,7 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PGSQL_HTTP_VERSION=${PGSQL_HTTP_VERSION} \
     HYPOPG_VERSION=${HYPOPG_VERSION} \
     RUM_VERSION=${RUM_VERSION} \
+    AGE_VERSION=${AGE_VERSION} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
@@ -103,6 +109,11 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     pkg-config \
     liblz4-dev \
     libcurl4-openssl-dev \
+    # pgml & AGE
+    bison \
+    flex \
+    # pgml & pg_repack
+    libreadline-dev \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
@@ -133,10 +144,6 @@ RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION
 FROM builder as builder-pgml
 
 RUN apt-get update && apt-fast install -y --no-install-recommends \
-    libssl-dev \
-    bison \
-    flex \
-    libreadline-dev \
     libz-dev \
     tzdata \
     libpq-dev \
@@ -184,8 +191,6 @@ ENV USE_PGXS=1
 RUN apt-get update && apt-fast install -y --no-install-recommends \
     # rum requirements
     systemtap-sdt-dev \
-    # pg_repack requirements
-    libreadline-dev \
     # pgaudit requirements
     libkrb5-dev \
     # postgis requirements
@@ -201,6 +206,8 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libtool \
     xsltproc \
     protobuf-c-compiler \
+    # AGE
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/install_pg_extensions.sh /usr/local/bin/
@@ -216,12 +223,15 @@ RUN /usr/local/bin/install_pg_extensions.sh \
     "pg_repack,${PG_REPACK_VERSION},https://github.com/reorg/pg_repack/archive/refs/tags/${PG_REPACK_VERSION}.tar.gz" \
     "pg_stat_monitor,${PG_STAT_MONITOR_VERSION},https://github.com/percona/pg_stat_monitor/archive/refs/tags/${PG_STAT_MONITOR_VERSION}.tar.gz" \
     "pg_hint_plan,${PG_HINT_PLAN_VERSION},https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/${PG_HINT_PLAN_VERSION}.tar.gz" \
+    "pg_roaringbitmap,${PG_ROARINGBITMAP_VERSION},https://github.com/ChenHuajun/pg_roaringbitmap/archive/refs/tags/v${PG_ROARINGBITMAP_VERSION}.tar.gz" \
+    "pgfaceting,${PGFACETING_VERSION},https://github.com/cybertec-postgresql/pgfaceting/archive/refs/tags/v${PGFACETING_VERSION}.tar.gz" \
     "pgtap,${PGTAP_VERSION},https://github.com/theory/pgtap/archive/refs/tags/v${PGTAP_VERSION}.tar.gz" \
     "postgis,${POSTGIS_VERSION},https://github.com/postgis/postgis/archive/refs/tags/${POSTGIS_VERSION}.tar.gz" \
     "pgrouting,${PGROUTING_VERSION},https://github.com/pgRouting/pgrouting/archive/refs/tags/v${PGROUTING_VERSION}.tar.gz" \
     "pgsql-http,${PGSQL_HTTP_VERSION},https://github.com/pramsey/pgsql-http/archive/refs/tags/v${PGSQL_HTTP_VERSION}.tar.gz" \
     "hypopg,${HYPOPG_VERSION},https://github.com/HypoPG/hypopg/archive/refs/tags/${HYPOPG_VERSION}.tar.gz" \
-    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz"
+    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz" \
+    "age,${AGE_VERSION},https://github.com/apache/age/archive/refs/tags/PG${PG_VERSION_MAJOR}/v${AGE_VERSION}.tar.gz"
 
 # Install pre-compiled extensions
 RUN curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \
@@ -280,4 +290,5 @@ COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_M
 # initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
+# Postgres user for Crunchy operator
 USER 999

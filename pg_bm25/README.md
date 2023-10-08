@@ -78,8 +78,7 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_bm25;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25`
-until the Postgres service explicitly supports it.
+If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
 
 ## Usage
 

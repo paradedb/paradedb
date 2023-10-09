@@ -66,15 +66,22 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""
   echo "Running benchmarking suite on table with $SIZE rows..."
   TABLE_NAME="wikipedia_articles_$SIZE"
+  INDEX_NAME="search_index_$SIZE"
 
   # Create temporary table with limit
   echo "-- Creating temporary table with $SIZE rows..."
   db_query "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
   db_query "ALTER TABLE $TABLE_NAME ADD COLUMN search_vector tsvector;"
 
+  # Time vector creation
+  echo "-- Timing vector creation..."
+  start_time=$( (time db_query "UPDATE $TABLE_NAME SET search_vector = to_tsvector('english', title) || to_tsvector('english', body);" > /dev/null) 2>&1 )
+  vector_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
+  echo "Vector creation took $vector_time seconds"
+
   # Time indexing
   echo "-- Timing indexing..."
-  start_time=$( (time db_query "UPDATE $TABLE_NAME SET search_vector = to_tsvector('english', title) || to_tsvector('english', body);" > /dev/null) 2>&1 )
+  start_time=$( (time db_query "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING gin(search_vector);" > /dev/null) 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search

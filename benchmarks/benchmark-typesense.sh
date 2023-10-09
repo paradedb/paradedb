@@ -62,19 +62,22 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""
   echo "Running benchmarking suite on index with $SIZE documents..."
 
-  # Create Typesense collection
-  echo "-- Creating Typesense collection..."
-  curl "http://localhost:$PORT/collections" \
-    -X POST \
-    -H "Content-Type: application/json" \
-    -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" -d '{
-      "name": "wikipedia_articles",
-      "fields": [
-        {"name": "title", "type": "string"},
-        {"name": "body", "type": "string"},
-        {"name": "url", "type": "string"}
-      ]
-  }'
+  # Create Typesense collection (only if it doesn't exist)
+  COLLECTION_EXISTS=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:$PORT/collections/wikipedia_articles")
+  if [ "$COLLECTION_EXISTS" -ne "200" ]; then
+    echo "-- Creating Typesense collection..."
+    curl "http://localhost:$PORT/collections" \
+      -X POST \
+      -H "Content-Type: application/json" \
+      -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" -d '{
+        "name": "wikipedia_articles",
+        "fields": [
+          {"name": "title", "type": "string"},
+          {"name": "body", "type": "string"},
+          {"name": "url", "type": "string"}
+        ]
+    }'
+  fi
 
   # Prepare data to be indexed by Typesense
   echo ""
@@ -82,10 +85,10 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   data_filename="${SIZE}_ts.json"
   head -n "$SIZE" "$WIKI_ARTICLES_FILE" > "$data_filename"
 
-  # Time indexing
+  # Time indexing using bulk import
   echo "-- Loading data of size $SIZE into wikipedia_articles index..."
   echo "-- Timing indexing..."
-  start_time=$( (time curl "http://localhost:$PORT/collections/wikipedia_articles/documents/import" -X POST -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" --data-binary @"$data_filename") 2>&1 )
+  start_time=$( (time curl "http://localhost:$PORT/collections/wikipedia_articles/documents/import?batch_size=500" -X POST -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" --data-binary @"$data_filename") )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
@@ -99,10 +102,9 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   # Record times to CSV
   echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
 
-  # Cleanup: delete the index and temporary data file
+  # Cleanup: delete the temporary data file
   echo "-- Cleaning up..."
   rm "$data_filename"
-  curl -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" -X DELETE "http://localhost:8108/collections/wikipedia_articles"
   echo ""
   echo "Done!"
 done

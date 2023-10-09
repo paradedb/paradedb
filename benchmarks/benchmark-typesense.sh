@@ -40,7 +40,7 @@ docker run \
   -d \
   --name typesense \
   -p $PORT:8108 \
-  -v$TYPESENSE_DATA:/data "typesense/typesense:$TS_VERSION" \
+  -v"$TYPESENSE_DATA:/data" "typesense/typesense:$TS_VERSION" \
   --data-dir /data \
   --api-key=$TYPESENSE_API_KEY \
   --enable-cors
@@ -78,7 +78,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   # Prepare data to be indexed by Typesense
   echo "-- Preparing data to be consumed by Typesense..."
   data_filename="${SIZE}_ts.json"
-  head -n "$SIZE" "$WIKI_ARTICLES_FILE" > $data_filename
+  head -n "$SIZE" "$WIKI_ARTICLES_FILE" > "$data_filename"
 
   # Time indexing
   echo "-- Loading data of size $SIZE into wikipedia_articles index..."

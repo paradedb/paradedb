@@ -50,4 +50,4 @@ changes as well.
 ## Licensing
 
 By contributing to ParadeDB, you agree that your contributions will be licensed
-under the [Elastic License 2.0](LICENSE).
+under the [GNU Affero General Public License v3.0](LICENSE).

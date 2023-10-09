@@ -1,0 +1,25 @@
+---
+title: BM25 Scoring
+---
+
+## Overview
+
+BM25 scores measure how relevant a score is for a given query. Higher scores indicate higher relevance.
+
+## Basic Usage
+
+The `paradedb.rank_bm25` function creates a column that contains each row's BM25 score. It makes use of the
+hidden `ctid` Postgres system column to assign a score to every row.
+
+```sql
+SELECT *, paradedb.rank_bm25(ctid)
+FROM <table_name>
+WHERE <table_name> @@@ '<query>'
+```
+
+<ParamField body="table_name" required>
+  The name of the table.
+</ParamField>
+<ParamField body="query" required>
+  The query string.
+</ParamField>

@@ -1,0 +1,35 @@
+---
+title: Highlighting
+---
+
+## Overview
+
+Highlighting refers to the practice of visually emphasizing the portions of a document that match a user's
+search query, which aids users in quickly identifying the relevance of the search results to
+their inquiry. In ParadeDB, highlighted snippets of text are wrapped in `<b></b>` tags.
+
+## Basic Usage
+
+The `paradedb.highlight_bm25` function returns highlighted fragments of text that match your
+query. This function only works over text fields.
+
+```sql
+SELECT *, paradedb.highlight_bm25(ctid, '<column_name>')
+FROM <table_name>
+WHERE <table_name> @@@ '<query>'
+```
+
+<ParamField body="column_name" required>
+  The name of column to highlight the query against.
+</ParamField>
+<ParamField body="table_name" required>
+  The name of the table.
+</ParamField>
+<ParamField body="query" required>
+  The query string.
+</ParamField>
+
+## Options
+
+We are working on a release that will enable users to configure `max_num_chars`, or the maximum number
+of characters in a highlighted snippet of text.

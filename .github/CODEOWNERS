@@ -1,7 +1,7 @@
 # Order is important. The last matching pattern has the most precedence.
 
 /.github/                                                      @philippemnoel
-/conf/                                                         @philippemnoel
+/benchmarks/                                                   @philippemnoel @sardination
 /docker/                                                       @philippemnoel
 /docs/                                                         @rebasedming
 /pg_bm25/                                                      @rebasedming @mauaraujo

@@ -1,3 +1,4 @@
+#![allow(clippy::missing_safety_doc)] // because _PG_init is unsafe
 use pgrx::*;
 
 mod api;
@@ -6,11 +7,18 @@ mod json;
 mod manager;
 mod operator;
 mod parade_index;
+mod tokenizers;
 
 pgrx::pg_module_magic!();
 
 extension_sql_file!("../sql/_bootstrap.sql", bootstrap);
 extension_sql_file!("../sql/_bootstrap_quickstart.sql");
+
+// initializes option parsing
+#[pg_guard]
+pub unsafe extern "C" fn _PG_init() {
+    index_access::options::init();
+}
 
 /// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.

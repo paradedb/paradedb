@@ -3,7 +3,7 @@ name = "pg_search"
 description = "Hybrid search for PostgreSQL"
 version = "0.0.0"
 edition = "2021"
-license = "Elastic License 2.0"
+license = "AGPL-3.0"
 
 [lib]
 crate-type = ["cdylib"]
@@ -23,12 +23,3 @@ serde = "1.0.188"
 
 [dev-dependencies]
 pgrx-tests = "=0.9.8"
-
-[profile.dev]
-panic = "unwind"
-
-[profile.release]
-panic = "unwind"
-opt-level = 3
-lto = "fat"
-codegen-units = 1

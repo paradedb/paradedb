@@ -1,14 +1,17 @@
+ARG PG_VERSION_MAJOR
+
 ###############################################
 # First Stage: Base
 ###############################################
 
-FROM ubuntu:22.04 as base
+FROM postgres:${PG_VERSION_MAJOR}-bullseye as base
 
 # Declare all the build arguments and set them to
 # environment variables for use in build and runtime
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
 ARG PG_SEARCH_VERSION
+ARG PGNODEMX_VERSION
 ARG PG_CRON_VERSION
 ARG PG_NET_VERSION
 ARG PG_IVM_VERSION
@@ -18,6 +21,8 @@ ARG PG_JSONSCHEMA_VERSION
 ARG PG_REPACK_VERSION
 ARG PG_STAT_MONITOR_VERSION
 ARG PG_HINT_PLAN_VERSION
+ARG PG_ROARINGBITMAP_VERSION
+ARG PGFACETING_VERSION
 ARG PGML_VERSION
 ARG PGTAP_VERSION
 ARG PGVECTOR_VERSION
@@ -27,10 +32,12 @@ ARG PGROUTING_VERSION
 ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
+ARG AGE_VERSION
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
     PG_SEARCH_VERSION=${PG_SEARCH_VERSION} \
+    PGNODEMX_VERSION=${PGNODEMX_VERSION} \
     PG_CRON_VERSION=${PG_CRON_VERSION} \
     PG_NET_VERSION=${PG_NET_VERSION} \
     PG_IVM_VERSION=${PG_IVM_VERSION} \
@@ -40,6 +47,8 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_REPACK_VERSION=${PG_REPACK_VERSION} \
     PG_STAT_MONITOR_VERSION=${PG_STAT_MONITOR_VERSION} \
     PG_HINT_PLAN_VERSION=${PG_HINT_PLAN_VERSION} \
+    PG_ROARINGBITMAP_VERSION=${PG_ROARINGBITMAP_VERSION} \
+    PGFACETING_VERSION=${PGFACETING_VERSION} \
     PGML_VERSION=${PGML_VERSION} \
     PGTAP_VERSION=${PGTAP_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
@@ -49,13 +58,11 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PGSQL_HTTP_VERSION=${PGSQL_HTTP_VERSION} \
     HYPOPG_VERSION=${HYPOPG_VERSION} \
     RUM_VERSION=${RUM_VERSION} \
+    AGE_VERSION=${AGE_VERSION} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-# Create postgres user with uid
-RUN mkdir -p /var/lib/postgresql && useradd -u 1001 -o -m -d /var/lib/postgresql postgres
 
 # Install common dependencies to builder and runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -67,9 +74,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
     ca-certificates \
     python3.10 \
+    libssl-dev \
+    python3-dev \
     python3-pip \
-    libpython3.10-dev \
-    python3.10-dev \
     libopenblas-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -81,7 +88,6 @@ RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
 
 RUN apt-get update && apt-fast install -y --no-install-recommends \
-    postgresql-${PG_VERSION_MAJOR} \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
@@ -101,7 +107,13 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     git \
     cmake \
     pkg-config \
+    liblz4-dev \
     libcurl4-openssl-dev \
+    # pgml & AGE
+    bison \
+    flex \
+    # pgml & pg_repack
+    libreadline-dev \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
@@ -132,17 +144,13 @@ RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION
 FROM builder as builder-pgml
 
 RUN apt-get update && apt-fast install -y --no-install-recommends \
-    libssl-dev \
-    bison \
-    flex \
-    libreadline-dev \
     libz-dev \
     tzdata \
     libpq-dev \
     libclang-dev \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --branch "v${PGML_VERSION}" "https://github.com/postgresml/postgresml" /tmp/postgresml
+RUN git clone --branch "v${PGML_VERSION}" "https://github.com/paradedb/postgresml" /tmp/postgresml
 
 WORKDIR /tmp/postgresml/pgml-extension
 
@@ -183,8 +191,6 @@ ENV USE_PGXS=1
 RUN apt-get update && apt-fast install -y --no-install-recommends \
     # rum requirements
     systemtap-sdt-dev \
-    # pg_repack requirements
-    libreadline-dev \
     # pgaudit requirements
     libkrb5-dev \
     # postgis requirements
@@ -200,6 +206,8 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libtool \
     xsltproc \
     protobuf-c-compiler \
+    # AGE
+    zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY scripts/install_pg_extensions.sh /usr/local/bin/
@@ -208,18 +216,22 @@ COPY scripts/install_pg_extensions.sh /usr/local/bin/
 RUN /usr/local/bin/install_pg_extensions.sh \
     "pgvector,${PGVECTOR_VERSION},https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz" \
     "pgaudit,${PGAUDIT_VERSION},https://github.com/pgaudit/pgaudit/archive/refs/tags/${PGAUDIT_VERSION}.tar.gz" \
+    "pgnodemx,${PGNODEMX_VERSION},https://github.com/crunchydata/pgnodemx/archive/refs/tags/${PGNODEMX_VERSION}.tar.gz" \
     "pg_cron,${PG_CRON_VERSION},https://github.com/citusdata/pg_cron/archive/refs/tags/v${PG_CRON_VERSION}.tar.gz" \
     "pg_ivm,${PG_IVM_VERSION},https://github.com/sraoss/pg_ivm/archive/refs/tags/v${PG_IVM_VERSION}.tar.gz" \
     "pg_hashids,${PG_HASHIDS_VERSION},https://github.com/iCyberon/pg_hashids/archive/refs/tags/v${PG_HASHIDS_VERSION}.tar.gz" \
     "pg_repack,${PG_REPACK_VERSION},https://github.com/reorg/pg_repack/archive/refs/tags/${PG_REPACK_VERSION}.tar.gz" \
     "pg_stat_monitor,${PG_STAT_MONITOR_VERSION},https://github.com/percona/pg_stat_monitor/archive/refs/tags/${PG_STAT_MONITOR_VERSION}.tar.gz" \
     "pg_hint_plan,${PG_HINT_PLAN_VERSION},https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/${PG_HINT_PLAN_VERSION}.tar.gz" \
+    "pg_roaringbitmap,${PG_ROARINGBITMAP_VERSION},https://github.com/ChenHuajun/pg_roaringbitmap/archive/refs/tags/v${PG_ROARINGBITMAP_VERSION}.tar.gz" \
+    "pgfaceting,${PGFACETING_VERSION},https://github.com/cybertec-postgresql/pgfaceting/archive/refs/tags/v${PGFACETING_VERSION}.tar.gz" \
     "pgtap,${PGTAP_VERSION},https://github.com/theory/pgtap/archive/refs/tags/v${PGTAP_VERSION}.tar.gz" \
     "postgis,${POSTGIS_VERSION},https://github.com/postgis/postgis/archive/refs/tags/${POSTGIS_VERSION}.tar.gz" \
     "pgrouting,${PGROUTING_VERSION},https://github.com/pgRouting/pgrouting/archive/refs/tags/v${PGROUTING_VERSION}.tar.gz" \
     "pgsql-http,${PGSQL_HTTP_VERSION},https://github.com/pramsey/pgsql-http/archive/refs/tags/v${PGSQL_HTTP_VERSION}.tar.gz" \
     "hypopg,${HYPOPG_VERSION},https://github.com/HypoPG/hypopg/archive/refs/tags/${HYPOPG_VERSION}.tar.gz" \
-    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz"
+    "rum,${RUM_VERSION},https://github.com/postgrespro/rum/archive/refs/tags/${RUM_VERSION}.tar.gz" \
+    "age,${AGE_VERSION},https://github.com/apache/age/archive/refs/tags/PG${PG_VERSION_MAJOR}/v${AGE_VERSION}.tar.gz"
 
 # Install pre-compiled extensions
 RUN curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \
@@ -246,6 +258,7 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libprotobuf-c1 \
     # Crunchy operator
     libnss-wrapper \
+    pgbackrest \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
     # pgml
     pip3 install --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
@@ -254,6 +267,7 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     # Crunchy operator
     # Only need to copy on x84_64, since the lib is already in the right place on arm64
     if [ "$TARGETARCH" = "amd64" ]; then \
+        mkdir -p /usr/lib64 && \
         cp /usr/lib/x86_64-linux-gnu/libnss_wrapper.so /usr/lib64/; \
     fi
 
@@ -272,19 +286,9 @@ COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VER
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 
-# Copy the database initialization scripts into the container
-COPY ./conf/postgresql.conf /conf/pg_hba.conf ./conf/pg_ident.conf /etc/postgresql/${PG_VERSION_MAJOR}/main/
+# Copy entrypoint script, which will be handled by the official image
+# initialization scipt
+COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
-# Copy the entrypoint script into the container
-COPY ./scripts/entrypoint.sh /usr/src/app
-
-# Add postgres binaries to path
-ENV PATH="${PATH}:/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin"
-
-# Create the postgres user and change to it
-USER 1001
-
-# Expose the PostgreSQL
-EXPOSE 5432
-
-ENTRYPOINT ["/usr/src/app/entrypoint.sh"]
+# Postgres user for Crunchy operator
+USER 999

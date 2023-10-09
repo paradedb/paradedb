@@ -11,27 +11,38 @@ select pg_reload_conf();
 SELECT *
 FROM bm25_search
 WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2';
- id |         description         | rating |  category   |  col_text   | col_varchar | col_smallint | col_bigint | col_integer | col_oid | col_float4 | col_float8 | col_numeric | col_decimal | col_real | col_double | col_bool |     col_json     |    col_jsonb     
-----+-----------------------------+--------+-------------+-------------+-------------+--------------+------------+-------------+---------+------------+------------+-------------+-------------+----------+------------+----------+------------------+------------------
-  2 | Plastic Keyboard            |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
-  1 | Ergonomic metal keyboard    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
- 12 | Innovative wireless earbuds |      5 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
- 22 | Fast charging power bank    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
- 32 | Bluetooth-enabled speaker   |      3 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ id |         description         | rating |  category   | in_stock |                     metadata                     
+----+-----------------------------+--------+-------------+----------+--------------------------------------------------
+  2 | Plastic Keyboard            |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}
+  1 | Ergonomic metal keyboard    |      4 | Electronics | t        | {"color": "Silver", "location": "United States"}
+ 12 | Innovative wireless earbuds |      5 | Electronics | t        | {"color": "Black", "location": "China"}
+ 22 | Fast charging power bank    |      4 | Electronics | t        | {"color": "Black", "location": "United States"}
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | t        | {"color": "Black", "location": "Canada"}
 (5 rows)
 
 -- With BM25 scoring
 SELECT paradedb.rank_bm25(ctid), * 
 FROM bm25_search 
 WHERE bm25_search @@@ 'category:electronics OR description:keyboard';
- rank_bm25 | id |         description         | rating |  category   |  col_text   | col_varchar | col_smallint | col_bigint | col_integer | col_oid | col_float4 | col_float8 | col_numeric | col_decimal | col_real | col_double | col_bool |     col_json     |    col_jsonb     
------------+----+-----------------------------+--------+-------------+-------------+-------------+--------------+------------+-------------+---------+------------+------------+-------------+-------------+----------+------------+----------+------------------+------------------
-    5.3765 |  2 | Plastic Keyboard            |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
-   4.93101 |  1 | Ergonomic metal keyboard    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
-   2.10964 | 12 | Innovative wireless earbuds |      5 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
-   2.10964 | 22 | Fast charging power bank    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
-   2.10964 | 32 | Bluetooth-enabled speaker   |      3 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ rank_bm25 | id |         description         | rating |  category   | in_stock |                     metadata                     
+-----------+----+-----------------------------+--------+-------------+----------+--------------------------------------------------
+    5.3765 |  2 | Plastic Keyboard            |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}
+   4.93101 |  1 | Ergonomic metal keyboard    |      4 | Electronics | t        | {"color": "Silver", "location": "United States"}
+   2.10964 | 12 | Innovative wireless earbuds |      5 | Electronics | t        | {"color": "Black", "location": "China"}
+   2.10964 | 22 | Fast charging power bank    |      4 | Electronics | t        | {"color": "Black", "location": "United States"}
+   2.10964 | 32 | Bluetooth-enabled speaker   |      3 | Electronics | t        | {"color": "Black", "location": "Canada"}
 (5 rows)
+
+-- Test JSON search 
+SELECT *
+FROM bm25_search
+WHERE bm25_search @@@ 'metadata.color:white';
+ id |     description      | rating | category | in_stock |                    metadata                     
+----+----------------------+--------+----------+----------+-------------------------------------------------
+  4 | White jogging shoes  |      3 | Footwear | f        | {"color": "White", "location": "United States"}
+ 15 | Refreshing face wash |      2 | Beauty   | f        | {"color": "White", "location": "China"}
+ 25 | Anti-aging serum     |      4 | Beauty   | t        | {"color": "White", "location": "United States"}
+(3 rows)
 
 -- Test real-time search
 INSERT INTO bm25_search (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
@@ -40,22 +51,30 @@ UPDATE bm25_search SET description = 'PVC Keyboard' WHERE id = 2;
 SELECT *
 FROM bm25_search
 WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2';
- id |         description         | rating |  category   |  col_text   | col_varchar | col_smallint | col_bigint | col_integer | col_oid | col_float4 | col_float8 | col_numeric | col_decimal | col_real | col_double | col_bool |     col_json     |    col_jsonb     
-----+-----------------------------+--------+-------------+-------------+-------------+--------------+------------+-------------+---------+------------+------------+-------------+-------------+----------+------------+----------+------------------+------------------
-    | New keyboard                |      5 | Electronics |             |             |              |            |             |         |            |            |             |             |          |            |          |                  | 
-  2 | PVC Keyboard                |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
- 12 | Innovative wireless earbuds |      5 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
- 22 | Fast charging power bank    |      4 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
- 32 | Bluetooth-enabled speaker   |      3 | Electronics | Sample text | Sample text |           10 |    1000000 |         100 |       1 |       10.5 |     100.55 |       99.99 |       88.88 |    77.77 |      66.66 | t        | {"key": "value"} | {"key": "value"}
+ id |         description         | rating |  category   | in_stock |                    metadata                     
+----+-----------------------------+--------+-------------+----------+-------------------------------------------------
+    | New keyboard                |      5 | Electronics |          | 
+  2 | PVC Keyboard                |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}
+ 12 | Innovative wireless earbuds |      5 | Electronics | t        | {"color": "Black", "location": "China"}
+ 22 | Fast charging power bank    |      4 | Electronics | t        | {"color": "Black", "location": "United States"}
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | t        | {"color": "Black", "location": "Canada"}
 (5 rows)
 
 -- Test search in another namespace/schema
 SELECT *
 FROM paradedb.mock_items
 WHERE mock_items @@@ 'description:keyboard';
- id |       description        | rating |  category   
-----+--------------------------+--------+-------------
-  2 | Plastic Keyboard         |      4 | Electronics
-  1 | Ergonomic metal keyboard |      4 | Electronics
+ id |       description        | rating |  category   | in_stock |                     metadata                     
+----+--------------------------+--------+-------------+----------+--------------------------------------------------
+  2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"}
 (2 rows)
+
+-- Test search with default tokenizer: no results
+SELECT *
+FROM paradedb.mock_items
+WHERE mock_items @@@ 'description:earbud';
+ id | description | rating | category | in_stock | metadata 
+----+-------------+--------+----------+----------+----------
+(0 rows)
 

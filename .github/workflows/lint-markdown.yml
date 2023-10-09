@@ -30,7 +30,10 @@ jobs:
         uses: actions/setup-node@v3
 
       - name: Install Prettier
-        run: npm install -g prettier
+        run: npm install -g prettier markdownlint-cli
 
-      - name: Check if Markdown files are Formatted
+      - name: Run Markdown Lint
+        run: markdownlint '**/*.md'
+
+      - name: Run Pettier
         run: prettier --check '{**/**.md,**/**.mdx}'

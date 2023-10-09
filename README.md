@@ -28,7 +28,7 @@ vector database on top.
 ## Key Benefits
 
 - ⚡ **Speed**: ParadeDB is built in Rust on top of PostgreSQL and Tantivy,
-  a Rust-based implementation of Apache Lucene.
+  a Rust-based implementation of Apache Lucene. See our benchmarks [here](../benchmarks/README.md).
 
 - 🌿 **Simplicity**: Consolidate your database and search engine
   into a single system, so you don't need to worry about keeping separate services
@@ -37,30 +37,29 @@ vector database on top.
 - 🐘 **SQL First**: Write search queries in SQL with ACID transactions.
 
 - 🚀 **Scalability**: Scale to millions of rows with support for distributed
-  search, high availability, backups, and point-in-time-recovery (coming soon!).
+  search, high availability, backups, and point-in-time-recovery.
 
 ## Status
 
-ParadeDB is still under active development and is not yet ready to use
-in production. We're aiming to be ready by the end of September 2023.
+ParadeDB is still under active development and should be used in production with caution. We're aiming to be fully stable by the end of October 2023.
 
-We are currently in Private Alpha. Star & watch this repo to get notified of
+We are currently in Private Beta. Star & watch this repo to get notified of
 major updates.
 
 ### Roadmap
 
 - [ ] Search
-  - [x] Full-text search with BM25
-  - [ ] Faceted search
-  - [x] Similarity search
-  - [x] Hybrid search
-  - [ ] Distributed search
+  - [x] Full-text search with BM25 with [pg_bm25](https://github.com/paradedb/paradedb/tree/dev/pg_bm25#overview)
+  - [x] Similarity search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
+  - [x] Hybrid search with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [x] Real-time search
+  - [ ] Faceted search
+  - [ ] Distributed search
   - [ ] Generative search
   - [ ] Multimodal search
-- [ ] Self-hosting
-  - [x] Docker image & instructions (Instructions coming soon!)
-  - [ ] Kubernetes Helm chart & instructions
+- [x] Self-hosting
+  - [x] Docker image & [deployment instructions](https://docs.paradedb.com/deploy/aws)
+  - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [ ] Cloud Database
   - [ ] Managed cloud
   - [ ] Self-serve cloud
@@ -85,6 +84,7 @@ docker run \
   -e POSTGRES_PASSWORD=<password> \
   -e POSTGRES_DB=<dbname> \
   -p 5432:5432 \
+  -d \
   paradedb/paradedb:latest
 ```
 
@@ -97,11 +97,11 @@ psql -h <hostname> -U <user> -d <dbname> -p 5432 -W
 
 To install the ParadeDB extension(s) manually within an existing self-hosted Postgres,
 see the extension(s)' README. We strongly recommend using the ParadeDB Docker image,
-which is optimized for running search in Postgres. If you're self-hosting Postgres
-and are interested in ParadeDB, please [contact the ParadeDB team](mailto:hello@paradedb.com)
-and we'll be happy to help!
+which is optimized for running search in Postgres.
 
-## Get Started
+If you are self-hosting Postgres and are interested in ParadeDB, please [contact the ParadeDB team](mailto:hello@paradedb.com) and we'll be happy to help!
+
+## Getting Started
 
 To get started using ParadeDB, please follow the [quickstart guide](https://docs.paradedb.com/quickstart)!
 
@@ -116,21 +116,16 @@ If you're missing a feature or have found a bug, please open a
 
 To get community support, you can:
 
-- Post a question on the [ParadeDB Slack Community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)
+- Post a question in the [ParadeDB Slack Community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)
 - Ask for help on our [GitHub Discussions](https://github.com/paradedb/paradedb/discussions)
 
-If you need commercial support, please [contact](mailto:sales@paradedb.com) the
-ParadeDB team.
+If you need commercial support, please [contact the ParadeDB team](mailto:sales@paradedb.com).
 
 ## Contributing
 
 We welcome community contributions, big or small, and are here to guide you along
 the way. To get started contributing, check our [first timer issues](https://github.com/paradedb/paradedb/labels/good%20first%20issue)
-or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
-Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
-
-If you're missing a feature or have found a problem with ParadeDB, please open a
-[GitHub issue](https://github.com/paradedb/paradedb/issues/new/choose).
+or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ). Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
 
 For more information on how to contribute, please see our
 [Contributing Guide](CONTRIBUTING.md).
@@ -138,11 +133,8 @@ For more information on how to contribute, please see our
 This project is released with a [Contributor Code of Conduct](https://github.com/paradedb/paradedb/blob/stable/CODE_OF_CONDUCT.md).
 By participating in this project, you agree to follow its terms.
 
-Thank you for helping us make ParadeDB better for everyone :heart:
+Thank you for helping us make ParadeDB better for everyone :heart:.
 
 ## License
 
-ParadeDB is licensed under the [Elastic License 2.0](LICENSE). Our goal with
-choosing ELv2 is to enable our users to use and contribute to ParadeDB freely,
-while enabling us to continue investing in our community, project and product. If
-you have any questions regarding licensing, please [contact us](mailto:hello@paradedb.com).
+ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE).

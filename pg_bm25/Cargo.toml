@@ -3,7 +3,7 @@ name = "pg_bm25"
 description = "Full text search for PostgreSQL using BM25"
 version = "0.0.0"
 edition = "2021"
-license = "Elastic License 2.0"
+license = "AGPL-3.0"
 
 [lib]
 crate-type = ["cdylib"]
@@ -19,21 +19,14 @@ pg_test = []
 
 [dependencies]
 csv = "1.2.2"
+memoffset = "0.9.0"
 pgrx = "=0.9.8"
 rustc-hash = "1.1.0"
 serde = "1.0.188"
 serde_json = "1.0.105"
 serde_qs = "0.12.0"
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "paradedb-tantivy" }
+utoipa = "3.5.0"
 
 [dev-dependencies]
 pgrx-tests = "=0.9.8"
-
-[profile.dev]
-panic = "unwind"
-
-[profile.release]
-panic = "unwind"
-opt-level = 3
-lto = "fat"
-codegen-units = 1

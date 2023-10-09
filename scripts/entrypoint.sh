@@ -3,16 +3,13 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# Determine the PostgreSQL major version
-POSTGRES_VERSION_FULL=$(pg_config --version)
-POSTGRES_VERSION_MAJOR=$(echo "$POSTGRES_VERSION_FULL" | awk '{print $2}' | cut -d '.' -f1)
-
 # List of extensions to possibly install (if a version variable is set)
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
   [pgml]=${PGML_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
   [pg_search]=${PG_SEARCH_VERSION:-}
+  [pgnodemx]=${PGNODEMX_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
   [pg_net]=${PG_NET_VERSION:-}
   [pg_ivm]=${PG_IVM_VERSION:-}
@@ -22,18 +19,22 @@ declare -A extensions=(
   [pg_repack]=${PG_REPACK_VERSION:-}
   [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
   [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
+  [pgfaceting]=${PGFACETING_VERSION:-}
   [pgtap]=${PGTAP_VERSION:-}
   [pgaudit]=${PGAUDIT_VERSION:-}
   [postgis]=${POSTGIS_VERSION:-}
   [pgrouting]=${PGROUTING_VERSION:-}
+  [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
   [http]=${PGSQL_HTTP_VERSION:-}
   [hypopg]=${HYPOPG_VERSION:-}
   [rum]=${RUM_VERSION:-}
+  [age]=${AGE_VERSION:-}
 )
 
 # List of extensions that must be added to shared_preload_libraries
 declare -A preload_names=(
   [pgml]=pgml
+  [pgnodemx]=pgnodemx
   [pg_cron]=pg_cron
   [pg_net]=pg_net
   [pgaudit]=pgaudit
@@ -52,16 +53,31 @@ done
 shared_preload_list=${shared_preload_list%,}
 
 # Update the PostgreSQL configuration
-sed -i "s/^cron\.database_name = .*/cron\.database_name = '$POSTGRES_DB'/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
-sed -i "s/^shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "/etc/postgresql/${POSTGRES_VERSION_MAJOR}/main/postgresql.conf"
-
-# Start the PostgreSQL server
-service postgresql start
+echo "pg_net.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
+echo "cron.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
+sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
 
 # Setup users
-createuser root --superuser --login
-psql -c "CREATE ROLE $POSTGRES_USER PASSWORD '$POSTGRES_PASSWORD' SUPERUSER LOGIN"
-createdb "$POSTGRES_DB" --owner "$POSTGRES_USER"
+ROOT_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'")
+POSTGRES_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='postgres'")
+
+if [ -z "$ROOT_ROLE_EXISTS" ]; then
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+	CREATE USER root;
+	CREATE DATABASE root;
+	GRANT ALL PRIVILEGES ON DATABASE root TO root;
+EOSQL
+fi
+
+if [ -z "$POSTGRES_ROLE_EXISTS" ]; then
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+  CREATE ROLE postgres WITH SUPERUSER CREATEDB CREATEROLE LOGIN;
+EOSQL
+fi
+
+# We need to restart the server for the changes above
+# to be reflected
+pg_ctl restart
 
 echo "PostgreSQL is up - installing extensions..."
 
@@ -69,14 +85,9 @@ echo "PostgreSQL is up - installing extensions..."
 for extension in "${!extensions[@]}"; do
   version=${extensions[$extension]}
   if [ -n "$version" ]; then
-    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" -h 127.0.0.1 -p 5432 || echo "Failed to install extension $extension"
+    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done
 
-echo "PostgreSQL extensions installed - tailing server..."
-
-# Trap SIGINT and SIGTERM signals, stop PostgreSQL, and gracefully shut down
-trap "service postgresql stop; echo 'PostgreSQL server has stopped - exiting...'; exit 0" SIGINT SIGTERM
-
-# Keep the container running
-tail -f /dev/null
+echo "PostgreSQL extensions installed - initialization completed!"
+echo "ParadeDB is ready for connections!"

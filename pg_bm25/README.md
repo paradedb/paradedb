@@ -4,7 +4,6 @@
 </h1>
 
 [![Testing](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml)
-[![codecov](https://codecov.io/gh/getretake/paradedb/graph/badge.svg?token=PHV8CAMHNQ)](https://codecov.io/gh/getretake/paradedb)
 
 ## Overview
 
@@ -15,23 +14,27 @@ Lucene, using `pgrx`.
 
 `pg_bm25` is supported on PostgreSQL 11+.
 
+Check out the `pg_bm25` benchmarks [here](../benchmarks/README.md).
+
 ### Roadmap
 
 - [x] BM25 scoring
 - [x] Highlighting
 - [x] Boosted queries
 - [x] Filtering
-- [x] JSON field search
-- [ ] Faceting/aggregations
-- [ ] Autocomplete
+- [x] Bucket and metrics aggregations
+- [x] Autocomplete
 - [x] Fuzzy search
-- [ ] Custom tokenizers
+- [x] Custom tokenizers
+- [x] JSON field search
+- [ ] Datetime aggregations
+- [ ] Facet fields
 
-## Usage
+## Installation
 
-### Installing
+### From ParadeDB
 
-The easiest way to test the extension is to run the ParadeDB Dockerfile:
+The easiest way to use the extension is to run the ParadeDB Dockerfile:
 
 ```bash
 docker run \
@@ -39,10 +42,45 @@ docker run \
   -e POSTGRES_PASSWORD=<password> \
   -e POSTGRES_DB=<dbname> \
   -p 5432:5432 \
+  -d \
   paradedb/paradedb:latest
 ```
 
 This will spin up a Postgres instance with `pg_bm25` preinstalled.
+
+### From Self-Hosted Postgres
+
+If you are self-hosting Postgres and would like to use the extension within your existing
+Postgres, follow these steps:
+
+1. Install Rust and cargo-pgrx:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install cargo-pgrx --version 0.9.8
+```
+
+2. Then, run:
+
+```bash
+# Clone the repo (optionally pick a specific version)
+git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
+
+# Install pg_bm25
+cd pg_bm25/
+cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
+cargo pgrx install
+```
+
+You can then create the extension in your database by running:
+
+```sql
+CREATE EXTENSION pg_bm25;
+```
+
+If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
+
+## Usage
 
 ### Indexing
 
@@ -53,7 +91,11 @@ To index a table, use the following SQL command:
 
 ```sql
 CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
-CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*));
+
+CREATE INDEX idx_mock_items
+ON mock_items
+USING bm25 ((mock_items.*))
+WITH (text_fields='{"description": {}, "category": {}}');
 ```
 
 Once the indexing is complete, you can run various search functions on it.
@@ -63,7 +105,7 @@ Once the indexing is complete, you can run various search functions on it.
 Execute a search query on your indexed table:
 
 ```sql
-SELECT *
+SELECT description, rating, category
 FROM mock_items
 WHERE mock_items @@@ 'description:keyboard OR category:electronics'
 LIMIT 5;
@@ -85,7 +127,7 @@ This will return:
 Scoring and highlighting are supported:
 
 ```sql
-SELECT *, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'description')
+SELECT description, rating, category, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'description')
 FROM mock_items
 WHERE mock_items @@@ 'description:keyboard OR category:electronics'
 LIMIT 5;
@@ -107,7 +149,7 @@ This will return:
 Scores can be tuned via boosted queries:
 
 ```sql
-SELECT *
+SELECT description, rating, category
 FROM mock_items
 WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics';
 ```
@@ -137,18 +179,7 @@ This will return:
 (5 rows)
 ```
 
-Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview
-of `pg_bm25`'s query support.
-
-## Benchmarks
-
-On a table with 1 million rows, `pg_bm25` indexes 50 seconds faster than `tsvector` and searches + ranks
-results 20x faster. Indexing and search times are nearly identical to those of a dedicated ElasticSearch
-instance.
-
-<img src="../docs/images/bm25_index_benchmark.png" alt="" width="100%">
-
-<img src="../docs/images/bm25_search_benchmark.png" alt="" width="100%">
+Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview of `pg_bm25`'s query support.
 
 ## Development
 
@@ -222,32 +253,6 @@ simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
 `/test/expected` for the expected output, and it will automatically get picked up
 by the test suite.
 
-## Installation
+## License
 
-If you are self-hosting Postgres and would like to use the extension within your existing
-Postgres, follow these steps:
-
-1. Install Rust and cargo-pgrx:
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install cargo-pgrx --version 0.9.8
-```
-
-2. Then, run:
-
-```bash
-# Clone the repo (optionally pick a specific version)
-git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
-
-# Install pg_bm25
-cd pg_bm25/
-cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
-cargo pgrx install
-```
-
-You can then create the extension in your database by running:
-
-```sql
-CREATE EXTENSION pg_bm25;
-```
+The `pg_bm25` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

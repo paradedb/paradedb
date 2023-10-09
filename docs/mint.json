@@ -49,8 +49,34 @@
           "pages": ["indexing/overview", "indexing/bm25", "indexing/hnsw"]
         },
         {
-          "group": "Search",
-          "pages": ["search/bm25", "search/hnsw", "search/hybrid"]
+          "group": "Full Text Search",
+          "pages": [
+            "search/bm25",
+            "search/scoring",
+            "search/highlighting",
+            "search/fuzzy",
+            "search/autocomplete"
+          ]
+        },
+        {
+          "group": "Similarity Search",
+          "pages": ["search/hnsw"]
+        },
+        {
+          "group": "Hybrid Search",
+          "pages": ["search/hybrid"]
+        },
+        {
+          "group": "Aggregations",
+          "pages": [
+            "aggregations/overview",
+            "aggregations/bucket",
+            "aggregations/metrics"
+          ]
+        },
+        {
+          "group": "Deployment",
+          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         }
       ]
     },

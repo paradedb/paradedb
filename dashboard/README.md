@@ -1,4 +1,4 @@
-## ParadeDB Dashboard
+# ParadeDB Dashboard
 
 This dashboard enables ParadeDB Cloud users to authenticate with, provision, and connect to their ParadeDB
 instances.
@@ -15,7 +15,7 @@ yarn install
 
 2. Create a file called `.env.local` and paste the following content:
 
-```
+```ini
 AUTH0_SECRET='use [openssl rand -hex 32] to generate a 32 bytes value'
 AUTH0_BASE_URL='http://localhost:3000'
 AUTH0_ISSUER_BASE_URL='https://paradedb-dev.us.auth0.com'

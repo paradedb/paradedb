@@ -1,7 +1,8 @@
 # workflows/benchmark-paradedb.yml
 #
 # ParadeDB: Benchmark
-# Benchmark ParadeDB on a nightly basis.
+# Benchmark ParadeDB's performance on a nightly basis. This workflow can also be triggered
+# manually to benchmark other systems on one-off basis, to compare against ParadeDB.
 
 name: Benchmarking
 
@@ -17,7 +18,7 @@ on:
         description: "Select the system to benchmark"
         default: "paradedb"
         type: choice
-        options: 
+        options:
           - paradedb
           - tsquery
           - elasticsearch
@@ -29,7 +30,7 @@ concurrency:
 
 jobs:
   benchmark-paradedb:
-    name: Benchmark ${{ github.event.inputs.name }}
+    name: Benchmark ParadeDB
     runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
 
     steps:

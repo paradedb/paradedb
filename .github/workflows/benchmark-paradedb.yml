@@ -37,10 +37,14 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Configure System to Benchmark
+        id: system
+        run: echo "system_to_benchmark=${{ github.event.inputs.name || 'paradedb' }}" >> $GITHUB_OUTPUT
+
       - name: Run Benchmarking Script
         working-directory: benchmarks/
-        run: ./benchmark-${{ github.event.inputs.name }}.sh
+        run: ./benchmark-${{ steps.system.outputs.system_to_benchmark }}.sh
 
       - name: Print Results
         working-directory: benchmarks/out/
-        run: cat benchmark_${{ github.event.inputs.name }}.csv
+        run: cat benchmark_${{ steps.system.outputs.system_to_benchmark }}.csv

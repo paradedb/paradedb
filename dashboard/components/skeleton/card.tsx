@@ -1,7 +1,5 @@
 "use client";
 
-import { Card as TremorCard } from "@/components/tremor";
-
 const Card = () => {
   return (
     <div className="space-y-4 divide-y rounded animate-pulse divide-neutral-700">

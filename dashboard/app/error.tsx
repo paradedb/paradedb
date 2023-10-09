@@ -1,21 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
 import { Title, Text, Icon, Flex } from "@tremor/react";
 import { ExclamationCircleIcon } from "@heroicons/react/outline";
+import { useIntercom } from "react-use-intercom";
 
 import { Card } from "@/components/tremor/card";
 
-export default function Error({
-  error,
-}: {
+const Error = ({}: {
   error: Error & { digest?: string };
   reset: () => void;
-}) {
-  useEffect(() => {
-    /* TODO: Log error to reporting service */
-    console.error(error);
-  }, [error]);
+}) => {
+  const { show } = useIntercom();
 
   return (
     <Card>
@@ -30,10 +25,18 @@ export default function Error({
           An unexpected error occured
         </Title>
         <Text className="mt-2 text-neutral-400">
-          We&apos;re extremely sorry. If the error persists after reloading,
-          please contact support@paradedb.com.
+          We&apos;re extremely sorry. Please{" "}
+          <span
+            onClick={show}
+            className="text-neutral-100 font-medium cursor-pointer underline"
+          >
+            notify our support team
+          </span>{" "}
+          amd we&apos;ll get this fixed.
         </Text>
       </Flex>
     </Card>
   );
-}
+};
+
+export default Error;

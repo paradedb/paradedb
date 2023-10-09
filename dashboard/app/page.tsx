@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import useSWR, { mutate } from "swr";
-
-import { Suspense } from "react";
+import { useEffect, useRef } from "react";
 import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
 import {
   Title,
@@ -24,6 +23,7 @@ import {
   DownloadIcon,
   EyeIcon,
 } from "@heroicons/react/outline";
+import { IntercomProvider } from "react-use-intercom";
 
 import { Card } from "@/components/tremor";
 import {
@@ -43,6 +43,8 @@ enum DeployStatus {
   PENDING = "pending",
   RUNNING = "running",
 }
+
+const POLLING_INTERVAL_MS = 2500;
 
 const fetcher = (uri: string) => fetch(uri).then((res) => res.json());
 
@@ -85,27 +87,52 @@ const GuideListItem = ({
 );
 
 const InstanceCard = () => {
-  const { data: creds } = useSWR(DATABASE_CREDENTIALS_URL, fetcher, {
-    suspense: true,
-  });
-  const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher, {
-    suspense: true,
-  });
+  const { data: creds } = useSWR(DATABASE_CREDENTIALS_URL, fetcher);
+  const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher);
 
   const deployStatus = status?.deploy_status;
 
+  const credsRef = useRef(creds);
+  const statusRef = useRef(deployStatus);
+
+  useEffect(() => {
+    credsRef.current = creds;
+    statusRef.current = deployStatus;
+  }, [creds, deployStatus]);
+
   const onCreateInstance = async () => {
-    while (!creds?.host) {
-      await mutate(DATABASE_CREDENTIALS_URL);
-      await mutate(DATABASE_STATUS_URL);
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+    while (true) {
+      const localCreds = credsRef.current;
+      const localDeployStatus = statusRef.current;
+
+      if (
+        localCreds?.host !== undefined &&
+        localDeployStatus === DeployStatus.RUNNING
+      ) {
+        break;
+      }
+
+      await Promise.all([
+        mutate(DATABASE_CREDENTIALS_URL),
+        mutate(DATABASE_STATUS_URL),
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
     }
   };
 
   const onDeleteInstance = async () => {
     while (true) {
-      await mutate(DATABASE_STATUS_URL);
-      await new Promise((resolve) => setTimeout(resolve, 5000));
+      const localCreds = credsRef.current;
+
+      if (localCreds?.status === 404) {
+        break;
+      }
+
+      await Promise.all([
+        mutate(DATABASE_CREDENTIALS_URL),
+        mutate(DATABASE_STATUS_URL),
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
     }
   };
 
@@ -175,37 +202,41 @@ const InstanceCard = () => {
 
 const Dashboard = () => {
   return (
-    <Suspense>
-      <Grid numItemsLg={5} className="gap-10 h-full">
-        <Col numColSpanLg={3} className="h-full">
-          <InstanceCard />
-        </Col>
-        <Col numColSpanLg={2} className="h-full">
-          <Card>
-            <Title className="text-neutral-100">Guides</Title>
-            <Divider className="bg-neutral-600" />
-            <List className="divide-neutral-700 space-y-2">
-              <GuideListItem
-                href={IMPORTING_DATA_URL}
-                name="Importing Data"
-                icon={<DownloadIcon className="w-4 text-indigo-400" />}
-              />
-              <GuideListItem
-                href={QUICKSTART_URL}
-                name="Quickstart"
-                icon={<LightningBoltIcon className="w-4 text-yellow-400" />}
-              />
-              <GuideListItem
-                href={SEARCH_BASICS_URL}
-                name="Search Basics"
-                icon={<EyeIcon className="w-4 text-emerald-400" />}
-              />
-            </List>
-          </Card>
-        </Col>
-      </Grid>
-    </Suspense>
+    <Grid numItemsLg={5} className="gap-10 h-full">
+      <Col numColSpanLg={3} className="h-full">
+        <InstanceCard />
+      </Col>
+      <Col numColSpanLg={2} className="h-full">
+        <Card>
+          <Title className="text-neutral-100">Guides</Title>
+          <Divider className="bg-neutral-600" />
+          <List className="divide-neutral-700 space-y-2">
+            <GuideListItem
+              href={IMPORTING_DATA_URL}
+              name="Importing Data"
+              icon={<DownloadIcon className="w-4 text-indigo-400" />}
+            />
+            <GuideListItem
+              href={QUICKSTART_URL}
+              name="Quickstart"
+              icon={<LightningBoltIcon className="w-4 text-yellow-400" />}
+            />
+            <GuideListItem
+              href={SEARCH_BASICS_URL}
+              name="Search Basics"
+              icon={<EyeIcon className="w-4 text-emerald-400" />}
+            />
+          </List>
+        </Card>
+      </Col>
+    </Grid>
   );
 };
 
-export default withPageAuthRequired(Dashboard);
+const DashboardWithIntercom = () => (
+  <IntercomProvider autoBoot appId={process.env.INTERCOM_APP_ID ?? ""}>
+    <Dashboard />
+  </IntercomProvider>
+);
+
+export default withPageAuthRequired(DashboardWithIntercom);

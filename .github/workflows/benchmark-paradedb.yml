@@ -34,6 +34,11 @@ jobs:
     runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
 
     steps:
+      - name: Tmp
+        run: |
+          cat /proc/cpuinfo
+          echo $RUNNER_OS
+
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 

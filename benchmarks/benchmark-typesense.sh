@@ -73,7 +73,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
         {"name": "body", "type": "string"},
         {"name": "url", "type": "string"}
       ]
-    }'
+  }'
 
   # Prepare data to be indexed by Typesense
   echo "-- Preparing data to be consumed by Typesense..."

@@ -6,8 +6,8 @@
 name: Benchmarking
 
 on:
-#   schedule:
-#     - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
+  #   schedule:
+  #     - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
   push:
     branches:
       - suriya/benchmark-plus # TODO: Remove once testing is done
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   benchmark-paradedb:
-    name: Benchmark ParadeDB (Nightly)
+    name: Benchmark ParadeDB
     runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
 
     steps:

@@ -35,8 +35,6 @@ echo "*******************************************************"
 echo ""
 
 # Download and run docker container for Typesense
-
-
 echo "Creating Typesense $TS_VERSION node..."
 docker run \
   -d \
@@ -57,7 +55,8 @@ echo "Done!"
 echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 
 # Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset
-TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 2000000 3000000 4000000 5000000)
+# TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 2000000 3000000 4000000 5000000)
+TABLE_SIZES=(600000 700000 800000 900000 1000000 2000000 3000000 4000000 5000000)
 
 for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""
@@ -78,6 +77,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   }'
 
   # Prepare data to be indexed by Typesense
+  echo ""
   echo "-- Preparing data to be consumed by Typesense..."
   data_filename="${SIZE}_ts.json"
   head -n "$SIZE" "$WIKI_ARTICLES_FILE" > "$data_filename"
@@ -94,7 +94,6 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Confirm document count
   doc_count=$(curl --silent -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" -X GET "http://localhost:$PORT/collections/wikipedia_articles" | jq '.num_documents')
-  echo ""
   echo "-- Number of documents in wikipedia_articles index for size $SIZE: $doc_count"
 
   # Record times to CSV

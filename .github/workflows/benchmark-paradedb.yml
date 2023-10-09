@@ -1,0 +1,35 @@
+# workflows/benchmark-paradedb.yml
+#
+# ParadeDB: Benchmark
+# Benchmark ParadeDB on a nightly basis.
+
+name: Benchmarking
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+      - dev
+  workflow_dispatch:
+
+concurrency:
+  group: benchmark-paradedb-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark-paradedb:
+    name: Benchmark ParadeDB (Nightly)
+    runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Run 
+        working-directory: benchmarks/
+        run: ./benchmark-paradedb.sh
+
+      - name: Print Results
+        working-directory: benchmarks/
+        run: cat benchmark_paradedb.csv

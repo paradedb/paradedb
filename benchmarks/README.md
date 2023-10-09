@@ -5,7 +5,7 @@ This folder contains the results and scripts for benchmarking ParadeDB against o
 - [x] ParadeDB
 - [x] ElasticSearch
 - [x] Typesense
-- [x] PostgreSQL tsvector/tsquery
+- [x] PostgreSQL tsquery
 
 If you'd like to see benchmarks against another system, please open an issue or a pull request.
 
@@ -36,7 +36,10 @@ To generate new benchmarks, simply run the relevant Bash script:
 # Benchmark ElasticSearch
 ./benchmark-elasticsearch.sh
 
-# Benchmark tsquery
+# Benchmark Typesense
+./benchmark-typesense.sh
+
+# Benchmark PostgreSQL tsquery
 ./benchmark-tsquery
 ```
 

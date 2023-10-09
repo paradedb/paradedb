@@ -47,7 +47,7 @@ docker run \
 # Wait for Docker container to spin up
 echo ""
 echo "Waiting for server to spin up..."
-sleep 30
+sleep 40
 echo "Done!"
 
 # Produce and save password

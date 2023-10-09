@@ -7,11 +7,8 @@
 name: Benchmarking
 
 on:
-  #   schedule:
-  #     - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
-  push:
-    branches:
-      - suriya/benchmark-plus # TODO: Remove once testing is done
+  schedule:
+    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
   workflow_dispatch:
     inputs:
       name:
@@ -25,7 +22,7 @@ on:
           - typesense
 
 concurrency:
-  group: benchmark-${{ github.event.inputs.name }}-${{ github.head_ref || github.run_id }}
+  group: benchmark-paradedb-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
 jobs:
@@ -34,11 +31,6 @@ jobs:
     runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
 
     steps:
-      - name: Tmp
-        run: |
-          cat /proc/cpuinfo
-          echo $RUNNER_OS
-
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 

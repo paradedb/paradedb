@@ -4,7 +4,8 @@ This folder contains the results and scripts for benchmarking ParadeDB against o
 
 - [x] ParadeDB
 - [x] ElasticSearch
-- [x] PostgreSQL tsquery
+- [x] Typesense
+- [x] PostgreSQL tsvector/tsquery
 
 If you'd like to see benchmarks against another system, please open an issue or a pull request.
 

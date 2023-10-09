@@ -34,7 +34,7 @@ echo "*******************************************************"
 echo ""
 
 # Download and run docker container for ElasticSearch
-echo "Creating ElasticSearch node..."
+echo "Creating ElasticSearch $ES_VERSION node..."
 docker network create elastic
 docker run \
   -d \

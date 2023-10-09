@@ -35,7 +35,9 @@ echo "*******************************************************"
 echo ""
 
 # Download and run docker container for Typesense
-echo "Creating Typesense node..."
+
+
+echo "Creating Typesense $TS_VERSION node..."
 docker run \
   -d \
   --name typesense \

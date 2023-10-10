@@ -3,7 +3,6 @@ import "./globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import { UserProvider } from "@auth0/nextjs-auth0/client";
-import { withPageAuthRequired } from "@auth0/nextjs-auth0";
 
 const inter = Inter({ subsets: ["latin"] });
 

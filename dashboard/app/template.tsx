@@ -39,6 +39,7 @@ const SidebarButton = ({
 
   return (
     <a
+      target={target ?? "_self"}
       href={href}
       className={classname(
         SIDEBAR_BUTTON_DEFAULT,
@@ -103,8 +104,8 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                 <SidebarButton
                   active={false}
                   href={Route.Documentation}
-                  name="Documentation"
                   target="_blank"
+                  name="Documentation"
                   icon={BookOpenIcon}
                 />
                 <SidebarButton

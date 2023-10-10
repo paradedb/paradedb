@@ -4,7 +4,6 @@ import Link from "next/link";
 import useSWR, { mutate } from "swr";
 import { useEffect, useRef } from "react";
 import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
-import { useUser } from "@auth0/nextjs-auth0/client";
 import {
   Title,
   Grid,

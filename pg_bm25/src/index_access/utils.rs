@@ -37,6 +37,7 @@ pub struct SearchQueryConfig {
     pub prefix: Option<bool>,
     #[serde(default, deserialize_with = "from_csv")]
     pub regex_fields: Vec<String>,
+    pub max_num_chars: Option<usize>,
 }
 
 impl FromStr for SearchQuery {

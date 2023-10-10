@@ -20,6 +20,7 @@ pub struct Manager {
     min_score: f32,
     scores: Option<HashMap<BlockInfo, f32>>,
     highlights: Option<HashMap<(BlockInfo, String), String>>,
+    highlights_max_num_chars: Option<usize>,
 }
 
 impl Manager {
@@ -29,6 +30,7 @@ impl Manager {
             highlights: None,
             max_score: 0.0,
             min_score: 0.0,
+            highlights_max_num_chars: None,
         }
     }
 
@@ -59,6 +61,14 @@ impl Manager {
 
     pub fn get_min_score(&self) -> f32 {
         self.min_score
+    }
+
+    pub fn set_highlight_max_num_chars(&mut self, max_num_chars: usize) {
+        self.highlights_max_num_chars = max_num_chars.into();
+    }
+
+    pub fn get_highlight_max_num_chars(&self) -> Option<usize> {
+        self.highlights_max_num_chars
     }
 
     pub fn add_highlight(&mut self, ctid: ItemPointerData, field_name: String, snippet: Snippet) {

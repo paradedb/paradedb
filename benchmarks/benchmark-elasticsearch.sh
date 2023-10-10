@@ -34,7 +34,7 @@ echo "*******************************************************"
 echo ""
 
 # Download and run docker container for ElasticSearch
-echo "Creating ElasticSearch node..."
+echo "Creating ElasticSearch $ES_VERSION node..."
 docker network create elastic
 docker run \
   -d \
@@ -47,7 +47,7 @@ docker run \
 # Wait for Docker container to spin up
 echo ""
 echo "Waiting for server to spin up..."
-sleep 30
+sleep 40
 echo "Done!"
 
 # Produce and save password

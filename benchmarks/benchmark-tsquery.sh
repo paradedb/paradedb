@@ -66,20 +66,21 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""
   echo "Running benchmarking suite on table with $SIZE rows..."
   TABLE_NAME="wikipedia_articles_$SIZE"
+  INDEX_NAME="search_index_$SIZE"
 
   # Create temporary table with limit
   echo "-- Creating temporary table with $SIZE rows..."
   db_query "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
   db_query "ALTER TABLE $TABLE_NAME ADD COLUMN search_vector tsvector;"
 
-  # Time indexing
+  # Time indexing -- we include vector creation with the indexing metric because it is a required setup for search via tsvector
   echo "-- Timing indexing..."
-  start_time=$( (time db_query "UPDATE $TABLE_NAME SET search_vector = to_tsvector('english', title) || to_tsvector('english', body);" > /dev/null) 2>&1 )
+  start_time=$( (time db_query "UPDATE $TABLE_NAME SET search_vector = to_tsvector('english', title) || to_tsvector('english', body); CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING gin(search_vector);" > /dev/null) 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
   echo "-- Timing search..."
-  start_time=$( (time db_query "SELECT title, body, ts_rank_cd(search_vector, query) as rank FROM $TABLE_NAME, to_tsquery('canada') query WHERE query @@ search_vector ORDER BY rank DESC LIMIT 10;" > /dev/null) 2>&1 )
+  start_time=$( (time db_query "SELECT title, body, ts_rank_cd(search_vector, query) as rank FROM $TABLE_NAME, to_tsquery('Canada') query WHERE query @@ search_vector ORDER BY rank DESC LIMIT 10;" > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Record times to CSV

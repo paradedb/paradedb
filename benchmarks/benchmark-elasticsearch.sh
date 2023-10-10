@@ -90,6 +90,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST "https://localhost:$PORT/wikipedia_articles/_refresh"
 
   # Time search
+  echo "-- Timing search..."
   start_time=$( (time curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X GET "https://localhost:$PORT/wikipedia_articles/_search?pretty" -H 'Content-Type: application/json' -d'
       {
         "query": {

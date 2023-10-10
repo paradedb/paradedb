@@ -1,11 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import Logo from "../images/logo-with-name.svg";
 import classname from "classnames";
 
-import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
 import { IntercomProvider } from "react-use-intercom";
 import { Grid, Col, Flex, Button, Metric, Divider } from "@tremor/react";
 import {

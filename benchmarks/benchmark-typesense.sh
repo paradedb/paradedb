@@ -6,6 +6,9 @@ set -Eeuo pipefail
 # Ensure the "out" directory exists
 mkdir -p out
 
+# shellcheck disable=SC1091
+source "helpers/get_data.sh"
+
 PORT=8108
 TS_VERSION=0.25.1
 WIKI_ARTICLES_FILE=wiki-articles.json
@@ -49,6 +52,12 @@ docker run \
 echo ""
 echo "Waiting for server to spin up..."
 sleep 30
+echo "Done!"
+
+# Retrieve the benchmarking dataset
+echo ""
+echo "Retrieving dataset..."
+download_data
 echo "Done!"
 
 # Output file for recording times

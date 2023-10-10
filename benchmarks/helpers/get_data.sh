@@ -16,8 +16,8 @@ db_query () {
   PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -c "$QUERY"
 }
 
-# This function downloads the benchmarking dataset and loads it into the benchmarking database
-load_data () {
+# Helper function to download the benchmarking dataset
+download_data () {
   if [ ! -f "$WIKI_ARTICLES_FILE" ]; then
     if wget https://www.dropbox.com/s/wwnfnu441w1ec9p/$WIKI_ARTICLES_FILE.bz2 -O $WIKI_ARTICLES_FILE.bz2; then
       echo "-- Unzipping $WIKI_ARTICLES_FILE..."
@@ -30,7 +30,13 @@ load_data () {
   else
     echo "-- Dataset $WIKI_ARTICLES_FILE found, skipping download."
   fi
+}
 
+# This function loads the benchmarking dataset into the benchmarking database, for SQL-based benchmarks
+load_data () {
+  # First, download the dataset
+  download_data
+  
   # In order to pull entries from your local files, you have to use the combo of cat and COPY FROM STDIN with the -c option
   echo "-- Creating table for JSON entries and loading entries from file into table (this may take a few minutes)..."
   db_query "DROP TABLE IF EXISTS temp_json;"

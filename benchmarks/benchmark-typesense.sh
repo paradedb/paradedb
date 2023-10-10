@@ -100,7 +100,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   # Time indexing using bulk import
   echo "-- Loading data of size $SIZE into wikipedia_articles index..."
   echo "-- Timing indexing..."
-  start_time=$( (time find "$TYPESENSE_BULK_OUTPUT" -type f -name "$BULK_UPLOAD_PREFIX*.json" | while IFS= read -r data_filename; do
+  start_time=$( (time find "$TYPESENSE_BULK_OUTPUT" -type f -name "$BULK_UPLOAD_PREFIX*" | while IFS= read -r data_filename; do
         curl "http://localhost:$PORT/collections/wikipedia_articles/documents/import?batch_size=500" -X POST -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" --data-binary @"$data_filename"
   done) 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')

@@ -200,7 +200,7 @@ const InstanceCard = () => {
   );
 };
 
-const Protected = () => {
+const Index = () => {
   return (
     <Grid numItemsLg={5} className="gap-10 h-full">
       <Col numColSpanLg={3} className="h-full">
@@ -233,4 +233,4 @@ const Protected = () => {
   );
 };
 
-export default withPageAuthRequired(Protected);
+export default withPageAuthRequired(Index);

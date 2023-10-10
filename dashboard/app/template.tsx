@@ -7,7 +7,6 @@ import classname from "classnames";
 
 import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
 import { IntercomProvider } from "react-use-intercom";
-import { Inter } from "next/font/google";
 import { Grid, Col, Flex, Button, Metric, Divider } from "@tremor/react";
 import {
   HomeIcon,
@@ -22,8 +21,6 @@ enum Route {
   Logout = "/api/auth/logout",
   Documentation = "https://docs.paradedb.com",
 }
-
-const inter = Inter({ subsets: ["latin"] });
 
 const SidebarButton = ({
   active,
@@ -43,8 +40,7 @@ const SidebarButton = ({
   const SIDEBAR_BUTTON_ACTIVE = "bg-emerald-400 hover:bg-emerald-300";
 
   return (
-    <Link
-      target={target ?? "_self"}
+    <a
       href={href}
       className={classname(
         SIDEBAR_BUTTON_DEFAULT,
@@ -63,7 +59,7 @@ const SidebarButton = ({
       >
         {name}
       </Button>
-    </Link>
+    </a>
   );
 };
 

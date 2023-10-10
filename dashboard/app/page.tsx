@@ -4,6 +4,7 @@ import Link from "next/link";
 import useSWR, { mutate } from "swr";
 import { useEffect, useRef } from "react";
 import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
+import { useUser } from "@auth0/nextjs-auth0/client";
 import {
   Title,
   Grid,
@@ -23,7 +24,6 @@ import {
   DownloadIcon,
   EyeIcon,
 } from "@heroicons/react/outline";
-import { IntercomProvider } from "react-use-intercom";
 
 import { Card } from "@/components/tremor";
 import {
@@ -200,7 +200,7 @@ const InstanceCard = () => {
   );
 };
 
-const Dashboard = () => {
+const Protected = () => {
   return (
     <Grid numItemsLg={5} className="gap-10 h-full">
       <Col numColSpanLg={3} className="h-full">
@@ -233,10 +233,4 @@ const Dashboard = () => {
   );
 };
 
-const DashboardWithIntercom = () => (
-  <IntercomProvider autoBoot appId={process.env.INTERCOM_APP_ID ?? ""}>
-    <Dashboard />
-  </IntercomProvider>
-);
-
-export default withPageAuthRequired(DashboardWithIntercom);
+export default withPageAuthRequired(Protected);

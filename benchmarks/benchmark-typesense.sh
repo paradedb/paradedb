@@ -107,6 +107,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
+  echo "-- Timing search..."
   start_time=$( (time curl -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" "http://localhost:$PORT/collections/wikipedia_articles/documents/search?q=Canada&query_by=title,body" > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 

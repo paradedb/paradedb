@@ -6,6 +6,9 @@ set -Eeuo pipefail
 # Ensure the "out" directory exists
 mkdir -p out
 
+# shellcheck disable=SC1091
+source "helpers/get_data.sh"
+
 PORT=8108
 TS_VERSION=0.25.1
 WIKI_ARTICLES_FILE=wiki-articles.json
@@ -22,7 +25,6 @@ cleanup() {
     docker kill typesense
   fi
   docker rm typesense
-  rm -rf "$TYPESENSE_DATA"
   echo "Done!"
 }
 
@@ -50,6 +52,12 @@ docker run \
 echo ""
 echo "Waiting for server to spin up..."
 sleep 30
+echo "Done!"
+
+# Retrieve the benchmarking dataset
+echo ""
+echo "Retrieving dataset..."
+download_data
 echo "Done!"
 
 # Output file for recording times
@@ -98,6 +106,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
+  echo "-- Timing search..."
   start_time=$( (time curl -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" "http://localhost:$PORT/collections/wikipedia_articles/documents/search?q=Canada&query_by=title,body" > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 

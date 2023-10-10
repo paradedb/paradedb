@@ -14,9 +14,6 @@ sanitize_version() {
   echo "$VERSION" | sed -E 's/[^0-9]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/;s/[^0-9]*[0-9]+_([0-9]+)_([0-9]+)_([0-9]+).*/\1.\2.\3/'
 }
 
-
-
-
 check_pgx_package_exists() {
   local s3_bucket_url="https://pgx-get.s3.amazonaws.com"
   local deb_file="$1"
@@ -44,8 +41,32 @@ upload_pgx_package() {
   local s3_bucket_url="https://pgx-get.s3.amazonaws.com"
   local deb_file="$1"
 
+  # about the file
+  file_to_upload=$deb_file
+  bucket=pgx-get
+  filepath="/${bucket}/${file_to_upload}"
+
+  # metadata
+  contentType="application/x-compressed-tar"
+  dateValue=`date -R`
+  signature_string="PUT\n\n${contentType}\n${dateValue}\n${filepath}"
+
+  #s3 keys
+  s3_access_key=$S3_ACCESS_KEY
+  s3_secret_key=$S3_SECRET_KEY
+
+  #prepare signature hash to be sent in Authorization header
+  signature_hash=`echo -en ${signature_string} | openssl sha1 -hmac ${s3_secret_key} -binary | base64`
+
+  echo lol
+
   # Upload the .deb file to S3 using a PUT request
-  curl -X PUT --upload-file "$deb_file" "$s3_bucket_url/$deb_file"
+  curl -X PUT -T "/tmp/${file_to_upload}" \
+    -H "Host: ${bucket}.s3.amazonaws.com" \
+    -H "Date: ${dateValue}" \
+    -H "Content-Type: ${contentType}" \
+    -H "Authorization: AWS ${s3_access_key}:${signature_hash}" \
+    https://${bucket}.s3.amazonaws.com/${file_to_upload}
   echo ".deb file created and uploaded to S3."
 }
 
@@ -59,10 +80,16 @@ compile_pgx_package() {
   SANITIZED_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
 
   # Download & extract source code
+  echo "mkdir -p /tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
   mkdir -p "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
+  echo "curl -L $PG_EXTENSION_URL" -o "/tmp/$PG_EXTENSION_NAME.tar.gz"
   curl -L "$PG_EXTENSION_URL" -o "/tmp/$PG_EXTENSION_NAME.tar.gz"
+  echo "tar -xvf /tmp/$PG_EXTENSION_NAME.tar.gz --strip-components=1 -C /tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
   tar -xvf "/tmp/$PG_EXTENSION_NAME.tar.gz" --strip-components=1 -C "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
+  echo "cd /tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
   cd "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
+
+  echo "Done with this stuff"
 
   # Set OPTFLAGS to an empty string if it's not already set
   OPTFLAGS=${OPTFLAGS:-""}
@@ -79,7 +106,9 @@ compile_pgx_package() {
     mkdir build && cd build
     cmake ..
   fi
+  echo make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
   make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
+  echo checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp 
   checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 
@@ -99,14 +128,13 @@ install_pg_extension() {
   local PG_EXTENSION_URL=$3
 
   # If the extension package already exists in S3, we simply retrieve it. Otherwise we compile and upload it
-  Check if the extension is already compiled and stored in S3
-  if check_pgx_package_exists "$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb"; then
-    echo "Extension package $PG_EXTENSION_NAME-$PG_EXTENSION_VERSION already exists in S3, downloading pre-compiled package..."
-    download_pgx_package "$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb"
+  if check_pgx_package_exists "${PG_EXTENSION_NAME}_${PG_EXTENSION_VERSION}-1_arm64.deb"; then
+    echo "Extension package ${PG_EXTENSION_NAME}_${PG_EXTENSION_VERSION} already exists in S3, downloading pre-compiled package..."
+    download_pgx_package "${PG_EXTENSION_NAME}_${PG_EXTENSION_VERSION}-1_arm64.deb"
   else
-    echo "Extension package $PG_EXTENSION_NAME-$PG_EXTENSION_VERSION does not exist in S3, compiling and uploading..."
+    echo "Extension package ${PG_EXTENSION_NAME}_${PG_EXTENSION_VERSION} does not exist in S3, compiling and uploading..."
     compile_pgx_package "$PG_EXTENSION_NAME" "$PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
-    upload_pgx_package "$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb"
+    upload_pgx_package "${PG_EXTENSION_NAME}_${PG_EXTENSION_VERSION}-1_arm64.deb"
   fi
 }
 

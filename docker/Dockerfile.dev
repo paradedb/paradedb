@@ -144,6 +144,9 @@ FROM builder as builder-others
 
 COPY scripts/install_pg_extensions.sh /usr/local/bin/
 
+ENV S3_ACCESS_KEY=${S3_ACCESS_KEY} \
+    S3_SECRET_KEY=${S3_SECRET_KEY}
+
 # Compile and install extensions from source
 RUN /usr/local/bin/install_pg_extensions.sh \
     "pgvector,${PGVECTOR_VERSION},https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz"

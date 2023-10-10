@@ -25,7 +25,6 @@ cleanup() {
     docker kill typesense
   fi
   docker rm typesense
-  sudo rm -rf "$TYPESENSE_DATA"
   echo "Done!"
 }
 

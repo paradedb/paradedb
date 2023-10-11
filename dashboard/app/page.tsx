@@ -11,6 +11,7 @@ import {
   KeyIcon,
   ArrowRightIcon,
   LightningBoltIcon,
+  DatabaseIcon,
   DownloadIcon,
   EyeIcon,
 } from "@heroicons/react/outline";
@@ -148,7 +149,7 @@ const InstanceCard = () => {
             <CredentialsListItem
               name="Database"
               value={creds?.database}
-              icon={<ArrowRightIcon className="w-4 text-purple-400" />}
+              icon={<DatabaseIcon className="w-4 text-indigo-400" />}
             />
             <CredentialsListItem
               name="User"
@@ -163,7 +164,7 @@ const InstanceCard = () => {
             <CredentialsListItem
               name="Port"
               value={creds?.port}
-              icon={<ArrowRightIcon className="w-4 text-purple-400" />}
+              icon={<ArrowRightIcon className="w-4 text-emerald-400" />}
             />
           </List>
           <DeleteInstanceButton onDeleteInstance={onDeleteInstance} />

@@ -29,7 +29,7 @@ with open(wiki_articles_filename, 'r') as wiki_articles_file:
             bo_num += 1
             bulk_output_filename = os.path.join(bulk_output_foldername, f"{desired_size}_{bo_num}.json")
             bulk_output_file = open(bulk_output_filename, 'w')
-        
+
         bulk_output_file.write(elastic_create_entry)
         bulk_output_file.write(line)
         total_num_written += 1

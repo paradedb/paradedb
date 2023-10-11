@@ -10,11 +10,11 @@ FROM bm25_search
 WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2';
 
 -- With BM25 scoring
-SELECT paradedb.rank_bm25(ctid), * 
-FROM bm25_search 
+SELECT paradedb.rank_bm25(ctid), *
+FROM bm25_search
 WHERE bm25_search @@@ 'category:electronics OR description:keyboard';
 
--- Test JSON search 
+-- Test JSON search
 SELECT *
 FROM bm25_search
 WHERE bm25_search @@@ 'metadata.color:white';

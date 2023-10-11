@@ -7,9 +7,9 @@ WITH NumberedRows AS (
     FROM paradedb.mock_items
 )
 UPDATE paradedb.mock_items m
-SET embedding = ('[' || 
-    ((n.row_num + 1) % 10 + 1)::integer || ',' || 
-    ((n.row_num + 2) % 10 + 1)::integer || ',' || 
+SET embedding = ('[' ||
+    ((n.row_num + 1) % 10 + 1)::integer || ',' ||
+    ((n.row_num + 2) % 10 + 1)::integer || ',' ||
     ((n.row_num + 3) % 10 + 1)::integer || ']')::vector
 FROM NumberedRows n
 WHERE m.ctid = n.ctid;

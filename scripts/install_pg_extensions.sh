@@ -41,6 +41,15 @@ upload_pgx_package() {
   local s3_bucket="pgx-get"
   local deb_filename="$1"
 
+  # s3 keys -- environment variables
+  if [[ -z ${S3_ACCESS_KEY}  ||  -z ${S3_SECRET_KEY} ]]; then 
+    echo "S3 keys not set... not uploading to S3"
+    return
+  fi
+
+  local s3_access_key="$S3_ACCESS_KEY"
+  local s3_secret_key="$S3_SECRET_KEY"
+
   # about the file
   local bucket_filepath="/${s3_bucket}/${deb_filename}"
   local all_users_group="uri=http://acs.amazonaws.com/groups/global/AllUsers"
@@ -49,10 +58,6 @@ upload_pgx_package() {
   local contentType="application/x-compressed-tar"
   local dateValue=`date -R`
   local signature_string="PUT\n\n${contentType}\n${dateValue}\nx-amz-grant-read:${all_users_group}\n${bucket_filepath}"
-
-  # s3 keys -- environment variables
-  local s3_access_key="$S3_ACCESS_KEY"
-  local s3_secret_key="$S3_SECRET_KEY"
 
   # prepare signature hash to be sent in Authorization header
   local signature_hash=`echo -en ${signature_string} | openssl sha1 -hmac ${s3_secret_key} -binary | base64`

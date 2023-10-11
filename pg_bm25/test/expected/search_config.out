@@ -86,3 +86,25 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
  23 | Comfortable slippers   |      3 | Footwear
 (2 rows)
 
+-- Default highlighting without max_num_chars
+SELECT description, rating, category, paradedb.highlight_bm25(ctid, 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics' ORDER BY paradedb.rank_bm25(ctid) DESC LIMIT 5;
+         description         | rating |  category   |         highlight_bm25          
+-----------------------------+--------+-------------+---------------------------------
+ Plastic Keyboard            |      4 | Electronics | Plastic <b>Keyboard</b>
+ Ergonomic metal keyboard    |      4 | Electronics | Ergonomic metal <b>keyboard</b>
+ Innovative wireless earbuds |      5 | Electronics | 
+ Fast charging power bank    |      4 | Electronics | 
+ Bluetooth-enabled speaker   |      3 | Electronics | 
+(5 rows)
+
+-- max_num_chars is set to 14 
+SELECT description, rating, category, paradedb.highlight_bm25(ctid, 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics:::max_num_chars=14' ORDER BY paradedb.rank_bm25(ctid) DESC LIMIT 5;
+         description         | rating |  category   |    highlight_bm25     
+-----------------------------+--------+-------------+-----------------------
+ Plastic Keyboard            |      4 | Electronics | <b>Keyboard</b>
+ Ergonomic metal keyboard    |      4 | Electronics | metal <b>keyboard</b>
+ Innovative wireless earbuds |      5 | Electronics | 
+ Fast charging power bank    |      4 | Electronics | 
+ Bluetooth-enabled speaker   |      3 | Electronics | 
+(5 rows)
+

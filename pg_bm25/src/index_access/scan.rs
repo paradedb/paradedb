@@ -94,11 +94,8 @@ pub extern "C" fn amrescan(
     let offset = query_config.config.offset.unwrap_or(0);
 
     // Extract highlight_max_num_chars from the query config
-    let max_num_chars = query_config.config.max_num_chars;
-
-    if max_num_chars.is_some() {
-        get_executor_manager()
-            .set_highlight_max_num_chars(max_num_chars.expect("could not unwrap max_num_chars"));
+    if let Some(max_num_chars) = query_config.config.max_num_chars {
+        get_executor_manager().set_highlight_max_num_chars(max_num_chars);
     }
 
     // Construct the actual Tantivy search query based on the mode determined above.
@@ -275,10 +272,7 @@ fn write_to_manager(
             let mut snippet = snippet_generator
                 .unwrap_or_else(|_| panic!("failed to highlight field: {}", field_name));
 
-            let max_num_chars = get_executor_manager().get_highlight_max_num_chars();
-
-            if max_num_chars.is_some() {
-                let max_num_chars = max_num_chars.expect("could not unwrap max_num_chars");
+            if let Some(max_num_chars) = get_executor_manager().get_highlight_max_num_chars() {
                 snippet.set_max_num_chars(max_num_chars);
             }
 

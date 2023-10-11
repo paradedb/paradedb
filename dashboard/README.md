@@ -7,13 +7,17 @@ The dashboard is built on Next.js using Tailwind, Tremor, and Auth0 as the prima
 
 ## Development
 
-1. From your terminal, install the project's dependencies:
+1. Ensure that you have Docker installed and running. 
+
+2. From your terminal, install the project's dependencies:
 
 ```bash
-yarn install
+docker compose run deps
 ```
 
-2. Create a file called `.env.local` and paste the following content:
+This only needs to be done once.
+
+3. Create a file called `.env.local` and paste the following content:
 
 ```ini
 AUTH0_SECRET='use [openssl rand -hex 32] to generate a 32 bytes value'
@@ -25,8 +29,8 @@ AUTH0_CLIENT_SECRET='obtained from Auth0 dashboard'
 
 Make sure to replace the necessary keys.
 
-3. Start the development server:
+4. Start the development server:
 
 ```bash
-yarn dev
+docker compose up
 ```

@@ -15,6 +15,7 @@ import {
   EyeIcon,
 } from "@heroicons/react/outline";
 
+import Error from "./error";
 import { Card } from "@/components/tremor";
 import {
   CreateInstanceButton,
@@ -81,6 +82,7 @@ const InstanceCard = () => {
   const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher);
 
   const deployStatus = status?.deploy_status;
+  const isCreating = deployStatus === DeployStatus.PENDING;
 
   const credsRef = useRef(creds);
   const statusRef = useRef(deployStatus);
@@ -92,36 +94,24 @@ const InstanceCard = () => {
 
   const onCreateInstance = async () => {
     while (true) {
-      const localCreds = credsRef.current;
       const localDeployStatus = statusRef.current;
 
-      if (
-        localCreds?.host !== undefined &&
-        localDeployStatus === DeployStatus.RUNNING
-      ) {
-        break;
-      }
+      if (localDeployStatus === DeployStatus.RUNNING) break;
 
-      await Promise.all([
-        mutate(DATABASE_CREDENTIALS_URL),
-        mutate(DATABASE_STATUS_URL),
-      ]);
+      await mutate(DATABASE_STATUS_URL);
       await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
     }
+
+    await mutate(DATABASE_CREDENTIALS_URL);
   };
 
   const onDeleteInstance = async () => {
     while (true) {
-      const localCreds = credsRef.current;
+      const localDeployStatus = statusRef.current;
 
-      if (localCreds?.status === 404) {
-        break;
-      }
+      if (localDeployStatus !== DeployStatus.RUNNING) break;
 
-      await Promise.all([
-        mutate(DATABASE_CREDENTIALS_URL),
-        mutate(DATABASE_STATUS_URL),
-      ]);
+      await mutate(DATABASE_STATUS_URL);
       await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
     }
   };
@@ -134,6 +124,10 @@ const InstanceCard = () => {
         <CardSkeleton />
       </Card>
     );
+  }
+
+  if (creds?.status === 500) {
+    return <Error />;
   }
 
   if (
@@ -150,6 +144,11 @@ const InstanceCard = () => {
               name="Host"
               value={creds?.host}
               icon={<ServerIcon className="w-4 text-blue-400" />}
+            />
+            <CredentialsListItem
+              name="Database"
+              value={creds?.database}
+              icon={<ArrowRightIcon className="w-4 text-purple-400" />}
             />
             <CredentialsListItem
               name="User"
@@ -178,12 +177,18 @@ const InstanceCard = () => {
       <Flex flexDirection="col" alignItems="start" className="space-y-6">
         <Title className="text-neutral-100">My Instance</Title>
         <hr className="border-neutral-700 h-1 w-full" />
-        <Text className="mt-2 text-neutral-300">
-          You have not created a database instance.
-        </Text>
+        {isCreating ? (
+          <Text className="mt-2 text-neutral-300">
+            Your instance is creating. This could take a few minutes...
+          </Text>
+        ) : (
+          <Text className="mt-2 text-neutral-300">
+            You have not created a database instance.
+          </Text>
+        )}
         <CreateInstanceButton
           onCreateInstance={onCreateInstance}
-          isCreating={deployStatus === DeployStatus.PENDING}
+          isCreating={isCreating}
         />
       </Flex>
     </Card>

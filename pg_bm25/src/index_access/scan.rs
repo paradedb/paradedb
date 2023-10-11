@@ -93,6 +93,11 @@ pub extern "C" fn amrescan(
         .unwrap_or(searcher.num_docs() as usize);
     let offset = query_config.config.offset.unwrap_or(0);
 
+    // Extract highlight_max_num_chars from the query config
+    if let Some(max_num_chars) = query_config.config.max_num_chars {
+        get_executor_manager().set_highlight_max_num_chars(max_num_chars);
+    }
+
     // Construct the actual Tantivy search query based on the mode determined above.
     let tantivy_query: Box<dyn Query> = if using_regex_fields {
         let regex_pattern = format!("{}.*", &query_config.query);
@@ -264,9 +269,15 @@ fn write_to_manager(
             let snippet_generator =
                 SnippetGenerator::create(&state.searcher, &state.query, field.0);
 
-            let snippet = snippet_generator
-                .unwrap_or_else(|_| panic!("failed to highlight field: {}", field_name))
-                .snippet_from_doc(retrieved_doc);
+            let mut snippet = snippet_generator
+                .unwrap_or_else(|_| panic!("failed to highlight field: {}", field_name));
+
+            if let Some(max_num_chars) = get_executor_manager().get_highlight_max_num_chars() {
+                snippet.set_max_num_chars(max_num_chars);
+            }
+
+            let snippet = snippet.snippet_from_doc(retrieved_doc);
+
             get_executor_manager().add_highlight(ctid, field_name, snippet)
         }
     }

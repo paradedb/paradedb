@@ -29,7 +29,19 @@ WHERE <table_name> @@@ '<query>'
   The query string.
 </ParamField>
 
-## Options
+## Configuration Options
 
-We are working on a release that will enable users to configure `max_num_chars`, or the maximum number
-of characters in a highlighted snippet of text.
+A trailing `:::` at the end of a query string marks the beginning of a config string, which uses standard
+URL param syntax. Individual options are separated by `&` and set with `=`.
+
+### Maximum number of characters
+
+Specify a number for `max_num_chars` to set the maximum number of characters in a
+highlighted snippet of text.
+
+```sql
+SELECT description, rating, category, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'description')
+FROM mock_items
+WHERE mock_items @@@ 'description:keyboard OR category:electronics:::max_num_chars=14'
+LIMIT 5;
+```

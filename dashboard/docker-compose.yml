@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  app:
+    image: node:18
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: yarn run dev
+    ports:
+      - "3000:3000"
+
+  deps:
+    image: node:18
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: yarn install

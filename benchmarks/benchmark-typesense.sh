@@ -119,6 +119,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Cleanup: delete the temporary data files
   echo "-- Cleaning up..."
+  curl -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" -X DELETE "http://localhost:$PORT/collections/wikipedia_articles"
   rm -rf "$TYPESENSE_BULK_OUTPUT"
   echo ""
   echo "Done!"

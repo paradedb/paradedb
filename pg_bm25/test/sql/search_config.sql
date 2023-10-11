@@ -18,5 +18,5 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'keybaord:::fuzzy_fields=description&transpose_cost_one=true&distance=1';
 -- With fuzzy and regex field
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description&fuzzy_fields=description';
--- With regex field 
+-- With regex field
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description';

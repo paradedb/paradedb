@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  group: test-pg_search-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:

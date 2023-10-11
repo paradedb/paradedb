@@ -7,7 +7,7 @@ The dashboard is built on Next.js using Tailwind, Tremor, and Auth0 as the prima
 
 ## Development
 
-1. Ensure that you have Docker installed and running. 
+1. Ensure that you have Docker installed and running.
 
 2. From your terminal, install the project's dependencies:
 

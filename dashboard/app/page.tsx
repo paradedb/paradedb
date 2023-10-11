@@ -17,6 +17,7 @@ import {
 } from "@heroicons/react/outline";
 
 import Error from "./error";
+import { FounderLetterCard } from "@/components/card";
 import { Card } from "@/components/tremor";
 import {
   CreateInstanceButton,
@@ -202,7 +203,8 @@ const Index = () => {
       <Col numColSpanLg={3} className="h-full">
         <InstanceCard />
       </Col>
-      <Col numColSpanLg={2} className="h-full">
+      <Col numColSpanLg={2} className="h-full space-y-10">
+        <FounderLetterCard />
         <Card>
           <Flex flexDirection="col" alignItems="start" className="space-y-6">
             <Title className="text-neutral-100">Guides</Title>

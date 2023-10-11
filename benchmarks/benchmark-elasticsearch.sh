@@ -6,6 +6,9 @@ set -Eeuo pipefail
 # Ensure the "out" directory exists
 mkdir -p out
 
+# shellcheck disable=SC1091
+source "helpers/get_data.sh"
+
 PORT=9200
 ES_VERSION=8.9.2
 WIKI_ARTICLES_FILE=wiki-articles.json
@@ -50,6 +53,12 @@ echo "Waiting for server to spin up..."
 sleep 40
 echo "Done!"
 
+# Retrieve the benchmarking dataset
+echo ""
+echo "Retrieving dataset..."
+download_data
+echo "Done!"
+
 # Produce and save password
 echo ""
 echo "Producing and saving new ElasticSearch password..."
@@ -81,6 +90,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X POST "https://localhost:$PORT/wikipedia_articles/_refresh"
 
   # Time search
+  echo "-- Timing search..."
   start_time=$( (time curl --cacert http_ca.crt -u elastic:"$ELASTIC_PASSWORD" -X GET "https://localhost:$PORT/wikipedia_articles/_search?pretty" -H 'Content-Type: application/json' -d'
       {
         "query": {

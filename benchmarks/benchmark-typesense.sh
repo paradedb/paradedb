@@ -6,11 +6,15 @@ set -Eeuo pipefail
 # Ensure the "out" directory exists
 mkdir -p out
 
+# shellcheck disable=SC1091
+source "helpers/get_data.sh"
+
 PORT=8108
 TS_VERSION=0.25.1
 WIKI_ARTICLES_FILE=wiki-articles.json
 TYPESENSE_API_KEY=xyz
 TYPESENSE_DATA=$(pwd)/typesense-data
+TYPESENSE_BULK_OUTPUT=out/typesense_bulk_output
 OUTPUT_CSV=out/benchmark_typesense.csv
 
 # Cleanup function to stop and remove the Docker container
@@ -21,7 +25,6 @@ cleanup() {
     docker kill typesense
   fi
   docker rm typesense
-  rm -rf "$TYPESENSE_DATA"
   echo "Done!"
 }
 
@@ -51,13 +54,17 @@ echo "Waiting for server to spin up..."
 sleep 30
 echo "Done!"
 
+# Retrieve the benchmarking dataset
+echo ""
+echo "Retrieving dataset..."
+download_data
+echo "Done!"
+
 # Output file for recording times
 echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 
 # Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset
-# TODO: Make it work on more tham 600k rows -- currently times out due to curl runs out of memory
-# TABLE_SIZES=(600000 700000 800000 900000 1000000 2000000 3000000 4000000 5000000)
-TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000)
+TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 2000000 3000000 4000000 5000000)
 
 for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""
@@ -83,16 +90,23 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   # Prepare data to be indexed by Typesense
   echo ""
   echo "-- Preparing data to be consumed by Typesense..."
-  data_filename="${SIZE}_ts.json"
-  head -n "$SIZE" "$WIKI_ARTICLES_FILE" > "$data_filename"
+  CURL_BULK_SIZE=250000
+  mkdir "$TYPESENSE_BULK_OUTPUT"
+  TOTAL_BULK_FILENAME="$TYPESENSE_BULK_OUTPUT/${SIZE}_ts.json"
+  BULK_UPLOAD_PREFIX="upload_"
+  head -n "$SIZE" "$WIKI_ARTICLES_FILE" > "$TOTAL_BULK_FILENAME"
+  split -l "$CURL_BULK_SIZE" "$TOTAL_BULK_FILENAME" "$TYPESENSE_BULK_OUTPUT/$BULK_UPLOAD_PREFIX"
 
   # Time indexing using bulk import
   echo "-- Loading data of size $SIZE into wikipedia_articles index..."
   echo "-- Timing indexing..."
-  start_time=$( (time curl "http://localhost:$PORT/collections/wikipedia_articles/documents/import?batch_size=500" -X POST -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" --data-binary @"$data_filename") )
+  start_time=$( (time find "$TYPESENSE_BULK_OUTPUT" -type f -name "$BULK_UPLOAD_PREFIX*" | while IFS= read -r data_filename; do
+        curl "http://localhost:$PORT/collections/wikipedia_articles/documents/import?batch_size=500" -X POST -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" --data-binary @"$data_filename"
+  done) 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
+  echo "-- Timing search..."
   start_time=$( (time curl -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" "http://localhost:$PORT/collections/wikipedia_articles/documents/search?q=Canada&query_by=title,body" > /dev/null) 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
@@ -103,9 +117,9 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   # Record times to CSV
   echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
 
-  # Cleanup: delete the temporary data file
+  # Cleanup: delete the temporary data files
   echo "-- Cleaning up..."
-  rm "$data_filename"
+  rm -rf "$TYPESENSE_BULK_OUTPUT"
   echo ""
   echo "Done!"
 done

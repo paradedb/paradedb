@@ -2,9 +2,9 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
     hooks:
-      - id: trailing-whitespace
       - id: mixed-line-ending
       - id: end-of-file-fixer
+      - id: trailing-whitespace
       - id: check-added-large-files
       - id: check-merge-conflict
       - id: check-case-conflict
@@ -20,27 +20,36 @@ repos:
       - id: detect-private-key
       - id: detect-aws-credentials
 
+  - repo: https://github.com/lovesegfault/beautysh
+    rev: v6.2.1
+    hooks:
+      - id: beautysh
+        args: ["--indent-size", "2"]
+        exclude: '(\.sql|\.out)$'
+
   - repo: https://github.com/shellcheck-py/shellcheck-py
     rev: v0.9.0.5
     hooks:
       - id: shellcheck
 
-  - repo: https://github.com/lovesegfault/beautysh
-    rev: v6.2.1
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.37.0
     hooks:
-      - id: beautysh
+      - id: markdownlint
 
-  - repo: https://github.com/hadolint/hadolint
-    rev: v2.12.0
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.0.3
     hooks:
-      - id: hadolint
+      - id: prettier
 
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
       - id: fmt
-        args: ["--manifest-path", "Cargo.toml", "--"]
       - id: clippy
-        args: ["--manifest-path", "Cargo.toml"]
       - id: cargo-check
-        args: ["--manifest-path", "Cargo.toml"]
+
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint

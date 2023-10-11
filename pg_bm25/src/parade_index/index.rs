@@ -51,19 +51,27 @@ impl ParadeIndex {
             ..Default::default()
         };
 
-        let mut underlying_index = Index::builder()
+        let underlying_index = Index::builder()
             .schema(schema.clone())
             .settings(settings.clone())
             .create_in_dir(dir)
             .expect("failed to create index");
 
-        underlying_index.set_tokenizers(create_tokenizer_manager());
-        underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
-
-        Self {
+        let mut new_self = Self {
             fields,
             underlying_index,
-        }
+        };
+
+        new_self.setup_tokenizers();
+
+        new_self
+    }
+
+    pub fn setup_tokenizers(&mut self) {
+        self.underlying_index
+            .set_tokenizers(create_tokenizer_manager());
+        self.underlying_index
+            .set_fast_field_tokenizers(create_normalizer_manager());
     }
 
     pub fn from_index_name(name: String) -> Self {

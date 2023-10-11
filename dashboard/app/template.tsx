@@ -5,7 +5,7 @@ import Logo from "../images/logo-with-name.svg";
 import classname from "classnames";
 
 import { IntercomProvider } from "react-use-intercom";
-import { Grid, Col, Flex, Button, Metric, Divider } from "@tremor/react";
+import { Grid, Col, Flex, Button, Metric } from "@tremor/react";
 import {
   HomeIcon,
   ArrowNarrowLeftIcon,
@@ -125,7 +125,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           className="px-12 py-6 bg-black overflow-y-scroll"
         >
           <Metric className="text-neutral-100">{titleMap[pathname]}</Metric>
-          <Divider className="bg-neutral-800" />
+          <hr className="border-neutral-700 h-1 w-full my-6" />
           <div className="mt-8">{children}</div>
         </Col>
       </Grid>

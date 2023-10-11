@@ -4,16 +4,7 @@ import Link from "next/link";
 import useSWR, { mutate } from "swr";
 import { useEffect, useRef } from "react";
 import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
-import {
-  Title,
-  Grid,
-  Col,
-  Text,
-  Flex,
-  List,
-  ListItem,
-  Divider,
-} from "@tremor/react";
+import { Title, Grid, Col, Text, Flex, List, ListItem } from "@tremor/react";
 import {
   ServerIcon,
   UserIcon,
@@ -139,7 +130,7 @@ const InstanceCard = () => {
     return (
       <Card>
         <Title className="text-neutral-100">My Instance</Title>
-        <Divider className="bg-neutral-600" />
+        <hr className="border-neutral-700 h-1 w-full my-6" />
         <CardSkeleton />
       </Card>
     );
@@ -153,7 +144,7 @@ const InstanceCard = () => {
       <Card>
         <Flex flexDirection="col" alignItems="start" className="space-y-6">
           <Title className="text-neutral-100">My Instance</Title>
-          <Divider className="bg-neutral-600" />
+          <hr className="border-neutral-700 h-1 w-full" />
           <List className="divide-none space-y-2">
             <CredentialsListItem
               name="Host"
@@ -186,7 +177,7 @@ const InstanceCard = () => {
     <Card>
       <Flex flexDirection="col" alignItems="start" className="space-y-6">
         <Title className="text-neutral-100">My Instance</Title>
-        <Divider className="bg-neutral-600" />
+        <hr className="border-neutral-700 h-1 w-full" />
         <Text className="mt-2 text-neutral-300">
           You have not created a database instance.
         </Text>
@@ -207,25 +198,27 @@ const Index = () => {
       </Col>
       <Col numColSpanLg={2} className="h-full">
         <Card>
-          <Title className="text-neutral-100">Guides</Title>
-          <Divider className="bg-neutral-600" />
-          <List className="divide-neutral-700 space-y-2">
-            <GuideListItem
-              href={IMPORTING_DATA_URL}
-              name="Importing Data"
-              icon={<DownloadIcon className="w-4 text-indigo-400" />}
-            />
-            <GuideListItem
-              href={QUICKSTART_URL}
-              name="Quickstart"
-              icon={<LightningBoltIcon className="w-4 text-yellow-400" />}
-            />
-            <GuideListItem
-              href={SEARCH_BASICS_URL}
-              name="Search Basics"
-              icon={<EyeIcon className="w-4 text-emerald-400" />}
-            />
-          </List>
+          <Flex flexDirection="col" alignItems="start" className="space-y-6">
+            <Title className="text-neutral-100">Guides</Title>
+            <hr className="border-neutral-700 h-1 w-full" />
+            <List className="divide-neutral-700 space-y-2">
+              <GuideListItem
+                href={IMPORTING_DATA_URL}
+                name="Importing Data"
+                icon={<DownloadIcon className="w-4 text-indigo-400" />}
+              />
+              <GuideListItem
+                href={QUICKSTART_URL}
+                name="Quickstart"
+                icon={<LightningBoltIcon className="w-4 text-yellow-400" />}
+              />
+              <GuideListItem
+                href={SEARCH_BASICS_URL}
+                name="Search Basics"
+                icon={<EyeIcon className="w-4 text-emerald-400" />}
+              />
+            </List>
+          </Flex>
         </Card>
       </Col>
     </Grid>

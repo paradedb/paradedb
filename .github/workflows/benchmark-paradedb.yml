@@ -22,7 +22,7 @@ on:
           - typesense
 
 concurrency:
-  group: benchmark-paradedb-${{ github.head_ref || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:

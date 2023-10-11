@@ -142,10 +142,13 @@ RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSI
 
 FROM builder as builder-others
 
-COPY scripts/install_pg_extensions.sh /usr/local/bin/
+ARG S3_SECRET_KEY
+ARG S3_ACCESS_KEY
 
 ENV S3_ACCESS_KEY=${S3_ACCESS_KEY} \
     S3_SECRET_KEY=${S3_SECRET_KEY}
+
+COPY scripts/install_pg_extensions.sh /usr/local/bin/
 
 # Compile and install extensions from source
 RUN /usr/local/bin/install_pg_extensions.sh \

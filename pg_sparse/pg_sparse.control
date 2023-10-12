@@ -1,0 +1,6 @@
+comment = 'pg_sparse: Similarity search for sparse vectors in Postgres'
+default_version = '@CARGO_VERSION@'
+module_pathname = '$libdir/pg_sparse'
+relocatable = false
+superuser = true
+schema = paradedb

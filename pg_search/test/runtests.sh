@@ -21,6 +21,7 @@ usage() {
 if [[ ! $* =~ ^\-.+ ]]
 then
   usage
+  exit 1
 fi
 
 # Instantiate vars
@@ -28,9 +29,13 @@ FLAG_PG_VER=false
 FLAG_PROCESS_TYPE=false
 
 # Assign flags to vars and check
-while getopts "p:v:" flag
+while getopts "hp:v:" flag
 do
   case $flag in
+    h)
+      usage
+      exit 1
+      ;;
     p)
       FLAG_PROCESS_TYPE=$OPTARG
     case "$FLAG_PROCESS_TYPE" in sequentially | threaded ): # Do nothing

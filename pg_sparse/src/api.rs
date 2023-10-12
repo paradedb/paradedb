@@ -11,7 +11,7 @@ pub struct Sparse {
 }
 
 #[pg_extern]
-pub fn to_sparse(input_vector: Array<f64>) -> Sparse {
+pub fn compress_sparse(input_vector: Array<f64>) -> Sparse {
     let compressed: Vec<(i32, f64)> = input_vector
         .iter()
         .enumerate()
@@ -70,7 +70,7 @@ pub fn sparse_cosine_distance(left: Sparse, right: Sparse) -> f64 {
 
 extension_sql!(
     r#"
-CREATE OPERATOR <==> (
+CREATE OPERATOR pg_catalog.<==> (
     LEFTARG = sparse, RIGHTARG = sparse, PROCEDURE = sparse_cosine_distance,
     COMMUTATOR = '<==>'
 );

@@ -4,7 +4,9 @@ use std::collections::HashMap;
 
 #[derive(PostgresType, Serialize, Deserialize)]
 pub struct Sparse {
+    // Each entry is a tuple of (position, value), representing the position and value of a non-zero element
     entries: Vec<(i32, f64)>,
+    // n is the length of the sparse vector
     n: i32,
 }
 
@@ -51,8 +53,8 @@ pub fn sparse_cosine_distance(left: Sparse, right: Sparse) -> f64 {
     let mut right_norm: f64 = 0.0;
 
     for position in 0..max_length {
-        let left_value = *left_map.get(&(position + 1)).unwrap_or(&0.0); // Adjusting the position
-        let right_value = *right_map.get(&(position + 1)).unwrap_or(&0.0); // Adjusting the position
+        let left_value = *left_map.get(&(position + 1)).unwrap_or(&0.0);
+        let right_value = *right_map.get(&(position + 1)).unwrap_or(&0.0);
 
         dot_product += left_value * right_value;
         left_norm += left_value.powi(2);

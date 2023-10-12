@@ -12,16 +12,16 @@ set -Eeuo pipefail
 usage() {
   echo "Usage: $0 [OPTIONS]"
   echo "Options:"
-  echo " -h,   Display this help message"
-  echo " -p,   Processing type, either <sequentially> or <threaded>"
-  echo " -v,   PG version(s) separated by comma <11,12,13>"
+  echo " -h (optional),   Display this help message"
+  echo " -p (required),   Processing type, either <sequentially> or <threaded>"
+  echo " -v (optional),   PG version(s) separated by comma <11,12,13>"
+  exit 1
 }
 
 # Do not allow script to be called without params
 if [[ ! $* =~ ^\-.+ ]]
 then
   usage
-  exit 1
 fi
 
 # Instantiate vars
@@ -34,7 +34,6 @@ do
   case $flag in
     h)
       usage
-      exit 1
       ;;
     p)
       FLAG_PROCESS_TYPE=$OPTARG
@@ -42,7 +41,6 @@ do
           ;;
         *)
           usage
-          exit 1
           ;;
       esac
       ;;

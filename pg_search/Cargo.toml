@@ -19,7 +19,7 @@ pg_test = []
 
 [dependencies]
 pgrx = "=0.9.8"
-reqwest = { version = "0.11.20", features = ["blocking"] }
+reqwest = { version = "0.11", features = ["blocking", "json"] }
 serde = "1.0.188"
 serde_json = "1.0.107"
 uuid = "1.4.1"

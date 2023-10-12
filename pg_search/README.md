@@ -57,6 +57,9 @@ cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
 3. Then, run:
 
 ```bash
+# If you are on macOS M1, run:
+export BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include"
+
 # Install pg_search
 cargo pgrx install
 ```

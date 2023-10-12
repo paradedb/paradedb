@@ -66,6 +66,9 @@ cargo install cargo-pgrx --version 0.9.8
 # Clone the repo (optionally pick a specific version)
 git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
 
+# If you are on macOS M1, run:
+export BINDGEN_EXTRA_CLANG_ARGS="-I/opt/homebrew/include"
+
 # Install pg_bm25
 cd pg_bm25/
 cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`

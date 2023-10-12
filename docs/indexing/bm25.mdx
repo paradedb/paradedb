@@ -58,14 +58,14 @@ WITH (
   Keys are the names of columns, and values are config options. Accepts columns of type `varchar` or `text`.
   <Expandable title="Config Options">
     <ParamField body="indexed" default={true}>
-      Whether the field is indexed. Must be `true` in order for the field to be tokenized and 
+      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
       searchable.
     </ParamField>
     <ParamField body="stored" default={true}>
       Whether the original value of the field is stored.
     </ParamField>
     <ParamField body="fast" default={false}>
-      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`. 
+      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
       Fast fields are also useful for accelerated scoring and filtering.
     </ParamField>
     <ParamField body="fieldnorms" default={true}>
@@ -76,11 +76,11 @@ WITH (
       The name of the tokenizer. See [tokenizers]([indexing/bm25#tokenizers]) for a list of available tokenizers.
     </ParamField>
     <ParamField body="record" default="basic">
-      Describes the amount of information indexed. See [records](indexing/bm25#records) for a list of available 
+      Describes the amount of information indexed. See [records](indexing/bm25#records) for a list of available
       record types.
     </ParamField>
     <ParamField body="normalizer" default="raw">
-      The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See 
+      The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See
       [normalizers](indexing/bm25#normalizers) for a list of available normalizers.
     </ParamField>
   </Expandable>
@@ -90,14 +90,14 @@ WITH (
   Keys are the names of columns, and values are config options. Accepts columns of type `int2`, `int4`, `int8`, `oid`, `xid`, `float4`, `float8`, and `numeric`.
   <Expandable title="Config Options">
     <ParamField body="indexed" default={true}>
-      Whether the field is indexed. Must be `true` in order for the field to be tokenized and 
+      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
       searchable.
     </ParamField>
     <ParamField body="stored" default={true}>
       Whether the original value of the field is stored.
     </ParamField>
     <ParamField body="fast" default={true}>
-      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`. 
+      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
       Fast fields are also useful for accelerated scoring and filtering.
     </ParamField>
   </Expandable>
@@ -107,47 +107,47 @@ WITH (
   Keys are the names of columns, and values are config options. Accepts columns of type `boolean`.
   <Expandable title="Config Options">
     <ParamField body="indexed" default={true}>
-      Whether the field is indexed. Must be `true` in order for the field to be tokenized and 
+      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
       searchable.
     </ParamField>
     <ParamField body="stored" default={true}>
       Whether the original value of the field is stored.
     </ParamField>
     <ParamField body="fast" default={true}>
-      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`. 
+      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
       Fast fields are also useful for accelerated scoring and filtering.
     </ParamField>
   </Expandable>
 </ParamField>
 <ParamField body="json_fields">
-  A JSON string which specifies which JSON columns should be indexed and how they should be indexed. 
+  A JSON string which specifies which JSON columns should be indexed and how they should be indexed.
   Keys are the names of columns, and values are config options. Accepts columns of type `json` and `jsonb`.
-  Once indexed, search can be performed on nested text fields within JSON values. 
+  Once indexed, search can be performed on nested text fields within JSON values.
   <Expandable title="Config Options">
     <ParamField body="indexed" default={true}>
-      Whether the field is indexed. Must be `true` in order for the field to be tokenized and 
+      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
       searchable.
     </ParamField>
     <ParamField body="stored" default={true}>
       Whether the original value of the field is stored.
     </ParamField>
     <ParamField body="fast" default={false}>
-      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`. 
+      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
       Fast fields are also useful for accelerated scoring and filtering.
     </ParamField>
     <ParamField body="expand_dots" default={true}>
-      If `true`, JSON keys containing a `.` will be expanded. For instance, if `expand_dots` is `true`, 
-      `{"metadata.color": "red"}` will be indexed as if it was `{"metadata": {"color": "red"}}`. 
+      If `true`, JSON keys containing a `.` will be expanded. For instance, if `expand_dots` is `true`,
+      `{"metadata.color": "red"}` will be indexed as if it was `{"metadata": {"color": "red"}}`.
     </ParamField>
     <ParamField body="tokenizer" default="default">
       The name of the tokenizer. See [tokenizers]([indexing/bm25#tokenizers]) for a list of available tokenizers.
     </ParamField>
     <ParamField body="record" default="basic">
-      Describes the amount of information indexed. See [records](indexing/bm25#records) for a list of available 
+      Describes the amount of information indexed. See [records](indexing/bm25#records) for a list of available
       record types.
     </ParamField>
     <ParamField body="normalizer" default="raw">
-      The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See 
+      The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See
       [normalizers](indexing/bm25#normalizers) for a list of available normalizers.
     </ParamField>
   </Expandable>

@@ -206,9 +206,8 @@ simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
 `/test/expected` for the expected output, and it will automatically get picked up
 by the test suite.
 
-**Note**
-
-The bash script takes arguments and allows you to run tests either sequentially or in
+Note: the bash script takes arguments and allows you to run tests either sequentially
+or in
 parallel.
 For more info run `./test/runtests.sh -h`
 

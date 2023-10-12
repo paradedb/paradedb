@@ -68,7 +68,7 @@ for PG_VERSION in "${PG_VERSIONS[@]}"; do
   "$PG_BIN_PATH/createdb" test_db
 
   # Use cargo-pgx to install the extension for the specified version
-  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config"
+  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
 
   # Get a list of all tests
   while IFS= read -r line; do

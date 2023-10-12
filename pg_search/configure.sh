@@ -64,10 +64,10 @@ for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pg_bm25 for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
-      cargo pgrx install --pg-config="$HOME/.pgrx/$version/pgrx-install/bin/pg_config"
+      cargo pgrx install --pg-config="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" --release
       ;;
     Linux)
-      cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config"
+      cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config" --release
       ;;
   esac
 done

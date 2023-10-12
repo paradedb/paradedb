@@ -29,7 +29,7 @@ vector database on top.
 ## Key Benefits
 
 - ⚡ **Speed**: ParadeDB is built in Rust on top of PostgreSQL and Tantivy,
-  a Rust-based implementation of Apache Lucene. See our benchmarks [here](../benchmarks/README.md).
+  a Rust-based implementation of Apache Lucene. See our benchmarks [here](./benchmarks/README.md).
 
 - 🌿 **Simplicity**: Consolidate your database and search engine
   into a single system, so you don't need to worry about keeping separate services

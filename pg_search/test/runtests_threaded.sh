@@ -68,6 +68,9 @@ function run_tests() {
   "$PG_BIN_PATH/pg_ctl" start -o "-F -c listen_addresses=\"\" -c log_min_messages=WARNING -k $PGDATA"
   "$PG_BIN_PATH/createdb" test_db
 
+  # Install the dependencies with
+  "$TESTDIR/../configure.sh" "$PG_VERSION"
+
   # Use cargo-pgx to install the extension for the specified version
   cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config"
 

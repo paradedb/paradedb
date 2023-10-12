@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [11, 12, 13, 14, 15]
+        pg_version: [ 11, 12, 13, 14, 15 ]
 
     steps:
       - name: Checkout Git Repository
@@ -66,7 +66,7 @@ jobs:
 
       - name: Run pg_bm25 Integration Tests
         working-directory: pg_bm25/
-        run: ./test/runtests_threaded.sh "${{ matrix.pg_version }}"
+        run: ./test/runtests.sh "${{ matrix.pg_version }}"
 
       - name: Run pg_bm25 Unit Tests
         env:

@@ -77,8 +77,8 @@ WITH (
 ```
 
 <Accordion title="Expected Response">
-```bash 
-CREATE INDEX 
+```bash
+CREATE INDEX
 ```
 </Accordion>
 
@@ -122,8 +122,8 @@ GENERATED ALWAYS AS (paradedb.embed('all-minilm-l6-v2', description)) STORED;
 ```
 
 <Accordion title="Expected Response">
-``` bash 
-ALTER TABLE 
+``` bash
+ALTER TABLE
 ```
 </Accordion>
 
@@ -148,7 +148,7 @@ ORDER BY mock_items.description_embeddings <-> query.embedding LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-``` csv 
+``` csv
       description       | category | rating
 ------------------------+----------+--------
  Colorful kids toy      | Toys     |      1
@@ -186,7 +186,7 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-```csv 
+```csv
          description         |  category   | rating |    score_hybrid
 -----------------------------+-------------+--------+--------------------
  Plastic Keyboard            | Electronics |      4 | 0.9142857142857144

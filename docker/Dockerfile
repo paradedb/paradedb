@@ -201,7 +201,7 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libxml2-dev \
     libjson-c-dev \
     libgdal-dev \
-    gdal-bin \    
+    gdal-bin \
     gettext \
     libtool \
     xsltproc \

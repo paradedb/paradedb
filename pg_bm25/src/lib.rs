@@ -1,4 +1,3 @@
-#![allow(clippy::missing_safety_doc)] // because _PG_init is unsafe
 use pgrx::*;
 
 mod api;
@@ -15,6 +14,7 @@ extension_sql_file!("../sql/_bootstrap.sql", bootstrap);
 extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 
 // initializes option parsing
+#[allow(clippy::missing_safety_doc)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
     index_access::options::init();

@@ -5,7 +5,6 @@ This folder contains the results and scripts for benchmarking ParadeDB against o
 - [x] ParadeDB
 - [x] PostgreSQL tsquery/tsvector
 - [x] ElasticSearch
-- [x] Typesense
 
 If you'd like to see benchmarks against another system, please open an issue or a pull request.
 
@@ -66,12 +65,6 @@ For any questions, clarifications, or suggestions regarding our benchmarking exp
 
 ### pg_bm25
 
-NOTE: The below benchmarks are from _before_ the experimental setup introduced above. We are currently updating the benchmarks and will update the results below very soon.
-
-On a table with 1 million rows, `pg_bm25` indexes 50 seconds faster than `tsvector` and searches + ranks
-results 20x faster. Indexing and search times are nearly identical to those of a dedicated ElasticSearch
-instance.
-
 <img src="../docs/images/bm25_index_benchmark.png" alt="" width="100%">
 
 <img src="../docs/images/bm25_search_benchmark.png" alt="" width="100%">
@@ -81,17 +74,7 @@ instance.
 To generate new benchmarks, simply run the relevant Bash script:
 
 ```bash
-# Benchmark ParadeDB
-./benchmark-paradedb.sh
-
-# Benchmark PostgreSQL tsquery/tsvector
-./benchmark-tsquery
-
-# Benchmark ElasticSearch
-./benchmark-elasticsearch.sh
-
-# Benchmark Typesense
-./benchmark-typesense.sh
+./benchmark-<SYSTEM-TO-BENCHMARK>.sh
 ```
 
 The results of the benchmarks will be written to a `.csv` file in the `out/` folder.

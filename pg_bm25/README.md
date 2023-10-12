@@ -244,28 +244,23 @@ cargo pgrx test
 This will run all unit tests defined in `/src`. To add a new unit test, simply add
 tests inline in the relevant files, using the `#[cfg(test)]` attribute.
 
-To run the integration test suite:
-
-- sequentially (slower):
+To run the integration test suite, simply run:
 
 ```bash
-./test/runtests.sh
+./test/runtests.sh -p threaded
 ```
 
-- in parallel subprocesses (2x faster vs. sequential)
-
-```bash
-./test/runtests_threaded.sh
-```
-
-The bash script will create a temporary database, initialize it with the SQL commands
-defined
+This will create a temporary database, initialize it with the SQL commands defined
 in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test,
 simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
 `/test/expected` for the expected output, and it will automatically get picked up
 by the test suite.
 
-To run the tests as sub-processes , use the following command:
+**Note**
+
+The bash script takes arguments and allows you to run tests either sequentially or in
+parallel.
+For more info run `./test/runtests.sh -h`
 
 ## License
 

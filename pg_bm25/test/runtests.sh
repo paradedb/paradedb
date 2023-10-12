@@ -7,15 +7,59 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
+# Handle params
+usage() {
+  echo "Usage: $0 [OPTIONS]"
+  echo "Options:"
+  echo " -h,   Display this help message"
+  echo " -p,   Processing type, either <sequentially> or <threaded>"
+  echo " -v,   PG version(s) separated by comma <11,12,13>"
+}
+
+# Do not allow script to be called without params
+if [[ ! $* =~ ^\-.+ ]]
+then
+  usage
+fi
+
+# Instantiate vars
+FLAG_PG_VER=false
+FLAG_PROCESS_TYPE=false
+
+# Assign flags to vars and check
+while getopts "p:v:" flag
+do
+  case $flag in
+    p)
+      FLAG_PROCESS_TYPE=$OPTARG
+    case "$FLAG_PROCESS_TYPE" in sequentially | threaded ): # Do nothing
+          ;;
+        *)
+          usage
+          exit 1
+          ;;
+      esac
+      ;;
+    v)
+      FLAG_PG_VER=$OPTARG
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+
 OS_NAME=$(uname)
 TESTDIR="$(dirname "$0")"
 export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
 
+
 # All pgrx-supported PostgreSQL versions to configure for
 OS_NAME=$(uname)
-if [ $# -eq 0 ]; then
+if [ "$FLAG_PG_VER" = false ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
     Darwin)
@@ -26,11 +70,10 @@ if [ $# -eq 0 ]; then
       ;;
   esac
 else
-  IFS=',' read -ra PG_VERSIONS <<< "$1"  # Split the argument by comma into an array
+  IFS=',' read -ra PG_VERSIONS <<< "$FLAG_PG_VER"  # Split the argument by comma into an array
 fi
 
-# Loop over PostgreSQL versions from 11 to 15
-for PG_VERSION in "${PG_VERSIONS[@]}"; do
+function run_tests() {
   TMPDIR="$(mktemp -d)"
   export PGDATA="$TMPDIR"
   export PGHOST="$TMPDIR"
@@ -78,4 +121,16 @@ for PG_VERSION in "${PG_VERSIONS[@]}"; do
   # Execute tests using pg_regress
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
+}
+
+# Loop over PostgreSQL versions
+for PG_VERSION in "${PG_VERSIONS[@]}"; do
+  if [ "$FLAG_PROCESS_TYPE" = "threaded" ]; then
+    echo "Running tests in parallel"
+    run_tests &
+  else
+    echo "Running tests sequentially"
+    run_tests
+  fi
 done
+wait # wait for all child processes to finish

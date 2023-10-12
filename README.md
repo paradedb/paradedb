@@ -44,7 +44,7 @@ vector database on top.
 
 ParadeDB is still under active development and should be used in production with caution. We're aiming to be fully stable by the end of October 2023.
 
-We are currently in Private Beta. Star & watch this repo to get notified of
+We are currently in Public Beta. Star & watch this repo to get notified of
 major updates.
 
 ### Roadmap
@@ -62,7 +62,7 @@ major updates.
   - [x] Docker image & [deployment instructions](https://docs.paradedb.com/deploy/aws)
   - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [ ] Cloud Database
-  - [ ] Managed cloud
+  - [x] Managed cloud
   - [ ] Self-serve cloud
   - [ ] Public Cloud (AWS, GCP, Azure) Marketplace Images
   - [ ] High availability

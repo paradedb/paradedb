@@ -64,7 +64,7 @@ echo "Done!"
 echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
 
 # Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset
-TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 2000000 3000000 4000000 5000000)
+TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 1500000 2000000 2500000 3000000 3500000 4000000 45000000 5000000)
 
 for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""
@@ -119,6 +119,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Cleanup: delete the temporary data files
   echo "-- Cleaning up..."
+  curl --silent -H "X-TYPESENSE-API-KEY: ${TYPESENSE_API_KEY}" -X DELETE "http://localhost:$PORT/collections/wikipedia_articles"
   rm -rf "$TYPESENSE_BULK_OUTPUT"
   echo ""
   echo "Done!"

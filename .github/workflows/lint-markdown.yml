@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: lint-markdown-${{ github.head_ref || github.run_id }}
+  group: lint-markdown-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:

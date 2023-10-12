@@ -15,6 +15,7 @@ import { usePathname } from "next/navigation";
 
 enum Route {
   Dashboard = "/",
+  Welcome = "/welcome",
   Settings = "/settings",
   Logout = "/api/auth/logout",
   Documentation = "https://docs.paradedb.com",
@@ -68,6 +69,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     [key: string]: string;
   } = {
     [Route.Dashboard]: "Dashboard",
+    [Route.Welcome]: "Welcome Letter",
     [Route.Settings]: "Settings",
   };
 
@@ -91,6 +93,12 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
               href={Route.Dashboard}
               name="Dashboard"
               icon={HomeIcon}
+            />
+            <SidebarButton
+              active={pathname === Route.Welcome}
+              href={Route.Welcome}
+              name="Welcome Letter"
+              icon={BookOpenIcon}
             />
             {/* TODO: Create settings page */}
             {/* <SidebarButton
@@ -124,7 +132,9 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           numColSpanSm={10}
           className="px-12 py-6 bg-black overflow-y-scroll"
         >
-          <Metric className="text-neutral-100">{titleMap[pathname]}</Metric>
+          <Metric className="text-neutral-100 font-semibold">
+            {titleMap[pathname]}
+          </Metric>
           <hr className="border-neutral-700 h-1 w-full my-6" />
           <div className="mt-8">{children}</div>
         </Col>

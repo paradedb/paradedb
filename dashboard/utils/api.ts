@@ -4,11 +4,11 @@ import { NextResponse } from "next/server";
 const withRequest = (
   customFetch: (accessToken: string) => Promise<Response>,
 ) => {
-  return withApiAuthRequired(async () => {
+  return withApiAuthRequired(async (req) => {
     const res = new NextResponse();
 
     try {
-      const { accessToken } = await getAccessToken();
+      const { accessToken } = await getAccessToken(req, res);
       const response = await customFetch(accessToken ?? "");
 
       if (!response.ok) {
@@ -25,12 +25,11 @@ const withRequest = (
 
       const data = await response.json();
       return NextResponse.json(data, res);
-    } catch (error) {
-      console.error("Failed to make the request:", error);
+    } catch (error: any) {
       return NextResponse.json(
         {
           status: 500,
-          message: "Failed to connect to the server.",
+          message: error?.code,
         },
         res,
       );

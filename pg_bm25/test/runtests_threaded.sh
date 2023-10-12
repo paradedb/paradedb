@@ -30,7 +30,7 @@ else
 fi
 
 function run_tests() {
- echo "Test for PG version $PG_VERSION with PID:${!} has started"
+  echo "Test for PG version $PG_VERSION with PID:${!} has started"
   TMPDIR="$(mktemp -d)"
   export PGDATA="$TMPDIR"
   export PGHOST="$TMPDIR"
@@ -83,6 +83,6 @@ function run_tests() {
 
 # Loop over PostgreSQL versions from 11 to 15 in background processes
 for PG_VERSION in "${PG_VERSIONS[@]}"; do
- run_tests & 
+  run_tests & 
 done
 wait # wait for all child processes to finish

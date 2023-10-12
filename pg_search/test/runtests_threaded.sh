@@ -15,6 +15,7 @@ export PGDATABASE=postgres
 export PGPASSWORD=password
 
 # All pgrx-supported PostgreSQL versions to configure for
+OS_NAME=$(uname)
 if [ $# -eq 0 ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
@@ -29,8 +30,8 @@ else
   IFS=',' read -ra PG_VERSIONS <<< "$1"  # Split the argument by comma into an array
 fi
 
-# Loop over PostgreSQL versions from 11 to 15
-for PG_VERSION in "${PG_VERSIONS[@]}"; do
+function run_tests() {
+  echo "Test for PG version $PG_VERSION with PID:${!} has started"
   TMPDIR="$(mktemp -d)"
   export PGDATA="$TMPDIR"
   export PGHOST="$TMPDIR"
@@ -67,9 +68,6 @@ for PG_VERSION in "${PG_VERSIONS[@]}"; do
   "$PG_BIN_PATH/pg_ctl" start -o "-F -c listen_addresses=\"\" -c log_min_messages=WARNING -k $PGDATA"
   "$PG_BIN_PATH/createdb" test_db
 
-  # Install the dependencies with
-  "$TESTDIR/../configure.sh" "$PG_VERSION"
-
   # Use cargo-pgx to install the extension for the specified version
   cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config"
 
@@ -81,4 +79,11 @@ for PG_VERSION in "${PG_VERSIONS[@]}"; do
   # Execute tests using pg_regress
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
+  echo "Test for PG version $PG_VERSION with PID:${!} has completed"
+}
+
+# Loop over PostgreSQL versions from 11 to 15 in background processes
+for PG_VERSION in "${PG_VERSIONS[@]}"; do
+  run_tests &
 done
+wait # wait for all child processes to finish

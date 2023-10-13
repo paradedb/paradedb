@@ -93,22 +93,26 @@ done
 # how many people are using the project and to track deployment success. We
 # only do this if TELEMETRY is not set to "False", and only do it once per deployment
 if [[ ${TELEMETRY:-} != "False" ]]; then
-  if [[ -z ${POSTHOG_API_KEY:-} || -z ${POSTHOG_HOST:-} ]]; then
-    echo "Failed to retrieve POSTHOG_API_KEY or POSTHOG_ENDPOINT from environment variables, not sending telemetry!"
-  else
-    curl -s -L --header "Content-Type: application/json" -d '{
-      "api_key": "'"$POSTHOG_API_KEY"'",
-      "event": "ParadeDB Deployment",
-      "distinct_id": "'"$(uuidgen)"'",
-      "properties": {
-        "commit_sha": "'"${COMMIT_SHA:-}"'"
-      }
-    }' "$POSTHOG_HOST/capture/" > /dev/null
+  if [[ -n ${POSTHOG_API_KEY+x} ]]; then
+    if [[ -n ${POSTHOG_HOST+x} ]]; then
+      curl -s -L --header "Content-Type: application/json" -d '{
+        "api_key": "'"$POSTHOG_API_KEY"'",
+        "event": "ParadeDB Deployment",
+        "distinct_id": "'"$(uuidgen)"'",
+        "properties": {
+          "commit_sha": "'"${COMMIT_SHA:-}"'"
+        }
+      }' "$POSTHOG_HOST/capture/" > /dev/null
 
-    # Mark telemetry as sent so we don't send it again when
-    # initializing our PostgreSQL extensions. We use a file for IPC
-    # between this script and our PostgreSQL extensions
-    echo "True" > /tmp/telemetry_sent
+      # Mark telemetry as sent so we don't send it again when
+      # initializing our PostgreSQL extensions. We use a file for IPC
+      # between this script and our PostgreSQL extensions
+      echo "True" > /tmp/telemetry_sent
+    else
+      echo "Failed to retrieve POSTHOG_HOST from environment variables, not sending ParadeDB telemetry!"
+    fi
+  else
+    echo "Failed to retrieve POSTHOG_API_KEY from environment variables, not sending ParadeDB telemetry!"
   fi
 else
   echo "ParadeDB telemetry disabled!"

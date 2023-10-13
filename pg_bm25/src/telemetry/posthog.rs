@@ -56,13 +56,13 @@ pub unsafe fn init() {
                         }
                     }
                 } else {
-                    info!("Failed to retrieve COMMIT_SHA from environment variables, sending telemetry without commit_sha!");
+                    info!("Failed to retrieve COMMIT_SHA from environment variables, sending pg_bm25 telemetry without commit_sha!");
                 }
             } else {
-                info!("Failed to retrieve POSTHOG_HOST from environment variables, not sending telemetry!");
+                info!("Failed to retrieve POSTHOG_HOST from environment variables, not sending pg_bm25 telemetry!");
             }
         } else {
-            info!("Failed to retrieve POSTHOG_API_KEY from environment variables, not sending telemetry!");
+            info!("Failed to retrieve POSTHOG_API_KEY from environment variables, not sending pg_bm25 telemetry!");
         }
     }
 }

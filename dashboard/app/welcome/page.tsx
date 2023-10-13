@@ -31,6 +31,10 @@ const Welcome = () => {
           for search.
         </Text>
         <Text className="text-neutral-300 mt-4">
+          The next release will introduce configurability over your ParadeDB
+          instance size.
+        </Text>
+        <Text className="text-neutral-300 mt-4">
           Since this is a beta, we&apos;re not charging 💰. Usage of ParadeDB
           will remain free until our public launch, scheduled for the end of
           2023. We&apos;ll give you plenty of notice before we start charging,

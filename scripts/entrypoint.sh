@@ -79,16 +79,6 @@ fi
 # to be reflected
 pg_ctl restart
 
-echo "PostgreSQL is up - installing extensions..."
-
-# Preinstall extensions for which a version is specified
-for extension in "${!extensions[@]}"; do
-  version=${extensions[$extension]}
-  if [ -n "$version" ]; then
-    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
-  fi
-done
-
 # We send basic, anonymous deployment events to PostHog to help us understand
 # how many people are using the project and to track deployment success. We
 # only do this if TELEMETRY is not set to "False", and only do it once per deployment
@@ -117,6 +107,16 @@ if [[ ${TELEMETRY:-} != "False" ]]; then
 else
   echo "ParadeDB telemetry disabled!"
 fi
+
+echo "PostgreSQL is up - installing extensions..."
+
+# Preinstall extensions for which a version is specified
+for extension in "${!extensions[@]}"; do
+  version=${extensions[$extension]}
+  if [ -n "$version" ]; then
+    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
+  fi
+done
 
 echo "PostgreSQL extensions installed - initialization completed!"
 echo "ParadeDB is ready for connections!"

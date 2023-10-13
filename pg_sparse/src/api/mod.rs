@@ -1,5 +1,4 @@
 use pgrx::*;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::sparse_index::Sparse;
@@ -68,6 +67,10 @@ CREATE OPERATOR pg_catalog.<==> (
     LEFTARG = sparse, RIGHTARG = sparse, PROCEDURE = sparse_cosine_distance,
     COMMUTATOR = '<==>'
 );
+
+CREATE OPERATOR CLASS sparse_ops DEFAULT FOR TYPE sparse USING sparse_hnsw AS
+    OPERATOR 1 <==> (sparse, sparse) FOR ORDER BY float_ops,
+    FUNCTION 1 sparse_cosine_distance(sparse, sparse);
 "#,
     name = "sparse_operator"
 );

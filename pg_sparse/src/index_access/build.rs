@@ -1,7 +1,7 @@
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 
-use crate::sparse_index::SparseIndex
+use crate::sparse_index::SparseIndex;
 
 struct BuildState<'a> {
     count: usize,
@@ -12,7 +12,7 @@ struct BuildState<'a> {
 impl<'a> BuildState<'a> {
     fn new(sparse_index: &'a mut SparseIndex) -> Self {
         BuildState {
-            parade_index,
+            sparse_index,
             count: 0,
             memcxt: PgMemoryContexts::new("SparseIndex build context"),
         }
@@ -25,6 +25,7 @@ pub extern "C" fn ambuild(
     indexrel: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut pg_sys::IndexBuildResult {
+    info!("Reached ambuild");
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
@@ -48,12 +49,16 @@ pub extern "C" fn ambuild(
     result.into_pg()
 }
 
+#[pg_guard]
+pub extern "C" fn ambuildempty(_index_relation: pg_sys::Relation) {
+    info!("ambuildempty")
+}
+
 fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
-    sparse_index: &mut SparseIndex,
-    writer: &mut SingleSegmentIndexWriter,
+    sparse_index: &mut SparseIndex
 ) -> usize {
     let mut state = BuildState::new(sparse_index);
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
@@ -106,21 +111,22 @@ unsafe extern "C" fn build_callback_internal(
     check_for_interrupts!();
 
     let index_relation_ref = unsafe { PgRelation::from_pg(index) };
-    let tupdesc = lookup_index_tupdesc(&index_relation_ref);
-    let attributes = categorize_tupdesc(&tupdesc);
-    let natts = tupdesc.natts as usize;
-    let dropped = (0..tupdesc.natts as usize)
-        .map(|i| tupdesc.get(i).unwrap().is_dropped())
-        .collect::<Vec<bool>>();
+    // let tupdesc = lookup_index_tupdesc(&index_relation_ref);
+    // let attributes = categorize_tupdesc(&tupdesc);
+    // let natts = tupdesc.natts as usize;
+    // let dropped = (0..tupdesc.natts as usize)
+    //     .map(|i| tupdesc.get(i).unwrap().is_dropped())
+    //     .collect::<Vec<bool>>();
 
     let state = (state as *mut BuildState).as_mut().unwrap();
     let mut old_context = state.memcxt.set_as_current();
 
     let values = std::slice::from_raw_parts(values, 1);
-    let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
+    info!("{:?}", values);
+    // let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
 
     // Insert row to parade index
-    state.parade_index.insert(state.writer, ctid, builder);
+    // state.parade_index.insert(state.writer, ctid, builder);
 
     old_context.set_as_current();
     state.memcxt.reset();

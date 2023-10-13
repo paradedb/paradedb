@@ -25,6 +25,5 @@ services:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: mydatabase
-      TELEMETRY: false
     ports:
       - "5432:5432"

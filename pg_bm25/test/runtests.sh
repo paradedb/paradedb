@@ -59,9 +59,6 @@ export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
 
-# Disable telemetry for tests
-export TELEMETRY=false
-
 # All pgrx-supported PostgreSQL versions to configure for
 OS_NAME=$(uname)
 if [ "$FLAG_PG_VER" = false ]; then

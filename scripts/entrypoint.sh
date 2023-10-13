@@ -81,8 +81,8 @@ pg_ctl restart
 
 # We send basic, anonymous deployment events to PostHog to help us understand
 # how many people are using the project and to track deployment success. We
-# only do this if TELEMETRY is not set to "false", and only do it once per deployment
-if [[ ${TELEMETRY:-} != "false" ]]; then
+# only do this if TELEMETRY is set to "true", and only do it once per deployment
+if [[ ${TELEMETRY:-} == "true" ]]; then
   if [[ -z ${POSTHOG_API_KEY+x} ]]; then
     echo "Failed to retrieve POSTHOG_API_KEY from environment variables, not sending ParadeDB telemetry!"
   elif [[ -z ${POSTHOG_HOST+x} ]]; then

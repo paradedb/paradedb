@@ -1,5 +1,7 @@
 use pgrx::prelude::*;
+
 mod api;
+mod index_access;
 
 pgrx::pg_module_magic!();
 

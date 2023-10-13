@@ -44,8 +44,7 @@ vector database on top.
 
 ParadeDB is still under active development and should be used in production with caution. We're aiming to be fully stable by the end of October 2023.
 
-We are currently in Public Beta. Star & watch this repo to get notified of
-major updates.
+We are currently in Public Beta. Star & watch this repo to get notified of major updates.
 
 ### Roadmap
 
@@ -55,7 +54,7 @@ major updates.
   - [x] Hybrid search with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [x] Real-time search
   - [ ] Faceted search
-  - [ ] Distributed search
+  - [ ] Distributed search (horizontal scaling/sharding)
   - [ ] Generative search
   - [ ] Multimodal search
 - [x] Self-hosting
@@ -76,8 +75,7 @@ Coming soon! Sign up for the [ParadeDB Cloud waitlist](https://paradedb.typeform
 
 ### Self-Hosted
 
-To install ParadeDB locally or on-premise, simply pull and run the latest Docker
-image:
+To install ParadeDB locally or on-premise, simply pull and run the latest Docker image:
 
 ```bash
 docker run \

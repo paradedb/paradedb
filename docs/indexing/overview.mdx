@@ -20,8 +20,7 @@ and the HNSW index, for similarity search. These indexes can be created over the
 search over.
 
 Once an index is created, it will automatically stay in sync with the underlying table data, and
-does not need to be re-created unless the table schema changes (for instance, if a column is renamed or deleted). ParadeDB
-offers _weak consistency_ between the table and the index, meaning that the index will eventually be updated to reflect the
-table data, but there may be a short delay between the table data changing and the index reflecting that change. Your mileage
-may vary depending on the size of your table and the number of concurrent writes. This is so that indexing data does not slow
-down the transactions.
+does not need to be re-created unless the table schema changes (for instance, if a column is renamed or deleted).
+To not slow down transactions while indexing, indexes follow _weak consistency_, meaning that they are updated
+automatically in the background after a transaction commits, and become consistent within a few seconds (although your
+mileage may vary depending on the size of your transaction(s)).

@@ -111,7 +111,7 @@ if [[ ${TELEMETRY:-} != "False" ]]; then
     echo "True" > /tmp/telemetry_sent
   fi
 else
-  echo "Telemetry is disabled."
+  echo "ParadeDB telemetry disabled"
 fi
 
 echo "PostgreSQL extensions installed - initialization completed!"

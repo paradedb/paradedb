@@ -13,7 +13,7 @@ pub unsafe fn init() {
     };
 
     if telemetry == "False" {
-        info!("Telemetry is disabled.");
+        info!("pg_bm25 telemetry disabled");
     } else if telemetry_sent != "True" {
         if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
             if let Ok(posthog_host) = env::var("POSTHOG_HOST") {

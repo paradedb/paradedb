@@ -57,7 +57,7 @@ services:
   postgrest:
     image: postgrest/postgrest:v11.2.0
     depends_on:
-      paradedb:
+      paradedb-local:
         condition: service_healthy
     environment:
       PGRST_DB_URI: postgres://myuser:mypassword@paradedb:5432/mydatabase

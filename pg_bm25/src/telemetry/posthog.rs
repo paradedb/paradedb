@@ -4,67 +4,50 @@ use std::env;
 use std::fs;
 
 pub unsafe fn init() {
-    // Read whether telemetry was already handled at the ParadeDB level
-    let telemetry_handled = match fs::read_to_string("/tmp/telemetry") {
-        Ok(content) => content.trim().to_string(),
-        Err(_) => String::from("false"),
+    // Check if telemetry was already handled at the ParadeDB level
+    let telemetry_handled = fs::read_to_string("/tmp/telemetry")
+        .map_or_else(|_| "false".to_string(), |content| content.trim().to_string());
+
+    if telemetry_handled == "true" {
+        return;
+    }
+
+    // Check if telemetry is enabled
+    let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| "false".to_string());
+    if telemetry != "true" {
+        info!("Telemetry for pg_bm25 disabled!");
+        return;
+    }
+
+    // Retrieve necessary environment variables or exit early if they're not set
+    let api_key = match env::var("POSTHOG_API_KEY") {
+        Ok(key) => key,
+        Err(_) => return,
     };
 
-    // If telemetry was not already handled at the ParadeDB level, this is a standalone deployment
-    // of pg_bm25, and we should send telemetry
-    if telemetry_handled != "true" {
-        // We only send telemetry in the standalone deployment if TELEMETRY is set to true
-        let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("false"));
-        if telemetry == "true" {
-            if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
-                if let Ok(posthog_host) = env::var("POSTHOG_HOST") {
-                    if let Ok(commit_sha) = env::var("COMMIT_SHA") {
-                        // The endpoint for sending events to PostHog
-                        let endpoint: String = format!("{}/capture", posthog_host);
+    let posthog_host = match env::var("POSTHOG_HOST") {
+        Ok(host) => host,
+        Err(_) => return,
+    };
 
-                        // Define the event data
-                        let data = json!({
-                            "api_key": api_key,
-                            "event": "pg_bm25 Deployment",
-                            "distinct_id": uuid::Uuid::new_v4().to_string(),
-                            "properties": {
-                                "commit_sha": commit_sha
-                            }
-                        });
+    let commit_sha = env::var("COMMIT_SHA").unwrap_or_else(|_| "".to_string());
 
-                        // Create a new HTTP client and send the event
-                        let client = reqwest::blocking::Client::new();
-                        let response = client
-                            .post(endpoint)
-                            .header("Content-Type", "application/json")
-                            .body(data.to_string())
-                            .send();
-
-                        // Check if the request was successful
-                        match response {
-                            Ok(res) if res.status().is_success() => {
-                                let _body = res.text().unwrap_or_else(|_| {
-                                    String::from("Failed to read response body")
-                                });
-                            }
-                            Ok(res) => {
-                                info!("Failed to send event. Status: {}", res.status());
-                            }
-                            Err(e) => {
-                                info!("Error sending request: {}", e);
-                            }
-                        }
-                    } else {
-                        info!("Failed to retrieve COMMIT_SHA from environment variables, sending pg_bm25 telemetry without commit_sha!");
-                    }
-                } else {
-                    info!("Failed to retrieve POSTHOG_HOST from environment variables, not sending pg_bm25 telemetry!");
-                }
-            } else {
-                info!("Failed to retrieve POSTHOG_API_KEY from environment variables, not sending pg_bm25 telemetry!");
-            }
-        } else {
-            info!("Telemetry for pg_bm25 disabled!");
+    // Construct the endpoint and event data
+    let endpoint = format!("{}/capture", posthog_host);
+    let data = json!({
+        "api_key": api_key,
+        "event": "pg_bm25 Deployment",
+        "distinct_id": uuid::Uuid::new_v4().to_string(),
+        "properties": {
+            "commit_sha": commit_sha
         }
-    }
+    });
+
+    // Send the event
+    let client = reqwest::blocking::Client::new();
+    let _response = client
+        .post(endpoint)
+        .header("Content-Type", "application/json")
+        .body(data.to_string())
+        .send();
 }

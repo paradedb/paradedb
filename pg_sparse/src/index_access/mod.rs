@@ -10,53 +10,53 @@ fn sparse_hnsw_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::Index
 
     amroutine.amstrategies = 0;
     amroutine.amsupport = 1;
-	amroutine.amcanorder = false;
-	amroutine.amcanorderbyop = true;
-	amroutine.amcanbackward = false;
-	amroutine.amcanunique = false;
-	amroutine.amcanmulticol = false;
-	amroutine.amoptionalkey = true;
-	amroutine.amsearcharray = false;
-	amroutine.amsearchnulls = false;
-	amroutine.amstorage = false;
-	amroutine.amclusterable = false;
-	amroutine.ampredlocks = false;
-	amroutine.amcanparallel = false;
-	amroutine.amcaninclude = false;
-	amroutine.amkeytype = pg_sys::InvalidOid;
-	amroutine.ambuild = None;
-	amroutine.ambuildempty = None;
-	amroutine.aminsert = None;
-	amroutine.ambulkdelete = None;
-	amroutine.amvacuumcleanup = None;
-	amroutine.amcanreturn = None;
-	amroutine.amcostestimate = None;
-	amroutine.amoptions = None;
-	amroutine.amproperty = None;
-	amroutine.ambuildphasename = None;
-	amroutine.amvalidate = None;
-	amroutine.ambeginscan = None;
-	amroutine.amrescan = None;
-	amroutine.amgettuple = None;
-	amroutine.amgetbitmap = None;
-	amroutine.amendscan = None;
-	amroutine.ammarkpos = None;
-	amroutine.amrestrpos = None;
-	amroutine.amestimateparallelscan = None;
-	amroutine.aminitparallelscan = None;
-	amroutine.amparallelrescan = None;
+    amroutine.amcanorder = false;
+    amroutine.amcanorderbyop = true;
+    amroutine.amcanbackward = false;
+    amroutine.amcanunique = false;
+    amroutine.amcanmulticol = false;
+    amroutine.amoptionalkey = true;
+    amroutine.amsearcharray = false;
+    amroutine.amsearchnulls = false;
+    amroutine.amstorage = false;
+    amroutine.amclusterable = false;
+    amroutine.ampredlocks = false;
+    amroutine.amcanparallel = false;
+    amroutine.amcaninclude = false;
+    amroutine.amkeytype = pg_sys::InvalidOid;
+    amroutine.ambuild = None;
+    amroutine.ambuildempty = None;
+    amroutine.aminsert = None;
+    amroutine.ambulkdelete = None;
+    amroutine.amvacuumcleanup = None;
+    amroutine.amcanreturn = None;
+    amroutine.amcostestimate = None;
+    amroutine.amoptions = None;
+    amroutine.amproperty = None;
+    amroutine.ambuildphasename = None;
+    amroutine.amvalidate = None;
+    amroutine.ambeginscan = None;
+    amroutine.amrescan = None;
+    amroutine.amgettuple = None;
+    amroutine.amgetbitmap = None;
+    amroutine.amendscan = None;
+    amroutine.ammarkpos = None;
+    amroutine.amrestrpos = None;
+    amroutine.amestimateparallelscan = None;
+    amroutine.aminitparallelscan = None;
+    amroutine.amparallelrescan = None;
 
-	#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
-	{
-		amroutine.amoptsprocnum = 0;
-		amroutine.amusemaintenanceworkmem = false;
-		amroutine.amparallelvacuumoptions = pg_sys::VACUUM_OPTION_PARALLEL_BULKDEL as u8;
-	}
+    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+    {
+        amroutine.amoptsprocnum = 0;
+        amroutine.amusemaintenanceworkmem = false;
+        amroutine.amparallelvacuumoptions = pg_sys::VACUUM_OPTION_PARALLEL_BULKDEL as u8;
+    }
 
-	#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
-	{
-		amroutine.amadjustmembers = None;
-	}
-    
+    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+    {
+        amroutine.amadjustmembers = None;
+    }
+
     amroutine.into_pg_boxed()
 }

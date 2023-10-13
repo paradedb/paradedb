@@ -59,6 +59,7 @@ export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
 
+
 # All pgrx-supported PostgreSQL versions to configure for
 OS_NAME=$(uname)
 if [ "$FLAG_PG_VER" = false ]; then

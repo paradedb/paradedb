@@ -5,7 +5,7 @@ use std::fs;
 
 pub unsafe fn init() {
     let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("true"));
-    
+
     if telemetry == "true" {
         // Read whether telemetry was already handled at the ParadeDB level
         let telemetry_handled = match fs::read_to_string("/tmp/telemetry") {
@@ -21,7 +21,7 @@ pub unsafe fn init() {
                     if let Ok(commit_sha) = env::var("COMMIT_SHA") {
                         // The endpoint for sending events to PostHog
                         let endpoint: String = format!("{}/capture", posthog_host);
-    
+
                         // Define the event data
                         let data = json!({
                             "api_key": api_key,
@@ -31,7 +31,7 @@ pub unsafe fn init() {
                                 "commit_sha": commit_sha
                             }
                         });
-    
+
                         // Create a new HTTP client and send the event
                         let client = reqwest::blocking::Client::new();
                         let response = client
@@ -39,14 +39,14 @@ pub unsafe fn init() {
                             .header("Content-Type", "application/json")
                             .body(data.to_string())
                             .send();
-    
+
                         // Check if the request was successful
                         match response {
                             Ok(res) if res.status().is_success() => {
                                 info!("Event sent successfully!");
-                                let body = res
-                                    .text()
-                                    .unwrap_or_else(|_| String::from("Failed to read response body"));
+                                let body = res.text().unwrap_or_else(|_| {
+                                    String::from("Failed to read response body")
+                                });
                                 info!("Response body: {}", body);
                             }
                             Ok(res) => {
@@ -56,21 +56,17 @@ pub unsafe fn init() {
                                 info!("Error sending request: {}", e);
                             }
                         }
-                    }
-                    else {
+                    } else {
                         info!("Failed to retrieve COMMIT_SHA from environment variables, sending pg_search telemetry without commit_sha!");
                     }
-                }
-                else {
+                } else {
                     info!("Failed to retrieve POSTHOG_HOST from environment variables, not sending pg_search telemetry!");
                 }
-            }
-            else {
+            } else {
                 info!("Failed to retrieve POSTHOG_API_KEY from environment variables, not sending pg_search telemetry!");
             }
         }
-    }
-    else {
+    } else {
         info!("Telemetry for pg_search disabled!");
     }
 }

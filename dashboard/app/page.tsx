@@ -23,12 +23,15 @@ import {
   DeleteInstanceButton,
 } from "@/components/button";
 import { Card as CardSkeleton } from "@/components/skeleton";
+import { redirect } from "next/navigation";
 
 const DATABASE_CREDENTIALS_URL = `/api/databases/credentials`;
 const DATABASE_STATUS_URL = `/api/databases/status`;
 const IMPORTING_DATA_URL = "https://docs.paradedb.com/import";
 const QUICKSTART_URL = "https://docs.paradedb.com/quickstart";
 const SEARCH_BASICS_URL = "https://docs.paradedb.com/search/bm25";
+
+const ERR_EXPIRED_ACCESS_TOKEN = "ERR_EXPIRED_ACCESS_TOKEN";
 
 enum DeployStatus {
   UNKNOWN = "unknown",
@@ -115,7 +118,17 @@ const InstanceCard = () => {
       await mutate(DATABASE_STATUS_URL);
       await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
     }
+
+    await mutate(DATABASE_CREDENTIALS_URL);
   };
+
+  if (creds?.status === 500 && creds?.message === ERR_EXPIRED_ACCESS_TOKEN) {
+    redirect("/api/auth/logout");
+  }
+
+  if (creds?.status === 500) {
+    return <Error />;
+  }
 
   if (!creds || !status) {
     return (
@@ -125,10 +138,6 @@ const InstanceCard = () => {
         <CardSkeleton />
       </Card>
     );
-  }
-
-  if (creds?.status === 500) {
-    return <Error />;
   }
 
   if (
@@ -148,7 +157,7 @@ const InstanceCard = () => {
             />
             <CredentialsListItem
               name="Database"
-              value={creds?.database}
+              value={creds?.dbname}
               icon={<DatabaseIcon className="w-4 text-indigo-400" />}
             />
             <CredentialsListItem

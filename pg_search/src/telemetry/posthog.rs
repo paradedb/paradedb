@@ -13,7 +13,6 @@ pub unsafe fn init() {
     // If telemetry was not already handled at the ParadeDB level, this is a standalone deployment
     // of pg_search, and we should send telemetry
     if telemetry_handled != "true" {
-
         // We only send telemetry in the standalone deployment if TELEMETRY is set to true
         let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("false"));
         if telemetry == "true" {

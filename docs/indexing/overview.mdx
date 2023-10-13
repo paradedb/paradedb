@@ -21,6 +21,6 @@ search over.
 
 Once an index is created, it will automatically stay in sync with the underlying table data, and
 does not need to be re-created unless the table schema changes (for instance, if a column is renamed or deleted).
-To not slow down transactions while indexing, indexes follow *weak consistency*, meaning that they are updated
-automatically in the background after a transaction commits, and become consistent within a few seconds (although your 
+To not slow down transactions while indexing, indexes follow _weak consistency_, meaning that they are updated
+automatically in the background after a transaction commits, and become consistent within a few seconds (although your
 mileage may vary depending on the size of your transaction(s)).

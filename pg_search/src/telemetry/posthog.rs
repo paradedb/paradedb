@@ -13,7 +13,7 @@ pub unsafe fn init() {
     };
 
     if telemetry == "False" {
-        info!("pg_search telemetry disabled");
+        info!("Telemetry for pg_search disabled!");
     } else if telemetry_sent != "True" {
         if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
             if let Ok(posthog_host) = env::var("POSTHOG_HOST") {
@@ -24,7 +24,7 @@ pub unsafe fn init() {
                     // Define the event data
                     let data = json!({
                         "api_key": api_key,
-                        "event": "pg_bm25 Deployment",
+                        "event": "pg_search Deployment",
                         "distinct_id": uuid::Uuid::new_v4().to_string(),
                         "properties": {
                             "commit_sha": commit_sha

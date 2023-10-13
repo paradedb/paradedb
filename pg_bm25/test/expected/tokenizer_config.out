@@ -1,6 +1,6 @@
 -- Default tokenizer
 CREATE INDEX idxtokenizerconfig ON tokenizer_config USING bm25 ((tokenizer_config.*)) WITH (text_fields='{"description": {}}');
-INFO:  pg_bm25 telemetry disabled
+INFO:  Telemetry for pg_bm25 disabled!
 SELECT * FROM tokenizer_config WHERE tokenizer_config @@@ 'description:earbud';
  id | description | rating | category | in_stock | metadata 
 ----+-------------+--------+----------+----------+----------

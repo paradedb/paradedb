@@ -1,6 +1,6 @@
 -- Invalid CREATE INDEX
 CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*));
-INFO:  pg_bm25 telemetry disabled
+INFO:  Telemetry for pg_bm25 disabled!
 ERROR:  no text_fields, numeric_fields, boolean_fields, or json_fields were specified
 CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (invalid_field='{}');
 ERROR:  unrecognized parameter "invalid_field"

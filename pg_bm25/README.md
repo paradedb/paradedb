@@ -256,9 +256,7 @@ simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
 by the test suite.
 
 Note: the bash script takes arguments and allows you to run tests either sequentially
-or in
-parallel.
-For more info run `./test/runtests.sh -h`
+or in parallel. For more info run `./test/runtests.sh -h`
 
 ## License
 

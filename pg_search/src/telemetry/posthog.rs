@@ -4,7 +4,7 @@ use std::env;
 use std::fs;
 
 pub unsafe fn init() {
-    let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("true"));
+    let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("false"));
 
     if telemetry == "true" {
         // Read whether telemetry was already handled at the ParadeDB level

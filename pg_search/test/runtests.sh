@@ -13,7 +13,7 @@ usage() {
   echo "Usage: $0 [OPTIONS]"
   echo "Options:"
   echo " -h (optional),   Display this help message"
-  echo " -p (required),   Processing type, either <sequentially> or <threaded>"
+  echo " -p (required),   Processing type, either <sequential> or <threaded>"
   echo " -v (optional),   PG version(s) separated by comma <11,12,13>"
   exit 1
 }
@@ -37,7 +37,7 @@ do
       ;;
     p)
       FLAG_PROCESS_TYPE=$OPTARG
-    case "$FLAG_PROCESS_TYPE" in sequentially | threaded ): # Do nothing
+    case "$FLAG_PROCESS_TYPE" in sequential | threaded ): # Do nothing
           ;;
         *)
           usage

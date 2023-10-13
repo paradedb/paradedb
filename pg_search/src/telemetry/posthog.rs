@@ -5,8 +5,10 @@ use std::fs;
 
 pub unsafe fn init() {
     // Check if telemetry was already handled at the ParadeDB level
-    let telemetry_handled = fs::read_to_string("/tmp/telemetry")
-        .map_or_else(|_| "false".to_string(), |content| content.trim().to_string());
+    let telemetry_handled = fs::read_to_string("/tmp/telemetry").map_or_else(
+        |_| "false".to_string(),
+        |content| content.trim().to_string(),
+    );
 
     if telemetry_handled == "true" {
         return;

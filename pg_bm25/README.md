@@ -78,7 +78,8 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_bm25;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
+If you are using a managed Postgres service like Amazon RDS, you will not be able to
+install `pg_bm25` until the Postgres service explicitly supports it.
 
 ## Usage
 
@@ -154,7 +155,8 @@ FROM mock_items
 WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics';
 ```
 
-New data that arrives or rows that are changed are automatically reindexed and searchable. For instance,
+New data that arrives or rows that are changed are automatically reindexed and searchable.
+For instance,
 let's create and search for a new row in our table:
 
 ```sql
@@ -179,7 +181,8 @@ This will return:
 (5 rows)
 ```
 
-Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview of `pg_bm25`'s query support.
+Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more
+thorough overview of `pg_bm25`'s query support.
 
 ## Development
 
@@ -244,7 +247,7 @@ tests inline in the relevant files, using the `#[cfg(test)]` attribute.
 To run the integration test suite, simply run:
 
 ```bash
-./test/runtests.sh
+./test/runtests.sh -p threaded
 ```
 
 This will create a temporary database, initialize it with the SQL commands defined
@@ -252,6 +255,11 @@ in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new tes
 simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
 `/test/expected` for the expected output, and it will automatically get picked up
 by the test suite.
+
+Note: the bash script takes arguments and allows you to run tests either sequentially
+or in
+parallel.
+For more info run `./test/runtests.sh -h`
 
 ## License
 

@@ -7,8 +7,11 @@
 
 ## Overview
 
-`pg_search` is a PostgreSQL extension that enables hybrid search in Postgres. Hybrid search is a search technique
-that combines BM25-based full text search with vector-based similarity search. It is built on top of `pg_bm25`, the leading full text search extension for Postgres, and `pgvector`, the leading vector similarity search extension for Postgres, using `pgrx`.
+`pg_search` is a PostgreSQL extension that enables hybrid search in Postgres. Hybrid
+search is a search technique
+that combines BM25-based full text search with vector-based similarity search. It is built
+on top of `pg_bm25`, the leading full text search extension for Postgres, and `pgvector`,
+the leading vector similarity search extension for Postgres, using `pgrx`.
 
 `pg_search` is supported on PostgreSQL 11+.
 
@@ -67,7 +70,9 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_search CASCADE;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_search` until the Postgres service explicitly supports it and its dependencies.
+If you are using a managed Postgres service like Amazon RDS, you will not be able to
+install `pg_search` until the Postgres service explicitly supports it and its
+dependencies.
 
 ## Usage
 
@@ -116,7 +121,8 @@ FROM mock_items
 ORDER BY score_hybrid DESC;
 ```
 
-Please refer to the [documentation](https://docs.paradedb.com/search/hybrid) for a more thorough overview of `pg_search`'s query support.
+Please refer to the [documentation](https://docs.paradedb.com/search/hybrid) for a more
+thorough overview of `pg_search`'s query support.
 
 ## Development
 
@@ -191,7 +197,7 @@ tests inline in the relevant files, using the `#[cfg(test)]` attribute.
 To run the integration test suite, simply run:
 
 ```bash
-./test/runtests.sh
+./test/runtests.sh -p threaded
 ```
 
 This will create a temporary database, initialize it with the SQL commands defined
@@ -200,6 +206,12 @@ simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
 `/test/expected` for the expected output, and it will automatically get picked up
 by the test suite.
 
+Note: the bash script takes arguments and allows you to run tests either sequentially
+or in
+parallel.
+For more info run `./test/runtests.sh -h`
+
 ## License
 
-The `pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).
+The `pg_search` is licensed under
+the [GNU Affero General Public License v3.0](../LICENSE).

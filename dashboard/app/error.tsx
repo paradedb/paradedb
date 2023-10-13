@@ -7,8 +7,8 @@ import { useIntercom } from "react-use-intercom";
 import { Card } from "@/components/tremor/card";
 
 const Error = ({}: {
-  error: Error & { digest?: string };
-  reset: () => void;
+  error?: Error & { digest?: string };
+  reset?: () => void;
 }) => {
   const { show } = useIntercom();
 

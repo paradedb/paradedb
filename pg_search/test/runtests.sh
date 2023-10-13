@@ -61,7 +61,7 @@ export PGDATABASE=postgres
 export PGPASSWORD=password
 
 # Disable telemetry for tests
-export TELEMETRY=False
+export TELEMETRY=false
 
 # All pgrx-supported PostgreSQL versions to configure for
 OS_NAME=$(uname)

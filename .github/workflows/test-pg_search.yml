@@ -66,15 +66,13 @@ jobs:
 
       - name: Run pg_search Integration Tests
         working-directory: pg_search/
-        env:
-          TELEMETRY: False
         run: ./test/runtests.sh -p sequentially -v "${{ matrix.pg_version }}"
 
       - name: Run pg_search Unit Tests
         env:
           LLVM_PROFILE_FILE: target/coverage/pg_search-%p-%m.profraw
           RUST_BACKTRACE: 1
-          TELEMETRY: False
+          TELEMETRY: false
         run: |
           mkdir -p target/coverage target/coverage-report
           cd pg_search/ && cargo pgrx test --features pg${{ matrix.pg_version }}

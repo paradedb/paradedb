@@ -4,17 +4,17 @@ use std::env;
 use std::fs;
 
 pub unsafe fn init() {
-    let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("True"));
+    let telemetry = env::var("TELEMETRY").unwrap_or_else(|_| String::from("true"));
 
     // Read TELEMETRY_SENT from a file
-    let telemetry_sent = match fs::read_to_string("/tmp/telemetry_sent") {
+    let telemetry_sent = match fs::read_to_string("/tmp/telemetry") {
         Ok(content) => content.trim().to_string(),
-        Err(_) => String::from("False"),
+        Err(_) => String::from("false"),
     };
 
-    if telemetry == "False" {
+    if telemetry == "false" {
         info!("Telemetry for pg_search disabled!");
-    } else if telemetry_sent != "True" {
+    } else if telemetry_sent != "true" {
         if let Ok(api_key) = env::var("POSTHOG_API_KEY") {
             if let Ok(posthog_host) = env::var("POSTHOG_HOST") {
                 if let Ok(commit_sha) = env::var("COMMIT_SHA") {

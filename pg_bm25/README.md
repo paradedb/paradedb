@@ -156,8 +156,7 @@ WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics';
 ```
 
 New data that arrives or rows that are changed are automatically reindexed and searchable.
-For instance,
-let's create and search for a new row in our table:
+For instance, let's create and search for a new row in our table:
 
 ```sql
 INSERT INTO mock_items (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');

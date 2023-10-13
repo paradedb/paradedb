@@ -2,13 +2,7 @@ use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(PostgresType, Serialize, Deserialize)]
-pub struct Sparse {
-    // Each entry is a tuple of (position, value), representing the position and value of a non-zero element
-    entries: Vec<(i32, f64)>,
-    // n is the length of the sparse vector
-    n: i32,
-}
+use crate::sparse_index::Sparse;
 
 #[pg_extern]
 pub fn compress_sparse(input_vector: Array<f64>) -> Sparse {

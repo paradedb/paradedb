@@ -1,5 +1,5 @@
--- this is needed to ensure consistency of printouts with postgres versions older than 12. Can be
--- deleted if we drop support for postgres 11.
+-- This is needed to ensure consistency of printouts with PostgreSQL versions older than 12. Can be
+-- deleted if we drop support for PostgreSQL 11.
 ALTER SYSTEM SET extra_float_digits TO 0;
 select pg_reload_conf();
 
@@ -36,4 +36,3 @@ WHERE mock_items @@@ 'description:keyboard';
 SELECT *
 FROM paradedb.mock_items
 WHERE mock_items @@@ 'description:earbud';
-

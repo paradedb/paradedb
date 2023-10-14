@@ -59,6 +59,17 @@ export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
 
+# Determine the current directory's name
+CURRENT_DIR_NAME=$(basename $(pwd))
+
+# Check if "test" is not in the directory's name
+if [[ $CURRENT_DIR_NAME != *test* ]]; then
+    LOG_DIR="$(pwd)/test"
+else
+    LOG_DIR="$(pwd)"
+fi
+
+
 
 # All pgrx-supported PostgreSQL versions to configure for
 OS_NAME=$(uname)
@@ -80,12 +91,6 @@ function run_tests() {
   TMPDIR="$(mktemp -d)"
   export PGDATA="$TMPDIR"
   export PGHOST="$TMPDIR"
-
-  echo ""
-  echo "*************************************************"
-  echo "* Running tests for PostgreSQL version: $PG_VERSION"
-  echo "*************************************************"
-  echo ""
 
   # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
   case "$OS_NAME" in
@@ -109,30 +114,59 @@ function run_tests() {
   unset TESTS
 
   # Initialize the test database
-  "$PG_BIN_PATH/initdb" --no-locale --encoding=UTF8 --nosync -U "$PGUSER" --auth-local=md5 --auth-host=md5 --pwfile="$PWFILE"
+  echo "Initialize PostgreSQL test database..."
+  "$PG_BIN_PATH/initdb" --no-locale --encoding=UTF8 --nosync -U "$PGUSER" --auth-local=md5 --auth-host=md5 --pwfile="$PWFILE" > /dev/null
   "$PG_BIN_PATH/pg_ctl" start -o "-F -c listen_addresses=\"\" -c log_min_messages=WARNING -k $PGDATA"
   "$PG_BIN_PATH/createdb" test_db
+  echo "Done!"
+
+  # Set PostgreSQL Logging Configuration
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_log.log';" -d test_db
+
+  # Reload PostgreSQL Configuration
+  "$PG_BIN_PATH/pg_ctl" restart
 
   # Use cargo-pgx to install the extension for the specified version
+  echo ""
+  echo "Installing pg_bm25 extension onto the test database..."
   cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
+  echo "Done!"
 
   # Get a list of all tests
   while IFS= read -r line; do
     TESTS+=("$line")
   done < <(find "${TESTDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
 
-  # Execute tests using pg_regress
+  # Execute the fixtures to create the test data
+  echo ""
+  echo "Creating test data..."
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db
+  echo "Done!"
+
+  # Execute tests using pg_regress
+  echo ""
+  echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
+
+  # Display ERROR logs after tests
+  echo ""
+  echo "PostgreSQL Errors:"
+  grep "ERROR" $LOG_DIR/test_log.log
 }
 
 # Loop over PostgreSQL versions
 for PG_VERSION in "${PG_VERSIONS[@]}"; do
+  echo ""
+  echo "***********************************************************"
+  echo "* Running tests ($FLAG_PROCESS_TYPE) for PostgreSQL version: $PG_VERSION"
+  echo "***********************************************************"
+  echo ""
+
   if [ "$FLAG_PROCESS_TYPE" = "threaded" ]; then
-    echo "Running tests in parallel"
     run_tests &
   else
-    echo "Running tests sequentially"
     run_tests
   fi
 done

@@ -115,9 +115,13 @@ function run_tests() {
   "$PG_BIN_PATH/createdb" test_db
 
   # Install the dependencies with
+  echo ""
+  echo "Installing dependencies (pg_bm25 and pgvector) onto the test database..."
   "$TESTDIR/../configure.sh" "$PG_VERSION"
 
   # Use cargo-pgx to install the extension for the specified version
+  echo ""
+  echo "Installing pg_search extension onto the test database..."
   cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
 
   # Get a list of all tests
@@ -126,17 +130,20 @@ function run_tests() {
   done < <(find "${TESTDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
 
   # Execute tests using pg_regress
+  echo ""
+  echo "Running tests..."
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
 }
 
 # Loop over PostgreSQL versions
 for PG_VERSION in "${PG_VERSIONS[@]}"; do
+  echo ""
   if [ "$FLAG_PROCESS_TYPE" = "threaded" ]; then
-    echo "Running tests in parallel"
+    echo "Running tests in parallel..."
     run_tests &
   else
-    echo "Running tests sequentially"
+    echo "Running tests sequentially..."
     run_tests
   fi
 done

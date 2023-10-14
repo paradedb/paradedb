@@ -1,5 +1,5 @@
--- this is needed to ensure consistency of printouts with postgres versions older than 12. Can be
--- deleted if we drop support for postgres 11.
+-- This is needed to ensure consistency of printouts with PostgreSQL versions older than 12. Can be
+-- deleted if we drop support for PostgreSQL 11.
 ALTER SYSTEM SET extra_float_digits TO 0;
 select pg_reload_conf();
  pg_reload_conf 
@@ -11,7 +11,6 @@ select pg_reload_conf();
 SELECT *
 FROM bm25_search
 WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2';
-INFO:  Telemetry for pg_bm25 disabled!
  id |         description         | rating |  category   | in_stock |                     metadata                     
 ----+-----------------------------+--------+-------------+----------+--------------------------------------------------
   2 | Plastic Keyboard            |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}

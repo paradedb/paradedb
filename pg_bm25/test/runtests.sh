@@ -60,13 +60,13 @@ export PGDATABASE=postgres
 export PGPASSWORD=password
 
 # Determine the current directory's name
-CURRENT_DIR_NAME=$(basename $(pwd))
+CURRENT_DIR_NAME=$(basename "$(pwd)")
 
 # Check if "test" is not in the directory's name
 if [[ $CURRENT_DIR_NAME != *test* ]]; then
-    LOG_DIR="$(pwd)/test"
+  LOG_DIR="$(pwd)/test"
 else
-    LOG_DIR="$(pwd)"
+  LOG_DIR="$(pwd)"
 fi
 
 
@@ -153,7 +153,7 @@ function run_tests() {
   # Display ERROR logs after tests
   echo ""
   echo "PostgreSQL Errors:"
-  grep "ERROR" $LOG_DIR/test_log.log
+  grep "ERROR" "$LOG_DIR/test_log.log"
 }
 
 # Loop over PostgreSQL versions

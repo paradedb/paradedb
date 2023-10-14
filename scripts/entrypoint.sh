@@ -77,7 +77,7 @@ fi
 
 # We need to restart the server for the changes above
 # to be reflected
-pg_ctl restart
+pg_ctl restart > /dev/null
 
 # We send basic, anonymous deployment events to PostHog to help us understand
 # how many people are using the project and to track deployment success. We

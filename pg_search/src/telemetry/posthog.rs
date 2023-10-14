@@ -17,11 +17,9 @@ impl Config {
             .map(|content| content.trim().to_string())
             .ok();
 
-        envy::from_env::<Config>().ok().map(|config| {
-            Config {
-                telemetry_handled,
-                ..config
-            }
+        envy::from_env::<Config>().ok().map(|config| Config {
+            telemetry_handled,
+            ..config
         })
     }
 }

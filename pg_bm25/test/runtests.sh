@@ -52,24 +52,19 @@ do
   esac
 done
 
-
 OS_NAME=$(uname)
 TESTDIR="$(dirname "$0")"
 export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
 
-# Determine the current directory's name
+# Set the directory to output PostgreSQL logs to
 CURRENT_DIR_NAME=$(basename "$(pwd)")
-
-# Check if "test" is not in the directory's name
 if [[ $CURRENT_DIR_NAME != *test* ]]; then
   LOG_DIR="$(pwd)/test"
 else
   LOG_DIR="$(pwd)"
 fi
-
-
 
 # All pgrx-supported PostgreSQL versions to configure for
 OS_NAME=$(uname)
@@ -120,7 +115,7 @@ function run_tests() {
   "$PG_BIN_PATH/createdb" test_db
   echo "Done!"
 
-  # Set PostgreSQL Logging Configuration
+  # Set PostgreSQL logging configuration
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_log.log';" -d test_db

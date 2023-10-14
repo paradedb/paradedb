@@ -76,29 +76,21 @@ EOSQL
 fi
 
 # We need to restart the server for the changes above
-# to be reflected
+to be reflected
 pg_ctl restart > /dev/null
 
 # We send basic, anonymous deployment events to PostHog to help us understand
 # how many people are using the project and to track deployment success. We
 # only do this if TELEMETRY is set to "true", and only do it once per deployment
 if [[ ${TELEMETRY:-} == "true" ]]; then
-  if [[ -z ${POSTHOG_API_KEY+x} ]]; then
-    echo "Failed to retrieve POSTHOG_API_KEY from environment variables, not sending ParadeDB telemetry!"
-  elif [[ -z ${POSTHOG_HOST+x} ]]; then
-    echo "Failed to retrieve POSTHOG_HOST from environment variables, not sending ParadeDB telemetry!"
-  else
-    curl -s -L --header "Content-Type: application/json" -d '{
-      "api_key": "'"$POSTHOG_API_KEY"'",
-      "event": "ParadeDB Deployment",
-      "distinct_id": "'"$(uuidgen)"'",
-      "properties": {
-        "commit_sha": "'"${COMMIT_SHA:-}"'"
-      }
-    }' "$POSTHOG_HOST/capture/" > /dev/null
-  fi
-else
-  echo "ParadeDB telemetry disabled!"
+  curl -s -L --header "Content-Type: application/json" -d '{
+    "api_key": "'"$POSTHOG_API_KEY"'",
+    "event": "ParadeDB Deployment",
+    "distinct_id": "'"$(uuidgen)"'",
+    "properties": {
+      "commit_sha": "'"${COMMIT_SHA:-}"'"
+    }
+  }' "$POSTHOG_HOST/capture/" > /dev/null
 fi
 
 # Mark telemetry as handled so we don't try to send it again when

@@ -120,7 +120,7 @@ function run_tests() {
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db > /dev/null
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db > /dev/null
 
-  # Reload PostgreSQL Configuration
+  # Reload PostgreSQL configuration
   echo "Reloading PostgreSQL configuration..."
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
@@ -161,4 +161,6 @@ for PG_VERSION in "${PG_VERSIONS[@]}"; do
     run_tests
   fi
 done
-wait # wait for all child processes to finish
+
+# Wait for all child processes to finish
+wait

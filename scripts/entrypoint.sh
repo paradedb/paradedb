@@ -75,9 +75,8 @@ if [ -z "$POSTGRES_ROLE_EXISTS" ]; then
 EOSQL
 fi
 
-# We need to restart the server for the changes above
-to be reflected
-pg_ctl restart > /dev/null
+# We need to restart the server for the changes above to be reflected
+pg_ctl restart
 
 # We send basic, anonymous deployment events to PostHog to help us understand
 # how many people are using the project and to track deployment success. We
@@ -107,6 +106,3 @@ for extension in "${!extensions[@]}"; do
     PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done
-
-echo "PostgreSQL extensions installed - initialization completed!"
-echo "ParadeDB is ready for connections!"

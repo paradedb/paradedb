@@ -142,7 +142,7 @@ function run_tests() {
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
-  # expected, since we are testing error handling/invalid cases in our regression tests. 
+  # expected, since we are testing error handling/invalid cases in our regression tests.
   # echo "Displaying PostgreSQL ERROR logs from tests..."
   # grep "ERROR" "$LOG_DIR/test_logs.log"
 }

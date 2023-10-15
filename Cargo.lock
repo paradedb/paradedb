@@ -1544,6 +1544,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "pg_sparse_copy"
+version = "0.0.0"
+dependencies = [
+ "csv",
+ "memoffset",
+ "paradedb-tantivy",
+ "pgrx",
+ "pgrx-tests",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "serde_qs",
+ "utoipa",
+]
+
+[[package]]
 name = "pgrx"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

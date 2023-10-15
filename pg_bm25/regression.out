@@ -1,5 +1,0 @@
-test aggregations                 ... ok          193 ms
-test bm25_search                  ... ok          537 ms
-test index_config                 ... ok         1281 ms
-test search_config                ... ok          208 ms
-test tokenizer_config             ... 

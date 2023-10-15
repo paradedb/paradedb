@@ -69,7 +69,7 @@ git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
 # Install pg_bm25
 cd pg_bm25/
 cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
-cargo pgrx install
+cargo pgrx install --release
 ```
 
 You can then create the extension in your database by running:

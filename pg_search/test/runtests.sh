@@ -118,7 +118,7 @@ function run_tests() {
   "$TESTDIR/../configure.sh" "$PG_VERSION"
 
   # Use cargo-pgx to install the extension for the specified version
-  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config"
+  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
 
   # Get a list of all tests
   while IFS= read -r line; do

@@ -61,7 +61,7 @@ cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
 
 ```bash
 # Install pg_search
-cargo pgrx install
+cargo pgrx install --release
 ```
 
 You can then create the extension in your database by running:

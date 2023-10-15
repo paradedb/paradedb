@@ -19,4 +19,4 @@ results/
 test/results/
 test/regression.diffs
 test/regression.out
-test/test_log.log
+test/test_logs.log

@@ -109,25 +109,24 @@ function run_tests() {
   unset TESTS
 
   # Initialize the test database
-  echo "Initialize PostgreSQL test database..."
+  echo "Initializing PostgreSQL test database..."
   "$PG_BIN_PATH/initdb" --no-locale --encoding=UTF8 --nosync -U "$PGUSER" --auth-local=md5 --auth-host=md5 --pwfile="$PWFILE" > /dev/null
-  "$PG_BIN_PATH/pg_ctl" start -o "-F -c listen_addresses=\"\" -c log_min_messages=WARNING -k $PGDATA"
+  "$PG_BIN_PATH/pg_ctl" start -o "-F -c listen_addresses=\"\" -c log_min_messages=WARNING -k $PGDATA" > /dev/null
   "$PG_BIN_PATH/createdb" test_db
-  echo "Done!"
 
   # Set PostgreSQL logging configuration
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_log.log';" -d test_db
+  echo "Setting test database logging configuration..."
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db > /dev/null
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db > /dev/null
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db > /dev/null
 
   # Reload PostgreSQL Configuration
-  "$PG_BIN_PATH/pg_ctl" restart
+  echo "Reloading PostgreSQL configuration..."
+  "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
   # Use cargo-pgx to install the extension for the specified version
-  echo ""
   echo "Installing pg_bm25 extension onto the test database..."
-  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
-  echo "Done!"
+  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
 
   # Get a list of all tests
   while IFS= read -r line; do
@@ -135,20 +134,17 @@ function run_tests() {
   done < <(find "${TESTDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
 
   # Execute the fixtures to create the test data
-  echo ""
-  echo "Creating test data..."
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db
-  echo "Done!"
+  echo "Loading test data..."
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db > /dev/null
 
   # Execute tests using pg_regress
-  echo ""
   echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
 
-  # Display ERROR logs after tests
-  echo ""
-  echo "PostgreSQL Errors:"
-  grep "ERROR" "$LOG_DIR/test_log.log"
+  # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
+  # expected, since we are testing error handling/invalid cases in our regression tests. 
+  # echo "Displaying PostgreSQL ERROR logs from tests..."
+  # grep "ERROR" "$LOG_DIR/test_logs.log"
 }
 
 # Loop over PostgreSQL versions

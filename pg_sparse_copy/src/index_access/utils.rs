@@ -66,7 +66,7 @@ pub fn create_sparse_index(
     table_name: String,
     options: PgBox<ParadeOptions>,
 ) -> SparseIndex {
-    SparseIndex::new(index_name, table_name, options)
+    SparseIndex::new(index_name)
 }
 
 pub fn get_sparse_index(index_name: String) -> SparseIndex {

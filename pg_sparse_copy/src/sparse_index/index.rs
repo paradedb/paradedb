@@ -26,7 +26,7 @@ pub struct SparseIndex {
 }
 
 impl SparseIndex {
-    pub fn new(name: String, table_name: String, options: PgBox<ParadeOptions>) -> Self {
+    pub fn new(name: String) -> Self {
         Self {
             name: name
         }

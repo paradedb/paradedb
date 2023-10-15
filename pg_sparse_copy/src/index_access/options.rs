@@ -5,10 +5,6 @@ use serde_json::from_str;
 use std::collections::HashMap;
 use std::ffi::CStr;
 
-use crate::sparse_index::fields::{
-    ParadeBooleanOptions, ParadeJsonOptions, ParadeNumericOptions, ParadeTextOptions,
-};
-
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
  * add the corresponding entries to ParadeOptions struct definition

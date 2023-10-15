@@ -11,7 +11,7 @@ use tantivy::{
 use crate::{
     index_access::utils::{get_sparse_index, SearchQuery},
     manager::get_executor_manager,
-    sparse_index::index::TantivyScanState,
+    sparse_index::TantivyScanState,
 };
 
 #[pg_guard]

@@ -1,7 +1,7 @@
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 
-use crate::sparse_index::index::SparseIndex;
+use crate::sparse_index::SparseIndex;
 
 struct BuildState<'a> {
     count: usize,

@@ -10,7 +10,7 @@ use std::str::FromStr;
 
 use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
-use crate::sparse_index::index::SparseIndex;
+use crate::sparse_index::SparseIndex;
 
 type ConversionFunc = dyn Fn(&mut JsonBuilder, String, pg_sys::Datum, pg_sys::Oid);
 pub struct CategorizedAttribute {

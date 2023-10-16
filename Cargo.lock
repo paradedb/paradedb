@@ -1540,7 +1540,6 @@ version = "0.0.0"
 dependencies = [
  "csv",
  "memoffset",
- "paradedb-tantivy",
  "pgrx",
  "pgrx-tests",
  "rustc-hash",

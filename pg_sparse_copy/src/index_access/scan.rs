@@ -8,7 +8,7 @@ use tantivy::{
     SnippetGenerator,
 };
 
-use crate::index_access::utils::{get_sparse_index, SearchQuery};
+use crate::sparse_index::SparseIndex;
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -22,7 +22,7 @@ pub extern "C" fn ambeginscan(
     let index_name = index_relation.name().to_string();
 
     // Create the index and scan
-    let sparse_index = get_sparse_index(index_name);
+    let sparse_index = SparseIndex::from_index_name(index_name);
     let state = sparse_index.scan();
 
     scandesc.opaque =

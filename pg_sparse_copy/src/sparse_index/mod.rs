@@ -12,7 +12,6 @@ use tantivy::{
 };
 
 use crate::index_access::options::ParadeOptions;
-use crate::json::builder::JsonBuilder;
 
 #[derive(PostgresType, Serialize, Deserialize)]
 pub struct Sparse {
@@ -49,8 +48,7 @@ impl SparseIndex {
     pub fn insert(
         &mut self,
         writer: &mut SingleSegmentIndexWriter,
-        heap_tid: ItemPointerData,
-        builder: JsonBuilder,
+        heap_tid: ItemPointerData
     ) {}
 
     pub fn bulk_delete(

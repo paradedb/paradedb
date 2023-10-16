@@ -34,15 +34,17 @@ pub struct SparseIndex {
 
 impl SparseIndex {
     pub fn new(name: String) -> Self {
+        info!("TODO: Create HNSW index");
         Self { name: name }
     }
 
     pub fn from_index_name(name: String) -> Self {
+        info!("TODO: Retrieve HNSW index");
         Self { name: name }
     }
 
     pub fn insert(&mut self, sparse_vector: Sparse, heap_tid: ItemPointerData) {
-        info!("TODO: Insert {:?} into index", sparse_vector)
+        info!("TODO: Insert {:?} with ID {:?} into index", sparse_vector, heap_tid);
     }
 
     pub fn bulk_delete(
@@ -51,6 +53,7 @@ impl SparseIndex {
         callback: IndexBulkDeleteCallback,
         callback_state: *mut ::std::os::raw::c_void,
     ) {
+        info!("TODO: Implement delete")
     }
 
     pub fn scan(&self) -> ScanState {

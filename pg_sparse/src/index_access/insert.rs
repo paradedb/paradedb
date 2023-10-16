@@ -1,5 +1,7 @@
 use pgrx::*;
 
+use crate::sparse_index::{Sparse, SparseIndex};
+
 #[allow(clippy::too_many_arguments)]
 #[cfg(any(feature = "pg14", feature = "pg15"))]
 #[pg_guard]
@@ -36,5 +38,17 @@ unsafe fn aminsert_internal(
     values: *mut pg_sys::Datum,
     heap_tid: pg_sys::ItemPointer,
 ) -> bool {
-    true
+    let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
+    let index_name = index_relation_ref.name().to_string();
+
+    let mut sparse_index = SparseIndex::from_index_name(index_name);
+    let values = std::slice::from_raw_parts(values, 1);
+    let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
+
+    if let Some(sparse_vector) = sparse_vector {
+        sparse_index.insert(sparse_vector, *heap_tid);
+        true
+    } else {
+        false
+    }
 }

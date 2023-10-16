@@ -10,7 +10,7 @@ mod vacuum;
 mod validate;
 
 #[pg_extern(sql = "
-CREATE FUNCTION sparse_handler(internal) RETURNS index_am_handler PARALLEL SAFE IMMUTABLE STRICT COST 0.0001 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
+CREATE FUNCTION sparse_handler(internal) RETURNS index_am_handler PARALLEL SAFE IMMUTABLE STRICT LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 CREATE ACCESS METHOD sparse_hnsw TYPE INDEX HANDLER sparse_handler;
 COMMENT ON ACCESS METHOD sparse_hnsw IS 'sparse index access method';
 ")]

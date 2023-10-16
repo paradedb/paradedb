@@ -62,5 +62,17 @@ fn sparse_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRou
     amroutine.amgetbitmap = Some(scan::ambitmapscan);
     amroutine.amendscan = Some(scan::amendscan);
 
+    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+    {
+        amroutine.amoptsprocnum = 0;
+        amroutine.amusemaintenanceworkmem = false;
+        amroutine.amparallelvacuumoptions = pg_sys::VACUUM_OPTION_PARALLEL_BULKDEL as u8;
+    }
+
+    #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+    {
+        amroutine.amadjustmembers = None;
+    }
+
     amroutine.into_pg_boxed()
 }

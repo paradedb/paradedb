@@ -3,7 +3,6 @@ use pgrx::*;
 mod api;
 mod index_access;
 mod json;
-mod manager;
 mod sparse_index;
 
 pgrx::pg_module_magic!();

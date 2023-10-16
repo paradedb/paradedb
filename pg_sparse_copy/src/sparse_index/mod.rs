@@ -22,12 +22,11 @@ pub struct Sparse {
     pub n: i32,
 }
 
-pub struct TantivyScanState {
-    pub schema: Schema,
-    pub query: Box<dyn Query>,
-    pub query_parser: QueryParser,
-    pub searcher: Searcher,
-    pub iterator: *mut std::vec::IntoIter<(Score, DocAddress)>,
+pub struct ScanState {
+    index: Option<SparseIndex>,
+    curr: u32,
+    n_results: u32,
+    results: Option<pg_sys::ItemPointer>,
 }
 
 pub struct SparseIndex {
@@ -61,30 +60,12 @@ impl SparseIndex {
         callback_state: *mut ::std::os::raw::c_void,
     ) {}
 
-    pub fn scan(&self) -> TantivyScanState {
-        let schema_builder = Schema::builder();
-        let schema = schema_builder.build();
-        let underlying_index = Index::create_in_ram(schema.clone());
-        let reader = underlying_index
-            .reader_builder()
-            .reload_policy(tantivy::ReloadPolicy::Manual)
-            .try_into()
-            .expect("failed to create index reader");
-
-        let searcher = reader.searcher();
-
-        let query_parser = QueryParser::for_index(
-            &underlying_index,
-            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-        );
-        let empty_query = query_parser.parse_query("").unwrap();
-
-        TantivyScanState {
-            schema,
-            query: empty_query,
-            query_parser,
-            searcher,
-            iterator: std::ptr::null_mut(),
+    pub fn scan(&self) -> ScanState {
+        ScanState {
+            index: None,
+            curr: 0,
+            n_results: 0,
+            results: None,
         }
     }
 

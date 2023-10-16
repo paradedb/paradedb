@@ -10,7 +10,7 @@ services:
   paradedb:
     build:
       context: ..
-      dockerfile: ./docker/Dockerfile
+      dockerfile: ./docker/Dockerfile.crunchy
       args:
         PG_VERSION_MAJOR: 15
         PG_BM25_VERSION: 0.0.0
@@ -42,9 +42,9 @@ services:
       cache_to:
         - type=local,dest=./.docker_cache_local
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
+      POSTGRES_USER: paradedb
+      POSTGRES_PASSWORD: paradedb
+      POSTGRES_DB: paradedb
     ports:
       - "5432:5432"
       - "9700:9700"

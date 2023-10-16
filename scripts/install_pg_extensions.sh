@@ -36,7 +36,7 @@ install_pg_extension() {
   # Set OPTFLAGS to an empty string if it's not already set
   OPTFLAGS=${OPTFLAGS:-""}
 
-  # Build and package as a .deb
+  # Build and package
   if [ "$PG_EXTENSION_NAME" == "pgvector" ]; then
     # Disable -march=native to avoid "illegal instruction" errors on macOS arm64 by
     # setting OPTFLAGS to an empty string

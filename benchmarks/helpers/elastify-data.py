@@ -4,7 +4,8 @@ import sys
 
 if len(sys.argv[1:]) < 3:
     print(
-        "Correct usage: elastify-data.py <wiki_articles_file> <bulk_output_folder> <desired_size>"
+        "Correct usage: elastify-data.py <wiki_articles_file> \
+         <bulk_output_folder> <desired_size>"
     )
     sys.exit(1)
 

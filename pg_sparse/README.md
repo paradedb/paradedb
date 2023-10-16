@@ -83,7 +83,7 @@ This will launch an interactive connection to Postgres. Inside Postgres, create
 the extension by running:
 
 ```sql
-CREATE EXTENSION pg_bm25;
+CREATE EXTENSION pg_sparse;
 ```
 
 Now, you have access to all the extension functions.
@@ -101,8 +101,8 @@ cargo pgrx run
 2. Recreate the extension to load the latest changes:
 
 ```sql
-DROP EXTENSION pg_bm25;
-CREATE EXTENSION pg_bm25;
+DROP EXTENSION pg_sparse;
+CREATE EXTENSION pg_sparse;
 ```
 
 ### Testing

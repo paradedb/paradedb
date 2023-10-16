@@ -13,17 +13,38 @@ pub mod utils;
 
 #[pg_extern(sql = "
 CREATE FUNCTION sparse_handler(internal) RETURNS index_am_handler PARALLEL SAFE IMMUTABLE STRICT COST 0.0001 LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-CREATE ACCESS METHOD sparse TYPE INDEX HANDLER sparse_handler;
-COMMENT ON ACCESS METHOD sparse IS 'sparse index access method';
+CREATE ACCESS METHOD sparse_hnsw TYPE INDEX HANDLER sparse_handler;
+COMMENT ON ACCESS METHOD sparse_hnsw IS 'sparse index access method';
 ")]
 fn sparse_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRoutine> {
     let mut amroutine =
         unsafe { PgBox::<pg_sys::IndexAmRoutine>::alloc_node(pg_sys::NodeTag_T_IndexAmRoutine) };
 
     amroutine.amstrategies = 4;
-    amroutine.amsupport = 0;
-    amroutine.amcanmulticol = true;
-    amroutine.amsearcharray = true;
+    amroutine.amsupport = 1;
+    amroutine.amcanorder = false;
+    amroutine.amcanorderbyop = true;
+    amroutine.amcanbackward = false;
+    amroutine.amcanunique = false;
+    amroutine.amcanmulticol = false;
+    amroutine.amoptionalkey = true;
+    amroutine.amsearcharray = false;
+    amroutine.amsearchnulls = false;
+    amroutine.amstorage = false;
+    amroutine.amclusterable = false;
+    amroutine.ampredlocks = false;
+    amroutine.amcanparallel = false;
+    amroutine.amcaninclude = false;
+    amroutine.amkeytype = pg_sys::InvalidOid;
+    amroutine.amcanreturn = None;
+    amroutine.amoptions = None;
+    amroutine.amproperty = None;
+    amroutine.ambuildphasename = None;
+    amroutine.ammarkpos = None;
+    amroutine.amrestrpos = None;
+    amroutine.amestimateparallelscan = None;
+    amroutine.aminitparallelscan = None;
+    amroutine.amparallelrescan = None;
 
     amroutine.amkeytype = pg_sys::InvalidOid;
 

@@ -4,7 +4,6 @@ mod api;
 mod index_access;
 mod json;
 mod manager;
-mod operator;
 mod sparse_index;
 
 pgrx::pg_module_magic!();

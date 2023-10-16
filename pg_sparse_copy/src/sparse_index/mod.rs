@@ -1,5 +1,6 @@
 use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use pgrx::*;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::fs::{create_dir_all, remove_dir_all};
@@ -12,6 +13,14 @@ use tantivy::{
 
 use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
+
+#[derive(PostgresType, Serialize, Deserialize)]
+pub struct Sparse {
+    // Each entry is a tuple of (position, value), representing the position and value of a non-zero element
+    pub entries: Vec<(i32, f64)>,
+    // n is the length of the sparse vector
+    pub n: i32,
+}
 
 pub struct TantivyScanState {
     pub schema: Schema,

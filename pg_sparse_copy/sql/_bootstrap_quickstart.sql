@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS paradedb.mock_items;
+
 CREATE TABLE paradedb.mock_items (
     id SERIAL PRIMARY KEY,
     description TEXT,
@@ -53,3 +55,27 @@ VALUES
     ('Handcrafted wooden frame', 5, 'Home Decor', false, '{"color": "Brown", "location": "China"}'::JSONB),
     ('Plush teddy bear', 4, 'Toys', true, '{"color": "Brown", "location": "United States"}'::JSONB),
     ('Warm woolen sweater', 3, 'Apparel', false, '{"color": "Red", "location": "Canada"}'::JSONB);
+
+ALTER TABLE paradedb.mock_items DROP COLUMN IF EXISTS sparse_embedding;
+ALTER TABLE paradedb.mock_items ADD COLUMN sparse_embedding sparse;
+
+WITH NumberedRows AS (
+    SELECT ctid,
+           ROW_NUMBER() OVER () as row_num
+    FROM paradedb.mock_items
+)
+UPDATE paradedb.mock_items m
+SET sparse_embedding = paradedb.compress_sparse(
+    ARRAY[
+        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 1) % 10 + 1) END,
+        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 2) % 10 + 1) END,
+        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
+        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
+        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
+        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
+        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
+        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END
+    ]::real[]
+)
+FROM NumberedRows n
+WHERE m.ctid = n.ctid;

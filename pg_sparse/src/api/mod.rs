@@ -27,8 +27,9 @@ pub fn compress_sparse(input_vector: Array<f64>) -> Sparse {
     }
 }
 
-#[pg_extern(immutable, parallel_safe)]
+#[pg_extern(immutable, strict, parallel_safe)]
 pub fn sparse_cosine_distance(left: Sparse, right: Sparse) -> f64 {
+    info!("Sequential scan");
     let mut left_map = HashMap::new();
     let mut right_map = HashMap::new();
 
@@ -68,8 +69,8 @@ CREATE OPERATOR pg_catalog.<==> (
     COMMUTATOR = '<==>'
 );
 
-CREATE OPERATOR CLASS sparse_ops DEFAULT FOR TYPE sparse USING sparse_hnsw AS
-    OPERATOR 1 <==> (sparse, sparse) FOR ORDER BY float_ops,
+CREATE OPERATOR CLASS sparse_cosine_ops DEFAULT FOR TYPE sparse USING sparse_hnsw AS
+    OPERATOR 1 pg_catalog.<==> (sparse, sparse) FOR ORDER BY float_ops,
     FUNCTION 1 sparse_cosine_distance(sparse, sparse);
 "#,
     name = "sparse_operator"

@@ -10,7 +10,7 @@ mod vacuum;
 mod validate;
 
 #[pg_extern(sql = "
-CREATE FUNCTION sparse_handler(internal) RETURNS index_am_handler PARALLEL SAFE IMMUTABLE STRICT LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
+CREATE FUNCTION sparse_handler(internal) RETURNS index_am_handler LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
 CREATE ACCESS METHOD sparse_hnsw TYPE INDEX HANDLER sparse_handler;
 COMMENT ON ACCESS METHOD sparse_hnsw IS 'sparse index access method';
 ")]
@@ -18,7 +18,7 @@ fn sparse_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRou
     let mut amroutine =
         unsafe { PgBox::<pg_sys::IndexAmRoutine>::alloc_node(pg_sys::NodeTag_T_IndexAmRoutine) };
 
-    amroutine.amstrategies = 4;
+    amroutine.amstrategies = 0;
     amroutine.amsupport = 1;
     amroutine.amcanorder = false;
     amroutine.amcanorderbyop = true;
@@ -57,8 +57,8 @@ fn sparse_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRou
     amroutine.ambeginscan = Some(scan::ambeginscan);
     amroutine.amrescan = Some(scan::amrescan);
     amroutine.amgettuple = Some(scan::amgettuple);
-    amroutine.amgetbitmap = Some(scan::ambitmapscan);
     amroutine.amendscan = Some(scan::amendscan);
+    amroutine.amgetbitmap = None;
 
     #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
     {

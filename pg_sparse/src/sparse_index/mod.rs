@@ -1,12 +1,5 @@
-use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use pgrx::*;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::ffi::{CStr, CString};
-use std::fs::{create_dir_all, remove_dir_all};
-use std::path::Path;
-
-use crate::index_access::options::ParadeOptions;
 
 #[derive(PostgresType, Serialize, Deserialize, Debug)]
 pub struct Sparse {
@@ -14,13 +7,6 @@ pub struct Sparse {
     pub entries: Vec<(i32, f64)>,
     // n is the length of the sparse vector
     pub n: i32,
-}
-
-pub struct ScanState {
-    index: Option<SparseIndex>,
-    curr: u32,
-    n_results: u32,
-    results: Option<pg_sys::ItemPointer>,
 }
 
 pub struct SparseIndex {
@@ -38,28 +24,24 @@ impl SparseIndex {
         Self { name: name }
     }
 
-    pub fn insert(&mut self, sparse_vector: Sparse, heap_tid: ItemPointerData) {
+    pub fn insert(&mut self, sparse_vector: Sparse, heap_tid: pg_sys::ItemPointerData) {
         info!(
             "TODO: Insert {:?} with ID {:?} into index",
             sparse_vector, heap_tid
         );
     }
 
+    pub fn search(self, sparse_vector: Sparse) -> Vec<pg_sys::ItemPointerData> {
+        info!("TODO: Implement HNSW search to return results sorted by ID {:?}", sparse_vector);
+        vec![]
+    }
+
     pub fn bulk_delete(
         &self,
-        stats_binding: *mut IndexBulkDeleteResult,
-        callback: IndexBulkDeleteCallback,
+        stats_binding: *mut pg_sys::IndexBulkDeleteResult,
+        callback: pg_sys::IndexBulkDeleteCallback,
         callback_state: *mut ::std::os::raw::c_void,
     ) {
         info!("TODO: Implement delete")
-    }
-
-    pub fn scan(&self) -> ScanState {
-        ScanState {
-            index: None,
-            curr: 0,
-            n_results: 0,
-            results: None,
-        }
     }
 }

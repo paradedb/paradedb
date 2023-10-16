@@ -12,6 +12,7 @@ pub unsafe extern "C" fn amcostestimate(
     index_correlation: *mut f64,
     index_pages: *mut f64,
 ) {
+    info!("Cost estimate");
     let path = path.as_ref().expect("path argument is NULL");
     let indexinfo = path.indexinfo.as_ref().expect("indexinfo in path is NULL");
     let index_relation = unsafe {
@@ -56,4 +57,8 @@ pub unsafe extern "C" fn amcostestimate(
     let reltuples = heap_relation.reltuples().unwrap_or(1f32) as f64;
     *index_total_cost += *index_selectivity * reltuples * pg_sys::cpu_index_tuple_cost;
     *index_total_cost -= pg_sys::random_page_cost;
+
+    info!(
+        "Cost estimate: {}",
+        *index_total_cost + *index_startup_cost);
 }

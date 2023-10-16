@@ -51,10 +51,21 @@ repos:
     hooks:
       - id: prettier
 
-  # - repo: https://github.com/pre-commit/mirrors-eslint
-  #   rev: v8.51.0
-  #   hooks:
-  #     - id: eslint
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v8.51.0
+    hooks:
+      - id: eslint
+        files: \.[jt]sx?$ # *.js, *.jsx, *.ts and *.tsx
+        types: [file]
+        args: ["--config", "./dashboard/.eslintrc.json"]
+        additional_dependencies:
+          - "@typescript-eslint/eslint-plugin@^6.7.5"
+          - "eslint@8.49.0"
+          - "eslint-config-next@13.4.19"
+          - "eslint-config-prettier@^9.0.0"
+          - "eslint-plugin-prettier@^5.0.0"
+          - "eslint-plugin-unused-imports@^3.0.0"
+          - "prettier@^3.0.3"
 
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0

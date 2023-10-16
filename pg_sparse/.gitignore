@@ -1,6 +1,21 @@
+# VS Code
+.vscode/
+
+# macOS
 .DS_Store
-.idea/
-/target
-*.iml
+
+# Cargo
+target/
+debug/
+results/
+
+# Rustfmt
 **/*.rs.bk
-Cargo.lock
+
+# Code Coverage
+*.profraw
+
+# pg_regress
+results/
+regression.diffs
+regression.out

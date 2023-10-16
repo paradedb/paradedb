@@ -39,7 +39,7 @@ pub extern "C" fn ambuild(
         index_info,
         &heap_relation,
         &index_relation,
-        &mut sparse_index
+        &mut sparse_index,
     );
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
@@ -58,7 +58,7 @@ fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
-    sparse_index: &mut SparseIndex
+    sparse_index: &mut SparseIndex,
 ) -> usize {
     let mut state = BuildState::new(sparse_index);
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {

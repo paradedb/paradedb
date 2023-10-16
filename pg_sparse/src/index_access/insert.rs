@@ -13,7 +13,6 @@ pub unsafe extern "C" fn aminsert(
     _index_unchanged: bool,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    info!("aminsert");
     aminsert_internal(index_relation, values, heap_tid)
 }
 
@@ -28,7 +27,6 @@ pub unsafe extern "C" fn aminsert(
     _check_unique: pg_sys::IndexUniqueCheck,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    info!("aminsert");
     aminsert_internal(index_relation, values, heap_tid)
 }
 
@@ -38,6 +36,5 @@ unsafe fn aminsert_internal(
     values: *mut pg_sys::Datum,
     heap_tid: pg_sys::ItemPointer,
 ) -> bool {
-    // TODO: Insert to HNSW index
     true
 }

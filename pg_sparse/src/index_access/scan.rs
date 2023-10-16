@@ -1,4 +1,12 @@
 use pgrx::*;
+use tantivy::{
+    collector::TopDocs,
+    query::{BooleanQuery, Query, RegexQuery},
+    query_grammar::Occur,
+    schema::Document,
+    schema::FieldType,
+    SnippetGenerator,
+};
 
 use crate::sparse_index::SparseIndex;
 
@@ -8,9 +16,6 @@ pub extern "C" fn ambeginscan(
     nkeys: ::std::os::raw::c_int,
     norderbys: ::std::os::raw::c_int,
 ) -> pg_sys::IndexScanDesc {
-    info!("begin scan");
-
-    // TODO
     let mut scandesc: PgBox<pg_sys::IndexScanDescData> =
         unsafe { PgBox::from_pg(pg_sys::RelationGetIndexScan(indexrel, nkeys, norderbys)) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
@@ -33,9 +38,8 @@ pub extern "C" fn amrescan(
     nkeys: ::std::os::raw::c_int,
     _orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
-) {;
-    info!("rescan");
-    // TODO
+) {
+    // Ensure there's at least one key provided for the search.
     if nkeys == 0 {
         panic!("no ScanKeys provided");
     }
@@ -49,13 +53,10 @@ pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
     _direction: pg_sys::ScanDirection,
 ) -> bool {
-    // TODO
     true
 }
 
 #[pg_guard]
 pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TIDBitmap) -> i64 {
-    // TODO
-    let mut cnt = 0i64;
-    cnt
+    0i64
 }

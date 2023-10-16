@@ -1538,15 +1538,6 @@ dependencies = [
 name = "pg_sparse"
 version = "0.0.0"
 dependencies = [
- "pgrx",
- "pgrx-tests",
- "serde",
-]
-
-[[package]]
-name = "pg_sparse_copy"
-version = "0.0.0"
-dependencies = [
  "csv",
  "memoffset",
  "paradedb-tantivy",

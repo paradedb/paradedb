@@ -5,11 +5,6 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::fs::{create_dir_all, remove_dir_all};
 use std::path::Path;
-use tantivy::{
-    query::{Query, QueryParser},
-    schema::*,
-    DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
-};
 
 use crate::index_access::options::ParadeOptions;
 
@@ -66,11 +61,5 @@ impl SparseIndex {
             n_results: 0,
             results: None,
         }
-    }
-
-    pub fn copy_tantivy_index(&self) -> tantivy::Index {
-        let schema_builder = Schema::builder();
-        let schema = schema_builder.build();
-        Index::create_in_ram(schema.clone())
     }
 }

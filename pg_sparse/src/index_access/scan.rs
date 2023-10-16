@@ -1,12 +1,4 @@
 use pgrx::*;
-use tantivy::{
-    collector::TopDocs,
-    query::{BooleanQuery, Query, RegexQuery},
-    query_grammar::Occur,
-    schema::Document,
-    schema::FieldType,
-    SnippetGenerator,
-};
 
 use crate::sparse_index::SparseIndex;
 

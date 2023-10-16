@@ -13,7 +13,7 @@ use tantivy::{
 
 use crate::index_access::options::ParadeOptions;
 
-#[derive(PostgresType, Serialize, Deserialize)]
+#[derive(PostgresType, Serialize, Deserialize, Debug)]
 pub struct Sparse {
     // Each entry is a tuple of (position, value), representing the position and value of a non-zero element
     pub entries: Vec<(i32, f64)>,
@@ -41,7 +41,9 @@ impl SparseIndex {
         Self { name: name }
     }
 
-    pub fn insert(&mut self, writer: &mut SingleSegmentIndexWriter, heap_tid: ItemPointerData) {}
+    pub fn insert(&mut self, sparse_vector: Sparse, heap_tid: ItemPointerData) {
+        info!("TODO: Insert {:?} into index", sparse_vector)
+    }
 
     pub fn bulk_delete(
         &self,

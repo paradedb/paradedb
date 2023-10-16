@@ -1,9 +1,5 @@
 use memoffset::*;
-use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use serde_json::from_str;
-use std::collections::HashMap;
-use std::ffi::CStr;
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)

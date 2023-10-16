@@ -44,7 +44,10 @@ impl SparseIndex {
     }
 
     pub fn insert(&mut self, sparse_vector: Sparse, heap_tid: ItemPointerData) {
-        info!("TODO: Insert {:?} with ID {:?} into index", sparse_vector, heap_tid);
+        info!(
+            "TODO: Insert {:?} with ID {:?} into index",
+            sparse_vector, heap_tid
+        );
     }
 
     pub fn bulk_delete(

@@ -76,7 +76,7 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Update Version
+      - name: Update Version in Cargo.toml
         working-directory: pg_bm25/
         # run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
         run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"9.9.9\"/" Cargo.toml

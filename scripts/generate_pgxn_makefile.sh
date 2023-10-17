@@ -28,6 +28,7 @@ fi
 name=$(grep '^name =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
 version=$(grep '^version =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
 
+
 # Generate the Makefile in the specified directory
 cat > "$DIR"/Makefile <<EOL
 # This Makefile is used exclusively to install the extension via PGXN. For
@@ -63,9 +64,9 @@ all: install
 
 # Install the extension
 install: \$(BUILD_DIR)
-	cp \$(BUILD_DIR)/$(name)--$(version)/usr/lib/postgresql/$PG_MAJOR_VERSION/lib/\$(EXTENSION).so \$(PG_LIB_DIR)/
-	cp \$(BUILD_DIR)/$(name)--$(version)/usr/share/postgresql/$PG_MAJOR_VERSION/extension/\$(EXTENSION)--$(version).sql \$(PG_EXTENSION_DIR)/
-	cp \$(BUILD_DIR)/$(name)--$(version)/usr/share/postgresql/$PG_MAJOR_VERSION/extension/\$(EXTENSION).control \$(PG_EXTENSION_DIR)/
+	cp \$(BUILD_DIR)/$name--$version/usr/lib/postgresql/$PG_MAJOR_VERSION/lib/\$(EXTENSION).so \$(PG_LIB_DIR)/
+	cp \$(BUILD_DIR)/$name--$version/usr/share/postgresql/$PG_MAJOR_VERSION/extension/\$(EXTENSION)--$version.sql \$(PG_EXTENSION_DIR)/
+	cp \$(BUILD_DIR)/$name--$version/usr/share/postgresql/$PG_MAJOR_VERSION/extension/\$(EXTENSION).control \$(PG_EXTENSION_DIR)/
 
 # Clean up build artifacts
 clean:
@@ -74,5 +75,8 @@ clean:
 # Phony targets
 .PHONY: all install clean
 EOL
+
+
+
 
 echo "Makefile generated in $DIR successfully!"

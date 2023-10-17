@@ -41,7 +41,7 @@ cat > "$DIR"/META.json <<EOL
     "provides": {
         "$name": {
             "file": "sql/$name.sql",
-            "docfile": "README.md"
+            "docfile": "README.md",
             "version": "$version",
             "abstract": "$description"
         }

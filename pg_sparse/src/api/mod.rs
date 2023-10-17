@@ -3,33 +3,8 @@ use std::collections::HashMap;
 
 use crate::sparse_index::Sparse;
 
-// #[pg_extern]
-// pub fn compress_sparse(input_vector: Array<f64>) -> Sparse {
-//     let compressed: Vec<(i32, f64)> = input_vector
-//         .iter()
-//         .enumerate()
-//         .filter_map(|(index, value)| {
-//             if let Some(v) = value {
-//                 if v != 0.0 {
-//                     Some(((index + 1) as i32, v))
-//                 } else {
-//                     None
-//                 }
-//             } else {
-//                 None
-//             }
-//         })
-//         .collect();
-
-//     Sparse {
-//         entries: compressed,
-//         n: input_vector.len() as i32,
-//     }
-// }
-
 #[pg_extern(immutable, strict, parallel_safe)]
 pub fn sparse_cosine_distance(left: Sparse, right: Sparse) -> f32 {
-    info!("Sequential scan");
     let mut left_map = HashMap::new();
     let mut right_map = HashMap::new();
 

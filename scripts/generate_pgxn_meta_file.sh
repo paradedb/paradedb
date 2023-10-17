@@ -1,17 +1,20 @@
 #!/bin/bash
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 # Check if a directory argument is provided
 if [ "$#" -ne 1 ]; then
-    echo "Usage: $0 <path_to_directory>"
-    exit 1
+  echo "Usage: $0 <path_to_directory>"
+  exit 1
 fi
 
 DIR="$1"
 
 # Ensure the directory exists
 if [ ! -d "$DIR" ]; then
-    echo "Error: Directory $DIR does not exist."
-    exit 1
+  echo "Error: Directory $DIR does not exist."
+  exit 1
 fi
 
 # Extract necessary fields from Cargo.toml

@@ -1,0 +1,45 @@
+# workflows/lint-python.yml
+#
+# Python: Linting
+# Lint Python files using Black, Pylint, and Flake8.
+
+name: Linting
+
+on:
+  pull_request:
+    paths:
+      - "**/*.sh"
+      - ".github/workflows/lint-bash.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lint-python-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-bash:
+    name: Lint Python Files
+    runs-on: ubuntu-latest
+
+    steps:
+        - name: Checkout Git Repository
+          uses: actions/checkout@v4
+  
+        - name: Set up Python
+          uses: actions/setup-python@v4
+          with:
+            python-version: '3.10'
+
+        - name: Install Dependencies
+          run: |
+            python -m pip install --upgrade pip
+            pip install black pylint flake8
+
+        - name: Run Black for code formatting
+          run: black --check .
+
+        - name: Run pylint for static code analysis
+          run: pylint **/*.py
+
+        - name: Run flake8 for style guide enforcement
+          run: flake8 .

@@ -1,7 +1,7 @@
 # workflows/lint-bash.yml
 #
 # Bash: Linting
-# Lint and enforce good practices for bash scripts.
+# Lint and enforce good practices for Bash scripts.
 
 name: Linting
 

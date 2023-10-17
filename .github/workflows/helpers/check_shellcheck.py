@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import argparse
-import glob
-import subprocess
-
-DESCRIPTION = """
+"""
 This script will run shellcheck on all .sh files in the folder the script is
 called from and all subfolders.
 """
 
-parser = argparse.ArgumentParser(description=DESCRIPTION)
+import argparse
+import glob
+import subprocess
+import sys
+
+parser = argparse.ArgumentParser()
 
 parser.add_argument(
     "--exclude-dirs",
@@ -34,33 +35,33 @@ if __name__ == "__main__":
     # Obtain list of all .sh files after excluding directories
     sh_files = set(glob.glob("**/*.sh", recursive=True))
     for dir_path in exclude_dirs:
-        sh_files -= set(glob.glob(dir_path + "**/*.sh", recursive=True))
+        sh_files -= set(glob.glob(f"{dir_path}**/*.sh", recursive=True))
 
     codes_to_exclude = {}
     exclude_codes = args.exclude_codes.split()
     for code in exclude_codes:
         filename, codes = code.split(":")
-        # Don't split codes!
         codes_to_exclude[filename] = codes
 
     for file in sh_files:
         if file not in codes_to_exclude:
             p = subprocess.run(
-                "shellcheck {}".format(file), shell=True, capture_output=True
+                f"shellcheck {file}", shell=True, capture_output=True, check=False
             )
             print(p.stdout.decode())
             if p.returncode != 0:
-                print("[Shellcheck did not pass] {}".format(file))
-                exit(1)
+                print(f"[Shellcheck did not pass] {file}")
+                sys.exit(1)
         else:
             codes = codes_to_exclude[file]
             p = subprocess.run(
-                "shellcheck -e {} {}".format(codes, file),
+                f"shellcheck -e {codes} {file}",
                 shell=True,
                 capture_output=True,
+                check=False,
             )
             print(p.stdout.decode())
             if p.returncode != 0:
-                print("[Shellcheck did not pass] {}".format(file))
-                exit(1)
-        print("[Shellcheck passed] {}".format(file))
+                print(f"[Shellcheck did not pass] {file}")
+                sys.exit(1)
+        print(f"[Shellcheck passed] {file}")

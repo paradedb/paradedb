@@ -19,7 +19,7 @@ db_query () {
 # Helper function to download the benchmarking dataset
 download_data () {
   if [ ! -f "$WIKI_ARTICLES_FILE" ]; then
-    if wget https://www.dropbox.com/s/wwnfnu441w1ec9p/$WIKI_ARTICLES_FILE.bz2 -O $WIKI_ARTICLES_FILE.bz2; then
+    if wget -nv https://www.dropbox.com/s/wwnfnu441w1ec9p/$WIKI_ARTICLES_FILE.bz2 -O $WIKI_ARTICLES_FILE.bz2; then
       echo "-- Unzipping $WIKI_ARTICLES_FILE..."
       bunzip2 $WIKI_ARTICLES_FILE.bz2
     else

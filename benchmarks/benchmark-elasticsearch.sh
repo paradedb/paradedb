@@ -78,7 +78,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Convert data to be consumed by ElasticSearch
   echo "-- Converting data to bulk format consumable by ElasticSearch..."
-  python3 helpers/elastify-data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER "$SIZE"
+  python3 helpers/elastify_data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER "$SIZE"
 
   # Time indexing
   echo "-- Loading data of size $SIZE into wikipedia_articles index..."

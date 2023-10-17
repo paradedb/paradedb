@@ -1,7 +1,7 @@
 # workflows/lint-bash.yml
 #
 # Bash: Linting
-# Lint and enforce good practices for bash scripts.
+# Lint and enforce good practices for Bash scripts.
 
 name: Linting
 
@@ -40,10 +40,10 @@ jobs:
           shopt -u globstar nullglob
 
       - name: Check Bash Scripts for "#!/bin/bash"
-        run: .github/workflows/helpers/check-shebang.sh
+        run: .github/workflows/helpers/check_shebang.sh
 
       - name: Check Bash Scripts for "set -Eeuo pipefail"
-        run: .github/workflows/helpers/check-pipefail.sh
+        run: .github/workflows/helpers/check_pipefail.sh
 
       - name: Run ShellCheck
-        run: python3 .github/workflows/helpers/check-shellcheck.py
+        run: python3 .github/workflows/helpers/check_shellcheck.py

@@ -1,6 +1,6 @@
-DROP TABLE IF EXISTS paradedb.mock_items;
+DROP TABLE IF EXISTS mock_items;
 
-CREATE TABLE paradedb.mock_items (
+CREATE TABLE mock_items (
     id SERIAL PRIMARY KEY,
     description TEXT,
     rating INTEGER CHECK (
@@ -12,7 +12,7 @@ CREATE TABLE paradedb.mock_items (
     metadata JSONB
 );
 
-INSERT INTO paradedb.mock_items (description, rating, category, in_stock, metadata)
+INSERT INTO mock_items (description, rating, category, in_stock, metadata)
 VALUES
     ('Ergonomic metal keyboard', 4, 'Electronics', true, '{"color": "Silver", "location": "United States"}'::JSONB),
     ('Plastic Keyboard', 4, 'Electronics', false, '{"color": "Black", "location": "Canada"}'::JSONB),
@@ -56,16 +56,16 @@ VALUES
     ('Plush teddy bear', 4, 'Toys', true, '{"color": "Brown", "location": "United States"}'::JSONB),
     ('Warm woolen sweater', 3, 'Apparel', false, '{"color": "Red", "location": "Canada"}'::JSONB);
 
-ALTER TABLE paradedb.mock_items DROP COLUMN IF EXISTS sparse_embedding;
-ALTER TABLE paradedb.mock_items ADD COLUMN sparse_embedding sparse;
+ALTER TABLE mock_items DROP COLUMN IF EXISTS sparse_embedding;
+ALTER TABLE mock_items ADD COLUMN sparse_embedding sparse;
 
 WITH NumberedRows AS (
     SELECT ctid,
            ROW_NUMBER() OVER () as row_num
-    FROM paradedb.mock_items
+    FROM mock_items
 )
-UPDATE paradedb.mock_items m
-SET sparse_embedding = paradedb.compress_sparse(
+UPDATE mock_items m
+SET sparse_embedding = compress_sparse(
     ARRAY[
         CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 1) % 10 + 1) END,
         CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 2) % 10 + 1) END,

@@ -64,13 +64,14 @@ pub fn sparse_cosine_distance(left: Sparse, right: Sparse) -> f64 {
 
 extension_sql!(
     r#"
-CREATE OPERATOR pg_catalog.<==> (
+CREATE OPERATOR <==> (
     LEFTARG = sparse, RIGHTARG = sparse, PROCEDURE = sparse_cosine_distance,
     COMMUTATOR = '<==>'
 );
 
-CREATE OPERATOR CLASS sparse_cosine_ops DEFAULT FOR TYPE sparse USING sparse_hnsw AS
-    OPERATOR 1 pg_catalog.<==> (sparse, sparse) FOR ORDER BY float_ops,
+CREATE OPERATOR CLASS sparse_cosine_ops 
+    DEFAULT FOR TYPE sparse USING sparse_hnsw AS
+    OPERATOR 1 <==> (sparse, sparse) FOR ORDER BY float_ops,
     FUNCTION 1 sparse_cosine_distance(sparse, sparse);
 "#,
     name = "sparse_operator"

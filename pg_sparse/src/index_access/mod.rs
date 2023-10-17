@@ -10,11 +10,11 @@ mod vacuum;
 mod validate;
 
 #[pg_extern(sql = "
-CREATE FUNCTION sparse_handler(internal) RETURNS index_am_handler LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
-CREATE ACCESS METHOD sparse_hnsw TYPE INDEX HANDLER sparse_handler;
+CREATE FUNCTION sparse_hnsw_handler(internal) RETURNS index_am_handler LANGUAGE c AS 'MODULE_PATHNAME', '@FUNCTION_NAME@';
+CREATE ACCESS METHOD sparse_hnsw TYPE INDEX HANDLER sparse_hnsw_handler;
 COMMENT ON ACCESS METHOD sparse_hnsw IS 'sparse index access method';
 ")]
-fn sparse_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRoutine> {
+fn sparse_hnsw_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRoutine> {
     let mut amroutine =
         unsafe { PgBox::<pg_sys::IndexAmRoutine>::alloc_node(pg_sys::NodeTag_T_IndexAmRoutine) };
 
@@ -33,7 +33,7 @@ fn sparse_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRou
     amroutine.ampredlocks = false;
     amroutine.amcanparallel = false;
     amroutine.amcaninclude = false;
-    amroutine.amkeytype = pg_sys::InvalidOid;
+
     amroutine.amcanreturn = None;
     amroutine.amoptions = None;
     amroutine.amproperty = None;

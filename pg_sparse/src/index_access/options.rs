@@ -1,4 +1,3 @@
-use memoffset::*;
 use pgrx::*;
 
 /* ADDING OPTIONS

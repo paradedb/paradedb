@@ -20,5 +20,6 @@ results/
 regression.diffs
 regression.out
 
-# pgxn
+# PGXN
+Makefile
 META.json

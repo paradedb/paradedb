@@ -1,5 +1,11 @@
 #!/bin/bash
 
+# This script generates a Makefile for bundling when publishing an extension to
+# PGXN, so that the extension can be installed. It is intended to be used to make
+# PGXN support pgrx-based extensions, which don't come with a standard PGXS Makefile.
+# For anything development-related, please follow the instructions in the README of
+# the extension and use 'pgrx' instead.
+
 # Exit on subcommand errors
 set -Eeuo pipefail
 
@@ -23,10 +29,6 @@ version=$(grep '^version =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
 
 # Generate the Makefile in the specified directory
 cat > "$DIR"/Makefile <<EOL
-# This Makefile is used exclusively to install the extension via PGXN. For
-# anything development related, please follow the instructions in the README
-# and use 'pgrx' instead.
-
 # Variables
 EXTENSION = $name
 BUILD_DIR = build

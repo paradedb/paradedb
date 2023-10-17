@@ -84,7 +84,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN /bin/bash -c "$(curl -sL https://git.io/vokNn)"
 
 # Install pgxn, for installing Postgres extensions
-RUN pip3 install pgxnclient
+RUN pip3 install --no-cache-dir pgxnclient
 
 # Add PostgreSQL's third party repository to get the latest versions
 RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -

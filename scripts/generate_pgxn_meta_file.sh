@@ -31,25 +31,23 @@ cat > "$DIR"/META.json <<EOL
     "description": "$description",
     "license": "agpl_3",
     "maintainer": "ParadeDB <support@paradedb.com>",
-    "provides": {
-        "$name": {
-            "file": "sql/$name.sql",
-            "version": "$version"
-        }
-    },
     "prereqs": {
         "runtime": {
             "requires": {
                 "PostgreSQL": "11.0.0"
             }
-        },
-        "test": {
-            "requires": {
-                "plpgsql": "0"
-            }
+        }
+    },
+    "provides": {
+        "$name": {
+            "file": "sql/$name.sql",
+            "docfile": "README.md"
+            "version": "$version",
+            "abstract": "$description"
         }
     },
     "resources": {
+        "homepage": "https://github.com/paradedb/paradedb",
         "bugtracker": {
             "web": "https://github.com/paradedb/paradedb/issues"
         },

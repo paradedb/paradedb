@@ -94,6 +94,6 @@ jobs:
         working-directory: target/release/pg_bm25-pg${{ env.PG_VERSION_MAJOR }}/
         run: pgxn-bundle
 
-      - name: Publish the pg_bm25 Extension
+      - name: Publish the pg_bm25 Extension to PGXN
         working-directory: target/release/pg_bm25-pg${{ env.PG_VERSION_MAJOR }}/
         run: pgxn-release

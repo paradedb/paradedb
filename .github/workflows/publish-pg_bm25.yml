@@ -60,7 +60,10 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install Rust
-        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          export PATH=/root/.cargo/bin:$PATH
+          export PGX_HOME=/usr/lib/postgresql/${{ env.PG_VERSION_MAJOR }}
 
       - name: Install pgrx
         if: steps.cache-cargo.outputs.cache-hit != 'true'

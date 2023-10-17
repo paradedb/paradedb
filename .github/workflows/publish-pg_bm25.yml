@@ -54,7 +54,7 @@ jobs:
             ${{ runner.os }}-cargo
 
       - name: Install Dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wget curl ca-certificates gnupg2 lsb-release
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wget curl ca-certificates gnupg2 lsb-release pkg-config
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

@@ -7,7 +7,9 @@ docs/quickstart.mdx
 docs/blog/introducing_bm25.mdx
 docs/search/autocomplete.mdx
 docs/search/fuzzy.mdx
+/pg_bm25/META.json
 /pg_bm25/target/
+/pg_search/META.json
 /pg_search/pgvector/
 /pg_search/target/
 /pg_search/test/pgvector/

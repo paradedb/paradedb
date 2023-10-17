@@ -6,8 +6,8 @@ import glob
 import subprocess
 
 DESCRIPTION = """
-This script will run shellcheck on all .sh files in the folder the script is called from and
-all subfolders.
+This script will run shellcheck on all .sh files in the folder the script is
+called from and all subfolders.
 """
 
 parser = argparse.ArgumentParser(description=DESCRIPTION)
@@ -21,7 +21,8 @@ parser.add_argument(
 
 parser.add_argument(
     "--exclude-codes",
-    help="The list of codes to exclude for specific files. Separate codes by commas and files:codes pairs by spaces.",
+    help="The list of codes to exclude for specific files. Separate codes by \
+          commas and files:codes pairs by spaces.",
     type=str,
     default="",
 )

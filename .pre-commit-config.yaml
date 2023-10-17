@@ -78,10 +78,10 @@ repos:
     hooks:
       - id: black
 
-  # - repo: https://github.com/pylint-dev/pylint
-  #   rev: v3.0.1
-  #   hooks:
-  #     - id: pylint
+  - repo: https://github.com/pylint-dev/pylint
+    rev: v3.0.1
+    hooks:
+      - id: pylint
 
   - repo: https://github.com/PyCQA/flake8
     rev: 6.1.0

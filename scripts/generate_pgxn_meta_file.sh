@@ -21,10 +21,6 @@ fi
 name=$(grep '^name =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
 version=$(grep '^version =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
 description=$(grep '^description =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
-license=$(grep '^license =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
-
-# Get the current date
-released=$(date +%Y-%m-%d)
 
 # Generate the META.json content in the specified directory
 cat > "$DIR"/META.json <<EOL
@@ -33,9 +29,8 @@ cat > "$DIR"/META.json <<EOL
     "version": "$version",
     "abstract": "$description",
     "description": "$description",
-    "license": "$license",
+    "license": "agpl_3",
     "maintainer": "ParadeDB <support@paradedb.com>",
-    "released": "$released",
     "provides": {
         "$name": {
             "file": "sql/$name.sql",
@@ -60,9 +55,8 @@ cat > "$DIR"/META.json <<EOL
         },
         "repository": {
             "web": "https://github.com/paradedb/paradedb",
-            "type": "git",
             "url": "git://github.com/paradedb/paradedb.git",
-            "version": "$version"
+            "type": "git"
         }
     },
     "generated_by": "ParadeDB",

@@ -1,41 +1,106 @@
-# # workflows/publish-pg_search.yml
-# #
-# # pg_search: Publish
-# # Build and publish the pg_search extension to PGXN (PostgreSQL Extension Network).
+# workflows/publish-pg_search.yml
+#
+# pg_search: Publish
+# Build and publish the pg_search extension to PGXN (PostgreSQL Extension Network).
 
-# name: Publishing
+name: Publishing
 
-# on:
-#     push:
-#       branches:
-#         - main
-#         - staging
-#         - dev
-#         - phil/proper-packaging # TODO: remove this after testing
-#     workflow_dispatch:
+on:
+  push:
+    # branches:
+    #   - phil/proper-packaging # TODO: remove this after testing
+    tags:
+      - "v*"
+  workflow_dispatch:
 
-# concurrency:
-#   group: publish-pg_search-${{ github.head_ref || github.ref }}
-#   cancel-in-progress: true
+concurrency:
+  group: publish-pg_search-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
-# jobs:
-#   publish-pg_search-to-pgxn:
-#     name: Publish pg_search to PGXN
-#     runs-on: ubuntu-latest
-#     container: pgxn/pgxn-tools
-#     env:
-#       GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-#       PGXN_USERNAME: ${{ secrets.PGXN_USERNAME }}
-#       PGXN_PASSWORD: ${{ secrets.PGXN_PASSWORD }}
+jobs:
+  publish-pg_search-to-pgxn:
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} to PGXN
+    runs-on: ubuntu-latest
+    container: pgxn/pgxn-tools
+    strategy:
+      matrix:
+        pg_version: [15]
+    env:
+      GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+      PGXN_USERNAME: ${{ secrets.PGXN_USERNAME }}
+      PGXN_PASSWORD: ${{ secrets.PGXN_PASSWORD }}
+      PG_VERSION_MAJOR: 15
 
-#     steps:
-#       - name: Checkout Git Repository
-#         uses: actions/checkout@v4
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
 
-#       - name: Bundle the pg_search Extension
-#         working-directory: pg_search/
-#         run: pgxn-bundle
+      - name: Install Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
 
-#       - name: Publish the pg_search Extension
-#         working-directory: pg_search/
-#         run: pgxn-release
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/
+            ~/.rustup/
+          key: ${{ runner.os }}-cargo-pgrx-0.9.8-grcov
+          restore-keys: |
+            ${{ runner.os }}-cargo-pgrx-0.9.8-grcov
+            ${{ runner.os }}-cargo-pgrx
+            ${{ runner.os }}-cargo
+
+      - name: Install Dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends wget curl ca-certificates gnupg2 lsb-release pkg-config
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Install pgrx
+        if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: $HOME/.cargo/bin/cargo install cargo-pgrx --version 0.9.8
+
+      - name: Initialize pgrx for Current PostgreSQL Version
+        working-directory: pg_search/
+        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+
+      - name: Retrieve GitHub Tag Version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      # TODO: Update this when it is finished testing
+      - name: Update Version in Cargo.toml
+        working-directory: pg_search/
+        # run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
+        run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"0.0.1\"/" Cargo.toml
+
+      - name: Package pg_search Extension with pgrx
+        working-directory: pg_search/
+        run: cargo pgrx package
+
+      # TODO: Need to update the script to add extra "requires" here, for pg_bm25 and pgvector
+      - name: Generate META.json File for PGXN
+        run: |
+          ./scripts/generate_pgxn_meta_file.sh pg_search/
+          mv pg_search/META.json target/release/pg_search-pg${{ env.PG_VERSION_MAJOR }}/
+
+      - name: Generate Makefile File for PGXN
+        run: |
+          ./scripts/generate_pgxn_makefile.sh pg_search/ ${{ env.PG_VERSION_MAJOR }}
+          mv pg_search/Makefile target/release/pg_search-pg${{ env.PG_VERSION_MAJOR }}/
+
+      - name: Bundle the pg_search Extension for PGXN
+        working-directory: target/release/pg_search-pg${{ env.PG_VERSION_MAJOR }}/
+        run: pgxn-bundle
+
+      - name: Publish the pg_search Extension to PGXN
+        working-directory: target/release/pg_search-pg${{ env.PG_VERSION_MAJOR }}/
+        run: pgxn-release

@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   publish-pg_bm25-to-pgxn:
-    name: Publish pg_bm25 to PGXN
+    name: Publish pg_bm25 for PostgreSQL ${{ matrix.pg_version }} to PGXN
     runs-on: ubuntu-latest
     container: pgxn/pgxn-tools
     strategy:
@@ -76,6 +76,7 @@ jobs:
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
+      # TODO: Update this when it is finished testing
       - name: Update Version in Cargo.toml
         working-directory: pg_bm25/
         # run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml

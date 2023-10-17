@@ -112,11 +112,11 @@ unsafe extern "C" fn build_callback_internal(
     let mut old_context = state.memcxt.set_as_current();
 
     let values = std::slice::from_raw_parts(values, 1);
-    let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
+    // let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
 
-    if let Some(sparse_vector) = sparse_vector {
-        state.sparse_index.insert(sparse_vector, ctid);
-    }
+    // if let Some(sparse_vector) = sparse_vector {
+    //     state.sparse_index.insert(sparse_vector, ctid);
+    // }
 
     old_context.set_as_current();
     state.memcxt.reset();

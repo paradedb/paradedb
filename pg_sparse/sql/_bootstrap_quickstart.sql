@@ -65,17 +65,12 @@ WITH NumberedRows AS (
     FROM mock_items
 )
 UPDATE mock_items m
-SET sparse_embedding = compress_sparse(
-    ARRAY[
-        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 1) % 10 + 1) END,
-        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 2) % 10 + 1) END,
-        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
-        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
-        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
-        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
-        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END,
-        CASE WHEN random() < 0.5 THEN 0 ELSE ((n.row_num + 3) % 10 + 1) END
-    ]::real[]
-)
-FROM NumberedRows n
-WHERE m.ctid = n.ctid;
+SET sparse_embedding = (
+    SELECT '[' || string_agg(
+        CASE 
+            WHEN random() < 0.5 THEN '0'
+            ELSE trunc(random()*10)::text
+        END, ',') || ']'
+    FROM generate_series(1,10)
+    WHERE m.ctid = m.ctid
+)::sparse;

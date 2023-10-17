@@ -51,10 +51,7 @@ if __name__ == "__main__":
     for file in sh_files:
         if file not in codes_to_exclude:
             p = subprocess.run(
-                f"shellcheck {file}",
-                shell=True,
-                capture_output=True,
-                check=False
+                f"shellcheck {file}", shell=True, capture_output=True, check=False
             )
             print(p.stdout.decode())
             if p.returncode != 0:
@@ -66,7 +63,7 @@ if __name__ == "__main__":
                 f"shellcheck -e {codes} {file}",
                 shell=True,
                 capture_output=True,
-                check=False
+                check=False,
             )
             print(p.stdout.decode())
             if p.returncode != 0:

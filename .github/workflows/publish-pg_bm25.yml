@@ -42,8 +42,9 @@ jobs:
 
       - name: Update Version
         working-directory: pg_bm25/
-        run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
-
+        # run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
+        run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"9.9.9\"/" Cargo.toml
+            
       - name: Package pg_bm25 Extension with pgrx
         working-directory: pg_bm25/
         run: cargo pgrx package

@@ -18,16 +18,16 @@ if [ ! -d "$DIR" ]; then
 fi
 
 # Extract necessary fields from Cargo.toml
-name=$(grep '^name =' $DIR/Cargo.toml | awk -F'\"' '{print $2}')
-version=$(grep '^version =' $DIR/Cargo.toml | awk -F'\"' '{print $2}')
-description=$(grep '^description =' $DIR/Cargo.toml | awk -F'\"' '{print $2}')
-license=$(grep '^license =' $DIR/Cargo.toml | awk -F'\"' '{print $2}')
+name=$(grep '^name =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
+version=$(grep '^version =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
+description=$(grep '^description =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
+license=$(grep '^license =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
 
 # Get the current date
 released=$(date +%Y-%m-%d)
 
 # Generate the META.json content in the specified directory
-cat > $DIR/META.json <<EOL
+cat > "$DIR"/META.json <<EOL
 {
     "name": "$name",
     "version": "$version",

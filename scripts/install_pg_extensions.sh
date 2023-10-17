@@ -23,10 +23,7 @@ check_pgxn_package_exists() {
   local VERSION="$2"
 
   # Try to fetch the details for the specified version of the extension using pgxnclient
-  pgxn info "${EXTENSION}==${VERSION}" &> /dev/null
-
-  # Check the exit status of the pgxnclient command
-  if [[ $? -eq 0 ]]; then
+  if pgxn info "${EXTENSION}==${VERSION}" &> /dev/null; then
     echo "Extension $EXTENSION version $VERSION exists on PGXN."
     return 0
   else
@@ -34,6 +31,7 @@ check_pgxn_package_exists() {
     return 1
   fi
 }
+
 
 # Function to download and install a PostgreSQL extension from PGXN
 # Example:
@@ -43,8 +41,7 @@ install_pgxn_package_version() {
   local VERSION="$2"
 
   # Download and install the specified version of the extension
-  pgxn install "${EXTENSION}==${VERSION}"
-  if [[ $? -eq 0 ]]; then
+  if pgxn install "${EXTENSION}==${VERSION}"; then
     echo "Extension $EXTENSION version $VERSION installed successfully."
     return 0
   else

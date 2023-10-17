@@ -28,7 +28,6 @@ fi
 name=$(grep '^name =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
 version=$(grep '^version =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
 
-
 # Generate the Makefile in the specified directory
 cat > "$DIR"/Makefile <<EOL
 # This Makefile is used exclusively to install the extension via PGXN. For
@@ -75,8 +74,5 @@ clean:
 # Phony targets
 .PHONY: all install clean
 EOL
-
-
-
 
 echo "Makefile generated in $DIR successfully!"

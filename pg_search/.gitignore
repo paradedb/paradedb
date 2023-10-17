@@ -20,5 +20,8 @@ results/
 regression.diffs
 regression.out
 
+# pgxn
+META.json
+
 # pgvector
 pgvector/

@@ -8,11 +8,14 @@ name: Publishing
 on:
   push:
     branches:
-      - main
-      - staging
-      - dev
       - phil/proper-packaging # TODO: remove this after testing
+    tags:
+      - "v*"
   workflow_dispatch:
+
+
+
+
 
 concurrency:
   group: publish-pg_bm25-${{ github.head_ref || github.ref }}
@@ -27,15 +30,33 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
       PGXN_USERNAME: ${{ secrets.PGXN_USERNAME }}
       PGXN_PASSWORD: ${{ secrets.PGXN_PASSWORD }}
+      PG_VERSION_MAJOR: 15
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Bundle the pg_bm25 Extension
+      - name: Retrieve GitHub Tag Version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Update Version
         working-directory: pg_bm25/
+        run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
+
+      - name: Package pg_bm25 Extension with pgrx
+        working-directory: pg_bm25/
+        run: cargo pgrx package
+
+      - name: Generate META.json File for PGXN
+        run: |
+            ./scripts/generate_pgxn_meta_file.sh pg_bm25/
+            mv pg_bm25/META.json target/release/pg_bm25-pg${{ env.PG_VERSION_MAJOR }}/
+
+      - name: Bundle the pg_bm25 Extension for PGXN
+        working-directory: target/release/pg_bm25-pg${{ env.PG_VERSION_MAJOR }}/
         run: pgxn-bundle
 
       - name: Publish the pg_bm25 Extension
-        working-directory: pg_bm25/
+        working-directory: target/release/pg_bm25-pg${{ env.PG_VERSION_MAJOR }}/
         run: pgxn-release

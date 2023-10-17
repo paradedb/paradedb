@@ -6,6 +6,9 @@
 name: Publishing
 
 on:
+  push:
+    branches:
+        phil/proper-packaging
   pull_request:
     branches:
       - dev

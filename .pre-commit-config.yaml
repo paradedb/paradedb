@@ -57,7 +57,6 @@ repos:
       - id: eslint
         files: \.[jt]sx?$ # *.js, *.jsx, *.ts and *.tsx
         types: [file]
-        args: ["--config", "./dashboard/.eslintrc.json"]
         additional_dependencies:
           - "@typescript-eslint/eslint-plugin@^6.7.5"
           - "eslint@8.49.0"

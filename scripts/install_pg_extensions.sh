@@ -19,38 +19,38 @@ sanitize_version() {
 # Example:
 # check_pgxn_package_exists "pg_bm25" "0.1.0"
 check_pgxn_package_exists() {
-    local EXTENSION="$1"
-    local VERSION="$2"
-    
-    # Try to fetch the details for the specified version of the extension using pgxnclient
-    pgxn info "${EXTENSION}==${VERSION}" &> /dev/null
+  local EXTENSION="$1"
+  local VERSION="$2"
 
-    # Check the exit status of the pgxnclient command
-    if [[ $? -eq 0 ]]; then
-        echo "Extension $EXTENSION version $VERSION exists on PGXN."
-        return 0
-    else
-        echo "Extension $EXTENSION version $VERSION does not exist on PGXN."
-        return 1
-    fi
+  # Try to fetch the details for the specified version of the extension using pgxnclient
+  pgxn info "${EXTENSION}==${VERSION}" &> /dev/null
+
+  # Check the exit status of the pgxnclient command
+  if [[ $? -eq 0 ]]; then
+    echo "Extension $EXTENSION version $VERSION exists on PGXN."
+    return 0
+  else
+    echo "Extension $EXTENSION version $VERSION does not exist on PGXN."
+    return 1
+  fi
 }
 
-# Function to download and install a PostgreSQL extension from PGXN 
+# Function to download and install a PostgreSQL extension from PGXN
 # Example:
 # install_pgxn_package_version "pg_bm25" "0.1.0"
 install_pgxn_package_version() {
-    local EXTENSION="$1"
-    local VERSION="$2"
-    
-    # Download and install the specified version of the extension
-    pgxn install "${EXTENSION}==${VERSION}"
-    if [[ $? -eq 0 ]]; then
-        echo "Extension $EXTENSION version $VERSION installed successfully."
-        return 0
-    else
-        echo "Failed to install extension $EXTENSION version $VERSION."
-        return 1
-    fi
+  local EXTENSION="$1"
+  local VERSION="$2"
+
+  # Download and install the specified version of the extension
+  pgxn install "${EXTENSION}==${VERSION}"
+  if [[ $? -eq 0 ]]; then
+    echo "Extension $EXTENSION version $VERSION installed successfully."
+    return 0
+  else
+    echo "Failed to install extension $EXTENSION version $VERSION."
+    return 1
+  fi
 }
 
 # Function to compile & package a single PostgreSQL extension as a .deb

@@ -1,6 +1,6 @@
 use pgrx::*;
 
-use crate::sparse_index::SparseIndex;
+use crate::sparse_index::index::SparseIndex;
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(

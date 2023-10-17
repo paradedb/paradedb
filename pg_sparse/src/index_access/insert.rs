@@ -1,6 +1,7 @@
 use pgrx::*;
 
-use crate::sparse_index::{Sparse, SparseIndex};
+use crate::sparse_index::index::SparseIndex;
+use crate::sparse_index::sparse::Sparse;
 
 #[allow(clippy::too_many_arguments)]
 #[cfg(any(feature = "pg14", feature = "pg15"))]

@@ -1,7 +1,7 @@
 use pgrx::*;
 use std::collections::HashMap;
 
-use crate::sparse_index::Sparse;
+use crate::sparse_index::sparse::Sparse;
 
 #[pg_extern(immutable, strict, parallel_safe)]
 pub fn sparse_cosine_distance(left: Sparse, right: Sparse) -> f32 {
@@ -51,23 +51,3 @@ CREATE OPERATOR CLASS sparse_cosine_ops
 "#,
     name = "sparse_operator"
 );
-
-// #[pg_extern(immutable, strict, parallel_safe)]
-// pub fn cosine_distance(left: Vec<f32>, right: Vec<f32>) -> f32 {
-//     1.0 as f32
-// }
-
-// extension_sql!(
-//     r#"
-// CREATE OPERATOR <=> (
-//     LEFTARG = real[], RIGHTARG = real[], PROCEDURE = cosine_distance,
-//     COMMUTATOR = '<=>'
-// );
-
-// CREATE OPERATOR CLASS ann_cos_ops 
-//     DEFAULT FOR TYPE real[] USING sparse_hnsw AS
-// 	OPERATOR 1 <=> (real[], real[]) FOR ORDER BY float_ops,
-// 	FUNCTION 1 cosine_distance(real[], real[]);
-// "#,
-//     name = "sparse_operator"
-// );

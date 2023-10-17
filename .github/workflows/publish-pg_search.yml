@@ -1,0 +1,41 @@
+# # workflows/publish-pg_search.yml
+# #
+# # pg_search: Publish
+# # Build and publish the pg_search extension to PGXN (PostgreSQL Extension Network).
+
+# name: Publishing
+
+# on:
+#     push:
+#       branches:
+#         - main
+#         - staging
+#         - dev
+#         - phil/proper-packaging # TODO: remove this after testing
+#     workflow_dispatch:
+
+# concurrency:
+#   group: publish-pg_search-${{ github.head_ref || github.ref }}
+#   cancel-in-progress: true
+
+# jobs:
+#   publish-pg_search-to-pgxn:
+#     name: Publish pg_search to PGXN
+#     runs-on: ubuntu-latest
+#     container: pgxn/pgxn-tools
+#     env:
+#       GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+#       PGXN_USERNAME: ${{ secrets.PGXN_USERNAME }}
+#       PGXN_PASSWORD: ${{ secrets.PGXN_PASSWORD }}
+
+#     steps:
+#       - name: Checkout Git Repository
+#         uses: actions/checkout@v4
+
+#       - name: Bundle the pg_search Extension
+#         working-directory: pg_search/
+#         run: pgxn-bundle
+
+#       - name: Publish the pg_search Extension
+#         working-directory: pg_search/
+#         run: pgxn-release

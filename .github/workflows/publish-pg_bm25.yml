@@ -1,0 +1,45 @@
+# workflows/publish-pg_bm25.yml
+#
+# pg_bm25: Publish
+# Build and publish the pg_bm25 extension to PGXN (PostgreSQL Extension Network).
+
+name: Publishing
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - main
+    paths:
+      - "pg_bm25/**"
+      - "!pg_bm25/README.md"
+      - ".github/workflows/test-pg_bm25.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-pg_bm25-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-pg_bm25-to-pgxn:
+    name: Publish pg_bm25 to PGXN
+    runs-on: ubuntu-latest
+    container: pgxn/pgxn-tools
+    env:
+      GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+      PGXN_USERNAME: ${{ secrets.PGXN_USERNAME }}
+      PGXN_PASSWORD: ${{ secrets.PGXN_PASSWORD }}
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Bundle the pg_bm25 Extension
+        run: pgxn-bundle
+
+      - name: Publish the pg_bm25 Extension
+        run: pgxn-release
+
+
+

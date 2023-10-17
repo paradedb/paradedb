@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 """
 Module to convert the Wiki articles dataset to a format suitable for
 Elasticsearch bulk insertion.
@@ -9,6 +10,16 @@ import sys
 
 ELASTIC_CREATE_ENTRY = '{"index":{}}\n'
 MAX_FILE_ENTRIES = 5000
+
+
+def write_to_bulk_file(filename, lines):
+    """
+    Writes the given lines to the given file, in bulk.
+    """
+    with open(filename, "w", encoding="utf-8") as bulk_output_file:
+        for line in lines:
+            bulk_output_file.write(ELASTIC_CREATE_ENTRY)
+            bulk_output_file.write(line)
 
 
 def elastify_data(wiki_articles_filename, bulk_output_foldername, desired_size):
@@ -24,31 +35,33 @@ def elastify_data(wiki_articles_filename, bulk_output_foldername, desired_size):
     if not os.path.exists(bulk_output_foldername):
         os.makedirs(bulk_output_foldername)
 
-    with open(wiki_articles_filename, "r", encoding="utf-8") as wiki_articles_file:
-        total_num_written = 0
-        bo_num = 0
-        bulk_output_file = None
+    total_num_written = 0
+    bo_num = 1
+    bulk_output_filename = os.path.join(
+        bulk_output_foldername, f"{desired_size}_{bo_num}.json"
+    )
 
+    lines_to_write = []
+
+    with open(wiki_articles_filename, "r", encoding="utf-8") as wiki_articles_file:
         for line in wiki_articles_file:
             if total_num_written == desired_size:
+                write_to_bulk_file(bulk_output_filename, lines_to_write)
                 break
-            if total_num_written % MAX_FILE_ENTRIES == 0:
-                if bulk_output_file:
-                    bulk_output_file.close()
+
+            if total_num_written > 0 and total_num_written % MAX_FILE_ENTRIES == 0:
+                write_to_bulk_file(bulk_output_filename, lines_to_write)
+                lines_to_write = []  # Reset the buffer
                 bo_num += 1
                 bulk_output_filename = os.path.join(
                     bulk_output_foldername, f"{desired_size}_{bo_num}.json"
                 )
-                with open(
-                    bulk_output_filename, "w", encoding="utf-8"
-                ) as bulk_output_file:
-                    bulk_output_file.write(ELASTIC_CREATE_ENTRY)
-                    bulk_output_file.write(line)
-                    total_num_written += 1
-            else:
-                bulk_output_file.write(ELASTIC_CREATE_ENTRY)
-                bulk_output_file.write(line)
-                total_num_written += 1
+
+            lines_to_write.append(line)
+            total_num_written += 1
+
+        if lines_to_write:
+            write_to_bulk_file(bulk_output_filename, lines_to_write)
 
 
 if __name__ == "__main__":

@@ -11,12 +11,7 @@ import glob
 import subprocess
 import sys
 
-DESCRIPTION = """
-This script will run shellcheck on all .sh files in the folder the script is
-called from and all subfolders.
-"""
-
-parser = argparse.ArgumentParser(description=DESCRIPTION)
+parser = argparse.ArgumentParser()
 
 parser.add_argument(
     "--exclude-dirs",

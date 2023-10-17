@@ -9,13 +9,14 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# Check if a directory argument is provided
-if [ "$#" -ne 1 ]; then
-  echo "Usage: $0 <path_to_directory>"
+# Check if the correct number of arguments is provided
+if [ "$#" -ne 2 ]; then
+  echo "Usage: $0 <path_to_directory> <postgres_major_version>"
   exit 1
 fi
 
 DIR="$1"
+PG_MAJOR_VERSION="$2"
 
 # Ensure the directory exists
 if [ ! -d "$DIR" ]; then
@@ -29,6 +30,10 @@ version=$(grep '^version =' "$DIR"/Cargo.toml | awk -F'\"' '{print $2}')
 
 # Generate the Makefile in the specified directory
 cat > "$DIR"/Makefile <<EOL
+# This Makefile is used exclusively to install the extension via PGXN. For
+# anything development related, please follow the instructions in the README
+# and use 'pgrx' instead.
+
 # Variables
 EXTENSION = $name
 BUILD_DIR = build
@@ -58,9 +63,9 @@ all: install
 
 # Install the extension
 install: \$(BUILD_DIR)
-	cp \$(BUILD_DIR)/$(name)--$(version)/usr/lib/postgresql/15/lib/\$(EXTENSION).so \$(PG_LIB_DIR)/
-	cp \$(BUILD_DIR)/$(name)--$(version)/usr/share/postgresql/15/extension/\$(EXTENSION)--$(version).sql \$(PG_EXTENSION_DIR)/
-	cp \$(BUILD_DIR)/$(name)--$(version)/usr/share/postgresql/15/extension/\$(EXTENSION).control \$(PG_EXTENSION_DIR)/
+	cp \$(BUILD_DIR)/$(name)--$(version)/usr/lib/postgresql/$PG_MAJOR_VERSION/lib/\$(EXTENSION).so \$(PG_LIB_DIR)/
+	cp \$(BUILD_DIR)/$(name)--$(version)/usr/share/postgresql/$PG_MAJOR_VERSION/extension/\$(EXTENSION)--$(version).sql \$(PG_EXTENSION_DIR)/
+	cp \$(BUILD_DIR)/$(name)--$(version)/usr/share/postgresql/$PG_MAJOR_VERSION/extension/\$(EXTENSION).control \$(PG_EXTENSION_DIR)/
 
 # Clean up build artifacts
 clean:

@@ -92,7 +92,7 @@ jobs:
 
       - name: Generate Makefile File for PGXN
         run: |
-          ./scripts/generate_pgxn_makefile.sh pg_bm25/
+          ./scripts/generate_pgxn_makefile.sh pg_bm25/ ${{ env.PG_VERSION_MAJOR }}
           mv pg_bm25/Makefile target/release/pg_bm25-pg${{ env.PG_VERSION_MAJOR }}/
 
       - name: Bundle the pg_bm25 Extension for PGXN

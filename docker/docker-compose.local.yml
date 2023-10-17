@@ -10,12 +10,11 @@ services:
   paradedb:
     build:
       context: ..
-      dockerfile: ./docker/Dockerfile.crunchy
+      dockerfile: ./docker/Dockerfile.cloud
       args:
         PG_VERSION_MAJOR: 15
         PG_BM25_VERSION: 0.0.0
         PG_SEARCH_VERSION: 0.0.0
-        PGNODEMX_VERSION: 1.6
         PG_CRON_VERSION: 1.6.0
         PG_NET_VERSION: 0.7.2
         PG_IVM_VERSION: 1.5.1
@@ -37,6 +36,9 @@ services:
         HYPOPG_VERSION: 1.4.0
         RUM_VERSION: 1.3.13
         AGE_VERSION: 1.4.0-rc0
+        PATRONI_VERSION: 2.1.7
+        PGNODEMX_VERSION: 1.6
+
       cache_from:
         - type=local,src=./.docker_cache_local
       cache_to:

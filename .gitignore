@@ -10,3 +10,4 @@ docker/.docker_cache_local/
 
 # Rust
 target/
+.vercel

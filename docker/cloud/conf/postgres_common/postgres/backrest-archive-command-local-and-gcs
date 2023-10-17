@@ -1,0 +1,1 @@
+archive_command = 'pgbackrest archive-push %p && pgbackrest archive-push --repo-type=gcs %p'

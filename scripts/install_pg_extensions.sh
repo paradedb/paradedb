@@ -15,87 +15,57 @@ sanitize_version() {
 }
 
 
+# Function to check if a PostgreSQL extension exists on PGXN
+# Example:
+# check_pgxn_package_exists "pg_bm25" "0.1.0"
+check_pgxn_package_exists() {
+    local EXTENSION="$1"
+    local VERSION="$2"
+    
+    # Try to fetch the details for the specified version of the extension using pgxnclient
+    pgxn info "${EXTENSION}==${VERSION}" &> /dev/null
 
-
-check_pgx_package_exists() {
-  local s3_bucket_url="https://pgx-get.s3.amazonaws.com"
-  local deb_file="$1"
-
-  # Check if the .deb file exists by sending a HEAD request
-  response_code=$(curl -s -o /dev/null -w "%{http_code}" -I "$s3_bucket_url/$deb_file")
-
-  if [ "$response_code" == "200" ]; then
-    return 0  # File exists
-  else
-    return 1  # File doesn't exist
-  fi
+    # Check the exit status of the pgxnclient command
+    if [[ $? -eq 0 ]]; then
+        echo "Extension $EXTENSION version $VERSION exists on PGXN."
+        return 0
+    else
+        echo "Extension $EXTENSION version $VERSION does not exist on PGXN."
+        return 1
+    fi
 }
 
-
-download_pgx_package() {
-  local s3_bucket_url="https://pgx-get.s3.amazonaws.com"
-  local deb_file="$1"
-
-  # Download the .deb file from S3
-  curl -O "$s3_bucket_url/$deb_file"
-  echo ".deb file downloaded from S3."
+# Function to download and install a PostgreSQL extension from PGXN 
+# Example:
+# install_pgxn_package_version "pg_bm25" "0.1.0"
+install_pgxn_package_version() {
+    local EXTENSION="$1"
+    local VERSION="$2"
+    
+    # Download and install the specified version of the extension
+    pgxn install "${EXTENSION}==${VERSION}"
+    if [[ $? -eq 0 ]]; then
+        echo "Extension $EXTENSION version $VERSION installed successfully."
+        return 0
+    else
+        echo "Failed to install extension $EXTENSION version $VERSION."
+        return 1
+    fi
 }
 
-upload_pgx_package() {
-  local s3_bucket="pgx-get"
-  local deb_filename="$1"
-
-  # s3 keys -- environment variables
-  if [[ -z ${S3_ACCESS_KEY}  ||  -z ${S3_SECRET_KEY} ]]; then 
-    echo "S3 keys not set... not uploading to S3"
-    return
-  fi
-
-  local s3_access_key="$S3_ACCESS_KEY"
-  local s3_secret_key="$S3_SECRET_KEY"
-
-  # about the file
-  local bucket_filepath="/${s3_bucket}/${deb_filename}"
-  local all_users_group="uri=http://acs.amazonaws.com/groups/global/AllUsers"
-
-  # metadata
-  local contentType="application/x-compressed-tar"
-  local dateValue=`date -R`
-  local signature_string="PUT\n\n${contentType}\n${dateValue}\nx-amz-grant-read:${all_users_group}\n${bucket_filepath}"
-
-  # prepare signature hash to be sent in Authorization header
-  local signature_hash=`echo -en ${signature_string} | openssl sha1 -hmac ${s3_secret_key} -binary | base64`
-
-  # Upload the .deb file to S3 using a PUT request
-  curl -X PUT -T "/tmp/${deb_filename}" \
-    -H "Host: ${s3_bucket}.s3.amazonaws.com" \
-    -H "Date: ${dateValue}" \
-    -H "Content-Type: ${contentType}" \
-    -H "Authorization: AWS ${s3_access_key}:${signature_hash}" \
-    -H "x-amz-grant-read: ${all_users_group}" \
-    https://${s3_bucket}.s3.amazonaws.com/${deb_filename}
-
-  echo ""
-  echo ".deb file created and uploaded to S3."
-}
-
-
-
-compile_pgx_package() {
+# Function to compile & package a single PostgreSQL extension as a .deb
+# Example:
+# build_pg_and_package_extension "pg_cron" "1.0.0" "https://github.com/citusdata/pg_cron/archive/refs/tags/v1.0.0.tar.gz"
+build_and_package_pg_extension() {
   local PG_EXTENSION_NAME=$1
   local PG_EXTENSION_VERSION=$2
   local PG_EXTENSION_URL=$3
-  local ARCH=$4
-
-  # Checkinstall uses the version in the folder name as the package version, which
-  # needs to be semVer compliant, so we sanitize the version first
-  SANITIZED_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
 
   # Download & extract source code
-  mkdir -p "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
+  mkdir -p "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
   curl -L "$PG_EXTENSION_URL" -o "/tmp/$PG_EXTENSION_NAME.tar.gz"
-  tar -xvf "/tmp/$PG_EXTENSION_NAME.tar.gz" --strip-components=1 -C "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
-  cd "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
+  tar -xvf "/tmp/$PG_EXTENSION_NAME.tar.gz" --strip-components=1 -C "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
+  cd "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
 
   # Set OPTFLAGS to an empty string if it's not already set
   OPTFLAGS=${OPTFLAGS:-""}
@@ -112,22 +82,11 @@ compile_pgx_package() {
     mkdir build && cd build
     cmake ..
   fi
-  echo make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
   make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
-  echo checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp 
-  checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp --arch="$ARCH"
+  checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 
-
-
-
-
-
-
-
-
-
-# Function to compile & package a single PostgreSQL extension as a .deb
+# Function install a PostgreSQL extension either via PGXN or by compiling it from source
 # Example:
 # install_pg_extension "pg_cron" "1.0.0" "https://github.com/citusdata/pg_cron/archive/refs/tags/v1.0.0.tar.gz"
 install_pg_extension() {
@@ -135,36 +94,19 @@ install_pg_extension() {
   local PG_EXTENSION_VERSION=$2
   local PG_EXTENSION_URL=$3
 
+  # Checkinstall uses the version in the folder name as the package version, which
+  # needs to be semVer compliant, so we sanitize the version first
+  SANITIZED_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
 
-  # Check if the package exists in PGXN
-
-
-  # If it does, download the package from PGXN and install it
-
-
-  # Otherwise, download the source code and build it
-
-
-
-  # Optionally, we can also upload the package to PGXN
-
-
-
-
-
-  local ARCH=$(uname -m)
-
-  local FULL_PACKAGE_NAME="${PG_EXTENSION_NAME}_${PG_EXTENSION_VERSION}-1_${ARCH}.deb"
-
-  # If the extension package already exists in S3, we simply retrieve it. Otherwise we compile and upload it
-  if check_pgx_package_exists "$FULL_PACKAGE_NAME"; then
-    echo "Extension package ${FULL_PACKAGE_NAME} already exists in S3, downloading pre-compiled package..."
-    download_pgx_package "${PG_EXTENSION_NAME}_${PG_EXTENSION_VERSION}-1_${ARCH}.deb"
-  else
-    echo "Extension package ${FULL_PACKAGE_NAME} does not exist in S3, compiling and uploading..."
-    compile_pgx_package "$PG_EXTENSION_NAME" "$PG_EXTENSION_VERSION" "$PG_EXTENSION_URL" "$ARCH"
-    upload_pgx_package "$FULL_PACKAGE_NAME"
+  # If package exists on PGXN, download and install it
+  if check_pgxn_package_exists "$PG_EXTENSION_NAME" "$SANITIZED_VERSION"; then
+    echo "Extension $PG_EXTENSION_NAME version $SANITIZED_VERSION exists on PGXN, installing..."
+    install_pgxn_package_version "$PG_EXTENSION_NAME" "$SANITIZED_VERSION"
+    return 0
   fi
+
+  # Otherwise, we need to compile it from source
+  build_and_package_pg_extension "$PG_EXTENSION_NAME" "$SANITIZED_VERSION" "$PG_EXTENSION_URL"
 }
 
 

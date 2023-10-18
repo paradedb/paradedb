@@ -118,7 +118,7 @@ unsafe extern "C" fn build_callback(
     build_callback_internal(htup.t_self, values, state, index);
 }
 
-#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 unsafe extern "C" fn build_callback(
     index: pg_sys::Relation,

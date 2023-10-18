@@ -76,7 +76,6 @@ jobs:
       # Works up to here
 
       - name: Create Installable Package
-        working-directory: pg_bm25/
         run: |
           # Create installable package
           mkdir archive
@@ -104,8 +103,10 @@ jobs:
 
 
 
-          cp -s ../../../../../var/lib/postgresql/extension/pg_bm25.control .
-          cp -s ../../../../../var/lib/postgresql/extension/pg_bm25*.sql .
+
+
+          cp -s ../../../../var/lib/postgresql/extension/pg_bm25.control .
+          cp -s ../../../../var/lib/postgresql/extension/pg_bm25*.sql .
           cd ../../../../../..
 
           # Create install control file

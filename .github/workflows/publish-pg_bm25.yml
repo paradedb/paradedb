@@ -168,14 +168,15 @@ jobs:
           PRIVATE_GPG_KEY: ${{ secrets.APT_PPA_OPENPGP_KEY }}
           PASSPHRASE: ${{ secrets.APT_PPA_OPENPGP_KEY_PASSPHRASE }}
         run: |
+          # Configure GPG to use the passphrase from the environment variable
+          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
+          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
+          export GPG_TTY=$(tty)
+          echo RELOADAGENT | gpg-connect-agent
 
+          # Import the private key
           echo "$PRIVATE_GPG_KEY" | gpg --batch --import
-          echo "$PASSPHRASE" | gpg --passphrase-fd 0 --batch --pinentry-mode loopback --yes --clearsign -o test.txt test.txt
-
 
           # Build source package
-          debuild -S -sa
-
-
-
-          dput ppa:philippemnoel/paradedb your_package_source.changes
+          echo "$PASSPHRASE" | debuild -S -sa -- -passphrase-fd 0
+          dput ppa:philippemnoel/paradedb *.changes

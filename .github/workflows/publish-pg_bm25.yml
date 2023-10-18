@@ -8,7 +8,7 @@ name: Publishing
 on:
   push:
     branches:
-      - phil/proper-packaging # TODO: remove this after testing
+      - phil/use-apt # TODO: remove this after testing
     tags:
       - "v*"
   workflow_dispatch:

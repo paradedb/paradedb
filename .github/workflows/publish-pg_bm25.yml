@@ -72,7 +72,6 @@ jobs:
         working-directory: pg_bm25/
         run: cargo pgrx package
 
-
       # Works up to here
 
       - name: Create Installable Package
@@ -93,21 +92,10 @@ jobs:
 
           # symlinks to Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-          cd ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-          cp -s ../../lib/*.so .
-          cd ../../../../../..
-
           mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
-          cd ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-
-
-
-
-
-
-          cp -s ../../../../var/lib/postgresql/extension/pg_bm25.control .
-          cp -s ../../../../var/lib/postgresql/extension/pg_bm25*.sql .
-          cd ../../../../../..
+          cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
+          cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+          cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
 
           # Create install control file
           deb_version=${{ steps.version.outputs.version }}

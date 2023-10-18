@@ -1,0 +1,127 @@
+# workflows/publish-pg_bm25.yml
+#
+# pg_bm25: Publish
+# Build and publish the pg_bm25 extension to APT and Homebrew.
+
+name: Publishing
+
+on:
+  push:
+    branches:
+      - phil/apt # TODO: remove this after testing
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-pg_bm25-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-pg_bm25-to-apt:
+    name: Publish pg_bm25 for PostgreSQL ${{ matrix.pg_version }} to APT
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # pg_version: [11, 12, 13, 14, 15]
+        pg_version: [15]
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Cache Cargo Dependencies
+        uses: actions/cache@v3
+        id: cache-cargo
+        with:
+          path: |
+            ~/.cargo/
+            ~/.rustup/
+          key: ${{ runner.os }}-cargo-pgrx-0.9.8
+          restore-keys: |
+            ${{ runner.os }}-cargo-pgrx
+            ${{ runner.os }}-cargo
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} devscripts dput
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Install pgrx
+        if: steps.cache-cargo.outputs.cache-hit != 'true'
+        run: cargo install cargo-pgrx --version 0.9.8
+
+      - name: Initialize pgrx for Current PostgreSQL Version
+        working-directory: pg_bm25/
+        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+
+      - name: Retrieve GitHub Tag Version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      # TODO: Update this when it is finished testing
+      - name: Update Version in Cargo.toml
+        working-directory: pg_bm25/
+        # run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
+        run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"0.0.1\"/" Cargo.toml
+
+      - name: Package pg_bm25 Extension with pgrx
+        working-directory: pg_bm25/
+        run: cargo pgrx package
+
+      # Works up to here
+
+      - name: Create Installable Package
+        run: |
+          # Create installable package
+          mkdir archive
+          cp `find target/release -type f -name "pg_bm25*"` archive
+
+          # name of the package directory before packaging
+          package_dir=pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-$(uname -m)-linux-gnu
+
+          # Copy files into directory structure
+          mkdir -p ${package_dir}/usr/lib/postgresql/lib
+          mkdir -p ${package_dir}/var/lib/postgresql/extension
+          cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
+          cp archive/*.control ${package_dir}/var/lib/postgresql/extension
+          cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
+
+          # symlinks to Copy files into directory structure
+          mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
+          mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
+          cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
+          cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+          cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+
+          # Create install control file
+          deb_version=${{ steps.version.outputs.version }}
+          mkdir -p ${package_dir}/DEBIAN
+          touch ${package_dir}/DEBIAN/control
+
+          # this might need to be pg-bm25 
+          echo 'Package: pg_bm25' >> ${package_dir}/DEBIAN/control
+          echo 'Version:' ${deb_version} >> ${package_dir}/DEBIAN/control
+          echo 'Architecture: $(uname -m)' >> ${package_dir}/DEBIAN/control
+          echo 'Maintainer: ParadeDB' >> ${package_dir}/DEBIAN/control
+          echo 'Description: A PostgreSQL Extension' >> ${package_dir}/DEBIAN/control
+
+          # Create deb package
+          sudo chown -R root:root ${package_dir}
+          sudo chmod -R 00755 ${package_dir}
+          sudo dpkg-deb --build --root-owner-group ${package_dir}
+
+          # Build source package
+          debuild -S
+
+      - name: Upload to APT PPA
+        env:
+          PRIVATE_GPG_KEY: ${{ secrets.PRIVATE_GPG_KEY }}
+          PASSPHRASE: ${{ secrets.PASSPHRASE }}
+        run: |
+          echo "$PRIVATE_GPG_KEY" | gpg --batch --import
+          echo "$PASSPHRASE" | gpg --passphrase-fd 0 --batch --pinentry-mode loopback --yes --clearsign -o test.txt test.txt
+          dput ppa:yourusername/ppaname your_package_source.changes

@@ -98,30 +98,71 @@ jobs:
           cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
 
           # Create install control file
-          deb_version=${{ steps.version.outputs.version }}
+          # TODO: uncomment this once ready to push deb_version=${{ steps.version.outputs.version }}
+          deb_version=0.0.1
           mkdir -p ${package_dir}/DEBIAN
           touch ${package_dir}/DEBIAN/control
+          touch ${package_dir}/DEBIAN/changelog
+          touch ${package_dir}/DEBIAN/rules
 
-          # this might need to be pg-bm25 
+          # Create control file
+          # this might need to be pg-bm25
           echo 'Package: pg_bm25' >> ${package_dir}/DEBIAN/control
           echo 'Version:' ${deb_version} >> ${package_dir}/DEBIAN/control
           echo 'Architecture: $(uname -m)' >> ${package_dir}/DEBIAN/control
           echo 'Maintainer: ParadeDB' >> ${package_dir}/DEBIAN/control
           echo 'Description: A PostgreSQL Extension' >> ${package_dir}/DEBIAN/control
 
+          # Create changelog file
+          # TODO: update to use var for version
+          echo "pg_bm25 (0.0.1) stable; urgency=medium" >> ${package_dir}/DEBIAN/changelog
+          echo "  * See the changelog: https://github.com/paradedb/paradedb/releases/tag/v0.2.21" >> ${package_dir}/DEBIAN/changelog
+          echo " -- ParadeDB <support@paradedb.com>  $(date +'%Y-%m-%d')" >> ${package_dir}/DEBIAN/changelog
+
+          # Create rules file
+          RULES_FILE="${package_dir}/DEBIAN/rules"
+          echo "#!/usr/bin/make -f" > $RULES_FILE
+          echo "" >> $RULES_FILE
+          echo "# Uncomment the following line to see the commands being executed" >> $RULES_FILE
+          echo "# export DH_VERBOSE=1" >> $RULES_FILE
+          echo "" >> $RULES_FILE
+          echo "# Override the default build rule (do nothing since we already have our binaries)" >> $RULES_FILE
+          echo "override_dh_auto_build:" >> $RULES_FILE
+          echo "" >> $RULES_FILE
+          echo "# Override the default install rule" >> $RULES_FILE
+          echo "override_dh_auto_install:" >> $RULES_FILE
+          echo "    # Copy the extension files to the debian package structure" >> $RULES_FILE
+          echo "    install -D ${package_dir}/var/lib/postgresql/extension/* debian/pg_bm25/usr/share/postgresql/${{ matrix.pg_version }}/extension/" >> $RULES_FILE
+          echo "    install -D ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension/* debian/pg_bm25/usr/share/postgresql/${{ matrix.pg_version }}/extension/" >> $RULES_FILE
+          echo "    " >> $RULES_FILE
+          echo "    # Copy the library files to the debian package structure" >> $RULES_FILE
+          echo "    install -D ${package_dir}/usr/lib/postgresql/lib/* debian/pg_bm25/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/" >> $RULES_FILE
+          echo "    install -D ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib/* debian/pg_bm25/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/" >> $RULES_FILE
+          echo "" >> $RULES_FILE
+          echo "%:" >> $RULES_FILE
+          echo "	dh \$@" >> $RULES_FILE
+
+          # Make rules file executable
+          chmod +x ${package_dir}/DEBIAN/rules
+
           # Create deb package
           sudo chown -R root:root ${package_dir}
           sudo chmod -R 00755 ${package_dir}
           sudo dpkg-deb --build --root-owner-group ${package_dir}
-
-          # Build source package
-          debuild -S
 
       - name: Upload to APT PPA
         env:
           PRIVATE_GPG_KEY: ${{ secrets.PRIVATE_GPG_KEY }}
           PASSPHRASE: ${{ secrets.PASSPHRASE }}
         run: |
+
           echo "$PRIVATE_GPG_KEY" | gpg --batch --import
           echo "$PASSPHRASE" | gpg --passphrase-fd 0 --batch --pinentry-mode loopback --yes --clearsign -o test.txt test.txt
-          dput ppa:yourusername/ppaname your_package_source.changes
+
+
+          # Build source package
+          debuild -S -sa
+
+
+
+          dput ppa:philippemnoel/paradedb your_package_source.changes

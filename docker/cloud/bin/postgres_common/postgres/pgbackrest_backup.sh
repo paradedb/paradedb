@@ -15,7 +15,8 @@
 
 # This script is used by the Scheduler to run pgBackRest backups.
 
-set -e -u
+# Exit on subcommand errors
+set -Eeuo pipefail
 
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
 source "${CRUNCHY_DIR}/bin/postgres/pgbackrest_env.sh"

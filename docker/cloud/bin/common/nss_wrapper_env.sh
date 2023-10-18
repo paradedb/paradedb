@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 # define nss_wrapper directory and passwd & group files that will be utilized by nss_wrapper
 NSS_WRAPPER_DIR="/tmp/nss_wrapper/${NSS_WRAPPER_SUBDIR}"
 NSS_WRAPPER_PASSWD="${NSS_WRAPPER_DIR}/passwd"

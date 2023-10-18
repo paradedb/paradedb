@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 # define the default nss_wrapper dir for this container and the ssh nss_wrapper dir
 NSS_WRAPPER_DEFAULT_DIR="/tmp/nss_wrapper/postgres"
 NSS_WRAPPER_SSH_DIR="/tmp/nss_wrapper/ssh"

@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 pg_pid=$(pgrep -f "postgres -D /pgdata")
 echo pg_pid=${pg_pid}
 

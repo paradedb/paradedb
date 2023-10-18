@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
 source "${CRUNCHY_DIR}/bin/common_lib.sh"
 enable_debugging

@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 source /tmp/pgbackrest_env.sh > /tmp/pgbackrest_env.stdout 2> /tmp/pgbackrest_env.stderr
 
 cmd_args=()

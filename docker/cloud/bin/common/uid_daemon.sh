@@ -13,6 +13,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
 
 export CRUNCHY_NSS_USERNAME="${USER_NAME:-default}"

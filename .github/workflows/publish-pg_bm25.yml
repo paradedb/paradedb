@@ -42,6 +42,12 @@ jobs:
             ${{ runner.os }}-cargo-pgrx
             ${{ runner.os }}-cargo
 
+      - name: Retrieve GitHub Tag Version & Arch
+        id: version
+        run: |
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
+
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
@@ -57,10 +63,6 @@ jobs:
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_bm25/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-
-      - name: Retrieve GitHub Tag Version
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       # TODO: Update this when it is finished testing
       - name: Update Version in Cargo.toml
@@ -106,10 +108,10 @@ jobs:
           touch ${package_dir}/DEBIAN/rules
 
           # Create control file
-          # this might need to be pg-bm25
-          echo 'Package: pg_bm25' >> ${package_dir}/DEBIAN/control
+          # Can't do underscore for package name
+          echo 'Package: pg-bm25' >> ${package_dir}/DEBIAN/control
           echo 'Version:' ${deb_version} >> ${package_dir}/DEBIAN/control
-          echo 'Architecture: $(uname -m)' >> ${package_dir}/DEBIAN/control
+          echo 'Architecture: ${{ steps.version.output.arch }}' >> ${package_dir}/DEBIAN/control
           echo 'Maintainer: ParadeDB' >> ${package_dir}/DEBIAN/control
           echo 'Description: A PostgreSQL Extension' >> ${package_dir}/DEBIAN/control
 

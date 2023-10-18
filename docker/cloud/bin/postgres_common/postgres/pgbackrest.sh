@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Exit on subcommand errors
 set -Eeuo pipefail

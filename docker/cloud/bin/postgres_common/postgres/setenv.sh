@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Copyright 2016 - 2023 Crunchy Data Solutions, Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,7 +21,8 @@ CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
 source "${CRUNCHY_DIR}/bin/common_lib.sh"
 enable_debugging
 
-export PGROOT=$(find /usr/ -type d -name 'pgsql-*')
+PGROOT=$(find /usr/ -type d -name 'pgsql-*')
+export PGROOT
 
 echo_info "Setting PGROOT to ${PGROOT?}."
 

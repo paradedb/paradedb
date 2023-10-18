@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Copyright 2016 - 2023 Crunchy Data Solutions, Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,4 +29,4 @@ then
   hostname=${PGHOST}
 fi
 
-"$PGROOT/bin/pg_isready" -h ${hostname?} --port="${PG_PRIMARY_PORT}" --dbname=postgres --username=$PG_USER
+"$PGROOT/bin/pg_isready" -h "${hostname?}" --port="${PG_PRIMARY_PORT}" --dbname=postgres --username="$PG_USER"

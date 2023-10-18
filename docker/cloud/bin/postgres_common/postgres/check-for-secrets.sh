@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Copyright 2016 - 2023 Crunchy Data Solutions, Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,15 +23,20 @@ enable_debugging
 
 if [ -d "/pguser" ]; then
   echo_info "The PGUSER secret exists."
-  export PG_USER=$(cat /pguser/username)
-  export PG_PASSWORD=$(cat /pguser/password)
+  PG_USER=$(cat /pguser/username)
+  export PG_USER
+  PG_PASSWORD=$(cat /pguser/password)
+  export PG_PASSWORD
 fi
 if [ -d "/pgroot" ]; then
   echo_info "The PGROOT secret exists."
-  export PG_ROOT_PASSWORD=$(cat /pgroot/password)
+  PG_ROOT_PASSWORD=$(cat /pgroot/password)
+  export PG_ROOT_PASSWORD
 fi
 if [ -d "/pgprimary" ]; then
   echo_info "The PGPRIMARY secret exists."
-  export PG_PRIMARY_USER=$(cat /pgprimary/username)
-  export PG_PRIMARY_PASSWORD=$(cat /pgprimary/password)
+  PG_PRIMARY_USER=$(cat /pgprimary/username)
+  export PG_PRIMARY_USER
+  PG_PRIMARY_PASSWORD=$(cat /pgprimary/password)
+  export PG_PRIMARY_PASSWORD
 fi

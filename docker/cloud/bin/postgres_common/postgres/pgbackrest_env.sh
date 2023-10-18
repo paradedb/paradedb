@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 
 pg_pid=$(pgrep -f "postgres -D /pgdata")
-echo pg_pid=${pg_pid}
+echo pg_pid="${pg_pid}"
 
 backrest_env_vars=$( tr '\0' '\n' < /proc/"${pg_pid}"/environ  | grep PGBACKREST_ )
 readarray -t backrest_env_var_arr <<< "${backrest_env_vars}"

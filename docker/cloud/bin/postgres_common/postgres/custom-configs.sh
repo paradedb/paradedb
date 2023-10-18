@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Exit on subcommand errors
 set -Eeuo pipefail
@@ -15,10 +16,10 @@ function custom_config() {
   then
     echo_info "Custom ${src?} detected.  Applying custom configuration.."
 
-    cp ${src?} ${dest?}
+    cp "${src?}" "${dest?}"
     err_check "$?" "Applying custom configuration" "Could not copy ${src?} to ${dest?}"
 
-    chmod ${mode?} ${dest?}
+    chmod "${mode?}" "${dest?}"
     err_check "$?" "Applying custom configuration" "Could not set mode ${mode?} on ${dest?}"
   fi
 }

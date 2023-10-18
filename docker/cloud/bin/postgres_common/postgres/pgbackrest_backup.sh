@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Copyright 2016 - 2023 Crunchy Data Solutions, Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -20,6 +21,6 @@ set -Eeuo pipefail
 
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
 source "${CRUNCHY_DIR}/bin/postgres/pgbackrest_env.sh"
-pgbackrest backup --type=${1?}
+pgbackrest backup --type="${1?}"
 
 exit 0

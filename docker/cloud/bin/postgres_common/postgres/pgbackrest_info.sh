@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Copyright 2019 - 2023 Crunchy Data Solutions, Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -25,5 +26,5 @@ if [[ "${PGHA_PGBACKREST_S3_VERIFY_TLS}" == "false" ]]
 then
   cmd_args+=("--no-repo1-s3-verify-tls")
 fi
-
-echo $(echo -n "$conf|" | tr '/' '_'; pgbackrest --output=json ${cmd_args[*]} info | tr -d '\n')
+# shellcheck disable=SC2154
+echo "$(echo -n "$conf|" | tr '/' '_'; pgbackrest --output=json "${cmd_args[*]}" info | tr -d '\n')"

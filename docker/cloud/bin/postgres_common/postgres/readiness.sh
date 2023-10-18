@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Copyright 2016 - 2023 Crunchy Data Solutions, Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,4 +22,4 @@ source "${CRUNCHY_DIR}/bin/common_lib.sh"
 enable_debugging
 source "${CRUNCHY_DIR}/bin/postgres/setenv.sh"
 
-$PGROOT/bin/psql -f "${CRUNCHY_DIR}/bin/postgres/readiness.sql" -U $PG_USER --port="${PG_PRIMARY_PORT}" postgres
+"$PGROOT"/bin/psql -f "${CRUNCHY_DIR}/bin/postgres/readiness.sql" -U "$PG_USER" --port="${PG_PRIMARY_PORT}" postgres

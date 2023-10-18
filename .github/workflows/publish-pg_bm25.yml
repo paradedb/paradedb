@@ -23,7 +23,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [11, 12, 13, 14, 15]
+        # pg_version: [11, 12, 13, 14, 15]
+        pg_version: [15]
 
     steps:
       - name: Checkout Git Repository
@@ -38,7 +39,6 @@ jobs:
             ~/.rustup/
           key: ${{ runner.os }}-cargo-pgrx-0.9.8
           restore-keys: |
-            ${{ runner.os }}-cargo-pgrx-0.9.8
             ${{ runner.os }}-cargo-pgrx
             ${{ runner.os }}-cargo
 
@@ -50,7 +50,7 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Install pgrx, grcov & llvm-tools-preview
+      - name: Install pgrx
         if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: cargo install cargo-pgrx --version 0.9.8
 
@@ -72,7 +72,11 @@ jobs:
         working-directory: pg_bm25/
         run: cargo pgrx package
 
+
+      # Works up to here
+
       - name: Create Installable Package
+        working-directory: pg_bm25/
         run: |
           # Create installable package
           mkdir archive
@@ -96,6 +100,9 @@ jobs:
 
           mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
           cd ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+
+
+
 
           cp -s ../../../../../var/lib/postgresql/extension/pg_bm25.control .
           cp -s ../../../../../var/lib/postgresql/extension/pg_bm25*.sql .

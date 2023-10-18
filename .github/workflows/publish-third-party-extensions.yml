@@ -1,0 +1,19 @@
+# workflows/publish-third-party-extensions.yml
+#
+# Third-Party Extensions: Publish
+# Build and publish the third-party extensions used by ParadeDB to APT.
+
+# name: Publishing
+
+# on:
+#   push:
+#     branches:
+#       - phil/apt # TODO: remove this after testing
+#     tags:
+#       - "v*"
+#   workflow_dispatch:
+
+# concurrency:
+#   group: publish-third-party-extensions-${{ github.head_ref || github.ref }}
+#   cancel-in-progress: true
+

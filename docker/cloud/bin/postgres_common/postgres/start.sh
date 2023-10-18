@@ -79,6 +79,44 @@ echo_info "PG_CTL_PROMOTE_TIMEOUT set at: ${PG_CTL_PROMOTE_TIMEOUT}"
 mkdir -p $PGDATA
 chmod 0700 $PGDATA
 
+# List of extensions to possibly install (if a version variable is set)
+declare -A extensions=(
+    [pg_bm25]=${PG_BM25_VERSION:-}
+    [pgml]=${PGML_VERSION:-}
+    [vector]=${PGVECTOR_VERSION:-}
+    [pg_search]=${PG_SEARCH_VERSION:-}
+    [pgnodemx]=${PGNODEMX_VERSION:-}
+    [pg_cron]=${PG_CRON_VERSION:-}
+    [pg_net]=${PG_NET_VERSION:-}
+    [pg_ivm]=${PG_IVM_VERSION:-}
+    [pg_graphql]=${PG_GRAPHQL_VERSION:-}
+    [pg_hashids]=${PG_HASHIDS_VERSION:-}
+    [pg_jsonschema]=${PG_JSONSCHEMA_VERSION:-}
+    [pg_repack]=${PG_REPACK_VERSION:-}
+    [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
+    [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
+    [pgfaceting]=${PGFACETING_VERSION:-}
+    [pgtap]=${PGTAP_VERSION:-}
+    [pgaudit]=${PGAUDIT_VERSION:-}
+    [postgis]=${POSTGIS_VERSION:-}
+    [pgrouting]=${PGROUTING_VERSION:-}
+    [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
+    [http]=${PGSQL_HTTP_VERSION:-}
+    [hypopg]=${HYPOPG_VERSION:-}
+    [rum]=${RUM_VERSION:-}
+    [age]=${AGE_VERSION:-}
+)
+
+# List of extensions that must be added to shared_preload_libraries
+declare -A preload_names=(
+    [pgml]=pgml
+    [pgnodemx]=pgnodemx
+    [pg_cron]=pg_cron
+    [pg_net]=pg_net
+    [pgaudit]=pgaudit
+)
+
+
 if [[ -v ARCHIVE_MODE ]]; then
     if [ $ARCHIVE_MODE == "on" ]; then
         mkdir -p $PGWAL
@@ -287,9 +325,14 @@ function initialize_primary() {
     if [ ! -f ${PGDATA?}/postgresql.conf ]; then
         ID="$(id)"
         echo_info "PGDATA is empty. ID is ${ID}. Creating the PGDATA directory.."
+        echo_info "PGDATA is ${PGDATA}."
+        ls -al /
         mkdir -p ${PGDATA?}
 
         initdb_logic
+
+        echo_info "Adding extensions to preload list.."
+        configure_preload_extensions
 
         echo "Starting database.." >> /tmp/start-db.log
 
@@ -337,6 +380,10 @@ function initialize_primary() {
             psql -U postgres < /pgconf/audit.sql
         fi
 
+        # Install ParadeDB extensions
+        echo_info  "Installing ParadeDB extensions.."
+        install_extensions
+
         echo_info "Stopping database after primary initialization.."
         PGCTLTIMEOUT=${PG_CTL_STOP_TIMEOUT} pg_ctl -D $PGDATA --mode=fast stop
 
@@ -378,6 +425,37 @@ configure_archiving() {
 
     echo_info "Setting ARCHIVE_TIMEOUT to ${ARCHIVE_TIMEOUT?}."
     echo "archive_timeout = ${ARCHIVE_TIMEOUT?}" >> "${PGDATA?}"/postgresql.conf
+}
+
+configure_preload_extensions() {
+  # Build the shared_preload_libraries list, only including extensions that are installed
+  # and have a preload name specified
+  for extension in "${!extensions[@]}"; do
+    version=${extensions[$extension]}
+    if [ -n "$version" ] && [[ -n "${preload_names[$extension]:-}" ]]; then
+      preload_name=${preload_names[$extension]}
+      shared_preload_list+="${preload_name},"
+    fi
+  done
+  # Remove the trailing comma
+  shared_preload_list=${shared_preload_list%,}
+
+  # Update the PostgreSQL configuration
+  echo "pg_net.database_name = '$PG_DATABASE'" >> "$PGDATA/postgresql.conf"
+  echo "cron.database_name = '$PG_DATABASE'" >> "$PGDATA/postgresql.conf"
+  sed -i "/^shared_preload_libraries =/ s/'\s*# \(.*\)/,$shared_preload_list' # \1/" "$PGDATA/postgresql.conf"
+}
+
+install_extensions() {
+  # Preinstall extensions for which a version is specified
+  for extension in "${!extensions[@]}"; do
+    version=${extensions[$extension]}
+    if [ -n "$version" ]; then
+        psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$PG_DATABASE" -U postgres -p "$PG_PRIMARY_PORT" || echo "Failed to install extension $extension"
+    fi
+  done
+
+  echo_info "PostgreSQL extensions installed"
 }
 
 # Clean up any old pid file that might have remained

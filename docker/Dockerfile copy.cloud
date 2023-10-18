@@ -4,7 +4,7 @@ ARG PG_VERSION_MAJOR
 # First Stage: Base
 ###############################################
 
-FROM debian:bookworm-slim as base
+FROM postgres:${PG_VERSION_MAJOR}-bullseye as base
 
 # Declare all the build arguments and set them to
 # environment variables for use in build and runtime
@@ -33,7 +33,7 @@ ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
 ARG AGE_VERSION
-ARG PATRONI_VERSION
+ARG PATRONI_VER
 ARG BACKREST_VERSION
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
@@ -66,9 +66,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Create postgres user with uid
-RUN mkdir -p /var/lib/postgresql && useradd -u 26 -o -m -d /var/lib/postgresql postgres
-
 # Install common dependencies to builder and runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
@@ -95,7 +92,7 @@ RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
 
 RUN apt-get update && apt-fast install -y --no-install-recommends \
-    postgresql-${PG_VERSION_MAJOR} \
+    postgresql-contrib \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
     postgresql-plpython3-${PG_VERSION_MAJOR} \
     postgresql-${PG_VERSION_MAJOR}-partman \
@@ -260,6 +257,9 @@ ARG TARGETARCH
 
 WORKDIR /usr/src/app
 
+ENV PGROOT="/usr/pgsql-${PG_MAJOR}" PGVERSION="${PG_MAJOR}"
+ENV PG_CONFIG=$PGROOT
+
 COPY --from=builder-pgml /tmp/postgresml/pgml-extension/requirements.txt /usr/src/app/
 
 # Install postgis, pgml, patroni & Crunchy operator runtime dependencies
@@ -270,14 +270,13 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libprotobuf-c1 \
     # Crunchy operator
     libnss-wrapper \
-    gettext \
     pgbackrest \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
     # pgml
-    pip3 install --break-system-packages --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
+    pip3 install --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
     # patroni
     # install patroni for Kube
-    pip3 install --break-system-packages --upgrade python-dateutil && pip3 install --break-system-packages patroni[kubernetes]=="${PATRONI_VERSION}" && \
+    pip3 install --upgrade python-dateutil && pip3 install patroni[kubernetes]=="${PATRONI_VERSION}" \
     # Crunchy operator
     # Only need to copy on x84_64, since the lib is already in the right place on arm64
     if [ "$TARGETARCH" = "amd64" ]; then \
@@ -300,21 +299,20 @@ COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VER
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 
-ENV PGROOT=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 ENV PATH="${PGROOT}/bin:${PATH}"
 
 RUN mkdir -p /opt/crunchy/bin /opt/crunchy/conf /pgdata /pgwal /pgconf /backrestrepo
 
-RUN chown -R postgres:postgres /opt/crunchy \
+RUN chown -R postgres:postgres /opt/crunchy /var/lib/pgsql \
 		/pgdata /pgwal /pgconf /backrestrepo &&  \
-	chmod -R g=u /opt/crunchy \
+	chmod -R g=u /opt/crunchy /var/lib/pgsql \
 		/pgdata /pgwal /pgconf /backrestrepo
 
 ADD docker/cloud/bin/postgres_common /opt/crunchy/bin
 ADD docker/cloud/bin/common /opt/crunchy/bin
 ADD docker/cloud/conf/postgres_common /opt/crunchy/conf/
 
-RUN mkdir /.ssh && chown 26:0 /.ssh && chmod g+rwx /.ssh && rm -f /run/nologin
+RUN mkdir /.ssh && chown 999:0 /.ssh && chmod g+rwx /.ssh && rm -f /run/nologin
 
 # remove the default spool directory so that pgBackRest does not attempt to look there when
 # performing a restore (pgBackRest will not have permissions to access to this dir in all envs)
@@ -331,9 +329,9 @@ VOLUME ["/pgdata", "/pgwal", "/pgconf", "/backrestrepo", "/sshd"]
 # Defines a unique directory name that will be utilized by the nss_wrapper in the UID script
 ENV NSS_WRAPPER_SUBDIR="postgres"
 
-ENTRYPOINT ["/opt/crunchy/bin/uid_postgres.sh"]
+# Copy entrypoint script, which will be handled by the official image
+# initialization scipt
+COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
 # Postgres user for Crunchy operator
-USER 26
-
-CMD ["/opt/crunchy/bin/start.sh"]
+USER 999

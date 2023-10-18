@@ -277,7 +277,7 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     pip3 install --break-system-packages --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
     # patroni
     # install patroni for Kube
-    pip3 install --break-system-packages --no-cache-dir --upgrade python-dateutil && pip3 install --break-system-packages --no-cache-dir patroni[kubernetes]=="${PATRONI_VERSION}" && \
+    pip3 install --break-system-packages --no-cache-dir --upgrade python-dateutil && pip3 install --break-system-packages --no-cache-dir "patroni[kubernetes]"=="${PATRONI_VERSION}" && \
     # Crunchy operator
     # Only need to copy on x84_64, since the lib is already in the right place on arm64
     if [ "$TARGETARCH" = "amd64" ]; then \

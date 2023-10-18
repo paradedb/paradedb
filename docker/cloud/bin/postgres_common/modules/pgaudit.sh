@@ -16,7 +16,7 @@
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
 if [[ -v PGAUDIT_ANALYZE ]]
 then
-    source "${CRUNCHY_DIR}/bin/common_lib.sh"
-    echo_info "Applyed pgaudit module.."
-    pgaudit_analyze ${PATRONI_POSTGRESQL_DATA_DIR:-$PGDATA}/pg_log --user=postgres --log-file /tmp/pgaudit_analyze.log &
+  source "${CRUNCHY_DIR}/bin/common_lib.sh"
+  echo_info "Applyed pgaudit module.."
+  pgaudit_analyze ${PATRONI_POSTGRESQL_DATA_DIR:-$PGDATA}/pg_log --user=postgres --log-file /tmp/pgaudit_analyze.log &
 fi

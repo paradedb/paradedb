@@ -55,13 +55,13 @@ echo_info "Dumping to ${output_opts} "
 
 if [[ ${PGDUMP_ALL:-true} == "true" ]]
 then
-    echo_info "Taking logical backup of all databases.."
-    conn_opts+=" -l ${PGDUMP_DB?}"
-    ${PGROOT?}/bin/pg_dumpall ${conn_opts?} ${PGDUMP_CUSTOM_OPTS?} ${output_opts?}
+  echo_info "Taking logical backup of all databases.."
+  conn_opts+=" -l ${PGDUMP_DB?}"
+  ${PGROOT?}/bin/pg_dumpall ${conn_opts?} ${PGDUMP_CUSTOM_OPTS?} ${output_opts?}
 else
-    echo_info "Taking logical backup of the ${PGDUMP_DB?} database.."
-    conn_opts+=" -d ${PGDUMP_DB?}"
-    ${PGROOT?}/bin/pg_dump ${conn_opts?} ${PGDUMP_CUSTOM_OPTS?} ${output_opts?}
+  echo_info "Taking logical backup of the ${PGDUMP_DB?} database.."
+  conn_opts+=" -d ${PGDUMP_DB?}"
+  ${PGROOT?}/bin/pg_dump ${conn_opts?} ${PGDUMP_CUSTOM_OPTS?} ${output_opts?}
 fi
 
 echo_info "Logical backup completed.  Exiting.."

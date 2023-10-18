@@ -277,7 +277,7 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     pip3 install --break-system-packages --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
     # patroni
     # install patroni for Kube
-    pip3 install --break-system-packages --upgrade python-dateutil && pip3 install --break-system-packages patroni[kubernetes]=="${PATRONI_VERSION}" && \
+    pip3 install --break-system-packages --no-cache-dir --upgrade python-dateutil && pip3 install --break-system-packages --no-cache-dir patroni[kubernetes]=="${PATRONI_VERSION}" && \
     # Crunchy operator
     # Only need to copy on x84_64, since the lib is already in the right place on arm64
     if [ "$TARGETARCH" = "amd64" ]; then \
@@ -310,9 +310,9 @@ RUN chown -R postgres:postgres /opt/crunchy \
 	chmod -R g=u /opt/crunchy \
 		/pgdata /pgwal /pgconf /backrestrepo
 
-ADD docker/cloud/bin/postgres_common /opt/crunchy/bin
-ADD docker/cloud/bin/common /opt/crunchy/bin
-ADD docker/cloud/conf/postgres_common /opt/crunchy/conf/
+COPY docker/cloud/bin/postgres_common /opt/crunchy/bin
+COPY docker/cloud/bin/common /opt/crunchy/bin
+COPY docker/cloud/conf/postgres_common /opt/crunchy/conf/
 
 RUN mkdir /.ssh && chown 26:0 /.ssh && chmod g+rwx /.ssh && rm -f /run/nologin
 

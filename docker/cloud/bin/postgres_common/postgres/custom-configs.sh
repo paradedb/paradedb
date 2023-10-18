@@ -5,19 +5,19 @@ source "${CRUNCHY_DIR}/bin/common_lib.sh"
 enable_debugging
 
 function custom_config() {
-    src=${1?}
-    dest=${2?}
-    mode=${3?}
-    if [[ -f ${src?} ]]
-    then
-        echo_info "Custom ${src?} detected.  Applying custom configuration.."
+  src=${1?}
+  dest=${2?}
+  mode=${3?}
+  if [[ -f ${src?} ]]
+  then
+    echo_info "Custom ${src?} detected.  Applying custom configuration.."
 
-        cp ${src?} ${dest?}
-        err_check "$?" "Applying custom configuration" "Could not copy ${src?} to ${dest?}"
+    cp ${src?} ${dest?}
+    err_check "$?" "Applying custom configuration" "Could not copy ${src?} to ${dest?}"
 
-        chmod ${mode?} ${dest?}
-        err_check "$?" "Applying custom configuration" "Could not set mode ${mode?} on ${dest?}"
-    fi
+    chmod ${mode?} ${dest?}
+    err_check "$?" "Applying custom configuration" "Could not set mode ${mode?} on ${dest?}"
+  fi
 }
 
 custom_config "/pgconf/postgresql.conf" "${PGDATA?}/postgresql.conf" 600

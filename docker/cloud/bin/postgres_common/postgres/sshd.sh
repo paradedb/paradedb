@@ -19,46 +19,46 @@ NSS_WRAPPER_SSH_DIR="/tmp/nss_wrapper/ssh"
 
 # Configures nss_wrapper passwd and group files for SSH connections
 function nss_wrapper_ssh() {
-    mkdir -p "${NSS_WRAPPER_SSH_DIR}"
-    cp "${NSS_WRAPPER_DEFAULT_DIR}/passwd" "${NSS_WRAPPER_SSH_DIR}"
-    cp "${NSS_WRAPPER_DEFAULT_DIR}/group" "${NSS_WRAPPER_SSH_DIR}"
+  mkdir -p "${NSS_WRAPPER_SSH_DIR}"
+  cp "${NSS_WRAPPER_DEFAULT_DIR}/passwd" "${NSS_WRAPPER_SSH_DIR}"
+  cp "${NSS_WRAPPER_DEFAULT_DIR}/group" "${NSS_WRAPPER_SSH_DIR}"
 }
 
 if [[ ${ENABLE_SSHD} == "true" ]]
 then
-    echo_info "Applying SSHD.."
+  echo_info "Applying SSHD.."
 
-    # configure nss_wrapper files for ssh connections
-    nss_wrapper_ssh
-    echo_info "nss_wrapper: ssh configured"
+  # configure nss_wrapper files for ssh connections
+  nss_wrapper_ssh
+  echo_info "nss_wrapper: ssh configured"
 
-    echo_info 'Checking for SSH Host Keys in /sshd..'
+  echo_info 'Checking for SSH Host Keys in /sshd..'
 
-    if [[ ! -f /sshd/ssh_host_ed25519_key ]]; then
-        echo_err 'No ssh_host_ed25519_key found in /sshd.  Exiting..'
-        exit 1
-    fi
+  if [[ ! -f /sshd/ssh_host_ed25519_key ]]; then
+    echo_err 'No ssh_host_ed25519_key found in /sshd.  Exiting..'
+    exit 1
+  fi
 
-    echo_info 'Checking for authorized_keys in /sshd'
+  echo_info 'Checking for authorized_keys in /sshd'
 
-    if [[ ! -f /sshd/authorized_keys ]]; then
-        echo_err 'No authorized_keys file found in /sshd  Exiting..'
-        exit 1
-    fi
+  if [[ ! -f /sshd/authorized_keys ]]; then
+    echo_err 'No authorized_keys file found in /sshd  Exiting..'
+    exit 1
+  fi
 
-    echo_info 'Checking for sshd_config in /sshd'
+  echo_info 'Checking for sshd_config in /sshd'
 
-    if [[ ! -f /sshd/sshd_config ]]; then
-        echo_err 'No sshd_config file found in /sshd  Exiting..'
-        exit 1
-    fi
+  if [[ ! -f /sshd/sshd_config ]]; then
+    echo_err 'No sshd_config file found in /sshd  Exiting..'
+    exit 1
+  fi
 
-    echo_info "setting up .ssh directory"
-    mkdir ~/.ssh
-    cp /sshd/config ~/.ssh/
-    cp /sshd/id_ed25519 /tmp
-    chmod 400 /tmp/id_ed25519 ~/.ssh/config
+  echo_info "setting up .ssh directory"
+  mkdir ~/.ssh
+  cp /sshd/config ~/.ssh/
+  cp /sshd/id_ed25519 /tmp
+  chmod 400 /tmp/id_ed25519 ~/.ssh/config
 
-    echo_info 'Starting SSHD..'
-    /usr/sbin/sshd -f /sshd/sshd_config
+  echo_info 'Starting SSHD..'
+  /usr/sbin/sshd -f /sshd/sshd_config
 fi

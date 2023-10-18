@@ -29,8 +29,8 @@ env_check_err "BACKUP_PASS"
 BACKUPBASE=/pgdata/${BACKUP_HOST?}-backups
 if [[ ! -d "${BACKUPBASE?}" ]]
 then
-    echo_info "Creating BACKUPBASE directory as ${BACKUPBASE?}.."
-    mkdir -p ${BACKUPBASE?}
+  echo_info "Creating BACKUPBASE directory as ${BACKUPBASE?}.."
+  mkdir -p ${BACKUPBASE?}
 fi
 
 TS=`date +%Y-%m-%d-%H-%M-%S`
@@ -49,8 +49,8 @@ echo "*:*:*:${BACKUP_USER?}:${ESCAPED_PASSWORD?}" >> ${PGPASSFILE?}
 chmod 600 ${PGPASSFILE?}
 
 pg_basebackup --label=${BACKUP_LABEL?} -X fetch \
-    --pgdata ${BACKUP_PATH?} --host=${BACKUP_HOST?} \
-    --port=${BACKUP_PORT?} -U ${BACKUP_USER?} ${BACKUP_OPTS}
+  --pgdata ${BACKUP_PATH?} --host=${BACKUP_HOST?} \
+  --port=${BACKUP_PORT?} -U ${BACKUP_USER?} ${BACKUP_OPTS}
 
 # Open up permissions for the OSE Dedicated random UID scenario
 chmod -R o+rx ${BACKUP_PATH?}

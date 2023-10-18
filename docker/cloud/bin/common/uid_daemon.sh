@@ -14,10 +14,10 @@
 # limitations under the License.
 
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
-    
+
 export CRUNCHY_NSS_USERNAME="${USER_NAME:-default}"
 export CRUNCHY_NSS_USER_DESC="${USER_NAME:-default} user"
-    
+
 source "${CRUNCHY_DIR}/bin/nss_wrapper.sh"
 
 exec "$@"

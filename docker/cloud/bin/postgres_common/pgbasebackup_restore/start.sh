@@ -24,46 +24,46 @@ BACKUP_PATH_FULL=/backup/"${BACKUP_PATH}"
 
 # Validate that the proper env vars have been set as needed to restore from a pg_basebackup backup
 validate_pgbasebackup_restore_env_vars()  {
-    if [[ ! -v PGDATA_PATH ]]
-    then
-        echo_err "Env var PGDATA_PATH must be set in order to restore from a pg_basebackup backup"
-        exit 1
-    fi
+  if [[ ! -v PGDATA_PATH ]]
+  then
+    echo_err "Env var PGDATA_PATH must be set in order to restore from a pg_basebackup backup"
+    exit 1
+  fi
 }
 
 # Validate that the backup directory provided contains a pg database
 validate_backup_dir() {
-    if [ ! -f "${BACKUP_PATH_FULL}"/postgresql.conf ]
-    then
-        echo_err "A PostgreSQL db was not found in backup path '${BACKUP_PATH_FULL}'"
-        exit 1
-    fi
+  if [ ! -f "${BACKUP_PATH_FULL}"/postgresql.conf ]
+  then
+    echo_err "A PostgreSQL db was not found in backup path '${BACKUP_PATH_FULL}'"
+    exit 1
+  fi
 }
 
 # Create an empty pgdata directory for the restore if it does not already exist
 create_restore_pgdata_dir()  {
-    if [[ ! -d "${PGDATA_PATH_FULL}" ]]
-    then
-        mkdir -p "${PGDATA_PATH_FULL}"
-        echo_info "Created new pgdata directory ${PGDATA_PATH_FULL} for pg_basebackup restore"
-    fi
+  if [[ ! -d "${PGDATA_PATH_FULL}" ]]
+  then
+    mkdir -p "${PGDATA_PATH_FULL}"
+    echo_info "Created new pgdata directory ${PGDATA_PATH_FULL} for pg_basebackup restore"
+  fi
 }
 
 # Use rsync to copy backup files to new pgdata directory
 rsync_backup()  {
 
-    if [[ "${RSYNC_SHOW_PROGRESS}" == "true" ]]
-    then
-        progress="--progress"
-    fi
-    rsync -a $progress --exclude 'pg_log/*' "${BACKUP_PATH_FULL}"/ "${PGDATA_PATH_FULL}" \
-        2> /tmp/rsync.stderr
-    err_check "$?" "Restore from pg_basebackup backup" \
-        "Unable to rsync pg_basebackup backup: \n$(cat /tmp/rsync.stderr)"
+  if [[ "${RSYNC_SHOW_PROGRESS}" == "true" ]]
+  then
+    progress="--progress"
+  fi
+  rsync -a $progress --exclude 'pg_log/*' "${BACKUP_PATH_FULL}"/ "${PGDATA_PATH_FULL}" \
+    2> /tmp/rsync.stderr
+  err_check "$?" "Restore from pg_basebackup backup" \
+    "Unable to rsync pg_basebackup backup: \n$(cat /tmp/rsync.stderr)"
 
-    echo_info "rysnc of backup into restore directory complete"
+  echo_info "rysnc of backup into restore directory complete"
 
-    chmod -R 0700 "${PGDATA_PATH_FULL}"
+  chmod -R 0700 "${PGDATA_PATH_FULL}"
 }
 
 validate_pgbasebackup_restore_env_vars

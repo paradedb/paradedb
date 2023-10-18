@@ -18,21 +18,21 @@ source "${CRUNCHY_DIR}/bin/common_lib.sh"
 enable_debugging
 
 function trap_sigterm() {
-    echo_warn "Signal trap triggered, beginning shutdown.." >> $PGDATA/trap.output
-    echo_warn "Signal trap triggered, beginning shutdown.."
+  echo_warn "Signal trap triggered, beginning shutdown.." >> $PGDATA/trap.output
+  echo_warn "Signal trap triggered, beginning shutdown.."
 
-    # Clean shutdowns begin here (force fast mode in case of PostgreSQL < 9.5)
-    echo_info "Cleanly shutting down PostgreSQL in force fast mode.."
-    PGCTLTIMEOUT=${PG_CTL_STOP_TIMEOUT} pg_ctl -w -D $PGDATA -m fast stop
+  # Clean shutdowns begin here (force fast mode in case of PostgreSQL < 9.5)
+  echo_info "Cleanly shutting down PostgreSQL in force fast mode.."
+  PGCTLTIMEOUT=${PG_CTL_STOP_TIMEOUT} pg_ctl -w -D $PGDATA -m fast stop
 
-    # Unclean shutdowns begin here (if all else fails)
-    if [ -f $PGDATA/postmaster.pid ]; then
-            kill -SIGINT $(head -1 $PGDATA/postmaster.pid) >> $PGDATA/trap.output
-    fi
-    if [[ ${ENABLE_SSHD} == "true" ]]; then
-        echo_info "killing SSHD.."
-        pkill sshd
-    fi
+  # Unclean shutdowns begin here (if all else fails)
+  if [ -f $PGDATA/postmaster.pid ]; then
+    kill -SIGINT $(head -1 $PGDATA/postmaster.pid) >> $PGDATA/trap.output
+  fi
+  if [[ ${ENABLE_SSHD} == "true" ]]; then
+    echo_info "killing SSHD.."
+    pkill sshd
+  fi
 }
 
 trap 'trap_sigterm' SIGINT SIGTERM
@@ -43,7 +43,7 @@ source check-for-secrets.sh
 env_check_err "PG_MODE"
 
 if [ "$PG_MODE" = "replica" ]; then
-    env_check_err "PG_PRIMARY_HOST"
+  env_check_err "PG_PRIMARY_HOST"
 fi
 
 env_check_err "PG_PRIMARY_USER"
@@ -81,182 +81,182 @@ chmod 0700 $PGDATA
 
 # List of extensions to possibly install (if a version variable is set)
 declare -A extensions=(
-    [pg_bm25]=${PG_BM25_VERSION:-}
-    [pgml]=${PGML_VERSION:-}
-    [vector]=${PGVECTOR_VERSION:-}
-    [pg_search]=${PG_SEARCH_VERSION:-}
-    [pgnodemx]=${PGNODEMX_VERSION:-}
-    [pg_cron]=${PG_CRON_VERSION:-}
-    [pg_net]=${PG_NET_VERSION:-}
-    [pg_ivm]=${PG_IVM_VERSION:-}
-    [pg_graphql]=${PG_GRAPHQL_VERSION:-}
-    [pg_hashids]=${PG_HASHIDS_VERSION:-}
-    [pg_jsonschema]=${PG_JSONSCHEMA_VERSION:-}
-    [pg_repack]=${PG_REPACK_VERSION:-}
-    [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
-    [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
-    [pgfaceting]=${PGFACETING_VERSION:-}
-    [pgtap]=${PGTAP_VERSION:-}
-    [pgaudit]=${PGAUDIT_VERSION:-}
-    [postgis]=${POSTGIS_VERSION:-}
-    [pgrouting]=${PGROUTING_VERSION:-}
-    [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
-    [http]=${PGSQL_HTTP_VERSION:-}
-    [hypopg]=${HYPOPG_VERSION:-}
-    [rum]=${RUM_VERSION:-}
-    [age]=${AGE_VERSION:-}
+  [pg_bm25]=${PG_BM25_VERSION:-}
+  [pgml]=${PGML_VERSION:-}
+  [vector]=${PGVECTOR_VERSION:-}
+  [pg_search]=${PG_SEARCH_VERSION:-}
+  [pgnodemx]=${PGNODEMX_VERSION:-}
+  [pg_cron]=${PG_CRON_VERSION:-}
+  [pg_net]=${PG_NET_VERSION:-}
+  [pg_ivm]=${PG_IVM_VERSION:-}
+  [pg_graphql]=${PG_GRAPHQL_VERSION:-}
+  [pg_hashids]=${PG_HASHIDS_VERSION:-}
+  [pg_jsonschema]=${PG_JSONSCHEMA_VERSION:-}
+  [pg_repack]=${PG_REPACK_VERSION:-}
+  [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
+  [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
+  [pgfaceting]=${PGFACETING_VERSION:-}
+  [pgtap]=${PGTAP_VERSION:-}
+  [pgaudit]=${PGAUDIT_VERSION:-}
+  [postgis]=${POSTGIS_VERSION:-}
+  [pgrouting]=${PGROUTING_VERSION:-}
+  [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
+  [http]=${PGSQL_HTTP_VERSION:-}
+  [hypopg]=${HYPOPG_VERSION:-}
+  [rum]=${RUM_VERSION:-}
+  [age]=${AGE_VERSION:-}
 )
 
 # List of extensions that must be added to shared_preload_libraries
 declare -A preload_names=(
-    [pgml]=pgml
-    [pgnodemx]=pgnodemx
-    [pg_cron]=pg_cron
-    [pg_net]=pg_net
-    [pgaudit]=pgaudit
+  [pgml]=pgml
+  [pgnodemx]=pgnodemx
+  [pg_cron]=pg_cron
+  [pg_net]=pg_net
+  [pgaudit]=pgaudit
 )
 
 
 if [[ -v ARCHIVE_MODE ]]; then
-    if [ $ARCHIVE_MODE == "on" ]; then
-        mkdir -p $PGWAL
-        chmod 0700 $PGWAL
-        echo_info "Creating wal directory in ${PGWAL?}.."
-    fi
+  if [ $ARCHIVE_MODE == "on" ]; then
+    mkdir -p $PGWAL
+    chmod 0700 $PGWAL
+    echo_info "Creating wal directory in ${PGWAL?}.."
+  fi
 fi
 
 
 function initdb_logic() {
-    echo_info "Starting initdb.."
+  echo_info "Starting initdb.."
 
-    cmd="initdb -D $PGDATA "
-    if [[ -v PG_LOCALE ]]; then
-        cmd+=" --locale="$PG_LOCALE
-    fi
+  cmd="initdb -D $PGDATA "
+  if [[ -v PG_LOCALE ]]; then
+    cmd+=" --locale="$PG_LOCALE
+  fi
 
-    if [[ -v XLOGDIR ]] && [[ ${XLOGDIR?} == "true" ]]
+  if [[ -v XLOGDIR ]] && [[ ${XLOGDIR?} == "true" ]]
+  then
+    echo_info "XLOGDIR enabled.  Setting initdb to use ${PGWAL?}.."
+    mkdir ${PGWAL?}
+
+    if [[ -d "${PGWAL?}" ]]
     then
-        echo_info "XLOGDIR enabled.  Setting initdb to use ${PGWAL?}.."
-        mkdir ${PGWAL?}
-
-        if [[ -d "${PGWAL?}" ]]
-        then
-            cmd+=" -X "$PGWAL
-        fi
-    else
-        echo_info "XLOGDIR not found. Using default pg_wal directory.."
+      cmd+=" -X "$PGWAL
     fi
+  else
+    echo_info "XLOGDIR not found. Using default pg_wal directory.."
+  fi
 
-    if [[ ${CHECKSUMS?} == 'true' ]]
-    then
-        echo_info "Data checksums enabled.  Setting initdb to use data checksums.."
-        cmd+=" --data-checksums"
-    fi
-    cmd+=" > /tmp/initdb.stdout 2> /tmp/initdb.stderr"
+  if [[ ${CHECKSUMS?} == 'true' ]]
+  then
+    echo_info "Data checksums enabled.  Setting initdb to use data checksums.."
+    cmd+=" --data-checksums"
+  fi
+  cmd+=" > /tmp/initdb.stdout 2> /tmp/initdb.stderr"
 
-    echo_info "Running initdb command: ${cmd?}"
-    eval $cmd
-    err_check "$?" "Initializing the database (initdb)" \
-        "Unable to initialize the database: \n$(cat /tmp/initdb.stderr)"
+  echo_info "Running initdb command: ${cmd?}"
+  eval $cmd
+  err_check "$?" "Initializing the database (initdb)" \
+    "Unable to initialize the database: \n$(cat /tmp/initdb.stderr)"
 
-    echo_info "Overlaying PostgreSQL's default configuration with customized settings.."
-    cp /tmp/postgresql.conf $PGDATA
+  echo_info "Overlaying PostgreSQL's default configuration with customized settings.."
+  cp /tmp/postgresql.conf $PGDATA
 
-    cp "${CRUNCHY_DIR}/conf/postgres/pg_hba.conf" /tmp
-    sed -i "s/PG_PRIMARY_USER/$PG_PRIMARY_USER/g" /tmp/pg_hba.conf
-    cp /tmp/pg_hba.conf $PGDATA
+  cp "${CRUNCHY_DIR}/conf/postgres/pg_hba.conf" /tmp
+  sed -i "s/PG_PRIMARY_USER/$PG_PRIMARY_USER/g" /tmp/pg_hba.conf
+  cp /tmp/pg_hba.conf $PGDATA
 }
 
 function fill_conf_file() {
-    env_check_info "TEMP_BUFFERS" "Setting TEMP_BUFFERS to ${TEMP_BUFFERS:-8MB}."
-    env_check_info "LOG_MIN_DURATION_STATEMENT" "Setting LOG_MIN_DURATION_STATEMENT to ${LOG_MIN_DURATION_STATEMENT:-60000}."
-    env_check_info "LOG_STATEMENT" "Setting LOG_STATEMENT to ${LOG_STATEMENT:-none}."
-    env_check_info "MAX_CONNECTIONS" "Setting MAX_CONNECTIONS to ${MAX_CONNECTIONS:-100}."
-    env_check_info "SHARED_BUFFERS" "Setting SHARED_BUFFERS to ${SHARED_BUFFERS:-128MB}."
-    env_check_info "WORK_MEM" "Setting WORK_MEM to ${WORK_MEM:-4MB}."
-    env_check_info "MAX_WAL_SENDERS" "Setting MAX_WAL_SENDERS to ${MAX_WAL_SENDERS:-6}."
+  env_check_info "TEMP_BUFFERS" "Setting TEMP_BUFFERS to ${TEMP_BUFFERS:-8MB}."
+  env_check_info "LOG_MIN_DURATION_STATEMENT" "Setting LOG_MIN_DURATION_STATEMENT to ${LOG_MIN_DURATION_STATEMENT:-60000}."
+  env_check_info "LOG_STATEMENT" "Setting LOG_STATEMENT to ${LOG_STATEMENT:-none}."
+  env_check_info "MAX_CONNECTIONS" "Setting MAX_CONNECTIONS to ${MAX_CONNECTIONS:-100}."
+  env_check_info "SHARED_BUFFERS" "Setting SHARED_BUFFERS to ${SHARED_BUFFERS:-128MB}."
+  env_check_info "WORK_MEM" "Setting WORK_MEM to ${WORK_MEM:-4MB}."
+  env_check_info "MAX_WAL_SENDERS" "Setting MAX_WAL_SENDERS to ${MAX_WAL_SENDERS:-6}."
 
-    cp "${CRUNCHY_DIR}/conf/postgres/postgresql.conf.template" /tmp/postgresql.conf
+  cp "${CRUNCHY_DIR}/conf/postgres/postgresql.conf.template" /tmp/postgresql.conf
 
-    sed -i "s/TEMP_BUFFERS/${TEMP_BUFFERS:-8MB}/g" /tmp/postgresql.conf
-    sed -i "s/LOG_MIN_DURATION_STATEMENT/${LOG_MIN_DURATION_STATEMENT:-60000}/g" /tmp/postgresql.conf
-    sed -i "s/LOG_STATEMENT/${LOG_STATEMENT:-none}/g" /tmp/postgresql.conf
-    sed -i "s/MAX_CONNECTIONS/${MAX_CONNECTIONS:-100}/g" /tmp/postgresql.conf
-    sed -i "s/SHARED_BUFFERS/${SHARED_BUFFERS:-128MB}/g" /tmp/postgresql.conf
-    sed -i "s/WORK_MEM/${WORK_MEM:-4MB}/g" /tmp/postgresql.conf
-    sed -i "s/MAX_WAL_SENDERS/${MAX_WAL_SENDERS:-6}/g" /tmp/postgresql.conf
-    sed -i "s/PG_PRIMARY_PORT/${PG_PRIMARY_PORT}/g" /tmp/postgresql.conf
+  sed -i "s/TEMP_BUFFERS/${TEMP_BUFFERS:-8MB}/g" /tmp/postgresql.conf
+  sed -i "s/LOG_MIN_DURATION_STATEMENT/${LOG_MIN_DURATION_STATEMENT:-60000}/g" /tmp/postgresql.conf
+  sed -i "s/LOG_STATEMENT/${LOG_STATEMENT:-none}/g" /tmp/postgresql.conf
+  sed -i "s/MAX_CONNECTIONS/${MAX_CONNECTIONS:-100}/g" /tmp/postgresql.conf
+  sed -i "s/SHARED_BUFFERS/${SHARED_BUFFERS:-128MB}/g" /tmp/postgresql.conf
+  sed -i "s/WORK_MEM/${WORK_MEM:-4MB}/g" /tmp/postgresql.conf
+  sed -i "s/MAX_WAL_SENDERS/${MAX_WAL_SENDERS:-6}/g" /tmp/postgresql.conf
+  sed -i "s/PG_PRIMARY_PORT/${PG_PRIMARY_PORT}/g" /tmp/postgresql.conf
 }
 
 function create_pgpass() {
-    cd /tmp
-cat >> ".pgpass" <<-EOF
+  cd /tmp
+  cat >> ".pgpass" <<-EOF
 *:*:*:*:${PG_PRIMARY_PASSWORD}
 EOF
-    chmod 0600 .pgpass
+  chmod 0600 .pgpass
 }
 
 function waitforpg() {
-    export PGPASSFILE=/tmp/.pgpass
-    CONNECTED=false
-    while true; do
-        pg_isready --dbname=$PG_DATABASE --host=$PG_PRIMARY_HOST \
-        --port=$PG_PRIMARY_PORT \
-        --username=$PG_PRIMARY_USER --timeout=2
-        if [ $? -eq 0 ]; then
-            echo_info "The database is ready."
-            break
-        fi
-        sleep 2
-    done
+  export PGPASSFILE=/tmp/.pgpass
+  CONNECTED=false
+  while true; do
+    pg_isready --dbname=$PG_DATABASE --host=$PG_PRIMARY_HOST \
+      --port=$PG_PRIMARY_PORT \
+      --username=$PG_PRIMARY_USER --timeout=2
+    if [ $? -eq 0 ]; then
+      echo_info "The database is ready."
+      break
+    fi
+    sleep 2
+  done
 
-    while true; do
-        psql -h $PG_PRIMARY_HOST -p $PG_PRIMARY_PORT -U $PG_PRIMARY_USER $PG_DATABASE -f "${CRUNCHY_DIR}/bin/postgres/readiness.sql"
-        if [ $? -eq 0 ]; then
-            echo_info "The database is ready."
-            CONNECTED=true
-            break
-        fi
+  while true; do
+    psql -h $PG_PRIMARY_HOST -p $PG_PRIMARY_PORT -U $PG_PRIMARY_USER $PG_DATABASE -f "${CRUNCHY_DIR}/bin/postgres/readiness.sql"
+    if [ $? -eq 0 ]; then
+      echo_info "The database is ready."
+      CONNECTED=true
+      break
+    fi
 
-        echo_info "Attempting pg_isready on primary.."
-        sleep 2
-    done
+    echo_info "Attempting pg_isready on primary.."
+    sleep 2
+  done
 
 }
 
 function initialize_replica() {
-    echo_info "Initializing the replica."
-    rm -rf $PGDATA/*
-    chmod 0700 $PGDATA
+  echo_info "Initializing the replica."
+  rm -rf $PGDATA/*
+  chmod 0700 $PGDATA
 
-    echo_info "Waiting to allow the primary database time to successfully start before performing the initial backup.."
-    waitforpg
+  echo_info "Waiting to allow the primary database time to successfully start before performing the initial backup.."
+  waitforpg
 
-    pg_basebackup -X fetch --no-password --pgdata $PGDATA --host=$PG_PRIMARY_HOST \
-        --port=$PG_PRIMARY_PORT -U $PG_PRIMARY_USER > /tmp/pgbasebackup.stdout 2> /tmp/pgbasebackup.stderr
-    err_check "$?" "Initialize Replica" "Could not run pg_basebackup: \n$(cat /tmp/pgbasebackup.stderr)"
+  pg_basebackup -X fetch --no-password --pgdata $PGDATA --host=$PG_PRIMARY_HOST \
+    --port=$PG_PRIMARY_PORT -U $PG_PRIMARY_USER > /tmp/pgbasebackup.stdout 2> /tmp/pgbasebackup.stderr
+  err_check "$?" "Initialize Replica" "Could not run pg_basebackup: \n$(cat /tmp/pgbasebackup.stderr)"
 
-    # PostgreSQL recovery configuration.
-    if [[ -v SYNC_REPLICA ]]; then
-        echo_info "SYNC_REPLICA environment variable is set."
-        APPLICATION_NAME=$SYNC_REPLICA
-    else
-        APPLICATION_NAME=$HOSTNAME
-        echo_info "SYNC_REPLICA environment variable is not set."
-    fi
-    echo_info "${APPLICATION_NAME} is the APPLICATION_NAME being used."
+  # PostgreSQL recovery configuration.
+  if [[ -v SYNC_REPLICA ]]; then
+    echo_info "SYNC_REPLICA environment variable is set."
+    APPLICATION_NAME=$SYNC_REPLICA
+  else
+    APPLICATION_NAME=$HOSTNAME
+    echo_info "SYNC_REPLICA environment variable is not set."
+  fi
+  echo_info "${APPLICATION_NAME} is the APPLICATION_NAME being used."
 
-    # PostgreSQL 12 changed how a replica/standby is set up. There is no longer
-    # a recovery.conf file that indicates a PostgreSQL instance is a standby,
-    # but rather one of two "signal" files that are available. The settings
-    # for the PostgreSQL recovery/standby are kept in the main PostgreSQL.conf
-    # file. As such we will fork off here, and allow each more to be st up.
-    PG_VERSION=`cat $PGDATA/PG_VERSION`
-    if [[ $PG_VERSION -ge 12 ]]; then
-        initialize_replica_post12
-    else
-        initialize_replica_pre12
-    fi
+  # PostgreSQL 12 changed how a replica/standby is set up. There is no longer
+  # a recovery.conf file that indicates a PostgreSQL instance is a standby,
+  # but rather one of two "signal" files that are available. The settings
+  # for the PostgreSQL recovery/standby are kept in the main PostgreSQL.conf
+  # file. As such we will fork off here, and allow each more to be st up.
+  PG_VERSION=`cat $PGDATA/PG_VERSION`
+  if [[ $PG_VERSION -ge 12 ]]; then
+    initialize_replica_post12
+  else
+    initialize_replica_pre12
+  fi
 }
 
 # PostgreSQL 12 moved all settings that affect a replica instance into the
@@ -275,28 +275,28 @@ function initialize_replica() {
 # For more info:
 # https://www.postgresql.org/docs/current/runtime-config-wal.html#RUNTIME-CONFIG-WAL-ARCHIVE-RECOVERY
 function initialize_replica_post12() {
-    echo_info "Setting up recovery using methodology for PostgreSQL 12 and above."
-    # set up a temporary file with recovery settings that we output to
-    RECOVERY_FILE_TMP='/tmp/pgrepl-recovery.conf'
-    echo_info "Preparing recovery settings in ${RECOVERY_FILE_TMP}"
-    # first, create a temporary file to build up the recovery file separately.
-    # use the legacy name to help
-    touch $RECOVERY_FILE_TMP
-    # As of PostgreSQL 12, the recovery_target_timeline defaults to "latest",
-    # so we will not add that in.
-    #
-    # Also as of PostgreSQL 12, the "standby_mode" parameter is dropped, as that
-    # is now dictated by which signal file is used.
-    #
-    # In PostgreSQL 12, "trigger_file" => "promote_trigger_file"
-    echo "promote_trigger_file = '/tmp/pg-failover-trigger'" > $RECOVERY_FILE_TMP
-    # the primary_conninfo string stays mostly the same
-    PGCONF_PRIMARY_CONNINFO="application_name=${APPLICATION_NAME} host=${PG_PRIMARY_HOST} port=${PG_PRIMARY_PORT} user=${PG_PRIMARY_USER}"
-    echo "primary_conninfo = '${PGCONF_PRIMARY_CONNINFO}'" >> $RECOVERY_FILE_TMP
-    # append the contents of $RECOVERY_FILE_TMP to the postgresql.conf file
-    cat $RECOVERY_FILE_TMP >> $PGDATA/postgresql.conf
-    # and put the server into standby mode
-    touch $PGDATA/standby.signal
+  echo_info "Setting up recovery using methodology for PostgreSQL 12 and above."
+  # set up a temporary file with recovery settings that we output to
+  RECOVERY_FILE_TMP='/tmp/pgrepl-recovery.conf'
+  echo_info "Preparing recovery settings in ${RECOVERY_FILE_TMP}"
+  # first, create a temporary file to build up the recovery file separately.
+  # use the legacy name to help
+  touch $RECOVERY_FILE_TMP
+  # As of PostgreSQL 12, the recovery_target_timeline defaults to "latest",
+  # so we will not add that in.
+  #
+  # Also as of PostgreSQL 12, the "standby_mode" parameter is dropped, as that
+  # is now dictated by which signal file is used.
+  #
+  # In PostgreSQL 12, "trigger_file" => "promote_trigger_file"
+  echo "promote_trigger_file = '/tmp/pg-failover-trigger'" > $RECOVERY_FILE_TMP
+  # the primary_conninfo string stays mostly the same
+  PGCONF_PRIMARY_CONNINFO="application_name=${APPLICATION_NAME} host=${PG_PRIMARY_HOST} port=${PG_PRIMARY_PORT} user=${PG_PRIMARY_USER}"
+  echo "primary_conninfo = '${PGCONF_PRIMARY_CONNINFO}'" >> $RECOVERY_FILE_TMP
+  # append the contents of $RECOVERY_FILE_TMP to the postgresql.conf file
+  cat $RECOVERY_FILE_TMP >> $PGDATA/postgresql.conf
+  # and put the server into standby mode
+  touch $PGDATA/standby.signal
 }
 
 # Before PostgreSQL 12, the way to set up a replica instance was to use a file
@@ -307,124 +307,124 @@ function initialize_replica_post12() {
 # are documented here:
 # https://www.postgresql.org/docs/11/recovery-config.html
 function initialize_replica_pre12() {
-    echo_info "Setting up recovery using methodology for PostgreSQL 11 and below."
-    # Basically, we have a preconfigured recovery file with some settings in it,
-    # And we substitute out some of the settings
-    cp "${CRUNCHY_DIR}/conf/postgres/pgrepl-recovery.conf" /tmp
-    sed -i "s/PG_PRIMARY_USER/$PG_PRIMARY_USER/g" /tmp/pgrepl-recovery.conf
-    sed -i "s/PG_PRIMARY_HOST/$PG_PRIMARY_HOST/g" /tmp/pgrepl-recovery.conf
-    sed -i "s/PG_PRIMARY_PORT/$PG_PRIMARY_PORT/g" /tmp/pgrepl-recovery.conf
-    sed -i "s/APPLICATION_NAME/$APPLICATION_NAME/g" /tmp/pgrepl-recovery.conf
-    cp /tmp/pgrepl-recovery.conf $PGDATA/recovery.conf
+  echo_info "Setting up recovery using methodology for PostgreSQL 11 and below."
+  # Basically, we have a preconfigured recovery file with some settings in it,
+  # And we substitute out some of the settings
+  cp "${CRUNCHY_DIR}/conf/postgres/pgrepl-recovery.conf" /tmp
+  sed -i "s/PG_PRIMARY_USER/$PG_PRIMARY_USER/g" /tmp/pgrepl-recovery.conf
+  sed -i "s/PG_PRIMARY_HOST/$PG_PRIMARY_HOST/g" /tmp/pgrepl-recovery.conf
+  sed -i "s/PG_PRIMARY_PORT/$PG_PRIMARY_PORT/g" /tmp/pgrepl-recovery.conf
+  sed -i "s/APPLICATION_NAME/$APPLICATION_NAME/g" /tmp/pgrepl-recovery.conf
+  cp /tmp/pgrepl-recovery.conf $PGDATA/recovery.conf
 }
 
 # Function to create the database if the PGDATA folder is empty, or do nothing if PGDATA
 # is not empty.
 function initialize_primary() {
-    echo_info "Initializing the primary database.."
-    if [ ! -f ${PGDATA?}/postgresql.conf ]; then
-        ID="$(id)"
-        echo_info "PGDATA is empty. ID is ${ID}. Creating the PGDATA directory.."
-        echo_info "PGDATA is ${PGDATA}."
-        ls -al /
-        mkdir -p ${PGDATA?}
+  echo_info "Initializing the primary database.."
+  if [ ! -f ${PGDATA?}/postgresql.conf ]; then
+    ID="$(id)"
+    echo_info "PGDATA is empty. ID is ${ID}. Creating the PGDATA directory.."
+    echo_info "PGDATA is ${PGDATA}."
+    ls -al /
+    mkdir -p ${PGDATA?}
 
-        initdb_logic
+    initdb_logic
 
-        echo_info "Adding extensions to preload list.."
-        configure_preload_extensions
+    echo_info "Adding extensions to preload list.."
+    configure_preload_extensions
 
-        echo "Starting database.." >> /tmp/start-db.log
+    echo "Starting database.." >> /tmp/start-db.log
 
-        echo_info "Temporarily starting database to run setup.sql.."
-        PGCTLTIMEOUT=${PG_CTL_START_TIMEOUT} pg_ctl -D ${PGDATA?} \
-            -o "-c listen_addresses='' ${PG_CTL_OPTS:-}" start \
-            2> /tmp/pgctl.stderr
-        err_check "$?" "Temporarily Starting PostgreSQL (primary)" \
-            "Unable to start PostgreSQL: \n$(cat /tmp/pgctl.stderr)"
+    echo_info "Temporarily starting database to run setup.sql.."
+    PGCTLTIMEOUT=${PG_CTL_START_TIMEOUT} pg_ctl -D ${PGDATA?} \
+      -o "-c listen_addresses='' ${PG_CTL_OPTS:-}" start \
+      2> /tmp/pgctl.stderr
+    err_check "$?" "Temporarily Starting PostgreSQL (primary)" \
+      "Unable to start PostgreSQL: \n$(cat /tmp/pgctl.stderr)"
 
-        echo_info "Waiting for PostgreSQL to start.."
-        while true; do
-            pg_isready \
-            --host=/tmp \
-            --port=${PG_PRIMARY_PORT} \
-            --username=${PG_PRIMARY_USER?} \
-            --timeout=2
-            if [ $? -eq 0 ]; then
-                echo_info "The database is ready for setup.sql."
-                break
-            fi
-            sleep 2
-        done
+    echo_info "Waiting for PostgreSQL to start.."
+    while true; do
+      pg_isready \
+        --host=/tmp \
+        --port=${PG_PRIMARY_PORT} \
+        --username=${PG_PRIMARY_USER?} \
+        --timeout=2
+      if [ $? -eq 0 ]; then
+        echo_info "The database is ready for setup.sql."
+        break
+      fi
+      sleep 2
+    done
 
 
-        echo_info "Loading setup.sql.." >> /tmp/start-db.log
-        cp "${CRUNCHY_DIR}/bin/postgres/setup.sql" /tmp
-        if [ -f /pgconf/setup.sql ]; then
-            echo_info "Using setup.sql from /pgconf.."
-            cp /pgconf/setup.sql /tmp
-        fi
-        sed -i "s/PG_PRIMARY_USER/$PG_PRIMARY_USER/g" /tmp/setup.sql
-        sed -i "s/PG_PRIMARY_PASSWORD/$PG_PRIMARY_PASSWORD/g" /tmp/setup.sql
-        sed -i "s/PG_USER/$PG_USER/g" /tmp/setup.sql
-        sed -i "s/PG_PASSWORD/$PG_PASSWORD/g" /tmp/setup.sql
-        sed -i "s/PG_DATABASE/$PG_DATABASE/g" /tmp/setup.sql
-        sed -i "s/PG_ROOT_PASSWORD/$PG_ROOT_PASSWORD/g" /tmp/setup.sql
-
-        # Set PGHOST to use the socket in /tmp. unix_socket_directory is changed
-        # to use /tmp instead of /var/run.
-        export PGHOST=/tmp
-        psql -U postgres -p "${PG_PRIMARY_PORT}" < /tmp/setup.sql
-        if [ -f /pgconf/audit.sql ]; then
-            echo_info "Using pgaudit_analyze audit.sql from /pgconf.."
-            psql -U postgres < /pgconf/audit.sql
-        fi
-
-        # Install ParadeDB extensions
-        echo_info  "Installing ParadeDB extensions.."
-        install_extensions
-
-        echo_info "Stopping database after primary initialization.."
-        PGCTLTIMEOUT=${PG_CTL_STOP_TIMEOUT} pg_ctl -D $PGDATA --mode=fast stop
-
-        if [[ -v SYNC_REPLICA ]]; then
-            echo "Synchronous_standby_names = '"$SYNC_REPLICA"'" >> $PGDATA/postgresql.conf
-        fi
-    else
-        echo_info "PGDATA already contains a database."
+    echo_info "Loading setup.sql.." >> /tmp/start-db.log
+    cp "${CRUNCHY_DIR}/bin/postgres/setup.sql" /tmp
+    if [ -f /pgconf/setup.sql ]; then
+      echo_info "Using setup.sql from /pgconf.."
+      cp /pgconf/setup.sql /tmp
     fi
+    sed -i "s/PG_PRIMARY_USER/$PG_PRIMARY_USER/g" /tmp/setup.sql
+    sed -i "s/PG_PRIMARY_PASSWORD/$PG_PRIMARY_PASSWORD/g" /tmp/setup.sql
+    sed -i "s/PG_USER/$PG_USER/g" /tmp/setup.sql
+    sed -i "s/PG_PASSWORD/$PG_PASSWORD/g" /tmp/setup.sql
+    sed -i "s/PG_DATABASE/$PG_DATABASE/g" /tmp/setup.sql
+    sed -i "s/PG_ROOT_PASSWORD/$PG_ROOT_PASSWORD/g" /tmp/setup.sql
+
+    # Set PGHOST to use the socket in /tmp. unix_socket_directory is changed
+    # to use /tmp instead of /var/run.
+    export PGHOST=/tmp
+    psql -U postgres -p "${PG_PRIMARY_PORT}" < /tmp/setup.sql
+    if [ -f /pgconf/audit.sql ]; then
+      echo_info "Using pgaudit_analyze audit.sql from /pgconf.."
+      psql -U postgres < /pgconf/audit.sql
+    fi
+
+    # Install ParadeDB extensions
+    echo_info  "Installing ParadeDB extensions.."
+    install_extensions
+
+    echo_info "Stopping database after primary initialization.."
+    PGCTLTIMEOUT=${PG_CTL_STOP_TIMEOUT} pg_ctl -D $PGDATA --mode=fast stop
+
+    if [[ -v SYNC_REPLICA ]]; then
+      echo "Synchronous_standby_names = '"$SYNC_REPLICA"'" >> $PGDATA/postgresql.conf
+    fi
+  else
+    echo_info "PGDATA already contains a database."
+  fi
 }
 
 configure_archiving() {
-    printf "\n# Archive Configuration:\n" >> /"${PGDATA?}"/postgresql.conf
+  printf "\n# Archive Configuration:\n" >> /"${PGDATA?}"/postgresql.conf
 
-    export ARCHIVE_MODE=${ARCHIVE_MODE:-off}
-    export ARCHIVE_TIMEOUT=${ARCHIVE_TIMEOUT:-0}
+  export ARCHIVE_MODE=${ARCHIVE_MODE:-off}
+  export ARCHIVE_TIMEOUT=${ARCHIVE_TIMEOUT:-0}
 
-    if [[ "${PGBACKREST}" == "true" ]]
+  if [[ "${PGBACKREST}" == "true" ]]
+  then
+    export ARCHIVE_MODE=on
+    echo_info "Setting pgbackrest archive command.."
+    if [[ "${BACKREST_LOCAL_AND_S3_STORAGE}" == "true" ]]
     then
-        export ARCHIVE_MODE=on
-        echo_info "Setting pgbackrest archive command.."
-        if [[ "${BACKREST_LOCAL_AND_S3_STORAGE}" == "true" ]]
-        then
-            cat "${CRUNCHY_DIR}/conf/postgres/backrest-archive-command-local-and-s3" >> /"${PGDATA?}"/postgresql.conf
-        elif [[ "${BACKREST_LOCAL_AND_GCS_STORAGE}" == "true" ]]
-        then
-            cat "${CRUNCHY_DIR}/conf/postgres/backrest-archive-command-local-and-gcs" >> /"${PGDATA?}"/postgresql.conf
-        else
-            cat "${CRUNCHY_DIR}/conf/postgres/backrest-archive-command" >> /"${PGDATA?}"/postgresql.conf
-        fi
-    elif [[ "${ARCHIVE_MODE}" == "on" ]] && [[ ! "${PGBACKREST}" == "true" ]]
+      cat "${CRUNCHY_DIR}/conf/postgres/backrest-archive-command-local-and-s3" >> /"${PGDATA?}"/postgresql.conf
+    elif [[ "${BACKREST_LOCAL_AND_GCS_STORAGE}" == "true" ]]
     then
-        echo_info "Setting standard archive command.."
-        cat "${CRUNCHY_DIR}/conf/postgres/archive-command" >> /"${PGDATA?}"/postgresql.conf
+      cat "${CRUNCHY_DIR}/conf/postgres/backrest-archive-command-local-and-gcs" >> /"${PGDATA?}"/postgresql.conf
+    else
+      cat "${CRUNCHY_DIR}/conf/postgres/backrest-archive-command" >> /"${PGDATA?}"/postgresql.conf
     fi
+  elif [[ "${ARCHIVE_MODE}" == "on" ]] && [[ ! "${PGBACKREST}" == "true" ]]
+  then
+    echo_info "Setting standard archive command.."
+    cat "${CRUNCHY_DIR}/conf/postgres/archive-command" >> /"${PGDATA?}"/postgresql.conf
+  fi
 
-    echo_info "Setting ARCHIVE_MODE to ${ARCHIVE_MODE?}."
-    echo "archive_mode = ${ARCHIVE_MODE?}" >> "${PGDATA?}"/postgresql.conf
+  echo_info "Setting ARCHIVE_MODE to ${ARCHIVE_MODE?}."
+  echo "archive_mode = ${ARCHIVE_MODE?}" >> "${PGDATA?}"/postgresql.conf
 
-    echo_info "Setting ARCHIVE_TIMEOUT to ${ARCHIVE_TIMEOUT?}."
-    echo "archive_timeout = ${ARCHIVE_TIMEOUT?}" >> "${PGDATA?}"/postgresql.conf
+  echo_info "Setting ARCHIVE_TIMEOUT to ${ARCHIVE_TIMEOUT?}."
+  echo "archive_timeout = ${ARCHIVE_TIMEOUT?}" >> "${PGDATA?}"/postgresql.conf
 }
 
 configure_preload_extensions() {
@@ -451,7 +451,7 @@ install_extensions() {
   for extension in "${!extensions[@]}"; do
     version=${extensions[$extension]}
     if [ -n "$version" ]; then
-        psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$PG_DATABASE" -U postgres -p "$PG_PRIMARY_PORT" || echo "Failed to install extension $extension"
+      psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$PG_DATABASE" -U postgres -p "$PG_PRIMARY_PORT" || echo "Failed to install extension $extension"
     fi
   done
 
@@ -463,7 +463,7 @@ install_extensions() {
 echo_info "Cleaning up the old postmaster.pid file.."
 if [[ -f $PGDATA/postmaster.pid ]]
 then
-    rm $PGDATA/postmaster.pid
+  rm $PGDATA/postmaster.pid
 fi
 
 ID="$(id)"
@@ -472,19 +472,19 @@ echo_info "User ID is set to ${ID}."
 fill_conf_file
 
 case "$PG_MODE" in
-    "replica")
+  "replica")
     echo_info "Working on replica.."
     create_pgpass
     export PGPASSFILE=/tmp/.pgpass
     if [ ! -f $PGDATA/postgresql.conf ]; then
-        initialize_replica
+      initialize_replica
     fi
     ;;
-    "primary")
+  "primary")
     echo_info "Working on primary.."
     initialize_primary
     ;;
-    *)
+  *)
     echo_err "PG_MODE is not an accepted value. Check that the PG_MODE environment variable is set to one of the two valid values (primary, replica)."
     ;;
 esac
@@ -492,8 +492,8 @@ esac
 # Configure pgbackrest if enabled
 if [[ ${PGBACKREST} == "true" ]]
 then
-    echo_info "pgBackRest: Enabling pgbackrest.."
-    source "${CRUNCHY_DIR}/bin/postgres/pgbackrest.sh"
+  echo_info "pgBackRest: Enabling pgbackrest.."
+  source "${CRUNCHY_DIR}/bin/postgres/pgbackrest.sh"
 fi
 
 configure_archiving
@@ -503,7 +503,7 @@ source "${CRUNCHY_DIR}/bin/postgres/custom-configs.sh"
 # Run pre-start hook if it exists
 if [ -f /pgconf/pre-start-hook.sh ]
 then
-	source /pgconf/pre-start-hook.sh
+  source /pgconf/pre-start-hook.sh
 fi
 
 # Start SSHD if necessary prior to starting PG
@@ -515,14 +515,14 @@ postgres -D $PGDATA &
 # Apply enhancement modules
 for module in "${CRUNCHY_DIR}"/bin/modules/*.sh
 do
-    source ${module?}
+  source ${module?}
 done
 
 
 # Run post start hook if it exists
 if [ -f /pgconf/post-start-hook.sh ]
 then
-	source /pgconf/post-start-hook.sh
+  source /pgconf/post-start-hook.sh
 fi
 
 

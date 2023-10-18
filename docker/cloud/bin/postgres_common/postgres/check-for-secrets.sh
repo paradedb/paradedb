@@ -18,16 +18,16 @@ source "${CRUNCHY_DIR}/bin/common_lib.sh"
 enable_debugging
 
 if [ -d "/pguser" ]; then
-	echo_info "The PGUSER secret exists."
-	export PG_USER=$(cat /pguser/username)
-	export PG_PASSWORD=$(cat /pguser/password)
+  echo_info "The PGUSER secret exists."
+  export PG_USER=$(cat /pguser/username)
+  export PG_PASSWORD=$(cat /pguser/password)
 fi
 if [ -d "/pgroot" ]; then
-	echo_info "The PGROOT secret exists."
-	export PG_ROOT_PASSWORD=$(cat /pgroot/password)
+  echo_info "The PGROOT secret exists."
+  export PG_ROOT_PASSWORD=$(cat /pgroot/password)
 fi
 if [ -d "/pgprimary" ]; then
-	echo_info "The PGPRIMARY secret exists."
-	export PG_PRIMARY_USER=$(cat /pgprimary/username)
-	export PG_PRIMARY_PASSWORD=$(cat /pgprimary/password)
+  echo_info "The PGPRIMARY secret exists."
+  export PG_PRIMARY_USER=$(cat /pgprimary/username)
+  export PG_PRIMARY_PASSWORD=$(cat /pgprimary/password)
 fi

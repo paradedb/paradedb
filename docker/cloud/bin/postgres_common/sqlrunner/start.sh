@@ -17,9 +17,9 @@ set -e -u
 
 for sql in /pgconf/*.sql
 do
-    PGPASSWORD="${PG_PASSWORD?}" psql -d ${PG_DATABASE?} -U ${PG_USER?} \
-         -p ${PG_PORT?} -h ${PG_HOST?} \
-         -f ${sql?}
+  PGPASSWORD="${PG_PASSWORD?}" psql -d ${PG_DATABASE?} -U ${PG_USER?} \
+    -p ${PG_PORT?} -h ${PG_HOST?} \
+    -f ${sql?}
 done
 
 exit 0

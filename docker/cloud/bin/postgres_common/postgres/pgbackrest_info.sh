@@ -20,7 +20,7 @@ cmd_args=()
 # otherwise, leave the default behavior and verify TLS
 if [[ "${PGHA_PGBACKREST_S3_VERIFY_TLS}" == "false" ]]
 then
-    cmd_args+=("--no-repo1-s3-verify-tls")
+  cmd_args+=("--no-repo1-s3-verify-tls")
 fi
 
 echo $(echo -n "$conf|" | tr '/' '_'; pgbackrest --output=json ${cmd_args[*]} info | tr -d '\n')

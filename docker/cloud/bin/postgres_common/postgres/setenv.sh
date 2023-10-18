@@ -26,8 +26,8 @@ export PGWAL=/pgwal/$HOSTNAME-wal
 export CHECKSUMS=${CHECKSUMS:-true}
 
 if [[ -v PGDATA_PATH_OVERRIDE ]]; then
-    export PGDATA=/pgdata/$PGDATA_PATH_OVERRIDE
-    export PGWAL=/pgwal/$PGDATA_PATH_OVERRIDE-wal
+  export PGDATA=/pgdata/$PGDATA_PATH_OVERRIDE
+  export PGWAL=/pgwal/$PGDATA_PATH_OVERRIDE-wal
 fi
 
 export PATH="${CRUNCHY_DIR}/bin/postgres:$PGROOT/bin:$PATH"

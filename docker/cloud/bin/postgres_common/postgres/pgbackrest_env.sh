@@ -8,5 +8,5 @@ readarray -t backrest_env_var_arr <<< "${backrest_env_vars}"
 
 for env_var in "${!backrest_env_var_arr[@]}"
 do
-    export "${backrest_env_var_arr[env_var]}"
+  export "${backrest_env_var_arr[env_var]}"
 done

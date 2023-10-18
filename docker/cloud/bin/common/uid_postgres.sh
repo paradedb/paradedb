@@ -14,7 +14,7 @@
 # limitations under the License.
 
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
-    
+
 source "${CRUNCHY_DIR}/bin/uid_postgres_no_exec.sh"
 
 exec "$@"

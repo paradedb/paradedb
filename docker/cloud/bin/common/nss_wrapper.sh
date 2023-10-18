@@ -43,30 +43,30 @@ export GROUP_ID
 
 # if the username is missing from the passwd file, then add it
 if [[ ! $(cat "${NSS_WRAPPER_PASSWD}") =~ ${CRUNCHY_NSS_USERNAME}:x:${USER_ID} ]]; then
-    echo "nss_wrapper: adding user"
-    passwd_tmp="${NSS_WRAPPER_DIR}/passwd_tmp"
-    cp "${NSS_WRAPPER_PASSWD}" "${passwd_tmp}"
-    sed -i "/${CRUNCHY_NSS_USERNAME}:x:/d" "${passwd_tmp}"
-    # needed for OCP 4.x because crio updates /etc/passwd with an entry for USER_ID
-    sed -i "/${USER_ID}:x:/d" "${passwd_tmp}"
-    printf '${CRUNCHY_NSS_USERNAME}:x:${USER_ID}:${GROUP_ID}:${CRUNCHY_NSS_USER_DESC}:${HOME}:/bin/bash\n' >> "${passwd_tmp}"
-    envsubst < "${passwd_tmp}" > "${NSS_WRAPPER_PASSWD}"
-    rm "${passwd_tmp}"
+  echo "nss_wrapper: adding user"
+  passwd_tmp="${NSS_WRAPPER_DIR}/passwd_tmp"
+  cp "${NSS_WRAPPER_PASSWD}" "${passwd_tmp}"
+  sed -i "/${CRUNCHY_NSS_USERNAME}:x:/d" "${passwd_tmp}"
+  # needed for OCP 4.x because crio updates /etc/passwd with an entry for USER_ID
+  sed -i "/${USER_ID}:x:/d" "${passwd_tmp}"
+  printf '${CRUNCHY_NSS_USERNAME}:x:${USER_ID}:${GROUP_ID}:${CRUNCHY_NSS_USER_DESC}:${HOME}:/bin/bash\n' >> "${passwd_tmp}"
+  envsubst < "${passwd_tmp}" > "${NSS_WRAPPER_PASSWD}"
+  rm "${passwd_tmp}"
 else
-    echo "nss_wrapper: user exists"
+  echo "nss_wrapper: user exists"
 fi
 
 # if the username (which will be the same as the group name) is missing from group file, then add it
 if [[ ! $(cat "${NSS_WRAPPER_GROUP}") =~ ${CRUNCHY_NSS_USERNAME}:x:${USER_ID} ]]; then
-    echo "nss_wrapper: adding group"
-    group_tmp="${NSS_WRAPPER_DIR}/group_tmp"
-    cp "${NSS_WRAPPER_GROUP}" "${group_tmp}"
-    sed -i "/${CRUNCHY_NSS_USERNAME}:x:/d" "${group_tmp}"
-    printf '${CRUNCHY_NSS_USERNAME}:x:${USER_ID}:${CRUNCHY_NSS_USERNAME}\n' >> "${group_tmp}"
-    envsubst < "${group_tmp}" > "${NSS_WRAPPER_GROUP}"
-    rm "${group_tmp}"
+  echo "nss_wrapper: adding group"
+  group_tmp="${NSS_WRAPPER_DIR}/group_tmp"
+  cp "${NSS_WRAPPER_GROUP}" "${group_tmp}"
+  sed -i "/${CRUNCHY_NSS_USERNAME}:x:/d" "${group_tmp}"
+  printf '${CRUNCHY_NSS_USERNAME}:x:${USER_ID}:${CRUNCHY_NSS_USERNAME}\n' >> "${group_tmp}"
+  envsubst < "${group_tmp}" > "${NSS_WRAPPER_GROUP}"
+  rm "${group_tmp}"
 else
-    echo "nss_wrapper: group exists"
+  echo "nss_wrapper: group exists"
 fi
 
 # export the nss_wrapper env vars

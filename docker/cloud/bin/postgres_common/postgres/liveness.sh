@@ -22,7 +22,7 @@ hostname=${HOSTNAME?}
 
 if [[ -v PGHOST ]]
 then
-    hostname=${PGHOST}
+  hostname=${PGHOST}
 fi
 
 $PGROOT/bin/pg_isready -h ${hostname?} --port="${PG_PRIMARY_PORT}" --dbname=postgres --username=$PG_USER

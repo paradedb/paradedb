@@ -14,8 +14,8 @@
 # limitations under the License.
 
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
-    
+
 export CRUNCHY_NSS_USERNAME="${USER_NAME:-postgres}"
 export CRUNCHY_NSS_USER_DESC="PostgreSQL Server"
-    
+
 source "${CRUNCHY_DIR}/bin/nss_wrapper.sh"

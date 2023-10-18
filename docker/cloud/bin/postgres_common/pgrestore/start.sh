@@ -53,22 +53,22 @@ set -e
 PGRESTORE_BASE=/pgdata/${PGDUMP_BACKUP_HOST?}-backups
 if [[ -z ${PGRESTORE_BACKUP_TIMESTAMP?} ]]
 then
-    echo_info "Backup timestamp not set.  Defaulting to latest backup found.."
-    PGRESTORE_BACKUP_TIMESTAMP=$(ls -t ${PGRESTORE_BASE?} | head -1)
+  echo_info "Backup timestamp not set.  Defaulting to latest backup found.."
+  PGRESTORE_BACKUP_TIMESTAMP=$(ls -t ${PGRESTORE_BASE?} | head -1)
 fi
 
 BACKUP_DIR="${PGRESTORE_BASE?}/${PGRESTORE_BACKUP_TIMESTAMP?}"
 if [[ ! -d ${BACKUP_DIR?} ]]
 then
-    echo_err "Backup directory does not exist: ${BACKUP_DIR?}"
-    exit 1
+  echo_err "Backup directory does not exist: ${BACKUP_DIR?}"
+  exit 1
 fi
 
 BACKUP_FILE="${BACKUP_DIR?}/$(ls ${BACKUP_DIR?} | head -n 1)"
 if [[ ! -f ${BACKUP_FILE?} ]] && [[ ! -d ${BACKUP_FILE?} ]]
 then
-    echo_err "Backup file does not exist: ${BACKUP_FILE?}"
-    exit 1
+  echo_err "Backup file does not exist: ${BACKUP_FILE?}"
+  exit 1
 fi
 
 echo_info "Restore will be attempted using backup ${BACKUP_FILE?}"
@@ -79,11 +79,11 @@ BACKUP_TYPE=$(file ${BACKUP_FILE?})
 set +e
 if [[ ${BACKUP_TYPE?} = *"text"* ]]
 then
-    echo_info "Restoring from SQL backup via psql.."
-    ${PGROOT?}/bin/psql ${conn_opts?} -f ${BACKUP_FILE?}
+  echo_info "Restoring from SQL backup via psql.."
+  ${PGROOT?}/bin/psql ${conn_opts?} -f ${BACKUP_FILE?}
 else
-    echo_info "Restoring from backup via pg_restore.."
-    ${PGROOT?}/bin/pg_restore ${conn_opts?} ${PGRESTORE_CUSTOM_OPTS?} ${BACKUP_FILE?}
+  echo_info "Restoring from backup via pg_restore.."
+  ${PGROOT?}/bin/pg_restore ${conn_opts?} ${PGRESTORE_CUSTOM_OPTS?} ${BACKUP_FILE?}
 fi
 set -e
 

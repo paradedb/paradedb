@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Copyright 2016 - 2023 Crunchy Data Solutions, Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,5 +22,5 @@ if [[ -v PGAUDIT_ANALYZE ]]
 then
   source "${CRUNCHY_DIR}/bin/common_lib.sh"
   echo_info "Applyed pgaudit module.."
-  pgaudit_analyze ${PATRONI_POSTGRESQL_DATA_DIR:-$PGDATA}/pg_log --user=postgres --log-file /tmp/pgaudit_analyze.log &
+  pgaudit_analyze "${PATRONI_POSTGRESQL_DATA_DIR:-$PGDATA}"/pg_log --user=postgres --log-file /tmp/pgaudit_analyze.log &
 fi

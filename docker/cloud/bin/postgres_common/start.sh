@@ -1,9 +1,8 @@
 #!/bin/bash
+# shellcheck source=/dev/null
+
 # Start script for compacted postgres operator image
 # Used to run correct start script based on MODE
-
-# Exit on subcommand errors
-set -Eeuo pipefail
 
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
 source "${CRUNCHY_DIR}/bin/common_lib.sh"

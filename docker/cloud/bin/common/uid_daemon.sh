@@ -1,4 +1,5 @@
-#!/bin/sh
+#!/bin/bash
+# shellcheck source=/dev/null
 
 # Copyright 2018 - 2023 Crunchy Data Solutions, Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,7 +15,7 @@
 # limitations under the License.
 
 # Exit on subcommand errors
-set -Eeuo pipefail
+set -euo pipefail
 
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
 

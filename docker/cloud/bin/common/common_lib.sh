@@ -48,7 +48,7 @@ function env_check_warn() {
 }
 
 function env_check_info() {
-  if [[ ! -z ${!1} ]]
+  if [[ -n ${!1} ]]
   then
     echo_info "$2"
   fi
@@ -75,15 +75,16 @@ function echo_warn() {
 }
 
 function pgisready() {
-  export PGROOT=$(find /usr/ -type d -name 'pgsql-*')
+  PGROOT=$(find /usr/ -type d -name 'pgsql-*')
+  export PGROOT
   local dbname=${1?}
   local dbhost=${2?}
   local dbport=${3?}
   local dbuser=${4?}
   local max_attempts=${5:-5}
   local timeout=${6:-2}
-  test_server ${dbname?} ${dbhost?} ${dbport?} ${dbuser?} ${max_attempts?} ${timeout?}
-  test_query ${dbname?} ${dbhost?} ${dbport?} ${dbuser?} ${max_attempts?} ${timeout?}
+  test_server "${dbname?}" "${dbhost?}" "${dbport?}" "${dbuser?}" "${max_attempts?}" "${timeout?}"
+  test_query "${dbname?}" "${dbhost?}" "${dbport?}" "${dbuser?}" "${max_attempts?}" "${timeout?}"
 }
 
 # Check if PostgreSQL is ready with exponential backoffs on attempts
@@ -98,18 +99,17 @@ function test_server() {
   local error='false'
 
   echo_info "Waiting for PostgreSQL to be ready.."
-  while [[ ${attempt?} < ${max_attempts?} ]]
+  while [[ ${attempt?} -lt ${max_attempts?} ]]
   do
-    ${PGROOT?}/bin/pg_isready \
-      --dbname=${dbname?} --host=${dbhost?} \
-      --port=${dbport?} --username=${dbuser?}
-    if [[ $? -eq 0 ]]
+    if "${PGROOT?}"/bin/pg_isready \
+      --dbname="${dbname?}" --host="${dbhost?}" \
+      --port="${dbport?}" --username="${dbuser?}"
     then
       error='false'
       break
     fi
     error='true'
-    sleep ${timeout?}
+    sleep "${timeout?}"
     attempt=$(( attempt + 1 ))
     timeout=$(( timeout * 2 ))
   done
@@ -133,19 +133,18 @@ function test_query {
   local error='false'
 
   echo_info "Checking if PostgreSQL is accepting queries.."
-  while [[ ${attempt?} < ${max_attempts?} ]]
+  while [[ ${attempt?} -lt ${max_attempts?} ]]
   do
-    ${PGROOT?}/bin/psql \
-      --dbname=${dbname?} --host=${dbhost?} \
-      --port=${dbport?} --username=${dbuser?} \
+    if "${PGROOT?}"/bin/psql \
+      --dbname="${dbname?}" --host="${dbhost?}" \
+      --port="${dbport?}" --username="${dbuser?}" \
       --command="SELECT now();"
-    if [[ $? -eq 0 ]]
     then
       error='false'
       break
     fi
     error='true'
-    sleep ${timeout?}
+    sleep "${timeout?}"
     attempt=$(( attempt + 1 ))
     timeout=$(( timeout * 2 ))
   done
@@ -165,6 +164,6 @@ function err_check {
   if [[ ${RC?} != 0 ]]
   then
     echo_err "${CONTEXT?}: ${ERROR?}"
-    exit ${RC?}
+    exit "${RC?}"
   fi
 }

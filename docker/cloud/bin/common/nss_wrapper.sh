@@ -1,4 +1,5 @@
 #!/bin/bash
+# shellcheck source=/dev/null
 
 # Copyright 2021 - 2023 Crunchy Data Solutions, Inc.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -52,7 +53,9 @@ if [[ ! $(cat "${NSS_WRAPPER_PASSWD}") =~ ${CRUNCHY_NSS_USERNAME}:x:${USER_ID} ]
   sed -i "/${CRUNCHY_NSS_USERNAME}:x:/d" "${passwd_tmp}"
   # needed for OCP 4.x because crio updates /etc/passwd with an entry for USER_ID
   sed -i "/${USER_ID}:x:/d" "${passwd_tmp}"
-  printf '${CRUNCHY_NSS_USERNAME}:x:${USER_ID}:${GROUP_ID}:${CRUNCHY_NSS_USER_DESC}:${HOME}:/bin/bash\n' >> "${passwd_tmp}"
+  printf "%s:x:%s:%s:%s:%s:/bin/bash\n" \
+    "$CRUNCHY_NSS_USERNAME" "$USER_ID" "$GROUP_ID" "$CRUNCHY_NSS_USER_DESC" "$HOME" \
+    >> "${passwd_tmp}"
   envsubst < "${passwd_tmp}" > "${NSS_WRAPPER_PASSWD}"
   rm "${passwd_tmp}"
 else
@@ -65,7 +68,7 @@ if [[ ! $(cat "${NSS_WRAPPER_GROUP}") =~ ${CRUNCHY_NSS_USERNAME}:x:${USER_ID} ]]
   group_tmp="${NSS_WRAPPER_DIR}/group_tmp"
   cp "${NSS_WRAPPER_GROUP}" "${group_tmp}"
   sed -i "/${CRUNCHY_NSS_USERNAME}:x:/d" "${group_tmp}"
-  printf '${CRUNCHY_NSS_USERNAME}:x:${USER_ID}:${CRUNCHY_NSS_USERNAME}\n' >> "${group_tmp}"
+  printf "%s:x:%s:%s\n" "$CRUNCHY_NSS_USERNAME" "$USER_ID" "$CRUNCHY_NSS_USERNAME" >> "${group_tmp}"
   envsubst < "${group_tmp}" > "${NSS_WRAPPER_GROUP}"
   rm "${group_tmp}"
 else

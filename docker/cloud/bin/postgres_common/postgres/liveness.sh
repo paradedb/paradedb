@@ -28,4 +28,4 @@ then
   hostname=${PGHOST}
 fi
 
-$PGROOT/bin/pg_isready -h ${hostname?} --port="${PG_PRIMARY_PORT}" --dbname=postgres --username=$PG_USER
+"$PGROOT/bin/pg_isready" -h ${hostname?} --port="${PG_PRIMARY_PORT}" --dbname=postgres --username=$PG_USER

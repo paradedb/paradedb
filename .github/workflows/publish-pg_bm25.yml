@@ -42,10 +42,9 @@ jobs:
             ${{ runner.os }}-cargo-pgrx
             ${{ runner.os }}-cargo
 
-      - name: Retrieve GitHub Tag Version & Arch
+      - name: Retrieve GitHub Tag Version
         id: version
-        run: |
-          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Retrieve Arch
         id: arch
@@ -59,7 +58,7 @@ jobs:
               mapped_arch="$arch_val"
           fi
           echo "arch=$mapped_arch" >> $GITHUB_OUTPUT
-          
+
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
@@ -123,7 +122,7 @@ jobs:
           # Can't do underscore for package name
           echo 'Package: pg-bm25' >> ${package_dir}/DEBIAN/control
           echo 'Version:' ${deb_version} >> ${package_dir}/DEBIAN/control
-          echo 'Architecture: ${{ steps.arch.output.arch }}' >> ${package_dir}/DEBIAN/control
+          echo 'Architecture: ${{ steps.arch.outputs.arch }}' >> ${package_dir}/DEBIAN/control
           echo 'Maintainer: ParadeDB' >> ${package_dir}/DEBIAN/control
           echo 'Description: A PostgreSQL Extension' >> ${package_dir}/DEBIAN/control
 

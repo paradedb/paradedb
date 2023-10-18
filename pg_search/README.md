@@ -7,11 +7,7 @@
 
 ## Overview
 
-`pg_search` is a PostgreSQL extension that enables hybrid search in Postgres. Hybrid
-search is a search technique
-that combines BM25-based full text search with vector-based similarity search. It is built
-on top of `pg_bm25`, the leading full text search extension for Postgres, and `pgvector`,
-the leading vector similarity search extension for Postgres, using `pgrx`.
+`pg_search` is a PostgreSQL extension that enables hybrid search in Postgres. Hybrid search is a search technique that combines BM25-based full text search with vector-based similarity search. It is built on top of `pg_bm25`, the leading full text search extension for Postgres, and `pgvector`, the leading vector similarity search extension for Postgres, using `pgrx`.
 
 `pg_search` is supported on PostgreSQL 11+.
 
@@ -70,19 +66,15 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_search CASCADE;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to
-install `pg_search` until the Postgres service explicitly supports it and its
-dependencies.
+If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_search` until the Postgres service explicitly supports it and its dependencies.
 
 ## Usage
 
 ### Indexing
 
-By default, the `pg_search` extension creates a table called `paradedb.mock_items`
-that you can use for quick experimentation.
+By default, the `pg_search` extension creates a table called `paradedb.mock_items` that you can use for quick experimentation.
 
-To perform a hybrid search, you'll first need to create a BM25 and a HNSW index on
-your table. To index a table, use the following SQL command:
+To perform a hybrid search, you'll first need to create a BM25 and a HNSW index on your table. To index a table, use the following SQL command:
 
 ```sql
 CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
@@ -121,16 +113,13 @@ FROM mock_items
 ORDER BY score_hybrid DESC;
 ```
 
-Please refer to the [documentation](https://docs.paradedb.com/search/hybrid) for a more
-thorough overview of `pg_search`'s query support.
+Please refer to the [documentation](https://docs.paradedb.com/search/hybrid) for a more thorough overview of `pg_search`'s query support.
 
 ## Development
 
 ### Prerequisites
 
-Before developing the extension, ensure that you have Rust installed
-(version >1.70), ideally via `rustup` (we've observed issues with installing Rust
-via Homebrew on macOS).
+Before developing the extension, ensure that you have Rust installed (version >1.70), ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
 
 Then, install and initialize pgrx:
 
@@ -141,9 +130,7 @@ cargo pgrx init
 
 ### Running the Extension
 
-`pg_search` is built on top of two extensions: `pg_bm25` and `pgvector`. To install
-these two extensions, run the configure script. This must be done _after_ initializing
-pgrx:
+`pg_search` is built on top of two extensions: `pg_bm25` and `pgvector`. To install these two extensions, run the configure script. This must be done _after_ initializing pgrx:
 
 ```bash
 ./configure.sh
@@ -200,16 +187,9 @@ To run the integration test suite, simply run:
 ./test/runtests.sh -p threaded
 ```
 
-This will create a temporary database, initialize it with the SQL commands defined
-in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test,
-simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
-`/test/expected` for the expected output, and it will automatically get picked up
-by the test suite.
+This will create a temporary database, initialize it with the SQL commands defined in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test, simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to `/test/expected` for the expected output, and it will automatically get picked up by the test suite.
 
-Note: the bash script takes arguments and allows you to run tests either sequentially
-or in
-parallel.
-For more info run `./test/runtests.sh -h`
+Note: the bash script takes arguments and allows you to run tests either sequentially or in parallel. For more info run `./test/runtests.sh -h`
 
 ## License
 

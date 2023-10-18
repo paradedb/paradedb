@@ -112,6 +112,8 @@ jobs:
           deb_version=${{ steps.version.outputs.version }}
           mkdir -p ${package_dir}/DEBIAN
           touch ${package_dir}/DEBIAN/control
+
+          # this might need to be pg-bm25 
           echo 'Package: pg_bm25' >> ${package_dir}/DEBIAN/control
           echo 'Version:' ${deb_version} >> ${package_dir}/DEBIAN/control
           echo 'Architecture: $(uname -m)' >> ${package_dir}/DEBIAN/control

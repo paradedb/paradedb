@@ -1,0 +1,84 @@
+# workflows/publish-paradedb-to-dockerhub.yml
+#
+# ParadeDB: Publish to Docker Hub
+# Publish ParadeDB as a Docker image to Docker Hub. This workflow only runs after a GitHub Release gets
+# created, which happens once we merge to `main`.
+
+name: Publishing
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-paradedb-cloud-to-dockerhub-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-paradedb-cloud-to-dockerhub:
+    name: Publish ParadeDB to Docker Hub
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Retrieve GitHub Tag
+        id: version
+        run: |
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Configure Depot CLI
+        uses: depot/setup-action@v1
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+
+      - name: Build and Push Docker Image to Docker Hub
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          build-args: |
+            PG_VERSION_MAJOR=15
+            PG_BM25_VERSION=${{ steps.version.outputs.version }}
+            PGML_VERSION=2.7.8
+            PGVECTOR_VERSION=0.5.0
+            PGAUDIT_VERSION=1.7.0
+            PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
+            PG_NET_VERSION=0.7.2
+            PG_GRAPHQL_VERSION=1.3.0
+            PG_JSONSCHEMA_VERSION=0.1.4
+            PGNODEMX_VERSION=1.6
+            PG_CRON_VERSION=1.6.0
+            PG_IVM_VERSION=1.5.1
+            PG_HASHIDS_VERSION=1.2.1
+            PG_REPACK_VERSION=ver_1.4.8
+            PG_STAT_MONITOR_VERSION=2.0.1
+            PG_HINT_PLAN_VERSION=REL15_1_5_0
+            PG_ROARINGBITMAP_VERSION=0.5.4
+            PGFACETING_VERSION=0.1.0
+            PGTAP_VERSION=1.3.0
+            POSTGIS_VERSION=3.4.0
+            PGROUTING_VERSION=3.5.0
+            PGSQL_HTTP_VERSION=1.6.0
+            HYPOPG_VERSION=1.4.0
+            RUM_VERSION=1.3.13
+            AGE_VERSION=1.4.0-rc0
+            PATRONI_VERSION=2.1.7
+            BACKREST_VERSION=2.41
+            PGNODEMX_VERSION=1.6
+          platforms: linux/amd64,linux/arm64
+          file: docker/Dockerfile.cloud
+          push: true
+          project: ${{ secrets.DEPOT_PROJECT }}
+          token: ${{ secrets.DEPOT_TOKEN }}
+          tags: |
+            paradedb/paradedb-cloud:latest
+            paradedb/paradedb-cloud:${{ steps.version.outputs.tag }}
+            paradedb/paradedb-cloud:${{ steps.version.outputs.version }}

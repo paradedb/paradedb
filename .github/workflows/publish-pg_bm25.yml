@@ -47,6 +47,7 @@ jobs:
         run: |
           echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           echo "arch=$(uname -m)" >> $GITHUB_OUTPUT
+          echo $(uname -m)
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

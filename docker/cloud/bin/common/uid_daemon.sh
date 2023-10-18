@@ -15,7 +15,7 @@
 # limitations under the License.
 
 # Exit on subcommand errors
-set -euo pipefail
+set -Eeuo pipefail
 
 CRUNCHY_DIR=${CRUNCHY_DIR:-'/opt/crunchy'}
 

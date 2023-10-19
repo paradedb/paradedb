@@ -94,7 +94,7 @@ jobs:
           cp `find target/release -type f -name "pg_bm25*"` archive
 
           # name of the package directory before packaging
-          package_dir=pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-$(uname -m)-linux-gnu
+          package_dir=pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib

@@ -104,10 +104,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          extensions=$(jq -r 'keys[]' conf/third_party_pg_extensions.json)
+          extensions=$(jq -r '.extensions | keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do
-            version=$(jq -r ".[\"$ext\"].version" conf/third_party_pg_extensions.json)
-
+            version=$(jq -r ".extensions.\"$ext\".version" conf/third_party_pg_extensions.json)
+            url=$(jq -r ".extensions.\"$ext\".url" conf/third_party_pg_extensions.json)
+          
             echo $version
             echo $url
             echo $ext

@@ -130,12 +130,10 @@ jobs:
 
           # Create changelog file
           # TODO: update to use var for version
-          echo "pg_bm25 (0.0.1) stable; urgency=medium" >> ${package_dir}/debian/changelog
-          echo "" >> ${package_dir}/debian/changelog
+          echo "pg-bm25 (0.0.1-1) unstable; urgency=medium" > ${package_dir}/debian/changelog
           echo "  * See the changelog: https://github.com/paradedb/paradedb/releases/tag/v0.2.21" >> ${package_dir}/debian/changelog
-          echo "" >> ${package_dir}/debian/changelog
-          echo "-- ParadeDB <support@paradedb.com>  $(date -R)" >> ${package_dir}/debian/changelog
-
+          echo " -- ParadeDB <support@paradedb.com>  $(date -R)" >> ${package_dir}/debian/changelog
+          
           # Create rules file
           RULES_FILE="${package_dir}/debian/rules"
           echo "#!/usr/bin/make -f" >> $RULES_FILE

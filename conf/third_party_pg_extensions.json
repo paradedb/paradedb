@@ -1,9 +1,3 @@
-/*
-This file contains the list of third-party PostgreSQL extensions that are
-supported by ParadeDB. It is meant to be used as the source of truth for
-the versions of these extensions across the entire ParadeDB codebase.
-*/
-
 {
   extensions: {
     pgvector: {

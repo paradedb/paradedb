@@ -13,7 +13,7 @@ on:
       - phil/apt # TODO: remove this after testing
       - main
     paths:
-      - "conf/third_party_pg_extensions.json5"
+      - "conf/third_party_pg_extensions.json"
       - ".github/workflows/publish-third-party-pg_extensions.yml"
   workflow_dispatch:
 
@@ -23,11 +23,11 @@ concurrency:
 
 jobs:
   publish-third-party-pg_extensions:
-    name: Publish Third Party PostgreSQL Extensions for PostgreSQL ${{ matrix.pg_version }}
+    name: Publish Third-Party PostgreSQL Extensions for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [11, 12, 13, 14, 15]
+        pg_version: [15] # As of writing, we only publish for PostgreSQL 15
 
     steps:
       - name: Checkout Git Repository
@@ -80,9 +80,9 @@ jobs:
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
         run: |
-          extensions=$(jq -r 'keys[]' conf/third_party_pg_extensions.json5)
+          extensions=$(jq -r 'keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do
-            version=$(jq -r ".[\"$ext\"].version" third_party_pg_extensions.json5)
-            url=$(jq -r ".[\"$ext\"].url" third_party_pg_extensions.json5)
+            version=$(jq -r ".[\"$ext\"].version" third_party_pg_extensions.json)
+            url=$(jq -r ".[\"$ext\"].url" third_party_pg_extensions.json)
             ./scripts/build_and_deploy_third_party_pg_extensions.sh $ext $version $url
           done

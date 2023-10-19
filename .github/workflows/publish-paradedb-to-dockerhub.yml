@@ -47,9 +47,9 @@ jobs:
         id: retrieve_pgx_versions
         working-directory: ./conf
         run: |
-          extensions=$(jq -r 'keys[]' third_party_pg_extensions.json5)
+          extensions=$(jq -r 'keys[]' third_party_pg_extensions.json)
           for ext in $extensions; do
-            version=$(jq -r ".[\"$ext\"].version" third_party_pg_extensions.json5)
+            version=$(jq -r ".[\"$ext\"].version" third_party_pg_extensions.json)
             echo "${ext^^}_VERSION=$version" >> $GITHUB_OUTPUT
           done
 

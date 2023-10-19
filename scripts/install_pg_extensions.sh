@@ -15,10 +15,11 @@ sanitize_version() {
 }
 
 
+# TODO: Make this also work with pgrx extensions
 # Function to compile & package a single PostgreSQL extension as a .deb
 # Example:
 # install_pg_extension "pg_cron" "1.0.0" "https://github.com/citusdata/pg_cron/archive/refs/tags/v1.0.0.tar.gz"
-install_pg_extension() {
+build_and_package_pg_extension() {
   local PG_EXTENSION_NAME=$1
   local PG_EXTENSION_VERSION=$2
   local PG_EXTENSION_URL=$3
@@ -53,51 +54,44 @@ install_pg_extension() {
 }
 
 
+# TODO: Make this also work with pgrx extensions
+build_and_publish_pg_extension() {
+  local PG_EXTENSION_NAME=$1
+  local PG_EXTENSION_VERSION=$2
+  local PG_EXTENSION_URL=$3
+
+  # Check if the GitHub Release exists
+  release_url="https://github.com/paradedb/third-party-pg_extensions/releases/tag/$PG_EXTENSION_NAME-v$PG_EXTENSION_VERSION"
+  if curl --output /dev/null --silent --head --fail "$release_url"; then
+    echo "Release for $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION already exists, skipping..."
+  else
+    # Build and package the extension as a .deb
+    build_and_package_pg_extension "$PG_EXTENSION_NAME" "$PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
+
+    # TODO: Need to pass the GitHub Token
+    # Create a new GitHub release for the extension
+    release_response=$(curl -s -X POST https://api.github.com/repos/paradedb/third-party-pg_extensions/releases \
+        -H "Authorization: token $YOUR_GITHUB_TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{
+        "tag_name": "'"$PG_EXTENSION_NAME"'-v'"$PG_EXTENSION_VERSION"'",
+        "name": "'"$PG_EXTENSION_NAME"' v'"$PG_EXTENSION_VERSION"'",
+        "body": "Internal ParadeDB Release for '"$PG_EXTENSION_NAME"' version '"$PG_EXTENSION_VERSION"'. This release is not intended for public use."
+    }')
+    upload_url=$(echo "$release_response" | jq .upload_url --raw-output)
+
+    # TODO: Update the naming scheme to be conformant to how we do our own extensions
+    # Upload the .deb file to the newly created GitHub release
+    curl -X POST "$upload_url?name=$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb" \
+      -H "Authorization: token $YOUR_GITHUB_TOKEN" \
+      -H "Content-Type: application/vnd.DEBIAN.binary-package" \
+      --data-binary "@/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb"
+  fi
+}
+
+
 # Iterate over all arguments, which are expected to be comma-separated values of the format NAME,VERSION,URL
 for EXTENSION in "$@"; do
   IFS=',' read -ra EXTENSION_DETAILS <<< "$EXTENSION"
-  install_pg_extension "${EXTENSION_DETAILS[0]}" "${EXTENSION_DETAILS[1]}" "${EXTENSION_DETAILS[2]}"
+  build_and_publish_pg_extension "${EXTENSION_DETAILS[0]}" "${EXTENSION_DETAILS[1]}" "${EXTENSION_DETAILS[2]}"
 done
-
-
-
-      # - name: Create .deb Package
-      #   run: |
-      #     # Create installable package
-      #     mkdir archive
-      #     cp `find target/release -type f -name "pg_bm25*"` archive
-      #     package_dir=pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu
-
-      #     # Copy files into directory structure
-      #     mkdir -p ${package_dir}/usr/lib/postgresql/lib
-      #     mkdir -p ${package_dir}/var/lib/postgresql/extension
-      #     cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
-      #     cp archive/*.control ${package_dir}/var/lib/postgresql/extension
-      #     cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
-
-      #     # Symlinks to copy files into directory structure
-      #     mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-      #     mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
-      #     cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-      #     cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-      #     cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-
-      #     # Create control file (package name cannot have underscore)
-      #     mkdir -p ${package_dir}/DEBIAN
-      #     touch ${package_dir}/DEBIAN/control
-      #     deb_version=0.0.1
-      #     # TODO: uncomment this once ready to push deb_version=${{ steps.version.outputs.version }}
-      #     CONTROL_FILE="${package_dir}/DEBIAN/control"
-      #     echo 'Package: pg-bm25' >> $CONTROL_FILE
-      #     echo 'Version:' ${deb_version} >> $CONTROL_FILE
-      #     echo 'Architecture: ${{ steps.arch.outputs.arch }}' >> $CONTROL_FILE
-      #     echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-      #     echo 'Description: Full text search for PostgreSQL using BM25' >> $CONTROL_FILE
-
-      #     # Create .deb package
-      #     sudo chown -R root:root ${package_dir}
-      #     sudo chmod -R 00755 ${package_dir}
-      #     sudo dpkg-deb --build --root-owner-group ${package_dir}
-
-
-

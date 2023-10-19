@@ -18,8 +18,11 @@ concurrency:
 
 jobs:
   publish-paradedb-to-dockerhub:
-    name: Publish ParadeDB to Docker Hub
+    name: Publish ParadeDB for PostgreSQL ${{ matrix.pg_version }} to Docker Hub
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [15] # As of writing, we only publish for PostgreSQL 15
 
     steps:
       - name: Checkout Git Repository
@@ -40,36 +43,49 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
+      - name: Retrieve Third-Party PostgreSQL Extension Versions
+        id: retrieve_pgx_versions
+        working-directory: ./conf
+        run: |
+          while IFS=: read -r key value; do
+            key=$(echo $key | tr -d ' ')
+            value=$(echo $value | tr -d ' ')
+            if [[ ! -z "$key" && ! -z "$value" ]]; then
+              echo "${key}=${value}" >> $GITHUB_OUTPUT
+            fi
+          done < third_party_pg_extensions.yml
+
+      # TODO: Could make this not list one-by-one each extension
       - name: Build and Push Docker Image to Docker Hub
         uses: depot/build-push-action@v1
         with:
           context: .
           build-args: |
-            PG_VERSION_MAJOR=15
+            PG_VERSION_MAJOR=${{ matrix.pg_version }}
             PG_BM25_VERSION=${{ steps.version.outputs.version }}
-            PGML_VERSION=2.7.8
-            PGVECTOR_VERSION=0.5.0
-            PGAUDIT_VERSION=1.7.0
             PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
-            PG_NET_VERSION=0.7.2
-            PG_GRAPHQL_VERSION=1.3.0
-            PG_JSONSCHEMA_VERSION=0.1.4
-            PGNODEMX_VERSION=1.6
-            PG_CRON_VERSION=1.6.0
-            PG_IVM_VERSION=1.5.1
-            PG_HASHIDS_VERSION=1.2.1
-            PG_REPACK_VERSION=ver_1.4.8
-            PG_STAT_MONITOR_VERSION=2.0.1
-            PG_HINT_PLAN_VERSION=REL15_1_5_0
-            PG_ROARINGBITMAP_VERSION=0.5.4
-            PGFACETING_VERSION=0.1.0
-            PGTAP_VERSION=1.3.0
-            POSTGIS_VERSION=3.4.0
-            PGROUTING_VERSION=3.5.0
-            PGSQL_HTTP_VERSION=1.6.0
-            HYPOPG_VERSION=1.4.0
-            RUM_VERSION=1.3.13
-            AGE_VERSION=1.4.0-rc0
+            PGML_VERSION=${{ steps.retrieve_pgx_versions.outputs.PGML_VERSION }}
+            PGVECTOR_VERSION=${{ steps.retrieve_pgx_versions.outputs.PGVECTOR_VERSION }}
+            PGAUDIT_VERSION=${{ steps.retrieve_pgx_versions.outputs.PGAUDIT_VERSION }}
+            PG_NET_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_NET_VERSION }}
+            PG_GRAPHQL_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_GRAPHQL_VERSION }}
+            PG_JSONSCHEMA_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_JSONSCHEMA_VERSION }}
+            PGNODEMX_VERSION=${{ steps.retrieve_pgx_versions.outputs.PGNODEMX_VERSION }}
+            PG_CRON_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_CRON_VERSION }}
+            PG_IVM_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_IVM_VERSION }}
+            PG_HASHIDS_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_HASHIDS_VERSION }}
+            PG_REPACK_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_REPACK_VERSION }}
+            PG_STAT_MONITOR_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_STAT_MONITOR_VERSION }}
+            PG_HINT_PLAN_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_HINT_PLAN_VERSION }}
+            PG_ROARINGBITMAP_VERSION=${{ steps.retrieve_pgx_versions.outputs.PG_ROARINGBITMAP_VERSION }}
+            PGFACETING_VERSION=${{ steps.retrieve_pgx_versions.outputs.PGFACETING_VERSION }}
+            PGTAP_VERSION=${{ steps.retrieve_pgx_versions.outputs.PGTAP_VERSION }}
+            POSTGIS_VERSION=${{ steps.retrieve_pgx_versions.outputs.POSTGIS_VERSION }}
+            PGROUTING_VERSION=${{ steps.retrieve_pgx_versions.outputs.PGROUTING_VERSION }}
+            PGSQL_HTTP_VERSION=${{ steps.retrieve_pgx_versions.outputs.PGSQL_HTTP_VERSION }}
+            HYPOPG_VERSION=${{ steps.retrieve_pgx_versions.outputs.HYPOPG_VERSION }}
+            RUM_VERSION=${{ steps.retrieve_pgx_versions.outputs.RUM_VERSION }}
+            AGE_VERSION=${{ steps.retrieve_pgx_versions.outputs.AGE_VERSION }}
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

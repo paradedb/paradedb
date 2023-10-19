@@ -142,11 +142,8 @@ RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSI
 
 FROM builder as builder-others
 
-COPY scripts/install_pg_extensions.sh /usr/local/bin/
-
-# Compile and install extensions from source
-RUN /usr/local/bin/install_pg_extensions.sh \
-    "pgvector,${PGVECTOR_VERSION},https://github.com/pgvector/pgvector/archive/refs/tags/v${PGVECTOR_VERSION}.tar.gz"
+# Install pre-compiled extensions
+RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PGVECTOR_VERSION}/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgvector.deb
 
 ###############################################
 # Third Stage: PostgreSQL

@@ -79,11 +79,9 @@ jobs:
 
       # rum, pgaudit, postgis, AGE requirements
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
-        env:
-          USE_PGXS: 1
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            checkinstall \  
+            checkinstall \
             systemtap-sdt-dev \
             libkrb5-dev \
             libgeos-dev \
@@ -104,6 +102,7 @@ jobs:
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          USE_PGXS: 1
         run: |
           extensions=$(jq -r '.extensions | keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do

@@ -81,12 +81,10 @@ jobs:
         env:
           USE_PGXS: 1
         run: |
+          # rum, pgaudit, postgis, AGE requirements
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            # rum requirements
             systemtap-sdt-dev \
-            # pgaudit requirements
             libkrb5-dev \
-            # postgis requirements
             libgeos-dev \
             libproj-dev \
             libprotobuf-c-dev \
@@ -99,7 +97,6 @@ jobs:
             libtool \
             xsltproc \
             protobuf-c-compiler \
-            # AGE
             zlib1g-dev
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)

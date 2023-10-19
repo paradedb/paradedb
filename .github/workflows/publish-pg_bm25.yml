@@ -113,27 +113,27 @@ jobs:
           # Create install control file
           # TODO: uncomment this once ready to push deb_version=${{ steps.version.outputs.version }}
           deb_version=0.0.1
-          mkdir -p ${package_dir}/DEBIAN
-          touch ${package_dir}/DEBIAN/control
-          touch ${package_dir}/DEBIAN/changelog
-          touch ${package_dir}/DEBIAN/rules
+          mkdir -p ${package_dir}/debian
+          touch ${package_dir}/debian/control
+          touch ${package_dir}/debian/changelog
+          touch ${package_dir}/debian/rules
 
           # Create control file
           # Can't do underscore for package name
-          echo 'Package: pg-bm25' >> ${package_dir}/DEBIAN/control
-          echo 'Version:' ${deb_version} >> ${package_dir}/DEBIAN/control
-          echo 'Architecture: ${{ steps.arch.outputs.arch }}' >> ${package_dir}/DEBIAN/control
-          echo 'Maintainer: ParadeDB' >> ${package_dir}/DEBIAN/control
-          echo 'Description: A PostgreSQL Extension' >> ${package_dir}/DEBIAN/control
+          echo 'Package: pg-bm25' >> ${package_dir}/debian/control
+          echo 'Version:' ${deb_version} >> ${package_dir}/debian/control
+          echo 'Architecture: ${{ steps.arch.outputs.arch }}' >> ${package_dir}/debian/control
+          echo 'Maintainer: ParadeDB' >> ${package_dir}/debian/control
+          echo 'Description: A PostgreSQL Extension' >> ${package_dir}/debian/control
 
           # Create changelog file
           # TODO: update to use var for version
-          echo "pg_bm25 (0.0.1) stable; urgency=medium" >> ${package_dir}/DEBIAN/changelog
-          echo "  * See the changelog: https://github.com/paradedb/paradedb/releases/tag/v0.2.21" >> ${package_dir}/DEBIAN/changelog
-          echo " -- ParadeDB <support@paradedb.com>  $(date +'%Y-%m-%d')" >> ${package_dir}/DEBIAN/changelog
+          echo "pg_bm25 (0.0.1) stable; urgency=medium" >> ${package_dir}/debian/changelog
+          echo "  * See the changelog: https://github.com/paradedb/paradedb/releases/tag/v0.2.21" >> ${package_dir}/debian/changelog
+          echo " -- ParadeDB <support@paradedb.com>  $(date +'%Y-%m-%d')" >> ${package_dir}/debian/changelog
 
           # Create rules file
-          RULES_FILE="${package_dir}/DEBIAN/rules"
+          RULES_FILE="${package_dir}/debian/rules"
           echo "#!/usr/bin/make -f" > $RULES_FILE
           echo "" >> $RULES_FILE
           echo "# Uncomment the following line to see the commands being executed" >> $RULES_FILE
@@ -156,7 +156,7 @@ jobs:
           echo "	dh \$@" >> $RULES_FILE
 
           # Make rules file executable
-          chmod +x ${package_dir}/DEBIAN/rules
+          chmod +x ${package_dir}/debian/rules
 
           # Create deb package
           sudo chown -R root:root ${package_dir}
@@ -168,11 +168,11 @@ jobs:
           PRIVATE_GPG_KEY: ${{ secrets.APT_PPA_OPENPGP_KEY }}
           PASSPHRASE: ${{ secrets.APT_PPA_OPENPGP_KEY_PASSPHRASE }}
         run: |
-          # Ensure the .gnupg directory exists
-          mkdir -p ~/.gnupg
+          # # Ensure the .gnupg directory exists
+          # mkdir -p ~/.gnupg
 
-          # Ensure gpg-agent.conf exists before appending to it
-          touch ~/.gnupg/gpg-agent.conf
+          # # Ensure gpg-agent.conf exists before appending to it
+          # touch ~/.gnupg/gpg-agent.conf
 
           # Configure GPG to use the passphrase from the environment variable
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf

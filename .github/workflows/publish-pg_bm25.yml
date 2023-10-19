@@ -111,12 +111,12 @@ jobs:
           # Create install control file
           # TODO: uncomment this once ready to push deb_version=${{ steps.version.outputs.version }}
           deb_version=0.0.1
-          mkdir -p ${package_dir}/debian
-          touch ${package_dir}/debian/control
+          mkdir -p ${package_dir}/DEBIAN
+          touch ${package_dir}/DEBIAN/control
 
           # Create control file
           # Can't do underscore for package name
-          CONTROL_FILE="${package_dir}/debian/control"
+          CONTROL_FILE="${package_dir}/DEBIAN/control"
           echo 'Source: pg-bm25' >> $CONTROL_FILE
           echo 'Package: pg-bm25' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
@@ -141,4 +141,4 @@ jobs:
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu.deb
           asset_name: pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu.deb
-          asset_content_type: application/vnd.debian.binary-package
+          asset_content_type: application/vnd.DEBIAN.binary-package

@@ -48,7 +48,7 @@ pub extern "C" fn amrescan(
     scan: pg_sys::IndexScanDesc,
     keys: pg_sys::ScanKey,
     nkeys: ::std::os::raw::c_int,
-    _orderbys: pg_sys::ScanKey,
+    orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
 ) {
     // Convert the raw pointer to a safe wrapper. This action takes ownership of the object
@@ -58,11 +58,24 @@ pub extern "C" fn amrescan(
     // Extract the scan state from the opaque field of the scan descriptor.
     let state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");
 
+    state.results = vec![];
     state.current = 0;
+
+    if !orderbys.is_null() && (*scan).numberOfOrderBys > 0 {
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                orderbys,
+                (*scan).orderByData,
+                ((*scan).numberOfOrderBys * std::mem::size_of::<pg_sys::ScanKeyData>() as i32) as usize,
+            )
+        };
+    }
 }
 
 #[pg_guard]
-pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {}
+pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {
+    scandesc.opaque = std::ptr::null_mut();
+}
 
 #[pg_guard]
 pub extern "C" fn amgettuple(
@@ -72,10 +85,10 @@ pub extern "C" fn amgettuple(
     // Extract the scan state from the opaque field of the scan descriptor.
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");
+    let order_by_data = unsafe { (scan.orderByData).as_mut() }.expect("No orderByData state");
 
     // Obtain the query vector
-    let sk_argument: Option<Sparse> =
-        unsafe { FromDatum::from_datum((*scan.orderByData).sk_argument, false) };
+    let sk_argument: Option<Sparse> = unsafe { FromDatum::from_datum(order_by_data.sk_argument, false) };
     let sparse_vector = sk_argument.expect("Could not parse query vector");
 
     // First scan

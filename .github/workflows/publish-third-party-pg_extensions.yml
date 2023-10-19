@@ -77,11 +77,11 @@ jobs:
       - name: Initialize pgrx for Current PostgreSQL Version
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
+      # rum, pgaudit, postgis, AGE requirements
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         env:
           USE_PGXS: 1
         run: |
-          # rum, pgaudit, postgis, AGE requirements
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
             systemtap-sdt-dev \
             libkrb5-dev \

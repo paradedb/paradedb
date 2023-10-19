@@ -120,11 +120,12 @@ jobs:
 
           # Create control file
           # Can't do underscore for package name
-          echo 'Package: pg-bm25' >> ${package_dir}/debian/control
-          echo 'Version:' ${deb_version} >> ${package_dir}/debian/control
-          echo 'Architecture: ${{ steps.arch.outputs.arch }}' >> ${package_dir}/debian/control
-          echo 'Maintainer: ParadeDB' >> ${package_dir}/debian/control
-          echo 'Description: A PostgreSQL Extension' >> ${package_dir}/debian/control
+          CONTROL_FILE="${package_dir}/debian/control"
+          echo 'Package: pg-bm25' >> $CONTROL_FILE
+          echo 'Version:' ${deb_version} >> $CONTROL_FILE
+          echo 'Architecture: ${{ steps.arch.outputs.arch }}' >> $CONTROL_FILE
+          echo 'Maintainer: ParadeDB' >> $CONTROL_FILE
+          echo 'Description: A PostgreSQL Extension' >> $CONTROL_FILE
 
           # Create changelog file
           # TODO: update to use var for version
@@ -134,7 +135,7 @@ jobs:
 
           # Create rules file
           RULES_FILE="${package_dir}/debian/rules"
-          echo "#!/usr/bin/make -f" > $RULES_FILE
+          echo "#!/usr/bin/make -f" >> $RULES_FILE
           echo "" >> $RULES_FILE
           echo "# Uncomment the following line to see the commands being executed" >> $RULES_FILE
           echo "# export DH_VERBOSE=1" >> $RULES_FILE
@@ -158,12 +159,8 @@ jobs:
           # Make rules file executable
           chmod +x ${package_dir}/debian/rules
 
-          # Create deb package
-          sudo chown -R root:root ${package_dir}
-          sudo chmod -R 00755 ${package_dir}
-          sudo dpkg-deb --build --root-owner-group ${package_dir}
-
       - name: Upload to APT PPA
+        working-directory: pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu
         env:
           PRIVATE_GPG_KEY: ${{ secrets.APT_PPA_OPENPGP_KEY }}
           PASSPHRASE: ${{ secrets.APT_PPA_OPENPGP_KEY_PASSPHRASE }}
@@ -173,6 +170,7 @@ jobs:
 
           # # Ensure gpg-agent.conf exists before appending to it
           # touch ~/.gnupg/gpg-agent.conf
+          # chmod 700 ~/.gnupg
 
           # Configure GPG to use the passphrase from the environment variable
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf

@@ -114,7 +114,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install cargo-pgrx --version 0.10.1 && \
+RUN cargo install cargo-pgrx --version 0.11.0 && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################

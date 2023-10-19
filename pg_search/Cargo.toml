@@ -19,8 +19,8 @@ pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg_test = []
 
 [dependencies]
-pgrx = "=0.10.1"
+pgrx = "=0.11.0"
 serde = "1.0.188"
 
 [dev-dependencies]
-pgrx-tests = "=0.10.1"
+pgrx-tests = "=0.11.0"

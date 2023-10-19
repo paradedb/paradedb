@@ -220,7 +220,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3f9629bc6c4388ea699781dc988c2b99766d7679b151c81990b4fa1208fafd3"
 dependencies = [
  "serde",
- "toml 0.7.8",
+ "toml",
 ]
 
 [[package]]
@@ -1310,9 +1310,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2c4fe036f9493e674a7db27f7a06d54acb89735a0c1d4421128c341d3cf240f"
+checksum = "bd3c4b36fbe84329b86c83bfd33b9514a50606f00074f47085f99062a7dd8c9c"
 dependencies = [
  "atomic-traits",
  "bitflags 2.4.0",
@@ -1335,9 +1335,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "943f9e2f46585b8f4540c72e26b079303b3520f8de0da090f96acaabe3f99e28"
+checksum = "9c6a41e021321a814fac1aa27bd4266208b4507709ecbc28fc99693adfbd0c41"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -1347,9 +1347,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a48800161320294c5a5ab72d38235e2e97f3bf1849661ee977502c8e64362285"
+checksum = "17da1e26800e747d501b8d8bb8aeee4530a07d93a39c3fb2c4229a8feff213b2"
 dependencies = [
  "cargo_toml",
  "dirs",
@@ -1359,15 +1359,15 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "toml 0.8.2",
+ "toml",
  "url",
 ]
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "27dd6c4f2f098f62b5a8f07cf6447f640ce81637d20f269662a043a55195ed9d"
+checksum = "f9032b517525ec71579cc68e92905b5f5f63e892c094834202313c42f2f1a669"
 dependencies = [
  "bindgen",
  "eyre",
@@ -1387,9 +1387,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e7514a083c8c062f8bb9f53ced124f120515af3b49b92a57305e749ec736f98c"
+checksum = "2e4a88203974b887bca8bfdea17ab9936411fb7e84957763dc0124df78d07907"
 dependencies = [
  "convert_case",
  "eyre",
@@ -1402,9 +1402,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a71327ab5e5ddbc2d43ffad391ce515a358096c3713b360b57c5eec107d1cb7"
+checksum = "c80deb4310538e6ef14f4cbb30b56eb24b6d7aae66bfd4e516f153987159e65e"
 dependencies = [
  "clap-cargo",
  "eyre",
@@ -2287,19 +2287,7 @@ dependencies = [
  "serde",
  "serde_spanned",
  "toml_datetime",
- "toml_edit 0.19.15",
-]
-
-[[package]]
-name = "toml"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "185d8ab0dfbb35cf1399a6344d8484209c088f75f8f68230da55d48d95d43e3d"
-dependencies = [
- "serde",
- "serde_spanned",
- "toml_datetime",
- "toml_edit 0.20.2",
+ "toml_edit",
 ]
 
 [[package]]
@@ -2309,19 +2297,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7cda73e2f1397b1262d6dfdcef8aafae14d1de7748d66822d3bfeeb6d03e5e4b"
 dependencies = [
  "serde",
-]
-
-[[package]]
-name = "toml_edit"
-version = "0.20.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "396e4d48bbb2b7554c944bde63101b5ae446cff6ec4a24227428f15eb72ef338"
-dependencies = [
- "indexmap",
- "serde",
- "serde_spanned",
- "toml_datetime",
- "winnow",
 ]
 
 [[package]]

@@ -107,6 +107,11 @@ jobs:
           extensions=$(jq -r 'keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do
             version=$(jq -r ".[\"$ext\"].version" conf/third_party_pg_extensions.json)
+
+            echo $version
+            echo $url
+            echo $ext
+
             url=$(jq -r ".[\"$ext\"].url" conf/third_party_pg_extensions.json)
             ./scripts/build_and_deploy_third_party_pg_extensions.sh "$ext,$version,$url"
           done

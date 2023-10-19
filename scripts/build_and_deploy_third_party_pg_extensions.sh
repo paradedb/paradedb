@@ -18,7 +18,7 @@ sanitize_version() {
 # TODO: Make this also work with pgrx extensions
 # Function to compile & package a single PostgreSQL extension as a .deb
 # Example:
-# install_pg_extension "pg_cron" "1.0.0" "https://github.com/citusdata/pg_cron/archive/refs/tags/v1.0.0.tar.gz"
+# build_and_package_pg_extension "pg_cron" "1.0.0" "https://github.com/citusdata/pg_cron/archive/refs/tags/v1.0.0.tar.gz"
 build_and_package_pg_extension() {
   local PG_EXTENSION_NAME=$1
   local PG_EXTENSION_VERSION=$2
@@ -55,6 +55,9 @@ build_and_package_pg_extension() {
 
 
 # TODO: Make this also work with pgrx extensions
+# Function to build & publish a single PostgreSQL extension to GitHub Releases
+# Example:
+# build_and_publish_pg_extension "pg_cron" "1.0.0" "https://github.com/citusdata/pg_cron/archive/refs/tags/v1.0.0.tar.gz"
 build_and_publish_pg_extension() {
   local PG_EXTENSION_NAME=$1
   local PG_EXTENSION_VERSION=$2

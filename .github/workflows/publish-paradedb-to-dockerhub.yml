@@ -47,13 +47,11 @@ jobs:
         id: retrieve_pgx_versions
         working-directory: ./conf
         run: |
-          while IFS=: read -r key value; do
-            key=$(echo $key | tr -d ' ')
-            value=$(echo $value | tr -d ' ')
-            if [[ ! -z "$key" && ! -z "$value" ]]; then
-              echo "${key}=${value}" >> $GITHUB_OUTPUT
-            fi
-          done < third_party_pg_extensions.yml
+          extensions=$(jq -r 'keys[]' third_party_pg_extensions.json5)
+          for ext in $extensions; do
+            version=$(jq -r ".[\"$ext\"].version" third_party_pg_extensions.json5)
+            echo "${ext^^}_VERSION=$version" >> $GITHUB_OUTPUT
+          done
 
       # TODO: Could make this not list one-by-one each extension
       - name: Build and Push Docker Image to Docker Hub

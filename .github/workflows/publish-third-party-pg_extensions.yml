@@ -13,7 +13,7 @@ on:
       - phil/apt # TODO: remove this after testing
       - main
     paths:
-      - "conf/third_party_pg_extensions.yml"
+      - "conf/third_party_pg_extensions.json5"
       - ".github/workflows/publish-third-party-pg_extensions.yml"
   workflow_dispatch:
 
@@ -62,6 +62,14 @@ jobs:
           fi
           echo "arch=$mapped_arch" >> $GITHUB_OUTPUT
 
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
       - name: Install pgrx
         if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: cargo install cargo-pgrx --version 0.9.8
@@ -69,72 +77,12 @@ jobs:
       - name: Initialize pgrx for Current PostgreSQL Version
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      - name: Retrieve Third-Party PostgreSQL Extension Versions
-        id: retrieve_pgx_versions
-        working-directory: conf/
-        run: |
-          while IFS=: read -r key value; do
-            key=$(echo $key | tr -d ' ')
-            value=$(echo $value | tr -d ' ')
-            if [[ ! -z "$key" && ! -z "$value" ]]; then
-              echo "${key}=${value}" >> $GITHUB_OUTPUT
-            fi
-          done < third_party_pg_extensions.yml
-
-      # TODO: Could make this not list one-by-one each extension
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
-        working-directory: scripts/
-        env:
-          PGML_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PGML_VERSION }}
-          PGVECTOR_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PGVECTOR_VERSION }}
-          PGAUDIT_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PGAUDIT_VERSION }}
-          PG_NET_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_NET_VERSION }}
-          PG_GRAPHQL_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_GRAPHQL_VERSION }}
-          PG_JSONSCHEMA_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_JSONSCHEMA_VERSION }}
-          PGNODEMX_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PGNODEMX_VERSION }}
-          PG_CRON_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_CRON_VERSION }}
-          PG_IVM_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_IVM_VERSION }}
-          PG_HASHIDS_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_HASHIDS_VERSION }}
-          PG_REPACK_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_REPACK_VERSION }}
-          PG_STAT_MONITOR_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_STAT_MONITOR_VERSION }}
-          PG_HINT_PLAN_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_HINT_PLAN_VERSION }}
-          PG_ROARINGBITMAP_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PG_ROARINGBITMAP_VERSION }}
-          PGFACETING_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PGFACETING_VERSION }}
-          PGTAP_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PGTAP_VERSION }}
-          POSTGIS_VERSION: ${{ steps.retrieve_pgx_versions.outputs.POSTGIS_VERSION }}
-          PGROUTING_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PGROUTING_VERSION }}
-          PGSQL_HTTP_VERSION: ${{ steps.retrieve_pgx_versions.outputs.PGSQL_HTTP_VERSION }}
-          HYPOPG_VERSION: ${{ steps.retrieve_pgx_versions.outputs.HYPOPG_VERSION }}
-          RUM_VERSION: ${{ steps.retrieve_pgx_versions.outputs.RUM_VERSION }}
-          AGE_VERSION: ${{ steps.retrieve_pgx_versions.outputs.AGE_VERSION }}
         run: |
-
-
-
-
-          # Check if a release exist for the repo for the extension+version pair
-          # if yes, do nothing
-          # otherwise, create a release, build the extension, retrieve the url, and upload it
-          # repeat over all extensions
-
-
-
-          # Each of them should be released independently, so they can be checked independently
-
-
-          # For each extension listed here, build and package in the script!
-
-      - name: Retrieve GitHub Release Upload URL
-        id: upload_url
-        run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/latest | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
-
-      - name: Upload pg_bm25 .deb to GitHub Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-        with:
-          upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu.deb
-          asset_name: pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu.deb
-          asset_content_type: application/vnd.DEBIAN.binary-package
+          extensions=$(jq -r 'keys[]' conf/third_party_pg_extensions.json5)
+          for ext in $extensions; do
+            version=$(jq -r ".[\"$ext\"].version" third_party_pg_extensions.json5)
+            url=$(jq -r ".[\"$ext\"].url" third_party_pg_extensions.json5)
+            ./scripts/build_and_deploy_third_party_pg_extensions.sh $ext $version $url
+          done

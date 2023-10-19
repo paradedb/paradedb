@@ -82,7 +82,7 @@ jobs:
         run: |
           extensions=$(jq -r 'keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do
-            version=$(jq -r ".[\"$ext\"].version" third_party_pg_extensions.json)
-            url=$(jq -r ".[\"$ext\"].url" third_party_pg_extensions.json)
+            version=$(jq -r ".[\"$ext\"].version" conf/third_party_pg_extensions.json)
+            url=$(jq -r ".[\"$ext\"].url" conf/third_party_pg_extensions.json)
             ./scripts/build_and_deploy_third_party_pg_extensions.sh $ext $version $url
           done

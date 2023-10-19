@@ -79,6 +79,8 @@ jobs:
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
           extensions=$(jq -r 'keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do

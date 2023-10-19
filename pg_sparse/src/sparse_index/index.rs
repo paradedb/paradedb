@@ -2,19 +2,28 @@ use pgrx::*;
 
 use crate::sparse_index::sparse::Sparse;
 
+#[derive(Debug, Clone)]
+pub struct HNSWMeta {
+    dim: usize,
+    m: usize,
+    ef_construction: usize,
+    ef_search: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct SparseIndex {
-    pub name: String,
+    pub index_name: String,
+    pub meta: Option<HNSWMeta>
 }
 
 impl SparseIndex {
-    pub fn new(name: String) -> Self {
+    pub fn new(index_name: String, meta: Option<HNSWMeta>) -> Self {
         info!("TODO: Create HNSW index");
-        Self { name: name }
+        Self { index_name, meta }
     }
 
     pub fn from_index_name(name: String) -> Self {
-        info!("TODO: Retrieve HNSW index");
-        Self { name: name }
+        Self { index_name: name, meta: None }
     }
 
     pub fn insert(&mut self, sparse_vector: Sparse, heap_tid: pg_sys::ItemPointerData) {
@@ -24,7 +33,7 @@ impl SparseIndex {
         );
     }
 
-    pub fn search(self, sparse_vector: Sparse) -> Vec<pg_sys::ItemPointerData> {
+    pub fn search(&self, sparse_vector: &Sparse, k: usize) -> Vec<u64> {
         info!(
             "TODO: Implement HNSW search to return results sorted by ID {:?}",
             sparse_vector
@@ -38,6 +47,6 @@ impl SparseIndex {
         callback: pg_sys::IndexBulkDeleteCallback,
         callback_state: *mut ::std::os::raw::c_void,
     ) {
-        info!("TODO: Implement delete")
+        info!("TODO: Implement delete");
     }
 }

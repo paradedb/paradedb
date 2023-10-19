@@ -63,9 +63,6 @@ build_and_publish_pg_extension() {
   local PG_EXTENSION_VERSION=$2
   local PG_EXTENSION_URL=$3
 
-  # Read the GitHub Token from the environment
-  YOUR_GITHUB_TOKEN=$GHA_CREATE_RELEASE_PATH
-
   # Check if the GitHub Release exists
   release_url="https://github.com/paradedb/third-party-pg_extensions/releases/tag/$PG_EXTENSION_NAME-v$PG_EXTENSION_VERSION"
   if curl --output /dev/null --silent --head --fail "$release_url"; then
@@ -76,7 +73,7 @@ build_and_publish_pg_extension() {
 
     # Create a new GitHub release for the extension. Note, the GitHub token is read from the CI environment
     release_response=$(curl -s -X POST https://api.github.com/repos/paradedb/third-party-pg_extensions/releases \
-        -H "Authorization: token $GHA_CREATE_RELEASE_PATH" \
+        -H "Authorization: token $GHA_CREATE_RELEASE_PAT" \
         -H "Content-Type: application/json" \
         -d '{
         "tag_name": "'"$PG_EXTENSION_NAME"'-v'"$PG_EXTENSION_VERSION"'",
@@ -88,7 +85,7 @@ build_and_publish_pg_extension() {
     # TODO: Update the naming scheme to be conformant to how we do our own extensions
     # Upload the .deb file to the newly created GitHub release
     curl -X POST "$upload_url?name=$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb" \
-      -H "Authorization: token $GHA_CREATE_RELEASE_PATH" \
+      -H "Authorization: token $GHA_CREATE_RELEASE_PAT" \
       -H "Content-Type: application/vnd.DEBIAN.binary-package" \
       --data-binary "@/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb"
   fi

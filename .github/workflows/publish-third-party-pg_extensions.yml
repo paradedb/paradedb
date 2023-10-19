@@ -77,6 +77,31 @@ jobs:
       - name: Initialize pgrx for Current PostgreSQL Version
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
+      - name: Install Third-Party PostgreSQL Extension Build Dependencies
+        env:
+          USE_PGXS: 1
+        run: |
+          sudo apt-get update && apt-get install -y --no-install-recommends \
+            # rum requirements
+            systemtap-sdt-dev \
+            # pgaudit requirements
+            libkrb5-dev \
+            # postgis requirements
+            libgeos-dev \
+            libproj-dev \
+            libprotobuf-c-dev \
+            libsfcgal-dev \
+            libxml2-dev \
+            libjson-c-dev \
+            libgdal-dev \
+            gdal-bin \
+            gettext \
+            libtool \
+            xsltproc \
+            protobuf-c-compiler \
+            # AGE
+            zlib1g-dev
+
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
         env:

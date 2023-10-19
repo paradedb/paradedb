@@ -186,31 +186,6 @@ FROM builder as builder-others
 
 ARG TARGETARCH
 
-ENV USE_PGXS=1
-
-# TODO: Move these to be in the build script instead
-RUN apt-get update && apt-fast install -y --no-install-recommends \
-    # rum requirements
-    systemtap-sdt-dev \
-    # pgaudit requirements
-    libkrb5-dev \
-    # postgis requirements
-    libgeos-dev \
-    libproj-dev \
-    libprotobuf-c-dev \
-    libsfcgal-dev \
-    libxml2-dev \
-    libjson-c-dev \
-    libgdal-dev \
-    gdal-bin \
-    gettext \
-    libtool \
-    xsltproc \
-    protobuf-c-compiler \
-    # AGE
-    zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
-
 # Install pre-compiled extensions
 RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PGVECTOR_VERSION}/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgvector.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/${PGAUDIT_VERSION}/pgaudit-${PGAUDIT_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgaudit.deb && \

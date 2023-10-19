@@ -6,6 +6,7 @@ use crate::sparse_index::sparse::Sparse;
 // TODO: Enable this to be configured
 const DEFAULT_EF_SEARCH: usize = 10;
 
+#[derive(Debug)]
 struct ScanState {
     pub index: SparseIndex,
     pub results: Vec<u64>,
@@ -66,7 +67,8 @@ pub extern "C" fn amrescan(
             std::ptr::copy_nonoverlapping(
                 orderbys,
                 (*scan).orderByData,
-                ((*scan).numberOfOrderBys * std::mem::size_of::<pg_sys::ScanKeyData>() as i32) as usize,
+                ((*scan).numberOfOrderBys * std::mem::size_of::<pg_sys::ScanKeyData>() as i32)
+                    as usize,
             )
         };
     }
@@ -74,7 +76,7 @@ pub extern "C" fn amrescan(
 
 #[pg_guard]
 pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {
-    scandesc.opaque = std::ptr::null_mut();
+    info!("end scan");
 }
 
 #[pg_guard]
@@ -84,16 +86,17 @@ pub extern "C" fn amgettuple(
 ) -> bool {
     // Extract the scan state from the opaque field of the scan descriptor.
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
-    let state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");
+    let mut state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");
     let order_by_data = unsafe { (scan.orderByData).as_mut() }.expect("No orderByData state");
 
     // Obtain the query vector
-    let sk_argument: Option<Sparse> = unsafe { FromDatum::from_datum(order_by_data.sk_argument, false) };
+    let sk_argument: Option<Sparse> =
+        unsafe { FromDatum::from_datum(order_by_data.sk_argument, false) };
     let sparse_vector = sk_argument.expect("Could not parse query vector");
 
     // First scan
     if state.current == 0 {
-        state.results = state.index.search(&sparse_vector.clone(), state.k);
+        state.results = state.index.search(&sparse_vector, state.k);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }
@@ -106,7 +109,7 @@ pub extern "C" fn amgettuple(
 
         state.k *= 2;
 
-        state.results = state.index.search(&sparse_vector.clone(), state.k);
+        state.results = state.index.search(&sparse_vector, state.k);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }

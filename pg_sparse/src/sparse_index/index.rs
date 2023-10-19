@@ -13,7 +13,7 @@ pub struct HNSWMeta {
 #[derive(Debug, Clone)]
 pub struct SparseIndex {
     pub index_name: String,
-    pub meta: Option<HNSWMeta>
+    pub meta: Option<HNSWMeta>,
 }
 
 impl SparseIndex {
@@ -23,7 +23,10 @@ impl SparseIndex {
     }
 
     pub fn from_index_name(name: String) -> Self {
-        Self { index_name: name, meta: None }
+        Self {
+            index_name: name,
+            meta: None,
+        }
     }
 
     pub fn insert(&mut self, sparse_vector: Sparse, heap_tid: pg_sys::ItemPointerData) {

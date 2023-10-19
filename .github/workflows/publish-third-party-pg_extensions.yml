@@ -81,7 +81,7 @@ jobs:
         env:
           USE_PGXS: 1
         run: |
-          sudo apt-get update && apt-get install -y --no-install-recommends \
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
             # rum requirements
             systemtap-sdt-dev \
             # pgaudit requirements

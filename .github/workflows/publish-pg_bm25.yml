@@ -7,8 +7,6 @@ name: Publishing
 
 on:
   push:
-    branches:
-      - phil/apt # TODO: remove this after testing
     tags:
       - "v*"
   workflow_dispatch:
@@ -23,8 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        # pg_version: [11, 12, 13, 14, 15]
-        pg_version: [15]
+        pg_version: [11, 12, 13, 14, 15]
 
     steps:
       - name: Checkout Git Repository
@@ -75,11 +72,9 @@ jobs:
         working-directory: pg_bm25/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      # TODO: Update this when it is finished testing
       - name: Update Version in Cargo.toml
         working-directory: pg_bm25/
-        # run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
-        run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"0.0.1\"/" Cargo.toml
+        run: sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
 
       - name: Package pg_bm25 Extension with pgrx
         working-directory: pg_bm25/
@@ -109,8 +104,7 @@ jobs:
           # Create control file (package name cannot have underscore)
           mkdir -p ${package_dir}/DEBIAN
           touch ${package_dir}/DEBIAN/control
-          deb_version=0.0.1
-          # TODO: uncomment this once ready to push deb_version=${{ steps.version.outputs.version }}
+          deb_version=${{ steps.version.outputs.version }}
           CONTROL_FILE="${package_dir}/DEBIAN/control"
           echo 'Package: pg-bm25' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE

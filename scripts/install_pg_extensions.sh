@@ -58,3 +58,46 @@ for EXTENSION in "$@"; do
   IFS=',' read -ra EXTENSION_DETAILS <<< "$EXTENSION"
   install_pg_extension "${EXTENSION_DETAILS[0]}" "${EXTENSION_DETAILS[1]}" "${EXTENSION_DETAILS[2]}"
 done
+
+
+
+      # - name: Create .deb Package
+      #   run: |
+      #     # Create installable package
+      #     mkdir archive
+      #     cp `find target/release -type f -name "pg_bm25*"` archive
+      #     package_dir=pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu
+
+      #     # Copy files into directory structure
+      #     mkdir -p ${package_dir}/usr/lib/postgresql/lib
+      #     mkdir -p ${package_dir}/var/lib/postgresql/extension
+      #     cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
+      #     cp archive/*.control ${package_dir}/var/lib/postgresql/extension
+      #     cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
+
+      #     # Symlinks to copy files into directory structure
+      #     mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
+      #     mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
+      #     cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
+      #     cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+      #     cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
+
+      #     # Create control file (package name cannot have underscore)
+      #     mkdir -p ${package_dir}/DEBIAN
+      #     touch ${package_dir}/DEBIAN/control
+      #     deb_version=0.0.1
+      #     # TODO: uncomment this once ready to push deb_version=${{ steps.version.outputs.version }}
+      #     CONTROL_FILE="${package_dir}/DEBIAN/control"
+      #     echo 'Package: pg-bm25' >> $CONTROL_FILE
+      #     echo 'Version:' ${deb_version} >> $CONTROL_FILE
+      #     echo 'Architecture: ${{ steps.arch.outputs.arch }}' >> $CONTROL_FILE
+      #     echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
+      #     echo 'Description: Full text search for PostgreSQL using BM25' >> $CONTROL_FILE
+
+      #     # Create .deb package
+      #     sudo chown -R root:root ${package_dir}
+      #     sudo chmod -R 00755 ${package_dir}
+      #     sudo dpkg-deb --build --root-owner-group ${package_dir}
+
+
+

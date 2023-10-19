@@ -50,7 +50,7 @@ build_and_package_pg_extension() {
     cmake ..
   fi
   make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
-  checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
+  sudo checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 
 

@@ -183,7 +183,7 @@ Before developing the extension, ensure that you have Rust installed
 Then, install and initialize pgrx:
 
 ```bash
-cargo install cargo-pgrx --version 0.9.8
+cargo install cargo-pgrx --version 0.10.1
 cargo pgrx init
 ```
 

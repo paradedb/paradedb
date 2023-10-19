@@ -40,9 +40,9 @@ jobs:
           path: |
             ~/.cargo/
             ~/.rustup/
-          key: ${{ runner.os }}-cargo-pgrx-0.9.8-grcov
+          key: ${{ runner.os }}-cargo-pgrx-0.10.1-grcov
           restore-keys: |
-            ${{ runner.os }}-cargo-pgrx-0.9.8-grcov
+            ${{ runner.os }}-cargo-pgrx-0.10.1-grcov
             ${{ runner.os }}-cargo-pgrx
             ${{ runner.os }}-cargo
 
@@ -57,7 +57,7 @@ jobs:
       - name: Install pgrx, grcov & llvm-tools-preview
         if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: |
-          cargo install cargo-pgrx --version 0.9.8 && cargo install grcov
+          cargo install cargo-pgrx --version 0.10.1 && cargo install grcov
           rustup component add llvm-tools-preview
 
       - name: Initialize pgrx for Current PostgreSQL Version

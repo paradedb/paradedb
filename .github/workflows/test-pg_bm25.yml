@@ -46,6 +46,12 @@ jobs:
             ${{ runner.os }}-cargo-pgrx
             ${{ runner.os }}-cargo
 
+      - name: Remove old postgres, llvm, clang, and install appropriate version
+        run: |
+          sudo apt remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
+          apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D14(\D.*)?$' | xargs sudo apt remove -y
+          sudo apt-get install -y llvm-14-dev libclang-14-dev clang-14 gcc
+
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -

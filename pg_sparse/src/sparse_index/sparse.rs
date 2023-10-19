@@ -7,12 +7,12 @@ use std::fmt::{Display, Formatter, Write};
 #[repr(C)]
 #[inoutfuncs]
 pub struct Sparse {
-    pub entries: Vec<(i32, f64)>,
-    pub n: i32,
+    pub entries: Vec<(usize, f64)>,
+    pub n: usize,
 }
 
 impl Sparse {
-    pub fn new(entries: Vec<(i32, f64)>, n: i32) -> Self {
+    pub fn new(entries: Vec<(usize, f64)>, n: usize) -> Self {
         Self { entries, n }
     }
 }
@@ -46,11 +46,11 @@ impl InOutFuncs for Sparse {
         for (position, value_str) in parts.iter().enumerate() {
             let value: f64 = value_str.parse().unwrap();
             if value != 0.0 {
-                entries.push((position as i32, value));
+                entries.push((position, value));
             }
         }
 
-        let n = parts.len() as i32;
+        let n = parts.len();
         Sparse { entries, n }
     }
 

@@ -4,7 +4,6 @@ use crate::sparse_index::sparse::Sparse;
 
 #[derive(Debug, Clone)]
 pub struct HNSWMeta {
-    dim: usize,
     m: usize,
     ef_construction: usize,
     ef_search: usize,

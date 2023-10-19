@@ -1,7 +1,7 @@
 # workflows/publish-pg_bm25.yml
 #
 # pg_bm25: Publish
-# Build and publish the pg_bm25 extension to APT and Homebrew.
+# Build and publish the pg_bm25 extension as a .deb to GitHub Releases.
 
 name: Publishing
 
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   publish-pg_bm25-to-apt:
-    name: Publish pg_bm25 for PostgreSQL ${{ matrix.pg_version }} to APT
+    name: Publish pg_bm25 for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -85,8 +85,6 @@ jobs:
         working-directory: pg_bm25/
         run: cargo pgrx package
 
-      # Works up to here
-
       - name: Create Installable Package
         run: |
           # Create installable package
@@ -115,8 +113,6 @@ jobs:
           deb_version=0.0.1
           mkdir -p ${package_dir}/debian
           touch ${package_dir}/debian/control
-          touch ${package_dir}/debian/changelog
-          touch ${package_dir}/debian/rules
 
           # Create control file
           # Can't do underscore for package name
@@ -128,60 +124,21 @@ jobs:
           echo 'Maintainer: ParadeDB' >> $CONTROL_FILE
           echo 'Description: A PostgreSQL Extension' >> $CONTROL_FILE
 
-          # Create changelog file
-          # TODO: update to use var for version
-          echo "pg-bm25 (0.0.1-1) unstable; urgency=medium" > ${package_dir}/debian/changelog
-          echo "  * See the changelog: https://github.com/paradedb/paradedb/releases/tag/v0.2.21" >> ${package_dir}/debian/changelog
-          echo " -- ParadeDB <support@paradedb.com>  $(date -R)" >> ${package_dir}/debian/changelog
-          
-          # Create rules file
-          RULES_FILE="${package_dir}/debian/rules"
-          echo "#!/usr/bin/make -f" >> $RULES_FILE
-          echo "" >> $RULES_FILE
-          echo "# Uncomment the following line to see the commands being executed" >> $RULES_FILE
-          echo "# export DH_VERBOSE=1" >> $RULES_FILE
-          echo "" >> $RULES_FILE
-          echo "# Override the default build rule (do nothing since we already have our binaries)" >> $RULES_FILE
-          echo "override_dh_auto_build:" >> $RULES_FILE
-          echo "" >> $RULES_FILE
-          echo "# Override the default install rule" >> $RULES_FILE
-          echo "override_dh_auto_install:" >> $RULES_FILE
-          echo "    # Copy the extension files to the debian package structure" >> $RULES_FILE
-          echo "    install -D ${package_dir}/var/lib/postgresql/extension/* debian/pg_bm25/usr/share/postgresql/${{ matrix.pg_version }}/extension/" >> $RULES_FILE
-          echo "    install -D ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension/* debian/pg_bm25/usr/share/postgresql/${{ matrix.pg_version }}/extension/" >> $RULES_FILE
-          echo "    " >> $RULES_FILE
-          echo "    # Copy the library files to the debian package structure" >> $RULES_FILE
-          echo "    install -D ${package_dir}/usr/lib/postgresql/lib/* debian/pg_bm25/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/" >> $RULES_FILE
-          echo "    install -D ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib/* debian/pg_bm25/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/" >> $RULES_FILE
-          echo "" >> $RULES_FILE
-          echo "%:" >> $RULES_FILE
-          echo "	dh \$@" >> $RULES_FILE
+          # Create deb package
+          sudo chown -R root:root ${package_dir}
+          sudo chmod -R 00755 ${package_dir}
+          sudo dpkg-deb --build --root-owner-group ${package_dir}
 
-          # Make rules file executable
-          chmod +x ${package_dir}/debian/rules
+      - name: Get upload url
+        id: upload_url
+        run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/latest | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      - name: Upload to APT PPA
-        working-directory: pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu
+      - name: Upload release asset
+        uses: actions/upload-release-asset@v1
         env:
-          PRIVATE_GPG_KEY: ${{ secrets.APT_PPA_OPENPGP_KEY }}
-          PASSPHRASE: ${{ secrets.APT_PPA_OPENPGP_KEY_PASSPHRASE }}
-        run: |
-          # Ensure the .gnupg directory exists
-          mkdir -p ~/.gnupg
-
-          # Ensure gpg-agent.conf exists before appending to it
-          touch ~/.gnupg/gpg-agent.conf
-          chmod 700 ~/.gnupg
-
-          # Configure GPG to use the passphrase from the environment variable
-          echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf
-          echo "pinentry-mode loopback" >> ~/.gnupg/gpg.conf
-          export GPG_TTY=$(tty)
-          echo RELOADAGENT | gpg-connect-agent
-
-          # Import the private key
-          echo "$PRIVATE_GPG_KEY" | gpg --batch --import
-
-          # Build source package
-          echo "$PASSPHRASE" | debuild -S -sa -- -passphrase-fd 0
-          dput ppa:philippemnoel/paradedb *.changes
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.upload_url.outputs.upload_url }}
+          asset_path: ./pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu.deb
+          asset_name: pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu.deb
+          asset_content_type: application/vnd.debian.binary-package

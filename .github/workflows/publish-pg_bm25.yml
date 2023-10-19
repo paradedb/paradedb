@@ -165,12 +165,12 @@ jobs:
           PRIVATE_GPG_KEY: ${{ secrets.APT_PPA_OPENPGP_KEY }}
           PASSPHRASE: ${{ secrets.APT_PPA_OPENPGP_KEY_PASSPHRASE }}
         run: |
-          # # Ensure the .gnupg directory exists
-          # mkdir -p ~/.gnupg
+          # Ensure the .gnupg directory exists
+          mkdir -p ~/.gnupg
 
-          # # Ensure gpg-agent.conf exists before appending to it
-          # touch ~/.gnupg/gpg-agent.conf
-          # chmod 700 ~/.gnupg
+          # Ensure gpg-agent.conf exists before appending to it
+          touch ~/.gnupg/gpg-agent.conf
+          chmod 700 ~/.gnupg
 
           # Configure GPG to use the passphrase from the environment variable
           echo "allow-loopback-pinentry" >> ~/.gnupg/gpg-agent.conf

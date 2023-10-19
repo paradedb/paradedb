@@ -43,16 +43,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-      - name: Retrieve Third-Party PostgreSQL Extension Versions
-        id: retrieve_pgx_versions
-        working-directory: ./conf
-        run: |
-          extensions=$(jq -r 'keys[]' third_party_pg_extensions.json)
-          for ext in $extensions; do
-            version=$(jq -r ".[\"$ext\"].version" third_party_pg_extensions.json)
-            echo "${ext^^}_VERSION=$version" >> $GITHUB_OUTPUT
-          done
-
       - name: Build and Push Docker Image to Docker Hub
         uses: depot/build-push-action@v1
         with:
@@ -61,7 +51,7 @@ jobs:
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             PG_BM25_VERSION=${{ steps.version.outputs.version }}
             PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
-            $(jq -r 'to_entries[] | "\(.key | ascii_upcase)_VERSION=\(.value.version)"' third_party_pg_extensions.json)
+            $(jq -r '.extensions | to_entries[] | "\(.key | ascii_upcase)_VERSION=\(.value.version)"' conf/third_party_pg_extensions.json)
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

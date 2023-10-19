@@ -91,8 +91,8 @@ build_and_publish_pg_extension() {
       -H "Authorization: token $GHA_CREATE_RELEASE_PAT" \
       -H "Content-Type: application/vnd.DEBIAN.binary-package" \
       --data-binary "@/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb"
+    echo "Done!"
   fi
-  echo "Done!"
 }
 
 

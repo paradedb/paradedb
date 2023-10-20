@@ -71,11 +71,9 @@ build_and_publish_pg_extension() {
     echo "Release for $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION already exists, skipping..."
   else
     # Build and package the extension as a .deb
-    echo "Building $PG_EXTENSION_NAME version $SANITIZED_PG_EXTENSION_VERSION..."
     build_and_package_pg_extension "$PG_EXTENSION_NAME" "$SANITIZED_PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
 
     # Create a new GitHub release for the extension. Note, GITHUB_TOKEN is read from the CI environment
-    echo "Creating GitHub release for $PG_EXTENSION_NAME version $SANITIZED_PG_EXTENSION_VERSION on repository paradedb/third_party_pg_extensions..."
     release_response=$(curl -s -X POST https://api.github.com/repos/paradedb/third-party-pg_extensions/releases \
         -H "Authorization: token $GITHUB_TOKEN" \
         -H "Content-Type: application/json" \

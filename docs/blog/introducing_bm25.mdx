@@ -74,7 +74,7 @@ FROM my_table
 WHERE my_table @@@ '"my query string"'
 ```
 
-Wherever possible, we designed the SQL interface to transparently mirror Tantivy's API. For instance,
+Wherever possible, we designed the SQL interface, ParadeQL, to transparently mirror Tantivy's API. For instance,
 the right-hand side of the `@@@` operator accepts Tantivy's mini query language and configuration options.
 
 ```sql

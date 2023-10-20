@@ -53,7 +53,6 @@ build_and_package_pg_extension() {
 }
 
 
-# TODO: Make this also work with pgrx extensions
 # Function to build & publish a single PostgreSQL extension to GitHub Releases
 # Example:
 # build_and_publish_pg_extension "pg_cron" "1.0.0" "https://github.com/citusdata/pg_cron/archive/refs/tags/v1.0.0.tar.gz"

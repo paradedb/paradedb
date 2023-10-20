@@ -16,7 +16,7 @@ services:
         PG_BM25_VERSION: 0.0.0
         PG_SEARCH_VERSION: 0.0.0
         PGML_VERSION: 2.7.8
-        PGVECTOR_VERSION: 0.5.0
+        PGVECTOR_VERSION: 0.5.1
       cache_from:
         - type=local,src=./.docker_cache_dev
       cache_to:

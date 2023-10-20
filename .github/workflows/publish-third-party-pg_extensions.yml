@@ -70,14 +70,7 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /usr/include/postgresql/${{ matrix.pg_version }}/server/ /usr/share/postgresql/${{ matrix.pg_version }}/contrib/ /usr/local/share/man/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      # - name: Install pgrx
-      #   if: steps.cache-cargo.outputs.cache-hit != 'true'
-      #   run: cargo install cargo-pgrx --version 0.9.8
-
-      # - name: Initialize pgrx for Current PostgreSQL Version
-      #   run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-
-      # rum, pgaudit, postgis, pgml, pg_repack, AGE requirements
+      # Install requirements for: rum, pgaudit, postgis, pgml, pg_repack, AGE
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \

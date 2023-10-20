@@ -11,7 +11,7 @@ set -Eeuo pipefail
 
 OS_NAME=$(uname)
 CONFIGDIR="$(dirname "$0")"
-PGVECTOR_VERSION=$(jq -r '.extensions.pgvector.version' "$CONFIGDIR/../conf/third_party_pg_extensions.json")
+PGVECTOR_VERSION=v$(jq -r '.extensions.pgvector.version' "$CONFIGDIR/../conf/third_party_pg_extensions.json")
 
 # All pgrx-supported PostgreSQL versions to configure for
 if [ $# -eq 0 ]; then

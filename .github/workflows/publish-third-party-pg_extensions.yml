@@ -70,7 +70,6 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-          sudo apt-get install -y --no-install-recommends build-essential checkinstall clang git cmake pkg-config liblz4-dev libcurl4-openssl-dev \
 
 
       # - name: Install pgrx
@@ -110,7 +109,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           PG_MAJOR_VERSION: ${{ matrix.pg_version }}
           ARCH: ${{ steps.arch.outputs.arch }}
-          USE_PGXS: 1
         run: |
           extensions=$(jq -r '.extensions | keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do

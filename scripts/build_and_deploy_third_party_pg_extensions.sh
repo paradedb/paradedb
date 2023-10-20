@@ -49,7 +49,7 @@ build_and_package_pg_extension() {
     cmake ..
   fi
   make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
-  checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp -- make USE_PGXS=1 install
+  checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp -- make USE_PGXS=1 install
 }
 
 

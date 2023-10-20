@@ -85,19 +85,16 @@ build_and_publish_pg_extension() {
         "name": "'"$PG_EXTENSION_NAME"' '"$SANITIZED_PG_EXTENSION_VERSION"'",
         "body": "Internal ParadeDB Release for '"$PG_EXTENSION_NAME"' version '"$SANITIZED_PG_EXTENSION_VERSION"'. This release is not intended for public use."
     }')
-    upload_url=$(echo "$release_response" | jq .upload_url --raw-output)
+    upload_url=$(echo "$release_response" | jq .upload_url --raw-output | sed "s/{?name,label}//")
 
     # Upload the .deb file to the newly created GitHub release
-    echo "Uploading $PG_EXTENSION_NAME .deb file to associated GitHub release..."
+    asset_name="$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-linux-gnu.deb"
+    deb_file_path="/tmp/$(echo "$PG_EXTENSION_NAME" | sed 's/_/-/g')_$SANITIZED_PG_EXTENSION_VERSION-1_$ARCH.deb"
 
-    echo "@/tmp/$(echo "$PG_EXTENSION_NAME" | sed 's/_/-/g')_$SANITIZED_PG_EXTENSION_VERSION-1_$ARCH.deb"
-
-
-    curl -X POST "$upload_url?name=$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-linux-gnu.deb" \
+    curl -X POST "${upload_url}?name=${asset_name}" \
       -H "Authorization: token $GITHUB_TOKEN" \
       -H "Content-Type: application/vnd.DEBIAN.binary-package" \
-      --data-binary "@/tmp/$(echo "$PG_EXTENSION_NAME" | sed 's/_/-/g')_$SANITIZED_PG_EXTENSION_VERSION-1_$ARCH.deb"
-    echo "Done!"
+      --data-binary "@${deb_file_path}"
   fi
 }
 

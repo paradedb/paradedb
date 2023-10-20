@@ -48,8 +48,11 @@ build_and_package_pg_extension() {
     mkdir build && cd build
     cmake ..
   fi
-  make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
-  sudo checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp -- USE_PGXS=1
+
+  export PATH="/usr/local/pgsql/bin:$PATH"
+
+  make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
+  sudo checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 
 

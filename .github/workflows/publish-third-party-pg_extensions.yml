@@ -11,7 +11,7 @@ on:
   push:
     branches:
       - main
-      - phil/apt # TODO: rm this 
+      - phil/apt # TODO: rm this
     paths:
       - "conf/third_party_pg_extensions.json"
       - ".github/workflows/publish-third-party-pg_extensions.yml"

@@ -88,6 +88,3 @@ for extension in "${!extensions[@]}"; do
     PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done
-
-echo "PostgreSQL extensions installed - initialization completed!"
-echo "ParadeDB is ready for connections!"

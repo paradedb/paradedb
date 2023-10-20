@@ -13,6 +13,18 @@ updates:
         patterns:
           - "*"
 
+  - package-ecosystem: "npm"
+    directory: "/dashboard"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+    groups:
+      dashboard-dependencies:
+        patterns:
+          - "*"
+
   - package-ecosystem: "docker"
     directory: "/docker"
     schedule:
@@ -33,7 +45,7 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
     groups:
-      rust-dependencies:
+      pg_bm25-dependencies:
         patterns:
           - "*"
 
@@ -45,6 +57,6 @@ updates:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
     groups:
-      rust-dependencies:
+      pg_search-dependencies:
         patterns:
           - "*"

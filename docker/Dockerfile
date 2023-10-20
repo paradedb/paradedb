@@ -109,11 +109,6 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     pkg-config \
     liblz4-dev \
     libcurl4-openssl-dev \
-    # pgml & AGE
-    bison \
-    flex \
-    # pgml & pg_repack
-    libreadline-dev \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
@@ -148,6 +143,9 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     tzdata \
     libpq-dev \
     libclang-dev \
+    bison \
+    flex \
+    libreadline-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN git clone --branch "v${PGML_VERSION}" "https://github.com/paradedb/postgresml" /tmp/postgresml

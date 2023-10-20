@@ -30,9 +30,6 @@ build_and_package_pg_extension() {
   tar -xvf "/tmp/$PG_EXTENSION_NAME.tar.gz" --strip-components=1 -C "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
   cd "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
 
-  # Set pg_config path
-  export PATH="/usr/lib/postgresql/$PG_MAJOR_VERSION/bin:$PATH"
-
   # Set OPTFLAGS to an empty string if it's not already set
   OPTFLAGS=${OPTFLAGS:-""}
 
@@ -49,6 +46,12 @@ build_and_package_pg_extension() {
     cmake ..
   fi
   make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
+
+
+  export PG_CONFIG=/usr/lib/postgresql/15/bin/pg_config
+  find /usr -name contrib-global.mk
+
+
   sudo checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp --pkgname="$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb"
 }
 

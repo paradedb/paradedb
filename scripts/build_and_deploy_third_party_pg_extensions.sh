@@ -50,7 +50,8 @@ build_and_package_pg_extension() {
   fi
 
   echo "hello"
-  sudo find /usr -name contrib-global.mk
+  sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} postgresql-contrib-${{ matrix.pg_version }}
+
   echo "byebye"
 
   make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"

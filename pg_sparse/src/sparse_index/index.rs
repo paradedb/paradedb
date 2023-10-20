@@ -1,7 +1,10 @@
+use hnswlib::Index;
 use pgrx::*;
 
 use crate::index_access::options::SparseOptions;
 use crate::sparse_index::sparse::Sparse;
+
+const DEFAULT_INDEX_SIZE: usize = 1000;
 
 #[derive(Debug, Clone)]
 pub struct SparseIndex {
@@ -21,13 +24,19 @@ impl SparseIndex {
 
         info!("Creating SparseIndex with options {:?}", rdopts);
 
-        // TODO: Create HNSW index
+        let hnsw_index = Index::new(
+            DEFAULT_INDEX_SIZE,
+            rdopts.m as usize,
+            rdopts.ef_construction as usize,
+            rdopts.random_seed as usize,
+        );
+        // TODO: Save HNSW index to disk
 
         Self { index_name }
     }
 
     pub fn from_index_name(index_name: String) -> Self {
-        // TODO: Retrieve reference to HNSW index
+        // TODO: Once HNSW index can be saved, retrieve it
         Self { index_name }
     }
 

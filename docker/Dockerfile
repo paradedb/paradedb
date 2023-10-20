@@ -71,11 +71,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     software-properties-common \
     ca-certificates \
-    python3.10 \
     libssl-dev \
+    libopenblas-dev \
+    python3.10 \
     python3-dev \
     python3-pip \
-    libopenblas-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install apt-fast
@@ -85,7 +85,7 @@ RUN /bin/bash -c "$(curl -sL https://git.io/vokNn)"
 RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
 
-RUN apt-get update && apt-fast install -y --no-install-recommends \
+RUN apt-fast update && apt-fast install -y --no-install-recommends \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
@@ -98,7 +98,7 @@ FROM base as builder
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install Rust and other build dependencies
-RUN apt-get update && apt-fast install -y --no-install-recommends \
+RUN apt-fast update && apt-fast install -y --no-install-recommends \
     build-essential \
     checkinstall \
     clang \
@@ -154,9 +154,8 @@ ARG TARGETARCH
 
 WORKDIR /usr/src/app
 
-
 # Install postgis, patroni & Crunchy operator runtime dependencies
-RUN apt-get update && apt-fast install -y --no-install-recommends \
+RUN apt-fast update && apt-fast install -y --no-install-recommends \
     # postgis
     libgeos-c1v5 \
     libproj-dev \
@@ -175,28 +174,28 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     fi
 
 # Download & install the non-ParadeDB extensions from their builder stage
-RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgvector-v${PGVECTOR_VERSION}/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgvector.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgaudit-${PGAUDIT_VERSION}/pgaudit-${PGAUDIT_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgaudit.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgnodemx-${PGNODEMX_VERSION}/pgnodemx-${PGNODEMX_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgnodemx.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_cron-v${PG_CRON_VERSION}/pg_cron-v${PG_CRON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_cron.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_ivm-v${PG_IVM_VERSION}/pg_ivm-v${PG_IVM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_ivm.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_hashids-v${PG_HASHIDS_VERSION}/pg_hashids-v${PG_HASHIDS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_hashids.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_repack-${PG_REPACK_VERSION}/pg_repack-${PG_REPACK_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_repack.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_stat_monitor-${PG_STAT_MONITOR_VERSION}/pg_stat_monitor-${PG_STAT_MONITOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_stat_monitor.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_hint_plan-${PG_HINT_PLAN_VERSION}/pg_hint_plan-${PG_HINT_PLAN_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_hint_plan.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_roaringbitmap-v${PG_ROARINGBITMAP_VERSION}/pg_roaringbitmap-v${PG_ROARINGBITMAP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_roaringbitmap.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgfaceting-v${PGFACETING_VERSION}/pgfaceting-v${PGFACETING_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgfaceting.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgtap-v${PGTAP_VERSION}/pgtap-v${PGTAP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgtap.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/postgis-v${POSTGIS_VERSION}/postgis-v${POSTGIS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/postgis.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgrouting-v${PGROUTING_VERSION}/pgrouting-v${PGROUTING_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgrouting.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgsql-http-v${PGSQL_HTTP_VERSION}/pgsql-http-v${PGSQL_HTTP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgsql-http.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/hypopg-${HYPOPG_VERSION}/hypopg-${HYPOPG_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/hypopg.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/rum-${RUM_VERSION}/rum-${RUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/rum.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/age-v${AGE_VERSION}/age-v${AGE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/age.deb \
+# RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgvector-v${PGVECTOR_VERSION}-$TARGETARCH/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgvector.deb && \
+RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgaudit-v${PGAUDIT_VERSION}-$TARGETARCH/pgaudit-v${PGAUDIT_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgaudit.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgnodemx-v${PGNODEMX_VERSION}-$TARGETARCH/pgnodemx-v${PGNODEMX_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgnodemx.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_cron-v${PG_CRON_VERSION}-$TARGETARCH/pg_cron-v${PG_CRON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_cron.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_ivm-v${PG_IVM_VERSION}-$TARGETARCH/pg_ivm-v${PG_IVM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_ivm.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_hashids-v${PG_HASHIDS_VERSION}-$TARGETARCH/pg_hashids-v${PG_HASHIDS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_hashids.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_repack-v${PG_REPACK_VERSION}-$TARGETARCH/pg_repack-v${PG_REPACK_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_repack.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_stat_monitor-v${PG_STAT_MONITOR_VERSION}-$TARGETARCH/pg_stat_monitor-v${PG_STAT_MONITOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_stat_monitor.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_hint_plan-v${PG_HINT_PLAN_VERSION}-$TARGETARCH/pg_hint_plan-v${PG_HINT_PLAN_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_hint_plan.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_roaringbitmap-v${PG_ROARINGBITMAP_VERSION}-$TARGETARCH/pg_roaringbitmap-v${PG_ROARINGBITMAP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_roaringbitmap.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgfaceting-v${PGFACETING_VERSION}-$TARGETARCH/pgfaceting-v${PGFACETING_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgfaceting.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgtap-v${PGTAP_VERSION}-$TARGETARCH/pgtap-v${PGTAP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgtap.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/postgis-v${POSTGIS_VERSION}-$TARGETARCH/postgis-v${POSTGIS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/postgis.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgrouting-v${PGROUTING_VERSION}-$TARGETARCH/pgrouting-v${PGROUTING_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgrouting.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgsql-http-v${PGSQL_HTTP_VERSION}-$TARGETARCH/pgsql-http-v${PGSQL_HTTP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgsql-http.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/hypopg-v${HYPOPG_VERSION}-$TARGETARCH/hypopg-v${HYPOPG_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/hypopg.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/rum-v${RUM_VERSION}-$TARGETARCH/rum-v${RUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/rum.deb && \
+    # curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/age-v${AGE_VERSION}-$TARGETARCH/age-v${AGE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/age.deb \
     curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \
     curl -L "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_graphql.deb && \
     curl -L "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_jsonschema.deb && \
-    apt-get update && apt-fast install -y --no-install-recommends /tmp/*.deb \
+    apt-fast update && apt-fast install -y --no-install-recommends /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
 # Copy the pg_bm25 & pg_search extensions from their builder stages

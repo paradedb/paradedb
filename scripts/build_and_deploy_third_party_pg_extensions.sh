@@ -24,15 +24,11 @@ build_and_package_pg_extension() {
   local PG_EXTENSION_VERSION=$2
   local PG_EXTENSION_URL=$3
 
-  # Checkinstall uses the version in the folder name as the package version, which
-  # needs to be semVer compliant, so we sanitize the version first
-  SANITIZED_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
-
   # Download & extract source code
-  mkdir -p "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
+  mkdir -p "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
   curl -L "$PG_EXTENSION_URL" -o "/tmp/$PG_EXTENSION_NAME.tar.gz"
-  tar -xvf "/tmp/$PG_EXTENSION_NAME.tar.gz" --strip-components=1 -C "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
-  cd "/tmp/$PG_EXTENSION_NAME-$SANITIZED_VERSION"
+  tar -xvf "/tmp/$PG_EXTENSION_NAME.tar.gz" --strip-components=1 -C "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
+  cd "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
 
   # Set OPTFLAGS to an empty string if it's not already set
   OPTFLAGS=${OPTFLAGS:-""}
@@ -68,29 +64,33 @@ build_and_publish_pg_extension() {
   if curl --output /dev/null --silent --head --fail "$release_url"; then
     echo "Release for $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION already exists, skipping..."
   else
+    # Checkinstall uses the version in the folder name as the package version, which
+    # needs to be semVer compliant, so we sanitize the version first before using it anywhere
+    SANITIZED_PG_EXTENSION_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
+
     # Build and package the extension as a .deb
-    echo "Building $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION..."
-    build_and_package_pg_extension "$PG_EXTENSION_NAME" "$PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
+    echo "Building $PG_EXTENSION_NAME version $SANITIZED_PG_EXTENSION_VERSION..."
+    build_and_package_pg_extension "$PG_EXTENSION_NAME" "$SANITIZED_PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
 
     # Create a new GitHub release for the extension. Note, GITHUB_TOKEN is read from the CI environment
-    echo "Creating GitHub release for $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION on repository paradedb/third_party_pg_extensions..."
+    echo "Creating GitHub release for $PG_EXTENSION_NAME version $SANITIZED_PG_EXTENSION_VERSION on repository paradedb/third_party_pg_extensions..."
     release_response=$(curl -s -X POST https://api.github.com/repos/paradedb/third-party-pg_extensions/releases \
         -H "Authorization: token $GITHUB_TOKEN" \
         -H "Content-Type: application/json" \
         -d '{
-        "tag_name": "'"$PG_EXTENSION_NAME"'-v'"$PG_EXTENSION_VERSION"'",
-        "name": "'"$PG_EXTENSION_NAME"' v'"$PG_EXTENSION_VERSION"'",
-        "body": "Internal ParadeDB Release for '"$PG_EXTENSION_NAME"' version '"$PG_EXTENSION_VERSION"'. This release is not intended for public use."
+        "tag_name": "'"$PG_EXTENSION_NAME"'-v'"$SANITIZED_PG_EXTENSION_VERSION"'",
+        "name": "'"$PG_EXTENSION_NAME"' '"$SANITIZED_PG_EXTENSION_VERSION"'",
+        "body": "Internal ParadeDB Release for '"$PG_EXTENSION_NAME"' version '"$SANITIZED_PG_EXTENSION_VERSION"'. This release is not intended for public use."
     }')
     upload_url=$(echo "$release_response" | jq .upload_url --raw-output)
 
     # TODO: Update the naming scheme to be conformant to how we do our own extensions
     # Upload the .deb file to the newly created GitHub release
     echo "Uploading $PG_EXTENSION_NAME .deb file to associated GitHub release..."
-    curl -X POST "$upload_url?name=$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb" \
+    curl -X POST "$upload_url?name=$PG_EXTENSION_NAME-$SANITIZED_PG_EXTENSION_VERSION.deb" \
       -H "Authorization: token $GITHUB_TOKEN" \
       -H "Content-Type: application/vnd.DEBIAN.binary-package" \
-      --data-binary "@/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb"
+      --data-binary "@/tmp/$PG_EXTENSION_NAME-$SANITIZED_PG_EXTENSION_VERSION.deb"
     echo "Done!"
   fi
 }

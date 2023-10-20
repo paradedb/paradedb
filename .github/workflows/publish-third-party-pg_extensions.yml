@@ -56,7 +56,8 @@ jobs:
             /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ \
             /usr/include/postgresql/${{ matrix.pg_version }}/server/ \
             /usr/share/postgresql/${{ matrix.pg_version }}/contrib/ \
-            /usr/local/share/man/
+            /usr/local/share/man/ \
+            /usr/share/doc/
 
           # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH

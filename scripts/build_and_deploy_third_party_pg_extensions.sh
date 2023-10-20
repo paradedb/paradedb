@@ -50,7 +50,7 @@ build_and_package_pg_extension() {
   fi
 
   echo "hello"
-  sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} postgresql-contrib-${{ matrix.pg_version }}
+  sudo apt-get update && sudo apt-get install -y postgresql-$PG_MAJOR_VERSION postgresql-server-dev-$PG_MAJOR_VERSION postgresql-contrib-$PG_MAJOR_VERSION
 
   echo "byebye"
 

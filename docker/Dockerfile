@@ -23,7 +23,6 @@ ARG PG_STAT_MONITOR_VERSION
 ARG PG_HINT_PLAN_VERSION
 ARG PG_ROARINGBITMAP_VERSION
 ARG PGFACETING_VERSION
-ARG PGML_VERSION
 ARG PGTAP_VERSION
 ARG PGVECTOR_VERSION
 ARG PGAUDIT_VERSION
@@ -49,7 +48,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_HINT_PLAN_VERSION=${PG_HINT_PLAN_VERSION} \
     PG_ROARINGBITMAP_VERSION=${PG_ROARINGBITMAP_VERSION} \
     PGFACETING_VERSION=${PGFACETING_VERSION} \
-    PGML_VERSION=${PGML_VERSION} \
     PGTAP_VERSION=${PGTAP_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
     PGAUDIT_VERSION=${PGAUDIT_VERSION} \
@@ -132,36 +130,6 @@ COPY pg_bm25/ /tmp/pg_bm25
 RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/" Cargo.toml && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
-####################
-# pgml
-####################
-
-FROM builder as builder-pgml
-
-RUN apt-get update && apt-fast install -y --no-install-recommends \
-    libz-dev \
-    tzdata \
-    libpq-dev \
-    libclang-dev \
-    bison \
-    flex \
-    libreadline-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN git clone --branch "v${PGML_VERSION}" "https://github.com/paradedb/postgresml" /tmp/postgresml
-
-WORKDIR /tmp/postgresml/pgml-extension
-
-RUN git submodule update --init --recursive && \
-    git fetch --tags && \
-    git fetch --depth 1 origin tag "v${PGML_VERSION}" && \
-    git checkout "v${PGML_VERSION}"
-
-# Update pgml schema to paradedb
-RUN sed -i "s/\(schema = \).*/\1'paradedb'/" pgml.control && \
-    find . -type f -exec sed -i 's/pgml\./paradedb\./g' {} + && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
 ######################
 # pg_search
 ######################
@@ -186,9 +154,8 @@ ARG TARGETARCH
 
 WORKDIR /usr/src/app
 
-COPY --from=builder-pgml /tmp/postgresml/pgml-extension/requirements.txt /usr/src/app/
 
-# Install postgis, pgml, patroni & Crunchy operator runtime dependencies
+# Install postgis, patroni & Crunchy operator runtime dependencies
 RUN apt-get update && apt-fast install -y --no-install-recommends \
     # postgis
     libgeos-c1v5 \
@@ -198,8 +165,6 @@ RUN apt-get update && apt-fast install -y --no-install-recommends \
     libnss-wrapper \
     pgbackrest \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
-    # pgml
-    pip3 install --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
     # patroni
     pip3 install --no-cache-dir patroni[etcd3] psycopg[binary]>=3.0.0 && \
     # Crunchy operator
@@ -234,10 +199,8 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
     apt-get update && apt-fast install -y --no-install-recommends /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
-# Copy the pg_bm25, pgml & pg_search extensions from their builder stages
+# Copy the pg_bm25 & pg_search extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
-COPY --from=builder-pgml /tmp/postgresml/pgml-extension/target/release/pgml-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pgml /tmp/postgresml/pgml-extension/target/release/pgml-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/

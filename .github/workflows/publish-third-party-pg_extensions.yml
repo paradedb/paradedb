@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - main
+      - phil/apt
     paths:
       - "conf/third_party_pg_extensions.json"
       - ".github/workflows/publish-third-party-pg_extensions.yml"
@@ -27,6 +28,7 @@ jobs:
     strategy:
       matrix:
         pg_version: [15] # As of writing, we only publish for PostgreSQL 15
+        runner: [ubuntu-latest, buildjet-4vcpu-ubuntu-2204] # BuildJet is an ARM runner
 
     steps:
       - name: Checkout Git Repository
@@ -79,7 +81,7 @@ jobs:
           # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      # Install requirements for: rum, pgaudit, postgis, pgml, pg_repack, AGE
+      # Install requirements for: rum, pgaudit, postgis, pg_repack, AGE
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \

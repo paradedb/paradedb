@@ -101,9 +101,6 @@ jobs:
             flex \
             libreadline-dev
 
-      - name: Add pg_config to PATH
-        run: echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
         env:

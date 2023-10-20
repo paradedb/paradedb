@@ -52,6 +52,9 @@ build_and_package_pg_extension() {
   export PATH="/usr/local/pgsql/bin:$PATH"
 
   make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
+
+  make install
+  echo "hhhhhh"
   sudo checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 

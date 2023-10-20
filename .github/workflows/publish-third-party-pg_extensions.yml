@@ -66,7 +66,7 @@ jobs:
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} postgresql-contrib-${{ matrix.pg_version }}
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
@@ -76,13 +76,6 @@ jobs:
 
       # - name: Initialize pgrx for Current PostgreSQL Version
       #   run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-
-      - name: Tmp
-        run: |
-          dpkg -l | grep postgresql-server-dev
-          sudo find / -name contrib-global.mk 2>/dev/null
-
-
 
       # rum, pgaudit, postgis, pgml, pg_repack, AGE requirements
       - name: Install Third-Party PostgreSQL Extension Build Dependencies

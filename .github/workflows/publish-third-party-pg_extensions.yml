@@ -11,7 +11,6 @@ on:
   push:
     branches:
       - main
-      - phil/apt # TODO: remove this once done testing
     paths:
       - "conf/third_party_pg_extensions.json"
       - ".github/workflows/publish-third-party-pg_extensions.yml"
@@ -77,7 +76,7 @@ jobs:
             /usr/share/postgresql/${{ matrix.pg_version }}/contrib/ \
             /usr/local/share/man/
 
-          # Add PostgreSQL binaries to PATH          
+          # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       # Install requirements for: rum, pgaudit, postgis, pgml, pg_repack, AGE

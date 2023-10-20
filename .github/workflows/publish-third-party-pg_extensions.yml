@@ -66,7 +66,7 @@ jobs:
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} postgresql-contrib-${{ matrix.pg_version }}
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} postgresql-contrib
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
@@ -105,8 +105,8 @@ jobs:
 
 
 
-      - name: Setup upterm session
-        uses: lhotari/action-upterm@v1        
+      # - name: Setup upterm session
+      #   uses: lhotari/action-upterm@v1        
 
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
@@ -115,6 +115,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           PG_MAJOR_VERSION: ${{ matrix.pg_version }}
           ARCH: ${{ steps.arch.outputs.arch }}
+          USE_PGXS: 1
         run: |
           extensions=$(jq -r '.extensions | keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do

@@ -53,7 +53,7 @@ build_and_package_pg_extension() {
   sudo find /usr -name contrib-global.mk
   echo "byebye"
 
-  make OPTFLAGS="$OPTFLAGS" "-j$(nproc)" PG_CONFIG=/usr/lib/postgresql/$PG_MAJOR_VERSION/bin/pg_config
+  make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
   sudo checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 

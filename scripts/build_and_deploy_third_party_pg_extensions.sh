@@ -89,6 +89,10 @@ build_and_publish_pg_extension() {
 
     # Upload the .deb file to the newly created GitHub release
     echo "Uploading $PG_EXTENSION_NAME .deb file to associated GitHub release..."
+
+    echo "@/tmp/$(echo "$PG_EXTENSION_NAME" | sed 's/_/-/g')_$SANITIZED_PG_EXTENSION_VERSION-1_$ARCH.deb"
+
+
     curl -X POST "$upload_url?name=$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-linux-gnu.deb" \
       -H "Authorization: token $GITHUB_TOKEN" \
       -H "Content-Type: application/vnd.DEBIAN.binary-package" \

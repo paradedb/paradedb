@@ -45,7 +45,7 @@ build_and_package_pg_extension() {
     ./configure
   elif [ "$PG_EXTENSION_NAME" == "pgrouting" ]; then
     # We need to make the build directory the same name as the extension directory for checkinstall
-    mkdir $PG_EXTENSION_NAME-$PG_EXTENSION_VERSION && cd $PG_EXTENSION_NAME-$PG_EXTENSION_VERSION
+    mkdir "$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION" && cd "$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
     cmake ..
   fi
   make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"

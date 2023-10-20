@@ -103,6 +103,12 @@ jobs:
             flex \
             libreadline-dev
 
+
+
+      - name: Setup upterm session
+        uses: lhotari/action-upterm@v1        
+
+
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
         env:

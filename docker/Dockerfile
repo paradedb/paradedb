@@ -25,7 +25,6 @@ ARG PGFACETING_VERSION
 ARG PGML_VERSION
 ARG PGTAP_VERSION
 ARG PGVECTOR_VERSION
-ARG PGAUDIT_VERSION
 ARG POSTGIS_VERSION
 ARG PGROUTING_VERSION
 ARG PGSQL_HTTP_VERSION
@@ -50,7 +49,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PGML_VERSION=${PGML_VERSION} \
     PGTAP_VERSION=${PGTAP_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
-    PGAUDIT_VERSION=${PGAUDIT_VERSION} \
     POSTGIS_VERSION=${POSTGIS_VERSION} \
     PGROUTING_VERSION=${PGROUTING_VERSION} \
     PGSQL_HTTP_VERSION=${PGSQL_HTTP_VERSION} \
@@ -186,7 +184,6 @@ ARG TARGETARCH
 
 # Install pre-compiled extensions
 RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PGVECTOR_VERSION}/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgvector.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/${PGAUDIT_VERSION}/pgaudit-${PGAUDIT_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgaudit.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/${PGNODEMX_VERSION}/pgnodemx-${PGNODEMX_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgnodemx.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PG_CRON_VERSION}/pg_cron-v${PG_CRON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_cron.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PG_IVM_VERSION}/pg_ivm-v${PG_IVM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_ivm.deb && \

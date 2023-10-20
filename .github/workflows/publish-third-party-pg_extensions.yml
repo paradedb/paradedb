@@ -79,7 +79,7 @@ jobs:
       # - name: Initialize pgrx for Current PostgreSQL Version
       #   run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      # rum, pgaudit, postgis, pgml, pg_repack, AGE requirements
+      # rum, postgis, pgml, pg_repack, AGE requirements
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -104,9 +104,6 @@ jobs:
             libreadline-dev
 
 
-
-      # - name: Setup upterm session
-      #   uses: lhotari/action-upterm@v1        
 
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)

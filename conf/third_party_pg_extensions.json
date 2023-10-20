@@ -4,10 +4,6 @@
       "version": "0.5.0",
       "url": "https://github.com/pgvector/pgvector/archive/refs/tags/v0.5.0.tar.gz"
     },
-    "pgaudit": {
-      "version": "1.7.0",
-      "url": "https://github.com/pgaudit/pgaudit/archive/refs/tags/1.7.0.tar.gz"
-    },
     "pgnodemx": {
       "version": "1.6",
       "url": "https://github.com/crunchydata/pgnodemx/archive/refs/tags/1.6.tar.gz"

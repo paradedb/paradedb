@@ -31,7 +31,7 @@ jobs:
           - runner: ubuntu-latest
             pg_version: 15 # As of writing, we only publish for PostgreSQL 15
             arch: amd64
-          - runner: buildjet-4vcpu-ubuntu-2204-arm
+          - runner: buildjet-8vcpu-ubuntu-2204-arm
             pg_version: 15 # As of writing, we only publish for PostgreSQL 15
             arch: arm64
 

@@ -77,7 +77,7 @@ jobs:
       - name: Initialize pgrx for Current PostgreSQL Version
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      # rum, pgaudit, postgis, AGE requirements
+      # rum, pgaudit, postgis, pgml, pg_repack, AGE requirements
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -96,7 +96,12 @@ jobs:
             libtool \
             xsltproc \
             protobuf-c-compiler \
-            zlib1g-dev
+            zlib1g-dev \
+            bison \
+            flex \
+            libreadline-dev
+
+
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
@@ -107,6 +112,6 @@ jobs:
           extensions=$(jq -r '.extensions | keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do
             version=$(jq -r ".extensions.\"$ext\".version" conf/third_party_pg_extensions.json)
-            url=$(jq -r ".extensions.\"$ext\".url" conf/third_party_pg_extensions.json)          
+            url=$(jq -r ".extensions.\"$ext\".url" conf/third_party_pg_extensions.json)
             ./scripts/build_and_deploy_third_party_pg_extensions.sh "$ext,$version,$url"
           done

@@ -28,10 +28,6 @@
       "version": "ver_1.4.8",
       "url": "https://github.com/reorg/pg_repack/archive/refs/tags/ver_1.4.8.tar.gz"
     },
-    "pg_stat_monitor": {
-      "version": "2.0.1",
-      "url": "https://github.com/percona/pg_stat_monitor/archive/refs/tags/2.0.1.tar.gz"
-    },
     "pg_hint_plan": {
       "version": "REL15_1_5_0",
       "url": "https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/REL15_1_5_0.tar.gz"

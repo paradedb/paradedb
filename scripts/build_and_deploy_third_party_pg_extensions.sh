@@ -46,7 +46,7 @@ build_and_package_pg_extension() {
     cmake ..
   fi
   make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
-  sudo checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
+  checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 
 
@@ -59,15 +59,15 @@ build_and_publish_pg_extension() {
   local PG_EXTENSION_VERSION=$2
   local PG_EXTENSION_URL=$3
 
+  # Checkinstall uses the version in the folder name as the package version, which
+  # needs to be semVer compliant, so we sanitize the version first before using it anywhere
+  SANITIZED_PG_EXTENSION_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
+
   # Check if the GitHub Release exists
-  release_url="https://github.com/paradedb/third-party-pg_extensions/releases/tag/$PG_EXTENSION_NAME-v$PG_EXTENSION_VERSION"
+  release_url="https://github.com/paradedb/third-party-pg_extensions/releases/tag/$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION"
   if curl --output /dev/null --silent --head --fail "$release_url"; then
     echo "Release for $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION already exists, skipping..."
   else
-    # Checkinstall uses the version in the folder name as the package version, which
-    # needs to be semVer compliant, so we sanitize the version first before using it anywhere
-    SANITIZED_PG_EXTENSION_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
-
     # Build and package the extension as a .deb
     echo "Building $PG_EXTENSION_NAME version $SANITIZED_PG_EXTENSION_VERSION..."
     build_and_package_pg_extension "$PG_EXTENSION_NAME" "$SANITIZED_PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
@@ -87,7 +87,7 @@ build_and_publish_pg_extension() {
     # TODO: Update the naming scheme to be conformant to how we do our own extensions
     # Upload the .deb file to the newly created GitHub release
     echo "Uploading $PG_EXTENSION_NAME .deb file to associated GitHub release..."
-    curl -X POST "$upload_url?name=$PG_EXTENSION_NAME-$SANITIZED_PG_EXTENSION_VERSION.deb" \
+    curl -X POST "$upload_url?name=$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION.deb" \
       -H "Authorization: token $GITHUB_TOKEN" \
       -H "Content-Type: application/vnd.DEBIAN.binary-package" \
       --data-binary "@/tmp/$PG_EXTENSION_NAME-$SANITIZED_PG_EXTENSION_VERSION.deb"

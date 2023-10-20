@@ -1,6 +1,7 @@
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 
+use crate::index_access::options::SparseOptions;
 use crate::sparse_index::index::SparseIndex;
 use crate::sparse_index::sparse::Sparse;
 
@@ -23,19 +24,14 @@ impl<'a> BuildState<'a> {
 #[pg_guard]
 pub extern "C" fn ambuild(
     heaprel: pg_sys::Relation,
-    indexrel: pg_sys::Relation,
+    index: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut pg_sys::IndexBuildResult {
-    let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
-    let index_relation = unsafe { PgRelation::from_pg(indexrel) };
-    let index_name = index_relation.name().to_string();
-    let table_name = heap_relation.name().to_string();
-    let schema_name = heap_relation.namespace().to_string();
-
     // Create SparseIndex
-    // TODO populate meta
-    let mut sparse_index = SparseIndex::new(index_name.clone(), None);
+    let mut sparse_index = SparseIndex::new(index);
 
+    let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
+    let index_relation = unsafe { PgRelation::from_pg(index) };
     let ntuples = do_heap_scan(
         index_info,
         &heap_relation,

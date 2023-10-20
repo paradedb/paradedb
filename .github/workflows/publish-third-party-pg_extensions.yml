@@ -101,8 +101,6 @@ jobs:
             flex \
             libreadline-dev
 
-
-
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
         env:

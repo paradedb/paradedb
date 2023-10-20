@@ -70,6 +70,9 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
+          sudo apt-get install -y --no-install-recommends build-essential checkinstall clang git cmake pkg-config liblz4-dev libcurl4-openssl-dev \
+
+
       # - name: Install pgrx
       #   if: steps.cache-cargo.outputs.cache-hit != 'true'
       #   run: cargo install cargo-pgrx --version 0.9.8

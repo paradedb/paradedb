@@ -10,11 +10,10 @@ name: Publishing
 on:
   push:
     branches:
-      - phil/apt # TODO: remove this after testing
       - main
-    # paths:
-    #   - "conf/third_party_pg_extensions.json"
-    #   - ".github/workflows/publish-third-party-pg_extensions.yml"
+    paths:
+      - "conf/third_party_pg_extensions.json"
+      - ".github/workflows/publish-third-party-pg_extensions.yml"
   workflow_dispatch:
 
 concurrency:

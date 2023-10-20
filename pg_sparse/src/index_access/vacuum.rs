@@ -1,5 +1,6 @@
 use pgrx::*;
 
+// TODO: Implement vacuum
 #[pg_guard]
 pub extern "C" fn amvacuumcleanup(
     _info: *mut pg_sys::IndexVacuumInfo,

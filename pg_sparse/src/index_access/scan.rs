@@ -75,9 +75,7 @@ pub extern "C" fn amrescan(
 }
 
 #[pg_guard]
-pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {
-    info!("end scan");
-}
+pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {}
 
 #[pg_guard]
 pub extern "C" fn amgettuple(
@@ -102,7 +100,7 @@ pub extern "C" fn amgettuple(
     }
 
     // Subsequent scans with larger k if necessary
-    if state.current == state.n_results {
+    if state.current >= state.n_results {
         if state.no_more_results {
             return false;
         }

@@ -21,17 +21,21 @@ impl SparseIndex {
 
         info!("Creating SparseIndex with options {:?}", rdopts);
 
+        // TODO: Create HNSW index
+
         Self { index_name }
     }
 
     pub fn from_index_name(index_name: String) -> Self {
+        // TODO: Retrieve reference to HNSW index
         Self { index_name }
     }
 
     pub fn insert(&mut self, sparse_vector: Sparse, heap_tid: pg_sys::ItemPointerData) {
+        let tid = item_pointer_to_u64(heap_tid);
         info!(
             "TODO: Insert {:?} with ID {:?} into index",
-            sparse_vector, heap_tid
+            sparse_vector, tid
         );
     }
 

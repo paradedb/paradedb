@@ -1,5 +1,7 @@
 use pgrx::*;
 
+// TODO: Rework cost function to be HNSW index specific
+// https://github.com/neondatabase/pg_embedding/blob/5d48508aeaeb86b9e9c630468ada7a124b905795/embedding.c#L394C5-L394C5
 #[allow(clippy::too_many_arguments)]
 #[pg_guard(immutable, parallel_safe)]
 pub unsafe extern "C" fn amcostestimate(
@@ -12,7 +14,6 @@ pub unsafe extern "C" fn amcostestimate(
     index_correlation: *mut f64,
     index_pages: *mut f64,
 ) {
-    info!("Cost estimate");
     let path = path.as_ref().expect("path argument is NULL");
     let indexinfo = path.indexinfo.as_ref().expect("indexinfo in path is NULL");
     let index_relation = unsafe {
@@ -57,6 +58,4 @@ pub unsafe extern "C" fn amcostestimate(
     let reltuples = heap_relation.reltuples().unwrap_or(1f32) as f64;
     *index_total_cost += *index_selectivity * reltuples * pg_sys::cpu_index_tuple_cost;
     *index_total_cost -= pg_sys::random_page_cost;
-
-    info!("Cost estimate: {}", *index_total_cost + *index_startup_cost);
 }

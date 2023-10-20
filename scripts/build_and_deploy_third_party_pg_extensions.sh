@@ -30,6 +30,9 @@ build_and_package_pg_extension() {
   tar -xvf "/tmp/$PG_EXTENSION_NAME.tar.gz" --strip-components=1 -C "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
   cd "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
 
+  # Set pg_config path
+  export PG_CONFIG=/usr/lib/postgresql/$PG_MAJOR_VERSION/bin/pg_config
+
   # Set OPTFLAGS to an empty string if it's not already set
   OPTFLAGS=${OPTFLAGS:-""}
 
@@ -45,14 +48,13 @@ build_and_package_pg_extension() {
     mkdir build && cd build
     cmake ..
   fi
-  make OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
 
+  echo "hello"
+  sudo find /usr -name contrib-global.mk
+  echo "byebye"
 
-  export PG_CONFIG=/usr/lib/postgresql/15/bin/pg_config
-  find /usr -name contrib-global.mk
-
-
-  sudo checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp --pkgname="$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION.deb"
+  make OPTFLAGS="$OPTFLAGS" "-j$(nproc)" PG_CONFIG=/usr/lib/postgresql/$PG_MAJOR_VERSION/bin/pg_config
+  sudo checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 
 
@@ -95,7 +97,7 @@ build_and_publish_pg_extension() {
     curl -X POST "$upload_url?name=$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-linux-gnu.deb" \
       -H "Authorization: token $GITHUB_TOKEN" \
       -H "Content-Type: application/vnd.DEBIAN.binary-package" \
-      --data-binary "@/tmp/$PG_EXTENSION_NAME-$SANITIZED_PG_EXTENSION_VERSION.deb"
+      --data-binary "@/tmp/$(echo "$PG_EXTENSION_NAME" | sed 's/_/-/g')_$SANITIZED_PG_EXTENSION_VERSION-1_$ARCH.deb"
     echo "Done!"
   fi
 }

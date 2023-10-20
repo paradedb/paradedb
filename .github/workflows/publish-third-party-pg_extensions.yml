@@ -77,7 +77,7 @@ jobs:
       # - name: Initialize pgrx for Current PostgreSQL Version
       #   run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      # rum, postgis, pgml, pg_repack, AGE requirements
+      # rum, pgaudit, postgis, pgml, pg_repack, AGE requirements
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \

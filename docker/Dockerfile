@@ -19,12 +19,14 @@ ARG PG_GRAPHQL_VERSION
 ARG PG_HASHIDS_VERSION
 ARG PG_JSONSCHEMA_VERSION
 ARG PG_REPACK_VERSION
+ARG PG_STAT_MONITOR_VERSION
 ARG PG_HINT_PLAN_VERSION
 ARG PG_ROARINGBITMAP_VERSION
 ARG PGFACETING_VERSION
 ARG PGML_VERSION
 ARG PGTAP_VERSION
 ARG PGVECTOR_VERSION
+ARG PGAUDIT_VERSION
 ARG POSTGIS_VERSION
 ARG PGROUTING_VERSION
 ARG PGSQL_HTTP_VERSION
@@ -43,12 +45,14 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_HASHIDS_VERSION=${PG_HASHIDS_VERSION} \
     PG_JSONSCHEMA_VERSION=${PG_JSONSCHEMA_VERSION} \
     PG_REPACK_VERSION=${PG_REPACK_VERSION} \
+    PG_STAT_MONITOR_VERSION=${PG_STAT_MONITOR_VERSION} \
     PG_HINT_PLAN_VERSION=${PG_HINT_PLAN_VERSION} \
     PG_ROARINGBITMAP_VERSION=${PG_ROARINGBITMAP_VERSION} \
     PGFACETING_VERSION=${PGFACETING_VERSION} \
     PGML_VERSION=${PGML_VERSION} \
     PGTAP_VERSION=${PGTAP_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
+    PGAUDIT_VERSION=${PGAUDIT_VERSION} \
     POSTGIS_VERSION=${POSTGIS_VERSION} \
     PGROUTING_VERSION=${PGROUTING_VERSION} \
     PGSQL_HTTP_VERSION=${PGSQL_HTTP_VERSION} \
@@ -184,11 +188,13 @@ ARG TARGETARCH
 
 # Install pre-compiled extensions
 RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PGVECTOR_VERSION}/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgvector.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/${PGAUDIT_VERSION}/pgaudit-${PGAUDIT_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgaudit.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/${PGNODEMX_VERSION}/pgnodemx-${PGNODEMX_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgnodemx.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PG_CRON_VERSION}/pg_cron-v${PG_CRON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_cron.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PG_IVM_VERSION}/pg_ivm-v${PG_IVM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_ivm.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PG_HASHIDS_VERSION}/pg_hashids-v${PG_HASHIDS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_hashids.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/${PG_REPACK_VERSION}/pg_repack-${PG_REPACK_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_repack.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/${PG_STAT_MONITOR_VERSION}/pg_stat_monitor-${PG_STAT_MONITOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_stat_monitor.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/${PG_HINT_PLAN_VERSION}/pg_hint_plan-${PG_HINT_PLAN_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_hint_plan.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PG_ROARINGBITMAP_VERSION}/pg_roaringbitmap-v${PG_ROARINGBITMAP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_roaringbitmap.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/v${PGFACETING_VERSION}/pgfaceting-v${PGFACETING_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgfaceting.deb && \

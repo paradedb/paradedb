@@ -17,9 +17,11 @@ declare -A extensions=(
   [pg_hashids]=${PG_HASHIDS_VERSION:-}
   [pg_jsonschema]=${PG_JSONSCHEMA_VERSION:-}
   [pg_repack]=${PG_REPACK_VERSION:-}
+  [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
   [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
   [pgfaceting]=${PGFACETING_VERSION:-}
   [pgtap]=${PGTAP_VERSION:-}
+  [pgaudit]=${PGAUDIT_VERSION:-}
   [postgis]=${POSTGIS_VERSION:-}
   [pgrouting]=${PGROUTING_VERSION:-}
   [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
@@ -35,6 +37,7 @@ declare -A preload_names=(
   [pgnodemx]=pgnodemx
   [pg_cron]=pg_cron
   [pg_net]=pg_net
+  [pgaudit]=pgaudit
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed

@@ -39,17 +39,19 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v3
-        id: cache-cargo
-        with:
-          path: |
-            ~/.cargo/
-            ~/.rustup/
-          key: ${{ runner.os }}-cargo-pgrx-0.9.8
-          restore-keys: |
-            ${{ runner.os }}-cargo-pgrx
-            ${{ runner.os }}-cargo
+      - name: Retrieve Arch
+        id: arch
+        run: |
+          arch_val=$(uname -m)
+          echo $arch_val
+          if [ "$arch_val" == "x86_64" ]; then
+              mapped_arch="amd64"
+          elif [ "$arch_val" == "aarch64" ]; then
+              mapped_arch="arm64"
+          else
+              mapped_arch="$arch_val"
+          fi
+          echo "arch=$mapped_arch" >> $GITHUB_OUTPUT
 
       - name: Retrieve GitHub Tag Version
         id: version

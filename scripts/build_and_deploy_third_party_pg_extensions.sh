@@ -55,7 +55,7 @@ build_and_package_pg_extension() {
 
   make install
   echo "hhhhhh"
-  checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
+  sudo checkinstall -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp
 }
 
 

@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [15] # As of writing, we only publish for PostgreSQL 15
+        pg_version: [15]
 
     steps:
       - name: Checkout Git Repository
@@ -31,8 +31,8 @@ jobs:
       - name: Retrieve GitHub Tag
         id: version
         run: |
-          echo "version=0.0.0" >> $GITHUB_OUTPUT
-          echo "tag=v0.0.0" >> $GITHUB_OUTPUT
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
       - name: Configure Depot CLI
         uses: depot/setup-action@v1

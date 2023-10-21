@@ -18,10 +18,40 @@ concurrency:
 jobs:
   publish-pg_search:
     name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
-        pg_version: [11, 12, 13, 14, 15]
+        include:
+          - runner: ubuntu-latest
+            pg_version: 15
+            arch: amd64
+          - runner: ubuntu-latest
+            pg_version: 14
+            arch: amd64
+          - runner: ubuntu-latest
+            pg_version: 13
+            arch: amd64
+          - runner: ubuntu-latest
+            pg_version: 12
+            arch: amd64
+          - runner: ubuntu-latest
+            pg_version: 11
+            arch: amd64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 15
+            arch: arm64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 14
+            arch: arm64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 13
+            arch: arm64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 12
+            arch: arm64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 11
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -60,7 +90,7 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 

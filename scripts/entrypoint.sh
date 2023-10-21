@@ -8,6 +8,7 @@ declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
   [pg_search]=${PG_SEARCH_VERSION:-}
+  [pgml]=${PGML_VERSION:-}
   [pgnodemx]=${PGNODEMX_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
   [pg_net]=${PG_NET_VERSION:-}
@@ -32,6 +33,7 @@ declare -A extensions=(
 
 # List of extensions that must be added to shared_preload_libraries
 declare -A preload_names=(
+  [pgml]=pgml
   [pgnodemx]=pgnodemx
   [pg_cron]=pg_cron
   [pg_net]=pg_net

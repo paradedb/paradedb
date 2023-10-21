@@ -165,17 +165,17 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     pgbackrest \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
     # patroni
-    # pip3 install --no-cache-dir patroni[etcd3] psycopg[binary]>=3.0.0 && \
-    # Crunchy operator
+    pip3 install --no-cache-dir --break-system-packages patroni[etcd3] psycopg[binary]>=3.0.0 && \
+    # Symlink libproj.so.22 to libproj.so.25, since Postgis requires an older version, and
+    # copy relevant library for Crunchy operator
     # Only need to copy on x84_64, since the lib is already in the right place on arm64
     if [ "$TARGETARCH" = "amd64" ]; then \
         mkdir -p /usr/lib64 && \
         cp /usr/lib/x86_64-linux-gnu/libnss_wrapper.so /usr/lib64/; \
+        ln -s /usr/lib/x86_64-linux-gnu/libproj.so.25 /usr/lib/x86_64-linux-gnu/libproj.so.22; \
+    else \
+        ln -s /usr/lib/aarch64-linux-gnu/libproj.so.25 /usr/lib/aarch64-linux-gnu/libproj.so.22; \
     fi
-
-# Symlink libproj.so.22 to libproj.so.25, since Postgis requires an older version
-RUN ARCH=$(dpkg --print-architecture) && \
-    ln -s "/usr/lib/$ARCH/libproj.so.25" "/usr/lib/$ARCH/libproj.so.22"
 
 # Download & install the non-ParadeDB extensions from their builder stage
 RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgvector-v${PGVECTOR_VERSION}-$TARGETARCH/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgvector.deb && \

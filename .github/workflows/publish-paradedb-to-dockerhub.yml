@@ -45,6 +45,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
+      - name: Extract build arguments from JSON
+        id: extract_args
+        run: |
+          ARGS=$(jq -r '.extensions | to_entries[] | "\(.key | ascii_upcase)_VERSION=\(.value.version)"' conf/third_party_pg_extensions.json)
+          echo "BUILD_ARGS=$ARGS" >> $GITHUB_OUTPUT
+      
       - name: Build and Push Docker Image to Docker Hub
         uses: depot/build-push-action@v1
         with:
@@ -53,7 +59,7 @@ jobs:
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             PG_BM25_VERSION=${{ steps.version.outputs.version }}
             PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
-            $(jq -r '.extensions | to_entries[] | "\(.key | ascii_upcase)_VERSION=\(.value.version)"' conf/third_party_pg_extensions.json)
+            ${{ steps.extract_args.outputs.BUILD_ARGS }}
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

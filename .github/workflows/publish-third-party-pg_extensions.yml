@@ -28,10 +28,34 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-latest
-            pg_version: 15 # Only publish for ParadeDB usage, which is PostgreSQL 15
+            pg_version: 15
+            arch: amd64
+          - runner: ubuntu-latest
+            pg_version: 14
+            arch: amd64
+          - runner: ubuntu-latest
+            pg_version: 13
+            arch: amd64
+          - runner: ubuntu-latest
+            pg_version: 12
+            arch: amd64
+          - runner: ubuntu-latest
+            pg_version: 11
             arch: amd64
           - runner: buildjet-4vcpu-ubuntu-2204-arm
-            pg_version: 15 # Only publish for ParadeDB usage, which is PostgreSQL 15
+            pg_version: 15
+            arch: arm64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 14
+            arch: arm64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 13
+            arch: arm64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 12
+            arch: arm64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 11
             arch: arm64
 
     steps:

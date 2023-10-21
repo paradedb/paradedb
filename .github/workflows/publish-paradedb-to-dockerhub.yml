@@ -8,8 +8,10 @@ name: Publishing
 
 on:
   push:
-    tags:
-      - "v*"
+    branches:
+      - phil/apt
+    # tags:
+    #   - "v*"
   workflow_dispatch:
 
 concurrency:
@@ -31,8 +33,8 @@ jobs:
       - name: Retrieve GitHub Tag
         id: version
         run: |
-          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "version=0.0.0" >> $GITHUB_OUTPUT
+          echo "tag=v0.0.0" >> $GITHUB_OUTPUT
 
       - name: Configure Depot CLI
         uses: depot/setup-action@v1

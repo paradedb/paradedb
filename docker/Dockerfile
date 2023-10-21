@@ -175,7 +175,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
 
 # Symlink libproj.so.22 to libproj.so.25, since Postgis requires an older version
 RUN ARCH=$(dpkg --print-architecture) && \
-    ln -s /usr/lib/$ARCH/libproj.so.25 /usr/lib/$ARCH/libproj.so.22
+    ln -s "/usr/lib/$ARCH/libproj.so.25" "/usr/lib/$ARCH/libproj.so.22"
 
 # Download & install the non-ParadeDB extensions from their builder stage
 RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgvector-v${PGVECTOR_VERSION}-$TARGETARCH/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgvector.deb && \

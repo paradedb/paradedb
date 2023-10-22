@@ -5,9 +5,9 @@ set -Eeuo pipefail
 
 # List of extensions to possibly install (if a version variable is set)
 declare -A extensions=(
-  [pg_bm25]=${PG_BM25_VERSION:-}
+  # [pg_bm25]=${PG_BM25_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
-  [pg_search]=${PG_SEARCH_VERSION:-}
+  # [pg_search]=${PG_SEARCH_VERSION:-}
   [pgml]=${PGML_VERSION:-}
   [pgnodemx]=${PGNODEMX_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
@@ -56,6 +56,16 @@ shared_preload_list=${shared_preload_list%,}
 echo "pg_net.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 echo "cron.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
+
+
+
+
+
+# # Set PYTHONHOME and PYTHONPATH
+# export PYTHONHOME="${PYTHON_VENV_PATH}"
+# export PYTHONPATH="${PYTHON_VENV_PATH}/lib/python3.10/site-packages"
+
+
 
 # Setup users
 ROOT_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'")

@@ -75,13 +75,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl-dev \
     libopenblas-dev \
-    python3.10 \
     python3-dev \
     python3-pip \
+    python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 # Install apt-fast
 RUN /bin/bash -c "$(curl -sL https://git.io/vokNn)"
+
+# Install Python 3.10 for pgml
+# RUN echo "deb http://deb.debian.org/debian bullseye main" >> /etc/apt/sources.list && \
+#     apt-fast update && apt-fast install -y --no-install-recommends python3.10 python3.10-dev python3-pip && \
+#     rm -rf /var/lib/apt/lists/* && \
+#     echo "python3.10 hold" | dpkg --set-selections
 
 # Add PostgreSQL's third party repository to get the latest versions
 RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
@@ -115,36 +121,36 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install cargo-pgrx --version 0.9.8 && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+# RUN cargo install cargo-pgrx --version 0.9.8 && \
+#     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_bm25
 ######################
 
-FROM builder as builder-pg_bm25
+# FROM builder as builder-pg_bm25
 
-WORKDIR /tmp/pg_bm25
+# WORKDIR /tmp/pg_bm25
 
-COPY pg_bm25/ /tmp/pg_bm25
+# COPY pg_bm25/ /tmp/pg_bm25
 
-# Use the build argument to update the version in Cargo.toml
-RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/" Cargo.toml && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+# # Use the build argument to update the version in Cargo.toml
+# RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/" Cargo.toml && \
+#     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_search
 ######################
 
-FROM builder as builder-pg_search
+# FROM builder as builder-pg_search
 
-WORKDIR /tmp/pg_search
+# WORKDIR /tmp/pg_search
 
-COPY pg_search/ /tmp/pg_search
+# COPY pg_search/ /tmp/pg_search
 
-# Use the build argument to update the version in Cargo.toml
-RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/" Cargo.toml && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+# # Use the build argument to update the version in Cargo.toml
+# RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/" Cargo.toml && \
+#     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ###############################################
 # Third Stage: PostgreSQL
@@ -154,9 +160,7 @@ FROM base as paradedb
 
 ARG TARGETARCH
 
-WORKDIR /usr/src/app
-
-# Install postgis, patroni & Crunchy operator runtime dependencies
+# Install pgml, postgis, patroni & Crunchy operator runtime dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     # postgis
     libgeos-c1v5 \
@@ -166,8 +170,6 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     libnss-wrapper \
     pgbackrest \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
-    # patroni
-    pip3 install --no-cache-dir --break-system-packages patroni[etcd3] psycopg[binary]>=3.0.0 && \
     # Symlink libproj.so.22 to libproj.so.25, since Postgis requires an older version, and
     # copy relevant library for Crunchy operator
     # Only need to copy on x84_64, since the lib is already in the right place on arm64
@@ -198,6 +200,7 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/hypopg-v${HYPOPG_VERSION}-$TARGETARCH/hypopg-v${HYPOPG_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/hypopg.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/rum-v${RUM_VERSION}-$TARGETARCH/rum-v${RUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/rum.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/age-v${AGE_VERSION}-$TARGETARCH/age-v${AGE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/age.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgml-v${PGML_VERSION}-$TARGETARCH/pgml-v${PGML_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgml.deb && \
     curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \
     curl -L "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_graphql.deb && \
     curl -L "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_jsonschema.deb && \
@@ -206,13 +209,73 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
 
 # Copy the pg_bm25 & pg_search extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
-COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+# COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+# COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+# COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+# COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 
-# Copy entrypoint script, which will be handled by the official image
-# initialization scipt
+
+
+
+
+
+# Install pyenv dependencies
+RUN sudo apt-get update && sudo apt-get install -y \
+    git \
+    make \
+    libssl-dev \
+    zlib1g-dev \
+    libbz2-dev \
+    libreadline-dev \
+    libsqlite3-dev
+
+# Install pyenv
+RUN git clone https://github.com/pyenv/pyenv.git ~/.pyenv
+
+# Add pyenv to PATH
+ENV PYENV_ROOT /root/.pyenv
+ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
+
+# Install Python 3.10 with pyenv
+RUN pyenv install 3.10.0
+
+# Set Python 3.10 as the global version
+RUN pyenv global 3.10.0
+
+
+
+
+# Create and activate a virtual environment
+RUN python3 -m venv myenv
+ENV PATH="/myenv/bin:$PATH"
+
+# Install your Python packages within the virtual environment
+RUN pip3 install --no-cache-dir patroni[etcd3] psycopg[binary]>=3.0.0
+RUN pip3 install --no-cache-dir accelerate==0.22.0 bitsandbytes==0.41.1 catboost==1.2 ctransformers==0.2.27 datasets==2.14.5 deepspeed==0.10.3 huggingface-hub==0.17.1 InstructorEmbedding==1.0.1 lightgbm==4.1.0 orjson==3.9.7 pandas==2.1.0 rich==13.5.2 rouge==1.0.1 sacrebleu==2.3.1 sacremoses==0.0.53 scikit-learn==1.3.0 sentencepiece==0.1.99 sentence-transformers==2.2.2 tokenizers==0.13.3 torch==2.0.1 torchaudio==2.0.2 torchvision==0.15.2 tqdm==4.66.1 transformers==4.33.1 xgboost==2.0.0 langchain==0.0.287 einops==0.6.1 pynvml==11.5.0
+
+# # RUN sudo apt-get update && sudo apt-get install python3.10 libpython3.10-dev -y 
+# RUN pyenv virtualenv 3.10.0 myenv && \
+#     sudo ln -s ~/.pyenv/versions/myenv/lib/libpython3.10.so.1.0 /usr/lib/libpython3.10.so.1.0 && \
+#     export LD_LIBRARY_PATH=~/.pyenv/versions/myenv/lib:$LD_LIBRARY_PATH
+
+# # Define the path to your Python 3.10 virtual environment
+# ENV PYTHON_VENV_PATH="/myenv"
+# # Configure LD_LIBRARY_PATH for the Python virtual environment
+# RUN echo "${PYTHON_VENV_PATH}/lib" | sudo tee /etc/ld.so.conf.d/python-venv.conf
+# RUN sudo ldconfig
+
+RUN echo "deb [trusted=yes] https://apt.postgresml.org jammy main" | sudo tee -a /etc/apt/sources.list
+RUN sudo apt-fast update
+RUN wget https://www.python.org/ftp/python/3.10.0/Python-3.10.0.tar.xz
+RUN tar -xf Python-3.10.0.tar.xz \
+    && cd Python-3.10.0 \
+    && ./configure --enable-optimizations \
+    && make -j$(nproc) \
+    && sudo make altinstall
+
+RUN sudo apt-get install -y postgresml-15
+
+# Copy entrypoint script, which will be handled by the official image initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
 # Postgres user for Crunchy operator

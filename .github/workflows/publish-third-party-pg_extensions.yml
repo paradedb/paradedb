@@ -11,6 +11,7 @@ on:
   push:
     branches:
       - main
+      - phil/apt # TODO: rm this once tested publishing pgml
     paths:
       - "conf/third_party_pg_extensions.json"
       - ".github/workflows/publish-third-party-pg_extensions.yml"
@@ -30,32 +31,8 @@ jobs:
           - runner: ubuntu-latest
             pg_version: 15
             arch: amd64
-          - runner: ubuntu-latest
-            pg_version: 14
-            arch: amd64
-          - runner: ubuntu-latest
-            pg_version: 13
-            arch: amd64
-          - runner: ubuntu-latest
-            pg_version: 12
-            arch: amd64
-          - runner: ubuntu-latest
-            pg_version: 11
-            arch: amd64
           - runner: buildjet-4vcpu-ubuntu-2204-arm
             pg_version: 15
-            arch: arm64
-          - runner: buildjet-4vcpu-ubuntu-2204-arm
-            pg_version: 14
-            arch: arm64
-          - runner: buildjet-4vcpu-ubuntu-2204-arm
-            pg_version: 13
-            arch: arm64
-          - runner: buildjet-4vcpu-ubuntu-2204-arm
-            pg_version: 12
-            arch: arm64
-          - runner: buildjet-4vcpu-ubuntu-2204-arm
-            pg_version: 11
             arch: arm64
 
     steps:

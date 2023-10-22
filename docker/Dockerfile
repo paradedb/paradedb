@@ -11,6 +11,7 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm as base
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
 ARG PG_SEARCH_VERSION
+ARG PGML_VERSION
 ARG PGNODEMX_VERSION
 ARG PG_CRON_VERSION
 ARG PG_NET_VERSION
@@ -36,6 +37,7 @@ ARG AGE_VERSION
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
     PG_SEARCH_VERSION=${PG_SEARCH_VERSION} \
+    PGML_VERSION=${PGML_VERSION} \
     PGNODEMX_VERSION=${PGNODEMX_VERSION} \
     PG_CRON_VERSION=${PG_CRON_VERSION} \
     PG_NET_VERSION=${PG_NET_VERSION} \
@@ -73,7 +75,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl-dev \
     libopenblas-dev \
-    python3.10 \
     python3-dev \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
@@ -144,6 +145,36 @@ COPY pg_search/ /tmp/pg_search
 RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/" Cargo.toml && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
+####################
+# pgml
+####################
+
+FROM builder as builder-pgml
+
+RUN apt-get update && apt-fast install -y --no-install-recommends \
+    libz-dev \
+    tzdata \
+    libpq-dev \
+    libclang-dev \
+    bison \
+    flex \
+    libreadline-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --branch "v${PGML_VERSION}" "https://github.com/postgresml/postgresml" /tmp/postgresml
+
+WORKDIR /tmp/postgresml/pgml-extension
+
+RUN git submodule update --init --recursive && \
+    git fetch --tags && \
+    git fetch --depth 1 origin tag "v${PGML_VERSION}" && \
+    git checkout "v${PGML_VERSION}"
+
+# Update pgml schema to paradedb
+RUN sed -i "s/\(schema = \).*/\1'paradedb'/" pgml.control && \
+    find . -type f -exec sed -i 's/pgml\./paradedb\./g' {} + && \
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
 ###############################################
 # Third Stage: PostgreSQL
 ###############################################
@@ -152,7 +183,7 @@ FROM base as paradedb
 
 ARG TARGETARCH
 
-WORKDIR /usr/src/app
+COPY --from=builder-pgml /tmp/postgresml/pgml-extension/requirements.txt /usr/src/app/
 
 # Install postgis, patroni & Crunchy operator runtime dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
@@ -164,6 +195,8 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     libnss-wrapper \
     pgbackrest \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
+    # pgml
+    pip3 install --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
     # patroni
     pip3 install --no-cache-dir --break-system-packages patroni[etcd3] psycopg[binary]>=3.0.0 && \
     # Symlink libproj.so.22 to libproj.so.25, since Postgis requires an older version, and
@@ -204,6 +237,8 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
 
 # Copy the pg_bm25 & pg_search extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
+COPY --from=builder-pgml /tmp/postgresml/pgml-extension/target/release/pgml-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pgml /tmp/postgresml/pgml-extension/target/release/pgml-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/

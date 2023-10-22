@@ -1,8 +1,10 @@
 use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use pgrx::*;
 use std::collections::HashMap;
+use std::error::Error;
 use std::ffi::{CStr, CString};
-use std::fs::{create_dir_all, remove_dir_all};
+use std::fs::{create_dir_all, remove_dir_all, File};
+use std::io::{Read, Write};
 use std::path::Path;
 use tantivy::{
     query::{Query, QueryParser},
@@ -13,8 +15,29 @@ use tantivy::{
 use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
+use crate::types::{
+    ParadeFieldConfig, ParadeFieldConfigDeserializedResult, ParadeFieldConfigSerialized,
+    ParadeFieldConfigSerializedResult,
+};
 
 const CACHE_NUM_BLOCKS: usize = 10;
+
+/// PostgreSQL operates in a process-per-client model, meaning every client connection
+/// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
+///
+/// `PARADE_INDEX_MEMORY` is designed to act as a cache that persists for the lifetime of a
+/// single backend process. When a client connects to PostgreSQL and triggers the extension's
+/// functionality, this cache is initialized the first time it's accessed in that specific process.
+///
+/// In scenarios where connection pooling is used, such as by web servers maintaining
+/// a pool of connections to PostgreSQL, the connections (and the associated backend processes)
+/// are typically long-lived. While this cache initialization might happen once per connection,
+/// it does not happen per query, leading to performance benefits for expensive operations.
+///
+/// It's also crucial to remember that this cache is NOT shared across different backend
+/// processes. Each PostgreSQL backend process will have its own separate instance of
+/// this cache, tied to its own lifecycle.
+static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
 
 pub struct TantivyScanState {
     pub schema: Schema,
@@ -24,8 +47,10 @@ pub struct TantivyScanState {
     pub iterator: *mut std::vec::IntoIter<(Score, DocAddress)>,
 }
 
+#[derive(Clone)]
 pub struct ParadeIndex {
     pub fields: HashMap<String, Field>,
+    pub field_configs: HashMap<String, ParadeFieldConfig>,
     pub underlying_index: Index,
 }
 
@@ -57,8 +82,21 @@ impl ParadeIndex {
             .create_in_dir(dir)
             .expect("failed to create index");
 
+        // Save the json_fields used to configure the index to disk.
+        // We'll need to retrieve these along with the index.
+        let json_fields = options.get_json_fields();
+        let field_configs: HashMap<String, ParadeFieldConfig> = fields
+            .into_iter()
+            .map(|(field_name, field)| {
+                let json_options = json_fields.get(&field_name).unwrap().clone();
+                let field_data = ParadeFieldConfig { json_options };
+                (field_name, field_data)
+            })
+            .collect();
+
         let mut new_self = Self {
             fields,
+            field_configs,
             underlying_index,
         };
 
@@ -69,12 +107,32 @@ impl ParadeIndex {
 
     pub fn setup_tokenizers(&mut self) {
         self.underlying_index
-            .set_tokenizers(create_tokenizer_manager());
+            .set_tokenizers(create_tokenizer_manager(&self.field_configs));
         self.underlying_index
             .set_fast_field_tokenizers(create_normalizer_manager());
     }
 
+    unsafe fn from_cached_index(name: &str) -> Option<Self> {
+        // This function needs to be unsafe because it accesses
+        // data from a static mut variable.
+        // If the cache has not been initialized for this process,
+        // initialize it first.
+        if PARADE_INDEX_MEMORY.is_none() {
+            PARADE_INDEX_MEMORY = Some(HashMap::new());
+            return None;
+        }
+
+        PARADE_INDEX_MEMORY?.get(name).cloned()
+    }
+
     pub fn from_index_name(name: String) -> Self {
+        unsafe {
+            // First check cache to see if we can retrieve the index from memory.
+            if let Some(new_self) = Self::from_cached_index(&name) {
+                return new_self;
+            }
+        }
+
         let dir = Self::get_data_directory(&name);
 
         let underlying_index = Index::open_in_dir(dir).expect("failed to open index");
@@ -88,10 +146,23 @@ impl ParadeIndex {
             })
             .collect();
 
-        Self {
-            fields,
-            underlying_index,
+        for (field, entry) in schema.fields() {
+            let field_name = entry.name().to_string();
         }
+
+        let field_configs =
+            Self::read_index_field_configs(&name).expect("failed to open index field configs");
+
+        let mut new_self = Self {
+            fields,
+            field_configs,
+            underlying_index,
+        };
+
+        // We need to setup tokenizers again after retrieving an index from disk.
+        new_self.setup_tokenizers();
+
+        new_self
     }
 
     pub fn insert(
@@ -218,6 +289,59 @@ impl ParadeIndex {
 
             format!("{}/{}/{}", data_dir_str, "paradedb", name)
         }
+    }
+
+    fn get_field_configs_path(name: &str) -> String {
+        let dir_path = Self::get_data_directory(name);
+        format!("{}_parade_field_configs", name)
+    }
+
+    fn serialize_index_field_configs(
+        field_configs: HashMap<String, ParadeFieldConfig>,
+    ) -> ParadeFieldConfigSerializedResult {
+        bincode::serialize(&field_configs)
+    }
+
+    fn deserialize_index_field_configs(
+        serialized_data: ParadeFieldConfigSerialized,
+    ) -> ParadeFieldConfigDeserializedResult {
+        bincode::deserialize(&serialized_data)
+    }
+
+    fn write_index_field_configs(
+        index_name: &str,
+        field_configs: HashMap<String, ParadeFieldConfig>,
+    ) -> Result<(), Box<dyn Error>> {
+        // Serialize the entire HashMap into a bincode format
+        let serialized_data = Self::serialize_index_field_configs(field_configs)?;
+        let config_path = Self::get_field_configs_path(index_name);
+        let mut file = File::create(config_path)?;
+
+        file.write_all(&serialized_data)?;
+        // Rust automatically flushes data to disk at the end of the scope,
+        // so this call to "flush()" isn't strictly necessary.
+        // We're doing it explicitly as a reminder in case we extend this method.
+        file.flush().unwrap();
+
+        Ok(())
+    }
+
+    fn read_index_field_configs(
+        index_name: &str,
+    ) -> Result<HashMap<String, ParadeFieldConfig>, Box<dyn Error>> {
+        let config_path = Self::get_field_configs_path(index_name);
+
+        // Open the file in read mode
+        let mut file = File::open(config_path)?;
+
+        // Read the serialized bincode data from the file
+        let mut serialized_data = Vec::new();
+        file.read_to_end(&mut serialized_data)?;
+
+        // Deserialize the bincode data back into a HashMap<String, ParadeFieldConfig>
+        let deserialized_data = Self::deserialize_index_field_configs(serialized_data)?;
+
+        Ok(deserialized_data)
     }
 
     fn build_index_schema(

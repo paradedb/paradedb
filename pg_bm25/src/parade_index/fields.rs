@@ -2,8 +2,7 @@ use serde::*;
 use tantivy::schema::*;
 
 // Tokenizers
-// TODO: Custom tokenizers like CJK and ngrams
-#[derive(Default, Copy, Clone, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Default, Copy, Clone, Deserialize, Debug, Serialize, PartialEq, Eq)]
 pub enum ParadeTokenizer {
     #[serde(rename = "default")]
     #[default]
@@ -16,6 +15,14 @@ pub enum ParadeTokenizer {
     WhiteSpace,
     #[serde(rename = "chinese_compatible")]
     ChineseCompatible,
+    #[serde(rename = "source_code")]
+    SourceCode,
+    #[serde(rename = "ngram")]
+    Ngram {
+        min_gram: usize,
+        max_gram: usize,
+        prefix_only: bool,
+    },
 }
 
 impl ParadeTokenizer {
@@ -26,12 +33,18 @@ impl ParadeTokenizer {
             ParadeTokenizer::EnStem => "en_stem",
             ParadeTokenizer::WhiteSpace => "whitespace",
             ParadeTokenizer::ChineseCompatible => "chinese_compatible",
+            ParadeTokenizer::SourceCode => "source_code",
+            ParadeTokenizer::Ngram {
+                min_gram,
+                max_gram,
+                prefix_only,
+            } => "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}",
         }
     }
 }
 
 // Normalizers for fast fields
-#[derive(Default, Copy, Clone, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Default, Copy, Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub enum ParadeNormalizer {
     #[serde(rename = "raw")]
     #[default]
@@ -211,7 +224,7 @@ impl From<ParadeBooleanOptions> for NumericOptions {
 }
 
 // Json options
-#[derive(Copy, Clone, Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ParadeJsonOptions {
     #[serde(default = "default_as_true")]
     indexed: bool,
@@ -222,12 +235,18 @@ pub struct ParadeJsonOptions {
     #[serde(default = "default_as_true")]
     expand_dots: bool,
     #[serde(default)]
-    tokenizer: ParadeTokenizer,
+    pub tokenizer: ParadeTokenizer,
     #[schema(value_type = IndexRecordOptionSchema)]
     #[serde(default)]
     record: IndexRecordOption,
     #[serde(default)]
     normalizer: ParadeNormalizer,
+    #[serde(default)]
+    ngram_prefix_only: bool,
+    #[serde(default)]
+    ngram_min: usize,
+    #[serde(default)]
+    ngram_max: usize,
 }
 
 impl Default for ParadeJsonOptions {
@@ -240,6 +259,9 @@ impl Default for ParadeJsonOptions {
             tokenizer: ParadeTokenizer::Default,
             record: IndexRecordOption::Basic,
             normalizer: ParadeNormalizer::Raw,
+            ngram_prefix_only: false,
+            ngram_min: 0,
+            ngram_max: 0,
         }
     }
 }

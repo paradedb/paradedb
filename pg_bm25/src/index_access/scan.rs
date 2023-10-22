@@ -26,8 +26,7 @@ pub extern "C" fn ambeginscan(
     let index_name = index_relation.name().to_string();
 
     // Lookup the index by name, and setup its tokenizer functions.
-    let mut parade_index = get_parade_index(index_name);
-    parade_index.setup_tokenizers();
+    let parade_index = get_parade_index(index_name);
 
     let state = parade_index.scan();
 

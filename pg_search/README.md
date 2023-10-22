@@ -35,7 +35,7 @@ If you are self-hosting Postgres and would like to use the extension within your
 
 #### Linux Ubuntu
 
-We provide prebuilt binaries for Linux Ubuntu. To install `pg_search`, follow these steps:
+We provide prebuilt binaries for Linux Ubuntu, currently only for PostgreSQL 15 (more versions coming soon). To install `pg_search`, follow these steps:
 
 ```bash
 # Install pg_bm25

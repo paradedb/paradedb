@@ -185,7 +185,7 @@ ARG TARGETARCH
 
 COPY --from=builder-pgml /tmp/postgresml/pgml-extension/requirements.txt /usr/src/app/
 
-# Install postgis, patroni & Crunchy operator runtime dependencies
+# Install pgml, postgis, patroni & Crunchy operator runtime dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     # postgis
     libgeos-c1v5 \

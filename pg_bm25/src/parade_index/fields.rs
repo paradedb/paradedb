@@ -26,19 +26,19 @@ pub enum ParadeTokenizer {
 }
 
 impl ParadeTokenizer {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> String {
         match self {
-            ParadeTokenizer::Default => "default",
-            ParadeTokenizer::Raw => "raw",
-            ParadeTokenizer::EnStem => "en_stem",
-            ParadeTokenizer::WhiteSpace => "whitespace",
-            ParadeTokenizer::ChineseCompatible => "chinese_compatible",
-            ParadeTokenizer::SourceCode => "source_code",
+            ParadeTokenizer::Default => "default".into(),
+            ParadeTokenizer::Raw => "raw".into(),
+            ParadeTokenizer::EnStem => "en_stem".into(),
+            ParadeTokenizer::WhiteSpace => "whitespace".into(),
+            ParadeTokenizer::ChineseCompatible => "chinese_compatible".into(),
+            ParadeTokenizer::SourceCode => "source_code".into(),
             ParadeTokenizer::Ngram {
                 min_gram,
                 max_gram,
                 prefix_only,
-            } => "ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}",
+            } => format!("ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}"),
         }
     }
 }
@@ -136,7 +136,7 @@ impl From<ParadeTextOptions> for TextOptions {
             let text_field_indexing = TextFieldIndexing::default()
                 .set_index_option(parade_options.record)
                 .set_fieldnorms(parade_options.fieldnorms)
-                .set_tokenizer(parade_options.tokenizer.name());
+                .set_tokenizer(&parade_options.tokenizer.name());
 
             text_options = text_options.set_indexing_options(text_field_indexing);
         }
@@ -282,7 +282,7 @@ impl From<ParadeJsonOptions> for JsonObjectOptions {
         if parade_options.indexed {
             let text_field_indexing = TextFieldIndexing::default()
                 .set_index_option(parade_options.record)
-                .set_tokenizer(parade_options.tokenizer.name());
+                .set_tokenizer(&parade_options.tokenizer.name());
 
             json_options = json_options.set_indexing_options(text_field_indexing);
         }

@@ -56,7 +56,9 @@ pub extern "C" fn ambuild(
         index_name.clone(),
         format!("{}.{}", schema_name, table_name),
         rdopts,
-    );
+    )
+    .unwrap();
+
     let tantivy_index = parade_index.copy_tantivy_index();
     let mut writer = SingleSegmentIndexWriter::new(tantivy_index, INDEX_WRITER_MEM_BUDGET)
         .expect("failed to create index writer");

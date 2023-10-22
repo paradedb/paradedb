@@ -3,8 +3,8 @@ use pgrx::*;
 use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::{CStr, CString};
-use std::fs::{create_dir_all, remove_dir_all, File};
-use std::io::{Read, Write};
+use std::fs::{self, create_dir_all, remove_dir_all, File};
+use std::io::Write;
 use std::path::Path;
 use tantivy::{
     query::{Query, QueryParser},
@@ -55,7 +55,11 @@ pub struct ParadeIndex {
 }
 
 impl ParadeIndex {
-    pub fn new(name: String, table_name: String, options: PgBox<ParadeOptions>) -> Self {
+    pub fn new(
+        name: String,
+        table_name: String,
+        options: PgBox<ParadeOptions>,
+    ) -> Result<Self, Box<dyn Error>> {
         let dir = Self::get_data_directory(&name);
         let path = Path::new(&dir);
         if path.exists() {
@@ -64,7 +68,7 @@ impl ParadeIndex {
 
         create_dir_all(path).expect("failed to create paradedb directory");
 
-        let result = Self::build_index_schema(&table_name, options);
+        let result = Self::build_index_schema(&table_name, &options);
         let (schema, fields) = match result {
             Ok((s, f)) => (s, f),
             Err(e) => {
@@ -84,15 +88,22 @@ impl ParadeIndex {
 
         // Save the json_fields used to configure the index to disk.
         // We'll need to retrieve these along with the index.
-        let json_fields = options.get_json_fields();
+        let json_fields = options.get_json_fields().clone();
         let field_configs: HashMap<String, ParadeFieldConfig> = fields
+            .clone()
             .into_iter()
-            .map(|(field_name, field)| {
-                let json_options = json_fields.get(&field_name).unwrap().clone();
+            .map(|(field_name, _)| {
+                let json_options = json_fields
+                    .get(&field_name)
+                    .map(|j| j.to_owned())
+                    .unwrap_or_default();
+
                 let field_data = ParadeFieldConfig { json_options };
                 (field_name, field_data)
             })
             .collect();
+
+        Self::write_index_field_configs(&name, &field_configs)?;
 
         let mut new_self = Self {
             fields,
@@ -102,7 +113,7 @@ impl ParadeIndex {
 
         new_self.setup_tokenizers();
 
-        new_self
+        Ok(new_self)
     }
 
     pub fn setup_tokenizers(&mut self) {
@@ -122,7 +133,7 @@ impl ParadeIndex {
             return None;
         }
 
-        PARADE_INDEX_MEMORY?.get(name).cloned()
+        PARADE_INDEX_MEMORY.as_ref()?.get(name).cloned()
     }
 
     pub fn from_index_name(name: String) -> Self {
@@ -145,10 +156,6 @@ impl ParadeIndex {
                 (entry.name().to_string(), field)
             })
             .collect();
-
-        for (field, entry) in schema.fields() {
-            let field_name = entry.name().to_string();
-        }
 
         let field_configs =
             Self::read_index_field_configs(&name).expect("failed to open index field configs");
@@ -293,31 +300,31 @@ impl ParadeIndex {
 
     fn get_field_configs_path(name: &str) -> String {
         let dir_path = Self::get_data_directory(name);
-        format!("{}_parade_field_configs", name)
+        format!("{}_parade_field_configs.json", dir_path)
     }
 
     fn serialize_index_field_configs(
-        field_configs: HashMap<String, ParadeFieldConfig>,
+        field_configs: &HashMap<String, ParadeFieldConfig>,
     ) -> ParadeFieldConfigSerializedResult {
-        bincode::serialize(&field_configs)
+        serde_json::to_string(&field_configs)
     }
 
     fn deserialize_index_field_configs(
         serialized_data: ParadeFieldConfigSerialized,
     ) -> ParadeFieldConfigDeserializedResult {
-        bincode::deserialize(&serialized_data)
+        serde_json::from_str(&serialized_data)
     }
 
     fn write_index_field_configs(
         index_name: &str,
-        field_configs: HashMap<String, ParadeFieldConfig>,
+        field_configs: &HashMap<String, ParadeFieldConfig>,
     ) -> Result<(), Box<dyn Error>> {
         // Serialize the entire HashMap into a bincode format
         let serialized_data = Self::serialize_index_field_configs(field_configs)?;
         let config_path = Self::get_field_configs_path(index_name);
         let mut file = File::create(config_path)?;
 
-        file.write_all(&serialized_data)?;
+        file.write_all(&serialized_data.as_bytes())?;
         // Rust automatically flushes data to disk at the end of the scope,
         // so this call to "flush()" isn't strictly necessary.
         // We're doing it explicitly as a reminder in case we extend this method.
@@ -331,12 +338,7 @@ impl ParadeIndex {
     ) -> Result<HashMap<String, ParadeFieldConfig>, Box<dyn Error>> {
         let config_path = Self::get_field_configs_path(index_name);
 
-        // Open the file in read mode
-        let mut file = File::open(config_path)?;
-
-        // Read the serialized bincode data from the file
-        let mut serialized_data = Vec::new();
-        file.read_to_end(&mut serialized_data)?;
+        let serialized_data = fs::read_to_string(config_path)?;
 
         // Deserialize the bincode data back into a HashMap<String, ParadeFieldConfig>
         let deserialized_data = Self::deserialize_index_field_configs(serialized_data)?;
@@ -346,7 +348,7 @@ impl ParadeIndex {
 
     fn build_index_schema(
         name: &str,
-        options: PgBox<ParadeOptions>,
+        options: &PgBox<ParadeOptions>,
     ) -> Result<(Schema, HashMap<String, Field>), String> {
         let indexrel = unsafe {
             PgRelation::open_with_name(name)

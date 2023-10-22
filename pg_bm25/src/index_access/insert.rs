@@ -57,7 +57,6 @@ unsafe fn aminsert_internal(
 
     // Lookup the index by name, and setup its tokenizer functions.
     let mut parade_index = get_parade_index(index_name);
-    parade_index.underlying_index.schema().try_into();
 
     // Insert row to parade index
     let tantivy_index = parade_index.copy_tantivy_index();

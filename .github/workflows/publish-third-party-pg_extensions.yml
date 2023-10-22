@@ -167,7 +167,7 @@ jobs:
 
       - name: Update pgml schema to paradedb
         working-directory: pgml-extension/
-        run:
+        run: |
           sed -i "s/\(schema = \).*/\1'paradedb'/" pgml.control find . -type f -exec sed -i 's/pgml\./paradedb\./g' {} +
           sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/" Cargo.toml
 

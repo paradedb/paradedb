@@ -101,7 +101,7 @@ jobs:
           done
 
   publish-pgml:
-    name: Publish pgml for PostgreSQL ${{ matrix.pg_version }}
+    name: Publish pgml for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -158,10 +158,6 @@ jobs:
           sed -i "s/\(schema = \).*/\1'paradedb'/" pgml.control
           find . -type f -exec sed -i 's/pgml\./paradedb\./g' {} +
 
-      - name: Package pgml Extension with pgrx
-        working-directory: pgml-extension/
-        run: git submodule update --init --recursive && cargo pgrx package
-
       # Install requirements for pgml
       - name: Install pgml Build Dependencies
         run: |
@@ -169,7 +165,12 @@ jobs:
             checkinstall \
             bison \
             flex \
-            libreadline-dev
+            libreadline-dev \
+            libopenblas-dev
+
+      - name: Package pgml Extension with pgrx
+        working-directory: pgml-extension/
+        run: git submodule update --init --recursive && cargo pgrx package
 
       - name: Create .deb Package
         run: |

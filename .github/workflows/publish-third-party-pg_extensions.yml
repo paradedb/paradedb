@@ -120,18 +120,6 @@ jobs:
           repository: paradedb/postgresml
           ref: v2.7.8
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v3
-        id: cache-cargo
-        with:
-          path: |
-            ~/.cargo/
-            ~/.rustup/
-          key: ${{ runner.os }}-cargo-pgrx-0.9.8
-          restore-keys: |
-            ${{ runner.os }}-cargo-pgrx
-            ${{ runner.os }}-cargo
-
       - name: Retrieve GitHub Tag Version
         id: version
         run: echo "version=2.7.8" >> $GITHUB_OUTPUT
@@ -158,7 +146,6 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
-        if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: cargo install cargo-pgrx --version 0.9.8
 
       - name: Initialize pgrx for Current PostgreSQL Version

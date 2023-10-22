@@ -33,31 +33,24 @@ This will spin up a Postgres instance with `pg_search` and its dependencies prei
 
 If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow these steps:
 
-1. Install Rust and cargo-pgrx:
+#### Linux Ubuntu
+
+We provide prebuilt binaries for Linux Ubuntu. To install `pg_search`, follow these steps:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install cargo-pgrx --version 0.9.8
-```
+# Install pg_bm25
+wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_bm25.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb && sudo apt-get install pg_bm25.deb
 
-2. Install `pgvector` and `pg_bm25`:
+# Install pgvector
+sudo apt-get install postgresql-15-pgvector
 
-```bash
-# Clone the repo (optionally pick a specific version)
-git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
-
-# Install pgvector and pg_bm25
-cd pg_search/
-cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
-./configure.sh
-```
-
-3. Then, run:
-
-```bash
 # Install pg_search
-cargo pgrx install --release
+wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_search.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb && sudo apt-get install pg_search.deb
 ```
+
+#### macOS and Windows
+
+We don't suggest running production workloads on macOS or Windows. As a result, we don't provide prebuilt binaries for these platforms. If you are running Postgres on macOS or Windows and want to install `pg_search`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
 
 You can then create the extension in your database by running:
 
@@ -65,7 +58,7 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_search CASCADE;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_search` until the Postgres service explicitly supports it and its dependencies.
+Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
 
 ## Usage
 

@@ -50,24 +50,21 @@ This will spin up a Postgres instance with `pg_bm25` preinstalled.
 
 If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow these steps:
 
-1. Install Rust and cargo-pgrx:
+#### Linux Ubuntu
+
+We provide prebuilt binaries for Linux Ubuntu. To install `pg_bm25`, follow these steps:
 
 ```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install cargo-pgrx --version 0.9.8
+# Download the .deb file
+wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_bm25.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb
+
+# Install the .deb file
+sudo apt-get install pg_bm25.deb
 ```
 
-2. Then, run:
+#### macOS and Windows
 
-```bash
-# Clone the repo (optionally pick a specific version)
-git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
-
-# Install pg_bm25
-cd pg_bm25/
-cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
-cargo pgrx install --release
-```
+We don't suggest running production workloads on macOS or Windows. As a result, we don't provide prebuilt binaries for these platforms. If you are running Postgres on macOS or Windows and want to install `pg_bm25`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
 
 You can then create the extension in your database by running:
 
@@ -75,7 +72,7 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_bm25;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
+Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
 
 ## Usage
 

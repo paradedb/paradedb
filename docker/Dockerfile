@@ -183,6 +183,8 @@ FROM base as paradedb
 
 ARG TARGETARCH
 
+WORKDIR /usr/src/app
+
 COPY --from=builder-pgml /tmp/postgresml/pgml-extension/requirements.txt /usr/src/app/
 
 # Install pgml, postgis, patroni & Crunchy operator runtime dependencies
@@ -196,7 +198,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     pgbackrest \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
     # pgml
-    pip3 install --no-cache-dir -r requirements.txt && rm -rf requirements.txt && \
+    pip3 install --no-cache-dir --break-system-packages -r requirements.txt && rm -rf requirements.txt && \
     # patroni
     pip3 install --no-cache-dir --break-system-packages patroni[etcd3] psycopg[binary]>=3.0.0 && \
     # Symlink libproj.so.22 to libproj.so.25, since Postgis requires an older version, and

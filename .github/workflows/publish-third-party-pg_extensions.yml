@@ -173,7 +173,7 @@ jobs:
 
       - name: Package pgml Extension with pgrx
         working-directory: pgml-extension/
-        run: cargo pgrx package
+        run: git submodule update --init --recursive && cargo pgrx package
 
       # Install requirements for pgml
       - name: Install pgml Build Dependencies

@@ -214,8 +214,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           repository: paradedb/third-party-pg_extensions
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
+          tag_name: pgml-v${{ steps.version.outputs.version }}-${{ steps.arch.outputs.arch }}
+          name: pgml ${{ steps.version.outputs.version }} ${{ steps.arch.outputs.arch }}
           body: Internal ParadeDB Release for pgml version ${{ steps.version.outputs.version }} for arch ${{ steps.arch.outputs.arch }}. This release is not intended for public use.
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
@@ -230,6 +230,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         with:
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pgml-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu.deb
+          asset_path: ./pgml-extension/pgml-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu.deb
           asset_name: pgml-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu.deb
           asset_content_type: application/vnd.DEBIAN.binary-package

@@ -224,7 +224,7 @@ jobs:
       - name: Create GitHub Release for pgml
         uses: softprops/action-gh-release@v1
         with:
-          repository: paradedb/third-party-extensions
+          repository: paradedb/third-party-pg_extensions
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
           body: Internal ParadeDB Release for pgml version ${{ steps.version.outputs.version }} for arch ${{ steps.arch.outputs.arch }}. This release is not intended for public use.
@@ -233,7 +233,7 @@ jobs:
 
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
-        run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/paradedb/third_party_extensions/releases/latest | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
+        run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/paradedb/third-party-pg_extensions/releases/latest | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
       - name: Upload pgml .deb to GitHub Release
         uses: actions/upload-release-asset@v1

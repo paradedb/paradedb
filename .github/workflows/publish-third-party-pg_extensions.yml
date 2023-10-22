@@ -173,6 +173,7 @@ jobs:
         run: git submodule update --init --recursive && cargo pgrx package
 
       - name: Create .deb Package
+        working-directory: pgml-extension/
         run: |
           # Create installable package
           mkdir archive

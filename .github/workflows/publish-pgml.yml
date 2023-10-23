@@ -31,11 +31,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: paradedb/postgresml
-          ref: v2.7.8
+          ref: v2.7.10
 
       - name: Retrieve GitHub Tag Version
         id: version
-        run: echo "version=2.7.8" >> $GITHUB_OUTPUT
+        run: echo "version=2.7.10" >> $GITHUB_OUTPUT
 
       - name: Retrieve Arch
         id: arch
@@ -49,6 +49,9 @@ jobs:
               mapped_arch="$arch_val"
           fi
           echo "arch=$mapped_arch" >> $GITHUB_OUTPUT
+
+      - name: Update Dependencies
+        run: apt-get update && apt-get install -y --no-install-recommends sudo curl wget gnupg2 ca-certificates jq
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

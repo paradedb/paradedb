@@ -48,6 +48,6 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
 DROP INDEX idxindexconfig;
 
 -- Multiple fields
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (text_fields='{description: {}, category: {}}', numeric_fields='{"rating": {}}', boolean_fields='{"in_stock": {}}', json_fields='{"metadata": {}}');
+CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (text_fields='{description: {}, category: {}}', numeric_fields='{rating: {}}', boolean_fields='{in_stock: {}}', json_fields='{metadata: {}}');
 SELECT * from paradedb.schema_bm25('idxindexconfig');
 DROP INDEX idxindexconfig;

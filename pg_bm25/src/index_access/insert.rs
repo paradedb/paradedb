@@ -55,9 +55,8 @@ unsafe fn aminsert_internal(
     let values = std::slice::from_raw_parts(values, 1);
     let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
 
-    let mut parade_index = get_parade_index(index_name);
-
     // Insert row to parade index
+    let mut parade_index = get_parade_index(index_name);
     let tantivy_index = parade_index.copy_tantivy_index();
     let mut writer = SingleSegmentIndexWriter::new(tantivy_index, INDEX_WRITER_MEM_BUDGET)
         .expect("failed to create index writer");

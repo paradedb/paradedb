@@ -322,7 +322,7 @@ impl ParadeIndex {
         index_name: &str,
         field_configs: &ParadeOptionMap,
     ) -> Result<(), Box<dyn Error>> {
-        // Serialize the entire HashMap into a bincode format
+        // Serialize the entire HashMap into a format writable to disk.
         let serialized_data = Self::serialize_index_field_configs(field_configs)?;
         let config_path = Self::get_field_configs_path(index_name);
         let mut file = File::create(config_path)?;
@@ -341,7 +341,7 @@ impl ParadeIndex {
 
         let serialized_data = fs::read_to_string(config_path)?;
 
-        // Deserialize the bincode data back into a HashMap<String, ParadeFieldConfig>
+        // Deserialize the data from disk back into a HashMap<String, ParadeFieldConfig>.
         let deserialized_data = Self::deserialize_index_field_configs(serialized_data)?;
 
         Ok(deserialized_data)

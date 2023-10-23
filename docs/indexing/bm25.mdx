@@ -35,12 +35,14 @@ ON mock_items
 USING bm25 ((mock_items.*))
 WITH (
   text_fields='{
-    "description": {"tokenizer": {"type": "en_stem"}}, "category": {"fast": true}
+    description: {tokenizer: {type: "en_stem"}}, category: {fast: true}
   }'
 );
 ```
 
 </Accordion>
+
+Each input to `WITH ()` accepts a [JSON5](https://json5.org)-formatted string. Keys don't need to be quoted, and trailing commas and comments are allowed. JSON5 is backwards-compatible, so standard JSON works too.
 
 <ParamField body="index_name" required>
   The name of the index. The index name can be anything, as long as doesn't

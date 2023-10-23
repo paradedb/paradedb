@@ -1,7 +1,7 @@
+use json5::from_str;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use serde_json::from_str;
 use std::collections::HashMap;
 use std::ffi::CStr;
 

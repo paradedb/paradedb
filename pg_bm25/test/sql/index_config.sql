@@ -13,7 +13,7 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
 DROP INDEX idxindexconfig;
 
 -- Multiple text fields
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (text_fields='{"description": {"fast": true, "tokenizer": { "type": "en_stem" }, "record": "freq", "normalizer": "raw"}, "category": {}}');
+CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (text_fields='{"description": {fast: true, tokenizer: { type: "en_stem" }, record: "freq", normalizer: "raw"}, category: {}}');
 SELECT * from paradedb.schema_bm25('idxindexconfig');
 DROP INDEX idxindexconfig;
 
@@ -43,11 +43,11 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
 DROP INDEX idxindexconfig;
 
 -- Json field with options
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (json_fields='{"metadata": {"fast": true, "expand_dots": false, "tokenizer": { "type": "raw" }, "normalizer": "raw"}}');
+CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (json_fields='{metadata: {fast: true, expand_dots: false, tokenizer: { type: "raw" }, normalizer: "raw"}}');
 SELECT * from paradedb.schema_bm25('idxindexconfig');
 DROP INDEX idxindexconfig;
 
 -- Multiple fields
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (text_fields='{"description": {}, "category": {}}', numeric_fields='{"rating": {}}', boolean_fields='{"in_stock": {}}', json_fields='{"metadata": {}}');
+CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (text_fields='{description: {}, category: {}}', numeric_fields='{rating: {}}', boolean_fields='{in_stock: {}}', json_fields='{metadata: {}}');
 SELECT * from paradedb.schema_bm25('idxindexconfig');
 DROP INDEX idxindexconfig;

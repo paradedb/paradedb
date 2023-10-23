@@ -1,0 +1,20 @@
+2023-10-23 15:04:10.808 EDT [8937] LOG:  starting PostgreSQL 15.4 on aarch64-apple-darwin23.0.0, compiled by Apple clang version 15.0.0 (clang-1500.0.40.1), 64-bit
+2023-10-23 15:04:10.808 EDT [8937] LOG:  listening on Unix socket "/var/folders/ch/hr172n993v94pr_24zwkxpf00000gn/T/tmp.yxE5GIpv3U/.s.PGSQL.28815"
+2023-10-23 15:04:10.811 EDT [8941] LOG:  database system was shut down at 2023-10-23 15:04:10 EDT
+2023-10-23 15:04:10.814 EDT [8937] LOG:  database system is ready to accept connections
+2023-10-23 15:06:59.358 EDT [8937] LOG:  received SIGHUP, reloading configuration files
+2023-10-23 15:06:59.359 EDT [8937] LOG:  parameter "extra_float_digits" changed to "0"
+2023-10-23 15:06:59.681 EDT [10663] ERROR:  no text_fields, numeric_fields, boolean_fields, or json_fields were specified
+2023-10-23 15:06:59.681 EDT [10663] STATEMENT:  CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*));
+2023-10-23 15:06:59.682 EDT [10663] ERROR:  unrecognized parameter "invalid_field"
+2023-10-23 15:06:59.682 EDT [10663] STATEMENT:  CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (invalid_field='{}');
+2023-10-23 15:07:00.628 EDT [10668] ERROR:  cannot search with both regex_fields and fuzzy_fields
+2023-10-23 15:07:00.628 EDT [10668] STATEMENT:  SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description&fuzzy_fields=description';
+2023-10-23 15:07:01.952 EDT [10707] LOG:  starting PostgreSQL 14.9 on aarch64-apple-darwin23.0.0, compiled by Apple clang version 15.0.0 (clang-1500.0.40.1), 64-bit
+2023-10-23 15:07:01.952 EDT [10707] LOG:  listening on Unix socket "/var/folders/ch/hr172n993v94pr_24zwkxpf00000gn/T/tmp.h0jJw5g560/.s.PGSQL.28814"
+2023-10-23 15:07:01.955 EDT [10709] LOG:  database system was shut down at 2023-10-23 15:07:01 EDT
+2023-10-23 15:07:01.957 EDT [10707] LOG:  database system is ready to accept connections
+2023-10-23 15:08:27.936 EDT [10707] LOG:  received immediate shutdown request
+2023-10-23 15:08:27.937 EDT [10707] LOG:  database system is shut down
+2023-10-23 15:09:10.362 EDT [8939] LOG:  checkpoint starting: time
+2023-10-23 15:09:27.714 EDT [8939] LOG:  checkpoint complete: wrote 174 buffers (1.1%); 0 WAL file(s) added, 0 removed, 0 recycled; write=17.346 s, sync=0.001 s, total=17.353 s; sync files=0, longest=0.000 s, average=0.000 s; distance=811 kB, estimate=811 kB

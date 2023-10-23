@@ -1,14 +1,14 @@
 use pgrx::*;
 
-use crate::sparse_index::index::SparseIndex;
 use crate::sparse_index::sparse::Sparse;
+use crate::sparse_index::index::SparseIndex;
 
 // TODO: Enable this to be configured
 const DEFAULT_EF_SEARCH: usize = 10;
 
 #[derive(Debug)]
 struct ScanState {
-    pub index: SparseIndex,
+    pub index_name: String,
     pub results: Vec<u64>,
     pub no_more_results: bool,
     pub current: usize,
@@ -28,9 +28,8 @@ pub extern "C" fn ambeginscan(
     let index_name = index_relation.name().to_string();
 
     // Create the index and scan
-    let sparse_index = SparseIndex::from_index_name(index_name);
     let scan_state = ScanState {
-        index: sparse_index,
+        index_name,
         results: vec![],
         current: 0,
         n_results: 0,
@@ -94,7 +93,7 @@ pub extern "C" fn amgettuple(
 
     // First scan
     if state.current == 0 {
-        state.results = state.index.search(&sparse_vector, state.k);
+        state.results = SparseIndex::search(&state.index_name, &sparse_vector, state.k);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }
@@ -107,7 +106,7 @@ pub extern "C" fn amgettuple(
 
         state.k *= 2;
 
-        state.results = state.index.search(&sparse_vector, state.k);
+        state.results = SparseIndex::search(&state.index_name, &sparse_vector, state.k);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }

@@ -7,14 +7,14 @@ use crate::sparse_index::sparse::Sparse;
 
 struct BuildState<'a> {
     count: usize,
-    sparse_index: &'a mut SparseIndex,
+    index_name: &'a str,
     memcxt: PgMemoryContexts,
 }
 
 impl<'a> BuildState<'a> {
-    fn new(sparse_index: &'a mut SparseIndex) -> Self {
+    fn new(index_name: &'a str) -> Self {
         BuildState {
-            sparse_index,
+            index_name,
             count: 0,
             memcxt: PgMemoryContexts::new("SparseIndex build context"),
         }
@@ -28,15 +28,14 @@ pub extern "C" fn ambuild(
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut pg_sys::IndexBuildResult {
     // Create SparseIndex
-    let mut sparse_index = SparseIndex::new(index);
+    SparseIndex::new(index);
 
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(index) };
     let ntuples = do_heap_scan(
         index_info,
         &heap_relation,
-        &index_relation,
-        &mut sparse_index,
+        &index_relation
     );
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
@@ -52,10 +51,10 @@ pub extern "C" fn ambuildempty(_index_relation: pg_sys::Relation) {}
 fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
-    index_relation: &'a PgRelation,
-    sparse_index: &mut SparseIndex,
+    index_relation: &'a PgRelation
 ) -> usize {
-    let mut state = BuildState::new(sparse_index);
+    let index_name = index_relation.name().to_string();
+    let mut state = BuildState::new(&index_name);
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -113,7 +112,7 @@ unsafe extern "C" fn build_callback_internal(
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
 
     if let Some(sparse_vector) = sparse_vector {
-        state.sparse_index.insert(sparse_vector, ctid);
+        SparseIndex::insert(&state.index_name, sparse_vector, ctid);
     }
 
     old_context.set_as_current();

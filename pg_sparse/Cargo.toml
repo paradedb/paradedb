@@ -19,7 +19,7 @@ pg_test = []
 
 [dependencies]
 csv = "1.2.2"
-hnswlib = { git = "https://github.com/paradedb/hnswlib.git", rev="9ea81496a94813b81ee70cd28bfb2e15c286f6e3" }
+hnswlib = { git = "https://github.com/paradedb/hnswlib.git", rev="17cbf55a6124dd74ada89a867d35a539770cf483" }
 memoffset = "0.9.0"
 pgrx = "=0.9.8"
 rustc-hash = "1.1.0"

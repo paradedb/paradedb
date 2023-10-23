@@ -42,12 +42,11 @@ unsafe fn aminsert_internal(
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let index_name = index_relation_ref.name().to_string();
 
-    let mut sparse_index = SparseIndex::from_index_name(index_name);
     let values = std::slice::from_raw_parts(values, 1);
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
 
     if let Some(sparse_vector) = sparse_vector {
-        sparse_index.insert(sparse_vector, *heap_tid);
+        SparseIndex::insert(&index_name, sparse_vector, *heap_tid);
         true
     } else {
         false

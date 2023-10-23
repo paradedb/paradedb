@@ -1,5 +1,8 @@
 use hnswlib::Index;
 use pgrx::*;
+use std::ffi::{CStr, CString};
+use std::fs::{create_dir_all, remove_dir_all};
+use std::path::Path;
 
 use crate::index_access::options::SparseOptions;
 use crate::sparse_index::sparse::Sparse;
@@ -7,12 +10,12 @@ use crate::sparse_index::sparse::Sparse;
 const DEFAULT_INDEX_SIZE: usize = 1000;
 
 #[derive(Debug, Clone)]
-pub struct SparseIndex {
-    pub index_name: String,
-}
+pub struct SparseIndex {}
+
+const SPARSE_HNSW_DIR: &str = "sparse_hnsw";
 
 impl SparseIndex {
-    pub fn new(index: pg_sys::Relation) -> Self {
+    pub fn new(index: pg_sys::Relation) {
         let index_relation = unsafe { PgRelation::from_pg(index) };
         let index_name = index_relation.name().to_string();
         let rdopts: PgBox<SparseOptions> = if !index_relation.rd_options.is_null() {
@@ -22,25 +25,25 @@ impl SparseIndex {
             ops.into_pg_boxed()
         };
 
-        info!("Creating SparseIndex with options {:?}", rdopts);
-
-        let hnsw_index = Index::new(
+        let mut hnsw_index = Index::new(
             DEFAULT_INDEX_SIZE,
             rdopts.m as usize,
             rdopts.ef_construction as usize,
             rdopts.random_seed as usize,
         );
-        // TODO: Save HNSW index to disk
 
-        Self { index_name }
+        // Save index to disk
+        let dir = Self::get_data_directory(&index_name);
+        let path = Path::new(&dir);
+        if path.exists() {
+            remove_dir_all(path).expect("Failed to remove sparse_hnsw directory");
+        }
+
+        create_dir_all(path).expect("Failed to create sparse_hnsw directory");
+        hnsw_index.save_index(dir);
     }
 
-    pub fn from_index_name(index_name: String) -> Self {
-        // TODO: Once HNSW index can be saved, retrieve it
-        Self { index_name }
-    }
-
-    pub fn insert(&mut self, sparse_vector: Sparse, heap_tid: pg_sys::ItemPointerData) {
+    pub fn insert(index_name: &str, sparse_vector: Sparse, heap_tid: pg_sys::ItemPointerData) {
         let tid = item_pointer_to_u64(heap_tid);
         info!(
             "TODO: Insert {:?} with ID {:?} into index",
@@ -48,7 +51,7 @@ impl SparseIndex {
         );
     }
 
-    pub fn search(&self, sparse_vector: &Sparse, k: usize) -> Vec<u64> {
+    pub fn search(index_name: &str, sparse_vector: &Sparse, k: usize) -> Vec<u64> {
         info!(
             "TODO: Implement HNSW search to return results sorted by ID {:?}",
             sparse_vector
@@ -57,11 +60,35 @@ impl SparseIndex {
     }
 
     pub fn bulk_delete(
-        &self,
+        index_name: String,
         stats_binding: *mut pg_sys::IndexBulkDeleteResult,
         callback: pg_sys::IndexBulkDeleteCallback,
         callback_state: *mut ::std::os::raw::c_void,
     ) {
         info!("TODO: Implement delete");
+    }
+
+    fn get_data_directory(name: &str) -> String {
+        unsafe {
+            let option_name_cstr =
+                CString::new("data_directory").expect("failed to create CString");
+            let data_dir_str = String::from_utf8(
+                CStr::from_ptr(pg_sys::GetConfigOptionByName(
+                    option_name_cstr.as_ptr(),
+                    std::ptr::null_mut(),
+                    true,
+                ))
+                .to_bytes()
+                .to_vec(),
+            )
+            .expect("Failed to convert C string to Rust string");
+
+            format!("{}/{}/{}", data_dir_str, SPARSE_HNSW_DIR, name)
+        }
+    }
+
+    fn from_index_name(index_name: &str) -> Index {
+        let dir = Self::get_data_directory(&index_name);
+        Index::load_index(dir)
     }
 }

@@ -9,7 +9,6 @@ use crate::index_access::utils::get_parade_index;
 
 #[pg_extern]
 pub fn aggregation(index_name: &str, query: &str) -> JsonB {
-    // Lookup the index by name, and setup its tokenizer functions.
     let parade_index = get_parade_index(index_name.to_string());
 
     let underlying_index = parade_index.underlying_index;

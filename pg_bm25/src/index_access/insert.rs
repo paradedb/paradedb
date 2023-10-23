@@ -55,7 +55,6 @@ unsafe fn aminsert_internal(
     let values = std::slice::from_raw_parts(values, 1);
     let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
 
-    // Lookup the index by name, and setup its tokenizer functions.
     let mut parade_index = get_parade_index(index_name);
 
     // Insert row to parade index

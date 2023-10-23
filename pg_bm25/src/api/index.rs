@@ -20,7 +20,6 @@ pub fn schema_bm25(
     name!(record, Option<String>),
     name!(normalizer, Option<String>),
 )> {
-    // Lookup the index by name, and setup its tokenizer functions.
     let parade_index = get_parade_index(index_name.to_string());
 
     let underlying_index = parade_index.underlying_index;

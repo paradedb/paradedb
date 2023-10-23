@@ -25,7 +25,6 @@ pub extern "C" fn ambeginscan(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
 
-    // Lookup the index by name, and setup its tokenizer functions.
     let parade_index = get_parade_index(index_name);
 
     let state = parade_index.scan();

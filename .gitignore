@@ -10,3 +10,6 @@ docker/.docker_cache_local/
 
 # Rust
 target/
+
+# SSH
+*.pem

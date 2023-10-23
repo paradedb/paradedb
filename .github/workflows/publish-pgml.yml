@@ -15,7 +15,7 @@ jobs:
     name: Publish pgml for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
-      image: python:3.11.6-bookworm
+      image: python:3.11-bookworm
     strategy:
       matrix:
         include:
@@ -51,7 +51,7 @@ jobs:
           echo "arch=$mapped_arch" >> $GITHUB_OUTPUT
 
       - name: Update Dependencies
-        run: apt-get update && apt-get install -y --no-install-recommends sudo curl wget gnupg2 ca-certificates jq
+        run: apt-get update && apt-get install -y --no-install-recommends sudo curl wget gnupg2 ca-certificates jq lsb-release
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

@@ -52,7 +52,7 @@ jobs:
 
       - name: Update Dependencies
         run: |
-          apt-get update && apt-get install -y --no-install-recommends sudo curl wget gnupg2 ca-certificates jq lsb-release
+          apt-get update && apt-get install -y --no-install-recommends sudo curl wget gnupg2 ca-certificates jq lsb-release cmake make
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

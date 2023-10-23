@@ -20,7 +20,7 @@ FROM paradedb.aggregation('<index_name>', '<aggregation_query>');
 SELECT *
 FROM paradedb.aggregation(
     'idx_mock_items',
-    '{"aggs": {"avg": {"field": "rating"}}}'
+    '{aggs: {avg: {field: "rating"}}}'
 )
 ```
 
@@ -34,12 +34,14 @@ FROM paradedb.aggregation(
 
 ## Metrics Aggregation JSON Format
 
+Aggregation queries are a [JSON5](https://json5.org)-formatted string. Keys don’t need to be quoted, and trailing commas and comments are allowed. JSON5 is backwards-compatible, so standard JSON works too.
+
 ### Average
 
 ```sql
 '{
-    "avg": {
-        "field": "rating"
+    avg: {
+        field: "rating"
     }
 }'
 ```
@@ -59,8 +61,8 @@ FROM paradedb.aggregation(
 
 ```sql
 '{
-    "value_count": {
-        "field": "rating"
+    value_count: {
+        field: "rating"
     }
 }'
 ```
@@ -80,8 +82,8 @@ FROM paradedb.aggregation(
 
 ```sql
 '{
-    "max": {
-        "field": "rating"
+    max: {
+        field: "rating"
     }
 }'
 ```
@@ -101,8 +103,8 @@ FROM paradedb.aggregation(
 
 ```sql
 '{
-    "min": {
-        "field": "rating"
+    min: {
+        field: "rating"
     }
 }'
 ```
@@ -122,8 +124,8 @@ FROM paradedb.aggregation(
 
 ```sql
 '{
-    "stats": {
-        "field": "rating"
+    stats: {
+        field: "rating"
     }
 }'
 ```
@@ -143,8 +145,8 @@ FROM paradedb.aggregation(
 
 ```sql
 '{
-    "percentiles": {
-        "field": "rating"
+    percentiles: {
+        field: "rating"
     }
 }'
 ```

@@ -14,11 +14,11 @@ use tantivy::{
 
 use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
-use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
-use crate::types::{
-    ParadeFieldConfig, ParadeFieldConfigDeserializedResult, ParadeFieldConfigSerialized,
-    ParadeFieldConfigSerializedResult,
+use crate::parade_index::fields::{
+    ParadeFieldConfigDeserializedResult, ParadeFieldConfigSerialized,
+    ParadeFieldConfigSerializedResult, ParadeOption, ParadeOptionMap,
 };
+use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 const CACHE_NUM_BLOCKS: usize = 10;
 
@@ -50,7 +50,7 @@ pub struct TantivyScanState {
 #[derive(Clone)]
 pub struct ParadeIndex {
     pub fields: HashMap<String, Field>,
-    pub field_configs: HashMap<String, ParadeFieldConfig>,
+    pub field_configs: ParadeOptionMap,
     pub underlying_index: Index,
 }
 
@@ -88,20 +88,23 @@ impl ParadeIndex {
 
         // Save the json_fields used to configure the index to disk.
         // We'll need to retrieve these along with the index.
-        let json_fields = options.get_json_fields().clone();
-        let field_configs: HashMap<String, ParadeFieldConfig> = fields
-            .clone()
-            .into_iter()
-            .map(|(field_name, _)| {
-                let json_options = json_fields
-                    .get(&field_name)
-                    .map(|j| j.to_owned())
-                    .unwrap_or_default();
+        let mut field_configs: ParadeOptionMap = HashMap::new();
 
-                let field_data = ParadeFieldConfig { json_options };
-                (field_name, field_data)
-            })
-            .collect();
+        for (field_name, options) in options.get_text_fields() {
+            field_configs.insert(field_name, ParadeOption::Text(options));
+        }
+
+        for (field_name, options) in options.get_json_fields() {
+            field_configs.insert(field_name, ParadeOption::Json(options));
+        }
+
+        for (field_name, options) in options.get_numeric_fields() {
+            field_configs.insert(field_name, ParadeOption::Numeric(options));
+        }
+
+        for (field_name, options) in options.get_boolean_fields() {
+            field_configs.insert(field_name, ParadeOption::Boolean(options));
+        }
 
         Self::write_index_field_configs(&name, &field_configs)?;
 
@@ -304,7 +307,7 @@ impl ParadeIndex {
     }
 
     fn serialize_index_field_configs(
-        field_configs: &HashMap<String, ParadeFieldConfig>,
+        field_configs: &ParadeOptionMap,
     ) -> ParadeFieldConfigSerializedResult {
         serde_json::to_string(&field_configs)
     }
@@ -317,7 +320,7 @@ impl ParadeIndex {
 
     fn write_index_field_configs(
         index_name: &str,
-        field_configs: &HashMap<String, ParadeFieldConfig>,
+        field_configs: &ParadeOptionMap,
     ) -> Result<(), Box<dyn Error>> {
         // Serialize the entire HashMap into a bincode format
         let serialized_data = Self::serialize_index_field_configs(field_configs)?;
@@ -333,9 +336,7 @@ impl ParadeIndex {
         Ok(())
     }
 
-    fn read_index_field_configs(
-        index_name: &str,
-    ) -> Result<HashMap<String, ParadeFieldConfig>, Box<dyn Error>> {
+    fn read_index_field_configs(index_name: &str) -> Result<ParadeOptionMap, Box<dyn Error>> {
         let config_path = Self::get_field_configs_path(index_name);
 
         let serialized_data = fs::read_to_string(config_path)?;

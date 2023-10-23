@@ -1,11 +1,9 @@
 mod cjk;
 mod code;
 
-use std::collections::HashMap;
-
-use crate::parade_index::fields::ParadeTokenizer;
+use crate::parade_index::fields::{ParadeOption, ParadeOptionMap, ParadeTokenizer};
+use crate::tokenizers::cjk::ChineseTokenizer;
 use crate::tokenizers::code::CodeTokenizer;
-use crate::{tokenizers::cjk::ChineseTokenizer, types::ParadeFieldConfig};
 
 use tantivy::tokenizer::{
     AsciiFoldingFilter, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter, TextAnalyzer,
@@ -14,13 +12,15 @@ use tantivy::tokenizer::{
 
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 
-pub fn create_tokenizer_manager(
-    field_configs: &HashMap<String, ParadeFieldConfig>,
-) -> TokenizerManager {
+pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManager {
     let tokenizer_manager = TokenizerManager::default();
 
-    for (field_name, field_config) in field_configs {
-        let parade_tokenizer = &field_config.json_options.tokenizer;
+    for (_, field_options) in option_map {
+        let parade_tokenizer = match field_options {
+            ParadeOption::Text(text_options) => text_options.tokenizer,
+            ParadeOption::Json(json_options) => json_options.tokenizer,
+            _ => continue,
+        };
 
         let tokenizer_option = match parade_tokenizer {
             ParadeTokenizer::Raw => Some(
@@ -58,8 +58,7 @@ pub fn create_tokenizer_manager(
         };
 
         if let Some(tokenizer) = tokenizer_option {
-            let tokenizer_name = format!("{field_name}_{}", parade_tokenizer.name());
-            tokenizer_manager.register(&tokenizer_name, tokenizer);
+            tokenizer_manager.register(&parade_tokenizer.name(), tokenizer);
         }
     }
 

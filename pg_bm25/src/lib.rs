@@ -7,7 +7,6 @@ mod manager;
 mod operator;
 mod parade_index;
 mod tokenizers;
-mod types;
 
 pgrx::pg_module_magic!();
 

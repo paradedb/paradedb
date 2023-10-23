@@ -1,8 +1,14 @@
+use std::collections::HashMap;
+
 use serde::*;
 use tantivy::schema::*;
 
 // Tokenizers
+// Serde will pick a ParadeTokenizer variant based on the value of the
+// "type" key, which needs to match one of the variant names below.
+// The "type" field will not be present on the deserialized value.
 #[derive(Default, Copy, Clone, Deserialize, Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "type")]
 pub enum ParadeTokenizer {
     #[serde(rename = "default")]
     #[default]
@@ -89,7 +95,7 @@ impl ToString for IndexRecordOption {
 }
 
 // Text options
-#[derive(Copy, Clone, Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ParadeTextOptions {
     #[serde(default = "default_as_true")]
     indexed: bool,
@@ -100,7 +106,7 @@ pub struct ParadeTextOptions {
     #[serde(default = "default_as_true")]
     fieldnorms: bool,
     #[serde(default)]
-    tokenizer: ParadeTokenizer,
+    pub tokenizer: ParadeTokenizer,
     #[schema(value_type = IndexRecordOptionSchema)]
     #[serde(default)]
     record: IndexRecordOption,
@@ -146,7 +152,7 @@ impl From<ParadeTextOptions> for TextOptions {
 }
 
 // Numeric options
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct ParadeNumericOptions {
     #[serde(default = "default_as_true")]
     indexed: bool,
@@ -184,7 +190,7 @@ impl From<ParadeNumericOptions> for NumericOptions {
     }
 }
 
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct ParadeBooleanOptions {
     #[serde(default = "default_as_true")]
     indexed: bool,
@@ -241,12 +247,6 @@ pub struct ParadeJsonOptions {
     record: IndexRecordOption,
     #[serde(default)]
     normalizer: ParadeNormalizer,
-    #[serde(default)]
-    ngram_prefix_only: bool,
-    #[serde(default)]
-    ngram_min: usize,
-    #[serde(default)]
-    ngram_max: usize,
 }
 
 impl Default for ParadeJsonOptions {
@@ -259,9 +259,6 @@ impl Default for ParadeJsonOptions {
             tokenizer: ParadeTokenizer::Default,
             record: IndexRecordOption::Basic,
             normalizer: ParadeNormalizer::Raw,
-            ngram_prefix_only: false,
-            ngram_min: 0,
-            ngram_max: 0,
         }
     }
 }
@@ -290,6 +287,19 @@ impl From<ParadeJsonOptions> for JsonObjectOptions {
         json_options
     }
 }
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum ParadeOption {
+    Text(ParadeTextOptions),
+    Json(ParadeJsonOptions),
+    Numeric(ParadeNumericOptions),
+    Boolean(ParadeBooleanOptions),
+}
+
+pub type ParadeOptionMap = HashMap<String, ParadeOption>;
+pub type ParadeFieldConfigSerialized = String;
+pub type ParadeFieldConfigSerializedResult = serde_json::Result<ParadeFieldConfigSerialized>;
+pub type ParadeFieldConfigDeserializedResult = serde_json::Result<ParadeOptionMap>;
 
 // TODO: Enable DateTime and IP fields
 

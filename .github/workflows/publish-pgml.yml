@@ -53,8 +53,11 @@ jobs:
       - name: Update Dependencies
         run: |
           apt-get update && apt-get install -y --no-install-recommends sudo curl wget gnupg2 ca-certificates jq lsb-release
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          source "$HOME/.cargo/env"
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -108,21 +111,21 @@ jobs:
           mkdir archive
           cp `find target/release -type f -name "pgml*"` archive
           package_dir=pgml-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ steps.arch.outputs.arch }}-linux-gnu
-          
+
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
           mkdir -p ${package_dir}/var/lib/postgresql/extension
           cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
           cp archive/*.control ${package_dir}/var/lib/postgresql/extension
           cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
-          
+
           # Symlinks to copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
           mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
           cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
           cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
           cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-          
+
           # Create control file (package name cannot have underscore)
           mkdir -p ${package_dir}/DEBIAN
           touch ${package_dir}/DEBIAN/control
@@ -133,7 +136,7 @@ jobs:
           echo 'Architecture: ${{ steps.arch.outputs.arch }}' >> $CONTROL_FILE
           echo 'Maintainer: PostgresML' >> $CONTROL_FILE
           echo 'Description: Generative AI and simple ML in PostgreSQL' >> $CONTROL_FILE
-          
+
           # Create .deb package
           sudo chown -R root:root ${package_dir}
           sudo chmod -R 00755 ${package_dir}

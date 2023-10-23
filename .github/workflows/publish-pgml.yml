@@ -22,9 +22,9 @@ jobs:
           - runner: ubuntu-latest
             pg_version: 15
             arch: amd64
-        #   - runner: buildjet-4vcpu-ubuntu-2204-arm
-        #     pg_version: 15
-        #     arch: arm64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 15
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -94,7 +94,7 @@ jobs:
         working-directory: pgml-extension/
         run: |
           git config --global --add safe.directory /__w/paradedb/paradedb    
-          git submodule update --init --recursive && cargo pgrx package
+          git submodule update --init --recursive && RUSTFLAGS="-A warnings" cargo pgrx package
 
       - name: Create .deb Package
         working-directory: pgml-extension/

@@ -6,6 +6,7 @@ use serde::de::DeserializeOwned;
 
 use std::default::Default;
 
+use std::error::Error;
 use std::str::FromStr;
 
 use crate::index_access::options::ParadeOptions;
@@ -65,7 +66,7 @@ pub fn create_parade_index(
     index_name: String,
     table_name: String,
     options: PgBox<ParadeOptions>,
-) -> ParadeIndex {
+) -> Result<ParadeIndex, Box<dyn Error>> {
     ParadeIndex::new(index_name, table_name, options)
 }
 

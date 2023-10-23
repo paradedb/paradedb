@@ -35,7 +35,7 @@ ON mock_items
 USING bm25 ((mock_items.*))
 WITH (
   text_fields='{
-    "description": {"tokenizer": "en_stem"}, "category": {"fast": true}
+    "description": {"tokenizer": {"type": "en_stem"}}, "category": {"fast": true}
   }'
 );
 ```
@@ -194,8 +194,6 @@ FROM paradedb.schema_bm25('<index_name>');
 
 ## Tokenizers
 
-<Note>`ngrams` and `chinese_compatible` tokenizers are coming soon.</Note>
-
 <ParamField body="default">
   Chops the text on according to whitespace and punctuation, removes tokens that
   are too long, and converts to lowercase. Filters out tokens larger than 255
@@ -210,6 +208,19 @@ FROM paradedb.schema_bm25('<index_name>');
 </ParamField>
 <ParamField body="whitespace">
   Tokenizes the text by splitting on whitespaces.
+</ParamField>
+<ParamField body="chinese_compatible">
+  Segments text considering Chinese character nuances while effectively tokenizing mixed scripts. Splits based on whitespace and punctuation. Filters out tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="ngram">
+  Tokenizes text by splitting words into overlapping substrings based on the specified parameters:
+
+`min_gram`: Defines the minimum length for the n-grams. For instance, if set to 2, the smallest token created would be of length 2 characters.
+
+`max_gram`: Determines the maximum length of the n-grams. If set to 5, the largest token produced would be of length 5 characters.
+
+`prefix_only`: When set to true, the tokenizer generates n-grams that start from the beginning of the word only, ensuring a prefix progression. If false, n-grams are created from all possible character combinations within the min_gram and max_gram range.
+
 </ParamField>
 
 ## Normalizers

@@ -72,7 +72,7 @@ CREATE INDEX idx_mock_items
 ON mock_items
 USING bm25 ((mock_items.*))
 WITH (
-  text_fields='{"description": {"tokenizer": "en_stem"}, "category": {}}'
+  text_fields='{"description": {"tokenizer": {"type": "en-stem"}}, "category": {}}'
 );
 ```
 

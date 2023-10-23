@@ -1,9 +1,14 @@
+use std::collections::HashMap;
+
 use serde::*;
 use tantivy::schema::*;
 
 // Tokenizers
-// TODO: Custom tokenizers like CJK and ngrams
-#[derive(Default, Copy, Clone, Deserialize, Debug, PartialEq, Eq)]
+// Serde will pick a ParadeTokenizer variant based on the value of the
+// "type" key, which needs to match one of the variant names below.
+// The "type" field will not be present on the deserialized value.
+#[derive(Default, Copy, Clone, Deserialize, Debug, Serialize, PartialEq, Eq)]
+#[serde(tag = "type")]
 pub enum ParadeTokenizer {
     #[serde(rename = "default")]
     #[default]
@@ -16,22 +21,36 @@ pub enum ParadeTokenizer {
     WhiteSpace,
     #[serde(rename = "chinese_compatible")]
     ChineseCompatible,
+    #[serde(rename = "source_code")]
+    SourceCode,
+    #[serde(rename = "ngram")]
+    Ngram {
+        min_gram: usize,
+        max_gram: usize,
+        prefix_only: bool,
+    },
 }
 
 impl ParadeTokenizer {
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> String {
         match self {
-            ParadeTokenizer::Default => "default",
-            ParadeTokenizer::Raw => "raw",
-            ParadeTokenizer::EnStem => "en_stem",
-            ParadeTokenizer::WhiteSpace => "whitespace",
-            ParadeTokenizer::ChineseCompatible => "chinese_compatible",
+            ParadeTokenizer::Default => "default".into(),
+            ParadeTokenizer::Raw => "raw".into(),
+            ParadeTokenizer::EnStem => "en_stem".into(),
+            ParadeTokenizer::WhiteSpace => "whitespace".into(),
+            ParadeTokenizer::ChineseCompatible => "chinese_compatible".into(),
+            ParadeTokenizer::SourceCode => "source_code".into(),
+            ParadeTokenizer::Ngram {
+                min_gram,
+                max_gram,
+                prefix_only,
+            } => format!("ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}"),
         }
     }
 }
 
 // Normalizers for fast fields
-#[derive(Default, Copy, Clone, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Default, Copy, Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
 pub enum ParadeNormalizer {
     #[serde(rename = "raw")]
     #[default]
@@ -76,7 +95,7 @@ impl ToString for IndexRecordOption {
 }
 
 // Text options
-#[derive(Copy, Clone, Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ParadeTextOptions {
     #[serde(default = "default_as_true")]
     indexed: bool,
@@ -87,7 +106,7 @@ pub struct ParadeTextOptions {
     #[serde(default = "default_as_true")]
     fieldnorms: bool,
     #[serde(default)]
-    tokenizer: ParadeTokenizer,
+    pub tokenizer: ParadeTokenizer,
     #[schema(value_type = IndexRecordOptionSchema)]
     #[serde(default)]
     record: IndexRecordOption,
@@ -123,7 +142,7 @@ impl From<ParadeTextOptions> for TextOptions {
             let text_field_indexing = TextFieldIndexing::default()
                 .set_index_option(parade_options.record)
                 .set_fieldnorms(parade_options.fieldnorms)
-                .set_tokenizer(parade_options.tokenizer.name());
+                .set_tokenizer(&parade_options.tokenizer.name());
 
             text_options = text_options.set_indexing_options(text_field_indexing);
         }
@@ -133,7 +152,7 @@ impl From<ParadeTextOptions> for TextOptions {
 }
 
 // Numeric options
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct ParadeNumericOptions {
     #[serde(default = "default_as_true")]
     indexed: bool,
@@ -171,7 +190,7 @@ impl From<ParadeNumericOptions> for NumericOptions {
     }
 }
 
-#[derive(Copy, Clone, Debug, Deserialize)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct ParadeBooleanOptions {
     #[serde(default = "default_as_true")]
     indexed: bool,
@@ -211,7 +230,7 @@ impl From<ParadeBooleanOptions> for NumericOptions {
 }
 
 // Json options
-#[derive(Copy, Clone, Debug, Deserialize, utoipa::ToSchema)]
+#[derive(Copy, Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
 pub struct ParadeJsonOptions {
     #[serde(default = "default_as_true")]
     indexed: bool,
@@ -222,7 +241,7 @@ pub struct ParadeJsonOptions {
     #[serde(default = "default_as_true")]
     expand_dots: bool,
     #[serde(default)]
-    tokenizer: ParadeTokenizer,
+    pub tokenizer: ParadeTokenizer,
     #[schema(value_type = IndexRecordOptionSchema)]
     #[serde(default)]
     record: IndexRecordOption,
@@ -260,7 +279,7 @@ impl From<ParadeJsonOptions> for JsonObjectOptions {
         if parade_options.indexed {
             let text_field_indexing = TextFieldIndexing::default()
                 .set_index_option(parade_options.record)
-                .set_tokenizer(parade_options.tokenizer.name());
+                .set_tokenizer(&parade_options.tokenizer.name());
 
             json_options = json_options.set_indexing_options(text_field_indexing);
         }
@@ -268,6 +287,19 @@ impl From<ParadeJsonOptions> for JsonObjectOptions {
         json_options
     }
 }
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub enum ParadeOption {
+    Text(ParadeTextOptions),
+    Json(ParadeJsonOptions),
+    Numeric(ParadeNumericOptions),
+    Boolean(ParadeBooleanOptions),
+}
+
+pub type ParadeOptionMap = HashMap<String, ParadeOption>;
+pub type ParadeFieldConfigSerialized = String;
+pub type ParadeFieldConfigSerializedResult = serde_json::Result<ParadeFieldConfigSerialized>;
+pub type ParadeFieldConfigDeserializedResult = serde_json::Result<ParadeOptionMap>;
 
 // TODO: Enable DateTime and IP fields
 

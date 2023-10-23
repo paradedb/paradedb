@@ -123,13 +123,25 @@ impl<'a> TokenStream for ChineseTokenStream<'a> {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::tokenizers::create_tokenizer_manager;
+    use crate::{
+        parade_index::fields::{ParadeOptionMap, ParadeTextOptions, ParadeTokenizer},
+        tokenizers::create_tokenizer_manager,
+    };
     use tantivy::tokenizer::{Token, TokenStream};
 
     #[test]
     fn test_chinese_tokenizer() {
         let text = "Hello world, 你好世界, bonjour monde";
-        let tokenizer_manager = create_tokenizer_manager(&HashMap::new());
+
+        let mut options = ParadeTextOptions::default();
+        options.tokenizer = ParadeTokenizer::ChineseCompatible;
+        let mut option_map: ParadeOptionMap = HashMap::new();
+        option_map.insert(
+            "_".into(),
+            crate::parade_index::fields::ParadeOption::Text(options),
+        );
+
+        let tokenizer_manager = create_tokenizer_manager(&option_map);
         let mut tokenizer = tokenizer_manager.get("chinese_compatible").unwrap();
         let mut text_stream = tokenizer.token_stream(text);
 
@@ -204,7 +216,16 @@ mod tests {
     #[test]
     fn test_chinese_tokenizer_no_space() {
         let text = "Hello你好bonjour";
-        let tokenizer_manager = create_tokenizer_manager(&HashMap::new());
+
+        let mut options = ParadeTextOptions::default();
+        options.tokenizer = ParadeTokenizer::ChineseCompatible;
+        let mut option_map: ParadeOptionMap = HashMap::new();
+        option_map.insert(
+            "_".into(),
+            crate::parade_index::fields::ParadeOption::Text(options),
+        );
+
+        let tokenizer_manager = create_tokenizer_manager(&option_map);
         let mut tokenizer = tokenizer_manager.get("chinese_compatible").unwrap();
         let mut text_stream = tokenizer.token_stream(text);
 

@@ -327,7 +327,7 @@ impl ParadeIndex {
         let config_path = Self::get_field_configs_path(index_name);
         let mut file = File::create(config_path)?;
 
-        file.write_all(&serialized_data.as_bytes())?;
+        file.write_all(serialized_data.as_bytes())?;
         // Rust automatically flushes data to disk at the end of the scope,
         // so this call to "flush()" isn't strictly necessary.
         // We're doing it explicitly as a reminder in case we extend this method.

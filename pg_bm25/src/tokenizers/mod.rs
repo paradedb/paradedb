@@ -15,7 +15,7 @@ pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManager {
     let tokenizer_manager = TokenizerManager::default();
 
-    for (_, field_options) in option_map {
+    for field_options in option_map.values() {
         let parade_tokenizer = match field_options {
             ParadeOption::Text(text_options) => text_options.tokenizer,
             ParadeOption::Json(json_options) => json_options.tokenizer,
@@ -47,8 +47,7 @@ pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManage
                 prefix_only,
             } => Some(
                 TextAnalyzer::builder(
-                    NgramTokenizer::new(min_gram.clone(), max_gram.clone(), prefix_only.clone())
-                        .unwrap(),
+                    NgramTokenizer::new(min_gram, max_gram, prefix_only).unwrap(),
                 )
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)

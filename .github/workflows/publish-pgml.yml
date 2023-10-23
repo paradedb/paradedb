@@ -15,7 +15,7 @@ jobs:
     name: Publish pgml for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
-          image: python:3.11.6-bookworm
+      image: python:3.11.6-bookworm
     strategy:
       matrix:
         include:

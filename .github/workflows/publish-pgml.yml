@@ -92,7 +92,9 @@ jobs:
 
       - name: Package pgml Extension with pgrx
         working-directory: pgml-extension/
-        run: git submodule update --init --recursive && cargo pgrx package
+        run: |
+          git config --global --add safe.directory /__w/paradedb/paradedb    
+          git submodule update --init --recursive && cargo pgrx package
 
       - name: Create .deb Package
         working-directory: pgml-extension/

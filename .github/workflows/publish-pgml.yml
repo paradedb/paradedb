@@ -22,9 +22,9 @@ jobs:
           - runner: ubuntu-latest
             pg_version: 15
             arch: amd64
-          - runner: buildjet-4vcpu-ubuntu-2204-arm
-            pg_version: 15
-            arch: arm64
+        #   - runner: buildjet-4vcpu-ubuntu-2204-arm
+        #     pg_version: 15
+        #     arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -51,7 +51,9 @@ jobs:
           echo "arch=$mapped_arch" >> $GITHUB_OUTPUT
 
       - name: Update Dependencies
-        run: apt-get update && apt-get install -y --no-install-recommends sudo curl wget gnupg2 ca-certificates jq lsb-release
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends sudo curl wget gnupg2 ca-certificates jq lsb-release
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

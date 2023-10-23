@@ -30,7 +30,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
         with:
-          repository: paradedb/postgresml
+          repository: postgresml/postgresml
           ref: v2.7.10
 
       - name: Retrieve GitHub Tag Version

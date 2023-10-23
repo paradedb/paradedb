@@ -1,15 +1,15 @@
+use hnswlib::Index;
 use pgrx::*;
 
+use crate::sparse_index::index::from_index_name;
 use crate::sparse_index::sparse::Sparse;
-use crate::sparse_index::index::SparseIndex;
 
 // TODO: Enable this to be configured
 const DEFAULT_EF_SEARCH: usize = 10;
 
-#[derive(Debug)]
 struct ScanState {
-    pub index_name: String,
-    pub results: Vec<u64>,
+    pub index: Index,
+    pub results: Vec<usize>,
     pub no_more_results: bool,
     pub current: usize,
     pub n_results: usize,
@@ -26,10 +26,11 @@ pub extern "C" fn ambeginscan(
         unsafe { PgBox::from_pg(pg_sys::RelationGetIndexScan(indexrel, nkeys, norderbys)) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
+    let index = from_index_name(&index_name);
 
     // Create the index and scan
     let scan_state = ScanState {
-        index_name,
+        index,
         results: vec![],
         current: 0,
         n_results: 0,
@@ -93,7 +94,10 @@ pub extern "C" fn amgettuple(
 
     // First scan
     if state.current == 0 {
-        state.results = SparseIndex::search(&state.index_name, &sparse_vector, state.k);
+        state.results =
+            state
+                .index
+                .search_knn(sparse_vector.entries.clone(), state.k, DEFAULT_EF_SEARCH);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }
@@ -106,7 +110,10 @@ pub extern "C" fn amgettuple(
 
         state.k *= 2;
 
-        state.results = SparseIndex::search(&state.index_name, &sparse_vector, state.k);
+        state.results =
+            state
+                .index
+                .search_knn(sparse_vector.entries.clone(), state.k, DEFAULT_EF_SEARCH);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }
@@ -118,7 +125,7 @@ pub extern "C" fn amgettuple(
         #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
         let tid = &mut scan.xs_heaptid;
 
-        u64_to_item_pointer(state.results[state.current], tid);
+        u64_to_item_pointer(state.results[state.current] as u64, tid);
         state.current += 1;
 
         scan.xs_recheckorderby = false;

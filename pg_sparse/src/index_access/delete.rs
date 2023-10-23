@@ -1,6 +1,6 @@
 use pgrx::*;
 
-use crate::sparse_index::index::SparseIndex;
+use crate::sparse_index::index::bulk_delete;
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -20,6 +20,6 @@ pub extern "C" fn ambulkdelete(
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
     let index_name = index_relation.name().to_string();
 
-    SparseIndex::bulk_delete(index_name, stats_binding, callback, callback_state);
+    bulk_delete(index_name, stats_binding, callback, callback_state);
     stats_binding
 }

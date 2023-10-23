@@ -1,22 +1,23 @@
+use hnswlib::Index;
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 
 use crate::index_access::options::SparseOptions;
-use crate::sparse_index::index::SparseIndex;
+use crate::sparse_index::index::create_index;
 use crate::sparse_index::sparse::Sparse;
 
 struct BuildState<'a> {
     count: usize,
-    index_name: &'a str,
+    sparse_index: &'a mut Index,
     memcxt: PgMemoryContexts,
 }
 
 impl<'a> BuildState<'a> {
-    fn new(index_name: &'a str) -> Self {
+    fn new(sparse_index: &'a mut Index) -> Self {
         BuildState {
-            index_name,
+            sparse_index,
             count: 0,
-            memcxt: PgMemoryContexts::new("SparseIndex build context"),
+            memcxt: PgMemoryContexts::new("HNSW build context"),
         }
     }
 }
@@ -27,15 +28,16 @@ pub extern "C" fn ambuild(
     index: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
 ) -> *mut pg_sys::IndexBuildResult {
-    // Create SparseIndex
-    SparseIndex::new(index);
+    // Create Index
+    let mut sparse_index = create_index(index);
 
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(index) };
     let ntuples = do_heap_scan(
         index_info,
         &heap_relation,
-        &index_relation
+        &index_relation,
+        &mut sparse_index,
     );
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
@@ -51,10 +53,10 @@ pub extern "C" fn ambuildempty(_index_relation: pg_sys::Relation) {}
 fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
-    index_relation: &'a PgRelation
+    index_relation: &'a PgRelation,
+    sparse_index: &mut Index,
 ) -> usize {
-    let index_name = index_relation.name().to_string();
-    let mut state = BuildState::new(&index_name);
+    let mut state = BuildState::new(sparse_index);
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -102,6 +104,8 @@ unsafe extern "C" fn build_callback_internal(
     state: *mut std::os::raw::c_void,
     index: pg_sys::Relation,
 ) {
+    info!("Build callback");
+
     check_for_interrupts!();
 
     let index_relation_ref = unsafe { PgRelation::from_pg(index) };
@@ -112,7 +116,13 @@ unsafe extern "C" fn build_callback_internal(
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
 
     if let Some(sparse_vector) = sparse_vector {
-        SparseIndex::insert(&state.index_name, sparse_vector, ctid);
+        info!("Inserting {:?}", sparse_vector.entries);
+
+        state
+            .sparse_index
+            .add_sparse_vector(sparse_vector.entries, item_pointer_to_u64(ctid) as usize);
+
+        info!("Inserted");
     }
 
     old_context.set_as_current();

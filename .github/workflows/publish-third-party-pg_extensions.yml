@@ -1,0 +1,100 @@
+# workflows/publish-third-party-pg_extensions.yml
+#
+# Third-Party PostgreSQL Extensions: Publish
+# Build and publish the third-party PostgreSQL extensions used by ParadeDB to
+# GitHub Releases. We use a separate storage repo, paradedb/third-party-extensions)
+# for clarity and to avoid bloating the ParadeDB repo with binaries.
+
+name: Publishing
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "conf/third_party_pg_extensions.json"
+      - ".github/workflows/publish-third-party-pg_extensions.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: publish-third-party-pg_extensions-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish-third-party-pg_extensions:
+    name: Publish Third-Party PostgreSQL Extensions for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            pg_version: 15
+            arch: amd64
+          - runner: buildjet-4vcpu-ubuntu-2204-arm
+            pg_version: 15
+            arch: arm64
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Retrieve GitHub Tag Version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+
+          # Update permissions for PostgreSQL directories for extensions installation
+          sudo chown -R $(whoami) \
+            /usr/share/postgresql/${{ matrix.pg_version }}/extension/ \
+            /usr/lib/postgresql/${{ matrix.pg_version }}/bin/ \
+            /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ \
+            /usr/include/postgresql/${{ matrix.pg_version }}/server/ \
+            /usr/share/postgresql/${{ matrix.pg_version }}/contrib/ \
+            /usr/local/share/man/ \
+            /usr/share/doc/
+
+          # Add PostgreSQL binaries to PATH
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      # Install requirements for: rum, pgaudit, postgis, pg_repack, AGE
+      - name: Install Third-Party PostgreSQL Extension Build Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+            checkinstall \
+            systemtap-sdt-dev \
+            libkrb5-dev \
+            libgeos-dev \
+            libproj-dev \
+            libprotobuf-c-dev \
+            libsfcgal-dev \
+            libxml2-dev \
+            libjson-c-dev \
+            libgdal-dev \
+            gdal-bin \
+            gettext \
+            libtool \
+            xsltproc \
+            protobuf-c-compiler \
+            zlib1g-dev \
+            bison \
+            flex \
+            libreadline-dev
+
+      # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
+      - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          PG_MAJOR_VERSION: ${{ matrix.pg_version }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          extensions=$(jq -r '.extensions | keys[]' conf/third_party_pg_extensions.json)
+          for ext in $extensions; do
+            version=$(jq -r ".extensions.\"$ext\".version" conf/third_party_pg_extensions.json)
+            url=$(jq -r ".extensions.\"$ext\".url" conf/third_party_pg_extensions.json)
+            ./scripts/build_and_deploy_third_party_pg_extensions.sh "$ext,$version,$url"
+          done

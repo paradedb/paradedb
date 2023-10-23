@@ -17,9 +17,7 @@ of all its subprojects, please see below.
 
 All development of ParadeDB is done via Docker and Compose. Our Docker setup is split into three:
 
-- The `docker-compose.dev.yml` file builds `Dockerfile.dev`, a minified version of ParadeDB with only actively-developed PostgreSQL extensions (those built by ParadeDB and their dependencies). It is used to develop and test ParadeDB Postgres extensions and features without needing to build the entire ParadeDB image. We recommend using it for day-to-day development.
-
-- The `docker-compose.local.yml` file builds `Dockerfile`, the ParadeDB production image with all its features and extensions enabled. It is used to develop and test new features and extensions outside of those actively developed by ParadeDB (for instance, installing a new open-source PostgreSQL extension). We recommend using it when developing new features beyond the ParadeDB extensions and subprojects.
+- The `docker-compose.dev.yml` file builds our `Dockerfile`, the ParadeDB production image with all its features and extensions enabled. It is used to develop and test ParadeDB Postgres extensions and features as part of the full ParadeDB image. It is also used to develop and test new features and extensions outside of those actively developed by ParadeDB (for instance, installing a new open-source PostgreSQL extension). We recommend using it when developing new features beyond the ParadeDB extensions and subprojects.
 
 - The `docker-compose.yml` file pulls the latest published ParadeDB image from DockerHub. It is used for hobby production deployments. We recommend using it to deploy ParadeDB in your own infrastructure.
 

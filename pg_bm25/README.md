@@ -7,10 +7,8 @@
 
 ## Overview
 
-`pg_bm25` is a PostgreSQL extension that enables full text search over SQL tables
-using the BM25 algorithm, the state-of-the-art ranking function
-for full text search. It is built on top of Tantivy, the Rust-based alternative to Apache
-Lucene, using `pgrx`.
+`pg_bm25` is a PostgreSQL extension that enables full text search over SQL tables using the BM25 algorithm, the state-of-the-art ranking function
+for full text search. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`.
 
 `pg_bm25` is supported on PostgreSQL 11+.
 
@@ -50,27 +48,23 @@ This will spin up a Postgres instance with `pg_bm25` preinstalled.
 
 ### From Self-Hosted Postgres
 
-If you are self-hosting Postgres and would like to use the extension within your existing
-Postgres, follow these steps:
+If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow these steps:
 
-1. Install Rust and cargo-pgrx:
+#### Linux Ubuntu
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install cargo-pgrx --version 0.9.8
-```
-
-2. Then, run:
+We provide prebuilt binaries for Linux Ubuntu, currently only for PostgreSQL 15 (more versions coming soon). To install `pg_bm25`, follow these steps:
 
 ```bash
-# Clone the repo (optionally pick a specific version)
-git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
+# Download the .deb file
+wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_bm25.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb
 
-# Install pg_bm25
-cd pg_bm25/
-cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
-cargo pgrx install --release
+# Install the .deb file
+sudo apt-get install pg_bm25.deb
 ```
+
+#### macOS and Windows
+
+We don't suggest running production workloads on macOS or Windows. As a result, we don't provide prebuilt binaries for these platforms. If you are running Postgres on macOS or Windows and want to install `pg_bm25`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
 
 You can then create the extension in your database by running:
 
@@ -78,15 +72,13 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_bm25;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to
-install `pg_bm25` until the Postgres service explicitly supports it.
+Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
 
 ## Usage
 
 ### Indexing
 
-By default, the `pg_bm25` extension creates a table called `paradedb.mock_items`
-that you can use for quick experimentation.
+By default, the `pg_bm25` extension creates a table called `paradedb.mock_items` that you can use for quick experimentation.
 
 To index a table, use the following SQL command:
 
@@ -155,8 +147,7 @@ FROM mock_items
 WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics';
 ```
 
-New data that arrives or rows that are changed are automatically reindexed and searchable.
-For instance, let's create and search for a new row in our table:
+New data that arrives or rows that are changed are automatically reindexed and searchable. For instance, let's create and search for a new row in our table:
 
 ```sql
 INSERT INTO mock_items (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
@@ -180,16 +171,14 @@ This will return:
 (5 rows)
 ```
 
-Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more
-thorough overview of `pg_bm25`'s query support.
+Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview of `pg_bm25`'s query support.
 
 ## Development
 
 ### Prerequisites
 
 Before developing the extension, ensure that you have Rust installed
-(version >1.70), ideally via `rustup` (we've observed issues with installing Rust
-via Homebrew on macOS).
+(version >1.70), ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
 
 Then, install and initialize pgrx:
 
@@ -206,8 +195,7 @@ First, start pgrx:
 cargo pgrx run
 ```
 
-This will launch an interactive connection to Postgres. Inside Postgres, create
-the extension by running:
+This will launch an interactive connection to Postgres. Inside Postgres, create the extension by running:
 
 ```sql
 CREATE EXTENSION pg_bm25;
@@ -240,8 +228,7 @@ To run the unit test suite, use the following command:
 cargo pgrx test
 ```
 
-This will run all unit tests defined in `/src`. To add a new unit test, simply add
-tests inline in the relevant files, using the `#[cfg(test)]` attribute.
+This will run all unit tests defined in `/src`. To add a new unit test, simply add tests inline in the relevant files, using the `#[cfg(test)]` attribute.
 
 To run the integration test suite, simply run:
 
@@ -249,16 +236,9 @@ To run the integration test suite, simply run:
 ./test/runtests.sh -p threaded
 ```
 
-This will create a temporary database, initialize it with the SQL commands defined
-in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test,
-simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
-`/test/expected` for the expected output, and it will automatically get picked up
-by the test suite.
+This will create a temporary database, initialize it with the SQL commands defined in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test, simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to `/test/expected` for the expected output, and it will automatically get picked up by the test suite.
 
-Note: the bash script takes arguments and allows you to run tests either sequentially
-or in
-parallel.
-For more info run `./test/runtests.sh -h`
+Note: the bash script takes arguments and allows you to run tests either sequentially or in parallel. For more info run `./test/runtests.sh -h`
 
 ## License
 

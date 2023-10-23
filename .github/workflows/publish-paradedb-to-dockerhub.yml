@@ -18,8 +18,11 @@ concurrency:
 
 jobs:
   publish-paradedb-to-dockerhub:
-    name: Publish ParadeDB to Docker Hub
+    name: Publish ParadeDB for PostgreSQL ${{ matrix.pg_version }} to Docker Hub
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [15]
 
     steps:
       - name: Checkout Git Repository
@@ -45,12 +48,12 @@ jobs:
         with:
           context: .
           build-args: |
-            PG_VERSION_MAJOR=15
+            PG_VERSION_MAJOR=${{ matrix.pg_version }}
             PG_BM25_VERSION=${{ steps.version.outputs.version }}
-            PGML_VERSION=2.7.8
-            PGVECTOR_VERSION=0.5.0
-            PGAUDIT_VERSION=1.7.0
             PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
+            PGVECTOR_VERSION=0.5.1
+            PGML_VERSION=2.7.10
+            PGAUDIT_VERSION=1.7.0
             PG_NET_VERSION=0.7.2
             PG_GRAPHQL_VERSION=1.3.0
             PG_JSONSCHEMA_VERSION=0.1.4
@@ -58,9 +61,9 @@ jobs:
             PG_CRON_VERSION=1.6.0
             PG_IVM_VERSION=1.5.1
             PG_HASHIDS_VERSION=1.2.1
-            PG_REPACK_VERSION=ver_1.4.8
+            PG_REPACK_VERSION=1.4.8
             PG_STAT_MONITOR_VERSION=2.0.1
-            PG_HINT_PLAN_VERSION=REL15_1_5_0
+            PG_HINT_PLAN_VERSION=1.5.0
             PG_ROARINGBITMAP_VERSION=0.5.4
             PGFACETING_VERSION=0.1.0
             PGTAP_VERSION=1.3.0
@@ -69,7 +72,7 @@ jobs:
             PGSQL_HTTP_VERSION=1.6.0
             HYPOPG_VERSION=1.4.0
             RUM_VERSION=1.3.13
-            AGE_VERSION=1.4.0-rc0
+            AGE_VERSION=1.4.0
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

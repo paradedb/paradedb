@@ -6,9 +6,9 @@ set -Eeuo pipefail
 # List of extensions to possibly install (if a version variable is set)
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
-  [pgml]=${PGML_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
   [pg_search]=${PG_SEARCH_VERSION:-}
+  [pgml]=${PGML_VERSION:-}
   [pgnodemx]=${PGNODEMX_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
   [pg_net]=${PG_NET_VERSION:-}
@@ -88,6 +88,3 @@ for extension in "${!extensions[@]}"; do
     PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done
-
-echo "PostgreSQL extensions installed - initialization completed!"
-echo "ParadeDB is ready for connections!"

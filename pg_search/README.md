@@ -7,11 +7,7 @@
 
 ## Overview
 
-`pg_search` is a PostgreSQL extension that enables hybrid search in Postgres. Hybrid
-search is a search technique
-that combines BM25-based full text search with vector-based similarity search. It is built
-on top of `pg_bm25`, the leading full text search extension for Postgres, and `pgvector`,
-the leading vector similarity search extension for Postgres, using `pgrx`.
+`pg_search` is a PostgreSQL extension that enables hybrid search in Postgres. Hybrid search is a search technique that combines BM25-based full text search with vector-based similarity search. It is built on top of `pg_bm25`, the leading full text search extension for Postgres, and `pgvector`, the leading vector similarity search extension for Postgres, using `pgrx`.
 
 `pg_search` is supported on PostgreSQL 11+.
 
@@ -35,34 +31,26 @@ This will spin up a Postgres instance with `pg_search` and its dependencies prei
 
 ### From Self-Hosted Postgres
 
-If you are self-hosting Postgres and would like to use the extension within your existing
-Postgres, follow these steps:
+If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow these steps:
 
-1. Install Rust and cargo-pgrx:
+#### Linux Ubuntu
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install cargo-pgrx --version 0.9.8
-```
-
-2. Install `pgvector` and `pg_bm25`:
+We provide prebuilt binaries for Linux Ubuntu, currently only for PostgreSQL 15 (more versions coming soon). To install `pg_search`, follow these steps:
 
 ```bash
-# Clone the repo (optionally pick a specific version)
-git clone https://github.com/paradedb/paradedb.git --tag <VERSION>
+# Install pg_bm25
+wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_bm25.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb && sudo apt-get install pg_bm25.deb
 
-# Install pgvector and pg_bm25
-cd pg_search/
-cargo pgrx init --pg<YOUR-POSTGRES-MAJOR_VERSION>=`which pg_config`
-./configure.sh
-```
+# Install pgvector
+sudo apt-get install postgresql-15-pgvector
 
-3. Then, run:
-
-```bash
 # Install pg_search
-cargo pgrx install --release
+wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_search.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb && sudo apt-get install pg_search.deb
 ```
+
+#### macOS and Windows
+
+We don't suggest running production workloads on macOS or Windows. As a result, we don't provide prebuilt binaries for these platforms. If you are running Postgres on macOS or Windows and want to install `pg_search`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
 
 You can then create the extension in your database by running:
 
@@ -70,19 +58,15 @@ You can then create the extension in your database by running:
 CREATE EXTENSION pg_search CASCADE;
 ```
 
-If you are using a managed Postgres service like Amazon RDS, you will not be able to
-install `pg_search` until the Postgres service explicitly supports it and its
-dependencies.
+Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
 
 ## Usage
 
 ### Indexing
 
-By default, the `pg_search` extension creates a table called `paradedb.mock_items`
-that you can use for quick experimentation.
+By default, the `pg_search` extension creates a table called `paradedb.mock_items` that you can use for quick experimentation.
 
-To perform a hybrid search, you'll first need to create a BM25 and a HNSW index on
-your table. To index a table, use the following SQL command:
+To perform a hybrid search, you'll first need to create a BM25 and a HNSW index on your table. To index a table, use the following SQL command:
 
 ```sql
 CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
@@ -121,16 +105,14 @@ FROM mock_items
 ORDER BY score_hybrid DESC;
 ```
 
-Please refer to the [documentation](https://docs.paradedb.com/search/hybrid) for a more
-thorough overview of `pg_search`'s query support.
+Please refer to the [documentation](https://docs.paradedb.com/search/hybrid) for a more thorough overview of `pg_search`'s query support.
 
 ## Development
 
 ### Prerequisites
 
 Before developing the extension, ensure that you have Rust installed
-(version >1.70), ideally via `rustup` (we've observed issues with installing Rust
-via Homebrew on macOS).
+(version >1.70), ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
 
 Then, install and initialize pgrx:
 
@@ -141,9 +123,7 @@ cargo pgrx init
 
 ### Running the Extension
 
-`pg_search` is built on top of two extensions: `pg_bm25` and `pgvector`. To install
-these two extensions, run the configure script. This must be done _after_ initializing
-pgrx:
+`pg_search` is built on top of two extensions: `pg_bm25` and `pgvector`. To install these two extensions, run the configure script. This must be done _after_ initializing pgrx:
 
 ```bash
 ./configure.sh
@@ -157,8 +137,7 @@ Then, start pgrx:
 cargo pgrx run
 ```
 
-This will launch an interactive connection to Postgres. Inside Postgres, create
-the extension by running:
+This will launch an interactive connection to Postgres. Inside Postgres, create the extension by running:
 
 ```sql
 CREATE EXTENSION pg_search CASCADE;
@@ -191,8 +170,7 @@ To run the unit test suite, use the following command:
 cargo pgrx test
 ```
 
-This will run all unit tests defined in `/src`. To add a new unit test, simply add
-tests inline in the relevant files, using the `#[cfg(test)]` attribute.
+This will run all unit tests defined in `/src`. To add a new unit test, simply add tests inline in the relevant files, using the `#[cfg(test)]` attribute.
 
 To run the integration test suite, simply run:
 
@@ -200,18 +178,10 @@ To run the integration test suite, simply run:
 ./test/runtests.sh -p threaded
 ```
 
-This will create a temporary database, initialize it with the SQL commands defined
-in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test,
-simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to
-`/test/expected` for the expected output, and it will automatically get picked up
-by the test suite.
+This will create a temporary database, initialize it with the SQL commands defined in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test, simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to `/test/expected` for the expected output, and it will automatically get picked up by the test suite.
 
-Note: the bash script takes arguments and allows you to run tests either sequentially
-or in
-parallel.
-For more info run `./test/runtests.sh -h`
+Note: the bash script takes arguments and allows you to run tests either sequentially or in parallel. For more info run `./test/runtests.sh -h`
 
 ## License
 
-The `pg_search` is licensed under
-the [GNU Affero General Public License v3.0](../LICENSE).
+The `pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

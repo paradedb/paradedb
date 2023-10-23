@@ -1,5 +1,6 @@
+use json5::from_str;
 use pgrx::*;
-use serde_json::{from_str, Value as JsonValue};
+use serde_json::Value as JsonValue;
 use tantivy::aggregation::agg_req::Aggregations;
 use tantivy::aggregation::agg_result::AggregationResults;
 use tantivy::aggregation::AggregationCollector;

@@ -52,7 +52,7 @@ jobs:
             PG_BM25_VERSION=${{ steps.version.outputs.version }}
             PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
             PGVECTOR_VERSION=0.5.1
-            PGML_VERSION=2.7.8
+            PGML_VERSION=2.7.10
             PGAUDIT_VERSION=1.7.0
             PG_NET_VERSION=0.7.2
             PG_GRAPHQL_VERSION=1.3.0

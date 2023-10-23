@@ -59,7 +59,6 @@ The versions of the systems used for benchmarking are:
 - ParadeDB: 0.2.18
 - PostgreSQL: 15.4
 - ElasticSearch: 8.9.2
-- Typesense: 0.25.1
 
 For any questions, clarifications, or suggestions regarding our benchmarking experimental setup, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
 

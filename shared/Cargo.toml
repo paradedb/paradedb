@@ -1,0 +1,17 @@
+[package]
+name = "shared"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+envy = "0.4.2"
+pgrx = "0.9.8"
+reqwest = { version = "0.11.22", features = ["blocking"] }
+serde = "1.0.189"
+serde_json = "1.0.107"
+uuid = "1.5.0"
+
+[dev-dependencies]
+pgrx-tests = "0.9.8"

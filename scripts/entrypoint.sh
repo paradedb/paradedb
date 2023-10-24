@@ -78,9 +78,8 @@ fi
 # We need to restart the server for the changes above to be reflected
 pg_ctl restart
 
-# We send basic, anonymous deployment events to PostHog to help us understand
-# how many people are using the project and to track deployment success. We
-# only do this if TELEMETRY is set to "true", and only do it once per deployment
+# We collect basic, anonymous telemetry to help us understand how many people are using
+# the project. We only do this if TELEMETRY is set to "true", and only do it once per deployment
 if [[ ${TELEMETRY:-} == "true" ]]; then
   curl -s -L --header "Content-Type: application/json" -d '{
     "api_key": "'"$POSTHOG_API_KEY"'",

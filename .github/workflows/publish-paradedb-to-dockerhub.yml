@@ -28,11 +28,12 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Retrieve GitHub Tag
+      - name: Retrieve GitHub Release Version
         id: version
         run: |
           echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
@@ -73,6 +74,10 @@ jobs:
             HYPOPG_VERSION=1.4.0
             RUM_VERSION=1.3.13
             AGE_VERSION=1.4.0
+            POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}}
+            POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
+            COMMIT_SHA: ${{ steps.version.outputs.COMMIT_SHA }}
+            TELEMETRY: true
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

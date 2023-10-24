@@ -16,9 +16,11 @@ results/
 *.profraw
 
 # pg_regress
-results/
-regression.diffs
-regression.out
+test/pgvector/
+test/results/
+test/regression.diffs
+test/regression.out
+test/test_logs.log
 
 # pgvector
 pgvector/

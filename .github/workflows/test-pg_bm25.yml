@@ -72,7 +72,7 @@ jobs:
 
       - name: Run pg_bm25 Integration Tests
         working-directory: pg_bm25/
-        run: ./test/runtests.sh -p sequentially -v "${{ matrix.pg_version }}"
+        run: ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
 
       - name: Run pg_bm25 Unit Tests
         env:

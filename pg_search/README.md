@@ -29,13 +29,13 @@ docker run \
 
 This will spin up a Postgres instance with `pg_search` and its dependencies preinstalled.
 
-### From Self-Hosted Postgres
+### From Self-Hosted PostgreSQL
 
 If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow these steps:
 
-#### Linux Ubuntu
+#### Debian/Ubuntu
 
-We provide prebuilt binaries for Linux Ubuntu, currently only for PostgreSQL 15 (more versions coming soon). To install `pg_search`, follow these steps:
+We provide prebuilt binaries for Debian-based Linux, currently only for PostgreSQL 15 (more versions coming soon). To install `pg_search`, follow these steps:
 
 ```bash
 # Install pg_bm25
@@ -47,6 +47,8 @@ sudo apt-get install postgresql-15-pgvector
 # Install pg_search
 wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_search.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb && sudo apt-get install pg_search.deb
 ```
+
+ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
 #### macOS and Windows
 

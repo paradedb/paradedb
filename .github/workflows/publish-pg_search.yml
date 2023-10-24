@@ -40,7 +40,7 @@ jobs:
           path: |
             ~/.cargo/
             ~/.rustup/
-          key: ${{ runner.os }}-cargo-pgrx-0.9.8
+          key: ${{ runner.os }}-cargo-pgrx-0.11.0
           restore-keys: |
             ${{ runner.os }}-cargo-pgrx
             ${{ runner.os }}-cargo
@@ -72,7 +72,7 @@ jobs:
 
       - name: Install pgrx
         if: steps.cache-cargo.outputs.cache-hit != 'true'
-        run: cargo install cargo-pgrx --version 0.9.8
+        run: cargo install cargo-pgrx --version 0.11.0
 
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_search/
@@ -84,7 +84,7 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        run: cargo pgrx package
+        run: cargo pgrx package --features telemetry
 
       - name: Create .deb Package
         run: |

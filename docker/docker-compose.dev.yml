@@ -7,7 +7,7 @@
 version: "3.8"
 
 services:
-  paradedb:
+  paradedb-dev:
     build:
       context: ..
       dockerfile: ./docker/Dockerfile

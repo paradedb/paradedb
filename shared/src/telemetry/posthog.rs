@@ -24,7 +24,24 @@ impl Config {
     }
 }
 
+#[cfg(feature = "telemetry")]
+fn should_enable_telemetry() -> bool {
+    match std::env::var("TELEMETRY") {
+        Ok(val) if val.to_lowercase() == "false" => false, // Explicitly turned off by env var
+        Ok(_) | Err(_) => true, // Default to true if feature is enabled and env var is not "false"
+    }
+}
+
+#[cfg(not(feature = "telemetry"))]
+fn should_enable_telemetry() -> bool {
+    false // Always false if feature is not enabled
+}
+
 pub fn init(event_name: &str) {
+    if !should_enable_telemetry() {
+        return;
+    }
+
     if let Some(config) = Config::from_env() {
         if config.telemetry_handled.as_deref() == Some("true") || config.telemetry != "true" {
             return;

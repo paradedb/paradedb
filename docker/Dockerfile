@@ -173,7 +173,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     pgbackrest \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
     # pgml
-    pip3 install --no-cache-dir --break-system-packages accelerate==0.22.0 bitsandbytes==0.41.1 catboost==1.2 ctransformers==0.2.27 datasets==2.14.5 deepspeed==0.10.3 huggingface-hub==0.17.1 InstructorEmbedding==1.0.1 lightgbm==4.1.0 orjson==3.9.7 pandas==2.1.0 rich==13.5.2 rouge==1.0.1 sacrebleu==2.3.1 sacremoses==0.0.53 scikit-learn==1.3.0 sentencepiece==0.1.99 sentence-transformers==2.2.2 tokenizers==0.13.3 torch==2.0.1 torchaudio==2.0.2 torchvision==0.15.2 tqdm==4.66.1 transformers==4.33.1 xgboost==2.0.0 langchain==0.0.287 einops==0.6.1 pynvml==11.5.0 && \    
+    pip3 install --no-cache-dir --break-system-packages accelerate==0.22.0 bitsandbytes==0.41.1 catboost==1.2 ctransformers==0.2.27 datasets==2.14.5 deepspeed==0.10.3 huggingface-hub==0.17.1 InstructorEmbedding==1.0.1 lightgbm==4.1.0 orjson==3.9.7 pandas==2.1.0 rich==13.5.2 rouge==1.0.1 sacrebleu==2.3.1 sacremoses==0.0.53 scikit-learn==1.3.0 sentencepiece==0.1.99 sentence-transformers==2.2.2 tokenizers==0.13.3 torch==2.0.1 torchaudio==2.0.2 torchvision==0.15.2 tqdm==4.66.1 transformers==4.33.1 xgboost==2.0.0 langchain==0.0.287 einops==0.6.1 pynvml==11.5.0 && \
     # patroni
     pip3 install --no-cache-dir --break-system-packages patroni[etcd3] psycopg[binary]>=3.0.0 && \
     # Symlink libproj.so.22 to libproj.so.25, since Postgis requires an older version, and

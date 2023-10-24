@@ -84,9 +84,7 @@ jobs:
 
       - name: Package pg_bm25 Extension with pgrx
         working-directory: pg_bm25/
-        env:
-          TELEMETRY: true
-        run: cargo pgrx package
+        run: RUSTFLAGS="--features telemetry" cargo pgx package
 
       - name: Create .deb Package
         run: |

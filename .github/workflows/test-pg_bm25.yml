@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [11, 12, 13, 14, 15]
+        pg_version: [11, 12, 13, 14, 15, 16]
 
     steps:
       - name: Checkout Git Repository
@@ -40,11 +40,17 @@ jobs:
           path: |
             ~/.cargo/
             ~/.rustup/
-          key: ${{ runner.os }}-cargo-pgrx-0.9.8-grcov
+          key: ${{ runner.os }}-cargo-pgrx-0.11.0-grcov
           restore-keys: |
-            ${{ runner.os }}-cargo-pgrx-0.9.8-grcov
+            ${{ runner.os }}-cargo-pgrx-0.11.0-grcov
             ${{ runner.os }}-cargo-pgrx
             ${{ runner.os }}-cargo
+
+      - name: Remove old postgres, llvm, clang, and install appropriate version
+        run: |
+          sudo apt remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
+          apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D14(\D.*)?$' | xargs sudo apt remove -y
+          sudo apt-get install -y llvm-14-dev libclang-14-dev clang-14 gcc
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -57,7 +63,7 @@ jobs:
       - name: Install pgrx, grcov & llvm-tools-preview
         if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: |
-          cargo install cargo-pgrx --version 0.9.8 && cargo install grcov
+          cargo install cargo-pgrx --version 0.11.0 && cargo install grcov
           rustup component add llvm-tools-preview
 
       - name: Initialize pgrx for Current PostgreSQL Version

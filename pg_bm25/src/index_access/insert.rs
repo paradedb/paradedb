@@ -8,7 +8,7 @@ use crate::index_access::utils::{
 const INDEX_WRITER_MEM_BUDGET: usize = 50_000_000;
 
 #[allow(clippy::too_many_arguments)]
-#[cfg(any(feature = "pg14", feature = "pg15"))]
+#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,

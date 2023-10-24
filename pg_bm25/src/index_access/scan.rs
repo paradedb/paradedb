@@ -186,7 +186,13 @@ pub extern "C" fn amgettuple(
         Some((score, doc_address)) => {
             #[cfg(any(feature = "pg10", feature = "pg11"))]
             let tid = &mut scan.xs_ctup.t_self;
-            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+            #[cfg(any(
+                feature = "pg12",
+                feature = "pg13",
+                feature = "pg14",
+                feature = "pg15",
+                feature = "pg16"
+            ))]
             let tid = &mut scan.xs_heaptid;
 
             let searcher = &state.searcher;

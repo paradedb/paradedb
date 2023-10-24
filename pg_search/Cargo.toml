@@ -15,11 +15,12 @@ pg12 = ["pgrx/pg12", "pgrx-tests/pg12" ]
 pg13 = ["pgrx/pg13", "pgrx-tests/pg13" ]
 pg14 = ["pgrx/pg14", "pgrx-tests/pg14" ]
 pg15 = ["pgrx/pg15", "pgrx-tests/pg15" ]
+pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg_test = []
 
 [dependencies]
-pgrx = "=0.9.8"
+pgrx = "=0.11.0"
 serde = "1.0.188"
 
 [dev-dependencies]
-pgrx-tests = "=0.9.8"
+pgrx-tests = "=0.11.0"

@@ -74,7 +74,13 @@ pub fn scan_index(query: &str, index_oid: pg_sys::Oid) -> FxHashSet<u64> {
                 item_pointer_to_u64(htup.as_ref().unwrap().t_self)
             };
 
-            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+            #[cfg(any(
+                feature = "pg12",
+                feature = "pg13",
+                feature = "pg14",
+                feature = "pg15",
+                feature = "pg16"
+            ))]
             let tid = {
                 let slot = pg_sys::MakeSingleTupleTableSlot(
                     heap.as_ref().unwrap().rd_att,

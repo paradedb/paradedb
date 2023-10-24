@@ -133,6 +133,7 @@ FROM builder as builder-pg_bm25
 WORKDIR /tmp/pg_bm25
 
 COPY pg_bm25/ /tmp/pg_bm25
+COPY shared/ /tmp/shared
 
 # Use the build argument to update the version in Cargo.toml
 RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/;}" Cargo.toml && \
@@ -147,6 +148,7 @@ FROM builder as builder-pg_search
 WORKDIR /tmp/pg_search
 
 COPY pg_search/ /tmp/pg_search
+COPY shared/ /tmp/shared
 
 # Use the build argument to update the version in Cargo.toml
 RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/;}" Cargo.toml && \

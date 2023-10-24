@@ -4,7 +4,10 @@ use std::ffi::{CStr, CString};
 use std::fs::{create_dir_all, remove_dir_all};
 use std::path::Path;
 
-use crate::index_access::options::SparseOptions;
+use crate::index_access::options::{
+    SparseOptions, DEFAULT_EF_SEARCH, DEFAULT_EF_SEARCH_CONSTRUCTION, DEFAULT_M,
+    DEFAULT_RANDOM_SEED,
+};
 use crate::sparse_index::sparse::Sparse;
 
 const DEFAULT_INDEX_SIZE: usize = 1000;
@@ -16,7 +19,11 @@ pub fn create_index(index: pg_sys::Relation) -> Index {
     let rdopts: PgBox<SparseOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut SparseOptions) }
     } else {
-        let ops = unsafe { PgBox::<SparseOptions>::alloc0() };
+        let mut ops = unsafe { PgBox::<SparseOptions>::alloc0() };
+        ops.m = DEFAULT_M;
+        ops.ef_search = DEFAULT_EF_SEARCH;
+        ops.ef_construction = DEFAULT_EF_SEARCH_CONSTRUCTION;
+        ops.random_seed = DEFAULT_RANDOM_SEED;
         ops.into_pg_boxed()
     };
 
@@ -51,6 +58,8 @@ pub fn bulk_delete(
 
 pub fn from_index_name(index_name: &str) -> Index {
     let dir = get_data_directory(&index_name);
+
+    info!("Loading index from {:?}", dir);
     Index::load_index(dir)
 }
 

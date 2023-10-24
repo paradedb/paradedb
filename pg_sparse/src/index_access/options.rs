@@ -22,10 +22,10 @@ use std::ffi::CStr;
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind = 0;
 
 // Option defaults
-const DEFAULT_M: i32 = 16;
-const DEFAULT_EF_SEARCH: i32 = 40;
-const DEFAULT_EF_SEARCH_CONSTRUCTION: i32 = 64;
-const DEFAULT_RANDOM_SEED: i32 = 1;
+pub const DEFAULT_M: i32 = 16;
+pub const DEFAULT_EF_SEARCH: i32 = 40;
+pub const DEFAULT_EF_SEARCH_CONSTRUCTION: i32 = 64;
+pub const DEFAULT_RANDOM_SEED: i32 = 1;
 
 // Option ranges
 const MIN_M: i32 = 2;

@@ -104,8 +104,6 @@ unsafe extern "C" fn build_callback_internal(
     state: *mut std::os::raw::c_void,
     index: pg_sys::Relation,
 ) {
-    info!("Build callback");
-
     check_for_interrupts!();
 
     let index_relation_ref = unsafe { PgRelation::from_pg(index) };
@@ -116,13 +114,9 @@ unsafe extern "C" fn build_callback_internal(
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
 
     if let Some(sparse_vector) = sparse_vector {
-        info!("Inserting {:?}", sparse_vector.entries);
-
         state
             .sparse_index
             .add_sparse_vector(sparse_vector.entries, item_pointer_to_u64(ctid) as usize);
-
-        info!("Inserted");
     }
 
     old_context.set_as_current();

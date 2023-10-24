@@ -40,7 +40,6 @@ unsafe fn aminsert_internal(
     values: *mut pg_sys::Datum,
     heap_tid: pg_sys::ItemPointer,
 ) -> bool {
-    info!("Inserting");
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let index_name = index_relation_ref.name().to_string();
 

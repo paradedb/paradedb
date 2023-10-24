@@ -17,33 +17,39 @@ impl Config {
             .map(|content| content.trim().to_string())
             .ok();
 
+        info!("hi there!");
+
+        #[cfg(feature = "telemetry")]
+        let default_telemetry = true.to_string();
+
+        #[cfg(not(feature = "telemetry"))]
+        let default_telemetry = false.to_string();
+
+        info!("default_telemetry: {:?}", default_telemetry);
+
+        let telemetry = std::env::var("TELEMETRY").unwrap_or(default_telemetry);
+
+        // okay, now it properly sets telemetry to true/false based on whether the --features telemetry is enabled!
+
+        info!("oooooo");
+        info!("telemetry: {:?}", telemetry);
+        info!("telemetry_handled: {:?}", telemetry_handled);
+
         envy::from_env::<Config>().ok().map(|config| Config {
             telemetry_handled,
+            telemetry,
             ..config
         })
     }
 }
 
-#[cfg(feature = "telemetry")]
-fn should_enable_telemetry() -> bool {
-    match std::env::var("TELEMETRY") {
-        Ok(val) if val.to_lowercase() == "false" => false, // Explicitly turned off by env var
-        Ok(_) | Err(_) => true, // Default to true if feature is enabled and env var is not "false"
-    }
-}
-
-#[cfg(not(feature = "telemetry"))]
-fn should_enable_telemetry() -> bool {
-    false // Always false if feature is not enabled
-}
-
 pub fn init(event_name: &str) {
-    if !should_enable_telemetry() {
-        return;
-    }
+    info!("hello");
 
     if let Some(config) = Config::from_env() {
-        if config.telemetry_handled.as_deref() == Some("true") || config.telemetry != "true" {
+        info!("Telemetry config: {:?}", config);
+
+        if config.telemetry != "true" || config.telemetry_handled == Some("true".to_string()) {
             return;
         }
 

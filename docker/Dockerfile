@@ -135,7 +135,7 @@ WORKDIR /tmp/pg_bm25
 COPY pg_bm25/ /tmp/pg_bm25
 
 # Use the build argument to update the version in Cargo.toml
-RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/" Cargo.toml && \
+RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/;}" Cargo.toml && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
@@ -149,7 +149,7 @@ WORKDIR /tmp/pg_search
 COPY pg_search/ /tmp/pg_search
 
 # Use the build argument to update the version in Cargo.toml
-RUN sed -i "s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/" Cargo.toml && \
+RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/;}" Cargo.toml && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ###############################################

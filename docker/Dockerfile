@@ -220,6 +220,5 @@ COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 # Change the uid of postgres to 26
 RUN usermod -u 26 postgres \
     && chown -R 26:26 /var/lib/postgresql \
-    && chown -R 26:26 /var/run/postgresql \
-    && chown -R 26:26 /usr/lib/postgresql
+    && chown -R 26:26 /var/run/postgresql
 USER 26

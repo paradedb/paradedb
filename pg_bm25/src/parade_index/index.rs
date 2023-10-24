@@ -6,6 +6,7 @@ use std::ffi::{CStr, CString};
 use std::fs::{self, create_dir_all, remove_dir_all, File};
 use std::io::Write;
 use std::path::Path;
+use tantivy::IndexReader;
 use tantivy::{
     query::{Query, QueryParser},
     schema::*,
@@ -51,7 +52,8 @@ pub struct TantivyScanState {
 pub struct ParadeIndex {
     pub fields: HashMap<String, Field>,
     pub field_configs: ParadeOptionMap,
-    pub underlying_index: Index,
+    reader: IndexReader,
+    underlying_index: Index,
 }
 
 impl ParadeIndex {
@@ -108,10 +110,13 @@ impl ParadeIndex {
 
         Self::write_index_field_configs(&name, &field_configs)?;
 
+        let reader = Self::reader(&underlying_index);
+
         let mut new_self = Self {
             fields,
             field_configs,
             underlying_index,
+            reader,
         };
 
         new_self.setup_tokenizers();
@@ -163,10 +168,13 @@ impl ParadeIndex {
         let field_configs =
             Self::read_index_field_configs(&name).expect("failed to open index field configs");
 
+        let reader = Self::reader(&underlying_index);
+
         let mut new_self = Self {
             fields,
             field_configs,
             underlying_index,
+            reader,
         };
 
         // We need to setup tokenizers again after retrieving an index from disk.
@@ -208,11 +216,7 @@ impl ParadeIndex {
             .get_field("heap_tid")
             .expect("Field 'heap_tid' not found in schema");
 
-        let searcher = self
-            .underlying_index
-            .reader()
-            .expect("Failed to acquire index reader")
-            .searcher();
+        let searcher = self.searcher();
 
         for segment_reader in searcher.segment_readers() {
             let store_reader = segment_reader
@@ -254,14 +258,8 @@ impl ParadeIndex {
 
     pub fn scan(&self) -> TantivyScanState {
         let schema = self.underlying_index.schema();
-        let reader = self
-            .underlying_index
-            .reader_builder()
-            .reload_policy(tantivy::ReloadPolicy::Manual)
-            .try_into()
-            .expect("failed to create index reader");
 
-        let searcher = reader.searcher();
+        let searcher = self.searcher();
 
         let query_parser = QueryParser::for_index(
             &self.underlying_index,
@@ -280,6 +278,22 @@ impl ParadeIndex {
 
     pub fn copy_tantivy_index(&self) -> tantivy::Index {
         self.underlying_index.clone()
+    }
+
+    pub fn schema(&self) -> Schema {
+        self.underlying_index.schema()
+    }
+
+    pub fn searcher(&self) -> Searcher {
+        self.reader.searcher()
+    }
+
+    fn reader(index: &Index) -> IndexReader {
+        index
+            .reader_builder()
+            .reload_policy(tantivy::ReloadPolicy::Manual)
+            .try_into()
+            .expect("failed to create index reader")
     }
 
     fn get_data_directory(name: &str) -> String {

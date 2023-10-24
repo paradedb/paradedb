@@ -5,7 +5,7 @@ use serde_json::json;
 #[derive(Deserialize, Debug)]
 struct Config {
     telemetry_handled: Option<String>, // Option because it won't be set if running the extension standalone
-    telemetry: Option<String>, // Option because it won't be set if telemetry is disabled
+    telemetry: Option<String>,         // Option because it won't be set if telemetry is disabled
     posthog_api_key: String,
     posthog_host: String,
     commit_sha: String,
@@ -18,12 +18,12 @@ impl Config {
             .ok();
 
         #[cfg(feature = "telemetry")]
-        let default_telemetry = Some("true".to_string());
+        let default_telemetry = "true".to_string();
 
         #[cfg(not(feature = "telemetry"))]
-        let default_telemetry = Some("false".to_string());
-    
-        let telemetry = Some(std::env::var("TELEMETRY").unwrap_or(default_telemetry.unwrap()));
+        let default_telemetry = "false".to_string();
+
+        let telemetry = Some(std::env::var("TELEMETRY").unwrap_or(default_telemetry));
 
         envy::from_env::<Config>().ok().map(|config| Config {
             telemetry_handled,
@@ -34,18 +34,10 @@ impl Config {
 }
 
 pub fn init(event_name: &str) {
-    info!("hello");
-
-
-    // tested, it does send if --features telemetry and doesn't send if that's not provided
-    // only need to test if can be overwritten by env var now, and it'll be done
-    // perfect, it can be overwritten. works well!
-
-    
     if let Some(config) = Config::from_env() {
-        info!("Telemetry config: {:?}", config);
-
-        if config.telemetry != Some("true".to_string()) || config.telemetry_handled == Some("true".to_string()) {
+        if config.telemetry != Some("true".to_string())
+            || config.telemetry_handled == Some("true".to_string())
+        {
             return;
         }
 

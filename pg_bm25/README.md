@@ -46,13 +46,13 @@ docker run \
 
 This will spin up a Postgres instance with `pg_bm25` preinstalled.
 
-### From Self-Hosted Postgres
+### From Self-Hosted PostgreSQL
 
 If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow these steps:
 
-#### Linux Ubuntu
+#### Debian/Ubuntu
 
-We provide prebuilt binaries for Linux Ubuntu, currently only for PostgreSQL 15 (more versions coming soon). To install `pg_bm25`, follow these steps:
+We provide prebuilt binaries for Debian-based Linux, currently only for PostgreSQL 15 (more versions coming soon). To install `pg_bm25`, follow these steps:
 
 ```bash
 # Download the .deb file
@@ -61,6 +61,8 @@ wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest"
 # Install the .deb file
 sudo apt-get install pg_bm25.deb
 ```
+
+ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` in your shell or in your `~/.bashrc` file before running the extension.
 
 #### macOS and Windows
 

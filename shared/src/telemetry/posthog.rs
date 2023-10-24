@@ -18,12 +18,12 @@ impl Config {
             .ok();
 
         #[cfg(feature = "telemetry")]
-        let default_telemetry = "true".to_string();
+        let default_telemetry = "true";
 
         #[cfg(not(feature = "telemetry"))]
-        let default_telemetry = "false".to_string();
+        let default_telemetry = "false";
 
-        let telemetry = Some(std::env::var("TELEMETRY").unwrap_or(default_telemetry));
+        let telemetry = Some(std::env::var("TELEMETRY").unwrap_or(default_telemetry.to_string()));
 
         envy::from_env::<Config>().ok().map(|config| Config {
             telemetry_handled,
@@ -35,8 +35,9 @@ impl Config {
 
 pub fn init(event_name: &str) {
     if let Some(config) = Config::from_env() {
-        if config.telemetry != Some("true".to_string())
-            || config.telemetry_handled == Some("true".to_string())
+        // Exit early if telemetry is not enabled or has already been handled
+        if config.telemetry.as_deref() != Some("true")
+            || config.telemetry_handled.as_deref() == Some("true")
         {
             return;
         }

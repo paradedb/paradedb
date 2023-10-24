@@ -84,7 +84,7 @@ jobs:
 
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        run: RUSTFLAGS="--features telemetry" cargo pgx package
+        run: RUSTFLAGS="--features telemetry" cargo pgrx package
 
       - name: Create .deb Package
         run: |

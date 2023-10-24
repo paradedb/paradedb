@@ -165,11 +165,10 @@ impl ParadeIndex {
         let field_configs =
             Self::read_index_field_configs(&name).expect("failed to open index field configs");
 
+        // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
         let reader = Self::reader(&underlying_index);
-
-        // We need to setup tokenizers again after retrieving an index from disk.
 
         Self {
             fields,

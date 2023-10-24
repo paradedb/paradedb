@@ -82,7 +82,7 @@ impl ParadeIndex {
             ..Default::default()
         };
 
-        let underlying_index = Index::builder()
+        let mut underlying_index = Index::builder()
             .schema(schema.clone())
             .settings(settings.clone())
             .create_in_dir(dir)
@@ -109,26 +109,23 @@ impl ParadeIndex {
         }
 
         Self::write_index_field_configs(&name, &field_configs)?;
+        Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
         let reader = Self::reader(&underlying_index);
 
-        let mut new_self = Self {
+        let new_self = Self {
             fields,
             field_configs,
             underlying_index,
             reader,
         };
 
-        new_self.setup_tokenizers();
-
         Ok(new_self)
     }
 
-    pub fn setup_tokenizers(&mut self) {
-        self.underlying_index
-            .set_tokenizers(create_tokenizer_manager(&self.field_configs));
-        self.underlying_index
-            .set_fast_field_tokenizers(create_normalizer_manager());
+    fn setup_tokenizers(underlying_index: &mut Index, field_configs: &ParadeOptionMap) {
+        underlying_index.set_tokenizers(create_tokenizer_manager(field_configs));
+        underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
     }
 
     unsafe fn from_cached_index(name: &str) -> Option<Self> {
@@ -154,7 +151,7 @@ impl ParadeIndex {
 
         let dir = Self::get_data_directory(&name);
 
-        let underlying_index = Index::open_in_dir(dir).expect("failed to open index");
+        let mut underlying_index = Index::open_in_dir(dir).expect("failed to open index");
         let schema = underlying_index.schema();
 
         let fields = schema
@@ -168,19 +165,18 @@ impl ParadeIndex {
         let field_configs =
             Self::read_index_field_configs(&name).expect("failed to open index field configs");
 
+        Self::setup_tokenizers(&mut underlying_index, &field_configs);
+
         let reader = Self::reader(&underlying_index);
 
-        let mut new_self = Self {
+        // We need to setup tokenizers again after retrieving an index from disk.
+
+        Self {
             fields,
             field_configs,
             underlying_index,
             reader,
-        };
-
-        // We need to setup tokenizers again after retrieving an index from disk.
-        new_self.setup_tokenizers();
-
-        new_self
+        }
     }
 
     pub fn insert(

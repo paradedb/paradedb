@@ -17,7 +17,6 @@ services:
         PG_SEARCH_VERSION: 0.0.0
         PGVECTOR_VERSION: 0.5.1
         PGML_VERSION: 2.7.10
-        PGNODEMX_VERSION: 1.6
         PG_CRON_VERSION: 1.6.0
         PG_NET_VERSION: 0.7.2
         PG_IVM_VERSION: 1.5.1

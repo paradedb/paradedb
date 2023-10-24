@@ -85,6 +85,6 @@ jobs:
           token: ${{ secrets.DEPOT_TOKEN }}
           tags: |
             paradedb/paradedb:latest
-            paradedb/paradedb:${{ matrix.pg_version }}-{{ steps.version.outputs.tag }}
+            paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}

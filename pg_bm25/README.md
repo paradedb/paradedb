@@ -62,7 +62,7 @@ wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest"
 sudo apt-get install pg_bm25.deb
 ```
 
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` in your shell or in your `~/.bashrc` file before running the extension.
+ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
 #### macOS and Windows
 

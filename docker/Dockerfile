@@ -12,7 +12,6 @@ ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
 ARG PG_SEARCH_VERSION
 ARG PGML_VERSION
-ARG PGNODEMX_VERSION
 ARG PG_CRON_VERSION
 ARG PG_NET_VERSION
 ARG PG_IVM_VERSION
@@ -42,7 +41,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
     PG_SEARCH_VERSION=${PG_SEARCH_VERSION} \
     PGML_VERSION=${PGML_VERSION} \
-    PGNODEMX_VERSION=${PGNODEMX_VERSION} \
     PG_CRON_VERSION=${PG_CRON_VERSION} \
     PG_NET_VERSION=${PG_NET_VERSION} \
     PG_IVM_VERSION=${PG_IVM_VERSION} \
@@ -162,20 +160,17 @@ FROM base as paradedb
 
 ARG TARGETARCH
 
-# Install pgml, postgis, patroni & Crunchy operator runtime dependencies
+# Install pgml and postgis runtime dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     # postgis
     libgeos-c1v5 \
     libproj-dev \
     libprotobuf-c1 \
-    # Crunchy operator
-    libnss-wrapper \
-    pgbackrest \
+    libc++1 \
+    libc++abi1 \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
     # pgml
-    pip3 install --no-cache-dir --break-system-packages accelerate==0.22.0 bitsandbytes==0.41.1 catboost==1.2 ctransformers==0.2.27 datasets==2.14.5 deepspeed==0.10.3 huggingface-hub==0.17.1 InstructorEmbedding==1.0.1 lightgbm==4.1.0 orjson==3.9.7 pandas==2.1.0 rich==13.5.2 rouge==1.0.1 sacrebleu==2.3.1 sacremoses==0.0.53 scikit-learn==1.3.0 sentencepiece==0.1.99 sentence-transformers==2.2.2 tokenizers==0.13.3 torch==2.0.1 torchaudio==2.0.2 torchvision==0.15.2 tqdm==4.66.1 transformers==4.33.1 xgboost==2.0.0 langchain==0.0.287 einops==0.6.1 pynvml==11.5.0 && \
-    # patroni
-    pip3 install --no-cache-dir --break-system-packages patroni[etcd3] psycopg[binary]>=3.0.0 && \
+    pip3 install --no-cache-dir --break-system-packages accelerate==0.22.0 bitsandbytes==0.41.1 catboost==1.2 ctransformers==0.2.27 datasets==2.14.5 deepspeed==0.10.3 huggingface-hub==0.17.1 InstructorEmbedding==1.0.1 lightgbm==4.1.0 orjson==3.9.7 pandas==2.1.0 rich==13.5.2 rouge==1.0.1 sacrebleu==2.3.1 sacremoses==0.0.53 scikit-learn==1.3.0 sentencepiece==0.1.99 sentence-transformers==2.2.2 tokenizers==0.13.3 torch==2.0.1 torchaudio==2.0.2 torchvision==0.15.2 tqdm==4.66.1 transformers==4.33.1 xgboost==2.0.0 langchain==0.0.287 einops==0.6.1 pynvml==11.5.0 && \    
     # Symlink libproj.so.22 to libproj.so.25, since Postgis requires an older version, and
     # copy relevant library for Crunchy operator
     # Only need to copy on x84_64, since the lib is already in the right place on arm64
@@ -190,7 +185,6 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
 # Download & install the non-ParadeDB extensions from their builder stage
 RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgvector-v${PGVECTOR_VERSION}-$TARGETARCH/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgvector.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgaudit-v${PGAUDIT_VERSION}-$TARGETARCH/pgaudit-v${PGAUDIT_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgaudit.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgnodemx-v${PGNODEMX_VERSION}-$TARGETARCH/pgnodemx-v${PGNODEMX_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pgnodemx.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_cron-v${PG_CRON_VERSION}-$TARGETARCH/pg_cron-v${PG_CRON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_cron.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_ivm-v${PG_IVM_VERSION}-$TARGETARCH/pg_ivm-v${PG_IVM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_ivm.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_hashids-v${PG_HASHIDS_VERSION}-$TARGETARCH/pg_hashids-v${PG_HASHIDS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_hashids.deb && \
@@ -224,5 +218,8 @@ COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_M
 # initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
-# Postgres user for Crunchy operator
-USER 999
+# Change the uid of postgres to 26
+RUN usermod -u 26 postgres \
+    && chown -R 26:26 /var/lib/postgresql \
+    && chown -R 26:26 /var/run/postgresql
+USER 26

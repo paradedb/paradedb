@@ -12,13 +12,9 @@ use crate::index_access::utils::get_parade_index;
 pub fn aggregation(index_name: &str, query: &str) -> JsonB {
     // Get Parade index
     let parade_index = get_parade_index(index_name.to_string());
-    let underlying_index = parade_index.underlying_index;
 
     // Initialize aggregation searcher + collector
-    let reader = underlying_index
-        .reader()
-        .expect("failed to create index reader");
-    let searcher = reader.searcher();
+    let searcher = parade_index.searcher();
     let agg_req: Aggregations = from_str(query).expect("error parsing query");
     let collector = AggregationCollector::from_aggs(agg_req, Default::default());
 

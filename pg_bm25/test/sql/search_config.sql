@@ -21,6 +21,6 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 -- With regex field 
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description';
 -- Default highlighting without max_num_chars
-SELECT description, rating, category, paradedb.highlight_bm25(ctid, 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics' ORDER BY paradedb.rank_bm25(ctid) DESC LIMIT 5;
+SELECT description, rating, category, paradedb.highlight_bm25(ctid, 'idxsearchconfig', 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics' ORDER BY paradedb.rank_bm25(ctid) DESC LIMIT 5;
 -- max_num_chars is set to 14 
-SELECT description, rating, category, paradedb.highlight_bm25(ctid, 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics:::max_num_chars=14' ORDER BY paradedb.rank_bm25(ctid) DESC LIMIT 5;
+SELECT description, rating, category, paradedb.highlight_bm25(ctid, 'idxsearchconfig', 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics:::max_num_chars=14' ORDER BY paradedb.rank_bm25(ctid) DESC LIMIT 5;

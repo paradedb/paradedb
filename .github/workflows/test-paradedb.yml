@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   test-pg_search:
-    name: Test ParadeDB for PostgreSQL ${{ matrix.pg_version }}
+    name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:

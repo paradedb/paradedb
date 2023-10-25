@@ -15,14 +15,14 @@ pub fn get_current_executor_manager() -> &'static mut Manager {
     unsafe { &mut MANAGER }
 }
 
-// pub fn get_fresh_executor_manager() -> &'static mut Manager {
-//     // We should call this at the top of a scan to clear out the manager memory.
-//     // Otherwise, the static manager could grow unbound and leak memory.
-//     unsafe {
-//         MANAGER = Manager::new();
-//         &mut MANAGER
-//     }
-// }
+pub fn get_fresh_executor_manager() -> &'static mut Manager {
+    // We should call this at the top of a scan to clear out the manager memory.
+    // Otherwise, the static manager could grow unbound and leak memory.
+    unsafe {
+        MANAGER = Manager::new();
+        &mut MANAGER
+    }
+}
 
 type BlockInfo = (BlockNumber, OffsetNumber);
 

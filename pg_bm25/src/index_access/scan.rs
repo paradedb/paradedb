@@ -8,7 +8,7 @@ use tantivy::{
 
 use crate::{
     index_access::utils::{get_parade_index, SearchQuery},
-    manager::get_current_executor_manager,
+    manager::{get_current_executor_manager, get_fresh_executor_manager},
     parade_index::index::TantivyScanState,
 };
 
@@ -79,8 +79,9 @@ pub extern "C" fn amrescan(
         _ => false,
     };
 
+    // We get a fresh executor manager here to clear out memory from previous queries.
+    let manager = get_fresh_executor_manager();
     // Fetching references to state components for building the query.
-    let manager = get_current_executor_manager();
     let query_parser = &mut state.query_parser;
     let searcher = &state.searcher;
     let schema = &state.schema;
@@ -225,7 +226,8 @@ pub extern "C" fn amgettuple(
 
 #[pg_guard]
 pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TIDBitmap) -> i64 {
-    let manager = get_current_executor_manager();
+    // We get a fresh executor manager here to clear out memory from previous queries.
+    let manager = get_fresh_executor_manager();
     let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let state =
         unsafe { (scan.opaque as *mut TantivyScanState).as_mut() }.expect("no scandesc state");

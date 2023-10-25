@@ -12,6 +12,7 @@ use crate::sparse_index::sparse::Sparse;
 
 const DEFAULT_INDEX_SIZE: usize = 1000;
 const SPARSE_HNSW_DIR: &str = "sparse_hnsw";
+const SPARSE_HNSW_FILENAME: &str = "index.bin";
 
 pub fn create_index(index: pg_sys::Relation) -> Index {
     let index_relation = unsafe { PgRelation::from_pg(index) };
@@ -40,11 +41,12 @@ pub fn create_index(index: pg_sys::Relation) -> Index {
     if path.exists() {
         remove_dir_all(path).expect("Failed to remove sparse_hnsw directory");
     }
-
     create_dir_all(path).expect("Failed to create sparse_hnsw directory");
-    hnsw_index.save_index(dir.clone());
 
-    info!("Created index {:?}", dir.clone());
+    let index_path = format!("{}/{}", dir, SPARSE_HNSW_FILENAME);
+    hnsw_index.save_index(index_path.clone());
+
+    info!("Created index {:?}", index_path.clone());
 
     hnsw_index
 }
@@ -60,9 +62,10 @@ pub fn bulk_delete(
 
 pub fn from_index_name(index_name: &str) -> Index {
     let dir = get_data_directory(&index_name);
+    let index_path = format!("{}/{}", dir, SPARSE_HNSW_FILENAME);
 
-    info!("Loading index from {:?}", dir);
-    Index::load_index(dir)
+    info!("Loading index from {:?}", index_path.clone());
+    Index::load_index(index_path.clone())
 }
 
 pub fn get_data_directory(name: &str) -> String {
@@ -79,7 +82,7 @@ pub fn get_data_directory(name: &str) -> String {
         )
         .expect("Failed to convert C string to Rust string");
 
-        format!("{}/{}/{}.lib", data_dir_str, SPARSE_HNSW_DIR, name)
+        format!("{}/{}/{}", data_dir_str, SPARSE_HNSW_DIR, name)
     }
 }
 

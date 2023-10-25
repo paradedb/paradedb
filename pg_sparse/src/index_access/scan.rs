@@ -82,6 +82,7 @@ pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
     _direction: pg_sys::ScanDirection,
 ) -> bool {
+    info!("Begin search");
     // Extract the scan state from the opaque field of the scan descriptor.
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let mut state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");

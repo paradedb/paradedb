@@ -42,7 +42,9 @@ pub fn create_index(index: pg_sys::Relation) -> Index {
     }
 
     create_dir_all(path).expect("Failed to create sparse_hnsw directory");
-    hnsw_index.save_index(dir);
+    hnsw_index.save_index(dir.clone());
+
+    info!("Created index {:?}", dir.clone());
 
     hnsw_index
 }
@@ -63,7 +65,7 @@ pub fn from_index_name(index_name: &str) -> Index {
     Index::load_index(dir)
 }
 
-fn get_data_directory(name: &str) -> String {
+pub fn get_data_directory(name: &str) -> String {
     unsafe {
         let option_name_cstr = CString::new("data_directory").expect("failed to create CString");
         let data_dir_str = String::from_utf8(
@@ -77,7 +79,7 @@ fn get_data_directory(name: &str) -> String {
         )
         .expect("Failed to convert C string to Rust string");
 
-        format!("{}/{}/{}", data_dir_str, SPARSE_HNSW_DIR, name)
+        format!("{}/{}/{}.lib", data_dir_str, SPARSE_HNSW_DIR, name)
     }
 }
 

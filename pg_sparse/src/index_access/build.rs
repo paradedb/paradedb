@@ -3,7 +3,7 @@ use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 
 use crate::index_access::options::SparseOptions;
-use crate::sparse_index::index::create_index;
+use crate::sparse_index::index::{create_index, get_data_directory};
 use crate::sparse_index::sparse::Sparse;
 
 struct BuildState<'a> {
@@ -112,11 +112,16 @@ unsafe extern "C" fn build_callback_internal(
 
     let values = std::slice::from_raw_parts(values, 1);
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
+    let dir = get_data_directory(&index_relation_ref.name().to_string());
 
     if let Some(sparse_vector) = sparse_vector {
         state
             .sparse_index
             .add_sparse_vector(sparse_vector.entries, item_pointer_to_u64(ctid) as usize);
+
+        state.sparse_index.save_index(dir);
+
+        info!("saving vector");
     }
 
     old_context.set_as_current();

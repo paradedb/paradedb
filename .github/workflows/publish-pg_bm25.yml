@@ -33,18 +33,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v3
-        id: cache-cargo
-        with:
-          path: |
-            ~/.cargo/
-            ~/.rustup/
-          key: ${{ runner.os }}-cargo-pgrx-0.11.0
-          restore-keys: |
-            ${{ runner.os }}-cargo-pgrx
-            ${{ runner.os }}-cargo
-
       - name: Retrieve GitHub Tag Version
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
@@ -71,7 +59,6 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
-        if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: cargo install cargo-pgrx --version 0.11.0
 
       - name: Initialize pgrx for Current PostgreSQL Version

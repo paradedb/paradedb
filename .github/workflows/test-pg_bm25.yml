@@ -1,6 +1,6 @@
 # workflows/test-pg_bm25.yml
 #
-# pg_bm25: Tests
+# Testing: pg_bm25
 # Run unit and packaging tests for the pg_bm25 extension.
 
 name: Testing
@@ -33,19 +33,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v3
-        id: cache-cargo
-        with:
-          path: |
-            ~/.cargo/
-            ~/.rustup/
-          key: ${{ runner.os }}-cargo-pgrx-0.11.0-grcov
-          restore-keys: |
-            ${{ runner.os }}-cargo-pgrx-0.11.0-grcov
-            ${{ runner.os }}-cargo-pgrx
-            ${{ runner.os }}-cargo
-
       - name: Remove old postgres, llvm, clang, and install appropriate version
         run: |
           sudo apt remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
@@ -61,7 +48,6 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
-        if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: |
           cargo install cargo-pgrx --version 0.11.0 && cargo install grcov
           rustup component add llvm-tools-preview

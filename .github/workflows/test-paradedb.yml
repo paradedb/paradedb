@@ -34,4 +34,4 @@ jobs:
 
       - name: Test Building ParadeDB Docker Image
         working-directory: docker/
-        run: docker build -t paradedb .
+        run: docker compose -f docker-compose.dev.yml build

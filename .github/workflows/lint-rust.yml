@@ -25,19 +25,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Cache Cargo Dependencies
-        uses: actions/cache@v3
-        id: cache-cargo
-        with:
-          path: |
-            ~/.cargo/
-            ~/.rustup/
-          key: ${{ runner.os }}-cargo-pgrx-0.11.0
-          restore-keys: |
-            ${{ runner.os }}-cargo-pgrx-0.11.0
-            ${{ runner.os }}-cargo-pgrx
-            ${{ runner.os }}-cargo
-
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -51,7 +38,6 @@ jobs:
           sudo apt-get update && sudo apt-get install -y postgresql-15 postgresql-server-dev-15
 
       - name: Install pgrx
-        if: steps.cache-cargo.outputs.cache-hit != 'true'
         run: cargo install cargo-pgrx --version 0.11.0
 
       - name: Initialize pgrx for Current PostgreSQL Version

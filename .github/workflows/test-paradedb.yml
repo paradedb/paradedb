@@ -32,6 +32,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      # By using the docker-compose.dev.yml file, we also test that the build arguments are correct
       - name: Test Building ParadeDB Docker Image
         working-directory: docker/
-        run: docker compose -f docker-compose.dev.yml build
+        run: docker buildx create --use && docker compose -f docker-compose.dev.yml build

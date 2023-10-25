@@ -76,14 +76,6 @@ impl Manager {
         self.min_score
     }
 
-    // pub fn set_highlight_max_num_chars(&mut self, max_num_chars: usize) {
-    //     self.highlights_max_num_chars = max_num_chars.into();
-    // }
-
-    // pub fn get_highlight_max_num_chars(&self) -> Option<usize> {
-    //     self.highlights_max_num_chars
-    // }
-
     pub fn add_doc_address(&mut self, ctid: (BlockNumber, OffsetNumber), doc_address: DocAddress) {
         if self.doc_addresses.is_none() {
             self.doc_addresses.replace(HashMap::new());

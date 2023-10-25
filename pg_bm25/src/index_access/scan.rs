@@ -155,8 +155,8 @@ pub extern "C" fn amrescan(
 
     // Extract highlight_max_num_chars from the query config and add snippet generators.
     manager.add_snippet_generators(
-        &searcher,
-        &schema,
+        searcher,
+        schema,
         &tantivy_query,
         query_config.config.max_num_chars,
     );
@@ -236,7 +236,7 @@ pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TI
     let query = &state.query;
 
     // Add snippet generators
-    manager.add_snippet_generators(&searcher, &schema, &query, None);
+    manager.add_snippet_generators(searcher, schema, query, None);
 
     let mut cnt = 0i64;
     let iterator = unsafe { state.iterator.as_mut() }.expect("no iterator in state");

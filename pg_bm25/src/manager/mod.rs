@@ -100,7 +100,7 @@ impl Manager {
         &mut self,
         searcher: &Searcher,
         schema: &Schema,
-        query: &Box<dyn Query>,
+        query: &dyn Query,
         highlights_max_num_chars: Option<usize>,
     ) {
         // Because we're adding the whole schema at once, we can replace to make sure

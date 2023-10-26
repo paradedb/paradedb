@@ -39,8 +39,8 @@ pub extern "C" fn ambeginscan(
         k: DEFAULT_EF_SEARCH,
         query_vector: Sparse {
             entries: vec![],
-            n: 0
-        }
+            n: 0,
+        },
     };
 
     scandesc.opaque =
@@ -68,9 +68,7 @@ pub extern "C" fn amrescan(
     state.current = 0;
 
     if !orderbys.is_null() && norderbys > 0 {
-        let orderbys_slice = unsafe {
-            std::slice::from_raw_parts(orderbys, norderbys as usize)
-        };
+        let orderbys_slice = unsafe { std::slice::from_raw_parts(orderbys, norderbys as usize) };
 
         let sk_argument: Option<Sparse> =
             unsafe { FromDatum::from_datum(orderbys_slice[0].sk_argument, false) };
@@ -86,7 +84,6 @@ pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
     direction: pg_sys::ScanDirection,
 ) -> bool {
-    info!("Begin search");
     assert!(direction == pg_sys::ScanDirection_ForwardScanDirection);
 
     // Extract the scan state from the opaque field of the scan descriptor.
@@ -95,12 +92,11 @@ pub extern "C" fn amgettuple(
 
     // First scan
     if state.current == 0 {
-        state.results =
-            state
-                .index
-                .search_knn(state.query_vector.entries.clone(), state.k, DEFAULT_EF_SEARCH);
-
-        info!("results {:?}", state.results);
+        state.results = state.index.search_knn(
+            state.query_vector.entries.clone(),
+            state.k,
+            DEFAULT_EF_SEARCH,
+        );
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }
@@ -113,27 +109,23 @@ pub extern "C" fn amgettuple(
 
         state.k *= 2;
 
-        state.results =
-            state
-                .index
-                .search_knn(state.query_vector.entries.clone(), state.k, DEFAULT_EF_SEARCH);
+        state.results = state.index.search_knn(
+            state.query_vector.entries.clone(),
+            state.k,
+            DEFAULT_EF_SEARCH,
+        );
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }
 
-    info!("iterating thorugh results");
     // Iterate through results
     #[cfg(any(feature = "pg10", feature = "pg11"))]
     let tid = &mut scan.xs_ctup.t_self;
     #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
     let tid = &mut scan.xs_heaptid;
 
-    info!("Setting tid {:?} to {:?}", tid, state.results[state.current] as u64);
     u64_to_item_pointer(state.results[state.current] as u64, tid);
-    info!("Set tid {:?} to {:?}", tid, state.results[state.current] as u64);
     state.current += 1;
     scan.xs_recheckorderby = false;
-
-    info!("returning true");
-    true 
+    true
 }

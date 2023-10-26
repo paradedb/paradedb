@@ -44,7 +44,7 @@ pub extern "C" fn ambuild(
     result.heap_tuples = ntuples as f64;
     result.index_tuples = ntuples as f64;
 
-    info!("heap tules {:?}", result.heap_tuples);   
+    info!("heap tules {:?}", result.heap_tuples);
     info!("index tules {:?}", result.index_tuples);
 
     result.into_pg()

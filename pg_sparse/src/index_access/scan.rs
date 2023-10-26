@@ -14,6 +14,7 @@ struct ScanState {
     pub current: usize,
     pub n_results: usize,
     pub k: usize,
+    pub query_vector: Sparse,
 }
 
 #[pg_guard]
@@ -36,6 +37,10 @@ pub extern "C" fn ambeginscan(
         n_results: 0,
         no_more_results: false,
         k: DEFAULT_EF_SEARCH,
+        query_vector: Sparse {
+            entries: vec![],
+            n: 0
+        }
     };
 
     scandesc.opaque =
@@ -50,7 +55,7 @@ pub extern "C" fn amrescan(
     keys: pg_sys::ScanKey,
     nkeys: ::std::os::raw::c_int,
     orderbys: pg_sys::ScanKey,
-    _norderbys: ::std::os::raw::c_int,
+    norderbys: ::std::os::raw::c_int,
 ) {
     // Convert the raw pointer to a safe wrapper. This action takes ownership of the object
     // pointed to by the raw pointer in a safe way.
@@ -59,18 +64,17 @@ pub extern "C" fn amrescan(
     // Extract the scan state from the opaque field of the scan descriptor.
     let state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");
 
-    state.results = vec![];
+    state.results.clear();
     state.current = 0;
 
-    if !orderbys.is_null() && (*scan).numberOfOrderBys > 0 {
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                orderbys,
-                (*scan).orderByData,
-                ((*scan).numberOfOrderBys * std::mem::size_of::<pg_sys::ScanKeyData>() as i32)
-                    as usize,
-            )
+    if !orderbys.is_null() && norderbys > 0 {
+        let orderbys_slice = unsafe {
+            std::slice::from_raw_parts(orderbys, norderbys as usize)
         };
+
+        let sk_argument: Option<Sparse> =
+            unsafe { FromDatum::from_datum(orderbys_slice[0].sk_argument, false) };
+        state.query_vector = sk_argument.expect("Could not parse query vector");
     }
 }
 
@@ -84,32 +88,17 @@ pub extern "C" fn amgettuple(
 ) -> bool {
     info!("Begin search");
     assert!(direction == pg_sys::ScanDirection_ForwardScanDirection);
-    info!("is forward");
+
     // Extract the scan state from the opaque field of the scan descriptor.
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let mut state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");
-    let order_by_data = unsafe { (scan.orderByData).as_mut() }.expect("No orderByData state");
-
-    // Obtain the query vector
-    let sk_argument: Option<Sparse> =
-        unsafe { FromDatum::from_datum(order_by_data.sk_argument, false) };
-    let sparse_vector = sk_argument.expect("Could not parse query vector");
 
     // First scan
     if state.current == 0 {
-        info!("first scan");
-        if order_by_data.sk_func.fn_addr.is_none() {
-            error!("Cannot scan HNSW index without order");
-        }
-    
-        if order_by_data.sk_flags & pg_sys::SK_ISNULL as i32 != 0 {
-            return false;
-        }
-
         state.results =
             state
                 .index
-                .search_knn(sparse_vector.entries.clone(), state.k, DEFAULT_EF_SEARCH);
+                .search_knn(state.query_vector.entries.clone(), state.k, DEFAULT_EF_SEARCH);
 
         info!("results {:?}", state.results);
         state.n_results = state.results.len();
@@ -127,7 +116,7 @@ pub extern "C" fn amgettuple(
         state.results =
             state
                 .index
-                .search_knn(sparse_vector.entries.clone(), state.k, DEFAULT_EF_SEARCH);
+                .search_knn(state.query_vector.entries.clone(), state.k, DEFAULT_EF_SEARCH);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }

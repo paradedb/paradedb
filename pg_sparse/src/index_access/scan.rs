@@ -80,9 +80,11 @@ pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {}
 #[pg_guard]
 pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,
-    _direction: pg_sys::ScanDirection,
+    direction: pg_sys::ScanDirection,
 ) -> bool {
     info!("Begin search");
+    assert!(direction == pg_sys::ScanDirection_ForwardScanDirection);
+    info!("is forward");
     // Extract the scan state from the opaque field of the scan descriptor.
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let mut state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");
@@ -95,10 +97,21 @@ pub extern "C" fn amgettuple(
 
     // First scan
     if state.current == 0 {
+        info!("first scan");
+        if order_by_data.sk_func.fn_addr.is_none() {
+            error!("Cannot scan HNSW index without order");
+        }
+    
+        if order_by_data.sk_flags & pg_sys::SK_ISNULL as i32 != 0 {
+            return false;
+        }
+
         state.results =
             state
                 .index
                 .search_knn(sparse_vector.entries.clone(), state.k, DEFAULT_EF_SEARCH);
+
+        info!("results {:?}", state.results);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }
@@ -119,19 +132,19 @@ pub extern "C" fn amgettuple(
         state.no_more_results = state.n_results < state.k;
     }
 
+    info!("iterating thorugh results");
     // Iterate through results
-    if state.current < state.n_results {
-        #[cfg(any(feature = "pg10", feature = "pg11"))]
-        let tid = &mut scan.xs_ctup.t_self;
-        #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-        let tid = &mut scan.xs_heaptid;
+    #[cfg(any(feature = "pg10", feature = "pg11"))]
+    let tid = &mut scan.xs_ctup.t_self;
+    #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+    let tid = &mut scan.xs_heaptid;
 
-        u64_to_item_pointer(state.results[state.current] as u64, tid);
-        state.current += 1;
+    info!("Setting tid {:?} to {:?}", tid, state.results[state.current] as u64);
+    u64_to_item_pointer(state.results[state.current] as u64, tid);
+    info!("Set tid {:?} to {:?}", tid, state.results[state.current] as u64);
+    state.current += 1;
+    scan.xs_recheckorderby = false;
 
-        scan.xs_recheckorderby = false;
-        return true;
-    }
-
-    false
+    info!("returning true");
+    true 
 }

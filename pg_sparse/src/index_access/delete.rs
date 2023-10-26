@@ -9,6 +9,7 @@ pub extern "C" fn ambulkdelete(
     callback: pg_sys::IndexBulkDeleteCallback,
     callback_state: *mut ::std::os::raw::c_void,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
+    info!("delete");
     let mut stats_binding = stats;
 
     if stats_binding.is_null() {

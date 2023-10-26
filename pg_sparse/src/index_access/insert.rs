@@ -17,6 +17,7 @@ pub unsafe extern "C" fn aminsert(
     _index_unchanged: bool,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
+    info!("insert");
     aminsert_internal(index_relation, values, heap_tid)
 }
 

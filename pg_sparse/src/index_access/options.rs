@@ -58,6 +58,7 @@ pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
     validate: bool,
 ) -> *mut pg_sys::bytea {
+    info!("options");
     let options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS] = [
         pg_sys::relopt_parse_elt {
             optname: "m".as_pg_cstr(),

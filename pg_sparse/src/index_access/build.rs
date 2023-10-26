@@ -44,6 +44,9 @@ pub extern "C" fn ambuild(
     result.heap_tuples = ntuples as f64;
     result.index_tuples = ntuples as f64;
 
+    info!("heap tules {:?}", result.heap_tuples);   
+    info!("index tules {:?}", result.index_tuples);
+
     result.into_pg()
 }
 
@@ -113,15 +116,13 @@ unsafe extern "C" fn build_callback_internal(
     let values = std::slice::from_raw_parts(values, 1);
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
     let dir = get_data_directory(&index_relation_ref.name().to_string());
+    let file_path = format!("{}/{}", dir, "index.bin");
 
     if let Some(sparse_vector) = sparse_vector {
         state
             .sparse_index
             .add_sparse_vector(sparse_vector.entries, item_pointer_to_u64(ctid) as usize);
-
-        state.sparse_index.save_index(dir);
-
-        info!("saving vector");
+        state.sparse_index.save_index(file_path);
     }
 
     old_context.set_as_current();

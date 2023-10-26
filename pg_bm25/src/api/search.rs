@@ -1,25 +1,43 @@
 use pgrx::{pg_sys::ItemPointerData, *};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::manager::get_executor_manager;
+use crate::manager::get_current_executor_manager;
 use crate::operator::scan_index;
+use crate::parade_index::index::ParadeIndex;
 
 #[pg_extern]
 pub fn rank_bm25(ctid: Option<ItemPointerData>) -> f32 {
     match ctid {
-        Some(ctid) => get_executor_manager().get_score(ctid).unwrap_or(0.0f32),
+        Some(ctid) => get_current_executor_manager()
+            .get_score(ctid)
+            .unwrap_or(0.0f32),
         None => 0.0f32,
     }
 }
 
 #[pg_extern]
-pub fn highlight_bm25(ctid: Option<ItemPointerData>, field_name: String) -> String {
-    match ctid {
-        Some(ctid) => get_executor_manager()
-            .get_highlight(ctid, field_name)
-            .unwrap_or("".to_string()),
-        None => "".to_string(),
-    }
+pub fn highlight_bm25(
+    ctid: Option<ItemPointerData>,
+    index_name: String,
+    field_name: String,
+) -> String {
+    let ctid = match ctid {
+        Some(ctid) => ctid,
+        _ => return "".into(),
+    };
+    let manager = get_current_executor_manager();
+    let parade_index = ParadeIndex::from_index_name(index_name);
+    let doc_address = manager
+        .get_doc_address(ctid)
+        .expect("could not lookup doc address in manager in highlight_bm25");
+    let retrieved_doc = parade_index
+        .searcher()
+        .doc(doc_address)
+        .expect("searcher could not retrieve doc by address in highlight_bm25");
+
+    manager
+        .get_highlight(&field_name, &retrieved_doc)
+        .unwrap_or("".into())
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -46,9 +64,11 @@ pub fn minmax_bm25(
                 .or_insert_with(|| scan_index(query, index_oid))
                 .contains(&tid);
 
-            let max_score = get_executor_manager().get_max_score();
-            let min_score = get_executor_manager().get_min_score();
-            let raw_score = get_executor_manager().get_score(ctid).unwrap_or(0.0);
+            let max_score = get_current_executor_manager().get_max_score();
+            let min_score = get_current_executor_manager().get_min_score();
+            let raw_score = get_current_executor_manager()
+                .get_score(ctid)
+                .unwrap_or(0.0);
 
             if raw_score == 0.0 && min_score == max_score {
                 return 0.0;

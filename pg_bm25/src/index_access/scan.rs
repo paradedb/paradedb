@@ -3,14 +3,12 @@ use tantivy::{
     collector::TopDocs,
     query::{BooleanQuery, Query, RegexQuery},
     query_grammar::Occur,
-    schema::Document,
-    schema::FieldType,
-    SnippetGenerator,
+    DocAddress,
 };
 
 use crate::{
     index_access::utils::{get_parade_index, SearchQuery},
-    manager::get_executor_manager,
+    manager::{get_current_executor_manager, get_fresh_executor_manager},
     parade_index::index::TantivyScanState,
 };
 
@@ -81,6 +79,8 @@ pub extern "C" fn amrescan(
         _ => false,
     };
 
+    // We get a fresh executor manager here to clear out memory from previous queries.
+    let manager = get_fresh_executor_manager();
     // Fetching references to state components for building the query.
     let query_parser = &mut state.query_parser;
     let searcher = &state.searcher;
@@ -92,11 +92,6 @@ pub extern "C" fn amrescan(
         .limit
         .unwrap_or(searcher.num_docs() as usize);
     let offset = query_config.config.offset.unwrap_or(0);
-
-    // Extract highlight_max_num_chars from the query config
-    if let Some(max_num_chars) = query_config.config.max_num_chars {
-        get_executor_manager().set_highlight_max_num_chars(max_num_chars);
-    }
 
     // Construct the actual Tantivy search query based on the mode determined above.
     let tantivy_query: Box<dyn Query> = if using_regex_fields {
@@ -155,8 +150,16 @@ pub extern "C" fn amrescan(
     let scores: Vec<f32> = top_docs.iter().map(|(score, _)| *score).collect();
     let max_score = scores.iter().fold(0.0f32, |a, b| a.max(*b));
     let min_score = scores.iter().fold(0.0f32, |a, b| a.min(*b));
-    get_executor_manager().set_max_score(max_score);
-    get_executor_manager().set_min_score(min_score);
+    manager.set_max_score(max_score);
+    manager.set_min_score(min_score);
+
+    // Extract highlight_max_num_chars from the query config and add snippet generators.
+    manager.add_snippet_generators(
+        searcher,
+        schema,
+        &tantivy_query,
+        query_config.config.max_num_chars,
+    );
 
     // Cache the constructed query in the scan state for potential subsequent use.
     state.query = tantivy_query;
@@ -214,8 +217,7 @@ pub extern "C" fn amgettuple(
                 panic!("invalid item pointer: {:?}", item_pointer_get_both(*tid));
             }
 
-            write_to_manager(*tid, score, state, &retrieved_doc);
-
+            write_to_manager(*tid, score, doc_address);
             true
         }
         None => false,
@@ -224,11 +226,17 @@ pub extern "C" fn amgettuple(
 
 #[pg_guard]
 pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TIDBitmap) -> i64 {
+    // We get a fresh executor manager here to clear out memory from previous queries.
+    let manager = get_fresh_executor_manager();
     let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let state =
         unsafe { (scan.opaque as *mut TantivyScanState).as_mut() }.expect("no scandesc state");
     let searcher = &state.searcher;
     let schema = &state.schema;
+    let query = &state.query;
+
+    // Add snippet generators
+    manager.add_snippet_generators(searcher, schema, query, None);
 
     let mut cnt = 0i64;
     let iterator = unsafe { state.iterator.as_mut() }.expect("no iterator in state");
@@ -249,7 +257,7 @@ pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TI
                 pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
             }
 
-            write_to_manager(tid, score, state, &retrieved_doc);
+            write_to_manager(tid, score, doc_address);
             cnt += 1;
         }
     }
@@ -258,33 +266,11 @@ pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TI
 }
 
 #[inline]
-fn write_to_manager(
-    ctid: pg_sys::ItemPointerData,
-    score: f32,
-    state: &TantivyScanState,
-    retrieved_doc: &Document,
-) {
+fn write_to_manager(ctid: pg_sys::ItemPointerData, score: f32, doc_address: DocAddress) {
+    let manager = get_current_executor_manager();
     // Add score
-    get_executor_manager().add_score(item_pointer_get_both(ctid), score);
+    manager.add_score(item_pointer_get_both(ctid), score);
 
-    // Add highlighting
-    for field in state.schema.fields() {
-        let field_name = field.1.name().to_string();
-
-        if let FieldType::Str(_) = field.1.field_type() {
-            let snippet_generator =
-                SnippetGenerator::create(&state.searcher, &state.query, field.0);
-
-            let mut snippet = snippet_generator
-                .unwrap_or_else(|_| panic!("failed to highlight field: {}", field_name));
-
-            if let Some(max_num_chars) = get_executor_manager().get_highlight_max_num_chars() {
-                snippet.set_max_num_chars(max_num_chars);
-            }
-
-            let snippet = snippet.snippet_from_doc(retrieved_doc);
-
-            get_executor_manager().add_highlight(ctid, field_name, snippet)
-        }
-    }
+    // Add doc address
+    manager.add_doc_address(item_pointer_get_both(ctid), doc_address);
 }

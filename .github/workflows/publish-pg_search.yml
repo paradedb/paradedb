@@ -99,11 +99,11 @@ jobs:
           touch ${package_dir}/DEBIAN/control
           deb_version=${{ steps.version.outputs.version }}
           CONTROL_FILE="${package_dir}/DEBIAN/control"
-          echo 'Package: pg-bm25' >> $CONTROL_FILE
+          echo 'Package: pg-search' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
           echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-          echo 'Description: Full text search for PostgreSQL using BM25' >> $CONTROL_FILE
+          echo 'Description: Hybrid search for PostgreSQL' >> $CONTROL_FILE
 
           # Create .deb package
           sudo chown -R root:root ${package_dir}

@@ -16,7 +16,7 @@ Postgres, follow these steps:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install cargo-pgrx --version 0.9.8
+cargo install cargo-pgrx --version 0.11.0
 ```
 
 2. Then, run:
@@ -67,7 +67,7 @@ via Homebrew on macOS).
 Then, install and initialize pgrx:
 
 ```bash
-cargo install cargo-pgrx --version 0.9.8
+cargo install cargo-pgrx --version 0.11.0
 cargo pgrx init
 ```
 

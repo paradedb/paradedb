@@ -116,11 +116,18 @@ Please refer to the [documentation](https://docs.paradedb.com/search/hybrid) for
 Before developing the extension, ensure that you have Rust installed
 (version >1.70), ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
 
+If you are on macOS and using Postgres.app, you'll first need to add the `pg_config` binary to your path:
+
+```bash
+export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
+```
+
 Then, install and initialize pgrx:
 
 ```bash
-cargo install cargo-pgrx --version 0.11.0
-cargo pgrx init
+# Note: Replace --pg15 with your version of Postgres, if different (i.e. --pg16, --pg14, etc.)
+cargo install --locked cargo-pgrx --version 0.11.0
+cargo pgrx init --pg15=`which pg_config`
 ```
 
 ### Running the Extension

@@ -38,7 +38,7 @@ impl InOutFuncs for Sparse {
 
         let mut entries = Vec::new();
         for (position, value_str) in parts.iter().enumerate() {
-            let value: f32 = value_str.parse().unwrap();
+            let value: f32 = value_str.trim().parse().expect("Could not parse value");
             if value != 0.0 {
                 entries.push((position, value));
             }

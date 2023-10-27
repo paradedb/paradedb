@@ -189,7 +189,7 @@ jobs:
           # Create installable package
           mkdir archive
           cp `find target/release -type f -name "pgml*"` archive
-          package_dir=pgml-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu
+          package_dir=pgml-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
@@ -228,5 +228,5 @@ jobs:
           tag_name: pgml-v${{ steps.version.outputs.version }}-${{ matrix.arch }}
           name: pgml ${{ steps.version.outputs.version }} ${{ matrix.arch }}
           body: Internal ParadeDB Release for pgml version ${{ steps.version.outputs.version }} for arch ${{ matrix.arch }}. This release is not intended for public use.
-          files: ./pgml-extension/pgml-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
+          files: ./pgml-extension/pgml-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

@@ -49,7 +49,7 @@ jobs:
 
       - name: Install pgrx, grcov & llvm-tools-preview
         run: |
-          cargo install cargo-pgrx --version 0.11.0 && cargo install grcov
+          cargo install --locked cargo-pgrx --version 0.11.0 && cargo install --locked grcov
           rustup component add llvm-tools-preview
 
       - name: Initialize pgrx for Current PostgreSQL Version

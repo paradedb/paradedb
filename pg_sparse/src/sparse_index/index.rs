@@ -36,18 +36,16 @@ pub fn create_index(index: pg_sys::Relation) -> Index {
     );
 
     // Save index to disk
-    let dir = get_data_directory(&index_name);
-    let path = Path::new(&dir);
+    let index_directory = get_index_directory(&index_name);
+    let index_path = get_index_path(&index_name);
+
+    let path = Path::new(&index_directory);
     if path.exists() {
         remove_dir_all(path).expect("Failed to remove sparse_hnsw directory");
     }
     create_dir_all(path).expect("Failed to create sparse_hnsw directory");
 
-    let index_path = format!("{}/{}", dir, SPARSE_HNSW_FILENAME);
-    hnsw_index.save_index(index_path.clone());
-
-    info!("Created index {:?}", index_path.clone());
-
+    hnsw_index.save_index(index_path);
     hnsw_index
 }
 
@@ -80,13 +78,21 @@ pub fn bulk_delete(
 }
 
 pub fn from_index_name(index_name: &str) -> Index {
-    let dir = get_data_directory(&index_name);
+    let dir = get_index_directory(index_name);
     let index_path = format!("{}/{}", dir, SPARSE_HNSW_FILENAME);
 
     Index::load_index(index_path.clone())
 }
 
-pub fn get_data_directory(name: &str) -> String {
+pub fn get_index_directory(index_name: &str) -> String {
+    format!("{}/{}", get_root_directory(), index_name)
+}
+
+pub fn get_index_path(index_name: &str) -> String {
+    format!("{}/{}/{}", get_root_directory(), index_name, SPARSE_HNSW_FILENAME)
+}
+
+fn get_root_directory() -> String {
     unsafe {
         let option_name_cstr = CString::new("data_directory").expect("failed to create CString");
         let data_dir_str = String::from_utf8(
@@ -100,6 +106,6 @@ pub fn get_data_directory(name: &str) -> String {
         )
         .expect("Failed to convert C string to Rust string");
 
-        format!("{}/{}/{}", data_dir_str, SPARSE_HNSW_DIR, name)
+        format!("{}/{}", data_dir_str, SPARSE_HNSW_DIR)
     }
 }

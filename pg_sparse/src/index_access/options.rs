@@ -1,9 +1,6 @@
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use serde_json::from_str;
-use std::collections::HashMap;
-use std::ffi::CStr;
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
@@ -58,7 +55,6 @@ pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
     validate: bool,
 ) -> *mut pg_sys::bytea {
-    info!("options");
     let options: [pg_sys::relopt_parse_elt; NUM_REL_OPTS] = [
         pg_sys::relopt_parse_elt {
             optname: "m".as_pg_cstr(),
@@ -158,7 +154,7 @@ pub unsafe fn init() {
         "The size of the dynamic candidate list for search (40 by default)".as_pg_cstr(),
         DEFAULT_EF_SEARCH,
         MIN_EF_SEARCH,
-        MAX_EF_SEARCH_CONSTRUCTION,
+        MAX_EF_SEARCH,
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE

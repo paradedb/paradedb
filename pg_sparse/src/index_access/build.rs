@@ -2,7 +2,6 @@ use hnswlib::Index;
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 
-use crate::index_access::options::SparseOptions;
 use crate::sparse_index::index::{create_index, get_index_path, resize_if_needed};
 use crate::sparse_index::sparse::Sparse;
 

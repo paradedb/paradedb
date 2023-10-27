@@ -1,5 +1,4 @@
 use pgrx::*;
-use std::ptr::null_mut;
 
 use crate::sparse_index::index::from_index_name;
 
@@ -17,7 +16,7 @@ pub unsafe extern "C" fn amcostestimate(
 ) {
     let pathref = path.as_ref().expect("path argument is NULL");
 
-    if pathref.indexorderbys == null_mut() {
+    if pathref.indexorderbys.is_null() {
         *index_startup_cost = f64::MAX;
         *index_total_cost = f64::MAX;
         *index_selectivity = 0.0;
@@ -34,9 +33,6 @@ pub unsafe extern "C" fn amcostestimate(
                 pg_sys::AccessShareLock as pg_sys::LOCKMODE,
             )
         };
-        let heap_relation = index_relation
-            .heap_relation()
-            .expect("failed to get heap relation for index");
         let mut sparse_index = from_index_name(index_relation.name());
         let meta = sparse_index.get_hnsw_metadata();
         let ef_search = meta.ef_search as f64;

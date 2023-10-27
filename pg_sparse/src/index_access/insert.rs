@@ -1,4 +1,3 @@
-use hnswlib::Index;
 use pgrx::*;
 
 use crate::sparse_index::index::{from_index_name, get_index_path, resize_if_needed};
@@ -17,7 +16,6 @@ pub unsafe extern "C" fn aminsert(
     _index_unchanged: bool,
     _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    info!("insert");
     aminsert_internal(index_relation, values, heap_tid)
 }
 
@@ -46,8 +44,8 @@ unsafe fn aminsert_internal(
 
     let values = std::slice::from_raw_parts(values, 1);
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
-    let mut sparse_index = from_index_name(&index_name);
-    let index_path = get_index_path(&index_name);
+    let mut sparse_index = from_index_name(index_name);
+    let index_path = get_index_path(index_name);
 
     // Resize index if needed
     resize_if_needed(index_name);

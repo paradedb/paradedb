@@ -1,11 +1,8 @@
 use hnswlib::Index;
 use pgrx::*;
 
-use crate::sparse_index::index::from_index_name;
+use crate::sparse_index::index::{from_index_name, get_rdopts};
 use crate::sparse_index::sparse::Sparse;
-
-// TODO: Enable this to be configured
-const DEFAULT_EF_SEARCH: usize = 10;
 
 struct ScanState {
     pub index: Index,
@@ -14,6 +11,7 @@ struct ScanState {
     pub current: usize,
     pub n_results: usize,
     pub k: usize,
+    pub ef_search: usize,
     pub query_vector: Sparse,
 }
 
@@ -28,6 +26,7 @@ pub extern "C" fn ambeginscan(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
     let index = from_index_name(&index_name);
+    let rdopts = get_rdopts(indexrel);
 
     // Create the index and scan
     let scan_state = ScanState {
@@ -36,7 +35,8 @@ pub extern "C" fn ambeginscan(
         current: 0,
         n_results: 0,
         no_more_results: false,
-        k: DEFAULT_EF_SEARCH,
+        k: rdopts.ef_search as usize,
+        ef_search: rdopts.ef_search as usize,
         query_vector: Sparse {
             entries: vec![],
             n: 0,
@@ -52,8 +52,8 @@ pub extern "C" fn ambeginscan(
 #[pg_guard]
 pub extern "C" fn amrescan(
     scan: pg_sys::IndexScanDesc,
-    keys: pg_sys::ScanKey,
-    nkeys: ::std::os::raw::c_int,
+    _keys: pg_sys::ScanKey,
+    _nkeys: ::std::os::raw::c_int,
     orderbys: pg_sys::ScanKey,
     norderbys: ::std::os::raw::c_int,
 ) {
@@ -77,7 +77,7 @@ pub extern "C" fn amrescan(
 }
 
 #[pg_guard]
-pub extern "C" fn amendscan(scan: pg_sys::IndexScanDesc) {}
+pub extern "C" fn amendscan(_scan: pg_sys::IndexScanDesc) {}
 
 #[pg_guard]
 pub extern "C" fn amgettuple(
@@ -88,15 +88,14 @@ pub extern "C" fn amgettuple(
 
     // Extract the scan state from the opaque field of the scan descriptor.
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
-    let mut state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");
+    let state = unsafe { (scan.opaque as *mut ScanState).as_mut() }.expect("No scandesc state");
 
     // First scan
     if state.current == 0 {
-        state.results = state.index.search_knn(
-            state.query_vector.entries.clone(),
-            state.k,
-            DEFAULT_EF_SEARCH,
-        );
+        state.results =
+            state
+                .index
+                .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }
@@ -109,11 +108,10 @@ pub extern "C" fn amgettuple(
 
         state.k *= 2;
 
-        state.results = state.index.search_knn(
-            state.query_vector.entries.clone(),
-            state.k,
-            DEFAULT_EF_SEARCH,
-        );
+        state.results =
+            state
+                .index
+                .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }

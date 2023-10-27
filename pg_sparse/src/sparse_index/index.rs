@@ -8,7 +8,6 @@ use crate::index_access::options::{
     SparseOptions, DEFAULT_EF_SEARCH, DEFAULT_EF_SEARCH_CONSTRUCTION, DEFAULT_M,
     DEFAULT_RANDOM_SEED,
 };
-use crate::sparse_index::sparse::Sparse;
 
 const DEFAULT_INDEX_SIZE: usize = 1024;
 const SPARSE_HNSW_DIR: &str = "sparse_hnsw";
@@ -17,17 +16,7 @@ const SPARSE_HNSW_FILENAME: &str = "index.bin";
 pub fn create_index(index: pg_sys::Relation) -> Index {
     let index_relation = unsafe { PgRelation::from_pg(index) };
     let index_name = index_relation.name().to_string();
-    let rdopts: PgBox<SparseOptions> = if !index_relation.rd_options.is_null() {
-        unsafe { PgBox::from_pg(index_relation.rd_options as *mut SparseOptions) }
-    } else {
-        let mut ops = unsafe { PgBox::<SparseOptions>::alloc0() };
-        ops.m = DEFAULT_M;
-        ops.ef_search = DEFAULT_EF_SEARCH;
-        ops.ef_construction = DEFAULT_EF_SEARCH_CONSTRUCTION;
-        ops.random_seed = DEFAULT_RANDOM_SEED;
-        ops.into_pg_boxed()
-    };
-
+    let rdopts = get_rdopts(index);
     let mut hnsw_index = Index::new(
         DEFAULT_INDEX_SIZE,
         rdopts.m as usize,
@@ -91,6 +80,20 @@ pub fn resize_if_needed(index_name: &str) {
 
     if num_entries >= max_elements {
         sparse_index.resize_index(max_elements + DEFAULT_INDEX_SIZE);
+    }
+}
+
+pub fn get_rdopts(index: pg_sys::Relation) -> PgBox<SparseOptions> {
+    let index_relation = unsafe { PgRelation::from_pg(index) };
+    if !index_relation.rd_options.is_null() {
+        unsafe { PgBox::from_pg(index_relation.rd_options as *mut SparseOptions) }
+    } else {
+        let mut ops = unsafe { PgBox::<SparseOptions>::alloc0() };
+        ops.m = DEFAULT_M;
+        ops.ef_search = DEFAULT_EF_SEARCH;
+        ops.ef_construction = DEFAULT_EF_SEARCH_CONSTRUCTION;
+        ops.random_seed = DEFAULT_RANDOM_SEED;
+        ops.into_pg_boxed()
     }
 }
 

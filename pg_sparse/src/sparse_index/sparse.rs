@@ -11,12 +11,6 @@ pub struct Sparse {
     pub n: usize,
 }
 
-impl Sparse {
-    pub fn new(entries: Vec<(usize, f32)>, n: usize) -> Self {
-        Self { entries, n }
-    }
-}
-
 impl Display for Sparse {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "[")?;

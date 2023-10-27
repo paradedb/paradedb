@@ -1,11 +1,11 @@
 # workflows/publish-third-party-pg_extensions.yml
 #
-# Third-Party PostgreSQL Extensions: Publish
+# Publish Third-Party PostgreSQL Extensions
 # Build and publish the third-party PostgreSQL extensions used by ParadeDB to
 # GitHub Releases. We use a separate storage repo, paradedb/third-party-pg_extensions)
 # for clarity and to avoid bloating the ParadeDB repo with binaries.
 
-name: Publishing
+name: Publish Third-Party PostgreSQL Extensions
 
 on:
   push:

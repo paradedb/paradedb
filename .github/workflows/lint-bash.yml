@@ -1,9 +1,9 @@
 # workflows/lint-bash.yml
 #
-# Bash: Linting
+# Lint Bash
 # Lint and enforce good practices for Bash scripts.
 
-name: Linting
+name: Lint Bash
 
 on:
   pull_request:

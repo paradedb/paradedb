@@ -1,9 +1,9 @@
 # workflows/lint-rust.yml
 #
-# Rust: Linting
+# Lint Rust
 # Lint Rust files using Clippy and Rustfmt.
 
-name: Linting
+name: Lint Rust
 
 on:
   pull_request:

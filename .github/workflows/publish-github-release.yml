@@ -1,9 +1,9 @@
-# workflows/publish-paradedb-github-release.yml
+# workflows/publish-github-release.yml
 #
-# ParadeDB: Publish GitHub Release
+# Publish GitHub Release
 # Publish the ParadeDB GitHub Release.
 
-name: Publishing
+name: Publish GitHub Release
 
 on:
   push:
@@ -14,11 +14,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: publish-paradedb-github-release-${{ github.head_ref || github.ref }}
+  group: publish-github-release-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  publish-paradedb-github-release:
+  publish-github-release:
     name: Publish ParadeDB GitHub Release
     runs-on: ubuntu-latest
 

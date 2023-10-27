@@ -1,10 +1,10 @@
-# workflows/publish-paradedb-to-dockerhub.yml
+# workflows/publish-paradedb.yml
 #
-# ParadeDB: Publish to Docker Hub
+# Publish ParadeDB
 # Publish ParadeDB as a Docker image to Docker Hub. This workflow only runs after a GitHub Release gets
 # created, which happens once we merge to `main`.
 
-name: Publishing
+name: Publish ParadeDB
 
 on:
   push:
@@ -13,11 +13,11 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: publish-paradedb-to-dockerhub-${{ github.head_ref || github.ref }}
+  group: publish-paradedb-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  publish-paradedb-to-dockerhub:
+  publish-paradedb:
     name: Publish ParadeDB for PostgreSQL ${{ matrix.pg_version }} to Docker Hub
     runs-on: ubuntu-latest
     strategy:

@@ -1,9 +1,9 @@
 # workflows/lint-dockerfiles.yml
 #
-# Linting: Dockerfiles
+# Lint Dockerfiles
 # Lint Dockerfiles using Hadolint.
 
-name: Linting
+name: Lint Dockerfiles
 
 on:
   pull_request:

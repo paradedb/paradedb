@@ -1,9 +1,9 @@
 # workflows/publish-pg_bm25.yml
 #
-# pg_bm25: Publish
+# Publish pg_bm25
 # Build and publish the pg_bm25 extension as a .deb to GitHub Releases.
 
-name: Publishing
+name: Publish pg_bm25
 
 on:
   push:

@@ -111,7 +111,7 @@ unsafe extern "C" fn build_callback_internal(
     let mut old_context = state.memcxt.set_as_current();
 
     // Resize index if needed
-    resize_if_needed(index_name);
+    resize_if_needed(state.sparse_index);
 
     let values = std::slice::from_raw_parts(values, 1);
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);

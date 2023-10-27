@@ -73,8 +73,7 @@ pub fn from_index_name(index_name: &str) -> Index {
     Index::load_index(index_path.clone())
 }
 
-pub fn resize_if_needed(index_name: &str) {
-    let mut sparse_index = from_index_name(index_name);
+pub fn resize_if_needed(sparse_index: &mut Index) {
     let max_elements = sparse_index.get_max_elements();
     let num_entries = sparse_index.get_current_count() - sparse_index.get_deleted_count();
 

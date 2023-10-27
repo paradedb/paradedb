@@ -48,7 +48,7 @@ unsafe fn aminsert_internal(
     let index_path = get_index_path(index_name);
 
     // Resize index if needed
-    resize_if_needed(index_name);
+    resize_if_needed(&mut sparse_index);
 
     if let Some(sparse_vector) = sparse_vector {
         let tid = item_pointer_to_u64(*heap_tid) as usize;

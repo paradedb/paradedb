@@ -10,7 +10,7 @@ use crate::index_access::options::{
 };
 use crate::sparse_index::sparse::Sparse;
 
-pub const DEFAULT_INDEX_SIZE: usize = 1024;
+const DEFAULT_INDEX_SIZE: usize = 1024;
 const SPARSE_HNSW_DIR: &str = "sparse_hnsw";
 const SPARSE_HNSW_FILENAME: &str = "index.bin";
 
@@ -82,6 +82,16 @@ pub fn from_index_name(index_name: &str) -> Index {
     let index_path = format!("{}/{}", dir, SPARSE_HNSW_FILENAME);
 
     Index::load_index(index_path.clone())
+}
+
+pub fn resize_if_needed(index_name: &str) {
+    let mut sparse_index = from_index_name(index_name);
+    let max_elements = sparse_index.get_max_elements();
+    let num_entries = sparse_index.get_current_count() - sparse_index.get_deleted_count();
+
+    if num_entries >= max_elements {
+        sparse_index.resize_index(max_elements + DEFAULT_INDEX_SIZE);
+    }
 }
 
 pub fn get_index_directory(index_name: &str) -> String {

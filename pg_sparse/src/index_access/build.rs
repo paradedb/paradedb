@@ -3,7 +3,7 @@ use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 
 use crate::index_access::options::SparseOptions;
-use crate::sparse_index::index::{create_index, get_index_path, DEFAULT_INDEX_SIZE};
+use crate::sparse_index::index::{create_index, get_index_path, resize_if_needed};
 use crate::sparse_index::sparse::Sparse;
 
 struct BuildState<'a> {
@@ -107,23 +107,16 @@ unsafe extern "C" fn build_callback_internal(
     check_for_interrupts!();
 
     let index_relation_ref = unsafe { PgRelation::from_pg(index) };
+    let index_name = index_relation_ref.name();
     let state = (state as *mut BuildState).as_mut().unwrap();
     let mut old_context = state.memcxt.set_as_current();
 
     // Resize index if needed
-    let max_elements = state.sparse_index.get_max_elements();
-    let num_entries =
-        state.sparse_index.get_current_count() - state.sparse_index.get_deleted_count();
-
-    if num_entries >= max_elements {
-        state
-            .sparse_index
-            .resize_index(max_elements + DEFAULT_INDEX_SIZE);
-    }
+    resize_if_needed(index_name);
 
     let values = std::slice::from_raw_parts(values, 1);
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
-    let index_path = get_index_path(index_relation_ref.name());
+    let index_path = get_index_path(index_name);
 
     if let Some(sparse_vector) = sparse_vector {
         state

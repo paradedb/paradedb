@@ -10,7 +10,7 @@ use crate::index_access::options::{
 };
 use crate::sparse_index::sparse::Sparse;
 
-const DEFAULT_INDEX_SIZE: usize = 1000;
+pub const DEFAULT_INDEX_SIZE: usize = 1024;
 const SPARSE_HNSW_DIR: &str = "sparse_hnsw";
 const SPARSE_HNSW_FILENAME: &str = "index.bin";
 
@@ -89,7 +89,12 @@ pub fn get_index_directory(index_name: &str) -> String {
 }
 
 pub fn get_index_path(index_name: &str) -> String {
-    format!("{}/{}/{}", get_root_directory(), index_name, SPARSE_HNSW_FILENAME)
+    format!(
+        "{}/{}/{}",
+        get_root_directory(),
+        index_name,
+        SPARSE_HNSW_FILENAME
+    )
 }
 
 fn get_root_directory() -> String {

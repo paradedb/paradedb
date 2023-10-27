@@ -1,7 +1,7 @@
 use hnswlib::Index;
 use pgrx::*;
 
-use crate::sparse_index::index::from_index_name;
+use crate::sparse_index::index::{from_index_name, get_index_path};
 use crate::sparse_index::sparse::Sparse;
 
 #[allow(clippy::too_many_arguments)]
@@ -47,10 +47,12 @@ unsafe fn aminsert_internal(
     let values = std::slice::from_raw_parts(values, 1);
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
     let mut sparse_index = from_index_name(&index_name);
+    let index_path = get_index_path(&index_name);
 
     if let Some(sparse_vector) = sparse_vector {
         let tid = item_pointer_to_u64(*heap_tid) as usize;
         sparse_index.add_sparse_vector(sparse_vector.entries, tid);
+        sparse_index.save_index(index_path);
         true
     } else {
         false

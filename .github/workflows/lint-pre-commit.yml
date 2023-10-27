@@ -1,0 +1,38 @@
+# workflows/lint-pre-commit.yml
+#
+# Lint Pre-Commit
+# Lint the entire repository using pre-commit hooks.
+
+name: Lint Pre-Commit
+
+on:
+  pull_request:
+    branches:
+      - main
+      - staging
+      - dev
+  workflow_dispatch:
+
+concurrency:
+  group: lint-pre-commit-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-pre-commit:
+    name: Run Pre-Commit Hooks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Run pre-commit hooks
+        run: pre-commit run --all-files

@@ -67,9 +67,9 @@ pub extern "C" fn amrescan(
     state.results.clear();
     state.current = 0;
 
+    // Retrieve the query vector
     if !orderbys.is_null() && norderbys > 0 {
         let orderbys_slice = unsafe { std::slice::from_raw_parts(orderbys, norderbys as usize) };
-
         let sk_argument: Option<Sparse> =
             unsafe { FromDatum::from_datum(orderbys_slice[0].sk_argument, false) };
         state.query_vector = sk_argument.expect("Could not parse query vector");

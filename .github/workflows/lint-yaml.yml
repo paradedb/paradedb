@@ -1,9 +1,9 @@
 # workflows/lint-yaml.yml
 #
-# YAML: Linting
+# Lint YAML
 # Lint YAML files using Prettier.
 
-name: Linting
+name: Lint YAML
 
 on:
   pull_request:

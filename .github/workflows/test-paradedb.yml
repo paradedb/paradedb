@@ -1,10 +1,10 @@
 # workflows/test-paradedb.yml
 #
-# Testing: ParadeDB
+# Test ParadeDB
 # Test building the ParadeDB Docker Image using Docker Compose. We use a ubuntu-latest-m
 # runner for faster builds and to avoid running out of storage on the runner.
 
-name: Testing
+name: Test ParadeDB
 
 on:
   pull_request:

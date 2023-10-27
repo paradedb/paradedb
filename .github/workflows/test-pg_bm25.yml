@@ -1,9 +1,9 @@
 # workflows/test-pg_bm25.yml
 #
-# Testing: pg_bm25
+# Test pg_bm25
 # Run unit and packaging tests for the pg_bm25 extension.
 
-name: Testing
+name: Test pg_bm25
 
 on:
   pull_request:

@@ -1,9 +1,9 @@
 # workflows/lint-markdown.yml
 #
-# Markdown: Linting
+# Lint Markdown
 # Lint Markdown files using Prettier.
 
-name: Linting
+name: Lint Markdown
 
 on:
   pull_request:

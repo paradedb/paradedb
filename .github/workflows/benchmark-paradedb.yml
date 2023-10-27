@@ -1,10 +1,10 @@
 # workflows/benchmark-paradedb.yml
 #
-# ParadeDB: Benchmark
+# Benchmark ParadeDB
 # Benchmark ParadeDB's performance on a nightly basis. This workflow can also be triggered
 # manually to benchmark other systems on one-off basis, to compare against ParadeDB.
 
-name: Benchmarking
+name: Benchmark ParadeDB
 
 on:
   schedule:

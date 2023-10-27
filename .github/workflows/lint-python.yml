@@ -1,9 +1,9 @@
 # workflows/lint-python.yml
 #
-# Python: Linting
+# Lint Python
 # Lint Python files using Black, Pylint, and Flake8.
 
-name: Linting
+name: Lint Python
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lint-bash:
+  lint-python:
     name: Lint Python Files
     runs-on: ubuntu-latest
 

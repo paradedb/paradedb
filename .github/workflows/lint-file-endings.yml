@@ -1,9 +1,9 @@
 # workflows/lint-file-endings.yml
 #
-# File Endings: Linting
+# Lint File Endings
 # Lint the project's file endings.
 
-name: Linting
+name: Lint File Endings
 
 on:
   pull_request:

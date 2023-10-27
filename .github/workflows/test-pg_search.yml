@@ -1,9 +1,9 @@
 # workflows/test-pg_search.yml
 #
-# Testing: pg_search
+# Test pg_search
 # Run unit and packaging tests for the pg_search extension.
 
-name: Testing
+name: Test pg_search
 
 on:
   pull_request:

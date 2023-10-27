@@ -1,9 +1,9 @@
 # workflows/lint-pr-title.yml
 #
-# PR Title: Linting
+# Lint PR Title
 # Lint and enforce proper PR title format.
 
-name: Linting
+name: Lint PR Title
 
 on:
   pull_request:

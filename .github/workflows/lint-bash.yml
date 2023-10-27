@@ -27,6 +27,8 @@ jobs:
 
       - name: Set up Python Environment
         uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
 
       - name: Install Beautysh
         run: pip install beautysh

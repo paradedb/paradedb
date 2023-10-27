@@ -1,7 +1,8 @@
 # workflows/test-paradedb.yml
 #
 # Testing: ParadeDB
-# Lint Dockerfiles using Hadolint.
+# Test building the ParadeDB Docker Image using Docker Compose. We use a ubuntu-latest-m
+# runner for faster builds and to avoid running out of storage on the runner.
 
 name: Testing
 
@@ -12,7 +13,7 @@ on:
       - staging
       - dev
     paths:
-      - "docker/Dockerfile"
+      - "docker/**"
       - ".github/workflows/test-paradedb.yml"
   workflow_dispatch:
 
@@ -23,7 +24,7 @@ concurrency:
 jobs:
   test-pg_search:
     name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
     strategy:
       matrix:
         pg_version: [15]

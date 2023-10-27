@@ -228,19 +228,5 @@ jobs:
           tag_name: pgml-v${{ steps.version.outputs.version }}-${{ matrix.arch }}
           name: pgml ${{ steps.version.outputs.version }} ${{ matrix.arch }}
           body: Internal ParadeDB Release for pgml version ${{ steps.version.outputs.version }} for arch ${{ matrix.arch }}. This release is not intended for public use.
-        env:
-          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-
-      - name: Retrieve GitHub Release Upload URL
-        id: upload_url
-        run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/paradedb/third-party-pg_extensions/releases/latest | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
-
-      - name: Upload pgml .deb to GitHub Release
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-        with:
-          upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pgml-extension/pgml-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
-          asset_name: pgml-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
-          asset_content_type: application/vnd.DEBIAN.binary-package
+          files: ./pgml-extension/pgml-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

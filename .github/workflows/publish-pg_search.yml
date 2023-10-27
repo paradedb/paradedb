@@ -3,7 +3,7 @@
 # Publish pg_search
 # Build and publish the pg_search extension as a .deb to GitHub Releases.
 
-name: Publishing
+name: Publish pg_search
 
 on:
   push:

@@ -24,6 +24,8 @@ jobs:
   publish-third-party-pg_extensions:
     name: Publish Third-Party PostgreSQL Extensions for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+    container:
+      image: python:3.11-bookworm # Same distro as our Dockerfile, for compatibility
     strategy:
       matrix:
         include:
@@ -41,6 +43,11 @@ jobs:
       - name: Retrieve GitHub Tag Version
         id: version
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Setup Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: false
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -60,6 +67,13 @@ jobs:
 
           # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      - name: Install pgrx
+        run: cargo install cargo-pgrx --version 0.11.0
+
+      - name: Initialize pgrx for Current PostgreSQL Version
+        working-directory: pgml-extension/
+        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       # Install requirements for: rum, pgaudit, postgis, pg_repack, AGE
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
@@ -83,7 +97,17 @@ jobs:
             zlib1g-dev \
             bison \
             flex \
-            libreadline-dev
+            libreadline-dev \
+            sudo \
+            curl \
+            wget \
+            gnupg2 \
+            ca-certificates \
+            jq \
+            lsb-release \
+            cmake \
+            make \
+            libopenblas-dev
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases
@@ -98,135 +122,3 @@ jobs:
             url=$(jq -r ".extensions.\"$ext\".url" conf/third_party_pg_extensions.json)
             ./scripts/build_and_deploy_third_party_pg_extensions.sh "$ext,$version,$url"
           done
-
-  publish-pgml:
-    name: Publish pgml for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
-    runs-on: ${{ matrix.runner }}
-    container:
-      image: python:3.11-bookworm # Same distro as our Dockerfile, for compatibility
-    strategy:
-      matrix:
-        include:
-          - runner: ubuntu-latest
-            pg_version: 15
-            arch: amd64
-          - runner: buildjet-4vcpu-ubuntu-2204-arm
-            pg_version: 15
-            arch: arm64
-
-    steps:
-      - name: Checkout Git Repository
-        uses: actions/checkout@v4
-        with:
-          repository: postgresml/postgresml
-          ref: v2.7.12
-
-      - name: Retrieve GitHub Tag Version
-        id: version
-        run: echo "version=2.7.12" >> $GITHUB_OUTPUT
-
-      - name: Retrieve Arch
-        id: arch
-        run: |
-          arch_val=$(uname -m)
-          if [ "$arch_val" == "x86_64" ]; then
-              mapped_arch="amd64"
-          elif [ "$arch_val" == "aarch64" ]; then
-              mapped_arch="arm64"
-          else
-              mapped_arch="$arch_val"
-          fi
-          echo "arch=$mapped_arch" >> $GITHUB_OUTPUT
-
-      - name: Update Dependencies
-        run: apt-get update && apt-get install -y --no-install-recommends sudo curl wget gnupg2 ca-certificates jq lsb-release cmake make
-
-      - name: Setup Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          cache: false
-
-      - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-
-      - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version 0.11.0
-
-      - name: Initialize pgrx for Current PostgreSQL Version
-        working-directory: pgml-extension/
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-
-      - name: Update pgml schema to paradedb
-        working-directory: pgml-extension/
-        run: |
-          sed -i "s/\(schema = \).*/\1'paradedb'/" pgml.control
-          find . -type f -exec sed -i 's/pgml\./paradedb\./g' {} +
-
-      # Install build requirements for pgml
-      - name: Install pgml Build Dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-              checkinstall \
-              bison \
-              flex \
-              libreadline-dev \
-              libopenblas-dev
-
-      - name: Package pgml Extension with pgrx
-        working-directory: pgml-extension/
-        run: |
-          git config --global --add safe.directory /__w/paradedb/paradedb
-          git submodule update --init --recursive && RUSTFLAGS="-A warnings" cargo pgrx package
-
-      - name: Create .deb Package
-        working-directory: pgml-extension/
-        run: |
-          # Create installable package
-          mkdir archive
-          cp `find target/release -type f -name "pgml*"` archive
-          package_dir=pgml-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu
-
-          # Copy files into directory structure
-          mkdir -p ${package_dir}/usr/lib/postgresql/lib
-          mkdir -p ${package_dir}/var/lib/postgresql/extension
-          cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
-          cp archive/*.control ${package_dir}/var/lib/postgresql/extension
-          cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
-
-          # Symlinks to copy files into directory structure
-          mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-          mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
-          cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-          cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-          cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-
-          # Create control file (package name cannot have underscore)
-          mkdir -p ${package_dir}/DEBIAN
-          touch ${package_dir}/DEBIAN/control
-          deb_version=${{ steps.version.outputs.version }}
-          CONTROL_FILE="${package_dir}/DEBIAN/control"
-          echo 'Package: pgml' >> $CONTROL_FILE
-          echo 'Version:' ${deb_version} >> $CONTROL_FILE
-          echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
-          echo 'Maintainer: PostgresML' >> $CONTROL_FILE
-          echo 'Description: Generative AI and simple ML in PostgreSQL' >> $CONTROL_FILE
-
-          # Create .deb package
-          sudo chown -R root:root ${package_dir}
-          sudo chmod -R 00755 ${package_dir}
-          sudo dpkg-deb --build --root-owner-group ${package_dir}
-
-      - name: Create GitHub Release for pgml
-        uses: softprops/action-gh-release@v1
-        with:
-          repository: paradedb/third-party-pg_extensions
-          tag_name: pgml-v${{ steps.version.outputs.version }}-${{ matrix.arch }}
-          name: pgml ${{ steps.version.outputs.version }} ${{ matrix.arch }}
-          body: Internal ParadeDB Release for pgml version ${{ steps.version.outputs.version }} for arch ${{ matrix.arch }}. This release is not intended for public use.
-          files: ./pgml-extension/pgml-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
-          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}

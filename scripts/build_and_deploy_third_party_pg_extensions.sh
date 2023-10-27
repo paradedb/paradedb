@@ -53,6 +53,75 @@ build_and_package_pg_extension() {
 }
 
 
+# Function to compile & package a single pgrx-based PostgreSQL extension as a .deb
+# Example:
+# build_and_package_pg_extension "pg_bm25" "0.2.25" "https://github.com/paradedb/paradedb/archive/refs/tags/v0.2.25.tar.gz"
+build_and_package_pgrx_extension() {
+  local PG_EXTENSION_NAME=$1
+  local PG_EXTENSION_VERSION=$2
+  local PG_EXTENSION_URL=$3
+
+  # Download & extract source code
+  mkdir -p "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
+  curl -L "$PG_EXTENSION_URL" -o "/tmp/$PG_EXTENSION_NAME.tar.gz"
+  tar -xvf "/tmp/$PG_EXTENSION_NAME.tar.gz" --strip-components=1 -C "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
+  cd "/tmp/$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
+
+  # Set pg_config path
+  export PG_CONFIG=/usr/lib/postgresql/$PG_MAJOR_VERSION/bin/pg_config
+
+  if [ "$PG_EXTENSION_NAME" == "pgml" ]; then
+    cd pgml-extension/
+
+    # Update schema to paradedb
+    sed -i "s/\(schema = \).*/\1'paradedb'/" pgml.control
+    find . -type f -exec sed -i 's/pgml\./paradedb\./g' {} +
+
+    # package
+    git config --global --add safe.directory /__w/paradedb/paradedb
+    git submodule update --init --recursive
+    RUSTFLAGS="-A warnings" cargo pgrx package
+
+    # Create installable package
+    mkdir archive
+    cp $(find target/release -type f -name "pgml*") archive
+    package_dir="pgml-v$PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-linux-gnu"
+
+    # Copy files into directory structure
+    mkdir -p "${package_dir}/usr/lib/postgresql/lib"
+    mkdir -p "${package_dir}/var/lib/postgresql/extension"
+    cp archive/*.so "${package_dir}/usr/lib/postgresql/lib"
+    cp archive/*.control "${package_dir}/var/lib/postgresql/extension"
+    cp archive/*.sql "${package_dir}/var/lib/postgresql/extension"
+
+    # Symlinks to copy files into directory structure
+    mkdir -p "${package_dir}/usr/lib/postgresql/$PG_MAJOR_VERSION/lib"
+    mkdir -p "${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension"
+    cp archive/*.so "${package_dir}/usr/lib/postgresql/$PG_MAJOR_VERSION/lib"
+    cp archive/*.control "${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension"
+    cp archive/*.sql "${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension"
+
+    # Create control file (package name cannot have underscore)
+    mkdir -p "${package_dir}/DEBIAN"
+    touch "${package_dir}/DEBIAN/control"
+    deb_version=$PG_EXTENSION_VERSION
+    CONTROL_FILE="${package_dir}/DEBIAN/control"
+    echo "Package: pgml" >> "$CONTROL_FILE"
+    echo "Version: ${deb_version}" >> "$CONTROL_FILE"
+    echo "Architecture: $ARCH" >> "$CONTROL_FILE"
+    echo "Maintainer: PostgresML" >> "$CONTROL_FILE"
+    echo "Description: Generative AI and simple ML in PostgreSQL" >> "$CONTROL_FILE"
+
+    # Create .deb package
+    sudo chown -R root:root "${package_dir}"
+    sudo chmod -R 00755 "${package_dir}"
+    sudo dpkg-deb --build --root-owner-group "${package_dir}"
+
+    cd ..
+  fi
+}
+
+
 # Function to build & publish a single PostgreSQL extension to GitHub Releases
 # Example:
 # build_and_publish_pg_extension "pg_cron" "1.0.0" "https://github.com/citusdata/pg_cron/archive/refs/tags/v1.0.0.tar.gz"
@@ -70,8 +139,15 @@ build_and_publish_pg_extension() {
   if curl --output /dev/null --silent --head --fail "$release_url"; then
     echo "Release for $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION already exists, skipping..."
   else
-    # Build and package the extension as a .deb
-    build_and_package_pg_extension "$PG_EXTENSION_NAME" "$SANITIZED_PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
+    # Build and package the extension as a .deb. We use a different process for pgrx-based extensions
+    # and non-pgrx extensions
+    if [ "$PG_EXTENSION_NAME" == "pgml" ]; then
+      # pgrx-based extensions
+      build_and_package_pgrx_extension "$PG_EXTENSION_NAME" "$SANITIZED_PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
+    else
+      # non-pgrx extensions
+      build_and_package_pg_extension "$PG_EXTENSION_NAME" "$SANITIZED_PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
+    fi
 
     # Create a new GitHub release for the extension. Note, GITHUB_TOKEN is read from the CI environment
     release_response=$(curl -s -X POST https://api.github.com/repos/paradedb/third-party-pg_extensions/releases \

@@ -17,6 +17,5 @@ pub extern "C" fn amvacuumcleanup(
             unsafe { pg_sys::palloc0(std::mem::size_of::<pg_sys::IndexBulkDeleteResult>()).cast() };
     }
 
-    // TODO: Physically delete from disk
     stats
 }

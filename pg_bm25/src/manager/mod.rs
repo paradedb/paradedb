@@ -32,7 +32,6 @@ pub struct Manager {
     scores: Option<HashMap<BlockInfo, f32>>,
     doc_addresses: Option<HashMap<BlockInfo, DocAddress>>,
     snippet_generators: Option<HashMap<String, SnippetGenerator>>,
-    // highlights_max_num_chars: Option<usize>,
 }
 
 impl Manager {
@@ -43,7 +42,6 @@ impl Manager {
             min_score: 0.0,
             doc_addresses: None,
             snippet_generators: None,
-            // highlights_max_num_chars: None,
         }
     }
 

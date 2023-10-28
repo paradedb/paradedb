@@ -16,11 +16,6 @@
 
 ---
 
-[![Benchmark ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/benchmark-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/benchmark-paradedb.yml)
-[![Publish ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml)
-[![Publish pg_bm25](https://github.com/paradedb/paradedb/actions/workflows/publish-pg_bm25.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-pg_bm25.yml)
-[![Publish pg_search](https://github.com/paradedb/paradedb/actions/workflows/publish-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-pg_search.yml)
-
 [ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL,
 engineered for lightning-fast full text, similarity, and hybrid search.
 

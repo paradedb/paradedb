@@ -20,7 +20,7 @@ telemetry = ["shared/telemetry"]
 
 [dependencies]
 csv = "1.2.2"
-hnswlib = { git = "https://github.com/paradedb/hnswlib.git", rev="72acf59d38dad2af9278de66a40e183f2fb17e8e" }
+hnswlib = { git = "https://github.com/paradedb/hnswlib.git", rev="6ed0bd0ceb67c09d3ea59dec2539208c4b8bd094" }
 memoffset = "0.9.0"
 pgrx = "=0.11.0"
 rustc-hash = "1.1.0"

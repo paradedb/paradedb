@@ -92,12 +92,11 @@ pub extern "C" fn amgettuple(
 
     // First scan
     if state.current == 0 {
-        let mut results =
+        let results =
             state
                 .index
                 .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
 
-        results.reverse();
 
         state.results = results.clone();
 
@@ -113,12 +112,10 @@ pub extern "C" fn amgettuple(
 
         state.k *= 2;
 
-        let mut results =
+        let results =
             state
                 .index
                 .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
-
-        results.reverse();
 
         state.results = results.clone();
         state.n_results = state.results.len();

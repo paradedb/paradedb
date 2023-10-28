@@ -34,7 +34,10 @@ pub fn sparse_cosine_distance(left: Sparse, right: Sparse) -> f32 {
         return -1.0;
     }
 
-    1.0 - dot_product / (left_norm.sqrt() * right_norm.sqrt())
+    f32::max(
+        1.0 - dot_product / (left_norm.sqrt() * right_norm.sqrt()),
+        0.0,
+    )
 }
 
 extension_sql!(

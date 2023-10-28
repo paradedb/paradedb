@@ -16,7 +16,7 @@ const SPARSE_HNSW_FILENAME: &str = "index.bin";
 pub fn create_index(index: pg_sys::Relation) -> Index {
     let index_relation = unsafe { PgRelation::from_pg(index) };
     let index_name = index_relation.name().to_string();
-    let rdopts = get_rdopts(index);
+    let rdopts = get_rdopts(index_relation);
     let mut hnsw_index = Index::new(
         DEFAULT_INDEX_SIZE,
         rdopts.m as usize,
@@ -82,10 +82,9 @@ pub fn resize_if_needed(sparse_index: &mut Index) {
     }
 }
 
-pub fn get_rdopts(index: pg_sys::Relation) -> PgBox<SparseOptions> {
-    let index_relation = unsafe { PgRelation::from_pg(index) };
-    if !index_relation.rd_options.is_null() {
-        unsafe { PgBox::from_pg(index_relation.rd_options as *mut SparseOptions) }
+pub fn get_rdopts(index: rel::PgRelation) -> PgBox<SparseOptions> {
+    if !index.rd_options.is_null() {
+        unsafe { PgBox::from_pg(index.rd_options as *mut SparseOptions) }
     } else {
         let mut ops = unsafe { PgBox::<SparseOptions>::alloc0() };
         ops.m = DEFAULT_M;

@@ -26,9 +26,7 @@ pub extern "C" fn ambeginscan(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
     let index = from_index_name(&index_name);
-    let rdopts = get_rdopts(indexrel);
-
-    info!("rdopts: {:?}", rdopts);
+    let rdopts = get_rdopts(index_relation);
 
     // Create the index and scan
     let scan_state = ScanState {
@@ -94,9 +92,10 @@ pub extern "C" fn amgettuple(
 
     // First scan
     if state.current == 0 {
-        let mut results = state
-            .index
-            .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
+        let mut results =
+            state
+                .index
+                .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
 
         results.reverse();
 
@@ -114,9 +113,10 @@ pub extern "C" fn amgettuple(
 
         state.k *= 2;
 
-        let mut results = state
-            .index
-            .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
+        let mut results =
+            state
+                .index
+                .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
 
         results.reverse();
 
@@ -132,7 +132,6 @@ pub extern "C" fn amgettuple(
     let tid = &mut scan.xs_heaptid;
 
     u64_to_item_pointer(state.results[state.current] as u64, tid);
-    info!("Returning tid: {:?}", state.results[state.current]);
     state.current += 1;
     scan.xs_recheckorderby = false;
     true

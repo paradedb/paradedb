@@ -1,6 +1,6 @@
 use pgrx::*;
 
-use crate::sparse_index::index::from_index_name;
+use crate::sparse_index::index::get_rdopts;
 
 #[allow(clippy::too_many_arguments)]
 #[pg_guard(immutable, parallel_safe)]
@@ -33,9 +33,8 @@ pub unsafe extern "C" fn amcostestimate(
                 pg_sys::AccessShareLock as pg_sys::LOCKMODE,
             )
         };
-        let mut sparse_index = from_index_name(index_relation.name());
-        let meta = sparse_index.get_hnsw_metadata();
-        let ef_search = meta.ef_search as f64;
+        let rdopts = get_rdopts(index_relation);
+        let ef_search = rdopts.ef_search as f64;
 
         let mut generic_costs = pg_sys::GenericCosts::default();
         pg_sys::genericcostestimate(root, path, loop_count, &mut generic_costs);

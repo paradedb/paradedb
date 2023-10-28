@@ -118,13 +118,10 @@ unsafe extern "C" fn build_callback_internal(
     let index_path = get_index_path(index_name);
 
     if let Some(sparse_vector) = sparse_vector {
-        info!("About to insert {:?}", ctid);
         state
             .sparse_index
             .add_sparse_vector(sparse_vector.entries, item_pointer_to_u64(ctid) as usize);
-        info!("Saving...");
         state.sparse_index.save_index(index_path);
-        info!("Inserted {:?}", ctid);
     }
 
     old_context.set_as_current();

@@ -28,6 +28,8 @@ pub extern "C" fn ambeginscan(
     let index = from_index_name(&index_name);
     let rdopts = get_rdopts(indexrel);
 
+    info!("rdopts: {:?}", rdopts);
+
     // Create the index and scan
     let scan_state = ScanState {
         index,
@@ -92,11 +94,15 @@ pub extern "C" fn amgettuple(
 
     // First scan
     if state.current == 0 {
-        state.results =
-            state
-                .index
-                .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
-        state.n_results = state.results.len();
+        let mut results = state
+            .index
+            .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
+
+        results.reverse();
+
+        state.results = results.clone();
+
+        state.n_results = results.len();
         state.no_more_results = state.n_results < state.k;
     }
 
@@ -108,10 +114,13 @@ pub extern "C" fn amgettuple(
 
         state.k *= 2;
 
-        state.results =
-            state
-                .index
-                .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
+        let mut results = state
+            .index
+            .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
+
+        results.reverse();
+
+        state.results = results.clone();
         state.n_results = state.results.len();
         state.no_more_results = state.n_results < state.k;
     }
@@ -123,6 +132,7 @@ pub extern "C" fn amgettuple(
     let tid = &mut scan.xs_heaptid;
 
     u64_to_item_pointer(state.results[state.current] as u64, tid);
+    info!("Returning tid: {:?}", state.results[state.current]);
     state.current += 1;
     scan.xs_recheckorderby = false;
     true

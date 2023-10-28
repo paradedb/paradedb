@@ -78,9 +78,7 @@ pub fn resize_if_needed(sparse_index: &mut Index) {
     let num_entries = sparse_index.get_current_count() - sparse_index.get_deleted_count();
 
     if num_entries >= max_elements {
-        info!("Resizing index, currently at {} elements, to {}", num_entries, max_elements + DEFAULT_INDEX_SIZE);
         sparse_index.resize_index(max_elements + DEFAULT_INDEX_SIZE);
-        info!("Resize successful");
     }
 }
 

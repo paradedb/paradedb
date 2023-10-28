@@ -97,7 +97,6 @@ pub extern "C" fn amgettuple(
                 .index
                 .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
 
-
         state.results = results.clone();
 
         state.n_results = results.len();

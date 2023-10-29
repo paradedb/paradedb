@@ -7,14 +7,17 @@ use crate::sparse_index::sparse::Sparse;
 
 struct BuildState<'a> {
     count: usize,
+    index_path: String,
     sparse_index: &'a mut Index,
     memcxt: PgMemoryContexts,
 }
 
 impl<'a> BuildState<'a> {
-    fn new(sparse_index: &'a mut Index) -> Self {
+    fn new(sparse_index: &'a mut Index, index_name: &str) -> Self {
+        let index_path = get_index_path(index_name);
         BuildState {
             sparse_index,
+            index_path: index_path.clone(),
             count: 0,
             memcxt: PgMemoryContexts::new("HNSW build context"),
         }
@@ -55,7 +58,8 @@ fn do_heap_scan<'a>(
     index_relation: &'a PgRelation,
     sparse_index: &mut Index,
 ) -> usize {
-    let mut state = BuildState::new(sparse_index);
+    let index_name = index_relation.name();
+    let mut state = BuildState::new(sparse_index, index_name);
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -101,12 +105,10 @@ unsafe extern "C" fn build_callback_internal(
     ctid: pg_sys::ItemPointerData,
     values: *mut pg_sys::Datum,
     state: *mut std::os::raw::c_void,
-    index: pg_sys::Relation,
+    _index: pg_sys::Relation,
 ) {
     check_for_interrupts!();
 
-    let index_relation_ref = unsafe { PgRelation::from_pg(index) };
-    let index_name = index_relation_ref.name();
     let state = (state as *mut BuildState).as_mut().unwrap();
     let mut old_context = state.memcxt.set_as_current();
 
@@ -115,13 +117,12 @@ unsafe extern "C" fn build_callback_internal(
 
     let values = std::slice::from_raw_parts(values, 1);
     let sparse_vector: Option<Sparse> = FromDatum::from_datum(values[0], false);
-    let index_path = get_index_path(index_name);
 
     if let Some(sparse_vector) = sparse_vector {
         state
             .sparse_index
             .add_sparse_vector(sparse_vector.entries, item_pointer_to_u64(ctid) as usize);
-        state.sparse_index.save_index(index_path);
+        state.sparse_index.save_index(state.index_path.to_string());
     }
 
     old_context.set_as_current();

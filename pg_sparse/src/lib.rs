@@ -6,9 +6,6 @@ mod sparse_index;
 
 pgrx::pg_module_magic!();
 
-extension_sql_file!("../sql/_bootstrap.sql", bootstrap);
-extension_sql_file!("../sql/_bootstrap_quickstart.sql");
-
 // Initializes option parsing
 #[allow(clippy::missing_safety_doc)]
 #[pg_guard]

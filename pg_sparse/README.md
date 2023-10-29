@@ -39,22 +39,6 @@ SELECT * FROM mock_items ORDER BY sparse_embedding <==> '[0,3,0,3]' LIMIT 1;
 
 ## Installation
 
-### From ParadeDB
-
-The easiest way to use the extension is to run the ParadeDB Dockerfile:
-
-```bash
-docker run \
-  -e POSTGRES_USER=<user> \
-  -e POSTGRES_PASSWORD=<password> \
-  -e POSTGRES_DB=<dbname> \
-  -p 5432:5432 \
-  -d \
-  paradedb/paradedb:latest
-```
-
-This will spin up a Postgres instance with `pg_sparse` preinstalled.
-
 ### From Self-Hosted PostgreSQL
 
 If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow these steps:
@@ -85,6 +69,10 @@ CREATE EXTENSION pg_sparse;
 
 Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_sparse` until the Postgres service explicitly supports it.
 
+### From ParadeDB
+
+`pg_sparse` is in beta. As a result, it has not yet been added to ParadeDB.
+
 ## HNSW Index Creation
 
 Creating an HNSW index can significantly improve sparse vector search times over large datasets.
@@ -98,7 +86,7 @@ WITH (ef_search=20, m=3, ef_construction=20, m=10);
 ### Index Options
 
 - `ef_search`: Adjusts the trade-off between search speed and accuracy by controlling the number of candidate nodes considered during the query time in a proximity graph. A higher `ef_search` leads to more accurate results
-  but longer query times. We recommend setting `ef_search` at least the number of results you want returned. Minimum is `1` and maximum is `100`.
+  but longer query times. We recommend setting `ef_search` at least the number of results you want returned. Minimum is `1` and maximum is `1000`.
 
 - `ef_construction`: Controls the size of the dynamic candidate list during the index construction. A higher `ef`
   search increases index creation time. Minimum is `4` and maximum is `1000`.

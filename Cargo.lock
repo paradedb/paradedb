@@ -57,6 +57,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a4668cab20f66d8d020e1fbc0ebe47217433c1b6c8f2040faf858554e394ace6"
 
 [[package]]
+name = "approx"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "arc-swap"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -892,7 +901,7 @@ dependencies = [
 [[package]]
 name = "hnswlib"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/hnswlib.git?rev=72acf59d38dad2af9278de66a40e183f2fb17e8e#72acf59d38dad2af9278de66a40e183f2fb17e8e"
+source = "git+https://github.com/paradedb/hnswlib.git?rev=6ed0bd0ceb67c09d3ea59dec2539208c4b8bd094#6ed0bd0ceb67c09d3ea59dec2539208c4b8bd094"
 dependencies = [
  "cxx",
  "cxx-build",
@@ -1610,6 +1619,7 @@ dependencies = [
 name = "pg_sparse"
 version = "0.0.0"
 dependencies = [
+ "approx",
  "csv",
  "hnswlib",
  "memoffset",

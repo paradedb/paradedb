@@ -3,16 +3,13 @@ DROP TABLE IF EXISTS mock_items;
 CREATE TABLE mock_items (
     id SERIAL PRIMARY KEY,
     description TEXT,
-    rating INTEGER CHECK (
-        rating BETWEEN 1
-        AND 5
-    )
+    sparse_embedding SPARSE
 );
 
-INSERT INTO mock_items (description, rating)
+INSERT INTO mock_items (description, sparse_embedding)
 VALUES
-    ('Ergonomic metal keyboard', 4),
-    ('Plastic Keyboard', 4),
+    ('Ergonomic metal keyboard', '[0,1,0,1]'),
+    ('Plastic Keyboard', '[0,2,0,2]');
     ('Sleek running shoes', 5),
     ('White jogging shoes', 3),
     ('Generic shoes', 4),

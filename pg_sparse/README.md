@@ -31,6 +31,9 @@ VALUES
     ('Ergonomic metal keyboard', '[0,1,0,1]'),
     ('Plastic Keyboard', '[0,2,0,2]');
 
+-- Optional: Create an HNSW index for ANN search
+CREATE INDEX ON mock_items USING sparse_hnsw(sparse_embedding);
+
 SELECT * FROM mock_items ORDER BY sparse_embedding <==> '[0,3,0,3]' LIMIT 1;
 ```
 
@@ -87,7 +90,9 @@ Note: If you are using a managed Postgres service like Amazon RDS, you will not 
 Creating an HNSW index can significantly improve sparse vector search times over large datasets.
 
 ```sql
-CREATE INDEX ON documents USING hnsw(embedding) WITH (ef_search=20, m=3, ef_construction=20, m=10);
+CREATE INDEX ON mock_items
+USING sparse_hnsw(sparse_embedding)
+WITH (ef_search=20, m=3, ef_construction=20, m=10);
 ```
 
 ### Index Options

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::ffi::CStr;
 use std::fmt::{Display, Formatter, Write};
 
-#[derive(PostgresType, Serialize, Deserialize, Clone, Debug)]
+#[derive(PostgresType, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[repr(C)]
 #[inoutfuncs]
 pub struct Sparse {
@@ -64,5 +64,36 @@ impl InOutFuncs for Sparse {
 
         let output_str = format!("[{}]", output_vec.join(","));
         buffer.write_fmt(format_args!("{}", output_str)).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::CString;
+
+    #[test]
+    fn test_sparse_display() {
+        let sparse = Sparse {
+            entries: vec![(0, 1.0), (2, 3.0)],
+            n: 4,
+        };
+
+        let output = format!("{}", sparse);
+        assert_eq!(output, "[1,0,3,0]");
+    }
+
+    #[test]
+    fn test_sparse_input() {
+        let input_str = CString::new("[1,0,3,0]").unwrap();
+        let sparse = Sparse::input(&input_str);
+
+        assert_eq!(
+            sparse,
+            Sparse {
+                entries: vec![(0, 1.0), (2, 3.0)],
+                n: 4,
+            }
+        );
     }
 }

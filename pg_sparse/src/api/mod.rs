@@ -54,3 +54,65 @@ CREATE OPERATOR CLASS sparse_cosine_ops
 "#,
     name = "sparse_operator"
 );
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn test_sparse_cosine_distance_identical() {
+        let sparse1 = Sparse {
+            entries: vec![(1, 1.0), (2, 2.0), (3, 3.0)],
+            n: 3,
+        };
+        let sparse2 = Sparse {
+            entries: vec![(1, 1.0), (2, 2.0), (3, 3.0)],
+            n: 3,
+        };
+        let distance = sparse_cosine_distance(sparse1, sparse2);
+        assert_relative_eq!(distance, 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_sparse_cosine_distance_orthogonal() {
+        let sparse1 = Sparse {
+            entries: vec![(1, 1.0)],
+            n: 2,
+        };
+        let sparse2 = Sparse {
+            entries: vec![(2, 1.0)],
+            n: 2,
+        };
+        let distance = sparse_cosine_distance(sparse1, sparse2);
+        assert_relative_eq!(distance, 1.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_sparse_cosine_distance_partial_overlap() {
+        let sparse1 = Sparse {
+            entries: vec![(1, 1.0), (2, 1.0)],
+            n: 2,
+        };
+        let sparse2 = Sparse {
+            entries: vec![(2, 1.0), (3, 1.0)],
+            n: 3,
+        };
+        let distance = sparse_cosine_distance(sparse1, sparse2);
+        assert!(distance > 0.0 && distance < 1.0);
+    }
+
+    #[test]
+    fn test_sparse_cosine_distance_no_overlap() {
+        let sparse1 = Sparse {
+            entries: vec![(1, 1.0)],
+            n: 1,
+        };
+        let sparse2 = Sparse {
+            entries: vec![(2, 1.0)],
+            n: 2,
+        };
+        let distance = sparse_cosine_distance(sparse1, sparse2);
+        assert_relative_eq!(distance, 1.0, epsilon = 1e-6);
+    }
+}

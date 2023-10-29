@@ -48,7 +48,6 @@ pub extern "C" fn ambeginscan(
     scandesc.into_pg()
 }
 
-// An annotation to guard the function for PostgreSQL's threading model.
 #[pg_guard]
 pub extern "C" fn amrescan(
     scan: pg_sys::IndexScanDesc,
@@ -98,7 +97,6 @@ pub extern "C" fn amgettuple(
                 .search_knn(state.query_vector.entries.clone(), state.k, state.ef_search);
 
         state.results = results.clone();
-
         state.n_results = results.len();
         state.no_more_results = state.n_results < state.k;
     }

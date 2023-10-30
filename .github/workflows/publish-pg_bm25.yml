@@ -117,9 +117,8 @@ jobs:
 
       - name: Upload pg_bm25 .deb to GitHub Release
         uses: shogo82148/actions-upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         with:
+          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
           asset_name: pg_bm25-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb

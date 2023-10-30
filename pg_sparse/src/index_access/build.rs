@@ -69,6 +69,7 @@ fn do_heap_scan<'a>(
             &mut state,
         );
     }));
+    state.sparse_index.save_index(state.index_path.to_string());
     state.count
 }
 
@@ -122,7 +123,6 @@ unsafe extern "C" fn build_callback_internal(
         state
             .sparse_index
             .add_sparse_vector(sparse_vector.entries, item_pointer_to_u64(ctid) as usize);
-        state.sparse_index.save_index(state.index_path.to_string());
     }
 
     old_context.set_as_current();

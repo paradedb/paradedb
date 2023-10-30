@@ -184,7 +184,7 @@ tests inline in the relevant files, using the `#[cfg(test)]` attribute.
 To run the integration test suite, run:
 
 ```bash
-./test/runtests.sh
+./test/runtests.sh -p threaded
 ```
 
 This will create a temporary database, initialize it with the SQL commands defined

@@ -296,7 +296,7 @@ impl ParadeIndex {
     fn reader(index: &Index) -> IndexReader {
         index
             .reader_builder()
-            .reload_policy(tantivy::ReloadPolicy::Manual)
+            .reload_policy(tantivy::ReloadPolicy::OnCommit)
             .try_into()
             .expect("failed to create index reader")
     }

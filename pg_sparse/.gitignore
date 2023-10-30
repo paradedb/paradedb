@@ -19,3 +19,9 @@ results/
 results/
 regression.diffs
 regression.out
+
+# pg_regress
+test/results/
+test/regression.diffs
+test/regression.out
+test/test_logs.log

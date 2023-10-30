@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
-import Logo from "../images/logo-with-name.svg";
 import classname from "classnames";
+import { useUser } from "@auth0/nextjs-auth0/client";
+import { redirect } from "next/navigation";
 
 import { IntercomProvider } from "react-use-intercom";
 import { Grid, Col, Flex, Button, Metric } from "@tremor/react";
@@ -13,11 +14,15 @@ import {
 } from "@heroicons/react/outline";
 import { usePathname } from "next/navigation";
 
+import { Spinner } from "@/components/skeleton";
+import Logo from "@/images/logo-with-name.svg";
+
 enum Route {
   Dashboard = "/",
   Welcome = "/welcome",
   Settings = "/settings",
   Logout = "/api/auth/logout",
+  Login = "/api/auth/login",
   Documentation = "https://docs.paradedb.com",
 }
 
@@ -65,6 +70,7 @@ const SidebarButton = ({
 
 const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const pathname = usePathname();
+  const { user, isLoading } = useUser();
   const titleMap: {
     [key: string]: string;
   } = {
@@ -72,6 +78,18 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
     [Route.Welcome]: "Welcome Letter",
     [Route.Settings]: "Settings",
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-black">
+        <Spinner />
+      </div>
+    );
+  }
+
+  if (!user) {
+    redirect(Route.Login);
+  }
 
   return (
     <div className="fixed">

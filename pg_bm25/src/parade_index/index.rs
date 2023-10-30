@@ -6,12 +6,12 @@ use std::ffi::{CStr, CString};
 use std::fs::{self, create_dir_all, remove_dir_all, File};
 use std::io::Write;
 use std::path::Path;
-use tantivy::IndexReader;
 use tantivy::{
     query::{Query, QueryParser},
     schema::*,
     DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
 };
+use tantivy::{IndexReader, IndexWriter};
 
 use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
@@ -22,6 +22,7 @@ use crate::parade_index::fields::{
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 const CACHE_NUM_BLOCKS: usize = 10;
+const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
@@ -200,11 +201,15 @@ impl ParadeIndex {
 
     pub fn bulk_delete(
         &self,
-        stats_binding: *mut IndexBulkDeleteResult,
+        mut stats_binding: PgBox<IndexBulkDeleteResult, AllocatedByPostgres>,
         callback: IndexBulkDeleteCallback,
         callback_state: *mut ::std::os::raw::c_void,
-    ) {
-        let mut index_writer = self.underlying_index.writer(50_000_000).unwrap(); // Adjust the size as necessary
+    ) -> PgBox<IndexBulkDeleteResult, AllocatedByPostgres> {
+        let mut index_writer = self
+            .underlying_index
+            .writer(INDEX_TANTIVY_MEMORY_BUDGET)
+            .unwrap(); // Adjust the size as
+                       // necessary
 
         let schema = self.underlying_index.schema();
         let heap_tid_field = schema
@@ -220,27 +225,22 @@ impl ParadeIndex {
 
             for doc_id in 0..segment_reader.num_docs() {
                 if let Ok(stored_fields) = store_reader.get(doc_id) {
-                    if let Some(Value::I64(heap_tid_val)) = stored_fields.get_first(heap_tid_field)
+                    if let Some(Value::U64(heap_tid_val)) = stored_fields.get_first(heap_tid_field)
                     {
                         if let Some(actual_callback) = callback {
-                            let should_delete = unsafe {
-                                actual_callback(
-                                    *heap_tid_val as *mut ItemPointerData,
-                                    callback_state,
-                                )
-                            };
+                            let mut heap_tid = pg_sys::ItemPointerData::default();
+                            u64_to_item_pointer(*heap_tid_val, &mut heap_tid);
+
+                            let should_delete =
+                                unsafe { actual_callback(&mut heap_tid, callback_state) };
 
                             if should_delete {
                                 let term_to_delete =
-                                    Term::from_field_i64(heap_tid_field, *heap_tid_val);
+                                    Term::from_field_u64(heap_tid_field, *heap_tid_val);
                                 index_writer.delete_term(term_to_delete);
-                                unsafe {
-                                    (*stats_binding).tuples_removed += 1.0;
-                                }
+                                stats_binding.pages_deleted += 1;
                             } else {
-                                unsafe {
-                                    (*stats_binding).num_index_tuples += 1.0;
-                                }
+                                stats_binding.num_pages += 1;
                             }
                         }
                     }
@@ -248,7 +248,11 @@ impl ParadeIndex {
             }
         }
 
+        index_writer
+            .prepare_commit()
+            .expect("could not prepare_commit");
         index_writer.commit().unwrap();
+        stats_binding
     }
 
     pub fn scan(&self) -> TantivyScanState {
@@ -281,6 +285,12 @@ impl ParadeIndex {
 
     pub fn searcher(&self) -> Searcher {
         self.reader.searcher()
+    }
+
+    pub fn writer(&self) -> IndexWriter {
+        self.underlying_index
+            .writer(INDEX_TANTIVY_MEMORY_BUDGET)
+            .unwrap()
     }
 
     fn reader(index: &Index) -> IndexReader {

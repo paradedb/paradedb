@@ -123,7 +123,7 @@ const InstanceCard = () => {
   };
 
   if (creds?.status === 500 && creds?.message === ERR_EXPIRED_ACCESS_TOKEN) {
-    redirect("/api/auth/logout");
+    redirect("/api/auth/login");
   }
 
   if (creds?.status === 500) {

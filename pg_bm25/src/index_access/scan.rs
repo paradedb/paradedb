@@ -200,7 +200,7 @@ pub extern "C" fn amgettuple(
 
             let searcher = &state.searcher;
             let schema = &state.schema;
-            let retrieved_doc = searcher.doc(doc_address).unwrap();
+            let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
 
             let heap_tid_field = schema
                 .get_field("heap_tid")
@@ -240,8 +240,9 @@ pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TI
 
     let mut cnt = 0i64;
     let iterator = unsafe { state.iterator.as_mut() }.expect("no iterator in state");
+
     for (score, doc_address) in iterator {
-        let retrieved_doc = searcher.doc(doc_address).unwrap();
+        let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
         let heap_tid_field = schema
             .get_field("heap_tid")
             .expect("field 'heap_tid' not found in schema");

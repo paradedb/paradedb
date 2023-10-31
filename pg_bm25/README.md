@@ -251,4 +251,4 @@ Note: the bash script takes arguments and allows you to run tests either sequent
 
 ## License
 
-The `pg_bm25` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).
+`pg_bm25` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

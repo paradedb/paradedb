@@ -37,7 +37,6 @@ fn sparse_hnsw_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::Index
     amroutine.amcanreturn = None;
     amroutine.amoptions = None;
     amroutine.amproperty = None;
-    amroutine.ambuildphasename = None;
     amroutine.ammarkpos = None;
     amroutine.amrestrpos = None;
     amroutine.amestimateparallelscan = None;
@@ -65,6 +64,7 @@ fn sparse_hnsw_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::Index
         amroutine.amoptsprocnum = 0;
         amroutine.amusemaintenanceworkmem = false;
         amroutine.amparallelvacuumoptions = pg_sys::VACUUM_OPTION_PARALLEL_BULKDEL as u8;
+        amroutine.ambuildphasename = None;
     }
 
     #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]

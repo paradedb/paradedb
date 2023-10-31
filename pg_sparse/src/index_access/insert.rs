@@ -4,7 +4,7 @@ use crate::sparse_index::index::{from_index_name, get_index_path, resize_if_need
 use crate::sparse_index::sparse::Sparse;
 
 #[allow(clippy::too_many_arguments)]
-#[cfg(any(feature = "pg14", feature = "pg15"))]
+#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,

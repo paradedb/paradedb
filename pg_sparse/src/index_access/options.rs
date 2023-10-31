@@ -80,7 +80,7 @@ pub unsafe extern "C" fn amoptions(
     build_relopts(reloptions, validate, options)
 }
 
-#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 unsafe fn build_relopts(
     reloptions: pg_sys::Datum,
     validate: bool,
@@ -143,7 +143,7 @@ pub unsafe fn init() {
         DEFAULT_M,
         MIN_M,
         MAX_M,
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
@@ -155,7 +155,7 @@ pub unsafe fn init() {
         DEFAULT_EF_SEARCH,
         MIN_EF_SEARCH,
         MAX_EF_SEARCH,
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
@@ -168,7 +168,7 @@ pub unsafe fn init() {
         DEFAULT_EF_SEARCH_CONSTRUCTION,
         MIN_EF_SEARCH_CONSTRUCTION,
         MAX_EF_SEARCH_CONSTRUCTION,
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },
@@ -180,7 +180,7 @@ pub unsafe fn init() {
         DEFAULT_RANDOM_SEED,
         MIN_RANDOM_SEED,
         MAX_RANDOM_SEED,
-        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
         },

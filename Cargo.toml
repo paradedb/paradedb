@@ -4,6 +4,7 @@ members = [
     "pg_bm25",
     "pg_search",
     "shared",
+    "pg_sparse"
 ]
 
 [profile.dev]

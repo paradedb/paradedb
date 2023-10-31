@@ -170,6 +170,8 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     libprotobuf-c1 \
     libc++1 \
     libc++abi1 \
+    # barman
+    barman \
     && rm -rf /var/lib/apt/lists/* /tmp/* && \
     # pgml
     pip3 install --no-cache-dir --break-system-packages accelerate==0.22.0 bitsandbytes==0.41.1 catboost==1.2 ctransformers==0.2.27 datasets==2.14.5 deepspeed==0.10.3 huggingface-hub==0.17.1 InstructorEmbedding==1.0.1 lightgbm==4.1.0 orjson==3.9.7 pandas==2.1.0 rich==13.5.2 rouge==1.0.1 sacrebleu==2.3.1 sacremoses==0.0.53 scikit-learn==1.3.0 sentencepiece==0.1.99 sentence-transformers==2.2.2 tokenizers==0.13.3 torch==2.0.1 torchaudio==2.0.2 torchvision==0.15.2 tqdm==4.66.1 transformers==4.33.1 xgboost==2.0.0 langchain==0.0.287 einops==0.6.1 pynvml==11.5.0 && \
@@ -220,10 +222,13 @@ COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_M
 # initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
+RUN ln -s /var/lib/postgresql/data /var/lib/postgresql/.triton && \
+    ln -s /var/lib/postgresql/data /var/lib/postgresql/.cache
+
 # Change the uid of postgres to 26
 RUN usermod -u 26 postgres \
-    && chown -R 26:26 /var/lib/postgresql \
-    && chown -R 26:26 /var/run/postgresql \
-    && chmod 700 /var/lib/postgresql
+    && chown -R 26:999 /var/lib/postgresql \
+    && chown -R 26:999 /var/run/postgresql \
+    && chmod -R 700 /var/lib/postgresql
 
 USER 26

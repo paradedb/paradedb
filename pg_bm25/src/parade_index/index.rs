@@ -112,7 +112,8 @@ impl ParadeIndex {
         Self::write_index_field_configs(&name, &field_configs)?;
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
-        let reader = Self::reader(&underlying_index);
+        let reader = Self::reader(&underlying_index)
+            .expect("failed to create index reader while creating new index");
 
         let new_self = Self {
             fields,
@@ -120,6 +121,9 @@ impl ParadeIndex {
             underlying_index,
             reader,
         };
+        unsafe {
+            new_self.into_cached_index(name);
+        }
 
         Ok(new_self)
     }
@@ -140,6 +144,17 @@ impl ParadeIndex {
         }
 
         PARADE_INDEX_MEMORY.as_ref()?.get(name).cloned()
+    }
+
+    unsafe fn into_cached_index(&self, name: String) {
+        if PARADE_INDEX_MEMORY.is_none() {
+            PARADE_INDEX_MEMORY = Some(HashMap::new());
+        }
+
+        PARADE_INDEX_MEMORY
+            .as_mut()
+            .unwrap()
+            .insert(name, self.clone());
     }
 
     pub fn from_index_name(name: String) -> Self {
@@ -169,14 +184,21 @@ impl ParadeIndex {
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
-        let reader = Self::reader(&underlying_index);
+        let reader = Self::reader(&underlying_index)
+            .expect("failed to create index reader while retrieving index from disk");
 
-        Self {
+        let new_self = Self {
             fields,
             field_configs,
             underlying_index,
             reader,
+        };
+
+        unsafe {
+            new_self.into_cached_index(name);
         }
+
+        new_self
     }
 
     pub fn insert(
@@ -293,12 +315,11 @@ impl ParadeIndex {
             .unwrap()
     }
 
-    fn reader(index: &Index) -> IndexReader {
+    fn reader(index: &Index) -> Result<IndexReader, tantivy::TantivyError> {
         index
             .reader_builder()
             .reload_policy(tantivy::ReloadPolicy::OnCommit)
             .try_into()
-            .expect("failed to create index reader")
     }
 
     fn get_data_directory(name: &str) -> String {

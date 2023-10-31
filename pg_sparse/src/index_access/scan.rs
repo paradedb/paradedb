@@ -78,6 +78,15 @@ pub extern "C" fn amrescan(
 #[pg_guard]
 pub extern "C" fn amendscan(_scan: pg_sys::IndexScanDesc) {}
 
+// Under the hood, Postgres repeatedly calls amgettuple until it returns false,
+// or until it has retrieved enough tuples to satisfy the query.
+// The purpose of amgettuple is to point the heaptid inside the scan state
+// to the heaptid of the next tuple (i.e. row) to be returned
+
+// In the context of HNSW, amgettuple calls search_knn() on the first invocation
+// to retrieve k nearest neighbors. If the user requests more than k tuples,
+// k is doubled and search_knn() is called again. This repeats until enough tuples
+// are returned or there are no more results to return.
 #[pg_guard]
 pub extern "C" fn amgettuple(
     scan: pg_sys::IndexScanDesc,

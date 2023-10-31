@@ -80,7 +80,7 @@ Creating an HNSW index can significantly improve sparse vector search times over
 ```sql
 CREATE INDEX ON mock_items
 USING sparse_hnsw(sparse_embedding)
-WITH (ef_search=20, m=3, ef_construction=20, m=10);
+WITH (ef_search=20, ef_construction=20, m=10);
 ```
 
 ### Index Options

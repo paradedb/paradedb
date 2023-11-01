@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   lint-typescript:
-    name: Lint Python Files
+    name: Lint TypeScript Files
     runs-on: ubuntu-latest
 
     steps:
@@ -31,13 +31,16 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up NodeJS Environment
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
+        with:
+          node-version: "18"
 
-      - name: Install Prettier & ESLint
-        run: npm install -g prettier eslint
+      - name: Install Dependencies
+        working-directory: dashboard/
+        run: npm install
 
-      - name: Check if TypeScript Files are ESLint Formatted
-        run: eslint '{**/*.js,**/*.ts,**/*.tsx}'
+      - name: Run ESLint
+        run: npx eslint "**/*.js" "**/*.jsx" "**/*.ts" "**/*.tsx"
 
-      - name: Check if TypeScript Files are Prettier Formatted
-        run: prettier --check '{**/*.js,**/*.ts,**/*.tsx,**/*.css,**/*.json}'
+      - name: Run Prettier Check
+        run: npx prettier --check "**/*.js" "**/*.jsx" "**/*.ts" "**/*.tsx" "**/*.css" "**/*.json"

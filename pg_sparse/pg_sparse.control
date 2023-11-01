@@ -3,5 +3,4 @@ default_version = '@CARGO_VERSION@'
 module_pathname = '$libdir/pg_sparse'
 relocatable = false
 superuser = true
-trusted = true
 schema = paradedb

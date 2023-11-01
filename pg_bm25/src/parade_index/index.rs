@@ -124,7 +124,7 @@ impl ParadeIndex {
             underlying_index,
         };
         unsafe {
-            new_self.into_cached_index(name);
+            new_self.to_cached_index(name);
         }
 
         Ok(new_self)
@@ -155,7 +155,7 @@ impl ParadeIndex {
         PARADE_INDEX_MEMORY.as_ref()?.get(name).cloned()
     }
 
-    unsafe fn into_cached_index(&self, name: String) {
+    unsafe fn to_cached_index(&self, name: String) {
         if PARADE_INDEX_MEMORY.is_none() {
             PARADE_INDEX_MEMORY = Some(HashMap::new());
         }
@@ -206,7 +206,7 @@ impl ParadeIndex {
 
         // Since we've re-fetched the index, save it to the cache.
         unsafe {
-            new_self.into_cached_index(name);
+            new_self.to_cached_index(name);
         }
 
         new_self

@@ -1,11 +1,8 @@
 use pgrx::*;
-use tantivy::SingleSegmentIndexWriter;
 
 use crate::index_access::utils::{
     categorize_tupdesc, get_parade_index, lookup_index_tupdesc, row_to_json,
 };
-
-const INDEX_WRITER_MEM_BUDGET: usize = 50_000_000;
 
 #[allow(clippy::too_many_arguments)]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
@@ -57,11 +54,7 @@ unsafe fn aminsert_internal(
 
     // Insert row to parade index
     let mut parade_index = get_parade_index(index_name);
-    let tantivy_index = parade_index.copy_tantivy_index();
-    let mut writer = SingleSegmentIndexWriter::new(tantivy_index, INDEX_WRITER_MEM_BUDGET)
-        .expect("failed to create index writer");
-    parade_index.insert(&mut writer, *heap_tid, builder);
-    writer.commit().expect("failed to commit writer");
+    parade_index.insert(*heap_tid, builder);
 
     true
 }

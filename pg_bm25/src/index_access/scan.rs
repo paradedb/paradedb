@@ -87,10 +87,14 @@ pub extern "C" fn amrescan(
     let schema = &state.schema;
 
     // Extract limit and offset from the query config or set defaults.
-    let limit = query_config
-        .config
-        .limit
-        .unwrap_or(searcher.num_docs() as usize);
+    let limit = query_config.config.limit.unwrap_or({
+        let num_docs = searcher.num_docs() as usize;
+        if num_docs > 0 {
+            num_docs // The collector will panic if it's passed a limit of 0.
+        } else {
+            1 // Since there's no docs to return anyways, just use 1.
+        }
+    });
     let offset = query_config.config.offset.unwrap_or(0);
 
     // Construct the actual Tantivy search query based on the mode determined above.

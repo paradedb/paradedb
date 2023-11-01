@@ -9,7 +9,6 @@ on:
   pull_request:
     paths:
       - "**/*.js"
-      - "**/*.jsx"
       - "**/*.ts"
       - "**/*.tsx"
       - "**/*.css"

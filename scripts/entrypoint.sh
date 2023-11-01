@@ -73,6 +73,11 @@ if [ -z "$POSTGRES_ROLE_EXISTS" ]; then
 EOSQL
 fi
 
+# Configure search_path to include the paradedb schema
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+  ALTER USER "$POSTGRES_USER" SET search_path TO public,paradedb;
+EOSQL
+
 # We need to restart the server for the changes above to be reflected
 pg_ctl restart
 

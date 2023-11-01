@@ -23,13 +23,8 @@ pub extern "C" fn amvacuumcleanup(
     let index_name = index_relation.name().to_string();
     let parade_index = get_parade_index(index_name);
 
-    let index_writer = parade_index.writer();
-
     // Cleanup the garbage
-    index_writer
-        .garbage_collect_files()
-        .wait()
-        .expect("Could not collect garbage");
+    parade_index.garbage_collect_files();
 
     stats
 }

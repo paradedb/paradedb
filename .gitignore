@@ -13,3 +13,4 @@ target/
 
 # SSH
 *.pem
+*.profraw

@@ -901,7 +901,7 @@ dependencies = [
 [[package]]
 name = "hnswlib"
 version = "0.1.0"
-source = "git+https://github.com/paradedb/hnswlib.git?rev=6ed0bd0ceb67c09d3ea59dec2539208c4b8bd094#6ed0bd0ceb67c09d3ea59dec2539208c4b8bd094"
+source = "git+https://github.com/paradedb/hnswlib.git?rev=16096b04db19ca00ee7250e27680c8d9296c7c37#16096b04db19ca00ee7250e27680c8d9296c7c37"
 dependencies = [
  "cxx",
  "cxx-build",

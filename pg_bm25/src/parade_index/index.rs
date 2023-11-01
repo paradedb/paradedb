@@ -320,7 +320,6 @@ impl ParadeIndex {
 
     fn single_segment_writer(&self) -> Result<SingleSegmentIndexWriter, TantivyError> {
         SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_TANTIVY_MEMORY_BUDGET)
-        // .expect("Could not create index writer for index: {}", self.name);
     }
 
     pub fn writer(&self) -> Result<IndexWriter, TantivyError> {

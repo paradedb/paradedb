@@ -36,4 +36,4 @@ jobs:
         run: markdownlint '**/*.md'
 
       - name: Run Pettier
-        run: prettier --check '{**/**.md,**/**.mdx}'
+        run: prettier --check '{**/*.md,**/*.mdx}'

@@ -9,7 +9,6 @@ use crate::parade_index::index::ParadeIndex;
 
 // For now just pass the count and parade
 // index on the build callback state
-#[allow(dead_code)]
 struct BuildState<'a> {
     count: usize,
     parade_index: &'a mut ParadeIndex,

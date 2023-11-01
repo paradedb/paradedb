@@ -1,35 +1,27 @@
-# workflows/lint-file-endings.yml
+# workflows/lint-format.yml
 #
-# Lint File Endings
-# Lint the project's file endings.
+# Lint Format
+# Lint the project's file trailing spaces, line endings, and format.
 
-name: Lint File Endings
+name: Lint Format
 
 on:
   pull_request:
   workflow_dispatch:
 
+# Need to add trailing white spaces to this one
 concurrency:
-  group: lint-file-endings-${{ github.head_ref || github.ref }}
+  group: lint-format-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint-file-endings:
-    name: Lint File Endings
+  lint-format:
+    name: Lint File Endings & Trailing Whitespaces
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
-
-      - name: Check for CRLF Files
-        run: |
-          FILES=$(git ls-files --eol | grep crlf || true)
-          if [[ ! -z "$FILES" ]]; then
-            echo "The following files have incorrect line endings:"
-            echo "$FILES"
-            false
-          fi
 
       - name: Install fd Search Tool
         run: |
@@ -41,6 +33,24 @@ jobs:
 
       - name: Add Trailing Newlines
         run: .github/workflows/helpers/lint_trailing_newlines.sh
+
+      - name: Check for CRLF Files
+        run: |
+          FILES=$(git ls-files --eol | grep crlf || true)
+          if [[ ! -z "$FILES" ]]; then
+            echo "The following files have incorrect line endings:"
+            echo "$FILES"
+            false
+          fi
+
+      - name: Check for Trailing Whitespaces
+        run: |
+          FILES=$(git grep -Ilr '[[:blank:]]$' || true)
+          if [[ ! -z "$FILES" ]]; then
+            echo "The following files have trailing whitespaces:"
+            echo "$FILES"
+            false
+          fi
 
       - name: Print Modified Files
         run: |

@@ -1,0 +1,43 @@
+# workflows/lint-typescript.yml
+#
+# Lint TypeScript
+# Lint TypeScript and related files (i.e. .json, .css, etc.) using ESLint and Prettier.
+
+name: Lint TypeScript
+
+on:
+  pull_request:
+    paths:
+      - "**/*.js"
+      - "**/*.jsx"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.css"
+      - "**/*.json"
+      - ".github/workflows/lint-typescript.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lint-typescript-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  lint-typescript:
+    name: Lint Python Files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Set up NodeJS Environment
+        uses: actions/setup-node@v3
+
+      - name: Install Prettier & ESLint
+        run: npm install -g prettier eslint
+
+      - name: Check if TypeScript Files are ESLint Formatted
+        run: eslint '{**/*.js,**/*.ts,**/*.tsx}'
+
+      - name: Check if TypeScript Files are Prettier Formatted
+        run: prettier --check '{**/*.js,**/*.ts,**/*.tsx,**/*.css,**/*.json}'

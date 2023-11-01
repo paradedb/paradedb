@@ -47,7 +47,7 @@ CREATE OPERATOR <==> (
     COMMUTATOR = '<==>'
 );
 
-CREATE OPERATOR CLASS sparse_cosine_ops 
+CREATE OPERATOR CLASS sparse_cosine_ops
     DEFAULT FOR TYPE sparse USING sparse_hnsw AS
     OPERATOR 1 <==> (sparse, sparse) FOR ORDER BY float_ops,
     FUNCTION 1 sparse_cosine_distance(sparse, sparse);

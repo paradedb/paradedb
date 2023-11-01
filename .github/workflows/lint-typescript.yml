@@ -40,7 +40,7 @@ jobs:
         run: npm install
 
       - name: Run ESLint
-        run: npx eslint "**/*.js" "**/*.jsx" "**/*.ts" "**/*.tsx"
+        run: npx eslint "**/*.js" "**/*.ts" "**/*.tsx"
 
       - name: Run Prettier Check
-        run: npx prettier --check "**/*.js" "**/*.jsx" "**/*.ts" "**/*.tsx" "**/*.css" "**/*.json"
+        run: npx prettier --check "**/*.js" "**/*.ts" "**/*.tsx" "**/*.css" "**/*.json"

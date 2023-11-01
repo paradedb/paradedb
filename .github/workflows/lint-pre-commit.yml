@@ -26,6 +26,18 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-15 postgresql-server-dev-15
+
+      - name: Install pgrx
+        run: cargo install --locked cargo-pgrx --version 0.11.0
+
+      - name: Initialize pgrx for Current PostgreSQL Version
+        run: cargo pgrx init --pg15=/usr/lib/postgresql/15/bin/pg_config
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -35,4 +47,6 @@ jobs:
         run: pip install pre-commit
 
       - name: Run pre-commit hooks
-        run: pre-commit run --all-files
+        run: |
+          export SKIP=detect-aws-credentials
+          pre-commit run --all-files

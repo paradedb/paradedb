@@ -18,9 +18,9 @@ results/
 # pg_regress
 test/pgvector/
 test/results/
-test/regression.diffs
-test/regression.out
 test/test_logs.log
+regression.diffs
+regression.out
 
 # pgvector
 pgvector/

@@ -72,9 +72,16 @@ EOSQL
 fi
 
 # Configure search_path to include the paradedb schema
+# We SET it for the entire DB (for all users), and default to public (by listing it first)
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-  ALTER USER "$POSTGRES_USER" SET search_path TO public,paradedb;
+  ALTER DATABASE "$POSTGRES_DB" SET search_path TO public,paradedb;
 EOSQL
+
+
+# SET search_path TO paradedb,public;
+# SET search_path TO public,paradedb;
+
+
 
 # We need to restart the server for the changes above to be reflected
 pg_ctl restart

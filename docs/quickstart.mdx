@@ -32,9 +32,9 @@ connection credentials. By default, this will start a ParadeDB instance at `http
 
 ## Connect to ParadeDB
 
-<Info>
+<Note>
   **Prerequisite** Ensure that you have `psql` installed on your machine.
-</Info>
+</Note>
 
 To connect to ParadeDB, run
 
@@ -113,47 +113,21 @@ set queries, boolean queries and more.
 
 ## Similarity Search
 
-Let's vectorize the `description` column so we can query it with natural language:
+Let's query our table with a vector and order the results by L2 distance:
 
 ```sql
-ALTER TABLE mock_items
-ADD COLUMN description_embeddings vector(384)
-GENERATED ALWAYS AS (paradedb.embed('all-minilm-l6-v2', description)) STORED;
-```
-
-<Accordion title="Expected Response">
-``` bash
-ALTER TABLE
-```
-</Accordion>
-
-<Note>
-  This command may take some time depending on the size of your table.
-</Note>
-
-This SQL command creates a new column called `description_embeddings`, which stores the embeddings representations
-of the `description` column using the HuggingFace `all-MiniLM-L6-v2` model.
-The `GENERATED ALWAYS AS` command ensures that these embeddings are updated in real time whenever the values
-in `description` change.
-
-Now, let's query our table using the natural language query "Something a kid would play with":
-
-```sql
-WITH query AS (
-    SELECT paradedb.embed('all-minilm-l6-v2', 'Something a kid would play with')::vector AS embedding
-)
-SELECT description, category, rating
-FROM mock_items, query
-ORDER BY mock_items.description_embeddings <-> query.embedding LIMIT 3;
+SELECT description, category, rating, embedding
+FROM mock_items
+ORDER BY embedding <-> '[1,2,3]' LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
 ``` csv
-      description       | category | rating
-------------------------+----------+--------
- Colorful kids toy      | Toys     |      1
- Interactive board game | Toys     |      3
- Plush teddy bear       | Toys     |      4
+       description       |  category  | rating | embedding
+-------------------------+------------+--------+-----------
+ Artistic ceramic vase   | Home Decor |      4 | [1,2,3]
+ Modern wall clock       | Home Decor |      4 | [1,2,3]
+ Designer wall paintings | Home Decor |      5 | [1,2,3]
 (3 rows)
 ```
 </Accordion>

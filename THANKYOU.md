@@ -22,8 +22,7 @@ the functionality of the core PostgreSQL database system. They enable a range of
 advanced capabilities, from performance monitoring to geospatial indexing. ParadeDB
 develops its own PostgreSQL extensions and integrates various open-source extensions
 in our product. Special mention goes to [pgvector](https://github.com/pgvector/pgvector),
-which we use to power part of our search capabilities, and [pgml](https://github.com/postgresml/postgresml/tree/master/pgml-extension),
-which we use for generating embeddings. For a detailed list of the extensions we
+which we use to power part of our search capabilities. For a detailed list of the extensions we
 use in ParadeDB, please refer to our Dockerfile(s).
 
 ## PGRX

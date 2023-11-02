@@ -54,27 +54,17 @@ echo "cron.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
 
 # Setup users
-ROOT_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'")
-POSTGRES_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='postgres'")
-
-if [ -z "$ROOT_ROLE_EXISTS" ]; then
+POSTGRES_USER_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'")
+if [ -z "$POSTGRES_USER_ROLE_EXISTS" ]; then
   psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-	CREATE USER root;
-	CREATE DATABASE root;
-	GRANT ALL PRIVILEGES ON DATABASE root TO root;
+  CREATE ROLE $POSTGRES_USER WITH SUPERUSER LOGIN;
 EOSQL
 fi
 
-if [ -z "$POSTGRES_ROLE_EXISTS" ]; then
-  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-  CREATE ROLE postgres WITH SUPERUSER CREATEDB CREATEROLE LOGIN;
-EOSQL
-fi
-
-# Configure search_path to include the paradedb schema
-# We SET it for the entire DB (for all users), and default to public (by listing it first)
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-  ALTER DATABASE "$POSTGRES_DB" SET search_path TO public,paradedb;
+# Configure search_path to include paradedb schema for template1, so that it is
+# inherited by all new databases created, and default to public (by listing it first)
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "template1" <<-EOSQL
+  ALTER DATABASE template1 SET search_path TO public,paradedb;
 EOSQL
 
 # We need to restart the server for the changes above to be reflected

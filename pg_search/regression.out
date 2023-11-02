@@ -1,0 +1,6 @@
+# using postmaster on /var/folders/ch/hr172n993v94pr_24zwkxpf00000gn/T/tmp.dofRL7u5FT, default port
+not ok 1     - search                                   2847 ms
+1..1
+# 1 of 1 tests failed.
+# The differences that caused some tests to fail can be viewed in the file "/Users/phil/Downloads/paradedb/pg_search/regression.diffs".
+# A copy of the test summary that you see above is saved in the file "/Users/phil/Downloads/paradedb/pg_search/regression.out".

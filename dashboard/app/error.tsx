@@ -32,7 +32,7 @@ const Error = ({}: {
           >
             notify our support team
           </span>{" "}
-          amd we&apos;ll get this fixed.
+          and we&apos;ll get this fixed.
         </Text>
       </Flex>
     </Card>

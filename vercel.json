@@ -1,0 +1,4 @@
+{
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./dashboard || exit 1"
+}
+  

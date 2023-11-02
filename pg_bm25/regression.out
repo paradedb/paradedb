@@ -1,3 +1,0 @@
-# using postmaster on /var/folders/ch/hr172n993v94pr_24zwkxpf00000gn/T/tmp.UZxvLuk4WU, default port
-ok 1         - aggregations                               27 ms
-ok 2         - bm25_search                               288 ms

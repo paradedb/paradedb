@@ -218,9 +218,6 @@ COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_M
 # initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
-RUN ln -s /var/lib/postgresql/data /var/lib/postgresql/.triton && \
-    ln -s /var/lib/postgresql/data /var/lib/postgresql/.cache
-
 # Change the uid of postgres to 26
 RUN usermod -u 26 postgres \
     && chown -R 26:999 /var/lib/postgresql \

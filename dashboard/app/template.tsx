@@ -9,9 +9,9 @@ import { IntercomProvider } from "react-use-intercom";
 import { Grid, Col, Flex, Button, Metric } from "@tremor/react";
 import {
   HomeIcon,
-  ArrowNarrowLeftIcon,
+  ArrowLeftIcon,
   BookOpenIcon,
-} from "@heroicons/react/outline";
+} from "@heroicons/react/24/outline";
 import { usePathname } from "next/navigation";
 
 import { Spinner } from "@/components/skeleton";
@@ -37,7 +37,7 @@ const SidebarButton = ({
   name: string;
   href: string;
   target?: string;
-  icon: (props: React.ComponentProps<"svg">) => JSX.Element;
+  icon: React.ElementType;
 }) => {
   const SIDEBAR_BUTTON_DEFAULT =
     "w-full px-6 pb-2 pt-3 rounded-sm duration-500";
@@ -138,7 +138,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
                   active={false}
                   href={Route.Logout}
                   name="Log Out"
-                  icon={ArrowNarrowLeftIcon}
+                  icon={ArrowLeftIcon}
                 />
               </Flex>
             </div>
@@ -148,7 +148,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           numColSpanLg={8}
           numColSpanMd={8}
           numColSpanSm={10}
-          className="px-12 py-6 bg-black overflow-y-scroll"
+          className="px-12 py-6 bg-black"
         >
           <Metric className="text-neutral-100 font-semibold">
             {titleMap[pathname]}

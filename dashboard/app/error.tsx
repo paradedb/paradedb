@@ -1,7 +1,7 @@
 "use client";
 
 import { Title, Text, Icon, Flex } from "@tremor/react";
-import { ExclamationCircleIcon } from "@heroicons/react/outline";
+import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 import { useIntercom } from "react-use-intercom";
 
 import { Card } from "@/components/tremor/card";
@@ -32,7 +32,7 @@ const Error = ({}: {
           >
             notify our support team
           </span>{" "}
-          amd we&apos;ll get this fixed.
+          and we&apos;ll get this fixed.
         </Text>
       </Flex>
     </Card>

@@ -77,12 +77,6 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
   ALTER DATABASE "$POSTGRES_DB" SET search_path TO public,paradedb;
 EOSQL
 
-
-# SET search_path TO paradedb,public;
-# SET search_path TO public,paradedb;
-
-
-
 # We need to restart the server for the changes above to be reflected
 pg_ctl restart
 

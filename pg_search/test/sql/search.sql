@@ -1,8 +1,3 @@
--- this is needed to ensure consistency of printouts with postgres versions older than 12. Can be
--- deleted if we drop support for postgres 11.
-ALTER SYSTEM SET extra_float_digits TO 0;
-select pg_reload_conf();
-
 CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*)) WITH (text_fields='{"description": {}, "category": {}}', numeric_fields='{"rating": {}}', boolean_fields='{"in_stock": {}}', json_fields='{"metadata": {}}');;;
 CREATE INDEX ON mock_items USING hnsw (embedding vector_l2_ops);
 

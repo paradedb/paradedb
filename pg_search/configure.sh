@@ -18,10 +18,10 @@ if [ $# -eq 0 ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
     Darwin)
-      PG_VERSIONS=("15.4" "14.9" "13.12" "12.16" "11.21")
+      PG_VERSIONS=("16.0" "15.4" "14.9" "13.12" "12.16")
       ;;
     Linux)
-      PG_VERSIONS=("15" "14" "13" "12" "11")
+      PG_VERSIONS=("16" "15" "14" "13" "12")
       ;;
   esac
 else

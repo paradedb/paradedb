@@ -13,7 +13,7 @@ usage() {
   echo "Options:"
   echo " -h (optional),   Display this help message"
   echo " -p (required),   Processing type, either <sequential> or <threaded>"
-  echo " -v (optional),   PG version(s) separated by comma <11,12,13>"
+  echo " -v (optional),   PG version(s) separated by comma <12,13,14>"
   exit 1
 }
 
@@ -72,10 +72,10 @@ if [ "$FLAG_PG_VER" = false ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
     Darwin)
-      PG_VERSIONS=("16.0" "15.4" "14.9" "13.12" "12.16" "11.21")
+      PG_VERSIONS=("16.0" "15.4" "14.9" "13.12" "12.16")
       ;;
     Linux)
-      PG_VERSIONS=("16" "15" "14" "13" "12" "11")
+      PG_VERSIONS=("16" "15" "14" "13" "12")
       ;;
   esac
 else

@@ -49,4 +49,3 @@ VALUES
     ('Handcrafted wooden frame', '[0,0,0,5,0,4,0,3,0,2]'),
     ('Plush teddy bear', '[0,0,0,4,0,3,0,2,0,1]'),
     ('Warm woolen sweater', '[0,0,0,3,0,2,0,4,0,1]');
-

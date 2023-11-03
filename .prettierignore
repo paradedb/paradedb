@@ -12,3 +12,4 @@
 /pg_search/pgvector/
 /pg_search/target/
 /pg_search/test/pgvector/
+/pg_sparse/target/

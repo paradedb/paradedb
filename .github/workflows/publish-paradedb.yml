@@ -52,6 +52,7 @@ jobs:
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             PG_BM25_VERSION=${{ steps.version.outputs.version }}
             PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
+            PG_SPARSE_VERSION=${{ steps.version.outputs.version }}
             PGVECTOR_VERSION=0.5.1
             PGAUDIT_VERSION=1.7.0
             PG_NET_VERSION=0.7.2
@@ -86,4 +87,4 @@ jobs:
             paradedb/paradedb:latest
             paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}
-            paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+            paradedb/paradedb:pg${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}

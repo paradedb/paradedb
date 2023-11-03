@@ -60,3 +60,27 @@ updates:
       pg_search-dependencies:
         patterns:
           - "*"
+
+  - package-ecosystem: "cargo"
+    directory: "/pg_sparse"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+    groups:
+      pg_sparse-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "cargo"
+    directory: "/shared"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+    groups:
+      shared-dependencies:
+        patterns:
+          - "*"

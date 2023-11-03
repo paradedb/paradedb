@@ -9,4 +9,5 @@
 /docs/                                                         @rebasedming
 /pg_bm25/                                                      @rebasedming @neilyio
 /pg_search/                                                    @rebasedming @neilyio
+/pg_sparse/                                                    @rebasedming @sardination
 /scripts/                                                      @philippemnoel @mauaraujo

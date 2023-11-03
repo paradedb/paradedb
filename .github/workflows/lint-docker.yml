@@ -1,23 +1,23 @@
-# workflows/lint-dockerfiles.yml
+# workflows/lint-docker.yml
 #
-# Lint Dockerfiles
+# Lint Docker
 # Lint Dockerfiles using Hadolint.
 
-name: Lint Dockerfiles
+name: Lint Docker
 
 on:
   pull_request:
     paths:
       - "docker/*"
-      - ".github/workflows/lint-dockerfiles.yml"
+      - ".github/workflows/lint-docker.yml"
   workflow_dispatch:
 
 concurrency:
-  group: lint-dockerfiles-${{ github.head_ref || github.ref }}
+  group: lint-docker-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  lint-dockerfiles:
+  lint-docker:
     name: Lint Dockerfiles
     runs-on: ubuntu-latest
 

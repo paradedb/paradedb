@@ -99,7 +99,7 @@ unsafe fn build_relopts(
 }
 
 // build_reloptions is not available when pg<13, so we need our own
-#[cfg(any(feature = "pg10", feature = "pg11", feature = "pg12"))]
+#[cfg(feature = "pg12")]
 unsafe fn build_relopts(
     reloptions: pg_sys::Datum,
     validate: bool,

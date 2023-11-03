@@ -90,7 +90,7 @@ fn do_heap_scan<'a>(
     state.count
 }
 
-#[cfg(any(feature = "pg10", feature = "pg11", feature = "pg12"))]
+#[cfg(feature = "pg12")]
 #[pg_guard]
 unsafe extern "C" fn build_callback(
     index: pg_sys::Relation,

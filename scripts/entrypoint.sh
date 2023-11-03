@@ -53,13 +53,26 @@ echo "pg_net.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 echo "cron.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
 
-# Setup users
+# Setup the database role (the user passed via -e POSTGRES_USER to the Docker run command)
 POSTGRES_USER_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'")
 if [ -z "$POSTGRES_USER_ROLE_EXISTS" ]; then
   psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
   CREATE ROLE $POSTGRES_USER WITH SUPERUSER LOGIN;
 EOSQL
 fi
+
+# Setup the postgres role (a user named postgres is necessary for pg_net to work)
+POSTGRES_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='postgres'")
+if [ -z "$POSTGRES_ROLE_EXISTS" ]; then
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+  CREATE ROLE postgres WITH SUPERUSER LOGIN;
+EOSQL
+fi
+
+# Configure search_path to include paradedb schema for template1, and default to public (by listing it first)
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+  ALTER DATABASE "$POSTGRES_DB" SET search_path TO public,paradedb;
+EOSQL
 
 # Configure search_path to include paradedb schema for template1, so that it is
 # inherited by all new databases created, and default to public (by listing it first)
@@ -97,3 +110,7 @@ for extension in "${!extensions[@]}"; do
     PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done
+
+# We run VACUUM FULL on the mock_items table to ensure that the table is accessible to all users, since
+# it gets created by the pg_bm25 extension SQL script
+PGPASSWORD=$POSTGRES_PASSWORD psql -c "VACUUM FULL mock_items" -d "$POSTGRES_DB" -U "$POSTGRES_USER"

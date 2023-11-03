@@ -53,27 +53,31 @@ echo "pg_net.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 echo "cron.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
 
-# Setup users
-ROOT_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='root'")
-POSTGRES_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='postgres'")
-
-if [ -z "$ROOT_ROLE_EXISTS" ]; then
+# Setup the database role (the user passed via -e POSTGRES_USER to the Docker run command)
+POSTGRES_USER_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='$POSTGRES_USER'")
+if [ -z "$POSTGRES_USER_ROLE_EXISTS" ]; then
   psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-	CREATE USER root;
-	CREATE DATABASE root;
-	GRANT ALL PRIVILEGES ON DATABASE root TO root;
+  CREATE ROLE $POSTGRES_USER WITH SUPERUSER LOGIN;
 EOSQL
 fi
 
+# Setup the postgres role (a user named postgres is necessary for pg_net to work)
+POSTGRES_ROLE_EXISTS=$(psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc "SELECT 1 FROM pg_roles WHERE rolname='postgres'")
 if [ -z "$POSTGRES_ROLE_EXISTS" ]; then
   psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-  CREATE ROLE postgres WITH SUPERUSER CREATEDB CREATEROLE LOGIN;
+  CREATE ROLE postgres WITH SUPERUSER LOGIN;
 EOSQL
 fi
 
-# Configure search_path to include the paradedb schema
+# Configure search_path to include paradedb schema for template1, and default to public (by listing it first)
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-  ALTER USER "$POSTGRES_USER" SET search_path TO public,paradedb;
+  ALTER DATABASE "$POSTGRES_DB" SET search_path TO public,paradedb;
+EOSQL
+
+# Configure search_path to include paradedb schema for template1, so that it is
+# inherited by all new databases created, and default to public (by listing it first)
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "template1" <<-EOSQL
+  ALTER DATABASE template1 SET search_path TO public,paradedb;
 EOSQL
 
 # We need to restart the server for the changes above to be reflected
@@ -106,3 +110,10 @@ for extension in "${!extensions[@]}"; do
     PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done
+
+# As part of the pg_bm25 extension, we ship a dummy data table, mock_items, that users can use to immediately
+# get started running search queries. Since we install the pg_bm25 extension here, before any active psql session,
+# we need to run VACUUM FULL on the mock_items table to ensure that the table is accessible to all users across
+# all schemas when they connect via psql. We only need to do this with tables that are created by extensions installed
+# in this script, as part of the Postgres initialization process.
+PGPASSWORD=$POSTGRES_PASSWORD psql -c "VACUUM FULL mock_items" -d "$POSTGRES_DB" -U "$POSTGRES_USER"

@@ -6,8 +6,9 @@ set -Eeuo pipefail
 # List of extensions to possibly install (if a version variable is set)
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
-  [vector]=${PGVECTOR_VERSION:-}
   [pg_search]=${PG_SEARCH_VERSION:-}
+  [pg_sparse]=${PG_SPARSE_VERSION:-}
+  [vector]=${PGVECTOR_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
   [pg_net]=${PG_NET_VERSION:-}
   [pg_ivm]=${PG_IVM_VERSION:-}

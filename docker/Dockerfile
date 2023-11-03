@@ -11,6 +11,8 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm as base
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
 ARG PG_SEARCH_VERSION
+ARG PG_SPARSE_VERSION
+ARG PGVECTOR_VERSION
 ARG PG_CRON_VERSION
 ARG PG_NET_VERSION
 ARG PG_IVM_VERSION
@@ -23,7 +25,6 @@ ARG PG_HINT_PLAN_VERSION
 ARG PG_ROARINGBITMAP_VERSION
 ARG PGFACETING_VERSION
 ARG PGTAP_VERSION
-ARG PGVECTOR_VERSION
 ARG PGAUDIT_VERSION
 ARG POSTGIS_VERSION
 ARG PGROUTING_VERSION
@@ -39,6 +40,8 @@ ARG TELEMETRY
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
     PG_SEARCH_VERSION=${PG_SEARCH_VERSION} \
+    PG_SPARSE_VERSION=${PG_SPARSE_VERSION} \
+    PGVECTOR_VERSION=${PGVECTOR_VERSION} \
     PG_CRON_VERSION=${PG_CRON_VERSION} \
     PG_NET_VERSION=${PG_NET_VERSION} \
     PG_IVM_VERSION=${PG_IVM_VERSION} \
@@ -51,7 +54,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_ROARINGBITMAP_VERSION=${PG_ROARINGBITMAP_VERSION} \
     PGFACETING_VERSION=${PGFACETING_VERSION} \
     PGTAP_VERSION=${PGTAP_VERSION} \
-    PGVECTOR_VERSION=${PGVECTOR_VERSION} \
     PGAUDIT_VERSION=${PGAUDIT_VERSION} \
     POSTGIS_VERSION=${POSTGIS_VERSION} \
     PGROUTING_VERSION=${PGROUTING_VERSION} \
@@ -152,6 +154,21 @@ COPY shared/ /tmp/shared
 RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/;}" Cargo.toml && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
+######################
+# pg_sparse
+######################
+
+FROM builder as builder-pg_sparse
+
+WORKDIR /tmp/pg_sparse
+
+COPY pg_sparse/ /tmp/pg_sparse
+COPY shared/ /tmp/shared
+
+# Use the build argument to update the version in Cargo.toml
+RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SPARSE_VERSION}\"/;}" Cargo.toml && \
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
 ###############################################
 # Third Stage: PostgreSQL
 ###############################################
@@ -160,7 +177,7 @@ FROM base as paradedb
 
 ARG TARGETARCH
 
-# Install postgis runtime dependencies
+# Install barmian (for backups, and postgis runtime dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     # postgis
     libgeos-c1v5 \
@@ -207,10 +224,12 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
     apt-fast update && apt-fast install -y --no-install-recommends /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
-# Copy the pg_bm25 & pg_search extensions from their builder stages
+# Copy the ParadeDB extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_sparse /tmp/pg_sparse/target/release/pg_sparse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_sparse /tmp/pg_sparse/target/release/pg_sparse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 

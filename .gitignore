@@ -6,7 +6,6 @@
 
 # Docker
 docker/.docker_cache_dev/
-docker/.docker_cache_local/
 
 # Rust
 target/

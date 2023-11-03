@@ -34,3 +34,7 @@
 #     paths:
 #       - pg_search/*
 #     carryforward: true
+#   pg_sparse:
+#     paths:
+#       - pg_sparse/*
+#     carryforward: true

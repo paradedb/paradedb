@@ -131,7 +131,7 @@ or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paraded
 For more information on how to contribute, please see our
 [Contributing Guide](CONTRIBUTING.md).
 
-This project is released with a [Contributor Code of Conduct](https://github.com/paradedb/paradedb/blob/stable/CODE_OF_CONDUCT.md).
+This project is released with a [Contributor Code of Conduct](CODE_OF_CONDUCT.md).
 By participating in this project, you agree to follow its terms.
 
 Thank you for helping us make ParadeDB better for everyone :heart:.

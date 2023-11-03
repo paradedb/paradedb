@@ -21,6 +21,9 @@ extension_sql_file!("../sql/_bootstrap_quickstart.sql");
 pub unsafe extern "C" fn _PG_init() {
     index_access::options::init();
     telemetry::posthog::init("pg_bm25 Deployment");
+
+    // Initalize Grand Unified Configuration (GUC) variables.
+    shared::gucs::init();
 }
 
 /// This module is required by `cargo pgrx test` invocations.

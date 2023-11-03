@@ -177,7 +177,7 @@ FROM base as paradedb
 
 ARG TARGETARCH
 
-# Install barmian (for backups, and postgis runtime dependencies
+# Install barman (for backups, and postgis runtime dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     # postgis
     libgeos-c1v5 \

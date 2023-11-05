@@ -81,7 +81,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-black">
+      <div className="flex items-center justify-center h-screen bg-dark">
         <Spinner />
       </div>
     );
@@ -98,7 +98,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           numColSpanLg={2}
           numColSpanMd={2}
           numColSpanSm={0}
-          className="min-h-screen bg-black px-8 py-8 border-r-[1px] border-neutral-800 min-w-[220px]"
+          className="min-h-screen bg-dark px-8 py-8 border-r-[1px] border-neutral-800 min-w-[220px]"
         >
           <Image src={Logo} width={125} height={50} alt="ParadeDB" />
           <Flex
@@ -148,13 +148,13 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
           numColSpanLg={8}
           numColSpanMd={8}
           numColSpanSm={10}
-          className="px-12 py-6 bg-black"
+          className="py-6 bg-dark"
         >
-          <Metric className="text-neutral-100 font-semibold">
+          <Metric className="text-neutral-100 font-semibold px-12">
             {titleMap[pathname]}
           </Metric>
-          <hr className="border-neutral-700 h-1 w-full my-6" />
-          <div className="mt-8">{children}</div>
+          <hr className="border-neutral-800 h-1 w-full my-6" />
+          <div className="mt-8 px-12">{children}</div>
         </Col>
       </Grid>
     </div>

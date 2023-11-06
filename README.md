@@ -129,9 +129,9 @@ the way. To get started contributing, check our [first timer issues](https://git
 or message us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ). Once you contribute, ping us in Slack and we'll send you some ParadeDB swag!
 
 For more information on how to contribute, please see our
-[Contributing Guide](CONTRIBUTING.md).
+[Contributing Guide](/CONTRIBUTING.md).
 
-This project is released with a [Contributor Code of Conduct](CODE_OF_CONDUCT.md).
+This project is released with a [Contributor Code of Conduct](/CODE_OF_CONDUCT.md).
 By participating in this project, you agree to follow its terms.
 
 Thank you for helping us make ParadeDB better for everyone :heart:.

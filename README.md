@@ -8,7 +8,7 @@
 </p>
 
 <h3 align="center">
-  <a href="https://paradedb.com">Managed Cloud</a> &bull;
+  <a href="https://paradedb.com">Cloud</a> &bull;
   <a href="https://paradedb.com">Website</a> &bull;
   <a href="https://docs.paradedb.com">Documentation</a> &bull;
   <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ">Community</a>

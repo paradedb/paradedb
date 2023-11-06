@@ -8,20 +8,46 @@ pub static mut PARADE_LOGS_TABLE_INITIALIZED: bool = false;
 
 // Logs will live in the table created below.
 // The schema must already exist when this code is executed.
-pub const PARADE_LOGS_SQL: &str = r#"
-    CREATE TABLE IF NOT EXISTS paradedb.logs (
-        id SERIAL PRIMARY KEY,
-        timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-        level TEXT NOT NULL,
-        module TEXT NOT NULL,
-        file TEXT NOT NULL,
-        line INTEGER NOT NULL,
-        message TEXT NOT NULL,
-        json JSON,
-        pid INTEGER NOT NULL,
-        backtrace TEXT
-    );
-    "#;
+// pub const PARADE_LOGS_SQL: &str = r#"
+//     CREATE TABLE IF NOT EXISTS paradedb.logs (
+//         id SERIAL PRIMARY KEY,
+//         timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+//         level TEXT NOT NULL,
+//         module TEXT NOT NULL,
+//         file TEXT NOT NULL,
+//         line INTEGER NOT NULL,
+//         message TEXT NOT NULL,
+//         json JSON,
+//         pid INTEGER NOT NULL,
+//         backtrace TEXT
+//     );
+//     "#;
+
+extension_sql!(
+    r#"
+    DO $$
+    BEGIN
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables 
+                   WHERE schemaname = 'paradedb' AND tablename = 'logs') THEN
+        CREATE TABLE paradedb.logs (
+            id SERIAL PRIMARY KEY,
+            timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            level TEXT NOT NULL,
+            module TEXT NOT NULL,
+            file TEXT NOT NULL,
+            line INTEGER NOT NULL,
+            message TEXT NOT NULL,
+            json JSON,
+            pid INTEGER NOT NULL,
+            backtrace TEXT
+        );      
+        ELSE
+            RAISE WARNING 'The table paradedb.logs already exists, skipping.';
+        END IF;
+    END $$;
+    "#
+    name = "create_parade_logs_table"
+);
 
 /// A logging macro designed for use within the ParadeDB system. It facilitates logging
 /// messages at various levels, optionally including additional JSON data. This macro supports
@@ -96,12 +122,12 @@ macro_rules! plog {
             use pgrx::*;
             use $crate::logs::*;
 
-            unsafe {
-                if !$crate::logs::PARADE_LOGS_TABLE_INITIALIZED {
-                    Spi::run($crate::logs::PARADE_LOGS_SQL).expect("could not create paradedb.logs table");
-                    $crate::logs::PARADE_LOGS_TABLE_INITIALIZED = true;
-                }
-            }
+            // unsafe {
+            //     if !$crate::logs::PARADE_LOGS_TABLE_INITIALIZED {
+            //         Spi::run($crate::logs::PARADE_LOGS_SQL).expect("could not create paradedb.logs table");
+            //         $crate::logs::PARADE_LOGS_TABLE_INITIALIZED = true;
+            //     }
+            // }
 
             let message: &str = $msg;
             let level: LogLevel = $level;
@@ -242,18 +268,19 @@ impl ParadeLogsGlobal {
 /// on its own, as the shared crate is not itself a Postgres extension.
 /// Example test run:
 /// ```
+/// #[cfg(any(test, feature = "pg_test"))]
 /// #[pgrx::pg_schema]
 /// mod tests {
 ///     #[pgrx::pg_test]
 ///     fn test_parade_logs() {
-///         shared::test_plog!();
+///         shared::test_plog!("<extension_name>");
 ///     }
 /// }
 /// ```
 #[macro_export]
 macro_rules! test_plog {
     ($extension_name:expr) => {
-        use $crate::logs::{LogJson, LogLevel, PARADE_LOGS_SQL};
+        use $crate::logs::{LogJson, LogLevel};
         use $crate::pgrx::{JsonString, Spi};
         use $crate::plog;
 
@@ -280,22 +307,23 @@ macro_rules! test_plog {
         plog!("message and data", vec![1, 2, 3]);
         plog!(LogLevel::DEBUG, "message and data and enum", vec![1, 2, 3]);
 
-        // The paradedb.logs table gets created inside of plog! (if it does not exist);
-        // If everything is working as expected, plog! hasn't actually executed any
-        // code yet. That means the paradedb.logs table should not exist.
         let log_table_exists = Spi::get_one(
             r#"
             SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_schema = 'paradedb' 
+                SELECT FROM information_schema.tables
+                WHERE table_schema = 'paradedb'
                 AND table_name = 'logs'
             );
-            "#);
-        assert_eq!(log_table_exists, Ok(Some(false)));
-
+            "#,
+        );
+        assert_eq!(
+            log_table_exists,
+            Ok(Some(true)),
+            "The paradedb.logs table should exist"
+        );
 
         // We'll actually create the table now. There should be no rows.
-        Spi::run(PARADE_LOGS_SQL).expect("could not create paradedb.logs table");
+        // Spi::run(PARADE_LOGS_SQL).expect("could not create paradedb.logs table");
 
         let row_count = Spi::get_one("SELECT count(*) from paradedb.logs");
         assert_eq!(

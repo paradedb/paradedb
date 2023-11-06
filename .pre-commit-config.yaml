@@ -36,8 +36,8 @@ repos:
       - id: beautysh
         args: ["--indent-size", "2"]
 
-  - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.9.0.5
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.9.0
     hooks:
       - id: shellcheck
 

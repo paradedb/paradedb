@@ -1,5 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS pg_bm25;
 
+SELECT paradedb.create_bm25_test_table();
+
 CREATE TABLE index_config AS SELECT * FROM paradedb.mock_items;
 CREATE TABLE search_config AS SELECT * FROM paradedb.mock_items;
 CREATE TABLE tokenizer_config AS SELECT * FROM paradedb.mock_items;

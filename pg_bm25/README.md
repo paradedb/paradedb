@@ -79,13 +79,16 @@ Note: If you are using a managed Postgres service like Amazon RDS, you will not 
 
 ### Indexing
 
-By default, the `pg_bm25` extension creates a table called `paradedb.mock_items` that you can use for quick experimentation.
-
-To index a table, use the following SQL command:
+`pg_bm25` comes with a helper function that creates a test table that you can use for quick experimentation.
 
 ```sql
+SELECT paradedb.create_bm25_test_table();
 CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+```
 
+To index the table, use the following SQL command:
+
+```sql
 CREATE INDEX idx_mock_items
 ON mock_items
 USING bm25 ((mock_items.*))

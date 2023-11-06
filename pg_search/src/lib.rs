@@ -6,8 +6,6 @@ mod api;
 
 pgrx::pg_module_magic!();
 
-extension_sql_file!("../sql/_bootstrap_quickstart.sql");
-
 // This is a flag that can be set by the user in a session to enable logs.
 // You need to initialize this in every extension that uses `plog!`.
 static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_search");

@@ -1,5 +1,6 @@
 use pgrx::*;
-use std::f64;
+use std::{f64, fs};
+use std::path::PathBuf;
 
 #[pg_extern]
 pub fn minmax_norm(value: f64, min: f64, max: f64) -> f64 {
@@ -27,4 +28,12 @@ pub fn weighted_mean(a: f64, b: f64, weights: Vec<f64>) -> f64 {
     );
 
     a * weight_a + b * weight_b
+}
+
+#[pg_extern]
+pub fn create_search_test_table() {
+    let base_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let sql_file_path = base_path.join("sql/_bootstrap_quickstart.sql");
+    let file_content = fs::read_to_string(sql_file_path).expect("Error reading SQL file");
+    let _ = Spi::run_with_args(&file_content, None);
 }

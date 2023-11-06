@@ -3,13 +3,12 @@ use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
-#[allow(dead_code)]
 pub const DEFAULT_LOG_LEVEL: LogLevel = LogLevel::INFO;
+pub static mut PARADE_LOGS_TABLE_INITIALIZED: bool = false;
 
 // Logs will live in the table created below.
 // The schema must already exist when this code is executed.
-extension_sql!(
-    r#"
+pub const PARADE_LOGS_SQL: &str = r#"
     CREATE TABLE IF NOT EXISTS paradedb.logs (
         id SERIAL PRIMARY KEY,
         timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -22,9 +21,7 @@ extension_sql!(
         pid INTEGER NOT NULL,
         backtrace TEXT
     );
-    "#
-    name = "create_paradedb_logs_table"
-);
+    "#;
 
 /// A logging macro designed for use within the ParadeDB system. It facilitates logging
 /// messages at various levels, optionally including additional JSON data. This macro supports
@@ -98,6 +95,13 @@ macro_rules! plog {
         if crate::PARADE_LOGS_GLOBAL.guc_setting.get() {
             use pgrx::*;
             use $crate::logs::*;
+
+            unsafe {
+                if !$crate::logs::PARADE_LOGS_TABLE_INITIALIZED {
+                    Spi::run($crate::logs::PARADE_LOGS_SQL).expect("could not create paradedb.logs table");
+                    $crate::logs::PARADE_LOGS_TABLE_INITIALIZED = true;
+                }
+            }
 
             let message: &str = $msg;
             let level: LogLevel = $level;
@@ -223,9 +227,8 @@ impl ParadeLogsGlobal {
     /// PARADE_LOGS_GLOBAL::init();
     /// ```
     pub fn init(&self) {
-        let name = &self.name;
         GucRegistry::define_bool_guc(
-            &format!("paradedb.{name}.logs"),
+            &format!("paradedb.{}.logs", &self.name),
             "Enable logging to the paradedb.logs table?",
             "This incurs some overhead, so only recommended when debugging.",
             &self.guc_setting,
@@ -250,7 +253,7 @@ impl ParadeLogsGlobal {
 #[macro_export]
 macro_rules! test_plog {
     ($extension_name:expr) => {
-        use $crate::logs::{LogJson, LogLevel};
+        use $crate::logs::{LogJson, LogLevel, PARADE_LOGS_SQL};
         use $crate::pgrx::{JsonString, Spi};
         use $crate::plog;
 
@@ -276,6 +279,23 @@ macro_rules! test_plog {
         plog!("message only");
         plog!("message and data", vec![1, 2, 3]);
         plog!(LogLevel::DEBUG, "message and data and enum", vec![1, 2, 3]);
+
+        // The paradedb.logs table gets created inside of plog! (if it does not exist);
+        // If everything is working as expected, plog! hasn't actually executed any
+        // code yet. That means the paradedb.logs table should not exist.
+        let log_table_exists = Spi::get_one(
+            r#"
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_schema = 'paradedb' 
+                AND table_name = 'logs'
+            );
+            "#);
+        assert_eq!(log_table_exists, Ok(Some(false)));
+
+
+        // We'll actually create the table now. There should be no rows.
+        Spi::run(PARADE_LOGS_SQL).expect("could not create paradedb.logs table");
 
         let row_count = Spi::get_one("SELECT count(*) from paradedb.logs");
         assert_eq!(

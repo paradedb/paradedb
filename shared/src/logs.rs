@@ -1,3 +1,4 @@
+#![allow(clippy::crate_in_macro_def)]
 use pgrx::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
@@ -225,7 +226,7 @@ impl ParadeLogsGlobal {
         let name = &self.name;
         GucRegistry::define_bool_guc(
             &format!("paradedb.{name}.logs"),
-            &format!("Enable logging to the paradedb.logs table?"),
+            "Enable logging to the paradedb.logs table?",
             "This incurs some overhead, so only recommended when debugging.",
             &self.guc_setting,
             GucContext::Userset,

@@ -1,4 +1,3 @@
-pub mod gucs;
 pub mod logs;
 pub mod telemetry;
 

@@ -38,7 +38,7 @@ extension_sql!(
 /// messages at various levels, optionally including additional JSON data. This macro supports
 /// three forms of invocation, allowing for flexibility in log detail.
 ///
-/// Any extenstion calling `plog!` must have `crate::PARADE_LOGS_GLOBAL` initialized, example:
+/// Any extension calling `plog!` must have `crate::PARADE_LOGS_GLOBAL` initialized, example:
 /// ```
 /// static mut PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("<extension_name>");
 /// ```

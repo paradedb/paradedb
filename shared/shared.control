@@ -1,6 +1,0 @@
-comment = 'shared: shared code for paradedb extensions'
-default_version = '@CARGO_VERSION@'
-module_pathname = '$libdir/shared'
-relocatable = false
-superuser = true
-schema = paradedb

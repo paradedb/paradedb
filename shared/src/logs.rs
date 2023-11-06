@@ -283,7 +283,7 @@ macro_rules! test_plog {
             "should be no rows before paradedb.logs is set to true"
         );
 
-        // Now we'll set paradedb.logs to on, and we expect rows to be written.
+        // Now we'll set paradedb.<extension_name>.logs to on, and we expect rows to be written.
         Spi::run(&format!("SET {guc_name} = on")).expect("error setting logs parameter to on");
 
         // Test just message

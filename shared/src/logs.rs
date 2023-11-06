@@ -203,10 +203,7 @@ mod tests {
 
         // Setting to on should work.
         Spi::run("SET paradedb.logs = on").expect("SPI failed");
-        assert!(
-            PARADEDB_LOGS.get(),
-            "setting parameter to on didn't work"
-        );
+        assert!(PARADEDB_LOGS.get(), "setting parameter to on didn't work");
 
         // Setting to default should set to off.
         Spi::run("SET paradedb.logs TO DEFAULT;").expect("SPI failed");

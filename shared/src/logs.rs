@@ -8,26 +8,11 @@ pub static mut PARADE_LOGS_TABLE_INITIALIZED: bool = false;
 
 // Logs will live in the table created below.
 // The schema must already exist when this code is executed.
-// pub const PARADE_LOGS_SQL: &str = r#"
-//     CREATE TABLE IF NOT EXISTS paradedb.logs (
-//         id SERIAL PRIMARY KEY,
-//         timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-//         level TEXT NOT NULL,
-//         module TEXT NOT NULL,
-//         file TEXT NOT NULL,
-//         line INTEGER NOT NULL,
-//         message TEXT NOT NULL,
-//         json JSON,
-//         pid INTEGER NOT NULL,
-//         backtrace TEXT
-//     );
-//     "#;
-
 extension_sql!(
     r#"
     DO $$
     BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables 
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables
                    WHERE schemaname = 'paradedb' AND tablename = 'logs') THEN
         CREATE TABLE paradedb.logs (
             id SERIAL PRIMARY KEY,
@@ -40,7 +25,7 @@ extension_sql!(
             json JSON,
             pid INTEGER NOT NULL,
             backtrace TEXT
-        );      
+        );
         ELSE
             RAISE WARNING 'The table paradedb.logs already exists, skipping.';
         END IF;
@@ -121,13 +106,6 @@ macro_rules! plog {
         if crate::PARADE_LOGS_GLOBAL.guc_setting.get() {
             use pgrx::*;
             use $crate::logs::*;
-
-            // unsafe {
-            //     if !$crate::logs::PARADE_LOGS_TABLE_INITIALIZED {
-            //         Spi::run($crate::logs::PARADE_LOGS_SQL).expect("could not create paradedb.logs table");
-            //         $crate::logs::PARADE_LOGS_TABLE_INITIALIZED = true;
-            //     }
-            // }
 
             let message: &str = $msg;
             let level: LogLevel = $level;
@@ -321,9 +299,6 @@ macro_rules! test_plog {
             Ok(Some(true)),
             "The paradedb.logs table should exist"
         );
-
-        // We'll actually create the table now. There should be no rows.
-        // Spi::run(PARADE_LOGS_SQL).expect("could not create paradedb.logs table");
 
         let row_count = Spi::get_one("SELECT count(*) from paradedb.logs");
         assert_eq!(

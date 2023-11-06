@@ -11,7 +11,6 @@ doctest = false
 
 [features]
 default = ["pg15"]
-pg11 = ["pgrx/pg11", "pgrx-tests/pg11" ]
 pg12 = ["pgrx/pg12", "pgrx-tests/pg12" ]
 pg13 = ["pgrx/pg13", "pgrx-tests/pg13" ]
 pg14 = ["pgrx/pg14", "pgrx-tests/pg14" ]

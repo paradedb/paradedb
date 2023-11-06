@@ -20,6 +20,7 @@ repos:
       - id: check-ast
       - id: check-toml
       - id: check-executables-have-shebangs
+        exclude: '\.rs$'
       - id: check-shebang-scripts-are-executable
       - id: check-vcs-permalinks
       - id: detect-private-key

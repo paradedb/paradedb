@@ -1,6 +1,6 @@
 use pgrx::*;
-use std::{f64, fs};
 use std::path::PathBuf;
+use std::{f64, fs};
 
 #[pg_extern]
 pub fn minmax_norm(value: f64, min: f64, max: f64) -> f64 {

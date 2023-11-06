@@ -13,6 +13,8 @@ most of which are zero. Storing raw sparse vectors in Postgres and calculating d
 performance costs. `pg_sparse` solves this by compressing the sparse vectors and constructing an HNSW graph over the compressed vector
 representations.
 
+`pg_sparse` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 12+.
+
 ## Usage
 
 This toy example demonstrates the usage of `pg_sparse`.

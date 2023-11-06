@@ -3,8 +3,8 @@ resolver = "2"
 members = [
     "pg_bm25",
     "pg_search",
-    "shared",
-    "pg_sparse"
+    "pg_sparse",
+    "shared"
 ]
 
 [profile.dev]

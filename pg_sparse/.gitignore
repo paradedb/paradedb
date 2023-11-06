@@ -16,12 +16,7 @@ results/
 *.profraw
 
 # pg_regress
-results/
+test/results/
+test/test_logs.log
 regression.diffs
 regression.out
-
-# pg_regress
-test/results/
-test/regression.diffs
-test/regression.out
-test/test_logs.log

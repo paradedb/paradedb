@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import useSWR, { mutate } from "swr";
 import { useEffect, useRef } from "react";
 import { withPageAuthRequired } from "@auth0/nextjs-auth0/client";
@@ -10,15 +9,13 @@ import {
   UserIcon,
   KeyIcon,
   ArrowRightIcon,
-  LightningBoltIcon,
-  DatabaseIcon,
-  DownloadIcon,
-  EyeIcon,
-} from "@heroicons/react/outline";
+  ServerStackIcon,
+} from "@heroicons/react/24/outline";
 
 import Error from "./error";
 import { Card } from "@/components/tremor";
 import {
+  CopyToClipboardButton,
   CreateInstanceButton,
   DeleteInstanceButton,
 } from "@/components/button";
@@ -27,11 +24,11 @@ import { redirect } from "next/navigation";
 
 const DATABASE_CREDENTIALS_URL = `/api/databases/credentials`;
 const DATABASE_STATUS_URL = `/api/databases/status`;
-const IMPORTING_DATA_URL = "https://docs.paradedb.com/import";
-const QUICKSTART_URL = "https://docs.paradedb.com/quickstart";
-const SEARCH_BASICS_URL = "https://docs.paradedb.com/search/bm25";
 
 const ERR_EXPIRED_ACCESS_TOKEN = "ERR_EXPIRED_ACCESS_TOKEN";
+
+const POLLING_INTERVAL_MS = 2500;
+const fetcher = (uri: string) => fetch(uri).then((res) => res.json());
 
 enum DeployStatus {
   UNKNOWN = "unknown",
@@ -39,92 +36,54 @@ enum DeployStatus {
   RUNNING = "running",
 }
 
-const POLLING_INTERVAL_MS = 2500;
-
-const fetcher = (uri: string) => fetch(uri).then((res) => res.json());
+interface InstanceCardProps {
+  creds: any;
+  status: any;
+  onCreateInstance: () => void;
+  onDeleteInstance: () => void;
+  databaseReady: boolean;
+}
 
 const CredentialsListItem = ({
   name,
   value,
   icon,
+  hide,
 }: {
   name: string;
   value: string;
   icon: JSX.Element;
+  hide: boolean;
 }) => (
   <ListItem>
     <Flex justifyContent="start" className="space-x-4">
       {icon}
       <Text className="text-neutral-400">{name}</Text>
     </Flex>
-    <Text className="text-neutral-100 font-medium">{value}</Text>
+    <Flex justifyContent="end" className="overflow-none space-x-4">
+      <Text className="text-neutral-100 font-medium truncate max-w-xs">
+        {hide ? (
+          <span>
+            &bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;&bull;
+          </span>
+        ) : (
+          value
+        )}
+      </Text>
+      <CopyToClipboardButton text={value} />
+    </Flex>
   </ListItem>
 );
 
-const GuideListItem = ({
-  href,
-  name,
-  icon,
-}: {
-  href: string;
-  name: string;
-  icon: JSX.Element;
-}) => (
-  <Link href={href} target="_blank">
-    <ListItem className="py-2.5">
-      <Flex justifyContent="start" className="space-x-4">
-        {icon}
-        <Text className="text-neutral-100 font-medium">{name}</Text>
-      </Flex>
-      <ArrowRightIcon className="w-4 text-neutral-400" />
-    </ListItem>
-  </Link>
-);
-
-const InstanceCard = () => {
-  const { data: creds } = useSWR(DATABASE_CREDENTIALS_URL, fetcher);
-  const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher);
-
+const InstanceCard = ({
+  creds,
+  status,
+  onCreateInstance,
+  onDeleteInstance,
+  databaseReady,
+}: InstanceCardProps) => {
   const deployStatus = status?.deploy_status;
   const isCreating = deployStatus === DeployStatus.PENDING;
-
-  const credsRef = useRef(creds);
-  const statusRef = useRef(deployStatus);
-
-  useEffect(() => {
-    credsRef.current = creds;
-    statusRef.current = deployStatus;
-  }, [creds, deployStatus]);
-
-  const onCreateInstance = async () => {
-    while (true) {
-      const localDeployStatus = statusRef.current;
-
-      if (localDeployStatus === DeployStatus.RUNNING) break;
-
-      await mutate(DATABASE_STATUS_URL);
-      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
-    }
-
-    await mutate(DATABASE_CREDENTIALS_URL);
-  };
-
-  const onDeleteInstance = async () => {
-    while (true) {
-      const localDeployStatus = statusRef.current;
-
-      if (localDeployStatus !== DeployStatus.RUNNING) break;
-
-      await mutate(DATABASE_STATUS_URL);
-      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
-    }
-
-    await mutate(DATABASE_CREDENTIALS_URL);
-  };
-
-  if (creds?.status === 500 && creds?.message === ERR_EXPIRED_ACCESS_TOKEN) {
-    redirect("/api/auth/logout");
-  }
 
   if (creds?.status === 500) {
     return <Error />;
@@ -140,40 +99,41 @@ const InstanceCard = () => {
     );
   }
 
-  if (
-    [creds?.host, creds?.user, creds?.password, creds?.port].every(Boolean) &&
-    deployStatus === DeployStatus.RUNNING
-  ) {
+  if (databaseReady) {
     return (
       <Card>
         <Flex flexDirection="col" alignItems="start" className="space-y-6">
           <Title className="text-neutral-100">My Instance</Title>
-          <hr className="border-neutral-700 h-1 w-full" />
           <List className="divide-none space-y-2">
+            <CredentialsListItem
+              name="Password"
+              value={creds?.password}
+              icon={<KeyIcon className="w-4 text-amber-400" />}
+              hide={true}
+            />
             <CredentialsListItem
               name="Host"
               value={creds?.host}
               icon={<ServerIcon className="w-4 text-blue-400" />}
+              hide={false}
             />
             <CredentialsListItem
               name="Database"
               value={creds?.dbname}
-              icon={<DatabaseIcon className="w-4 text-indigo-400" />}
+              icon={<ServerStackIcon className="w-4 text-indigo-400" />}
+              hide={false}
             />
             <CredentialsListItem
               name="User"
               value={creds?.user}
               icon={<UserIcon className="w-4 text-pink-400" />}
-            />
-            <CredentialsListItem
-              name="Password"
-              value={creds?.password}
-              icon={<KeyIcon className="w-4 text-amber-400" />}
+              hide={false}
             />
             <CredentialsListItem
               name="Port"
               value={creds?.port}
               icon={<ArrowRightIcon className="w-4 text-emerald-400" />}
+              hide={false}
             />
           </List>
           <DeleteInstanceButton onDeleteInstance={onDeleteInstance} />
@@ -206,36 +166,84 @@ const InstanceCard = () => {
 };
 
 const Index = () => {
+  const { data: creds } = useSWR(DATABASE_CREDENTIALS_URL, fetcher);
+  const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher);
+
+  const deployStatus = status?.deploy_status;
+
+  const credsRef = useRef(creds);
+  const statusRef = useRef(deployStatus);
+
+  const databaseReady =
+    [creds?.host, creds?.user, creds?.password, creds?.port].every(Boolean) &&
+    deployStatus === DeployStatus.RUNNING;
+
+  useEffect(() => {
+    credsRef.current = creds;
+    statusRef.current = deployStatus;
+  }, [creds, deployStatus]);
+
+  const formatPsql = () => {
+    if (!databaseReady) return "";
+    return `psql -h ${creds?.host} -p ${creds?.port} -U ${creds?.user} -d ${creds?.dbname} -W`;
+  };
+
+  const onCreateInstance = async () => {
+    while (true) {
+      const localDeployStatus = statusRef.current;
+
+      if (localDeployStatus === DeployStatus.RUNNING) break;
+
+      await mutate(DATABASE_STATUS_URL);
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+    }
+
+    await mutate(DATABASE_CREDENTIALS_URL);
+  };
+
+  const onDeleteInstance = async () => {
+    while (true) {
+      const localDeployStatus = statusRef.current;
+
+      if (localDeployStatus !== DeployStatus.RUNNING) break;
+
+      await mutate(DATABASE_STATUS_URL);
+      await new Promise((resolve) => setTimeout(resolve, POLLING_INTERVAL_MS));
+    }
+
+    await mutate(DATABASE_CREDENTIALS_URL);
+  };
+
+  if (creds?.status === 500 && creds?.message === ERR_EXPIRED_ACCESS_TOKEN) {
+    redirect("/api/auth/logout");
+  }
+
   return (
-    <Grid numItemsLg={5} className="gap-8 h-full">
-      <Col numColSpanLg={3} className="h-full">
-        <InstanceCard />
+    <Grid numItemsLg={10} className="gap-8 h-full">
+      <Col numColSpanLg={6} className="h-full">
+        <InstanceCard
+          creds={creds}
+          status={status}
+          onCreateInstance={onCreateInstance}
+          onDeleteInstance={onDeleteInstance}
+          databaseReady={databaseReady}
+        />
       </Col>
-      <Col numColSpanLg={2} className="h-full space-y-8">
-        <Card>
-          <Flex flexDirection="col" alignItems="start" className="space-y-6">
-            <Title className="text-neutral-100">Guides</Title>
-            <hr className="border-neutral-700 h-1 w-full" />
-            <List className="divide-neutral-700 space-y-2">
-              <GuideListItem
-                href={IMPORTING_DATA_URL}
-                name="Importing Data"
-                icon={<DownloadIcon className="w-4 text-indigo-400" />}
-              />
-              <GuideListItem
-                href={QUICKSTART_URL}
-                name="Quickstart"
-                icon={<LightningBoltIcon className="w-4 text-yellow-400" />}
-              />
-              <GuideListItem
-                href={SEARCH_BASICS_URL}
-                name="Search Basics"
-                icon={<EyeIcon className="w-4 text-emerald-400" />}
-              />
-            </List>
-          </Flex>
-        </Card>
-      </Col>
+      {databaseReady && (
+        <Col numColSpanLg={4} className="h-full space-y-8">
+          <Card>
+            <Flex>
+              <Title className="text-neutral-100">
+                Connect with <code>psql</code>
+              </Title>
+              <CopyToClipboardButton text={formatPsql()} />
+            </Flex>
+            <div className="mt-6">
+              <code className="text-emerald-400 text-sm">{formatPsql()}</code>
+            </div>
+          </Card>
+        </Col>
+      )}
     </Grid>
   );
 };

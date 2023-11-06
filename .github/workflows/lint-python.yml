@@ -8,8 +8,8 @@ name: Lint Python
 on:
   pull_request:
     paths:
-      - "**/*.sh"
-      - ".github/workflows/lint-bash.yml"
+      - "**/*.py"
+      - ".github/workflows/lint-python.yml"
   workflow_dispatch:
 
 concurrency:

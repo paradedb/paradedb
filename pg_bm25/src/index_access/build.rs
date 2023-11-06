@@ -1,6 +1,5 @@
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
-use tantivy::SingleSegmentIndexWriter;
 
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{
@@ -8,22 +7,18 @@ use crate::index_access::utils::{
 };
 use crate::parade_index::index::ParadeIndex;
 
-const INDEX_WRITER_MEM_BUDGET: usize = 50_000_000;
-
 // For now just pass the count and parade
 // index on the build callback state
 struct BuildState<'a> {
     count: usize,
     parade_index: &'a mut ParadeIndex,
-    writer: &'a mut SingleSegmentIndexWriter,
     memcxt: PgMemoryContexts,
 }
 
 impl<'a> BuildState<'a> {
-    fn new(parade_index: &'a mut ParadeIndex, writer: &'a mut SingleSegmentIndexWriter) -> Self {
+    fn new(parade_index: &'a mut ParadeIndex) -> Self {
         BuildState {
             parade_index,
-            writer,
             count: 0,
             memcxt: PgMemoryContexts::new("ParadeDB build context"),
         }
@@ -59,19 +54,12 @@ pub extern "C" fn ambuild(
     )
     .unwrap();
 
-    let tantivy_index = parade_index.copy_tantivy_index();
-    let mut writer = SingleSegmentIndexWriter::new(tantivy_index, INDEX_WRITER_MEM_BUDGET)
-        .expect("failed to create index writer");
-
     let ntuples = do_heap_scan(
         index_info,
         &heap_relation,
         &index_relation,
         &mut parade_index,
-        &mut writer,
     );
-
-    writer.finalize().expect("failed to finalize writer");
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = ntuples as f64;
@@ -88,9 +76,8 @@ fn do_heap_scan<'a>(
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
     parade_index: &mut ParadeIndex,
-    writer: &mut SingleSegmentIndexWriter,
 ) -> usize {
-    let mut state = BuildState::new(parade_index, writer);
+    let mut state = BuildState::new(parade_index);
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -155,7 +142,7 @@ unsafe extern "C" fn build_callback_internal(
     let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
 
     // Insert row to parade index
-    state.parade_index.insert(state.writer, ctid, builder);
+    state.parade_index.insert(ctid, builder);
 
     old_context.set_as_current();
     state.memcxt.reset();

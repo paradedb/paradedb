@@ -73,6 +73,7 @@ const config: Config = {
             inverted: "#000000", // black
           },
         },
+        dark: "#0b110f",
       },
       boxShadow: {
         // light

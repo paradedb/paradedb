@@ -9,7 +9,7 @@
 
 `pg_search` is a PostgreSQL extension that enables hybrid search in Postgres. Hybrid search is a search technique that combines BM25-based full text search with vector-based similarity search. It is built on top of `pg_bm25`, the leading full text search extension for Postgres, and `pgvector`, the leading vector similarity search extension for Postgres, using `pgrx`.
 
-`pg_search` is supported on PostgreSQL 11+.
+`pg_search` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 12+.
 
 ## Installation
 

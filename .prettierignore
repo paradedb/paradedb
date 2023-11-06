@@ -1,6 +1,7 @@
 /benchmarks/out/
 /benchmarks/*_ts.json
 /benchmarks/wiki-articles.json
+/dashboard/yarn.lock
 /docker/.docker_cache_dev/
 /docker/.docker_cache_local/
 /docs/quickstart.mdx
@@ -11,3 +12,4 @@
 /pg_search/pgvector/
 /pg_search/target/
 /pg_search/test/pgvector/
+/pg_sparse/target/

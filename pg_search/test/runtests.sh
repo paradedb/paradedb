@@ -13,7 +13,7 @@ usage() {
   echo "Options:"
   echo " -h (optional),   Display this help message"
   echo " -p (required),   Processing type, either <sequential> or <threaded>"
-  echo " -v (optional),   PG version(s) separated by comma <11,12,13>"
+  echo " -v (optional),   PG version(s) separated by comma <12,13,14>"
   exit 1
 }
 
@@ -72,10 +72,10 @@ if [ "$FLAG_PG_VER" = false ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
     Darwin)
-      PG_VERSIONS=("15.4" "14.9" "13.12" "12.16" "11.21")
+      PG_VERSIONS=("16.0" "15.4" "14.9" "13.12" "12.16")
       ;;
     Linux)
-      PG_VERSIONS=("15" "14" "13" "12" "11")
+      PG_VERSIONS=("16" "15" "14" "13" "12")
       ;;
   esac
 else
@@ -119,6 +119,9 @@ function run_tests() {
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db > /dev/null
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db > /dev/null
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db > /dev/null
+
+  # Configure search_path to include the paradedb schema
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER USER $PGUSER SET search_path TO public,paradedb;" -d test_db > /dev/null
 
   # Reload PostgreSQL configuration
   echo "Reloading PostgreSQL configuration..."

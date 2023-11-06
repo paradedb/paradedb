@@ -46,11 +46,7 @@
         "import",
         {
           "group": "Indexing",
-          "pages": [
-            "indexing/overview",
-            "indexing/bm25",
-            "indexing/hnsw"
-          ]
+          "pages": ["indexing/overview", "indexing/bm25", "indexing/hnsw"]
         },
         {
           "group": "Full Text Search",
@@ -64,15 +60,11 @@
         },
         {
           "group": "Similarity Search",
-          "pages": [
-            "search/hnsw"
-          ]
+          "pages": ["search/hnsw"]
         },
         {
           "group": "Hybrid Search",
-          "pages": [
-            "search/hybrid"
-          ]
+          "pages": ["search/hybrid"]
         },
         {
           "group": "Aggregations",
@@ -84,20 +76,13 @@
         },
         {
           "group": "Deployment",
-          "pages": [
-            "deploy/aws",
-            "deploy/gcp",
-            "deploy/helm"
-          ]
+          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         }
       ]
     },
     {
       "group": "Blog",
-      "pages": [
-        "blog/introducing_bm25",
-        "blog/introducing_paradedb"
-      ]
+      "pages": ["blog/introducing_bm25", "blog/introducing_paradedb"]
     }
   ],
   "footerSocials": {

@@ -9,9 +9,9 @@ use std::path::Path;
 use tantivy::{
     query::{Query, QueryParser},
     schema::*,
-    DocAddress, Document, Index, IndexSettings, Score, Searcher, SingleSegmentIndexWriter, Term,
+    DocAddress, Document, Index, IndexSettings, Score, Searcher, Term,
 };
-use tantivy::{IndexReader, IndexWriter};
+use tantivy::{IndexReader, IndexWriter, SingleSegmentIndexWriter, TantivyError};
 
 use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
@@ -51,6 +51,7 @@ pub struct TantivyScanState {
 
 #[derive(Clone)]
 pub struct ParadeIndex {
+    pub name: String,
     pub fields: HashMap<String, Field>,
     pub field_configs: ParadeOptionMap,
     reader: IndexReader,
@@ -112,14 +113,19 @@ impl ParadeIndex {
         Self::write_index_field_configs(&name, &field_configs)?;
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
-        let reader = Self::reader(&underlying_index);
+        let reader = Self::reader(&underlying_index)
+            .expect("failed to create index reader while creating new index: {name}");
 
         let new_self = Self {
+            name: name.clone(),
             fields,
             field_configs,
-            underlying_index,
             reader,
+            underlying_index,
         };
+        unsafe {
+            new_self.to_cached_index(name);
+        }
 
         Ok(new_self)
     }
@@ -127,6 +133,13 @@ impl ParadeIndex {
     fn setup_tokenizers(underlying_index: &mut Index, field_configs: &ParadeOptionMap) {
         underlying_index.set_tokenizers(create_tokenizer_manager(field_configs));
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
+    }
+
+    fn reader(index: &Index) -> Result<IndexReader, TantivyError> {
+        index
+            .reader_builder()
+            .reload_policy(tantivy::ReloadPolicy::Manual)
+            .try_into()
     }
 
     unsafe fn from_cached_index(name: &str) -> Option<Self> {
@@ -140,6 +153,17 @@ impl ParadeIndex {
         }
 
         PARADE_INDEX_MEMORY.as_ref()?.get(name).cloned()
+    }
+
+    unsafe fn to_cached_index(&self, name: String) {
+        if PARADE_INDEX_MEMORY.is_none() {
+            PARADE_INDEX_MEMORY = Some(HashMap::new());
+        }
+
+        PARADE_INDEX_MEMORY
+            .as_mut()
+            .unwrap()
+            .insert(name, self.clone());
     }
 
     pub fn from_index_name(name: String) -> Self {
@@ -166,26 +190,33 @@ impl ParadeIndex {
         let field_configs =
             Self::read_index_field_configs(&name).expect("failed to open index field configs");
 
+        let reader = Self::reader(&underlying_index)
+            .expect("failed to create index reader while retrieving index: {name}");
+
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
-        let reader = Self::reader(&underlying_index);
-
-        Self {
+        let new_self = Self {
+            name: name.clone(),
             fields,
             field_configs,
-            underlying_index,
             reader,
+            underlying_index,
+        };
+
+        // Since we've re-fetched the index, save it to the cache.
+        unsafe {
+            new_self.to_cached_index(name);
         }
+
+        new_self
     }
 
-    pub fn insert(
-        &mut self,
-        writer: &mut SingleSegmentIndexWriter,
-        heap_tid: ItemPointerData,
-        builder: JsonBuilder,
-    ) {
+    pub fn insert(&mut self, heap_tid: ItemPointerData, builder: JsonBuilder) {
         let mut doc: Document = Document::new();
+        let mut writer = self
+            .single_segment_writer()
+            .expect("Could not retrieve single segment writer for insert");
 
         for (col_name, value) in builder.values {
             let field_option = self.fields.get(col_name.trim_matches('"'));
@@ -197,6 +228,9 @@ impl ParadeIndex {
         let field_option = self.fields.get("heap_tid");
         doc.add_u64(*field_option.unwrap(), item_pointer_to_u64(heap_tid));
         writer.add_document(doc).expect("failed to add document");
+
+        writer.commit().unwrap();
+        self.reload();
     }
 
     pub fn bulk_delete(
@@ -256,6 +290,7 @@ impl ParadeIndex {
     }
 
     pub fn scan(&self) -> TantivyScanState {
+        self.reload();
         let schema = self.underlying_index.schema();
 
         let searcher = self.searcher();
@@ -275,10 +310,6 @@ impl ParadeIndex {
         }
     }
 
-    pub fn copy_tantivy_index(&self) -> tantivy::Index {
-        self.underlying_index.clone()
-    }
-
     pub fn schema(&self) -> Schema {
         self.underlying_index.schema()
     }
@@ -287,18 +318,27 @@ impl ParadeIndex {
         self.reader.searcher()
     }
 
-    pub fn writer(&self) -> IndexWriter {
-        self.underlying_index
-            .writer(INDEX_TANTIVY_MEMORY_BUDGET)
-            .unwrap()
+    fn single_segment_writer(&self) -> Result<SingleSegmentIndexWriter, TantivyError> {
+        SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_TANTIVY_MEMORY_BUDGET)
     }
 
-    fn reader(index: &Index) -> IndexReader {
-        index
-            .reader_builder()
-            .reload_policy(tantivy::ReloadPolicy::OnCommit)
-            .try_into()
-            .expect("failed to create index reader")
+    pub fn writer(&self) -> Result<IndexWriter, TantivyError> {
+        self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET)
+    }
+
+    pub fn reload(&self) {
+        self.reader.reload().unwrap();
+    }
+
+    pub fn garbage_collect_files(&self) {
+        let index_writer = self
+            .writer()
+            .expect("Could not create writer to garbage collect files");
+
+        index_writer
+            .garbage_collect_files()
+            .wait()
+            .expect("Could not collect garbage");
     }
 
     fn get_data_directory(name: &str) -> String {

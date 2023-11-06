@@ -23,10 +23,10 @@ WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2'
 
 -- Test search in another namespace/schema
 SELECT *
-FROM paradedb.mock_items
-WHERE mock_items @@@ 'description:keyboard';
+FROM paradedb.bm25_test_table
+WHERE bm25_test_table @@@ 'description:keyboard';
 
 -- Test search with default tokenizer: no results
 SELECT *
-FROM paradedb.mock_items
-WHERE mock_items @@@ 'description:earbud';
+FROM paradedb.bm25_test_table
+WHERE bm25_test_table @@@ 'description:earbud';

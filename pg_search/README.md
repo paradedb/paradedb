@@ -70,7 +70,7 @@ Note: If you are using a managed Postgres service like Amazon RDS, you will not 
 
 ```sql
 SELECT paradedb.create_search_test_table();
-CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+CREATE TABLE mock_items AS SELECT * FROM paradedb.search_test_table;
 ```
 
 To perform a hybrid search, you'll first need to create a BM25 and a HNSW index on your table. To index a table, use the following SQL command:

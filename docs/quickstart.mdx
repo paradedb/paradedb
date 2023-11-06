@@ -51,7 +51,7 @@ Once connected with `psql`, run the following commands to create this test table
 
 ```sql
 SELECT paradedb.create_search_test_table();
-CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+CREATE TABLE mock_items AS SELECT * FROM paradedb.search_test_table;
 SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
 ```
 

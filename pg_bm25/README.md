@@ -83,7 +83,7 @@ Note: If you are using a managed Postgres service like Amazon RDS, you will not 
 
 ```sql
 SELECT paradedb.create_bm25_test_table();
-CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+CREATE TABLE mock_items AS SELECT * FROM paradedb.bm25_test_table;
 ```
 
 To index the table, use the following SQL command:

@@ -111,10 +111,3 @@ for extension in "${!extensions[@]}"; do
     PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done
-
-# As part of the pg_bm25 extension, we ship a dummy data table, mock_items, that users can use to immediately
-# get started running search queries. Since we install the pg_bm25 extension here, before any active psql session,
-# we need to run VACUUM FULL on the mock_items table to ensure that the table is accessible to all users across
-# all schemas when they connect via psql. We only need to do this with tables that are created by extensions installed
-# in this script, as part of the Postgres initialization process.
-PGPASSWORD=$POSTGRES_PASSWORD psql -c "VACUUM FULL mock_items" -d "$POSTGRES_DB" -U "$POSTGRES_USER"

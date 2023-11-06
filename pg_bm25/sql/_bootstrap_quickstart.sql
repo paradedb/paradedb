@@ -1,8 +1,8 @@
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables 
-                   WHERE schemaname = 'paradedb' AND tablename = 'mock_items') THEN
-        CREATE TABLE paradedb.mock_items (
+                   WHERE schemaname = 'paradedb' AND tablename = 'bm25_test_table') THEN
+        CREATE TABLE paradedb.bm25_test_table (
             id SERIAL PRIMARY KEY,
             description TEXT,
             rating INTEGER CHECK (
@@ -14,7 +14,7 @@ BEGIN
             metadata JSONB
         );
 
-        INSERT INTO paradedb.mock_items (description, rating, category, in_stock, metadata)
+        INSERT INTO paradedb.bm25_test_table (description, rating, category, in_stock, metadata)
         VALUES
             ('Ergonomic metal keyboard', 4, 'Electronics', true, '{"color": "Silver", "location": "United States"}'::JSONB),
             ('Plastic Keyboard', 4, 'Electronics', false, '{"color": "Black", "location": "Canada"}'::JSONB),
@@ -58,6 +58,6 @@ BEGIN
             ('Plush teddy bear', 4, 'Toys', true, '{"color": "Brown", "location": "United States"}'::JSONB),
             ('Warm woolen sweater', 3, 'Apparel', false, '{"color": "Red", "location": "Canada"}'::JSONB);
     ELSE
-        RAISE WARNING 'The table paradedb.mock_items already exists, skipping.';
+        RAISE WARNING 'The table paradedb.bm25_test_table already exists, skipping.';
     END IF;
 END $$;

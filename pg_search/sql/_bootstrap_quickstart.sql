@@ -1,8 +1,8 @@
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables 
-                   WHERE schemaname = 'paradedb' AND tablename = 'mock_items') THEN
-        CREATE TABLE paradedb.mock_items (
+                   WHERE schemaname = 'paradedb' AND tablename = 'search_test_table') THEN
+        CREATE TABLE paradedb.search_test_table (
             id SERIAL PRIMARY KEY,
             description TEXT,
             rating INTEGER CHECK (
@@ -14,7 +14,7 @@ BEGIN
             metadata JSONB
         );
 
-        INSERT INTO paradedb.mock_items (description, rating, category, in_stock, metadata)
+        INSERT INTO paradedb.search_test_table (description, rating, category, in_stock, metadata)
         VALUES
             ('Ergonomic metal keyboard', 4, 'Electronics', true, '{"color": "Silver", "location": "United States"}'::JSONB),
             ('Plastic Keyboard', 4, 'Electronics', false, '{"color": "Black", "location": "Canada"}'::JSONB),
@@ -59,14 +59,14 @@ BEGIN
             ('Warm woolen sweater', 3, 'Apparel', false, '{"color": "Red", "location": "Canada"}'::JSONB);
 
 
-        ALTER TABLE paradedb.mock_items ADD COLUMN embedding vector(3);
+        ALTER TABLE paradedb.search_test_table ADD COLUMN embedding vector(3);
 
         WITH NumberedRows AS (
             SELECT ctid,
                 ROW_NUMBER() OVER () as row_num
-            FROM paradedb.mock_items
+            FROM paradedb.search_test_table
         )
-        UPDATE paradedb.mock_items m
+        UPDATE paradedb.search_test_table m
         SET embedding = ('[' || 
             ((n.row_num + 1) % 10 + 1)::integer || ',' || 
             ((n.row_num + 2) % 10 + 1)::integer || ',' || 
@@ -74,6 +74,6 @@ BEGIN
         FROM NumberedRows n
         WHERE m.ctid = n.ctid;
     ELSE
-        RAISE WARNING 'The table paradedb.mock_items already exists, skipping.';
+        RAISE WARNING 'The table paradedb.search_test_table already exists, skipping.';
     END IF;
 END $$;

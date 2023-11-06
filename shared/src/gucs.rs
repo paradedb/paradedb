@@ -1,13 +1,12 @@
 use pgrx::{GucContext, GucFlags, GucRegistry, GucSetting};
 
-pub static PARADEDB_LOGS: GucSetting<bool> = GucSetting::<bool>::new(false);
-
-pub fn init() {
+pub fn init_logs(extension_name: &str, logs_var: &GucSetting<bool>) {
+    // Define per-extension logs variable.
     GucRegistry::define_bool_guc(
-        "paradedb.logs",
-        "Enable logging to the paradedb.logs table?",
+        &format!("paradedb.{extension_name}.logs"),
+        &format!("Enable logging to the paradedb.{extension_name}.logs table?"),
         "This incurs some overhead, so only recommended when debugging.",
-        &PARADEDB_LOGS,
+        logs_var,
         GucContext::Userset,
         GucFlags::default(),
     );

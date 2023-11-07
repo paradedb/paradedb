@@ -46,11 +46,12 @@ If your ParadeDB database is running at `http://localhost:5432`, `hostname` is `
 
 ## Full Text Search
 
-ParadeDB comes with a pre-populated table called `paradedb.mock_items` to help you get started.
-Once connected with `psql`, run the following command to preview the first three rows:
+ParadeDB comes with a helper function that creates a test table to help you get started.
+Once connected with `psql`, run the following commands to create this test table:
 
 ```sql
-CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+SELECT paradedb.create_search_test_table();
+CREATE TABLE mock_items AS SELECT * FROM paradedb.search_test_table;
 SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
 ```
 

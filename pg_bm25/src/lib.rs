@@ -16,8 +16,7 @@ static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_bm25");
 
 pgrx::pg_module_magic!();
 
-extension_sql_file!("../sql/_bootstrap.sql", bootstrap);
-extension_sql_file!("../sql/_bootstrap_quickstart.sql");
+extension_sql_file!("../sql/_bootstrap.sql");
 
 // Initializes option parsing and telemetry
 #[allow(clippy::missing_safety_doc)]

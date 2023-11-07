@@ -26,3 +26,8 @@ pub fn aggregation(index_name: &str, query: &str) -> JsonB {
 
     JsonB(res)
 }
+
+#[pg_extern]
+pub fn hello_world() {
+    info!("Hello, world!");
+}

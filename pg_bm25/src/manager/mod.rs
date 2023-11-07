@@ -110,7 +110,11 @@ impl Manager {
 
             if let FieldType::Str(_) = field.1.field_type() {
                 let mut snippet_generator = SnippetGenerator::create(searcher, query, field.0)
-                    .expect("failed to create snippet generator for field: {field_name}");
+                    .unwrap_or_else(|err| {
+                        panic!(
+                            "failed to create snippet generator for field: {field_name}... {err}"
+                        )
+                    });
 
                 if let Some(max_num_chars) = highlights_max_num_chars {
                     snippet_generator.set_max_num_chars(max_num_chars);
@@ -130,9 +134,9 @@ impl Manager {
             .as_ref()
             .expect("snippet generators not correctly initialized");
 
-        let snippet_generator = snippet_generator_map
-            .get(field_name)
-            .expect("failed to retrieve snippet generator for field: {field_name}");
+        let snippet_generator = snippet_generator_map.get(field_name).unwrap_or_else(|| {
+            panic!("failed to retrieve snippet generator to highlight field: {field_name}...")
+        });
 
         let snippet = snippet_generator.snippet_from_doc(doc);
 

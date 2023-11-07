@@ -135,6 +135,7 @@ macro_rules! plog {
                 },
             };
 
+            #[cfg(any(not(test)))] // Don't compile this during unit tests.
             Spi::run_with_args(
                 "INSERT INTO paradedb.logs (level, module, file, line, message, json, pid, backtrace) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
                 Some(vec![

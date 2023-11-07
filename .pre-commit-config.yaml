@@ -23,7 +23,7 @@ repos:
       - id: check-ast
       - id: check-toml
       - id: check-executables-have-shebangs
-        exclude: '\.rs$'
+        exclude: '\.rs$' # This doesn't play well with #![allow(clippy::crate_in_macro_def)]
       - id: check-shebang-scripts-are-executable
       - id: check-vcs-permalinks
       - id: detect-private-key

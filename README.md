@@ -62,7 +62,7 @@ vector database on top.
 
 ### ParadeDB Cloud
 
-Try [ParadeDB Cloud](https://dashboard.paradedb.com) to get started with a free, managed ParadeDB instance. 
+Try [ParadeDB Cloud](https://dashboard.paradedb.com) to get started with a free, managed ParadeDB instance.
 Then connect to it with any Postgres client.
 
 ### Self-Hosted

@@ -25,6 +25,7 @@ repos:
       - id: check-executables-have-shebangs
         exclude: '\.rs$' # This doesn't play well with #![allow(clippy::crate_in_macro_def)]
       - id: check-shebang-scripts-are-executable
+        exclude: '\.rs$' # This doesn't play well with #![allow(clippy::crate_in_macro_def)]
       - id: check-vcs-permalinks
       - id: detect-private-key
       - id: detect-aws-credentials

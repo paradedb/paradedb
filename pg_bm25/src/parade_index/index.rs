@@ -61,7 +61,7 @@ pub struct ParadeIndex {
 impl ParadeIndex {
     pub fn new(
         name: String,
-        table_name: String,
+        heap_relation: &PgRelation,
         options: PgBox<ParadeOptions>,
     ) -> Result<Self, Box<dyn Error>> {
         let dir = Self::get_data_directory(&name);
@@ -72,7 +72,7 @@ impl ParadeIndex {
 
         create_dir_all(path).expect("failed to create paradedb directory");
 
-        let result = Self::build_index_schema(&table_name, &options);
+        let result = Self::build_index_schema(heap_relation, &options);
         let (schema, fields) = match result {
             Ok((s, f)) => (s, f),
             Err(e) => {
@@ -407,14 +407,10 @@ impl ParadeIndex {
     }
 
     fn build_index_schema(
-        name: &str,
+        heap_relation: &PgRelation,
         options: &PgBox<ParadeOptions>,
     ) -> Result<(Schema, HashMap<String, Field>), String> {
-        let indexrel = unsafe {
-            PgRelation::open_with_name(name)
-                .unwrap_or_else(|_| panic!("failed to open relation {}", name))
-        };
-        let tupdesc = indexrel.tuple_desc();
+        let tupdesc = heap_relation.tuple_desc();
         let mut schema_builder = Schema::builder();
         let mut fields: HashMap<String, Field> = HashMap::new();
 

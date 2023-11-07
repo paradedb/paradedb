@@ -3,7 +3,7 @@ use pgrx::*;
 const CREATE_TEST_TABLE_SQL: &str = r#"
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables 
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables
                    WHERE schemaname = 'paradedb' AND tablename = 'bm25_test_table') THEN
         CREATE TABLE paradedb.bm25_test_table (
             id SERIAL PRIMARY KEY,

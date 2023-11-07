@@ -4,7 +4,7 @@ use std::f64;
 const CREATE_TEST_TABLE_SQL: &str = r#"
 DO $$
 BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables 
+    IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables
                    WHERE schemaname = 'paradedb' AND tablename = 'search_test_table') THEN
         CREATE TABLE paradedb.search_test_table (
             id SERIAL PRIMARY KEY,
@@ -71,9 +71,9 @@ BEGIN
             FROM paradedb.search_test_table
         )
         UPDATE paradedb.search_test_table m
-        SET embedding = ('[' || 
-            ((n.row_num + 1) % 10 + 1)::integer || ',' || 
-            ((n.row_num + 2) % 10 + 1)::integer || ',' || 
+        SET embedding = ('[' ||
+            ((n.row_num + 1) % 10 + 1)::integer || ',' ||
+            ((n.row_num + 2) % 10 + 1)::integer || ',' ||
             ((n.row_num + 3) % 10 + 1)::integer || ']')::vector
         FROM NumberedRows n
         WHERE m.ctid = n.ctid;

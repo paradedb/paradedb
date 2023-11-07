@@ -5,6 +5,8 @@ use crate::parade_index::fields::{ParadeOption, ParadeOptionMap, ParadeTokenizer
 use crate::tokenizers::cjk::ChineseTokenizer;
 use crate::tokenizers::code::CodeTokenizer;
 
+use serde_json::json;
+use shared::plog;
 use tantivy::tokenizer::{
     AsciiFoldingFilter, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter, TextAnalyzer,
     TokenizerManager,
@@ -15,7 +17,12 @@ pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManager {
     let tokenizer_manager = TokenizerManager::default();
 
-    for field_options in option_map.values() {
+    for (field_name, field_options) in option_map.iter() {
+        plog!(
+            "attempting to create tokenizer",
+            json!({ "field_name": field_name, "field_options": field_options })
+        );
+
         let parade_tokenizer = match field_options {
             ParadeOption::Text(text_options) => text_options.tokenizer,
             ParadeOption::Json(json_options) => json_options.tokenizer,
@@ -57,6 +64,13 @@ pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManage
         };
 
         if let Some(tokenizer) = tokenizer_option {
+            plog!(
+                "registering tokenizer",
+                json!({
+                    "field_name": field_name,
+                    "tokenizer_name": &parade_tokenizer.name()
+                })
+            );
             tokenizer_manager.register(&parade_tokenizer.name(), tokenizer);
         }
     }

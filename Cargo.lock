@@ -1588,7 +1588,7 @@ dependencies = [
 
 [[package]]
 name = "pg_bm25"
-version = "0.0.1"
+version = "0.0.0"
 dependencies = [
  "csv",
  "json5",

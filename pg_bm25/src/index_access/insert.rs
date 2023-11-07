@@ -20,7 +20,7 @@ pub unsafe extern "C" fn aminsert(
     aminsert_internal(index_relation, values, heap_tid)
 }
 
-#[cfg(any(feature = "pg11", feature = "pg12", feature = "pg13"))]
+#[cfg(any(feature = "pg12", feature = "pg13"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
     index_relation: pg_sys::Relation,

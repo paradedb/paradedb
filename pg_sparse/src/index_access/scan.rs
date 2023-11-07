@@ -129,8 +129,6 @@ pub extern "C" fn amgettuple(
     }
 
     // Iterate through results
-    #[cfg(any(feature = "pg10", feature = "pg11"))]
-    let tid = &mut scan.xs_ctup.t_self;
     #[cfg(any(
         feature = "pg12",
         feature = "pg13",

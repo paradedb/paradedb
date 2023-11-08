@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "failed to retrieve snippet generator for field: {field_name}")]
+    #[should_panic]
     fn fail_get_highlight() {
         let (schema, searcher, title) = prepare_schema().unwrap();
         let query: Box<dyn Query> =

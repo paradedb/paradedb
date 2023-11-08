@@ -490,3 +490,16 @@ impl ParadeIndex {
         Ok((schema_builder.build(), fields))
     }
 }
+
+#[cfg(test)]
+mod test {
+    use super::ParadeIndex;
+
+    #[test]
+    fn test_from_index_name() -> Result<(), Box<dyn std::error::Error>> {
+        let name = "The Score".to_string();
+        let index = ParadeIndex::from_index_name(name);
+        println!("{:#?}", index.fields);
+        Ok(())
+    }
+}

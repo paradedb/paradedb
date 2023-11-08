@@ -1,3 +1,6 @@
+default_language_version:
+  python: python3.11
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
@@ -21,6 +24,7 @@ repos:
       - id: check-toml
       - id: check-executables-have-shebangs
       - id: check-shebang-scripts-are-executable
+        exclude: '\.rs$' # This doesn't play well with #![allow(clippy::crate_in_macro_def)]
       - id: check-vcs-permalinks
       - id: detect-private-key
       - id: detect-aws-credentials
@@ -36,8 +40,8 @@ repos:
       - id: beautysh
         args: ["--indent-size", "2"]
 
-  - repo: https://github.com/shellcheck-py/shellcheck-py
-    rev: v0.9.0.5
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.9.0
     hooks:
       - id: shellcheck
 

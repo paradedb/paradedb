@@ -35,8 +35,6 @@ pub extern "C" fn ambuild(
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
-    let table_name = heap_relation.name().to_string();
-    let schema_name = heap_relation.namespace().to_string();
 
     // rdopts are passed on to create_parade_index
     let rdopts: PgBox<ParadeOptions> = if !index_relation.rd_options.is_null() {
@@ -47,12 +45,7 @@ pub extern "C" fn ambuild(
     };
 
     // Create ParadeDB Index
-    let mut parade_index = create_parade_index(
-        index_name.clone(),
-        format!("{}.{}", schema_name, table_name),
-        rdopts,
-    )
-    .unwrap();
+    let mut parade_index = create_parade_index(index_name.clone(), &heap_relation, rdopts).unwrap();
 
     let ntuples = do_heap_scan(
         index_info,
@@ -90,7 +83,7 @@ fn do_heap_scan<'a>(
     state.count
 }
 
-#[cfg(any(feature = "pg10", feature = "pg11", feature = "pg12"))]
+#[cfg(feature = "pg12")]
 #[pg_guard]
 unsafe extern "C" fn build_callback(
     index: pg_sys::Relation,

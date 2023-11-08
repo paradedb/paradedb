@@ -65,15 +65,6 @@ pub fn scan_index(query: &str, index_oid: pg_sys::Oid) -> FxHashSet<u64> {
         loop {
             check_for_interrupts!();
 
-            #[cfg(any(feature = "pg10", feature = "pg11"))]
-            let tid = {
-                let htup = pg_sys::index_getnext(scan, pg_sys::ScanDirection_ForwardScanDirection);
-                if htup.is_null() {
-                    break;
-                }
-                item_pointer_to_u64(htup.as_ref().unwrap().t_self)
-            };
-
             #[cfg(any(
                 feature = "pg12",
                 feature = "pg13",

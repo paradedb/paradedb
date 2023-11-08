@@ -4,18 +4,14 @@ title: Quickstart
 
 This guide will walk you through the following steps to get started with ParadeDB:
 
-1. Run ParadeDB locally
+1. Create a ParadeDB instance
 2. Connect to ParadeDB
 3. Execute full text, similarity, and hybrid search with SQL
 
-## Run ParadeDB Locally
+## Create a ParadeDB Instance
 
-<Note>
-  This step is for developers who wish to run ParadeDB locally. If you are using
-  ParadeDB Cloud, you may skip this step.
-</Note>
-
-To start ParadeDB, run the Docker image:
+The fastest way to create an instance is through the [ParadeDB Cloud dashboard](https://dashboard.paradedb.com).
+Alternatively, you can also pull the ParadeDB docker image and run it locally.
 
 ```bash
 docker run \
@@ -42,15 +38,16 @@ To connect to ParadeDB, run
 psql -h <hostname> -U <user> -d <dbname> -p <port> -W
 ```
 
-If your ParadeDB database is running at `http://localhost:5432`, `hostname` is `localhost` and `port` is 5432. If you are using ParadeDB cloud, your connection credentials can be found in the cloud console.
+If you are using ParadeDB Cloud, your connection credentials can be found in the cloud console.
 
 ## Full Text Search
 
-ParadeDB comes with a pre-populated table called `paradedb.mock_items` to help you get started.
-Once connected with `psql`, run the following command to preview the first three rows:
+ParadeDB comes with a helper function that creates a test table to help you get started.
+Once connected with `psql`, run the following commands to create this test table:
 
 ```sql
-CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+SELECT paradedb.create_search_test_table();
+CREATE TABLE mock_items AS SELECT * FROM paradedb.search_test_table;
 SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
 ```
 

@@ -51,15 +51,7 @@ If you are self-hosting Postgres and would like to use the extension within your
 
 #### Debian/Ubuntu
 
-We provide prebuilt binaries for Debian-based Linux, currently only for PostgreSQL 15 (more versions coming soon). To install `pg_bm25`, follow these steps:
-
-```bash
-# Download the .deb file
-wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_bm25.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb
-
-# Install the .deb file
-sudo apt-get install pg_bm25.deb
-```
+We provide pre-built binaries for Debian-based Linux for PostgreSQL 15 (more versions coming soon). You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
@@ -79,13 +71,16 @@ Note: If you are using a managed Postgres service like Amazon RDS, you will not 
 
 ### Indexing
 
-By default, the `pg_bm25` extension creates a table called `paradedb.mock_items` that you can use for quick experimentation.
-
-To index a table, use the following SQL command:
+`pg_bm25` comes with a helper function that creates a test table that you can use for quick experimentation.
 
 ```sql
-CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
+SELECT paradedb.create_bm25_test_table();
+CREATE TABLE mock_items AS SELECT * FROM paradedb.bm25_test_table;
+```
 
+To index the table, use the following SQL command:
+
+```sql
 CREATE INDEX idx_mock_items
 ON mock_items
 USING bm25 ((mock_items.*))

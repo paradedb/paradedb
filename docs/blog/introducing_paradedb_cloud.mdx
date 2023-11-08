@@ -1,0 +1,45 @@
+---
+title: "Announcing ParadeDB Cloud"
+"og:image": "https://raw.githubusercontent.com/paradedb/paradedb/main/docs/blog/images/cloud.png"
+---
+
+<img height="300" src="/blog/images/cloud.png" noZoom />
+
+[ParadeDB Cloud](https://dashboard.paradedb.com), a fully managed version of ParadeDB, is now available in beta. ParadeDB Cloud eliminates the
+overhead of self-hosting ParadeDB with a highly-available Postgres service optimized for full text, similarity, and hybrid search.
+
+## Why ParadeDB Cloud
+
+ParadeDB is intended for developers who want advanced full text and hybrid search in Postgres without the overhead
+of an additional search service.
+
+Some features of ParadeDB we’re particularly excited about include:
+
+- 100% Postgres-native, with zero dependencies on an external search engine
+- Query times over 1M rows are 20x faster compared to `tsquery` and `ts_rank`, Postgres’ built-in full text search and sort functions
+- Relevance scoring uses BM25, the same algorithm used by ElasticSearch
+- Support for custom tokenizers, relevance tuning, and fuzzy search
+
+ParadeDB Cloud offers all the capabilities of ParadeDB, plus
+
+- High availability by using a primary and replica architecture, distributed across nodes
+- Self-healing and failover replication, which can promote and recreate replicas as necessary
+- Managed Postgres updates
+- Secure TLS connections
+- Encryption at rest
+
+## Roadmap
+
+While ParadeDB Cloud is in beta, we're not charging money. Usage of ParadeDB Cloud will remain free until our public launch, scheduled for the end of 2023. We'll give you plenty of notice before we start charging, and we'll be sure to offer a grandfathered plan for beta users.
+
+We are currently working on physical backups, write-ahead-log (WAL) archives, on-demand and scheduled backups, point-in-time recovery, and dedicated instances with resource configurability.
+
+The goal is to build a scalable, secure Postgres that can serve as either a standalone Elasticsearch alternative or as a full-fledged operational database.
+
+The core team is shipping fast and in public over the next few months. There are a good few ways to follow the journey:
+
+- **[Github repo](https://github.com/paradedb/paradedb)** to view the code, dicuss features, and report bugs
+- **[Twitter](https://twitter.com/paradedb)** for public announcements
+- **[Slack community](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)** to chat with the core team and other users
+
+We're excited to see what you'll build with [ParadeDB Cloud](https://dashboard.paradedb.com)!

@@ -1,5 +1,7 @@
 use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use pgrx::*;
+use serde_json::json;
+use shared::plog;
 use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::{CStr, CString};
@@ -61,7 +63,7 @@ pub struct ParadeIndex {
 impl ParadeIndex {
     pub fn new(
         name: String,
-        table_name: String,
+        heap_relation: &PgRelation,
         options: PgBox<ParadeOptions>,
     ) -> Result<Self, Box<dyn Error>> {
         let dir = Self::get_data_directory(&name);
@@ -72,7 +74,7 @@ impl ParadeIndex {
 
         create_dir_all(path).expect("failed to create paradedb directory");
 
-        let result = Self::build_index_schema(&table_name, &options);
+        let result = Self::build_index_schema(heap_relation, &options);
         let (schema, fields) = match result {
             Ok((s, f)) => (s, f),
             Err(e) => {
@@ -113,9 +115,18 @@ impl ParadeIndex {
         Self::write_index_field_configs(&name, &field_configs)?;
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
-        let reader = Self::reader(&underlying_index)
-            .expect("failed to create index reader while creating new index: {name}");
+        let reader = Self::reader(&underlying_index).unwrap_or_else(|_| {
+            panic!("failed to create index reader while creating new index: {name}")
+        });
 
+        plog!(
+            "creating ParadeIndex",
+            json!({
+                "name": name,
+                "fields": fields,
+                "field_configs": field_configs
+            })
+        );
         let new_self = Self {
             name: name.clone(),
             fields,
@@ -190,11 +201,12 @@ impl ParadeIndex {
         let field_configs =
             Self::read_index_field_configs(&name).expect("failed to open index field configs");
 
-        let reader = Self::reader(&underlying_index)
-            .expect("failed to create index reader while retrieving index: {name}");
-
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
+
+        let reader = Self::reader(&underlying_index).unwrap_or_else(|_| {
+            panic!("failed to create index reader while retrieving index: {name}")
+        });
 
         let new_self = Self {
             name: name.clone(),
@@ -407,14 +419,10 @@ impl ParadeIndex {
     }
 
     fn build_index_schema(
-        name: &str,
+        heap_relation: &PgRelation,
         options: &PgBox<ParadeOptions>,
     ) -> Result<(Schema, HashMap<String, Field>), String> {
-        let indexrel = unsafe {
-            PgRelation::open_with_name(name)
-                .unwrap_or_else(|_| panic!("failed to open relation {}", name))
-        };
-        let tupdesc = indexrel.tuple_desc();
+        let tupdesc = heap_relation.tuple_desc();
         let mut schema_builder = Schema::builder();
         let mut fields: HashMap<String, Field> = HashMap::new();
 

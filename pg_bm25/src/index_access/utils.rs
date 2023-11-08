@@ -64,10 +64,10 @@ impl FromStr for SearchQuery {
 
 pub fn create_parade_index(
     index_name: String,
-    table_name: String,
+    heap_relation: &PgRelation,
     options: PgBox<ParadeOptions>,
 ) -> Result<ParadeIndex, Box<dyn Error>> {
-    ParadeIndex::new(index_name, table_name, options)
+    ParadeIndex::new(index_name, heap_relation, options)
 }
 
 pub fn get_parade_index(index_name: String) -> ParadeIndex {

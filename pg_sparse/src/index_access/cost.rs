@@ -37,16 +37,6 @@ pub unsafe extern "C" fn amcostestimate(
         let ef_search = rdopts.ef_search as f64;
         let mut generic_costs = pg_sys::GenericCosts::default();
 
-        #[cfg(feature = "pg11")]
-        {
-            pg_sys::genericcostestimate(
-                root,
-                path,
-                loop_count,
-                std::ptr::null_mut(),
-                &mut generic_costs,
-            );
-        }
         #[cfg(any(
             feature = "pg12",
             feature = "pg13",

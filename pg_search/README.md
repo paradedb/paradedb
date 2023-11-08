@@ -35,17 +35,10 @@ If you are self-hosting Postgres and would like to use the extension within your
 
 #### Debian/Ubuntu
 
-We provide prebuilt binaries for Debian-based Linux, currently only for PostgreSQL 15 (more versions coming soon). To install `pg_search`, follow these steps:
+We provide pre-built binaries for Debian-based Linux for PostgreSQL 15 (more versions coming soon). You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases). Note that to install `pg_search`, you need to also download and install `pg_bm25`, and `pgvector`. You can install `pgvector` via:
 
 ```bash
-# Install pg_bm25
-wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_bm25.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb && sudo apt-get install pg_bm25.deb
-
-# Install pgvector
-sudo apt-get install postgresql-15-pgvector
-
-# Install pg_search
-wget "$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | grep "browser_download_url.*pg_search.*.deb" | cut -d : -f 2,3 | tr -d \")" -O pg_bm25.deb && sudo apt-get install pg_search.deb
+sudo apt-get install postgres-15-pgvector
 ```
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
@@ -66,13 +59,16 @@ Note: If you are using a managed Postgres service like Amazon RDS, you will not 
 
 ### Indexing
 
-By default, the `pg_search` extension creates a table called `paradedb.mock_items` that you can use for quick experimentation.
+`pg_search` comes with a helper function that creates a test table that you can use for quick experimentation.
+
+```sql
+SELECT paradedb.create_search_test_table();
+CREATE TABLE mock_items AS SELECT * FROM paradedb.search_test_table;
+```
 
 To perform a hybrid search, you'll first need to create a BM25 and a HNSW index on your table. To index a table, use the following SQL command:
 
 ```sql
-CREATE TABLE mock_items AS SELECT * FROM paradedb.mock_items;
-
 -- BM25 index
 CREATE INDEX idx_mock_items
 ON mock_items

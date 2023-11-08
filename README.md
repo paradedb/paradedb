@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="docs/logo/readme.svg" alt="ParadeDB" width="368px"></a>
+  <a href="https://paradedb.com"><img src="docs/logo/readme.svg" alt="ParadeDB" width="368px"></a>
 <br>
 </h1>
 
@@ -8,9 +8,9 @@
 </p>
 
 <h3 align="center">
+  <a href="https://paradedb.com">Cloud</a> &bull;
   <a href="https://paradedb.com">Website</a> &bull;
   <a href="https://docs.paradedb.com">Documentation</a> &bull;
-  <a href="https://paradedb.com/blog">Blog</a> &bull;
   <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ">Community</a>
 </h3>
 
@@ -37,12 +37,6 @@ vector database on top.
 - 🚀 **Scalability**: Scale to millions of rows with support for distributed
   search, high availability, backups, and point-in-time-recovery.
 
-## Status
-
-ParadeDB is still under active development and should be used in production with caution. We're aiming to be fully stable by the end of October 2023.
-
-We are currently in Public Beta. Star & watch this repo to get notified of major updates.
-
 ### Roadmap
 
 - [ ] Search
@@ -64,11 +58,12 @@ We are currently in Public Beta. Star & watch this repo to get notified of major
   - [ ] High availability
 - [ ] Web-based SQL Editor
 
-## Installation
+## Creating a ParadeDB Instance
 
 ### ParadeDB Cloud
 
-Coming soon! Sign up for the [ParadeDB Cloud waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
+Try [ParadeDB Cloud](https://dashboard.paradedb.com) to get started with a free, managed ParadeDB instance.
+Then connect to it with any Postgres client.
 
 ### Self-Hosted
 

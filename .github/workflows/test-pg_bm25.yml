@@ -16,6 +16,11 @@ on:
       - "!pg_bm25/README.md"
       - ".github/workflows/test-pg_bm25.yml"
   workflow_dispatch:
+    inputs:
+      new_version:
+        description: "Upcoming pg_bm25 version to test upgrading against"
+        required: false
+        default: ""
 
 concurrency:
   group: test-pg_bm25-${{ github.head_ref || github.ref }}
@@ -43,7 +48,7 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} postgresql-client
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
@@ -79,3 +84,34 @@ jobs:
       #     directory: ./target/coverage-report/
       #     files: lcov
       #     fail_ci_if_error: true
+
+      # TODO: swap 'dev' with 'main' once it's tested
+      - name: Download & Install Latest pg_bm25 from GitHub Release
+        if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
+        run: |
+          gh release download --repo paradedb/paradedb --pattern "pg_bm25-*-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-amd64-linux-gnu.deb" -R paradedb/paradedb
+          sudo dpkg -i pg_bm25-*-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-amd64-linux-gnu.deb
+
+      - name: Install pg_bm25 Extension (Old Version)
+        if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -d test_db -c 'CREATE EXTENSION pg_bm25 VERSION "${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}";'
+
+      - name: Build pg_bm25 Extension (New Version)
+        if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
+        working-directory: pg_bm25/
+        run: cargo pgrx install --release --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+
+      # If making a major or minor version change (which happens by manually updating the version variables in GitHub Variables), then we need to
+      # manually provide the new version in a workflow_dispatch event to test upgrading to the new version as part of our promotion process.
+      - name: Upgrade pg_bm25 Extension to New Version
+        if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
+        run: |
+          if [[ "${{ github.event.inputs.new_version }}" == "" ]]; then
+            echo "New version not provided, assuming the next release is incrementing patch..."
+            NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
+            NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}
+          else
+            echo "Using the provided new version (likely a manual major or minor version increment)..."
+            NEW_VERSION="${{ github.event.inputs.new_version }}"
+          fi
+          PGPASSWORD=postgres psql -h localhost -U postgres -d test_db -c 'ALTER EXTENSION pg_bm25 UPDATE TO "$NEW_VERSION";'

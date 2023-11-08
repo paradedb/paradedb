@@ -88,6 +88,8 @@ jobs:
       # TODO: swap 'dev' with 'main' once it's tested
       - name: Download & Install Latest pg_bm25 from GitHub Release
         if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
           gh release download --repo paradedb/paradedb --pattern "pg_bm25-*-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-amd64-linux-gnu.deb" -R paradedb/paradedb
           sudo dpkg -i pg_bm25-*-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-amd64-linux-gnu.deb

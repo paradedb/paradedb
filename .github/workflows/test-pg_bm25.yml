@@ -101,8 +101,7 @@ jobs:
         run: sudo systemctl start postgresql@${{ matrix.pg_version }}-main
 
       - name: ssh
-        run: lhotari/action-upterm@v1
-
+        uses: lhotari/action-upterm@v1
 
       - name: Install pg_bm25 Extension (Old Version)
         if: github.base_ref == 'dev' || github.event.inputs.new_version != ''

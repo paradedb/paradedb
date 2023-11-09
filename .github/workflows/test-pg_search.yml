@@ -66,7 +66,7 @@ jobs:
           RUST_BACKTRACE: 1
         run: |
           mkdir -p target/coverage target/coverage-report
-          cd pg_search/ && cargo pgrx test --features pg${{ matrix.pg_version }}
+          cd pg_search/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile ci
 
       # TODO: Reenable Codecov when we start writing unit tests
       # - name: Generate Code Coverage Reports

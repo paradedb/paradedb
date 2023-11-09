@@ -66,4 +66,4 @@ jobs:
           RUST_BACKTRACE: 1
         run: |
           mkdir -p target/coverage target/coverage-report
-          cd pg_sparse/ && cargo pgrx test --features pg${{ matrix.pg_version }}
+          cd pg_sparse/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile ci

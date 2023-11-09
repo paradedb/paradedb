@@ -10,7 +10,7 @@ members = [
 # This profile is optimized for the shortest possible compile times
 # and is meant for our CI pipelines exclusively.
 [profile.ci]
-panic = "unwind"
+inherits = "dev"
 opt-level = 1
 lto = false
 codegen-units = 16

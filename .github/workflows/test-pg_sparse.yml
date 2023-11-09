@@ -78,7 +78,7 @@ jobs:
       #############################
 
       - name: Download & Install Latest pg_sparse from GitHub Release
-        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && (matrix.pg_version == 15)
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
@@ -87,20 +87,20 @@ jobs:
           sudo dpkg -i pg_sparse-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-pg${{ matrix.pg_version }}-amd64-linux-gnu.deb
 
       - name: Start PostgreSQL ${{ matrix.pg_version }}
-        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && (matrix.pg_version == 15)
         run: |
           sudo systemctl start postgresql@${{ matrix.pg_version }}-main
           sudo -u postgres psql -U postgres -d postgres -p 5433 -w -c 'CREATE DATABASE test_db;'
 
       - name: Install pg_sparse Extension (Old Version)
-        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && (matrix.pg_version == 15)
         working-directory: /var/lib/postgresql/
         run: |
           CURRENT_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
           sudo -u postgres psql -U postgres -d test_db -p 5433 -w -c "CREATE EXTENSION pg_sparse VERSION '$CURRENT_VERSION';"
 
       - name: Build pg_bm25 Extension (New Version)
-        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && (matrix.pg_version == 15)
         working-directory: pg_sparse/
         run: |
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
@@ -109,7 +109,7 @@ jobs:
       # If making a major or minor version change (which happens by manually updating the version variables in GitHub Variables), then we need to
       # manually provide the new version in a workflow_dispatch event to test upgrading to the new version as part of our promotion process.
       - name: Upgrade pg_sparse Extension to New Version
-        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && (matrix.pg_version == 15)
         working-directory: /var/lib/postgresql/
         run: |
           if [[ "${{ github.event.inputs.new_version }}" == "" ]]; then

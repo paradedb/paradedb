@@ -96,12 +96,13 @@ jobs:
           curl -LOJ $DOWNLOAD_URL
           sudo dpkg -i pg_bm25-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-pg${{ matrix.pg_version }}-amd64-linux-gnu.deb
 
+      - name: Start PostgreSQL ${{ matrix.pg_version }}
+        if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
+        run: sudo systemctl start postgresql@${{ matrix.pg_version }}-main
+
       - name: Install pg_bm25 Extension (Old Version)
         if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
-        run: |
-          sudo systemctl start postgresql
-          sudo -u postgres createdb test_db
-          PGPASSWORD=postgres psql -h localhost -U postgres -d test_db -c 'CREATE EXTENSION pg_bm25 VERSION "${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}";'
+        run: PGPASSWORD=postgres psql -h localhost -U postgres -d test_db -c 'CREATE EXTENSION pg_bm25 VERSION "${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}";'
 
       - name: Build pg_bm25 Extension (New Version)
         if: github.base_ref == 'dev' || github.event.inputs.new_version != ''

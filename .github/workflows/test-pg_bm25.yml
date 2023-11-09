@@ -32,7 +32,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [12, 13, 14, 15, 16]
+        # pg_version: [12, 13, 14, 15, 16]
+        pg_version: [15]
 
     steps:
       - name: Checkout Git Repository

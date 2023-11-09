@@ -1,7 +1,7 @@
 # workflows/test-pg_search.yml
 #
 # Test pg_search
-# Run unit and packaging tests for the pg_search extension.
+# Run unit and integration tests for the pg_search extension.
 
 name: Test pg_search
 
@@ -16,6 +16,11 @@ on:
       - "!pg_search/README.md"
       - ".github/workflows/test-pg_search.yml"
   workflow_dispatch:
+    inputs:
+      new_version:
+        description: "Upcoming pg_search version to test upgrading against"
+        required: false
+        default: ""
 
 concurrency:
   group: test-pg_search-${{ github.head_ref || github.ref }}
@@ -35,7 +40,7 @@ jobs:
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
         run: |
-          sudo apt remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
+          sudo apt-get remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
           apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D15(\D.*)?$' | xargs sudo apt remove -y
           sudo apt-get install -y llvm-15-dev libclang-15-dev clang-15 gcc
 
@@ -79,3 +84,52 @@ jobs:
       #     directory: ./target/coverage-report/
       #     files: lcov
       #     fail_ci_if_error: true
+
+      #############################
+      # Extension Upgrade Testing #
+      #############################
+
+      - name: Download & Install Latest pg_search from GitHub Release
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+        run: |
+          DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | jq -r '.assets[] | select(.browser_download_url | contains("pg_search-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-pg${{ matrix.pg_version }}-amd64-linux-gnu.deb")) | .browser_download_url')
+          curl -LOJ $DOWNLOAD_URL
+          sudo dpkg -i pg_search-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-pg${{ matrix.pg_version }}-amd64-linux-gnu.deb
+
+      - name: Start PostgreSQL ${{ matrix.pg_version }}
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        run: |
+          sudo systemctl start postgresql@${{ matrix.pg_version }}-main
+          sudo -u postgres psql -U postgres -d postgres -p 5433 -w -c 'CREATE DATABASE test_db;'
+
+      - name: Install pg_search Extension (Old Version)
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        working-directory: /var/lib/postgresql/
+        run: |
+          CURRENT_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          sudo -u postgres psql -U postgres -d test_db -p 5433 -w -c "CREATE EXTENSION pg_search VERSION '$CURRENT_VERSION';"
+
+      - name: Build pg_bm25 Extension (New Version)
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        working-directory: pg_search/
+        run: |
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
+          cargo pgrx install --pg-config=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --release
+
+      # If making a major or minor version change (which happens by manually updating the version variables in GitHub Variables), then we need to
+      # manually provide the new version in a workflow_dispatch event to test upgrading to the new version as part of our promotion process.
+      - name: Upgrade pg_search Extension to New Version
+        if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && ${{ matrix.pg_version }} == 15
+        working-directory: /var/lib/postgresql/
+        run: |
+          if [[ "${{ github.event.inputs.new_version }}" == "" ]]; then
+            echo "New version not provided, assuming the next release is incrementing patch..."
+            NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
+            NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}
+          else
+            echo "Using the provided new version (likely a manual major or minor version increment)..."
+            NEW_VERSION="${{ github.event.inputs.new_version }}"
+          fi
+          sudo -u postgres psql -U postgres -d test_db -p 5433 -w -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"

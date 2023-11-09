@@ -98,14 +98,16 @@ jobs:
 
       - name: Start PostgreSQL ${{ matrix.pg_version }}
         if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
-        run: sudo systemctl start postgresql@${{ matrix.pg_version }}-main
-
-      - name: ssh
-        uses: lhotari/action-upterm@v1
+        run: |
+          sudo systemctl start postgresql@${{ matrix.pg_version }}-main
+          sudo -u postgres psql -U postgres -d postgres -p 5433 -w -c 'CREATE DATABASE test_db;'
 
       - name: Install pg_bm25 Extension (Old Version)
         if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
-        run: PGPASSWORD=postgres psql -h localhost -U postgres -d test_db -c 'CREATE EXTENSION pg_bm25 VERSION "${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}";'
+        working-directory: /var/lib/postgresql/
+        run: |
+          CURRENT_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          sudo -u postgres psql -U postgres -d test_db -p 5433 -w -c "CREATE EXTENSION pg_bm25 VERSION '$CURRENT_VERSION';"
 
       - name: Build pg_bm25 Extension (New Version)
         if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
@@ -116,6 +118,7 @@ jobs:
       # manually provide the new version in a workflow_dispatch event to test upgrading to the new version as part of our promotion process.
       - name: Upgrade pg_bm25 Extension to New Version
         if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
+        working-directory: /var/lib/postgresql/
         run: |
           if [[ "${{ github.event.inputs.new_version }}" == "" ]]; then
             echo "New version not provided, assuming the next release is incrementing patch..."
@@ -125,4 +128,4 @@ jobs:
             echo "Using the provided new version (likely a manual major or minor version increment)..."
             NEW_VERSION="${{ github.event.inputs.new_version }}"
           fi
-          PGPASSWORD=postgres psql -h localhost -U postgres -d test_db -c 'ALTER EXTENSION pg_bm25 UPDATE TO "$NEW_VERSION";'
+          sudo -u postgres psql -U postgres -d test_db -p 5433 -w -c "ALTER EXTENSION pg_bm25 UPDATE TO '$NEW_VERSION';"

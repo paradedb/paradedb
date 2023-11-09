@@ -127,9 +127,26 @@ function run_tests() {
   echo "Reloading PostgreSQL configuration..."
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
+
+
+
+  # If we want to test upgrading
+  # First download the release
+  # then install it
+  # then load it into the test database
+  # then upgrade it
+  # then run the fictures tests
+
+
+
   # Use cargo-pgx to install the extension for the specified version
   echo "Installing pg_bm25 extension onto the test database..."
-  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
+  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile ci > /dev/null
+
+
+
+
+
 
   # Get a list of all tests
   while IFS= read -r line; do

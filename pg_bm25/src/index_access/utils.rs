@@ -30,7 +30,6 @@ pub struct SearchQuery {
 #[derive(Debug, Deserialize, Default)]
 pub struct SearchQueryConfig {
     pub offset: Option<usize>,
-    pub limit: Option<usize>,
     #[serde(default, deserialize_with = "from_csv")]
     pub fuzzy_fields: Vec<String>,
     pub distance: Option<u8>,

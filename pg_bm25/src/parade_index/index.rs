@@ -48,7 +48,12 @@ pub struct TantivyScanState {
     pub query: Box<dyn Query>,
     pub query_parser: QueryParser,
     pub searcher: Searcher,
-    pub iterator: *mut std::vec::IntoIter<(Score, DocAddress)>,
+    pub results: std::vec::IntoIter<(Score, DocAddress)>,
+    pub limit: usize,
+    pub offset: usize,
+    pub current: usize,
+    pub n_results: usize,
+    pub no_more_results: bool,
 }
 
 #[derive(Clone)]
@@ -331,7 +336,12 @@ impl ParadeIndex {
             query: empty_query,
             query_parser,
             searcher,
-            iterator: std::ptr::null_mut(),
+            results: vec![].into_iter(),
+            limit: 1,
+            offset: 0,
+            current: 0,
+            n_results: 0,
+            no_more_results: false,
         }
     }
 

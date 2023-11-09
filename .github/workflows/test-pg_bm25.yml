@@ -92,7 +92,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
         run: |
-          curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | jq -r '.assets[] | select(.browser_download_url | contains("pg_bm25-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-pg${{ matrix.pg_version }}-amd64-linux-gnu.deb")) | .browser_download_url'
+          DOWNLOAD_URL=$(curl -s "https://api.github.com/repos/paradedb/paradedb/releases/latest" | jq -r '.assets[] | select(.browser_download_url | contains("pg_bm25-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-pg${{ matrix.pg_version }}-amd64-linux-gnu.deb")) | .browser_download_url')
+          curl -LOJ $DOWNLOAD_URL
           sudo dpkg -i pg_bm25-v${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-pg${{ matrix.pg_version }}-amd64-linux-gnu.deb
 
       - name: Install pg_bm25 Extension (Old Version)

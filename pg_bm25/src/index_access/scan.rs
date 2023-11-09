@@ -12,7 +12,7 @@ use crate::{
     parade_index::index::TantivyScanState,
 };
 
-const MAX_TOP_DOCS: usize = 1000;
+const MAX_TOP_DOCS: usize = 100000;
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -235,57 +235,6 @@ pub extern "C" fn amgettuple(
         }
         None => false,
     }
-}
-
-#[pg_guard]
-pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TIDBitmap) -> i64 {
-    let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
-    let state =
-        unsafe { (scan.opaque as *mut TantivyScanState).as_mut() }.expect("no scandesc state");
-    let searcher = &state.searcher;
-    let schema = &state.schema;
-
-    while !state.no_more_results {
-        if state.current != 0 {
-            state.offset += MAX_TOP_DOCS;
-            state.limit = MAX_TOP_DOCS;
-        }
-
-        let top_docs = state
-            .searcher
-            .search(
-                &state.query,
-                &TopDocs::with_limit(state.limit).and_offset(state.offset),
-            )
-            .expect("failed to search");
-
-        state.n_results += top_docs.len();
-        state.no_more_results = top_docs.len() < state.limit;
-
-        for (score, doc_address) in top_docs {
-            let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
-            let heap_tid_field = schema
-                .get_field("heap_tid")
-                .expect("field 'heap_tid' not found in schema");
-
-            if let tantivy::schema::Value::U64(heap_tid_value) = retrieved_doc
-                .get_first(heap_tid_field)
-                .expect("heap_tid field not found in doc")
-            {
-                let mut tid = pg_sys::ItemPointerData::default();
-                u64_to_item_pointer(*heap_tid_value, &mut tid);
-
-                unsafe {
-                    pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
-                }
-
-                write_to_manager(tid, score, doc_address);
-                state.current += 1;
-            }
-        }
-    }
-
-    state.current as i64
 }
 
 #[inline]

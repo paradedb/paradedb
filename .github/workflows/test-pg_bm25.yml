@@ -112,7 +112,9 @@ jobs:
       - name: Build pg_bm25 Extension (New Version)
         if: github.base_ref == 'dev' || github.event.inputs.new_version != ''
         working-directory: pg_bm25/
-        run: sudo usermod -a -G postgres $(whoami) && cargo pgrx install --pg-config=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --release
+        run: |
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
+          cargo pgrx install --pg-config=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config --release
 
       # If making a major or minor version change (which happens by manually updating the version variables in GitHub Variables), then we need to
       # manually provide the new version in a workflow_dispatch event to test upgrading to the new version as part of our promotion process.

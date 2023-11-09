@@ -111,7 +111,7 @@ jobs:
           CURRENT_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
           sudo -u postgres psql -U postgres -d test_db -p 5433 -w -c "CREATE EXTENSION pg_search VERSION '$CURRENT_VERSION';"
 
-      - name: Build pg_bm25 Extension (New Version)
+      - name: Build pg_search Extension (New Version)
         if: (github.base_ref == 'main' || github.event.inputs.new_version != '') && (matrix.pg_version == 15)
         working-directory: pg_search/
         run: |

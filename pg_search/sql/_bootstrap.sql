@@ -1,11 +1,10 @@
-use pgrx::*;
-
-const CREATE_TEST_TABLE_SQL: &str = r#"
-DO $$
+CREATE OR REPLACE PROCEDURE paradedb.create_search_test_table()
+LANGUAGE plpgsql
+AS $$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables
-                   WHERE schemaname = 'paradedb' AND tablename = 'bm25_test_table') THEN
-        CREATE TABLE paradedb.bm25_test_table (
+                   WHERE schemaname = 'paradedb' AND tablename = 'search_test_table') THEN
+        CREATE TABLE paradedb.search_test_table (
             id SERIAL PRIMARY KEY,
             description TEXT,
             rating INTEGER CHECK (
@@ -17,7 +16,7 @@ BEGIN
             metadata JSONB
         );
 
-        INSERT INTO paradedb.bm25_test_table (description, rating, category, in_stock, metadata)
+        INSERT INTO paradedb.search_test_table (description, rating, category, in_stock, metadata)
         VALUES
             ('Ergonomic metal keyboard', 4, 'Electronics', true, '{"color": "Silver", "location": "United States"}'::JSONB),
             ('Plastic Keyboard', 4, 'Electronics', false, '{"color": "Black", "location": "Canada"}'::JSONB),
@@ -60,13 +59,23 @@ BEGIN
             ('Handcrafted wooden frame', 5, 'Home Decor', false, '{"color": "Brown", "location": "China"}'::JSONB),
             ('Plush teddy bear', 4, 'Toys', true, '{"color": "Brown", "location": "United States"}'::JSONB),
             ('Warm woolen sweater', 3, 'Apparel', false, '{"color": "Red", "location": "Canada"}'::JSONB);
+
+
+        ALTER TABLE paradedb.search_test_table ADD COLUMN embedding vector(3);
+
+        WITH NumberedRows AS (
+            SELECT ctid,
+                ROW_NUMBER() OVER () as row_num
+            FROM paradedb.search_test_table
+        )
+        UPDATE paradedb.search_test_table m
+        SET embedding = ('[' ||
+            ((n.row_num + 1) % 10 + 1)::integer || ',' ||
+            ((n.row_num + 2) % 10 + 1)::integer || ',' ||
+            ((n.row_num + 3) % 10 + 1)::integer || ']')::vector
+        FROM NumberedRows n
+        WHERE m.ctid = n.ctid;
     ELSE
-        RAISE WARNING 'The table paradedb.bm25_test_table already exists, skipping.';
+        RAISE WARNING 'The table paradedb.search_test_table already exists, skipping.';
     END IF;
 END $$;
-"#;
-
-#[pg_extern]
-pub fn create_bm25_test_table() {
-    Spi::run(CREATE_TEST_TABLE_SQL).expect("Failed to create bm25_test_table");
-}

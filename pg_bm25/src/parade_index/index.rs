@@ -224,12 +224,16 @@ impl ParadeIndex {
         new_self
     }
 
-    pub fn insert(&mut self, heap_tid: ItemPointerData, builder: JsonBuilder) {
+    pub fn insert_with_writer(
+        &mut self,
+        writer: &mut SingleSegmentIndexWriter,
+        heap_tid: ItemPointerData,
+        builder: JsonBuilder,
+    ) {
+        // This method is both an implemenation for `self.insert`, and used publicly
+        // during index build, where we want to make sure that the same writer is used
+        // for the entire build.
         let mut doc: Document = Document::new();
-        let mut writer = self
-            .single_segment_writer()
-            .expect("Could not retrieve single segment writer for insert");
-
         for (col_name, value) in builder.values {
             let field_option = self.fields.get(col_name.trim_matches('"'));
             if let Some(field) = field_option {
@@ -240,7 +244,16 @@ impl ParadeIndex {
         let field_option = self.fields.get("heap_tid");
         doc.add_u64(*field_option.unwrap(), item_pointer_to_u64(heap_tid));
         writer.add_document(doc).expect("failed to add document");
+    }
 
+    pub fn insert(&mut self, heap_tid: ItemPointerData, builder: JsonBuilder) {
+        // We expect this method to be called during regular inserts (after index creation).
+        // We need to create a new writer each time to avoid race conditions, and make sure
+        // to reload the reader afterwards.
+        let mut writer = self
+            .single_segment_writer()
+            .expect("Could not retrieve single segment writer for insert");
+        self.insert_with_writer(&mut writer, heap_tid, builder);
         writer.commit().unwrap();
         self.reload();
     }
@@ -330,7 +343,7 @@ impl ParadeIndex {
         self.reader.searcher()
     }
 
-    fn single_segment_writer(&self) -> Result<SingleSegmentIndexWriter, TantivyError> {
+    pub fn single_segment_writer(&self) -> Result<SingleSegmentIndexWriter, TantivyError> {
         SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_TANTIVY_MEMORY_BUDGET)
     }
 

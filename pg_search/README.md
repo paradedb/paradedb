@@ -62,7 +62,7 @@ Note: If you are using a managed Postgres service like Amazon RDS, you will not 
 `pg_search` comes with a helper function that creates a test table that you can use for quick experimentation.
 
 ```sql
-SELECT paradedb.create_search_test_table();
+CALL paradedb.create_search_test_table();
 CREATE TABLE mock_items AS SELECT * FROM paradedb.search_test_table;
 ```
 

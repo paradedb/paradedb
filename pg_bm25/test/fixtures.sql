@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS pg_bm25;
 
-SELECT paradedb.create_bm25_test_table();
+CALL paradedb.create_bm25_test_table();
 
 CREATE TABLE index_config AS SELECT * FROM paradedb.bm25_test_table;
 CREATE TABLE search_config AS SELECT * FROM paradedb.bm25_test_table;

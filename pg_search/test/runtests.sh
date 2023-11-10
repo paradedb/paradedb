@@ -141,9 +141,9 @@ function run_tests() {
     echo "Running extension upgrade test..."
     # First, download & install the first release at which we started supporting upgrades (v0.3.5)
     BASE_RELEASE="v0.3.5"
-    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/$BASE_RELEASE/pg_search-$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL"
-    sudo dpkg -i "pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    sudo dpkg -i "pg_search-$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
 
     # Second, load the extension into the test database
     echo "Loading pg_search extension version $BASE_VERSION into the test database..."

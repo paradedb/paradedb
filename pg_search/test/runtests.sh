@@ -14,7 +14,7 @@ usage() {
   echo " -h (optional),   Display this help message"
   echo " -p (required),   Processing type, either <sequential> or <threaded>"
   echo " -v (optional),   PG version(s) separated by comma <12,13,14>"
-  echo " -u (optional),   Upgrade the extension to the latest version before running tests (only meant for use in CI)"
+  echo " -u (optional),   Test upgrading the extension from initial to current version before running tests (only meant for use in CI)"
   exit 1
 }
 

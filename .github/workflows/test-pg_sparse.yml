@@ -63,7 +63,7 @@ jobs:
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
             ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u
           else
-            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
+            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u
           fi
 
       - name: Run pg_sparse Unit Tests

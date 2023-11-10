@@ -16,6 +16,11 @@ on:
       - "!pg_bm25/README.md"
       - ".github/workflows/test-pg_bm25.yml"
   workflow_dispatch:
+    inputs:
+      test_upgrade_version:
+        description: "Upcoming pg_bm25 version to test upgrading against"
+        required: false
+        default: ""
 
 concurrency:
   group: test-pg_bm25-${{ github.head_ref || github.ref }}
@@ -61,7 +66,16 @@ jobs:
         working-directory: pg_bm25/
         run: |
           if [[ "${{ github.base_ref }}" == "dev" && "${{ matrix.pg_version }}" == "15" ]]; then
-            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u
+            # Retrieve the version to test upgrading to
+            if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
+              echo "New version not provided, assuming the next release is incrementing patch..."
+              NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
+              NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}
+            else
+              echo "Using the provided new version (likely a manual major or minor version increment)..."
+              NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
+            fi
+            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u $NEW_VERSION
           else
             ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi

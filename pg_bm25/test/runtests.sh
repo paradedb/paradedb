@@ -14,7 +14,7 @@ usage() {
   echo " -h (optional),   Display this help message"
   echo " -p (required),   Processing type, either <sequential> or <threaded>"
   echo " -v (optional),   PG version(s) separated by comma <12,13,14>"
-  echo " -u (optional),   Test upgrading the extension from initial to current version before running tests (only meant for use in CI)"
+  echo " -u (optional),   Version to test upgrading to before running tests (only meant for use in CI)"
   exit 1
 }
 
@@ -27,7 +27,7 @@ fi
 # Instantiate vars
 FLAG_PG_VER=false
 FLAG_PROCESS_TYPE=false
-FLAG_UPGRADE=false
+FLAG_UPGRADE_VER=""
 
 # Assign flags to vars and check
 while getopts "hup:v:" flag
@@ -49,7 +49,7 @@ do
       FLAG_PG_VER=$OPTARG
       ;;
     u)
-      FLAG_UPGRADE=true
+      FLAG_UPGRADE_VER=$OPTARG
       ;;
     *)
       usage
@@ -133,7 +133,7 @@ function run_tests() {
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
-  if [ "$FLAG_UPGRADE" = true ]; then
+  if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
     # First, download & install the first release at which we started supporting upgrades (v0.3.5)
     BASE_RELEASE="0.3.5"
@@ -147,11 +147,11 @@ function run_tests() {
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_bm25 extension..."
-    sudo chown -R $(whoami) /usr/share/postgresql/$PG_VERSION/extension/ /usr/lib/postgresql/$PG_VERSION/lib/
+    sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/"
     cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
 
     # Fourth, upgrade the extension installed on the test database to the current version
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_bm25 UPDATE;" -d test_db
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_bm25 UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
   else
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_bm25 extension onto the test database..."

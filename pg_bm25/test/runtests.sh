@@ -77,7 +77,7 @@ if [ "$FLAG_PG_VER" = false ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
     Darwin)
-      PG_VERSIONS=("16.0" "15.4" "14.9" "13.12" "12.16")
+      PG_VERSIONS=("16.1" "15.5" "14.10" "13.13" "12.17")
       ;;
     Linux)
       PG_VERSIONS=("16" "15" "14" "13" "12")
@@ -139,18 +139,18 @@ function run_tests() {
     BASE_RELEASE="0.3.5"
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
-    sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
+    dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
 
     # Second, load the extension into the test database
     echo "Loading pg_bm25 extension version v$BASE_RELEASE into the test database..."
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_bm25 VERSION '$BASE_RELEASE';" -d test_db > /dev/null
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_bm25 VERSION '$BASE_RELEASE';" -d test_db
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_bm25 extension..."
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
+    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
 
     # Fourth, upgrade the extension installed on the test database to the current version
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_bm25 UPDATE;" -d test_db > /dev/null
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_bm25 UPDATE;" -d test_db
   else
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_bm25 extension onto the test database..."

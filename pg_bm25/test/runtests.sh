@@ -147,14 +147,14 @@ function run_tests() {
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_bm25 extension..."
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile ci > /dev/null
+    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
 
     # Fourth, upgrade the extension installed on the test database to the current version
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_bm25 UPDATE;" -d test_db > /dev/null
   else
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_bm25 extension onto the test database..."
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile ci > /dev/null
+    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
   fi
 
   # Get a list of all tests

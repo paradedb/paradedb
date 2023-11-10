@@ -151,7 +151,7 @@ function run_tests() {
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_search extension..."
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile ci > /dev/null
+    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
 
     # Fourth, upgrade the extension installed on the test database to the current version
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_search UPDATE;" -d test_db > /dev/null

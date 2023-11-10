@@ -143,7 +143,7 @@ function run_tests() {
     BASE_RELEASE="0.3.5"
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
-    sudo dpkg -i "pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    sudo dpkg -i "pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
 
     # Second, load the extension into the test database
     echo "Loading pg_search extension version v$BASE_RELEASE into the test database..."
@@ -151,6 +151,7 @@ function run_tests() {
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_search extension..."
+    sudo chown -R $(whoami) /usr/share/postgresql/$PG_VERSION/extension/ /usr/lib/postgresql/$PG_VERSION/lib/
     cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
 
     # Fourth, upgrade the extension installed on the test database to the current version

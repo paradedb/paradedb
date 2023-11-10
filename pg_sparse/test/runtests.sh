@@ -143,7 +143,7 @@ function run_tests() {
 
     # Second, load the extension into the test database
     echo "Loading pg_sparse extension version v$BASE_RELEASE into the test database..."
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_sparse VERSION 'v$BASE_RELEASE';" -d test_db > /dev/null
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_sparse VERSION '$BASE_RELEASE';" -d test_db > /dev/null
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_sparse extension..."

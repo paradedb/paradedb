@@ -139,8 +139,8 @@ function run_tests() {
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
-    # First, download & install the first release at which we started supporting upgrades (v0.3.5)
-    BASE_RELEASE="0.3.5"
+    # First, download & install the first release at which we started supporting upgrades (v0.3.6)
+    BASE_RELEASE="0.3.6"
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
     sudo dpkg -i "pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null

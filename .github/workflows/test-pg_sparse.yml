@@ -65,7 +65,7 @@ jobs:
       - name: Run pg_sparse Integration Tests
         working-directory: pg_sparse/
         run: |
-          if [[ "${{ github.base_ref }}" == "dev" && "${{ matrix.pg_version }}" == "15" ]]; then
+          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
             # Retrieve the version to test upgrading to
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
               echo "New version not provided, assuming the next release is incrementing patch..."

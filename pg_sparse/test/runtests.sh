@@ -142,8 +142,8 @@ function run_tests() {
     sudo dpkg -i "pg_sparse-$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
 
     # Second, load the extension into the test database
-    echo "Loading pg_sparse extension version $BASE_VERSION into the test database..."
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_sparse VERSION '$BASE_VERSION';" -d test_db > /dev/null
+    echo "Loading pg_sparse extension version $BASE_RELEASE into the test database..."
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_sparse VERSION '$BASE_RELEASE';" -d test_db > /dev/null
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_sparse extension..."

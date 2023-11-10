@@ -15,6 +15,9 @@ on:
       - "pg_search/**"
       - "!pg_search/README.md"
       - ".github/workflows/test-pg_search.yml"
+  push:
+    branches:
+      - main # Run CI on the main branch after every merge. This is important to fill the GitHub Actions cache in a way that pull requests can see it
   workflow_dispatch:
     inputs:
       test_upgrade_version:
@@ -37,6 +40,16 @@ jobs:
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: nightly # To enable the paralel front-end (for faster builds)
+          override: true
+
+      - name: Install Rust Cache
+        uses: Swatinem/rust-cache@v1
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
         run: |

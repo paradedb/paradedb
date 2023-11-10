@@ -133,7 +133,7 @@ function run_tests() {
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
   # Install dependencies
-  echo "Installing dependencies (pg_search and pgvector) onto the test database..."
+  echo "Installing dependencies (pg_bm25 and pgvector) onto the test database..."
   "$TESTDIR/../configure.sh" "$PG_VERSION" > /dev/null
 
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests

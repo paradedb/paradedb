@@ -15,3 +15,12 @@ panic = "unwind"
 opt-level = 3
 lto = "fat"
 codegen-units = 1
+
+# This profile is optimized for the shortest possible compile times
+# and is meant for our CI pipelines exclusively
+[profile.ci]
+inherits = "dev"
+opt-level = 1
+lto = false
+codegen-units = 16
+debug = false

@@ -67,7 +67,8 @@ jobs:
 
       - name: Install pgrx, grcov & llvm-tools-preview
         run: |
-          cargo install --locked cargo-pgrx --version 0.11.0 && cargo install --locked grcov
+          cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.0
+          cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
 
       - name: Initialize pgrx for Current PostgreSQL Version
@@ -100,7 +101,7 @@ jobs:
           RUST_BACKTRACE: 1
         run: |
           mkdir -p target/coverage target/coverage-report
-          cd pg_search/ && cargo pgrx test --features pg${{ matrix.pg_version }}
+          cd pg_search/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile ci
 
       # TODO: Reenable Codecov when we start writing unit tests
       # - name: Generate Code Coverage Reports

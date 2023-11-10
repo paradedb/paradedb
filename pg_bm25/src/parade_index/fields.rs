@@ -307,7 +307,8 @@ fn default_as_true() -> bool {
     true
 }
 
-#[cfg(test)]
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
 mod tests {
 
     use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
@@ -317,7 +318,7 @@ mod tests {
         ParadeNumericOptions, ParadeTextOptions, ParadeTokenizer,
     };
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_parade_tokenizer() {
         let tokenizer = ParadeTokenizer::Default;
         assert_eq!(tokenizer.name(), "default".to_string());
@@ -342,13 +343,13 @@ mod tests {
         );
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_parade_normalizer() {
         assert_eq!(ParadeNormalizer::Lowercase.name(), "lowercase");
         assert_ne!(ParadeNormalizer::Raw, ParadeNormalizer::Lowercase);
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_parade_text_options() {
         let json = r#"{
             "indexed": true,
@@ -373,7 +374,7 @@ mod tests {
         assert_ne!(expected.is_fast(), text_options.is_fast());
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_parade_numeric_options() {
         let json = r#"{
             "indexed": true,
@@ -387,7 +388,7 @@ mod tests {
         assert_eq!(int_options, expected);
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_parade_boolean_options() {
         let json = r#"{
             "indexed": true,
@@ -401,7 +402,7 @@ mod tests {
         assert_eq!(int_options, expected);
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_parade_jsonobject_options() {
         let json = r#"{
             "indexed": true,
@@ -430,7 +431,7 @@ mod tests {
         assert_ne!(expected.is_fast(), text_options.is_fast());
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_default_as_true() {
         assert!(default_as_true())
     }

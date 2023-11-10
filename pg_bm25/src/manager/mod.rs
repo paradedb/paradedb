@@ -148,7 +148,8 @@ impl Manager {
     }
 }
 
-#[cfg(test)]
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
 mod tests {
     use std::collections::HashMap;
 
@@ -167,7 +168,7 @@ mod tests {
 
     use super::{get_current_executor_manager, get_fresh_executor_manager};
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_fresh_executor_manager() {
         let manager = get_fresh_executor_manager();
         assert_eq!(manager.scores, None);
@@ -175,7 +176,7 @@ mod tests {
         assert_eq!(manager.min_score, 0.0);
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_current_executor_manager() {
         let expected = get_fresh_executor_manager();
         let item_ptr = ItemPointerData {
@@ -200,7 +201,7 @@ mod tests {
         assert_eq!(manager.get_score(item_ptr), expected.get_score(item_ptr));
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_add_score() {
         let first_item_ptr = ItemPointerData {
             ip_blkid: BlockIdData {
@@ -239,7 +240,7 @@ mod tests {
         assert_eq!(manager.get_score(item_ptr), None);
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_add_doc_address() {
         let first_item_ptr = ItemPointerData {
             ip_blkid: BlockIdData {
@@ -301,7 +302,7 @@ mod tests {
         Ok((schema, searcher, title))
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_add_snippet_generators() -> tantivy::Result<()> {
         let (schema, searcher, title) = prepare_schema()?;
         let query: Box<dyn Query> = Box::new(RegexQuery::from_pattern("d[ai]{2}ry", title)?);
@@ -317,7 +318,7 @@ mod tests {
         Ok(())
     }
 
-    #[test]
+    #[pgrx::pg_test]
     #[should_panic]
     fn fail_get_highlight() {
         let (schema, searcher, title) = prepare_schema().unwrap();
@@ -333,7 +334,7 @@ mod tests {
         manager.get_highlight("me", &doc);
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_get_highlight() {
         let (schema, searcher, title) = prepare_schema().unwrap();
         let query: Box<dyn Query> =
@@ -349,7 +350,7 @@ mod tests {
         assert_eq!(highlight, Some("".to_string()));
     }
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_parse_snippet() {
         let (_schema, searcher, title) = prepare_schema().unwrap();
         let query: Box<dyn Query> =

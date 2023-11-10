@@ -499,11 +499,12 @@ impl ParadeIndex {
     }
 }
 
-#[cfg(test)]
-mod test {
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
     use super::ParadeIndex;
 
-    #[test]
+    #[pgrx::pg_test]
     fn test_from_index_name() -> Result<(), Box<dyn std::error::Error>> {
         let name = "The Score".to_string();
         let index = ParadeIndex::from_index_name(name);

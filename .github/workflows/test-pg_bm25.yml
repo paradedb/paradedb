@@ -74,8 +74,9 @@ jobs:
             else
               echo "Using the provided new version (likely a manual major or minor version increment)..."
               NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
+              echo "$NEW_VERSION"
             fi
-            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u $NEW_VERSION
+            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION"
           else
             ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi

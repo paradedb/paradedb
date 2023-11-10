@@ -71,11 +71,12 @@ jobs:
               echo "New version not provided, assuming the next release is incrementing patch..."
               NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
               NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}
+              echo "$NEW_VERSION"
             else
               echo "Using the provided new version (likely a manual major or minor version increment)..."
               NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
             fi
-            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u $NEW_VERSION
+            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION"
           else
             ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi

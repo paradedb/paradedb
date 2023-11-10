@@ -14,7 +14,7 @@ usage() {
   echo " -h (optional),   Display this help message"
   echo " -p (required),   Processing type, either <sequential> or <threaded>"
   echo " -v (optional),   PG version(s) separated by comma <12,13,14>"
-  echo " -u (optional),   Version to test upgrading to before running tests (only meant for use in CI)"
+  echo " -u (optional),   Version to test upgrading to before running tests (only meant for use in CI) <0.3.7>"
   exit 1
 }
 
@@ -30,7 +30,7 @@ FLAG_PROCESS_TYPE=false
 FLAG_UPGRADE_VER=""
 
 # Assign flags to vars and check
-while getopts "hup:v:" flag
+while getopts "hp:v:u:" flag
 do
   case $flag in
     h)

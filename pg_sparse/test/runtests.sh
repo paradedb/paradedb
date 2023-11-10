@@ -14,6 +14,7 @@ usage() {
   echo " -h (optional),   Display this help message"
   echo " -p (required),   Processing type, either <sequential> or <threaded>"
   echo " -v (optional),   PG version(s) separated by comma <12,13,14>"
+  echo " -u (optional),   Upgrade the extension to the latest version before running tests (only meant for use in CI)"
   exit 1
 }
 
@@ -26,9 +27,10 @@ fi
 # Instantiate vars
 FLAG_PG_VER=false
 FLAG_PROCESS_TYPE=false
+FLAG_UPGRADE=false
 
 # Assign flags to vars and check
-while getopts "hp:v:" flag
+while getopts "hup:v:" flag
 do
   case $flag in
     h)
@@ -45,6 +47,9 @@ do
       ;;
     v)
       FLAG_PG_VER=$OPTARG
+      ;;
+    u)
+      FLAG_UPGRADE=true
       ;;
     *)
       usage
@@ -127,26 +132,30 @@ function run_tests() {
   echo "Reloading PostgreSQL configuration..."
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
+  # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
+  if [ "$FLAG_UPGRADE" = true ]; then
+    echo "Running extension upgrade test..."
+    # First, download & install the first release at which we started supporting upgrades (v0.3.5)
+    BASE_RELEASE="v0.3.5"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/$BASE_RELEASE/pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    curl -LOJ "$DOWNLOAD_URL"
+    sudo dpkg -i "pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
 
+    # Second, load the extension into the test database
+    echo "Loading pg_sparse extension version $BASE_VERSION into the test database..."
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_sparse VERSION '$BASE_VERSION';" -d test_db > /dev/null
 
+    # Third, build & install the current version of the extension
+    echo "Building & installing the current version of the pg_sparse extension..."
+    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile ci > /dev/null
 
-  # If we want to test upgrading
-  # First download the release
-  # then install it
-  # then load it into the test database
-  # then upgrade it
-  # then run the fictures tests
-
-
-
-  # Use cargo-pgx to install the extension for the specified version
-  echo "Installing pg_sparse extension onto the test database..."
-  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
-
-
-
-
-
+    # Fourth, upgrade the extension installed on the test database to the current version
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_sparse UPDATE;" -d test_db > /dev/null
+  else
+    # Use cargo-pgx to install the extension for the specified version
+    echo "Installing pg_sparse extension onto the test database..."
+    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile ci > /dev/null
+  fi
 
   # Get a list of all tests
   while IFS= read -r line; do

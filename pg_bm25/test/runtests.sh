@@ -133,12 +133,12 @@ function run_tests() {
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
-  if [ "FLAG_UPGRADE" = true ]; then
+  if [ "$FLAG_UPGRADE" = true ]; then
     echo "Running extension upgrade test..."
     # First, download & install the first release at which we started supporting upgrades (v0.3.5)
     BASE_RELEASE="v0.3.5"
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
-    curl -LOJ $DOWNLOAD_URL
+    curl -LOJ "$DOWNLOAD_URL"
     sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
 
     # Second, load the extension into the test database

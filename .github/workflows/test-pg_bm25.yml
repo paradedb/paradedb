@@ -60,10 +60,10 @@ jobs:
       - name: Run pg_bm25 Integration Tests
         working-directory: pg_bm25/
         run: |
-          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
+          if [[ "${{ github.base_ref }}" == "dev" && "${{ matrix.pg_version }}" == "15" ]]; then
             ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u
           else
-            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u
+            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi
 
       - name: Run pg_bm25 Unit Tests

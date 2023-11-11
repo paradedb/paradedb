@@ -38,26 +38,40 @@ jobs:
         pg_version: [12, 13, 14, 15, 16]
 
     steps:
+      # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only
+      # needs to happen once, so we skip the workflow for all but one of the matrix jobs in that case.
+      - name: Check if Skipping
+        id: check_skip
+        run: |
+          if [ "${{ github.event_name }}" = "push" && "${{ matrix.pg_version }}" != "15" ]; then
+            echo "This is a push event to fill Rust cache. Skipping this job."
+            echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Checkout Git Repository
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the main branch, but load it on all branches.
       - name: Install Rust Cache
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ runner.os }}-rust-cache-${{ HashFiles('Cargo.lock') }}
+          shared-key: ${{ runner.os }}-rust-cache-pg_sparse-${{ HashFiles('Cargo.lock') }}
           cache-on-failure: true
           cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           sudo apt-get remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
           apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D15(\D.*)?$' | xargs sudo apt remove -y
           sudo apt-get install -y llvm-15-dev libclang-15-dev clang-15 gcc
 
       - name: Install & Configure Supported PostgreSQL Version
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
@@ -66,17 +80,20 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.0
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
 
       - name: Initialize pgrx for Current PostgreSQL Version
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_sparse/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_sparse Integration Tests
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_sparse/
         run: |
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
@@ -96,6 +113,7 @@ jobs:
           fi
 
       - name: Run pg_sparse Unit Tests
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         env:
           LLVM_PROFILE_FILE: target/coverage/pg_sparse-%p-%m.profraw
           RUST_BACKTRACE: 1
@@ -105,9 +123,11 @@ jobs:
 
       # TODO: Reenable Codecov when we start writing unit tests
       # - name: Generate Code Coverage Reports
+      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true'
       #   run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
       # - name: Upload Coverage Reports to Codecov
+      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true'
       #   uses: codecov/codecov-action@v3
       #   with:
       #     token: ${{ secrets.CODECOV_TOKEN }}

@@ -43,7 +43,7 @@ jobs:
       - name: Check if Skipping
         id: check_skip
         run: |
-          if [ "${{ github.event_name }}" = "push" && "${{ matrix.pg_version }}" != "15" ]; then
+          if [[ "${{ github.event_name }}" = "push" && "${{ matrix.pg_version }}" != "15" ]]; then
             echo "This is a push event to fill Rust cache. Skipping this job."
             echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
           fi

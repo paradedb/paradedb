@@ -6,7 +6,7 @@
 # coverage:
 #   precision: 2
 #   round: down
-#   range: "70...100"
+#   range: "0...100" # This ensures that Codecov never fails the CI build
 
 #   status:
 #     project:
@@ -16,6 +16,10 @@
 #         threshold: 1%
 #       pg_search:
 #         flags: pg_search
+#         target: auto
+#         threshold: 1%
+#       pg_sparse:
+#         flags: pg_sparse
 #         target: auto
 #         threshold: 1%
 

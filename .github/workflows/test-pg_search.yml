@@ -47,7 +47,7 @@ jobs:
             echo "This is a push event to fill Rust cache. Skipping this job."
             echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
           fi
-      
+
       - name: Checkout Git Repository
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4

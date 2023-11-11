@@ -75,14 +75,6 @@ jobs:
         working-directory: pg_bm25/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      - name: Run pg_bm25 Unit Tests
-        env:
-          LLVM_PROFILE_FILE: target/coverage/pg_bm25-%p-%m.profraw
-          RUST_BACKTRACE: 1
-        run: |
-          mkdir -p target/coverage target/coverage-report
-          cd pg_bm25/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
-
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_bm25 Integration Tests
         working-directory: pg_bm25/
@@ -102,6 +94,14 @@ jobs:
           else
             ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi
+
+      - name: Run pg_bm25 Unit Tests
+        env:
+          LLVM_PROFILE_FILE: target/coverage/pg_bm25-%p-%m.profraw
+          RUST_BACKTRACE: 1
+        run: |
+          mkdir -p target/coverage target/coverage-report
+          cd pg_bm25/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
 
       # TODO: Reenable Codecov when we start writing unit tests
       # - name: Generate Code Coverage Reports

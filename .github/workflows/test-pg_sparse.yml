@@ -135,3 +135,4 @@ jobs:
           files: lcov
           flags: pg_sparse
           fail_ci_if_error: true
+          verbose: true

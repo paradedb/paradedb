@@ -135,3 +135,4 @@ jobs:
           files: lcov
           flags: pg_bm25
           fail_ci_if_error: true
+          verbose: true

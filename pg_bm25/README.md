@@ -4,6 +4,7 @@
 </h1>
 
 [![Testing](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml)
+[![codecov](https://codecov.io/gh/paradedb/paradedb/graph/badge.svg?token=PI3TWD558R&flag=pg_bm25)](https://codecov.io/gh/paradedb/paradedb)
 
 ## Overview
 

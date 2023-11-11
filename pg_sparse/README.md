@@ -3,6 +3,9 @@
 <br>
 </h1>
 
+[![Test pg_sparse](https://github.com/paradedb/paradedb/actions/workflows/test-pg_sparse.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_sparse.yml)
+[![codecov](https://codecov.io/gh/paradedb/paradedb/graph/badge.svg?token=PI3TWD558R&flag=pg_sparse)](https://codecov.io/gh/paradedb/paradedb)
+
 # Overview
 
 `pg_sparse` is an extension that enables approximate nearest neighbors (ANN) search over

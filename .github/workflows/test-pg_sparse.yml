@@ -81,7 +81,7 @@ jobs:
           RUST_BACKTRACE: 1
         run: |
           mkdir -p target/coverage target/coverage-report
-          cd pg_sparse/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile test
+          cd pg_sparse/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_sparse Integration Tests

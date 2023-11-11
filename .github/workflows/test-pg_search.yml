@@ -61,6 +61,7 @@ jobs:
           shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
           cache-on-failure: true
           cache-all-crates: true
+          cache-targets: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
@@ -133,6 +134,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./target/coverage-report/
           files: lcov
-          flags: pg_search
+          # flags: pg_search
           fail_ci_if_error: true
           verbose: true

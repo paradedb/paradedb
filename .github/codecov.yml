@@ -10,23 +10,23 @@ coverage:
   status:
     project:
       pg_bm25:
-        flags: pg_bm25
-          # - pg_bm25
+        flags:
+          - pg_bm25
         target: auto
         threshold: 5%
       pg_search:
-        flags: pg_search
-          # - pg_search
+        flags:
+          - pg_search
         target: auto
         threshold: 5%
       pg_sparse:
-        flags: pg_sparse
-          # - pg_sparse
+        flags:
+          - pg_sparse
         target: auto
         threshold: 5%
       shared:
-        flags: shared
-          # - shared
+        flags:
+          - shared
         target: auto
         threshold: 5%
 

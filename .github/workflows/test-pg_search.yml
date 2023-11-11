@@ -17,7 +17,7 @@ on:
       - ".github/workflows/test-pg_search.yml"
   push:
     branches:
-      - main # Run CI on the main branch after every merge. This is important to fill the GitHub Actions cache in a way that pull requests can see it
+      - dev # Run CI on the dev branch after every merge. This is important to fill the GitHub Actions cache in a way that pull requests can see it
   workflow_dispatch:
     inputs:
       test_upgrade_version:
@@ -49,7 +49,7 @@ jobs:
           shared-key: ${{ runner.os }}-rust-cache-${{ HashFiles('Cargo.lock') }}
           cache-on-failure: true
           cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
         run: |

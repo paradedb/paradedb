@@ -121,12 +121,13 @@ jobs:
           mkdir -p target/coverage target/coverage-report
           cd pg_bm25/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
 
+      # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
       - name: Upload Coverage Reports to Codecov
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
         uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

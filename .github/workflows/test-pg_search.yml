@@ -1,7 +1,7 @@
 # workflows/test-pg_search.yml
 #
 # Test pg_search
-# Run unit and packaging tests for the pg_search extension.
+# Run unit and integration tests for the pg_search extension.
 
 name: Test pg_search
 
@@ -16,6 +16,11 @@ on:
       - "!pg_search/README.md"
       - ".github/workflows/test-pg_search.yml"
   workflow_dispatch:
+    inputs:
+      test_upgrade_version:
+        description: "Upcoming pg_search version to test upgrading against"
+        required: false
+        default: ""
 
 concurrency:
   group: test-pg_search-${{ github.head_ref || github.ref }}
@@ -35,7 +40,7 @@ jobs:
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
         run: |
-          sudo apt remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
+          sudo apt-get remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
           apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D15(\D.*)?$' | xargs sudo apt remove -y
           sudo apt-get install -y llvm-15-dev libclang-15-dev clang-15 gcc
 
@@ -56,9 +61,25 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
+      # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_search Integration Tests
         working-directory: pg_search/
-        run: ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
+        run: |
+          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
+            # Retrieve the version to test upgrading to
+            if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
+              echo "New version not provided, assuming the next release is incrementing patch..."
+              NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
+              NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}
+              echo "$NEW_VERSION"
+            else
+              echo "Using the provided new version (likely a manual major or minor version increment)..."
+              NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
+            fi
+            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION"
+          else
+            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
+          fi
 
       - name: Run pg_search Unit Tests
         env:

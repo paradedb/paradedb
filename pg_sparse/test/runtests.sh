@@ -14,6 +14,7 @@ usage() {
   echo " -h (optional),   Display this help message"
   echo " -p (required),   Processing type, either <sequential> or <threaded>"
   echo " -v (optional),   PG version(s) separated by comma <12,13,14>"
+  echo " -u (optional),   Version to test upgrading to before running tests (only meant for use in CI) <0.3.7>"
   exit 1
 }
 
@@ -26,9 +27,10 @@ fi
 # Instantiate vars
 FLAG_PG_VER=false
 FLAG_PROCESS_TYPE=false
+FLAG_UPGRADE_VER=""
 
 # Assign flags to vars and check
-while getopts "hp:v:" flag
+while getopts "hp:v:u:" flag
 do
   case $flag in
     h)
@@ -45,6 +47,9 @@ do
       ;;
     v)
       FLAG_PG_VER=$OPTARG
+      ;;
+    u)
+      FLAG_UPGRADE_VER=$OPTARG
       ;;
     *)
       usage
@@ -72,7 +77,7 @@ if [ "$FLAG_PG_VER" = false ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
     Darwin)
-      PG_VERSIONS=("16.0" "15.4" "14.9" "13.12" "12.16")
+      PG_VERSIONS=("16.1" "15.5" "14.10" "13.13" "12.17")
       ;;
     Linux)
       PG_VERSIONS=("16" "15" "14" "13" "12")
@@ -127,9 +132,31 @@ function run_tests() {
   echo "Reloading PostgreSQL configuration..."
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
-  # Use cargo-pgx to install the extension for the specified version
-  echo "Installing pg_sparse extension onto the test database..."
-  cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
+  # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
+  if [ -n "$FLAG_UPGRADE_VER" ]; then
+    echo "Running extension upgrade test..."
+    # First, download & install the first release at which we started supporting upgrades (v0.3.6)
+    BASE_RELEASE="0.3.6"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    curl -LOJ "$DOWNLOAD_URL" > /dev/null
+    sudo dpkg -i "pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
+
+    # Second, load the extension into the test database
+    echo "Loading pg_sparse extension version v$BASE_RELEASE into the test database..."
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_sparse VERSION '$BASE_RELEASE';" -d test_db
+
+    # Third, build & install the current version of the extension
+    echo "Building & installing the current version of the pg_sparse extension..."
+    sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/"
+    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
+
+    # Fourth, upgrade the extension installed on the test database to the current version
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_sparse UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
+  else
+    # Use cargo-pgx to install the extension for the specified version
+    echo "Installing pg_sparse extension onto the test database..."
+    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
+  fi
 
   # Get a list of all tests
   while IFS= read -r line; do

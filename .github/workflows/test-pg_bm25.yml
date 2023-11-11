@@ -133,4 +133,5 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./target/coverage-report/
           files: lcov
+          flags: pg_bm25
           fail_ci_if_error: true

@@ -4,4 +4,4 @@ rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
 
 # Enable code coverage on Linux only, for CI builds
 [target.'cfg(target_os="linux")']
-rustflags = ["-Cinstrument-coverage", "-Z", "threads=8"]
+rustflags = ["-Cinstrument-coverage", "-C", "link-arg=-fuse-ld=lld"]

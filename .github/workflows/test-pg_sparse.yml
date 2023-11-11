@@ -41,13 +41,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Setup Rust Toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: nightly # To enable the paralel front-end (for faster builds)
-          override: true
-
       - name: Install Rust Cache
         uses: Swatinem/rust-cache@v1
 
@@ -75,6 +68,14 @@ jobs:
         working-directory: pg_sparse/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
+      - name: Run pg_sparse Unit Tests
+        env:
+          LLVM_PROFILE_FILE: target/coverage/pg_sparse-%p-%m.profraw
+          RUST_BACKTRACE: 1
+        run: |
+          mkdir -p target/coverage target/coverage-report
+          cd pg_sparse/ && cargo pgrx test --features pg${{ matrix.pg_version }} --release
+
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_sparse Integration Tests
         working-directory: pg_sparse/
@@ -95,10 +96,14 @@ jobs:
             ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi
 
-      - name: Run pg_sparse Unit Tests
-        env:
-          LLVM_PROFILE_FILE: target/coverage/pg_sparse-%p-%m.profraw
-          RUST_BACKTRACE: 1
-        run: |
-          mkdir -p target/coverage target/coverage-report
-          cd pg_sparse/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile ci
+      # TODO: Reenable Codecov when we start writing unit tests
+      # - name: Generate Code Coverage Reports
+      #   run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
+
+      # - name: Upload Coverage Reports to Codecov
+      #   uses: codecov/codecov-action@v3
+      #   with:
+      #     token: ${{ secrets.CODECOV_TOKEN }}
+      #     directory: ./target/coverage-report/
+      #     files: lcov
+      #     fail_ci_if_error: true

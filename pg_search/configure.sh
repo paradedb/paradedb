@@ -29,6 +29,7 @@ else
 fi
 
 echo "Installing pgvector and pg_bm25 into your pgrx environment..."
+echo ""
 
 # Clone pgvector if it doesn't exist
 if [ ! -d "pgvector/" ]; then
@@ -37,6 +38,7 @@ if [ ! -d "pgvector/" ]; then
 fi
 
 echo "Installing pgvector..."
+echo ""
 cd pgvector/
 git fetch --tags
 git checkout "$PGVECTOR_VERSION"
@@ -56,6 +58,7 @@ for version in "${PG_VERSIONS[@]}"; do
   esac
 done
 
+echo ""
 echo "Installing pg_bm25..."
 cd "$CONFIGDIR/../../pg_bm25"
 
@@ -64,10 +67,10 @@ for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pg_bm25 for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
-      cargo pgrx install --pg-config="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" --release
+      cargo pgrx install --pg-config="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" --profile dev
       ;;
     Linux)
-      cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config" --release
+      cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config" --profile dev
       ;;
   esac
 done

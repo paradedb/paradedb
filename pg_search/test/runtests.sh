@@ -134,7 +134,7 @@ function run_tests() {
 
   # Install dependencies
   echo "Installing dependencies (pg_bm25 and pgvector) onto the test database..."
-  "$TESTDIR/../configure.sh" "$PG_VERSION" > /dev/null
+  "$TESTDIR/../configure.sh" "$PG_VERSION"
 
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
@@ -159,7 +159,7 @@ function run_tests() {
   else
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_search extension onto the test database..."
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release > /dev/null
+    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile dev > /dev/null
   fi
 
   # Get a list of all tests

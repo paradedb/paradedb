@@ -30,6 +30,11 @@ coverage:
         target: auto
         threshold: 5%
 
+# This ensures Codecov maps coverage related to the root directory
+# of the project, not the root directory of the GitHub Actions runner
+fixes:
+  - "/home/runner/work/::"
+
 comment:
   behavior: default
   layout: "diff, flags, files"

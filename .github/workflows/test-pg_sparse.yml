@@ -125,7 +125,10 @@ jobs:
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports for pg_sparse
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
-        run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing --llvm -o ./target/coverage-report/pg_sparse.lcov
+        run: |
+          # We generate a full coverage report and then filter it down to just the pg_sparse files
+          grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/full_coverage.lcov
+          grep 'pg_sparse/' ./target/coverage-report/full_coverage.lcov > ./target/coverage-report/pg_sparse.lcov
 
       - name: Upload pg_sparse Coverage Reports to Codecov
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'

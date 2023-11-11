@@ -41,8 +41,15 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
+      # save the cache on the main branch, but load it on all branches.
       - name: Install Rust Cache
-        uses: Swatinem/rust-cache@v1
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ runner.os }}-rust-cache-${{ HashFiles('Cargo.lock') }}
+          cache-on-failure: true
+          cache-all-crates: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
         run: |
@@ -74,7 +81,7 @@ jobs:
           RUST_BACKTRACE: 1
         run: |
           mkdir -p target/coverage target/coverage-report
-          cd pg_sparse/ && cargo pgrx test --features pg${{ matrix.pg_version }} --release
+          cd pg_sparse/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile test
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_sparse Integration Tests

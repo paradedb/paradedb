@@ -17,8 +17,8 @@ lto = "fat"
 codegen-units = 1
 
 # This profile is optimized for the shortest possible compile times
-# and is meant for our CI pipelines exclusively
-[profile.ci]
+# and is meant for our local test and CI pipelines exclusively
+[profile.test]
 inherits = "dev"
 opt-level = 1
 lto = false

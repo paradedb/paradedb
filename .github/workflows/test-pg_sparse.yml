@@ -59,6 +59,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: ${{ runner.os }}-rust-cache-pg_sparse-${{ HashFiles('Cargo.lock') }}
+          cache-targets: true
           cache-on-failure: true
           cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
@@ -133,5 +134,4 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./target/coverage-report/
           files: lcov
-          flags: pg_sparse
           fail_ci_if_error: true

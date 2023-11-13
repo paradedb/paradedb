@@ -2,7 +2,7 @@
 
 # This script runs integration tests on the pg_sparse extension using pg_regress. To add new tests, add
 # a new .sql file to the test/sql directory and add the corresponding .out file to the test/expected
-# directory, and it will automatically get executed by this script. To run unit tests, use `cargo pgrx test`.
+# directory, and it will automatically get executed by this script.
 
 # Exit on subcommand errors
 set -Eeuo pipefail
@@ -154,8 +154,10 @@ function run_tests() {
     # Don't send telemetry when running tests
     export TELEMETRY=false
 
-    # First, download & install the first release at which we started supporting upgrades (v0.3.3)
-    BASE_RELEASE="0.3.3"
+    # TODO: Figure out how we want to do versioning... 
+
+    # First, download & install the first release at which we started supporting upgrades (v0.5.1)
+    BASE_RELEASE="0.5.1"
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
     sudo dpkg -i "pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
@@ -174,7 +176,8 @@ function run_tests() {
   else
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_sparse extension onto the test database..."
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile dev > /dev/null
+    make
+    make install
   fi
 
   # Get a list of all tests

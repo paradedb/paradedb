@@ -3,7 +3,10 @@
   "abstract": "Open-source svector similarity search for Postgres",
   "description": "Supports L2 distance, inner product, and cosine distance",
   "version": "0.5.1",
-  "maintainer": ["ParadeDB <support@paradedb.com>", "Andrew Kane <andrew@ankane.org>"],
+  "maintainer": [
+    "ParadeDB <support@paradedb.com>",
+    "Andrew Kane <andrew@ankane.org>"
+  ],
   "license": {
     "PostgreSQL": "http://www.postgresql.org/about/licence"
   },

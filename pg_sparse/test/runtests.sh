@@ -154,7 +154,7 @@ function run_tests() {
     # Don't send telemetry when running tests
     export TELEMETRY=false
 
-    # TODO: Figure out how we want to do versioning... 
+    # TODO: Figure out how we want to do versioning...
 
     # First, download & install the first release at which we started supporting upgrades (v0.5.1)
     BASE_RELEASE="0.5.1"

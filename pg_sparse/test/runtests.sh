@@ -135,6 +135,9 @@ function run_tests() {
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
+    # Don't send telemetry when running tests
+    export TELEMETRY=false
+
     # First, download & install the first release at which we started supporting upgrades (v0.3.6)
     BASE_RELEASE="0.3.6"
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"

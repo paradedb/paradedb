@@ -24,4 +24,4 @@ END $$;
 CREATE  FUNCTION paradedb."create_bm25_test_table"() RETURNS void
 STRICT
 LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'create_bm25_test_table_wrapper';
+AS 'MODULE_PATHNAME', 'create_bm25_test_table';

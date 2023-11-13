@@ -44,6 +44,18 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1.6.1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # We also push to ECR, because we list on AWS Marketplace
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v1.5.0
+
       # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
       - name: Build and Push Docker Image to Docker Hub
         uses: depot/build-push-action@v1
@@ -89,3 +101,6 @@ jobs:
             paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}
             paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+            ${{ steps.ecr-login.outputs.registry }}/paradedb:latest
+            ${{ steps.ecr-login.outputs.registry }}/paradedb:${{ steps.version.outputs.tag }}
+            ${{ steps.ecr-login.outputs.registry }}/paradedb:${{ steps.version.outputs.version }}

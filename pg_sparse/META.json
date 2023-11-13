@@ -3,7 +3,7 @@
   "abstract": "Open-source svector similarity search for Postgres",
   "description": "Supports L2 distance, inner product, and cosine distance",
   "version": "0.5.1",
-  "maintainer": ["Andrew Kane <andrew@ankane.org>"],
+  "maintainer": ["ParadeDB <support@paradedb.com>", "Andrew Kane <andrew@ankane.org>"],
   "license": {
     "PostgreSQL": "http://www.postgresql.org/about/licence"
   },
@@ -19,27 +19,28 @@
       "file": "sql/svector.sql",
       "docfile": "README.md",
       "version": "0.5.1",
-      "abstract": "Open-source svector similarity search for Postgres"
+      "abstract": "Open-source sparse vector similarity search for Postgres"
     }
   },
   "resources": {
-    "homepage": "https://github.com/pgvector/pgvector",
+    "homepage": "https://github.com/paradedb/paradedb",
     "bugtracker": {
-      "web": "https://github.com/pgvector/pgvector/issues"
+      "web": "https://github.com/paradedb/paradedb/issues"
     },
     "repository": {
-      "url": "https://github.com/pgvector/pgvector.git",
-      "web": "https://github.com/pgvector/pgvector",
+      "url": "https://github.com/paradedb/paradedb.git",
+      "web": "https://github.com/paradedb/paradedb",
       "type": "git"
     }
   },
-  "generated_by": "Andrew Kane",
+  "generated_by": "ParadeDB",
   "meta-spec": {
     "version": "1.0.0",
     "url": "http://pgxn.org/meta/spec.txt"
   },
   "tags": [
     "vectors",
+    "sparse vectors",
     "datatype",
     "nearest neighbor search",
     "approximate nearest neighbors"

@@ -1,0 +1,4 @@
+comment = 'svector data type and ivfflat and shnsw access methods'
+default_version = '0.5.1'
+module_pathname = '$libdir/svector'
+relocatable = true

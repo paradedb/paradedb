@@ -15,3 +15,4 @@ target/
 
 # Code coverage
 *.profraw
+*.deb

@@ -44,6 +44,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
+      # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
       - name: Build and Push Docker Image to Docker Hub
         uses: depot/build-push-action@v1
         with:
@@ -87,4 +88,4 @@ jobs:
             paradedb/paradedb:latest
             paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}
-            paradedb/paradedb:pg${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+            paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}

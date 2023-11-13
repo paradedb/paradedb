@@ -22,6 +22,4 @@ IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables
 END $$;
 
 CREATE FUNCTION paradedb."create_bm25_test_table"() RETURNS void
-STRICT
-LANGUAGE c /* Rust */
-AS 'MODULE_PATHNAME', 'create_bm25_test_table';
+AS 'MODULE_PATHNAME' LANGUAGE C STRICT;

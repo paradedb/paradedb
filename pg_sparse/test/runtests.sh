@@ -139,7 +139,7 @@ function run_tests() {
     export TELEMETRY=false
 
     # First, download & install the first release at which we started supporting upgrades (v0.3.6)
-    BASE_RELEASE="0.3.3"
+    BASE_RELEASE="0.3.6"
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
     sudo dpkg -i "pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null

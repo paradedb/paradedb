@@ -97,7 +97,7 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
-          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
+          if [[ "${{ github.base_ref }}" == "dev" && "${{ matrix.pg_version }}" == "15" ]]; then
             # Retrieve the version to test upgrading to
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
               echo "New version not provided, assuming the next release is incrementing patch..."

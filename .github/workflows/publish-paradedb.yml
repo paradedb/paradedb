@@ -101,6 +101,6 @@ jobs:
             paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}
             paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
-            ${{ steps.ecr-login.outputs.registry }}/paradedb:latest
-            ${{ steps.ecr-login.outputs.registry }}/paradedb:${{ steps.version.outputs.tag }}
-            ${{ steps.ecr-login.outputs.registry }}/paradedb:${{ steps.version.outputs.version }}
+            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:latest
+            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.tag }}
+            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.version }}

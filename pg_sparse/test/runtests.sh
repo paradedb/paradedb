@@ -182,14 +182,10 @@ function run_tests() {
     make install
   fi
 
-  # Get a list of all tests
-  while IFS= read -r line; do
-    TESTS+=("$line")
-  done < <(find "${TESTDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
-
   # Execute tests using pg_regress
   echo "Running tests..."
-  ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
+  make installcheck        # regression tests
+  make prove_installcheck  # TAP tests
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.

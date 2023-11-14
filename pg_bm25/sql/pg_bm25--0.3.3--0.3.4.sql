@@ -20,8 +20,3 @@ IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables
         RAISE WARNING 'The table paradedb.logs already exists, skipping.';
     END IF;
 END $$;
-
--- CREATE FUNCTION paradedb."create_bm25_test_table"() RETURNS void
--- STRICT
--- LANGUAGE c /* Rust */
--- AS 'MODULE_PATHNAME', 'create_bm25_test_table_wrapper';

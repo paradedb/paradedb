@@ -132,18 +132,23 @@ function run_tests() {
   echo "Reloading PostgreSQL configuration..."
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
-  # Install dependencies
-  echo "Installing dependencies (pg_bm25 and pgvector) onto the test database..."
-  "$TESTDIR/../configure.sh" "$PG_VERSION"
-
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
     # Don't send telemetry when running tests
     export TELEMETRY=false
 
-    # First, download & install the first release at which we started supporting upgrades (v0.3.6)
+    # First, download & install dependencies
+    echo "Installing dependencies (pg_bm25 v$BASE_RELEASE and pgvector) onto the test database..."
     BASE_RELEASE="0.3.3"
+    # pg_bm25
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    curl -LOJ "$DOWNLOAD_URL" > /dev/null
+    sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
+    # pgvector
+    sudo apt-get install -y postgresql-15-pgvector > /dev/null
+
+    # Second, download & install the first release at which we started supporting upgrades (v0.3.3)
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
     sudo dpkg -i "pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
@@ -160,6 +165,10 @@ function run_tests() {
     # Fourth, upgrade the extension installed on the test database to the current version
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
   else
+    # Install dependencies
+    echo "Installing dependencies (pg_bm25 and pgvector) onto the test database..."
+    "$TESTDIR/../configure.sh" "$PG_VERSION"
+
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_search extension onto the test database..."
     cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile dev > /dev/null

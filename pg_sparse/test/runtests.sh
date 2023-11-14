@@ -145,7 +145,7 @@ function run_tests() {
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
 
   # Set permissions on the extension directory so that we can install the extension
-  sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/" "  /usr/include/postgresql/$PG_VERSION/server/extension/"
+  sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/" "/usr/include/postgresql/$PG_VERSION/server/extension/"
 
   # Configure pgrx to use system PostgreSQL
   echo "Initializing pgrx environment..."

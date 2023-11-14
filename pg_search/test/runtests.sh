@@ -139,8 +139,8 @@ function run_tests() {
     export TELEMETRY=false
 
     # First, download & install dependencies for the first release at which we started supporting upgrades (v0.3.3)
-    echo "Installing dependencies (pg_bm25 v$BASE_RELEASE and pgvector) onto the test database..."
     BASE_RELEASE="0.3.3"
+    echo "Installing dependencies (pg_bm25 v$BASE_RELEASE and pgvector) onto the test database..."
     # pg_bm25
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null

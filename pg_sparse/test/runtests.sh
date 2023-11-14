@@ -153,9 +153,9 @@ function run_tests() {
 
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
-    # echo "Running extension upgrade test..."
-    # # Don't send telemetry when running tests
-    # export TELEMETRY=false
+    echo "Running extension upgrade test..."
+    # Don't send telemetry when running tests
+    export TELEMETRY=false
 
     # # TODO: Figure out how we want to do versioning...
 

@@ -187,10 +187,6 @@ function run_tests() {
     TESTS+=("$line")
   done < <(find "${TESTDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
 
-  # Execute the fixtures to create the test data
-  echo "Loading test data..."
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db > /dev/null
-
   # Execute tests using pg_regress
   echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"

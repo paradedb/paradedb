@@ -138,8 +138,8 @@ function run_tests() {
     # Don't send telemetry when running tests
     export TELEMETRY=false
 
-    # First, download & install the first release at which we started supporting upgrades (v0.3.6)
-    BASE_RELEASE="0.3.6"
+    # First, download & install the first release at which we started supporting upgrades (v0.3.3)
+    BASE_RELEASE="0.3.3"
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
     sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null

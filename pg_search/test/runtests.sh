@@ -138,7 +138,7 @@ function run_tests() {
     # Don't send telemetry when running tests
     export TELEMETRY=false
 
-    # First, download & install dependencies
+    # First, download & install dependencies for the first release at which we started supporting upgrades (v0.3.3)
     echo "Installing dependencies (pg_bm25 v$BASE_RELEASE and pgvector) onto the test database..."
     BASE_RELEASE="0.3.3"
     # pg_bm25

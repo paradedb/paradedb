@@ -16,7 +16,7 @@ type: application
 # This is the chart version. This version number should be incremented each time you make changes
 # to the chart and its templates, including the app version.
 # Versions are expected to follow Semantic Versioning (https://semver.org/)
-# 
+#
 # This value gets filled in automatically during the CI release process.
 version: 0.0.0
 
@@ -24,6 +24,6 @@ version: 0.0.0
 # incremented each time you make changes to the application. Versions are not expected to
 # follow Semantic Versioning. They should reflect the version the application is using.
 # It is recommended to use it with quotes.
-# 
+#
 # This value gets filled in automatically during the CI release process.
 appVersion: 0.0.0

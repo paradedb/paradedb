@@ -1,5 +1,5 @@
 <h1 align="center">
-  <img src="https://raw.githubusercontent.com/paradedb/paradedb/dev/docs/logo/readme.svg" alt="ParadeDB" width="368px"></a>
+  <a href="https://paradedb.com"><img src="../docs/logo/readme.svg" alt="ParadeDB" width="368px"></a>
 <br>
 </h1>
 

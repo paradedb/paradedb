@@ -1970,7 +1970,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
- "serde_qs",
+ "serde_path_to_error",
  "shared",
  "utoipa",
 ]
@@ -2662,14 +2662,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_qs"
-version = "0.12.0"
+name = "serde_path_to_error"
+version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0431a35568651e363364210c91983c1da5eb29404d9f0928b67d4ebcfa7d330c"
+checksum = "4beec8bce849d58d06238cb50db2e1c417cfeafa4c63f692b15c82b7c80f8335"
 dependencies = [
- "percent-encoding",
+ "itoa",
  "serde",
- "thiserror",
 ]
 
 [[package]]

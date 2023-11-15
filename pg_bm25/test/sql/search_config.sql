@@ -1,17 +1,17 @@
 -- Basic seach query
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics');
 -- With trailing delimiter
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics:::');
 -- With limit
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics:::limit=2');
 -- With limit and trailing &
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics:::limit=2&');
 -- With limit and offset
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&offset=1';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics:::limit=2&offset=1');
 -- With fuzzy field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics:::fuzzy_fields=category';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electornics:::fuzzy_fields=category');
 -- Without fuzzy field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electornics');
 -- With fuzzy field and transpose_cost_one=false and distance=1
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:keybaord:::fuzzy_fields=description&transpose_cost_one=false&distance=1';
 -- With fuzzy field and transpose_cost_one=true and distance=1
@@ -19,7 +19,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 -- With fuzzy and regex field
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:com:::regex_fields=description&fuzzy_fields=description';
 -- With regex field 
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'com:::regex_fields=description');
 -- Default highlighting without max_num_chars
 SELECT description, rating, category, paradedb.highlight_bm25(search_config.id, 'idxsearchconfig', 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics' ORDER BY paradedb.rank_bm25(search_config.id) DESC LIMIT 5;
 -- max_num_chars is set to 14 

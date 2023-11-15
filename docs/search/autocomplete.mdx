@@ -14,14 +14,14 @@ When using regex search, you should not include the field name in the search que
 ```sql
 SELECT *
 FROM <table_name>
-WHERE <table_name> @@@ '<query>:::<regex_field_options>'
+WHERE <table_name> @@@ ('<index_name>', '<query>:::<regex_field_options>')
 ```
 
 <Accordion title="Example Usage">
 ```sql
 SELECT *
 FROM mock_items
-WHERE mock_items @@@ 'key:::regex_fields=description,category'
+WHERE mock_items @@@ ('idx_mock_items', 'key:::regex_fields=description,category')
 ```
 </Accordion>
 

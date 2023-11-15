@@ -73,3 +73,107 @@ BEGIN
         RAISE WARNING 'The table % already exists, skipping.', full_table_name;
     END IF;
 END $$;
+
+-- This create_bm25 function to dynamically create index and query functions
+-- Example:
+--
+-- CALL create_bm25(
+--     function_name => 'dynamicbm25',
+--     schema_name => 'paradedb',
+--     table_name => 'bm25_test_table',
+--     text_fields => '{"description": {}, "category": {}}'::text
+-- );
+
+--- This call will create a new function called 'dynamicbm25', which can be used to query.
+
+CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
+    index_name text,
+    table_name text,
+    schema_name text DEFAULT CURRENT_SCHEMA,
+    text_fields text DEFAULT '{}',
+    numeric_fields text DEFAULT '{}',
+    boolean_fields text DEFAULT '{}',
+    json_fields text DEFAULT '{}'
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+	-- Drop existing index and function if they exist
+	CALL paradedb.drop_bm25(
+		index_name => index_name,
+		schema_name => schema_name
+	);
+
+    -- Create the BM25 index
+    EXECUTE format('CREATE INDEX %I ON %I.%I USING bm25 ((%I.%I.*)) WITH (text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
+                   index_name, schema_name, table_name, schema_name, table_name, text_fields, numeric_fields, boolean_fields, json_fields);
+
+    -- Create the dynamic function
+    EXECUTE format($f$
+        CREATE OR REPLACE FUNCTION %I.%I(
+            query text,
+            offset_rows integer DEFAULT NULL,
+            limit_rows integer DEFAULT NULL,
+            fuzzy_fields text DEFAULT NULL,
+            distance integer DEFAULT NULL,
+            transpose_cost_one boolean DEFAULT NULL,
+            prefix text DEFAULT NULL,
+            regex_fields text DEFAULT NULL,
+            max_num_chars integer DEFAULT NULL
+        ) RETURNS SETOF %I.%I AS $func$
+        BEGIN
+        	RETURN QUERY SELECT * FROM %I.%I WHERE (%I.ctid) @@@ json_strip_nulls(
+        		json_build_object(
+        	    	'index_name', %L,
+            		'query', query,
+                	'offset_rows', offset_rows,
+                	'limit_rows', limit_rows,
+                	'fuzzy_fields', fuzzy_fields,
+                	'distance', distance,
+                	'transpose_cost_one', transpose_cost_one,
+                	'prefix', prefix,
+                	'regex_fields', regex_fields,
+                	'max_num_chars', max_num_chars
+            	)
+        	)::text;
+        	        END;
+        $func$ LANGUAGE plpgsql;
+    $f$, schema_name, index_name, schema_name, table_name, schema_name, table_name, table_name, index_name);
+END;
+$$;
+
+CREATE OR REPLACE PROCEDURE paradedb.drop_bm25(
+    index_name text,
+    schema_name text DEFAULT CURRENT_SCHEMA
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    function_exists int;
+    index_exists int;
+BEGIN
+    -- Check if the index exists
+    SELECT INTO index_exists COUNT(*)
+    FROM pg_class c
+    JOIN pg_namespace n ON c.relnamespace = n.oid
+    WHERE n.nspname = schema_name
+      AND c.relname = index_name
+      AND c.relkind = 'i';  -- 'i' for index
+
+    -- Check if the function exists
+    SELECT INTO function_exists COUNT(*)
+    FROM pg_proc p
+    JOIN pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = schema_name
+      AND p.proname = index_name;
+
+    -- Drop the BM25 index if it exists
+    IF index_exists > 0 THEN
+        EXECUTE format('DROP INDEX %I.%I;', schema_name, index_name);
+    END IF;
+
+    -- Drop the dynamic function if it exists
+    IF function_exists > 0 THEN
+        EXECUTE format('DROP FUNCTION %I.%I(query text, start integer, max_rows integer, fuzzy_fields text, distance integer, transpose_cost_one boolean, prefix text, regex_fields text, max_num_chars integer);',
+                       schema_name, index_name);
+    END IF;
+END;
+$$;

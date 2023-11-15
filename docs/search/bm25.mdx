@@ -20,7 +20,7 @@ name of the table, and the right-hand side accepts the query.
 ```sql
 SELECT *
 FROM <table_name>
-WHERE <table_name> @@@ '<query>'
+WHERE <table_name> @@@ ('index_name', '<query>')
 ```
 
 <ParamField body="table_name" required>

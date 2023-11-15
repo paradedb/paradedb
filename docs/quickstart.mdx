@@ -100,7 +100,7 @@ Let's execute a full-text search:
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics';
+WHERE mock_items @@@ ('idx_mock_items', 'description:keyboard OR category:electronics');
 ```
 
 <Accordion title="Expected Response">

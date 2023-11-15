@@ -98,7 +98,7 @@ Execute a search query on your indexed table:
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+WHERE mock_items @@@ ('idx_mock_items', 'description:keyboard OR category:electronics')
 LIMIT 5;
 ```
 
@@ -120,7 +120,7 @@ Scoring and highlighting are supported:
 ```sql
 SELECT description, rating, category, paradedb.rank_bm25(id), paradedb.highlight_bm25(id, 'idx_mock_items', 'description')
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+WHERE mock_items @@@ ('idx_mock_items', 'description:keyboard OR category:electronics')
 LIMIT 5;
 ```
 
@@ -142,7 +142,7 @@ Scores can be tuned via boosted queries:
 ```sql
 SELECT description, rating, category
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics';
+WHERE mock_items @@@ ('idx_mock_items', 'description:keyboard^2 OR category:electronics');
 ```
 
 New data that arrives or rows that are changed are automatically reindexed and searchable. For instance, let's create and search for a new row in our table:
@@ -152,7 +152,7 @@ INSERT INTO mock_items (description, rating, category) VALUES ('New keyboard', 5
 
 SELECT description, rating, category
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+WHERE mock_items @@@ ('idx_mock_items', 'description:keyboard OR category:electronics')
 LIMIT 5;
 ```
 

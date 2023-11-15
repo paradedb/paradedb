@@ -1,49 +1,49 @@
+use std::str::FromStr;
+
 use pgrx::*;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 
-#[pg_extern(immutable, parallel_safe)]
-fn search_tantivy(element: AnyElement, query: &str, fcinfo: pg_sys::FunctionCallInfo) -> bool {
-    let context = unsafe { (*fcinfo).context };
-    let index_not_found: &str = "Could not find a \"USING bm25\" index on this table";
+use crate::index_access::utils::{get_parade_index, SearchConfig};
 
-    let index_oid = unsafe {
-        let planner_info = (context as *mut pg_sys::PlannerInfo)
-            .as_ref()
-            .expect(index_not_found);
-        let rte_array = (*planner_info.simple_rte_array).as_ref().unwrap();
-        let root_oid = rte_array.relid;
+#[pg_extern]
+fn search_tantivy(
+    element: AnyElement,
+    config_json: &str,
+    fcinfo: pg_sys::FunctionCallInfo,
+) -> bool {
+    let default_hash_set = || {
+        let search_config =
+            SearchConfig::from_str(config_json).expect("could not parse search config");
 
-        let table = pg_sys::relation_open(root_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-        let table_relation = PgRelation::from_pg(table);
-        let table_name = table_relation.name().to_string();
+        let parade_index = get_parade_index(&search_config.index_name);
+        let mut scan_state = parade_index.scan_state(&search_config);
+        let top_docs = scan_state.search();
+        let mut hs = FxHashSet::default();
 
-        match get_index_oid(&table_name, "bm25") {
-            Ok(Some(oid)) => oid,
-            _ => panic!("{}", index_not_found),
+        for (_, doc_address) in top_docs {
+            let heap_tid_value = scan_state.heap_tid(doc_address);
+            hs.insert(heap_tid_value);
         }
+
+        hs
     };
+
+    let hash_set = unsafe { pg_func_extra(fcinfo, default_hash_set) };
 
     let tid = if element.oid() == pg_sys::TIDOID {
-        Some(item_pointer_to_u64(
-            unsafe { pg_sys::ItemPointerData::from_datum(element.datum(), false) }.unwrap(),
-        ))
+        item_pointer_to_u64(
+            unsafe { pg_sys::ItemPointerData::from_datum(element.datum(), false) }
+                .expect("could not create item pointer from tuple"),
+        )
     } else {
-        panic!("{}", index_not_found);
+        let search_config: SearchConfig =
+            SearchConfig::from_str(config_json).expect("could not parse search config");
+        let index_name = search_config.index_name;
+
+        panic!("the index {index_name} doesn't exist. call create_bm25 first.");
     };
 
-    match tid {
-        Some(tid) => unsafe {
-            let mut lookup_by_query = pg_func_extra(fcinfo, || {
-                FxHashMap::<(pg_sys::Oid, Option<String>), FxHashSet<u64>>::default()
-            });
-
-            lookup_by_query
-                .entry((index_oid, Some(String::from(query))))
-                .or_insert_with(|| scan_index(query, index_oid))
-                .contains(&tid)
-        },
-        None => false,
-    }
+    hash_set.contains(&tid)
 }
 
 #[inline]
@@ -100,6 +100,7 @@ pub fn scan_index(query: &str, index_oid: pg_sys::Oid) -> FxHashSet<u64> {
     }
 }
 
+#[cfg(any(test, feature = "pg_test"))]
 pub fn get_index_oid(
     table_name: &str,
     index_method: &str,

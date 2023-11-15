@@ -71,7 +71,7 @@ The end result is the ability to search any table with a single SQL query.
 ```sql
 SELECT *
 FROM my_table
-WHERE my_table @@@ '"my query string"'
+WHERE my_table @@@ ('idx_mock_items', '"my query string"')
 ```
 
 Wherever possible, we designed the SQL interface, ParadeQL, to transparently mirror Tantivy's API. For instance,

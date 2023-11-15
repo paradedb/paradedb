@@ -1,0 +1,3 @@
+Thanks for installing ParadeDB! You can check your Postgres credentials by running:
+
+$ kubectl -n {{ .Release.Namespace }} get secrets {{ include "cluster.name" . }}-app -o yaml

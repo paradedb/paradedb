@@ -1,0 +1,108 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: {{ include "cluster.name" . }}
+  labels:
+{{include "cluster.labels" . | indent 4 }}
+spec:
+{{- if .Values.cluster.description }}
+  description: {{ .Values.cluster.description }}
+{{- end }}
+  imageName: {{ .Values.cluster.imageName | default (include "cluster.image" .) }}
+{{- if .Values.cluster.imagePullPolicy }}
+  imagePullPolicy: {{ .Values.cluster.imagePullPolicy }}
+{{- end }}
+  instances: {{ .Values.cluster.instances }}
+{{- if .Values.cluster.certificates }}
+  certificates: 
+{{ toYaml .Values.cluster.certificates | indent 4}}
+{{- end }}
+{{- if .Values.cluster.startDelay }}
+  startDelay: {{ .Values.cluster.startDelay }}
+{{- end }}
+{{- if .Values.cluster.stopDelay }}
+  stopDelay: {{ .Values.cluster.stopDelay }}
+{{- end }}
+{{- if .Values.cluster.primaryUpdateStrategy }}
+  primaryUpdateStrategy: {{ .Values.cluster.primaryUpdateStrategy }}
+{{- end }}
+
+{{- if .Values.cluster.postgresql }}
+  postgresql:
+{{- if .Values.cluster.postgresql.parameters }}
+    parameters:
+{{ toYaml .Values.cluster.postgresql.parameters | indent 6 }}
+{{- end }}
+{{- if .Values.cluster.postgresql.pg_hba }}
+    pg_hba: 
+{{ toYaml .Values.cluster.postgresql.pg_hba | indent 6 }}
+{{- end }}
+{{- if .Values.cluster.postgresql.shared_preload_libraries }}
+    shared_preload_libraries: 
+{{ toYaml .Values.cluster.postgresql.shared_preload_libraries | indent 6 }}
+{{- end }}
+{{- end }}
+
+{{- if .Values.cluster.bootstrap }}
+  bootstrap:
+    initdb:
+      database: {{ .Values.cluster.bootstrap.initdb.database }}
+      owner: {{ .Values.cluster.bootstrap.initdb.owner }}
+{{- if and .Values.auth .Values.auth.appUserCredentials }}
+      secret:
+        name: {{ .Values.auth.appUserCredentials.name }}
+{{- end }}
+
+{{- if .Values.cluster.bootstrap.initdb.postInitApplicationSQL }}
+      postInitApplicationSQL: 
+{{ toYaml .Values.cluster.bootstrap.initdb.postInitApplicationSQL | indent 6 }}
+{{- end }}
+
+{{- end }}
+
+{{- if .Values.cluster.superUserSecret }}
+  superUserSecret:
+    name: {{ .Values.auth.superUserCredentials.name }}
+{{- end }}
+
+{{- if .Values.cluster.storage }}
+  storage:
+    storageClass: {{ .Values.cluster.storage.storageClass }}
+    size: {{ .Values.cluster.storage.size }}
+{{- end }}
+
+{{- if .Values.cluster.backup }}
+  backup:
+{{- if .Values.cluster.backup.barmanObjectStore }}
+    barmanObjectStore:
+{{ toYaml .Values.cluster.backup.barmanObjectStore | indent 6 }}
+{{- end }}
+    retentionPolicy: {{ .Values.cluster.backup.retentionPolicy }}
+{{- end }}
+
+{{- if .Values.cluster.resources }}
+  resources:
+    requests:
+      memory: {{ .Values.cluster.resources.requests.memory }}
+      cpu: {{ .Values.cluster.resources.requests.cpu }}
+    limits:
+      memory: {{ .Values.cluster.resources.limits.memory }}
+      cpu: {{ .Values.cluster.resources.limits.cpu }}
+{{- end }}
+
+{{- if .Values.cluster.monitoring }}
+  monitoring:
+{{ toYaml .Values.cluster.monitoring | indent 4 }}
+{{- end }}
+
+{{- if .Values.cluster.affinity }}
+  affinity:
+    enablePodAntiAffinity: {{ .Values.cluster.affinity.enablePodAntiAffinity }}
+    topologyKey: {{ .Values.cluster.affinity.topologyKey }}
+{{- end }}
+
+{{- if .Values.cluster.nodeMaintenanceWindow }}
+  nodeMaintenanceWindow:
+    inProgress: {{ .Values.cluster.nodeMaintenanceWindow.inProgress }}
+    reusePVC: {{ .Values.cluster.nodeMaintenanceWindow.reusePVC }}
+{{- end }}

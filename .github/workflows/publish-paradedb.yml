@@ -122,6 +122,14 @@ jobs:
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
 
+      # Both versions are stored in GitHub Actions Variables
+      - name: Set Helm Chart Release Versions
+        working-directory: helm/charts/paradedb/
+        run: |
+          # Update appVersion to the GitHub Release version and version to the Helm Chart version
+          sed -i 's/^appVersion: .*/appVersion: ${GITHUB_REF#refs/tags/v}/' Chart.yaml
+          sed -i 's/^version: .*/version: ${{ vars.HELM_VERSION_MAJOR }}.${{ vars.HELM_VERSION_MINOR }}.${{ vars.HELM_VERSION_PATCH }}/' Chart.yaml
+
       - name: Release ParadeDB Helm Chart
         uses: helm/chart-releaser-action@v1.5.0
         env:

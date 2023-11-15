@@ -26,5 +26,5 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check Helm Formatting
-        working-directory: helm/
+        working-directory: helm/charts/paradedb
         run: helm lint . --strict

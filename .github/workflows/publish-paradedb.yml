@@ -86,7 +86,7 @@ jobs:
             HYPOPG_VERSION=1.4.0
             RUM_VERSION=1.3.13
             AGE_VERSION=1.4.0
-            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}}
+            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
             TELEMETRY=true

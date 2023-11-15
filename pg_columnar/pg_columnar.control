@@ -1,6 +1,0 @@
-comment = 'pg_columnar:  Created by pgrx'
-default_version = '@CARGO_VERSION@'
-module_pathname = '$libdir/pg_columnar'
-relocatable = false
-superuser = true
-schema = paradedb

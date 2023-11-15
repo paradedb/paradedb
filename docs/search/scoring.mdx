@@ -14,7 +14,7 @@ column as an argument, which usually is the primary key column of your table.
 ```sql
 SELECT *, paradedb.rank_bm25(<key_field>)
 FROM <table_name>
-WHERE <table_name> @@@ '<query>'
+WHERE <table_name> @@@ ('<index_name>', '<query>')
 ```
 
 <ParamField body="table_name" required>

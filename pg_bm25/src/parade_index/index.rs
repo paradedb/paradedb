@@ -9,14 +9,14 @@ use std::ffi::{CStr, CString};
 use std::fs::{self, create_dir_all, remove_dir_all, File};
 use std::io::Write;
 use std::path::Path;
+use tantivy::query::Query;
+use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher, Term};
 use tantivy::{
-    query::{Query, QueryParser},
-    schema::*,
-    DocAddress, Document, Index, IndexSettings, Score, Searcher, Term,
+    DocAddress, IndexReader, IndexWriter, Score, SingleSegmentIndexWriter, TantivyError,
 };
-use tantivy::{IndexReader, IndexWriter, SingleSegmentIndexWriter, TantivyError};
 
 use crate::index_access::options::ParadeOptions;
+use crate::index_access::utils::SearchConfig;
 use crate::json::builder::{JsonBuilder, JsonBuilderValue};
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
@@ -311,28 +311,19 @@ impl ParadeIndex {
         stats_binding
     }
 
-    pub fn scan(&self) -> TantivyScanState {
-        self.reload();
-        let schema = self.underlying_index.schema();
-
-        let searcher = self.searcher();
-
-        let query_parser = QueryParser::for_index(
+    pub fn query_parser(&self) -> QueryParser {
+        QueryParser::for_index(
             &self.underlying_index,
-            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-        );
-        let empty_query = query_parser.parse_query("").unwrap();
+            self.schema()
+                .fields()
+                .map(|(field, _)| field)
+                .collect::<Vec<_>>(),
+        )
+    }
 
-        let key_field_name = self.key_field_name.to_string();
-
-        TantivyScanState {
-            schema,
-            query: empty_query,
-            query_parser,
-            searcher,
-            iterator: std::ptr::null_mut(),
-            key_field_name,
-        }
+    pub fn scan_state(&self, config: &SearchConfig) -> TantivyScanState {
+        self.reload();
+        TantivyScanState::new(self, config)
     }
 
     pub fn schema(&self) -> Schema {

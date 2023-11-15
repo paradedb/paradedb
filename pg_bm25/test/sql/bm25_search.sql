@@ -6,12 +6,12 @@ WHERE bm25_search @@@ 'description:keyboard OR category:electronics';
 -- With BM25 scoring
 SELECT paradedb.rank_bm25(bm25_search.id), * 
 FROM bm25_search 
-WHERE bm25_search @@@ 'category:electronics OR description:keyboard';
+WHERE bm25_search @@@ ('idxmockitems', 'category:electronics OR description:keyboard');
 
 -- Test JSON search 
 SELECT *
 FROM bm25_search
-WHERE bm25_search @@@ 'metadata.color:white';
+WHERE bm25_search @@@ ('idxmockitems', 'metadata.color:white');
 
 -- Test real-time search
 INSERT INTO bm25_search (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
@@ -24,9 +24,12 @@ WHERE bm25_search @@@ 'description:keyboard OR category:electronics';
 -- Test search in another namespace/schema
 SELECT *
 FROM paradedb.bm25_test_table
-WHERE bm25_test_table @@@ 'description:keyboard';
+WHERE bm25_test_table @@@ ('idxmockitems', 'description:keyboard');
 
 -- Test search with default tokenizer: no results
 SELECT *
 FROM paradedb.bm25_test_table
-WHERE bm25_test_table @@@ 'description:earbud';
+WHERE bm25_test_table @@@ ('idxmockitems', 'description:earbud');
+
+-- Test sequential scan syntax
+SELECT * FROM paradedb.bm25_test_table WHERE paradedb.search_tantivy(paradedb.bm25_test_table.ctid, ('idxmockitems', 'category:electronics'));

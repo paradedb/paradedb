@@ -16,7 +16,7 @@ query. This function only works over text fields.
 ```sql
 SELECT *, paradedb.highlight_bm25(id, '<index_name>', '<column_name>')
 FROM <table_name>
-WHERE <table_name> @@@ '<query>'
+WHERE <table_name> @@@ ('<index_name>', '<query>')
 ```
 
 <ParamField body="index_name" required>
@@ -45,6 +45,6 @@ highlighted snippet of text.
 ```sql
 SELECT description, rating, category, paradedb.rank_bm25(id), paradedb.highlight_bm25(id, 'idx_mock_items', 'description')
 FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics:::max_num_chars=14'
+WHERE mock_items @@@ ('idx_mock_items', 'description:keyboard OR category:electronics:::max_num_chars=14')
 LIMIT 5;
 ```

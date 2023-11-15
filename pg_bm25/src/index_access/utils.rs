@@ -21,16 +21,12 @@ pub struct CategorizedAttribute {
     pub attno: usize,
 }
 
-#[derive(Debug, Deserialize, PartialEq)]
-pub struct SearchQuery {
+#[derive(Debug, Deserialize, Default, Clone, PartialEq)]
+pub struct SearchConfig {
     pub query: String,
-    pub config: SearchQueryConfig,
-}
-
-#[derive(Debug, Deserialize, Default, PartialEq)]
-pub struct SearchQueryConfig {
-    pub offset: Option<usize>,
-    pub limit: Option<usize>,
+    pub index_name: String,
+    pub offset_rows: Option<usize>,
+    pub limit_rows: Option<usize>,
     #[serde(default, deserialize_with = "from_csv")]
     pub fuzzy_fields: Vec<String>,
     pub distance: Option<u8>,
@@ -41,24 +37,12 @@ pub struct SearchQueryConfig {
     pub max_num_chars: Option<usize>,
 }
 
-impl FromStr for SearchQuery {
-    type Err = serde_qs::Error;
+impl FromStr for SearchConfig {
+    type Err = serde_path_to_error::Error<json5::Error>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut parts = s.rsplitn(2, ":::");
-
-        let config_part = parts.next().unwrap_or("");
-        let query = parts.next().unwrap_or_default().to_string();
-
-        if query.is_empty() {
-            Ok(SearchQuery {
-                query: config_part.to_string(),
-                config: SearchQueryConfig::default(),
-            })
-        } else {
-            let config: SearchQueryConfig = serde_qs::from_str(config_part)?;
-            Ok(SearchQuery { query, config })
-        }
+        let mut deserializer = json5::Deserializer::from_str(s).expect("input is not valid json");
+        serde_path_to_error::deserialize(&mut deserializer)
     }
 }
 
@@ -354,10 +338,7 @@ where
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::{
-        categorize_tupdesc, handle_as_generic_string, lookup_index_tupdesc, SearchQuery,
-        SearchQueryConfig,
-    };
+    use super::{categorize_tupdesc, handle_as_generic_string, lookup_index_tupdesc, SearchConfig};
     use crate::json::builder::{JsonBuilder, JsonBuilderValue};
     use crate::operator::get_index_oid;
     use pgrx::*;
@@ -366,15 +347,13 @@ mod tests {
     #[pg_test]
     fn convert_str_to_search_query() {
         let query = "lyrics:im:::limit=10&offset=50";
-        let expected = SearchQuery {
+        let expected = SearchConfig {
             query: "lyrics:im".to_string(),
-            config: SearchQueryConfig {
-                offset: Some(50),
-                limit: Some(10),
-                ..Default::default()
-            },
+            offset_rows: Some(50),
+            limit_rows: Some(10),
+            ..Default::default()
         };
-        let search_query: SearchQuery = query.parse().expect("failed to parse query");
+        let search_query: SearchConfig = query.parse().expect("failed to parse query");
         assert_eq!(search_query, expected);
     }
 

@@ -1,9 +1,5 @@
 use std::collections::HashMap;
-use tantivy::{
-    query::Query,
-    schema::{FieldType, Schema},
-    DocAddress, Document, Searcher, Snippet, SnippetGenerator,
-};
+use tantivy::{DocAddress, Document, Snippet, SnippetGenerator};
 
 static mut MANAGER: Manager = Manager::new();
 
@@ -82,38 +78,11 @@ impl Manager {
         self.doc_addresses.as_mut().unwrap().get(&bm25_id).copied()
     }
 
-    pub fn add_snippet_generators(
+    pub fn set_snippet_generators(
         &mut self,
-        searcher: &Searcher,
-        schema: &Schema,
-        query: &dyn Query,
-        highlights_max_num_chars: Option<usize>,
+        snippet_generators: HashMap<String, SnippetGenerator>,
     ) {
-        // Because we're adding the whole schema at once, we can replace to make sure
-        // that we're adding to a clean hash map.
-
-        self.snippet_generators.replace(HashMap::new());
-        for field in schema.fields() {
-            let field_name = field.1.name().to_string();
-
-            if let FieldType::Str(_) = field.1.field_type() {
-                let mut snippet_generator = SnippetGenerator::create(searcher, query, field.0)
-                    .unwrap_or_else(|err| {
-                        panic!(
-                            "failed to create snippet generator for field: {field_name}... {err}"
-                        )
-                    });
-
-                if let Some(max_num_chars) = highlights_max_num_chars {
-                    snippet_generator.set_max_num_chars(max_num_chars);
-                }
-
-                self.snippet_generators
-                    .as_mut()
-                    .unwrap()
-                    .insert(field_name, snippet_generator);
-            }
-        }
+        self.snippet_generators.replace(snippet_generators);
     }
 
     pub fn get_highlight(&mut self, field_name: &str, doc: &Document) -> Option<String> {
@@ -139,16 +108,10 @@ impl Manager {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use std::collections::HashMap;
-
-    use tantivy::{
-        doc,
-        query::{Query, RegexQuery},
-        schema::{Field, Schema, TEXT},
-        DocAddress, Document, Index, Searcher, SnippetGenerator,
-    };
-
     use super::{get_current_executor_manager, get_fresh_executor_manager};
+    use std::collections::HashMap;
+    use tantivy::doc;
+    use tantivy::DocAddress;
 
     #[pgrx::pg_test]
     fn test_fresh_executor_manager() {
@@ -213,91 +176,5 @@ mod tests {
 
         assert_eq!(&expected, manager.doc_addresses.as_mut().unwrap());
         assert_eq!(manager.doc_addresses.as_mut().unwrap().len(), 2);
-    }
-
-    fn prepare_schema() -> tantivy::Result<(Schema, Searcher, Field)> {
-        let mut schema_builder = Schema::builder();
-        let title = schema_builder.add_text_field("title", TEXT);
-        let schema = schema_builder.build();
-        let index = Index::create_in_ram(schema.clone());
-
-        {
-            let mut index_writer = index.writer(3_000_000)?;
-            index_writer.add_document(doc!(
-                title => "The Name of the Wind",
-            ))?;
-            index_writer.add_document(doc!(
-                title => "The Diary of Muadib",
-            ))?;
-            index_writer.add_document(doc!(
-                title => "A Dairy Cow",
-            ))?;
-            index_writer.add_document(doc!(
-                title => "The Diary of a Young Girl",
-            ))?;
-            index_writer.commit()?;
-        }
-
-        let reader = index.reader()?;
-        let searcher = reader.searcher();
-        Ok((schema, searcher, title))
-    }
-
-    #[pgrx::pg_test]
-    fn test_add_snippet_generators() -> tantivy::Result<()> {
-        let (schema, searcher, title) = prepare_schema()?;
-        let query: Box<dyn Query> = Box::new(RegexQuery::from_pattern("d[ai]{2}ry", title)?);
-
-        let manager = get_fresh_executor_manager();
-        manager.add_snippet_generators(&searcher, &schema, &query, Some(3));
-        let snippet_generators = manager.snippet_generators.as_mut().unwrap();
-
-        assert_eq!(snippet_generators.len(), 1);
-        assert!(snippet_generators.get("title").is_some());
-        assert!(snippet_generators.get("id").is_none());
-
-        Ok(())
-    }
-
-    #[pgrx::pg_test]
-    #[should_panic]
-    fn fail_get_highlight() {
-        let (schema, searcher, title) = prepare_schema().unwrap();
-        let query: Box<dyn Query> =
-            Box::new(RegexQuery::from_pattern("d[ai]{2}ry", title).unwrap());
-
-        let manager = get_fresh_executor_manager();
-        manager.add_snippet_generators(&searcher, &schema, &query, None);
-
-        let mut doc = Document::default();
-        doc.add_text(title, "Diary of The Dairy Cow");
-
-        manager.get_highlight("me", &doc);
-    }
-
-    #[pgrx::pg_test]
-    fn test_get_highlight() {
-        let (schema, searcher, title) = prepare_schema().unwrap();
-        let query: Box<dyn Query> =
-            Box::new(RegexQuery::from_pattern("d[ai]{2}ry", title).unwrap());
-
-        let manager = get_fresh_executor_manager();
-        manager.add_snippet_generators(&searcher, &schema, &query, None);
-
-        let mut doc = Document::default();
-        doc.add_text(title, "Diary of The Dairy Cow");
-
-        let highlight = manager.get_highlight("title", &doc);
-        assert_eq!(highlight, Some("".to_string()));
-    }
-
-    #[pgrx::pg_test]
-    fn test_parse_snippet() {
-        let (_schema, searcher, title) = prepare_schema().unwrap();
-        let query: Box<dyn Query> =
-            Box::new(RegexQuery::from_pattern("d[ai]{2}ry", title).unwrap());
-        let snippet_generator = SnippetGenerator::create(&searcher, &query, title).unwrap();
-        let snippet = snippet_generator.snippet("pg_bm25 is a postgres extension by paradedb");
-        assert_eq!("", snippet.to_html());
     }
 }

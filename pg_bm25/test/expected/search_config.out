@@ -1,5 +1,5 @@
 -- Basic seach query
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics');
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics
@@ -10,7 +10,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (5 rows)
 
 -- With trailing delimiter
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics:::');
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics
@@ -21,7 +21,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (5 rows)
 
 -- With limit
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics:::limit=2');
  id |       description        | rating |  category   
 ----+--------------------------+--------+-------------
   1 | Ergonomic metal keyboard |      4 | Electronics
@@ -29,7 +29,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (2 rows)
 
 -- With limit and trailing &
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics:::limit=2&');
  id |       description        | rating |  category   
 ----+--------------------------+--------+-------------
   1 | Ergonomic metal keyboard |      4 | Electronics
@@ -37,7 +37,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (2 rows)
 
 -- With limit and offset
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&offset=1';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electronics:::limit=2&offset=1');
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   2 | Plastic Keyboard            |      4 | Electronics
@@ -45,7 +45,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (2 rows)
 
 -- With fuzzy field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics:::fuzzy_fields=category';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electornics:::fuzzy_fields=category');
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics
@@ -56,7 +56,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (5 rows)
 
 -- Without fuzzy field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'category:electornics');
  id | description | rating | category 
 ----+-------------+--------+----------
 (0 rows)
@@ -79,7 +79,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:com:::regex_fields=description&fuzzy_fields=description';
 ERROR:  cannot search with both regex_fields and fuzzy_fields
 -- With regex field 
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ ('idxmockitems', 'com:::regex_fields=description');
  id |      description       | rating |  category   
 ----+------------------------+--------+-------------
   6 | Compact digital camera |      5 | Photography

@@ -53,15 +53,10 @@ ParadeDB uses Docker to develop, package, and deploy our software.
 for automating deployment, scaling, and management of containerized applications.
 ParadeDB uses Kubernetes to deploy our software.
 
-## Patroni
+## CloudNativePG
 
-[Patroni](https://github.com/zalando/patroni) is a template for high availability
-(HA) PostgreSQL solutions. ParadeDB uses Patroni to enable high availability within
-our PostgreSQL clusters.
-
-## PGO
-
-[PGO](https://github.com/CrunchyData/postgres-operator) is a PostgreSQL Operator
-for production-grade PostgreSQL clusters on Kubernetes. It enables features like
-high availability, disaster recovery, and monitoring. ParadeDB uses PGO to manage
-our PostgreSQL clusters.
+[CloudNativePG](https://github.com/cloudnative-pg/cloudnative-pg) is a PostgreSQL
+operator for production-grade PostgreSQL clusters on Kubernetes. It covers the full
+lifecycle of a highly available PostgreSQL database cluster with a primary/standby
+architecture, using native streaming replication. ParadeDB uses CloudNativePG to
+manage our PostgreSQL clusters.

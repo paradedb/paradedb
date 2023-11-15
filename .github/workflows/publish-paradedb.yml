@@ -1,8 +1,8 @@
 # workflows/publish-paradedb.yml
 #
 # Publish ParadeDB
-# Publish ParadeDB as a Docker image to Docker Hub. This workflow only runs after a GitHub Release gets
-# created, which happens once we merge to `main`.
+# Publish ParadeDB as a Docker image to Docker Hub and as a Helm Chart to paradedb.github.io. This
+# workflow only runs after a GitHub Release gets created, which happens once we merge to `main`.
 
 name: Publish ParadeDB
 
@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish-paradedb:
+  publish-paradedb-to-dockerhub:
     name: Publish ParadeDB for PostgreSQL ${{ matrix.pg_version }} to Docker Hub
     runs-on: ubuntu-latest
     strategy:
@@ -103,3 +103,26 @@ jobs:
             709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:latest
             709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.tag }}
             709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.version }}
+
+  publish-paradedb-helm-chart:
+    name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [15]
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Configure Git
+        run: |
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
+
+      - name: Release ParadeDB Helm Chart
+        uses: helm/chart-releaser-action@v1.5.0
+        env:
+          CR_TOKEN: "${{ secrets.GITHUB_TOKEN }}"

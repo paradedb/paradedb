@@ -7,6 +7,7 @@
 /dashboard/                                                    @rebasedming
 /docker/                                                       @philippemnoel
 /docs/                                                         @rebasedming
+/helm/                                                         @mauaraujo
 /pg_bm25/                                                      @rebasedming @neilyio
 /pg_search/                                                    @rebasedming @neilyio
 /pg_sparse/                                                    @rebasedming @sardination

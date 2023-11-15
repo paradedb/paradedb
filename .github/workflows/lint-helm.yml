@@ -1,0 +1,30 @@
+# workflows/lint-helm.yml
+#
+# Lint Helm
+# Lint Helm Charts using Helm.
+
+name: Lint Helm
+
+on:
+  pull_request:
+    paths:
+      - "helm/*"
+      - ".github/workflows/lint-helm.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lint-helm-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-helm:
+    name: Lint Helm Charts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Check Helm Formatting
+        working-directory: helm/
+        run: helm lint . --strict

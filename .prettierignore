@@ -8,6 +8,7 @@
 /docs/blog/introducing_bm25.mdx
 /docs/search/autocomplete.mdx
 /docs/search/fuzzy.mdx
+/helm/charts/paradedb/
 /pg_bm25/target/
 /pg_search/pgvector/
 /pg_search/target/

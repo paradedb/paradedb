@@ -16,16 +16,15 @@
 
 ---
 
-# Helm Chart
+# ParadeDB Helm Chart
 
-This repository contains the Helm chart for deploying and managing ParadeDB on
-Kubernetes.
+This repository contains the Helm chart for deploying and managing ParadeDB on Kubernetes.
 
 ## Prerequisites
 
 - A Kubernetes cluster with at least v1.21
 - [Helm](https://helm.sh/)
-- [CloudNative Operator](https://cloudnative-pg.io/) installed on the cluster
+- [CloudNative Operator](https://cloudnative-pg.io/) installed on the Kubernetes cluster
 
 ## Usage
 
@@ -68,36 +67,39 @@ for more information.
 
 ### Install ParadeDB Helm Chart
 
-Once the operator is installed, add the ParadeDB repo to helm as follows:
+Once the operator is installed, add the ParadeDB repo to Helm as follows:
 
-    helm repo add paradedb https://paradedb.github.io/helm-charts
+```bash
+helm repo add paradedb https://paradedb.github.io/helm-charts
+```
 
-If you had already added this repo earlier, run `helm repo update` to retrieve
-the latest versions of the packages. You can then run
-`helm search repo paradedb` to see the charts.
+If you had already added this repository earlier, run `helm repo update` to retrieve the
+latest versions of the packages. You can then run `helm search repo paradedb` to see the charts.
 
-To install the paradedb chart:
+To install the `paradedb` chart:
 
-    helm install my-db paradedb/paradedb
+```bash
+helm install <my-db> paradedb/paradedb
+```
 
 To uninstall the chart:
 
-    helm delete my-db
+```bash
+helm delete <my-db>
+```
 
 ## Configuration
 
-The ParadeDB Helm chart can be configured using the values.yaml file or by
+The ParadeDB Helm chart can be configured using the `values.yaml`` file or by
 specifying values on the command line during installation.
 
-Check the
-[values.yaml](https://github.com/paradedb/helm-charts/blob/main/charts/paradedb/values.yaml)
+Check the [values.yaml](https://github.com/paradedb/helm-charts/blob/main/charts/paradedb/values.yaml)
 file for more information.
 
 ## Development
 
-For local development, its recommended to use a local Kubernetes cluster like
-[Minikube](https://minikube.sigs.k8s.io/docs/) or
-[kind](https://kind.sigs.k8s.io/). Then install by doing the following:
+For local development, it is recommended to use a local Kubernetes cluster like [Minikube](https://minikube.sigs.k8s.io/docs/)
+or [kind](https://kind.sigs.k8s.io/). Then, install ParadeDB by doing the following:
 
 1. Clone this repository:
 
@@ -123,14 +125,8 @@ helm dep up
 helm install paradedb paradedb --namespace paradedb --create-namespace
 ```
 
-You are set!
-
-## Contributing
-
-For more information on how to contribute, please see our
-[Contributing Guide](CONTRIBUTING.md).
+You are now all set to start developing and testing locally!
 
 ## License
 
-ParadeDB is licensed under the
-[GNU Affero General Public License v3.0](LICENSE).
+ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE).

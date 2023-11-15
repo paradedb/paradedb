@@ -7,7 +7,7 @@ data:
 kind: Secret
 metadata:
   name: {{ .Values.auth.appUserCredentials.name }}
-  labels: 
+  labels:
 {{include "cluster.labels" . | indent 4 }}
 type: kubernetes.io/basic-auth
 {{- end }}

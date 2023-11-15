@@ -14,7 +14,7 @@ spec:
 {{- end }}
   instances: {{ .Values.cluster.instances }}
 {{- if .Values.cluster.certificates }}
-  certificates: 
+  certificates:
 {{ toYaml .Values.cluster.certificates | indent 4}}
 {{- end }}
 {{- if .Values.cluster.startDelay }}
@@ -34,11 +34,11 @@ spec:
 {{ toYaml .Values.cluster.postgresql.parameters | indent 6 }}
 {{- end }}
 {{- if .Values.cluster.postgresql.pg_hba }}
-    pg_hba: 
+    pg_hba:
 {{ toYaml .Values.cluster.postgresql.pg_hba | indent 6 }}
 {{- end }}
 {{- if .Values.cluster.postgresql.shared_preload_libraries }}
-    shared_preload_libraries: 
+    shared_preload_libraries:
 {{ toYaml .Values.cluster.postgresql.shared_preload_libraries | indent 6 }}
 {{- end }}
 {{- end }}
@@ -54,7 +54,7 @@ spec:
 {{- end }}
 
 {{- if .Values.cluster.bootstrap.initdb.postInitApplicationSQL }}
-      postInitApplicationSQL: 
+      postInitApplicationSQL:
 {{ toYaml .Values.cluster.bootstrap.initdb.postInitApplicationSQL | indent 6 }}
 {{- end }}
 

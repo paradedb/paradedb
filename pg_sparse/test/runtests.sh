@@ -58,7 +58,6 @@ do
 done
 
 OS_NAME=$(uname)
-TESTDIR="$(dirname "$0")"
 export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password

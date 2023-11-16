@@ -86,7 +86,7 @@ RUN apk update && apk add --no-cache \
     && rm -rf /var/lib/apt/lists/*
 
 RUN apk update && apk add --no-cache \
-    postgresql-server-dev-${PG_VERSION_MAJOR} \
+    postgresql${PG_VERSION_MAJOR}-dev \
     && rm -rf /var/lib/apt/lists/*
 
 ###############################################

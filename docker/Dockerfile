@@ -4,7 +4,7 @@ ARG PG_VERSION_MAJOR
 # First Stage: Base
 ###############################################
 
-FROM postgres:${PG_VERSION_MAJOR}-bookworm as base
+FROM postgres:${PG_VERSION_MAJOR}-alpine as base
 
 # Declare all the build arguments and set them to
 # environment variables for use in build and runtime

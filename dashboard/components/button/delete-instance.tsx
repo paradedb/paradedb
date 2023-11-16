@@ -26,7 +26,7 @@ const DeleteInstanceButton = ({
   return (
     <SecondaryButton
       icon={ExclamationCircleIcon}
-      size="xl"
+      size="md"
       onClick={onClick}
       loading={loading}
       {...props}

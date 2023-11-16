@@ -14,3 +14,7 @@
 .fadeIn {
   animation: fadeIn 1s ease-in-out;
 }
+
+.scrollbar-hidden::-webkit-scrollbar {
+  width: 0px;
+}

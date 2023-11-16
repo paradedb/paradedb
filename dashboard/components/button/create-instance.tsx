@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { PlusIcon } from "@heroicons/react/24/outline";
 import { PrimaryButton } from "@/components/tremor";
 
 const CreateInstanceButton = ({
@@ -24,7 +25,13 @@ const CreateInstanceButton = ({
   };
 
   return (
-    <PrimaryButton size="xl" onClick={onClick} loading={loading} {...props}>
+    <PrimaryButton
+      size="md"
+      icon={PlusIcon}
+      onClick={onClick}
+      loading={loading}
+      {...props}
+    >
       Create Instance
     </PrimaryButton>
   );

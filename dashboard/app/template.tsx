@@ -6,9 +6,9 @@ import { useUser } from "@auth0/nextjs-auth0/client";
 import { redirect } from "next/navigation";
 
 import { IntercomProvider } from "react-use-intercom";
-import { Grid, Col, Flex, Button, Metric } from "@tremor/react";
+import { Grid, Col, Flex, Button, Text } from "@tremor/react";
 import {
-  HomeIcon,
+  CircleStackIcon,
   ArrowLeftIcon,
   BookOpenIcon,
 } from "@heroicons/react/24/outline";
@@ -40,8 +40,8 @@ const SidebarButton = ({
   icon: React.ElementType;
 }) => {
   const SIDEBAR_BUTTON_DEFAULT =
-    "w-full px-6 pb-2 pt-3 rounded-sm duration-500";
-  const SIDEBAR_BUTTON_ACTIVE = "bg-emerald-400 hover:bg-emerald-300";
+    "py-1 duration-500 text-gray-500 hover:text-emerald-300";
+  const SIDEBAR_BUTTON_ACTIVE = "text-emerald-400";
 
   return (
     <a
@@ -53,13 +53,15 @@ const SidebarButton = ({
       )}
     >
       <Button
+        onClick={() => {
+          redirect(href);
+        }}
         icon={icon}
         variant="light"
         className={classname(
           "duration-500",
-          active
-            ? "text-neutral-900 hover:text-neutral-900"
-            : "text-neutral-500 hover:text-emerald-400",
+          SIDEBAR_BUTTON_DEFAULT,
+          active && SIDEBAR_BUTTON_ACTIVE,
         )}
       >
         {name}
@@ -92,69 +94,77 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   }
 
   return (
-    <div className="fixed">
-      <Grid numItemsLg={10} className="w-screen">
+    <div className="w-screen h-screen fixed overflow-y-auto overflow-x-hidden">
+      <Grid numItemsLg={12} className="w-screen">
         <Col
           numColSpanLg={2}
           numColSpanMd={2}
           numColSpanSm={0}
-          className="min-h-screen bg-dark px-8 py-8 border-r-[1px] border-neutral-800 min-w-[220px]"
+          className="min-h-screen bg-dark border-r-[1px] border-neutral-800 min-w-[220px] relative"
         >
-          <Image src={Logo} width={125} height={50} alt="ParadeDB" />
-          <Flex
-            className="mt-8 space-y-2"
-            flexDirection="col"
-            alignItems="start"
-          >
-            <SidebarButton
-              active={pathname === Route.Dashboard}
-              href={Route.Dashboard}
-              name="Dashboard"
-              icon={HomeIcon}
+          <div className="fixed top-6 left-8">
+            <Image
+              src={Logo}
+              width={35}
+              height={35}
+              alt="ParadeDB"
+              className="right-1 relative"
             />
-            <SidebarButton
-              active={pathname === Route.Welcome}
-              href={Route.Welcome}
-              name="Welcome Letter"
-              icon={BookOpenIcon}
-            />
-            {/* TODO: Create settings page */}
-            {/* <SidebarButton
+            <Flex
+              className="mt-8 space-y-2"
+              flexDirection="col"
+              alignItems="start"
+            >
+              <SidebarButton
+                active={pathname === Route.Dashboard}
+                href={Route.Dashboard}
+                name="Dashboard"
+                icon={CircleStackIcon}
+              />
+              <SidebarButton
+                active={pathname === Route.Welcome}
+                href={Route.Welcome}
+                name="Welcome Letter"
+                icon={BookOpenIcon}
+              />
+              {/* TODO: Create settings page */}
+              {/* <SidebarButton
               active={pathname === Route.Settings}
               href={Route.Settings}
               name="Settings"
               icon={CogIcon}
             /> */}
-            <div className="absolute bottom-6 left-4">
-              <Flex flexDirection="col" alignItems="start">
-                <SidebarButton
-                  active={false}
-                  href={Route.Documentation}
-                  target="_blank"
-                  name="Documentation"
-                  icon={BookOpenIcon}
-                />
-                <SidebarButton
-                  active={false}
-                  href={Route.Logout}
-                  name="Log Out"
-                  icon={ArrowLeftIcon}
-                />
-              </Flex>
-            </div>
-          </Flex>
+            </Flex>
+          </div>
+          <div className="fixed bottom-6 left-8">
+            <Flex flexDirection="col" alignItems="start">
+              <SidebarButton
+                active={false}
+                href={Route.Documentation}
+                target="_blank"
+                name="Documentation"
+                icon={BookOpenIcon}
+              />
+              <SidebarButton
+                active={false}
+                href={Route.Logout}
+                name="Log Out"
+                icon={ArrowLeftIcon}
+              />
+            </Flex>
+          </div>
         </Col>
         <Col
-          numColSpanLg={8}
-          numColSpanMd={8}
-          numColSpanSm={10}
-          className="py-6 bg-dark"
+          numColSpanLg={10}
+          numColSpanMd={10}
+          numColSpanSm={12}
+          className="pb-10 bg-dark w-full"
         >
-          <Metric className="text-neutral-100 font-semibold px-12">
-            {titleMap[pathname]}
-          </Metric>
-          <hr className="border-neutral-800 h-1 w-full my-6" />
-          <div className="mt-8 px-12">{children}</div>
+          <Flex className="justify-start text-neutral-500 border-b border-neutral-800 py-4 px-8 fixed w-full z-20 bg-dark space-x-3">
+            <Text>/</Text>
+            <Text>{titleMap[pathname]}</Text>
+          </Flex>
+          <div className="mt-20 px-8">{children}</div>
         </Col>
       </Grid>
     </div>

@@ -10,7 +10,7 @@ const PRIMARY_BUTTON = classNames(
 );
 const SECONDARY_BUTTON = classNames(
   DEFAULT_BUTTON,
-  "text-neutral-400 bg-neutral-400 border-neutral-400 hover:bg-neutral-400 hover:border-neutral-400",
+  "text-red-400 border-0 bg-red-400 bg-opacity-20 hover:bg-opacity-30 hover:text-red-400 hover:bg-red-400",
 );
 
 const PrimaryButton = ({

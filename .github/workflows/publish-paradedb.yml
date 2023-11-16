@@ -117,5 +117,5 @@ jobs:
         uses: benc-uk/workflow-dispatch@v1
         with:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          workflow: publish-paradedb-helm-chart.yml
+          workflow: publish-helm-chart.yml
           repo: paradedb/helm-charts

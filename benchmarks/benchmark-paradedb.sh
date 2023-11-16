@@ -87,7 +87,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Print query plan
   echo "-- Printing query plan..."
-  db_query "EXPLAIN SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'Canada' LIMIT 10" 
+  db_query "EXPLAIN SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'Canada' LIMIT 10"
 
   # Cleanup: drop temporary table and index
   echo "-- Cleaning up..."

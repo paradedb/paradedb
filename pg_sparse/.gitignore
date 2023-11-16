@@ -12,3 +12,6 @@ regression.*
 *.obj
 *.lib
 *.exp
+
+# pg_regress
+test/test_logs.log

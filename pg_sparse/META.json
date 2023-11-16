@@ -1,6 +1,6 @@
 {
   "name": "svector",
-  "abstract": "Open-source svector similarity search for Postgres",
+  "abstract": "Open-source sparse vector similarity search for Postgres",
   "description": "Supports L2 distance, inner product, and cosine distance",
   "version": "0.5.1",
   "maintainer": [

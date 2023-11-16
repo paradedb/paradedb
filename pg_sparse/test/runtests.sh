@@ -121,31 +121,31 @@ function run_tests() {
   echo "$PGPASSWORD" > "$PWFILE"
 
   # Ensure a clean environment
-  trap '$PG_BIN_PATH/pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
+  trap 'pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
   rm -rf "$TMPDIR"
   unset TESTS
 
   # Initialize the test database
   echo "Initializing PostgreSQL test database..."
-  "$PG_BIN_PATH/initdb" --no-locale --encoding=UTF8 --nosync -U "$PGUSER" --auth-local=md5 --auth-host=md5 --pwfile="$PWFILE" > /dev/null
-  "$PG_BIN_PATH/pg_ctl" start -o "-F -c listen_addresses=\"\" -c log_min_messages=WARNING -k $PGDATA" > /dev/null
-  "$PG_BIN_PATH/createdb" test_db
+  initdb --no-locale --encoding=UTF8 --nosync -U "$PGUSER" --auth-local=md5 --auth-host=md5 --pwfile="$PWFILE" > /dev/null
+  pg_ctl start -o "-F -c listen_addresses=\"\" -c log_min_messages=WARNING -k $PGDATA" > /dev/null
+  createdb test_db
 
   # Set PostgreSQL logging configuration
   echo "Setting test database logging configuration..."
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db > /dev/null
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db > /dev/null
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db > /dev/null
+  psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db > /dev/null
+  psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db > /dev/null
+  psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db > /dev/null
 
   # Configure search_path to include the paradedb schema
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER USER $PGUSER SET search_path TO public,paradedb;" -d test_db > /dev/null
+  psql -v ON_ERROR_STOP=1 -c "ALTER USER $PGUSER SET search_path TO public,paradedb;" -d test_db > /dev/null
 
   # Reload PostgreSQL configuration
   echo "Reloading PostgreSQL configuration..."
-  "$PG_BIN_PATH/pg_ctl" restart > /dev/null
+  pg_ctl restart > /dev/null
 
   # Set permissions on the extension directory so that we can install the extension
-  sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/" "/usr/include/postgresql/$PG_VERSION/server/extension/"
+  # sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/" "/usr/include/postgresql/$PG_VERSION/server/extension/"
 
   # Configure pgrx to use system PostgreSQL
   echo "Initializing pgrx environment..."
@@ -167,14 +167,15 @@ function run_tests() {
 
     # # Second, load the extension into the test database
     # echo "Loading pg_sparse extension version v$BASE_RELEASE into the test database..."
-    # "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_sparse VERSION '$BASE_RELEASE';" -d test_db
+    # psql -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_sparse VERSION '$BASE_RELEASE';" -d test_db
 
     # # Third, build & install the current version of the extension
     # echo "Building & installing the current version of the pg_sparse extension..."
-    # cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
+    # make
+    # make install
 
     # # Fourth, upgrade the extension installed on the test database to the current version
-    # "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_sparse UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
+    # psql -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_sparse UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
   else
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_sparse extension onto the test database..."

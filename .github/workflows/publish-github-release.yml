@@ -123,26 +123,6 @@ jobs:
             echo "Error: Invalid branch" && false
           fi
 
-      # We have a separate version for our Helm Chart, since it needs to always increment by
-      # one for every production release, independently of the ParadeDB version. Any non-patch
-      # version increment should be done manually in GitHub Actions Variables.
-      - name: Increment Helm Chart Version Number in GitHub Actions Variables
-        env:
-          GH_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-        run: |
-          if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
-            NEW_HELM_VERSION_PATCH=$(( ${{ vars.HELM_VERSION_PATCH }} + 1 ))
-            gh api \
-              --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              /repos/paradedb/paradedb/actions/variables/HELM_VERSION_PATCH \
-              -f name='HELM_VERSION_PATCH' \
-              -f value='${NEW_HELM_VERSION_PATCH}'
-          else
-            echo "Error: Invalid branch" && false
-          fi
-
       - name: Create GitHub Release (prod only)
         if: steps.env.outputs.environment == 'prod'
         uses: softprops/action-gh-release@v1

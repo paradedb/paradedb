@@ -18,7 +18,6 @@ repos:
       - id: check-docstring-first
       - id: check-symlinks
       - id: check-yaml
-        exclude: "^helm/charts/paradedb/" # Exclude all files in the /helm directory, which aren't standard YAML
       - id: check-json
       - id: check-xml
       - id: check-ast

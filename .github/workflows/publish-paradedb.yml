@@ -18,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish-paradedb-to-dockerhub:
+  publish-paradedb-container-image:
     name: Publish ParadeDB for PostgreSQL ${{ matrix.pg_version }} to Docker Hub
     runs-on: ubuntu-latest
     strategy:

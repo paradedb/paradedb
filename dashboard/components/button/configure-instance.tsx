@@ -32,44 +32,12 @@ const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "",
 );
 
-enum Plan {
-  FREE = "Free",
-  STANDARD = "Standard",
-  PREMIUM = "Premium",
-}
-
-const instanceTypes = [
-  {
-    name: Plan.FREE,
-    cpu: 2,
-    memory: "4GB",
-    storage: "256GB",
-    price: "Free",
-    highAvailability: "No",
-  },
-  {
-    name: Plan.STANDARD,
-    cpu: 4,
-    memory: "8GB",
-    storage: "512GB",
-    price: "$10/mo",
-    highAvailability: "Yes",
-  },
-  {
-    name: Plan.PREMIUM,
-    cpu: 8,
-    memory: "16GB",
-    storage: "1024GB",
-    price: "$20/mo",
-    highAvailability: "Yes",
-  },
-];
-
 interface ConfigureInstanceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  defaultPlan: Plan;
+  defaultPlan: string;
   showStripeModal: () => void;
+  prices: any[] | undefined;
 }
 
 interface StripeModalProps {
@@ -81,7 +49,7 @@ const StripeModal = ({ isOpen, onClose }: StripeModalProps) => {
   const [clientSecret, setClientSecret] = useState("");
 
   useEffect(() => {
-    fetch("/api/stripe", {
+    fetch("/api/stripe/checkout", {
       method: "POST",
     })
       .then((res) => res.json())
@@ -149,6 +117,7 @@ const ConfigureInstanceModal = ({
   onClose,
   defaultPlan,
   showStripeModal,
+  prices,
 }: ConfigureInstanceModalProps) => {
   const [selectedPlan, setSelectedPlan] = useState(defaultPlan);
 
@@ -221,23 +190,23 @@ const ConfigureInstanceModal = ({
                         </TableRow>
                       </TableHead>
                       <TableBody className="divide-neutral-800">
-                        {instanceTypes.map((instance) => {
-                          const isSelected = selectedPlan === instance.name;
+                        {prices?.map((price) => {
+                          const isSelected = selectedPlan === price.id;
                           const textClass = isSelected
                             ? "text-gray-900 font-medium"
                             : "text-gray-300";
 
                           return (
                             <TableRow
-                              key={instance.name}
+                              key={price.id}
                               className={classNames(
                                 "cursor-pointer duration-100 rounded",
                                 isSelected && "bg-neutral-100",
                               )}
-                              onClick={() => setSelectedPlan(instance.name)}
+                              onClick={() => setSelectedPlan(price.id)}
                             >
                               <TableCell className="max-w-[8px]">
-                                {selectedPlan === instance.name ? (
+                                {isSelected ? (
                                   <Icon
                                     icon={CheckIcon}
                                     variant="simple"
@@ -249,31 +218,31 @@ const ConfigureInstanceModal = ({
                                 )}
                               </TableCell>
                               <TableCell className={textClass}>
-                                {instance.name}
+                                {price.nickname}
                               </TableCell>
                               <TableCell>
                                 <Text className={textClass}>
-                                  {instance.price}
+                                  {price.unit_amount / 100}/mo
                                 </Text>
                               </TableCell>
                               <TableCell>
                                 <Text className={textClass}>
-                                  {instance.cpu}
+                                  {price.metadata.cpu}
                                 </Text>
                               </TableCell>
                               <TableCell>
                                 <Text className={textClass}>
-                                  {instance.memory}
+                                  {price.metadata.memory}GB
                                 </Text>
                               </TableCell>
                               <TableCell>
                                 <Text className={textClass}>
-                                  {instance.storage}
+                                  {price.metadata.storage}GB
                                 </Text>
                               </TableCell>
                               <TableCell>
                                 <Text className={textClass}>
-                                  {instance.highAvailability}
+                                  {price.metadata.highAvailability}
                                 </Text>
                               </TableCell>
                             </TableRow>
@@ -286,7 +255,10 @@ const ConfigureInstanceModal = ({
                   <Text className="text-gray-300 mt-4">
                     You have selected the{" "}
                     <Bold className="text-emerald-400">
-                      {selectedPlan} Plan
+                      {
+                        prices?.find((price) => price.id === selectedPlan)
+                          ?.nickname
+                      }
                     </Bold>
                     . This plan will take effect immediately.
                   </Text>
@@ -333,6 +305,15 @@ const ConfigureInstanceButton = ({
 }) => {
   const [modalIsOpen, setModalIsOpen] = useState(false);
   const [showStripeModal, setShowStripeModal] = useState(false);
+  const [prices, setPrices] = useState<any[]>();
+
+  useEffect(() => {
+    fetch("/api/stripe/prices", {
+      method: "GET",
+    })
+      .then((res) => res.json())
+      .then((data) => setPrices(data?.prices));
+  }, []);
 
   const onClick = () => {
     setModalIsOpen(true);
@@ -348,10 +329,11 @@ const ConfigureInstanceButton = ({
       <ConfigureInstanceModal
         isOpen={modalIsOpen}
         onClose={onCloseModal}
-        defaultPlan={Plan.FREE}
+        defaultPlan={""}
         showStripeModal={() => {
           setShowStripeModal(true);
         }}
+        prices={prices}
       />
       <StripeModal
         isOpen={showStripeModal}

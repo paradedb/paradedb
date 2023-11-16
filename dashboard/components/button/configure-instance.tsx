@@ -1,5 +1,6 @@
 "use client";
 
+import classNames from "classnames";
 import { useState, useEffect, Fragment } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import {
@@ -23,10 +24,9 @@ import {
   EmbeddedCheckout,
 } from "@stripe/react-stripe-js";
 
-import { SecondaryButton, Card } from "@/components/tremor";
+import { PrimaryButton, Card } from "@/components/tremor";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import { CheckIcon } from "@heroicons/react/24/solid";
-import classNames from "classnames";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "",
@@ -263,13 +263,11 @@ const ConfigureInstanceModal = ({
                     . This plan will take effect immediately.
                   </Text>
                   <Title className="mt-8 text-gray-100">Payment Method</Title>
-                  <Button
-                    onClick={showStripeModal}
-                    size="xs"
-                    className="mt-4 bg-neutral-100 text-neutral-800 border-0 hover:bg-emerald-400 hover:text-emerald-400 hover:border-emerald-400 hover:bg-opacity-30 duration-100"
-                  >
-                    Add Payment
-                  </Button>
+                  <div className="mt-4">
+                    <PrimaryButton onClick={showStripeModal} size="xs">
+                      Add Payment
+                    </PrimaryButton>
+                  </div>
                   <hr className="w-full border-neutral-800 mt-12" />
                   <Flex className="justify-start space-x-6 mt-12">
                     <Button
@@ -300,7 +298,7 @@ const ConfigureInstanceModal = ({
 const ConfigureInstanceButton = ({
   onConfigureInstance,
   ...props
-}: React.ComponentProps<typeof SecondaryButton> & {
+}: React.ComponentProps<typeof PrimaryButton> & {
   onConfigureInstance: () => void;
 }) => {
   const [modalIsOpen, setModalIsOpen] = useState(false);
@@ -339,9 +337,9 @@ const ConfigureInstanceButton = ({
         isOpen={showStripeModal}
         onClose={() => setShowStripeModal(false)}
       />
-      <SecondaryButton size="md" onClick={onClick} {...props}>
+      <PrimaryButton size="md" onClick={onClick} {...props}>
         Change Plan
-      </SecondaryButton>
+      </PrimaryButton>
     </>
   );
 };

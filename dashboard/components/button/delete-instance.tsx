@@ -3,12 +3,12 @@
 import { useState } from "react";
 import { ExclamationCircleIcon } from "@heroicons/react/24/outline";
 
-import { SecondaryButton } from "@/components/tremor";
+import { WarningButton } from "@/components/tremor";
 
 const DeleteInstanceButton = ({
   onDeleteInstance,
   ...props
-}: React.ComponentProps<typeof SecondaryButton> & {
+}: React.ComponentProps<typeof WarningButton> & {
   onDeleteInstance: () => void;
 }) => {
   const [loading, setLoading] = useState(false);
@@ -24,7 +24,7 @@ const DeleteInstanceButton = ({
   };
 
   return (
-    <SecondaryButton
+    <WarningButton
       icon={ExclamationCircleIcon}
       size="md"
       onClick={onClick}
@@ -32,7 +32,7 @@ const DeleteInstanceButton = ({
       {...props}
     >
       Delete Instance
-    </SecondaryButton>
+    </WarningButton>
   );
 };
 

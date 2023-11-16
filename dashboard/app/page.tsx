@@ -184,6 +184,7 @@ const Index = () => {
   const credsRef = useRef(creds);
   const statusRef = useRef(deployStatus);
   const isLoading = !creds || !status;
+  const noDatabaseCreated = creds?.status === 404;
 
   const databaseReady =
     [creds?.host, creds?.user, creds?.password, creds?.port].every(Boolean) &&
@@ -233,10 +234,12 @@ const Index = () => {
     <div>
       <Flex>
         <Title className="text-gray-100">Database</Title>
-        <DeleteInstanceButton
-          onDeleteInstance={onDeleteInstance}
-          disabled={isLoading}
-        />
+        {!noDatabaseCreated && (
+          <DeleteInstanceButton
+            onDeleteInstance={onDeleteInstance}
+            disabled={isLoading}
+          />
+        )}
       </Flex>
       <Grid numItemsLg={10} className="gap-8 h-full mt-6">
         <Col numColSpanLg={6} className="h-full">
@@ -247,61 +250,72 @@ const Index = () => {
             isLoading={isLoading}
           />
         </Col>
-        <Col numColSpanLg={4} className="h-full space-y-8">
-          <Card>
-            <Flex>
-              <Title className="text-neutral-100">
-                Connect with <code>psql</code>
-              </Title>
-              {databaseReady && <CopyToClipboardButton text={formatPsql()} />}
-            </Flex>
-            {databaseReady ? (
-              <div className="mt-6">
-                <code className="text-emerald-400 text-sm">{formatPsql()}</code>
-              </div>
-            ) : (
-              <>
-                <div className="h-2.5 rounded-full bg-neutral-800 w-36 mb-2.5 animate-pulse mt-6"></div>
-                <div className="h-2.5 rounded-full bg-neutral-800 w-full mb-2.5 animate-pulse mt-2"></div>
-              </>
-            )}
-          </Card>
-        </Col>
+        {!noDatabaseCreated && (
+          <Col numColSpanLg={4} className="h-full space-y-8">
+            <Card>
+              <Flex>
+                <Title className="text-neutral-100">
+                  Connect with <code>psql</code>
+                </Title>
+                {databaseReady && <CopyToClipboardButton text={formatPsql()} />}
+              </Flex>
+              {databaseReady ? (
+                <div className="mt-6">
+                  <code className="text-emerald-400 text-sm">
+                    {formatPsql()}
+                  </code>
+                </div>
+              ) : (
+                <>
+                  <div className="h-2.5 rounded-full bg-neutral-800 w-36 mb-2.5 animate-pulse mt-6"></div>
+                  <div className="h-2.5 rounded-full bg-neutral-800 w-full mb-2.5 animate-pulse mt-2"></div>
+                </>
+              )}
+            </Card>
+          </Col>
+        )}
       </Grid>
-      <Flex>
-        <Title className="text-gray-100 mt-12">Plan</Title>
-        <ConfigureInstanceButton
-          disabled={isLoading}
-          onConfigureInstance={() => {}}
-          className="bg-gray-300 bg-opacity-10 border-gray-500 text-gray-300 hover:bg-gray-300 hover:bg-opacity-30 hover:border-gray-500 duration-100"
-        />{" "}
-      </Flex>
-      <Text className="text-gray-300 mt-4">
-        Your ParadeDB database is on the <Bold>Free Plan</Bold>.
-      </Text>
-      <Grid numItems={4} className="gap-x-6 gap-y-6 mt-6">
-        <Col numColSpan={1}>
-          <Card>
-            <Icon icon={CpuChipIcon} variant="light" color="neutral" />
-            <Metric className="mt-6 text-gray-100">4</Metric>
-            <Text className="mt-2 text-neutral-500">CPU cores</Text>
-          </Card>
-        </Col>
-        <Col numColSpan={1}>
-          <Card>
-            <Icon icon={Square3Stack3DIcon} variant="light" color="neutral" />
-            <Metric className="mt-6 text-gray-100">8</Metric>
-            <Text className="mt-2 text-neutral-500">GB RAM</Text>
-          </Card>
-        </Col>
-        <Col numColSpan={1}>
-          <Card>
-            <Icon icon={ServerIcon} variant="light" color="neutral" />
-            <Metric className="mt-6 text-gray-100">256</Metric>
-            <Text className="mt-2 text-neutral-500">GB Storage</Text>
-          </Card>
-        </Col>
-      </Grid>
+      {!noDatabaseCreated && (
+        <>
+          <Flex>
+            <Title className="text-gray-100 mt-12">Plan</Title>
+            <ConfigureInstanceButton
+              disabled={isLoading}
+              onConfigureInstance={() => {}}
+            />{" "}
+          </Flex>
+          <Text className="text-gray-300 mt-4">
+            Your ParadeDB database is on the <Bold>Free Plan</Bold>.
+          </Text>
+          <Grid numItems={4} className="gap-x-6 gap-y-6 mt-6">
+            <Col numColSpan={1}>
+              <Card>
+                <Icon icon={CpuChipIcon} variant="light" color="neutral" />
+                <Metric className="mt-6 text-gray-100">4</Metric>
+                <Text className="mt-2 text-neutral-500">CPU cores</Text>
+              </Card>
+            </Col>
+            <Col numColSpan={1}>
+              <Card>
+                <Icon
+                  icon={Square3Stack3DIcon}
+                  variant="light"
+                  color="neutral"
+                />
+                <Metric className="mt-6 text-gray-100">8</Metric>
+                <Text className="mt-2 text-neutral-500">GB RAM</Text>
+              </Card>
+            </Col>
+            <Col numColSpan={1}>
+              <Card>
+                <Icon icon={ServerIcon} variant="light" color="neutral" />
+                <Metric className="mt-6 text-gray-100">256</Metric>
+                <Text className="mt-2 text-neutral-500">GB Storage</Text>
+              </Card>
+            </Col>
+          </Grid>
+        </>
+      )}
     </div>
   );
 };

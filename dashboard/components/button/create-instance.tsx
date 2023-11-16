@@ -2,13 +2,13 @@
 
 import { useState } from "react";
 import { PlusIcon } from "@heroicons/react/24/outline";
-import { PrimaryButton } from "@/components/tremor";
+import { SuccessButton } from "@/components/tremor";
 
 const CreateInstanceButton = ({
   onCreateInstance,
   isCreating,
   ...props
-}: React.ComponentProps<typeof PrimaryButton> & {
+}: React.ComponentProps<typeof SuccessButton> & {
   onCreateInstance: () => void;
   isCreating: boolean;
 }) => {
@@ -25,7 +25,7 @@ const CreateInstanceButton = ({
   };
 
   return (
-    <PrimaryButton
+    <SuccessButton
       size="md"
       icon={PlusIcon}
       onClick={onClick}
@@ -33,7 +33,7 @@ const CreateInstanceButton = ({
       {...props}
     >
       Create Instance
-    </PrimaryButton>
+    </SuccessButton>
   );
 };
 

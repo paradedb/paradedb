@@ -71,7 +71,7 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install common dependencies to builder and runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apk update && apk add --no-cache \
     curl \
     wget \
     sudo \
@@ -86,14 +86,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install apt-fast
-RUN /bin/bash -c "$(curl -sL https://git.io/vokNn)"
-
-# Add PostgreSQL's third party repository to get the latest versions
-RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
-
-RUN apt-fast update && apt-fast install -y --no-install-recommends \
+RUN apk update && apk add --no-cache \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
@@ -106,7 +99,7 @@ FROM base as builder
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install Rust and other build dependencies
-RUN apt-fast update && apt-fast install -y --no-install-recommends \
+RUN apk update && apk add --no-cache \
     build-essential \
     checkinstall \
     clang \
@@ -178,7 +171,7 @@ FROM base as paradedb
 ARG TARGETARCH
 
 # Install barman (for backups, and postgis runtime dependencies
-RUN apt-fast update && apt-fast install -y --no-install-recommends \
+RUN apk update && apk add --no-cache \
     # postgis
     libgeos-c1v5 \
     libproj-dev \
@@ -221,7 +214,7 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
     curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \
     curl -L "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_graphql.deb && \
     curl -L "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_jsonschema.deb && \
-    apt-fast update && apt-fast install -y --no-install-recommends /tmp/*.deb \
+    apk update && apk add --no-cache /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
 # Copy the ParadeDB extensions from their builder stages

@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   publish-paradedb-container-image:
-    name: Publish ParadeDB for PostgreSQL ${{ matrix.pg_version }} to Docker Hub
+    name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:

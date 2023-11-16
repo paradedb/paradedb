@@ -85,6 +85,10 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   # Record times to CSV
   echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
 
+  # Print query plan
+  echo "-- Printing query plan..."
+  db_query "EXPLAIN SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'Canada' LIMIT 10"
+
   # Cleanup: drop temporary table and index
   echo "-- Cleaning up..."
   db_query "DROP TABLE $TABLE_NAME;"

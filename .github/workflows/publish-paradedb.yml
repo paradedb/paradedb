@@ -119,3 +119,4 @@ jobs:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           workflow: publish-helm-chart.yml
           repo: paradedb/helm-charts
+          inputs: '{ "appVersion": "${GITHUB_REF#refs/tags/v}" }'

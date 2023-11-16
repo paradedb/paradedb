@@ -87,6 +87,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   echo "$SIZE,$index_time,$search_time" >> $OUTPUT_CSV
 
   # Print query plan
+  echo "-- Printing query plan..."
   db_query "EXPLAIN SELECT title, body, ts_rank_cd(search_vector, query) as rank FROM $TABLE_NAME, to_tsquery('Canada') query WHERE query @@ search_vector ORDER BY rank DESC LIMIT 10;"
 
   # Cleanup: drop temporary table

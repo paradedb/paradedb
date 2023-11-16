@@ -77,13 +77,12 @@ RUN apk update && apk add --no-cache \
     sudo \
     gnupg \
     gcc \
-    uuid-runtime \
-    software-properties-common \
+    uuidgen \
     ca-certificates \
-    libssl-dev \
-    libopenblas-dev \
+    openssl-dev \
+    openblas-dev \
     python3-dev \
-    python3-pip \
+    py3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN apk update && apk add --no-cache \

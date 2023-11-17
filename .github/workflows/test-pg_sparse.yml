@@ -58,7 +58,7 @@ jobs:
         run: |
           NEW_VERSION_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
           sed -i "s/^default_version = .*/default_version = '${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_VERSION_PATCH}'/" svector.control
-          sed -i "s/^EXTVERSION = .*/EXTVERSION = \${{ vars.VERSION_MAJOR }}.\${{ vars.VERSION_MINOR }}.${NEW_VERSION_PATCH}/" Makefile
+          sed -i "s/^EXTVERSION = .*/EXTVERSION = ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_VERSION_PATCH}/" Makefile
           cat svector.control
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)

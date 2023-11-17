@@ -37,7 +37,7 @@ import { redirect } from "next/navigation";
 
 const DATABASE_CREDENTIALS_URL = `/api/databases/credentials`;
 const DATABASE_STATUS_URL = `/api/databases/status`;
-// const USER_URL = `/api/auth/user`;
+const SUBSCRIPTION_URL = `/api/stripe/subscription`;
 
 const ERR_EXPIRED_ACCESS_TOKEN = "ERR_EXPIRED_ACCESS_TOKEN";
 
@@ -180,14 +180,14 @@ const InstanceCard = ({
 const Index = () => {
   const { data: creds } = useSWR(DATABASE_CREDENTIALS_URL, fetcher);
   const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher);
-  // const { data: user } = useSWR(USER_URL, fetcher);
+  const { data: subscriptions } = useSWR(SUBSCRIPTION_URL, fetcher);
 
   const deployStatus = status?.deploy_status;
   const credsRef = useRef(creds);
   const statusRef = useRef(deployStatus);
   const isLoading = !creds || !status;
   const noDatabaseCreated = creds?.status === 404;
-
+  const currentPlan = subscriptions?.subscriptions?.data?.[0]?.plan;
   const databaseReady =
     [creds?.host, creds?.user, creds?.password, creds?.port].every(Boolean) &&
     deployStatus === DeployStatus.RUNNING;
@@ -286,36 +286,52 @@ const Index = () => {
               onConfigureInstance={() => {}}
             />{" "}
           </Flex>
-          <Text className="text-gray-300 mt-4">
-            Your ParadeDB database is on the <Bold>Free Plan</Bold>.
-          </Text>
-          <Grid numItems={4} className="gap-x-6 gap-y-6 mt-6">
-            <Col numColSpan={1}>
-              <Card>
-                <Icon icon={CpuChipIcon} variant="light" color="neutral" />
-                <Metric className="mt-6 text-gray-100">4</Metric>
-                <Text className="mt-2 text-neutral-500">CPU cores</Text>
-              </Card>
-            </Col>
-            <Col numColSpan={1}>
-              <Card>
-                <Icon
-                  icon={Square3Stack3DIcon}
-                  variant="light"
-                  color="neutral"
-                />
-                <Metric className="mt-6 text-gray-100">8</Metric>
-                <Text className="mt-2 text-neutral-500">GB RAM</Text>
-              </Card>
-            </Col>
-            <Col numColSpan={1}>
-              <Card>
-                <Icon icon={ServerIcon} variant="light" color="neutral" />
-                <Metric className="mt-6 text-gray-100">256</Metric>
-                <Text className="mt-2 text-neutral-500">GB Storage</Text>
-              </Card>
-            </Col>
-          </Grid>
+          {currentPlan === undefined ? (
+            <>
+              <div className="h-2.5 rounded-full bg-neutral-800 w-36 mb-2.5 animate-pulse mt-6"></div>
+              <div className="h-2.5 rounded-full bg-neutral-800 w-full max-w-md mb-2.5 animate-pulse mt-2"></div>
+            </>
+          ) : (
+            <>
+              <Text className="text-gray-300 mt-4">
+                Your ParadeDB database is on the{" "}
+                <Bold>{currentPlan?.nickname}</Bold>.
+              </Text>
+              <Grid numItems={4} className="gap-x-6 gap-y-6 mt-6">
+                <Col numColSpan={1}>
+                  <Card>
+                    <Icon icon={CpuChipIcon} variant="light" color="neutral" />
+                    <Metric className="mt-6 text-gray-100">
+                      {currentPlan?.metadata?.cpu}
+                    </Metric>
+                    <Text className="mt-2 text-neutral-500">CPU cores</Text>
+                  </Card>
+                </Col>
+                <Col numColSpan={1}>
+                  <Card>
+                    <Icon
+                      icon={Square3Stack3DIcon}
+                      variant="light"
+                      color="neutral"
+                    />
+                    <Metric className="mt-6 text-gray-100">
+                      {currentPlan?.metadata?.memory}
+                    </Metric>
+                    <Text className="mt-2 text-neutral-500">GB RAM</Text>
+                  </Card>
+                </Col>
+                <Col numColSpan={1}>
+                  <Card>
+                    <Icon icon={ServerIcon} variant="light" color="neutral" />
+                    <Metric className="mt-6 text-gray-100">
+                      {currentPlan?.metadata?.storage}
+                    </Metric>
+                    <Text className="mt-2 text-neutral-500">GB Storage</Text>
+                  </Card>
+                </Col>
+              </Grid>
+            </>
+          )}
         </>
       )}
     </div>

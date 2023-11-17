@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import useSWR from "swr";
+import { useState } from "react";
 
 import { ConfigureInstanceModal, PaymentIntentModal } from "@/components/modal";
 import { PrimaryButton } from "@/components/tremor";
+
+const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
 const ConfigureInstanceButton = ({
   onConfigureInstance,
@@ -11,17 +14,13 @@ const ConfigureInstanceButton = ({
 }: React.ComponentProps<typeof PrimaryButton> & {
   onConfigureInstance: () => void;
 }) => {
+  const { data: prices } = useSWR("/api/stripe/prices", fetcher);
+  const { data: subscriptions } = useSWR("/api/stripe/subscription", fetcher);
+
+  const defaultPlan = subscriptions?.subscriptions?.data[0]?.plan?.id;
+
   const [modalIsOpen, setModalIsOpen] = useState(false);
   const [showPaymentIntentModal, setShowPaymentIntentModal] = useState(false);
-  const [prices, setPrices] = useState<any[]>();
-
-  useEffect(() => {
-    fetch("/api/stripe/prices", {
-      method: "GET",
-    })
-      .then((res) => res.json())
-      .then((data) => setPrices(data?.prices));
-  }, []);
 
   const onClick = () => {
     setModalIsOpen(true);
@@ -32,16 +31,18 @@ const ConfigureInstanceButton = ({
     setModalIsOpen(false);
   };
 
+  if (!defaultPlan) return <></>;
+
   return (
     <>
       <ConfigureInstanceModal
         isOpen={modalIsOpen}
         onClose={onCloseModal}
-        defaultPlan={""}
+        defaultPlan={defaultPlan}
         showStripeModal={() => {
           setShowPaymentIntentModal(true);
         }}
-        prices={prices}
+        prices={prices?.prices}
       />
       <PaymentIntentModal
         isOpen={showPaymentIntentModal}

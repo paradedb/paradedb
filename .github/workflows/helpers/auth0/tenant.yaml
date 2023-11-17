@@ -218,11 +218,13 @@ actions:
       - name: stripe
         version: 14.5.0
     deployed: true
+    runtime: node18-actions
     secrets:
       - name: STRIPE_API_KEY
+      - name: DEFAULT_PRICE_ID
     supported_triggers:
       - id: post-login
-        version: v2
+        version: v3
 triggers: {}
 organizations: []
 attackProtection:

@@ -9,16 +9,31 @@ exports.onExecutePostLogin = async (event, api) => {
 
   if (!event.user.app_metadata.stripeCustomerId) {
     try {
+      // Create customer
       const customer = await stripe.customers.create({
         email: event.user.email,
         name: event.user.name,
       });
 
+      // Set customer ID in access token claim
       api.user.setAppMetadata("stripeCustomerId", customer.id);
       api.accessToken.setCustomClaim(
         `https://paradedb.com/stripe_customer_id`,
         customer.id,
       );
+
+      // Subscribe customer to free plan
+      const subscriptions = await stripe.subscriptions.list({
+        customer: customer.id,
+        status: "active",
+      });
+
+      if (subscriptions.data.length === 0) {
+        await stripe.subscriptions.create({
+          customer: customer.id,
+          items: [{ price: event.secrets.DEFAULT_PRICE_ID }],
+        });
+      }
     } catch (error) {
       console.log("Error creating Stripe customer:", error);
     }

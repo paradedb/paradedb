@@ -52,4 +52,29 @@ const withRequest = (
   });
 };
 
-export { withRequest };
+const withAuthenticatedSession = (
+  func: ({
+    accessToken,
+    session,
+  }: {
+    accessToken: string;
+    session: Session;
+  }) => Promise<NextResponse>,
+) => {
+  return withApiAuthRequired(async () => {
+    console.log("hello");
+    const { accessToken } = await getAccessToken();
+    const session = await getSession();
+
+    if (!accessToken || !session) {
+      return NextResponse.json({
+        status: 500,
+        message: "No active session or access token found",
+      });
+    }
+
+    return await func({ accessToken, session });
+  });
+};
+
+export { withRequest, withAuthenticatedSession };

@@ -113,10 +113,14 @@ jobs:
         pg_version: [15]
 
     steps:
+      - name: Retrieve GitHub Release Version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
       - name: Trigger paradedb/helm-charts Release Workflow
         uses: benc-uk/workflow-dispatch@v1
         with:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           workflow: publish-helm-chart.yml
           repo: paradedb/helm-charts
-          inputs: '{ "appVersion": "${GITHUB_REF#refs/tags/v}" }'
+          inputs: '{ "appVersion": "${{ steps.version.outputs.version }}" }'

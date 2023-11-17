@@ -48,13 +48,10 @@ jobs:
       - name: Update Version in svector.control
         working-directory: pg_sparse/
         run: sed -i "s/default_version = '.*'/default_version = '\${PG_SPARSE_VERSION}'/" svector.control
-          
+
       - name: Build pg_sparse Extension
         working-directory: pg_sparse/
         run: make && make install
-
-
-
 
       - name: Create .deb Package
         run: |
@@ -92,11 +89,6 @@ jobs:
           sudo chown -R root:root ${package_dir}
           sudo chmod -R 00755 ${package_dir}
           sudo dpkg-deb --build --root-owner-group ${package_dir}
-
-
-
-
-
 
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL

@@ -1,4 +1,6 @@
-comment = 'Sparse vector data type and ivfflat and sparse hnsw access methods'
-default_version = '0.5.1'
+comment = 'pg_sparse: Sparse vector data type and sparse HNSW access methods'
+default_version = '0.0.0'
 module_pathname = '$libdir/svector'
 relocatable = true
+superuser = true
+schema = paradedb

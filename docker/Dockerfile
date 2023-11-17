@@ -157,21 +157,6 @@ COPY shared/ /tmp/shared
 RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/;}" Cargo.toml && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
-######################
-# pg_sparse
-######################
-
-# FROM builder as builder-pg_sparse
-
-# WORKDIR /tmp/pg_sparse
-
-# COPY pg_sparse/ /tmp/pg_sparse
-# COPY shared/ /tmp/shared
-
-# # Use the build argument to update the version in Cargo.toml
-# RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SPARSE_VERSION}\"/;}" Cargo.toml && \
-#     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
 ###############################################
 # Third Stage: PostgreSQL
 ###############################################
@@ -232,14 +217,21 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
     apt-fast update && apt-fast install -y --no-install-recommends /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
-# Copy the ParadeDB extensions from their builder stages
+# Copy the ParadeDB pgrx extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-# COPY --from=builder-pg_sparse /tmp/pg_sparse/target/release/pg_sparse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-# COPY --from=builder-pg_sparse /tmp/pg_sparse/target/release/pg_sparse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+
+# Install the ParadeDB pg_sparse extension directly, since it's not as modular as pgrx extensions
+WORKDIR /tmp/pg_sparse
+COPY pg_sparse/ /tmp/pg_sparse
+RUN sed -i "s/default_version = '.*'/default_version = '\${PG_SPARSE_VERSION}'/" svector.control && \
+    make && \
+    make install
+RUN rm -rf /tmp/pg_sparse
+WORKDIR /
 
 # Copy entrypoint script, which will be handled by the official image
 # initialization scipt

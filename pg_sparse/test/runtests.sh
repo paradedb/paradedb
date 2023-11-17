@@ -26,7 +26,6 @@ fi
 # Instantiate vars
 FLAG_PG_VER=false
 FLAG_PROCESS_TYPE=false
-FLAG_UPGRADE_VER=""
 
 # Assign flags to vars and check
 while getopts "hp:v:u:" flag

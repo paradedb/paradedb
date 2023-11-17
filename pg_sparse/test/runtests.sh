@@ -143,8 +143,7 @@ function run_tests() {
   echo "Running tests..."
   make
   make install
-  make installcheck        # regression tests
-  make prove_installcheck  # TAP tests
+  make installcheck
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.

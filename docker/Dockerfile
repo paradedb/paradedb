@@ -6,11 +6,6 @@ ARG PG_VERSION_MAJOR
 
 FROM postgres:${PG_VERSION_MAJOR}-bookworm as base
 
-# Needed for publishing to ArtifactHub
-LABEL org.opencontainers.image.created="2023-11-16"
-LABEL org.opencontainers.image.description="PostgreSQL for Search"
-LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
-
 # Declare all the build arguments and set them to
 # environment variables for use in build and runtime
 ARG PG_VERSION_MAJOR
@@ -181,6 +176,11 @@ RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = 
 FROM base as paradedb
 
 ARG TARGETARCH
+
+# Needed for publishing to ArtifactHub
+LABEL org.opencontainers.image.created="2023-11-16"
+LABEL org.opencontainers.image.description="PostgreSQL for Search"
+LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
 
 # Install barman (for backups, and postgis runtime dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \

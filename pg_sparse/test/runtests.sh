@@ -143,46 +143,8 @@ function run_tests() {
   echo "Reloading PostgreSQL configuration..."
   pg_ctl restart > /dev/null
 
-  # Set permissions on the extension directory so that we can install the extension
-  # sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/" "/usr/include/postgresql/$PG_VERSION/server/extension/"
-
-  # Configure pgrx to use system PostgreSQL
-  echo "Initializing pgrx environment..."
-  cargo pgrx init "--pg$PG_VERSION=$PG_BIN_PATH/pg_config" > /dev/null
-
-  # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
-  if [ -n "$FLAG_UPGRADE_VER" ]; then
-    echo "Running extension upgrade test..."
-    # Don't send telemetry when running tests
-    export TELEMETRY=false
-
-    # # TODO: Figure out how we want to do versioning...
-
-    # # First, download & install the first release at which we started supporting upgrades (v0.5.1)
-    # BASE_RELEASE="0.5.1"
-    # DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
-    # curl -LOJ "$DOWNLOAD_URL" > /dev/null
-    # sudo dpkg -i "pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
-
-    # # Second, load the extension into the test database
-    # echo "Loading pg_sparse extension version v$BASE_RELEASE into the test database..."
-    # psql -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_sparse VERSION '$BASE_RELEASE';" -d test_db
-
-    # # Third, build & install the current version of the extension
-    # echo "Building & installing the current version of the pg_sparse extension..."
-    # make
-    # make install
-
-    # # Fourth, upgrade the extension installed on the test database to the current version
-    # psql -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_sparse UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
-  else
-    # Use cargo-pgx to install the extension for the specified version
-    echo "Installing pg_sparse extension onto the test database..."
-    make
-    make install
-  fi
-
   # Execute tests using pg_regress
+  # We always test on the upcoming version, which means that this test also acts as an extension upgrade test
   echo "Running tests..."
   make installcheck        # regression tests
   make prove_installcheck  # TAP tests

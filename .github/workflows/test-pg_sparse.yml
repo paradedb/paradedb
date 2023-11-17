@@ -52,6 +52,13 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/include/postgresql/${{ matrix.pg_version }}/server/extension/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
+      # We update to latest + 1, so that we can test upgrading to the current version
+      - name: Update Version in svector.control
+        working-directory: pg_sparse/
+        run: |
+          NEW_VERSION_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
+          sed -i "s/default_version = '.*'/default_version = '\${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_VERSION_PATCH}'/" svector.control
+
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_sparse Tests
         working-directory: pg_sparse/

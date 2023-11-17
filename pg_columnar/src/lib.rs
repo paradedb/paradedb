@@ -1,3 +1,6 @@
+#![allow(unused)]
+#![allow(non_snake_case)]
+
 use pgrx::prelude::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;

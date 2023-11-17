@@ -1,9 +1,21 @@
+#![allow(unused)]
+#![allow(non_snake_case)]
+
 use pgrx::pg_sys::*;
 use pgrx::PgBox;
 use core::ffi::c_int;
 use core::ffi::c_char;
 use core::ffi::c_void;
 use std::ptr;
+use pgrx::IntoDatum;
+use std::ptr::copy_nonoverlapping;
+use datafusion::prelude::SessionContext;
+use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
+use datafusion::datasource::MemTable;
+use std::sync::Arc;
+use datafusion::error::Result;
+use datafusion::arrow::record_batch::RecordBatch;
+
 
 pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTableSlotOps {
 	return &TTSOpsVirtual;
@@ -24,8 +36,24 @@ pub unsafe extern "C" fn memam_scan_rescan(scan: TableScanDesc, key: *mut ScanKe
 }
 
 pub unsafe extern "C" fn memam_scan_getnextslot(scan: TableScanDesc, direction: ScanDirection, slot: *mut TupleTableSlot) -> bool {
-	// TODO: this is where we would have to convert from Arrow data into Postgres data
-	return false;
+	static mut done: bool = false;
+
+	if done {
+		return false;
+	}
+
+	// TODO: Use RecordBatch::try_new to create new rows (replace dummy 314)
+	let value: int32 = 314;
+	let value_datum: Datum = value.into_datum().unwrap();
+	let value_isnull: bool = false;
+
+	copy_nonoverlapping::<Datum>(&value_datum, (*slot).tts_values.offset(0), 1);
+	copy_nonoverlapping::<bool>(&value_isnull, (*slot).tts_isnull.offset(0), 1);
+	ExecStoreVirtualTuple(slot);
+
+	done = true;
+
+	return true;
 }
 
 pub unsafe extern "C" fn memam_scan_set_tidrange(scan: TableScanDesc, mintid: ItemPointer, maxtid: ItemPointer) {
@@ -85,7 +113,7 @@ pub unsafe extern "C" fn memam_index_delete_tuples(rel: Relation, delstate: *mut
 }
 
 pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData) {
-
+	
 }
 
 pub unsafe extern "C" fn memam_tuple_insert_speculative(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData, specToken: uint32) {
@@ -117,7 +145,17 @@ pub unsafe extern "C" fn memam_finish_bulk_insert(rel: Relation, options: c_int)
 }
 
 pub unsafe extern "C" fn memam_relation_set_new_filenode(rel: Relation, newrnode: *const RelFileNode, persistence: c_char, freezeXid: *mut TransactionId, minmulti: *mut MultiXactId) {
+	let schema = SchemaRef::new(Schema::new(Vec::<Field>::new()));
+	// TODO: put proper column names and types here and use vec! instead of ::new
 
+	// Empty table
+	let mem_table = match MemTable::try_new(schema, vec![Vec::<RecordBatch>::new()]).ok() {
+		Some(mem_table) => {
+			let ctx = SessionContext::new();
+			ctx.register_table(pgrx::name_data_to_str(&(*(*rel).rd_rel).relname), Arc::new(mem_table));
+		},
+		None => panic!("Could not create table")
+	};
 }
 
 pub unsafe extern "C" fn memam_relation_nontransactional_truncate(rel: Relation) {

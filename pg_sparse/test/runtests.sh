@@ -141,6 +141,8 @@ function run_tests() {
   # Execute tests using pg_regress
   # We always test on the upcoming version, which means that this test also acts as an extension upgrade test
   echo "Running tests..."
+  make
+  make install
   make installcheck        # regression tests
   make prove_installcheck  # TAP tests
 

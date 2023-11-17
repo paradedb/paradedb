@@ -1,15 +1,18 @@
 use pgrx::pg_sys::*;
+use pgrx::PgBox;
 use core::ffi::c_int;
 use core::ffi::c_char;
 use core::ffi::c_void;
 use std::ptr;
 
 pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTableSlotOps {
-	return ptr::null();
+	return &TTSOpsVirtual;
 }
 
 pub unsafe extern "C" fn memam_scan_begin(rel: Relation, snapshot: Snapshot, nkeys: c_int, key: *mut ScanKeyData, pscan: ParallelTableScanDesc, flags: uint32) -> TableScanDesc {
-	return ptr::null_mut::<TableScanDescData>();
+	let mut scan = unsafe { PgBox::<TableScanDescData>::alloc0() };
+	scan.rs_rd = rel;
+	return scan.into_pg();
 }
 
 pub unsafe extern "C" fn memam_scan_end(scan: TableScanDesc) {
@@ -21,6 +24,7 @@ pub unsafe extern "C" fn memam_scan_rescan(scan: TableScanDesc, key: *mut ScanKe
 }
 
 pub unsafe extern "C" fn memam_scan_getnextslot(scan: TableScanDesc, direction: ScanDirection, slot: *mut TupleTableSlot) -> bool {
+	// TODO: this is where we would have to convert from Arrow data into Postgres data
 	return false;
 }
 

@@ -161,16 +161,16 @@ RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = 
 # pg_sparse
 ######################
 
-FROM builder as builder-pg_sparse
+# FROM builder as builder-pg_sparse
 
-WORKDIR /tmp/pg_sparse
+# WORKDIR /tmp/pg_sparse
 
-COPY pg_sparse/ /tmp/pg_sparse
-COPY shared/ /tmp/shared
+# COPY pg_sparse/ /tmp/pg_sparse
+# COPY shared/ /tmp/shared
 
-# Use the build argument to update the version in Cargo.toml
-RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SPARSE_VERSION}\"/;}" Cargo.toml && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+# # Use the build argument to update the version in Cargo.toml
+# RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SPARSE_VERSION}\"/;}" Cargo.toml && \
+#     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ###############################################
 # Third Stage: PostgreSQL
@@ -236,8 +236,8 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_sparse /tmp/pg_sparse/target/release/pg_sparse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_sparse /tmp/pg_sparse/target/release/pg_sparse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+# COPY --from=builder-pg_sparse /tmp/pg_sparse/target/release/pg_sparse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+# COPY --from=builder-pg_sparse /tmp/pg_sparse/target/release/pg_sparse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 

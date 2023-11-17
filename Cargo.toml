@@ -2,12 +2,6 @@
 resolver = "2"
 members = [
     "pg_bm25",
-<<<<<<< HEAD
-=======
-    "pg_columnar",
-    "pg_search",
-    "pg_sparse",
->>>>>>> 209bbf1b (begin implementing table AM)
     "shared"
 ]
 

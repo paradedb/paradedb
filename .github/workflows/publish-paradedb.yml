@@ -11,8 +11,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/helm
   workflow_dispatch:
 
 concurrency:
@@ -20,92 +18,92 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # publish-paradedb-container-image:
-  #   name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
-  #   runs-on: ubuntu-latest
-  #   strategy:
-  #     matrix:
-  #       pg_version: [15]
+  publish-paradedb-container-image:
+    name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [15]
 
-  #   steps:
-  #     - name: Checkout Git Repository
-  #       uses: actions/checkout@v4
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
 
-  #     - name: Retrieve GitHub Release Version
-  #       id: version
-  #       run: |
-  #         echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-  #         echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-  #         echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+      - name: Retrieve GitHub Release Version
+        id: version
+        run: |
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-  #     - name: Configure Depot CLI
-  #       uses: depot/setup-action@v1
+      - name: Configure Depot CLI
+        uses: depot/setup-action@v1
 
-  #     - name: Login to Docker Hub
-  #       uses: docker/login-action@v3
-  #       with:
-  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
-  #         password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
-  #     - name: Configure AWS Credentials
-  #       uses: aws-actions/configure-aws-credentials@v1.6.1
-  #       with:
-  #         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-  #         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-  #         aws-region: us-east-1
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1.6.1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-  #     # We also push to ECR, because we list on AWS Marketplace
-  #     - name: Login to Amazon ECR
-  #       run: aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 709825985650.dkr.ecr.us-east-1.amazonaws.com
+      # We also push to ECR, because we list on AWS Marketplace
+      - name: Login to Amazon ECR
+        run: aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 709825985650.dkr.ecr.us-east-1.amazonaws.com
 
-  #     # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
-  #     - name: Build and Push Docker Image to Docker Hub
-  #       uses: depot/build-push-action@v1
-  #       with:
-  #         context: .
-  #         build-args: |
-  #           PG_VERSION_MAJOR=${{ matrix.pg_version }}
-  #           PG_BM25_VERSION=${{ steps.version.outputs.version }}
-  #           PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
-  #           PG_SPARSE_VERSION=${{ steps.version.outputs.version }}
-  #           PGVECTOR_VERSION=0.5.1
-  #           PGAUDIT_VERSION=1.7.0
-  #           PG_NET_VERSION=0.7.2
-  #           PG_GRAPHQL_VERSION=1.3.0
-  #           PG_JSONSCHEMA_VERSION=0.1.4
-  #           PGNODEMX_VERSION=1.6
-  #           PG_CRON_VERSION=1.6.0
-  #           PG_IVM_VERSION=1.5.1
-  #           PG_HASHIDS_VERSION=1.2.1
-  #           PG_REPACK_VERSION=1.4.8
-  #           PG_STAT_MONITOR_VERSION=2.0.1
-  #           PG_HINT_PLAN_VERSION=1.5.0
-  #           PG_ROARINGBITMAP_VERSION=0.5.4
-  #           PGFACETING_VERSION=0.1.0
-  #           PGTAP_VERSION=1.3.0
-  #           POSTGIS_VERSION=3.4.0
-  #           PGROUTING_VERSION=3.5.0
-  #           PGSQL_HTTP_VERSION=1.6.0
-  #           HYPOPG_VERSION=1.4.0
-  #           RUM_VERSION=1.3.13
-  #           AGE_VERSION=1.4.0
-  #           POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
-  #           POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
-  #           COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
-  #           TELEMETRY=true
-  #         platforms: linux/amd64,linux/arm64
-  #         file: docker/Dockerfile
-  #         push: true
-  #         project: ${{ secrets.DEPOT_PROJECT }}
-  #         token: ${{ secrets.DEPOT_TOKEN }}
-  #         tags: |
-  #           paradedb/paradedb:latest
-  #           paradedb/paradedb:${{ steps.version.outputs.tag }}
-  #           paradedb/paradedb:${{ steps.version.outputs.version }}
-  #           paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
-  #           709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:latest
-  #           709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.tag }}
-  #           709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.version }}
+      # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
+      - name: Build and Push Docker Image to Docker Hub
+        uses: depot/build-push-action@v1
+        with:
+          context: .
+          build-args: |
+            PG_VERSION_MAJOR=${{ matrix.pg_version }}
+            PG_BM25_VERSION=${{ steps.version.outputs.version }}
+            PG_SEARCH_VERSION=${{ steps.version.outputs.version }}
+            PG_SPARSE_VERSION=${{ steps.version.outputs.version }}
+            PGVECTOR_VERSION=0.5.1
+            PGAUDIT_VERSION=1.7.0
+            PG_NET_VERSION=0.7.2
+            PG_GRAPHQL_VERSION=1.3.0
+            PG_JSONSCHEMA_VERSION=0.1.4
+            PGNODEMX_VERSION=1.6
+            PG_CRON_VERSION=1.6.0
+            PG_IVM_VERSION=1.5.1
+            PG_HASHIDS_VERSION=1.2.1
+            PG_REPACK_VERSION=1.4.8
+            PG_STAT_MONITOR_VERSION=2.0.1
+            PG_HINT_PLAN_VERSION=1.5.0
+            PG_ROARINGBITMAP_VERSION=0.5.4
+            PGFACETING_VERSION=0.1.0
+            PGTAP_VERSION=1.3.0
+            POSTGIS_VERSION=3.4.0
+            PGROUTING_VERSION=3.5.0
+            PGSQL_HTTP_VERSION=1.6.0
+            HYPOPG_VERSION=1.4.0
+            RUM_VERSION=1.3.13
+            AGE_VERSION=1.4.0
+            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+            POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
+            COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
+            TELEMETRY=true
+          platforms: linux/amd64,linux/arm64
+          file: docker/Dockerfile
+          push: true
+          project: ${{ secrets.DEPOT_PROJECT }}
+          token: ${{ secrets.DEPOT_TOKEN }}
+          tags: |
+            paradedb/paradedb:latest
+            paradedb/paradedb:${{ steps.version.outputs.tag }}
+            paradedb/paradedb:${{ steps.version.outputs.version }}
+            paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:latest
+            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.tag }}
+            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.version }}
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}

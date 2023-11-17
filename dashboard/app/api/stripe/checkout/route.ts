@@ -1,30 +1,21 @@
 import Stripe from "stripe";
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "");
 
 const POST = async () => {
   try {
-    const headersList = headers();
-    const origin = headersList.get("origin");
-
-    const session = await stripe.checkout.sessions.create({
-      ui_mode: "embedded",
-      line_items: [
-        {
-          price: "price_1OCsOWFLdqcXYNJaQLgTPBv0",
-          quantity: 1,
-        },
-      ],
-      mode: "subscription",
-      return_url: `${origin}/return?session_id={CHECKOUT_SESSION_ID}`,
-      automatic_tax: { enabled: true },
+    console.log("here");
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: 10000,
+      currency: "usd",
+      payment_method_types: ["card"],
     });
 
-    return NextResponse.json({ clientSecret: session.client_secret });
+    return NextResponse.json({ clientSecret: paymentIntent.client_secret });
   } catch (err: any) {
-    return new Response(err.message, { status: 500 });
+    console.log(err.message);
+    return NextResponse.json(err.message, { status: 500 });
   }
 };
 
@@ -43,7 +34,7 @@ const GET = async (req: Request) => {
       customer_email: session.customer_details?.email,
     });
   } catch (err: any) {
-    return new Response(err.message, { status: 500 });
+    return NextResponse.json(err.message, { status: 500 });
   }
 };
 

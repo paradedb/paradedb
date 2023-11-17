@@ -113,6 +113,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     checkinstall \
     clang \
     git \
+    make \
     cmake \
     pkg-config \
     liblz4-dev \

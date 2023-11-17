@@ -1,13 +1,36 @@
-import { getAccessToken, withApiAuthRequired } from "@auth0/nextjs-auth0";
+import {
+  Session,
+  getAccessToken,
+  getSession,
+  withApiAuthRequired,
+} from "@auth0/nextjs-auth0";
 import { NextResponse } from "next/server";
 
 const withRequest = (
-  customFetch: (accessToken: string) => Promise<Response>,
+  customFetch: ({
+    accessToken,
+    session,
+  }: {
+    accessToken: string;
+    session: Session;
+  }) => Promise<Response>,
 ) => {
   return withApiAuthRequired(async () => {
     try {
       const { accessToken } = await getAccessToken();
-      const response = await customFetch(accessToken ?? "");
+      const session = await getSession();
+
+      if (!accessToken || !session) {
+        return NextResponse.json({
+          status: 500,
+          message: "No active session or access token found",
+        });
+      }
+
+      const response = await customFetch({
+        accessToken,
+        session,
+      });
 
       if (!response.ok) {
         const errorData = await response.json();

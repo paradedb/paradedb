@@ -690,6 +690,14 @@ asynciterator.prototype@^1.0.0:
   dependencies:
     has-symbols "^1.0.3"
 
+auth0@^4.1.0:
+  version "4.1.0"
+  resolved "https://registry.yarnpkg.com/auth0/-/auth0-4.1.0.tgz#fd9235f3849fd0727c423886b8d3110e6d62803c"
+  integrity sha512-1CpjWPOuWPAhQZy46/T/jOViy1WXhytmdlZji693ZpBfugYw181+JXfKLzjea59oKmo4HFctD05cec7xGdysfQ==
+  dependencies:
+    jose "^4.13.2"
+    uuid "^9.0.0"
+
 autoprefixer@10.4.15:
   version "10.4.15"
   resolved "https://registry.yarnpkg.com/autoprefixer/-/autoprefixer-10.4.15.tgz#a1230f4aeb3636b89120b34a1f513e2f6834d530"
@@ -2057,7 +2065,7 @@ joi@^17.6.0:
     "@sideway/formula" "^3.0.1"
     "@sideway/pinpoint" "^2.0.0"
 
-jose@^4.15.1, jose@^4.9.2:
+jose@^4.13.2, jose@^4.15.1, jose@^4.9.2:
   version "4.15.4"
   resolved "https://registry.yarnpkg.com/jose/-/jose-4.15.4.tgz#02a9a763803e3872cf55f29ecef0dfdcc218cc03"
   integrity sha512-W+oqK4H+r5sITxfxpSU+MMdr/YSWGvgZMQDIsNoBDGGy4i7GBPTtvFKibQzW06n3U3TqHjhvBJsirShsEJ6eeQ==
@@ -3254,6 +3262,11 @@ util-deprecate@^1.0.2:
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/util-deprecate/-/util-deprecate-1.0.2.tgz#450d4dc9fa70de732762fbd2d4a28981419a0ccf"
   integrity sha512-EPD5q1uXyFxJpCrLnCc1nHnq3gOa6DZBocAIiI2TaSCA7VCJ1UJDMagCzIkXNsUYfD1daK//LTEQ8xiIbrHtcw==
+
+uuid@^9.0.0:
+  version "9.0.1"
+  resolved "https://registry.yarnpkg.com/uuid/-/uuid-9.0.1.tgz#e188d4c8853cc722220392c424cd637f32293f30"
+  integrity sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==
 
 victory-vendor@^36.6.8:
   version "36.6.12"

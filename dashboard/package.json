@@ -19,6 +19,7 @@
     "@types/node": "20.6.2",
     "@types/react": "18.2.22",
     "@types/react-dom": "18.2.7",
+    "auth0": "^4.1.0",
     "autoprefixer": "10.4.15",
     "classnames": "^2.3.2",
     "next": "13.4.19",

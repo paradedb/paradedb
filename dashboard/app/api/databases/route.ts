@@ -1,6 +1,6 @@
 import { withRequest } from "@/utils/api";
 
-const DELETE = withRequest((accessToken) =>
+const DELETE = withRequest(({ accessToken }) =>
   fetch(`${process.env.PROVISIONER_URL}/databases`, {
     method: "DELETE",
     headers: {
@@ -10,7 +10,7 @@ const DELETE = withRequest((accessToken) =>
   }),
 );
 
-const POST = withRequest((accessToken) =>
+const POST = withRequest(({ accessToken }) =>
   fetch(`${process.env.PROVISIONER_URL}/databases`, {
     method: "POST",
     headers: {

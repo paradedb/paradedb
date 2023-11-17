@@ -1,6 +1,6 @@
 import { withRequest } from "@/utils/api";
 
-const GET = withRequest((accessToken) =>
+const GET = withRequest(({ accessToken }) =>
   fetch(`${process.env.PROVISIONER_URL}/databases/status`, {
     method: "GET",
     headers: {

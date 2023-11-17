@@ -37,6 +37,7 @@ import { redirect } from "next/navigation";
 
 const DATABASE_CREDENTIALS_URL = `/api/databases/credentials`;
 const DATABASE_STATUS_URL = `/api/databases/status`;
+// const USER_URL = `/api/auth/user`;
 
 const ERR_EXPIRED_ACCESS_TOKEN = "ERR_EXPIRED_ACCESS_TOKEN";
 
@@ -179,6 +180,7 @@ const InstanceCard = ({
 const Index = () => {
   const { data: creds } = useSWR(DATABASE_CREDENTIALS_URL, fetcher);
   const { data: status } = useSWR(DATABASE_STATUS_URL, fetcher);
+  // const { data: user } = useSWR(USER_URL, fetcher);
 
   const deployStatus = status?.deploy_status;
   const credsRef = useRef(creds);

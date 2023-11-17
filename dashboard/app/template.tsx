@@ -73,6 +73,7 @@ const SidebarButton = ({
 const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
   const pathname = usePathname();
   const { user, isLoading } = useUser();
+
   const titleMap: {
     [key: string]: string;
   } = {

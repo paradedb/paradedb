@@ -1,5 +1,5 @@
 -- complain if script is sourced in psql, rather than via CREATE EXTENSION
-\echo Use "ALTER EXTENSION svector UPDATE TO '0.5.0'" to load this file. \quit
+\echo Use "ALTER EXTENSION svector UPDATE TO '0.3.0'" to load this file. \quit
 
 CREATE FUNCTION l1_distance(svector, svector) RETURNS float8
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;

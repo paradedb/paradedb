@@ -105,7 +105,7 @@ FROM base as builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Install Rust and other build dependencies
+# Install Rust (specific version) and other build dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     build-essential \
     checkinstall \
@@ -116,7 +116,8 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     liblz4-dev \
     libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/* \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && /root/.cargo/bin/rustup default 1.73.0
 
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}

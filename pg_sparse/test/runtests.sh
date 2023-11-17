@@ -14,7 +14,6 @@ usage() {
   echo " -h (optional),   Display this help message"
   echo " -p (required),   Processing type, either <sequential> or <threaded>"
   echo " -v (optional),   PG version(s) separated by comma <12,13,14>"
-  echo " -u (optional),   Version to test upgrading to before running tests (only meant for use in CI) <0.3.7>"
   exit 1
 }
 
@@ -47,9 +46,6 @@ do
       ;;
     v)
       FLAG_PG_VER=$OPTARG
-      ;;
-    u)
-      FLAG_UPGRADE_VER=$OPTARG
       ;;
     *)
       usage

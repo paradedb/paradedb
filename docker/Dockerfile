@@ -228,7 +228,7 @@ COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_M
 # Install the ParadeDB pg_sparse extension directly, since it's not as modular as pgrx extensions
 WORKDIR /tmp/pg_sparse
 COPY pg_sparse/ /tmp/pg_sparse
-RUN sed -i "s/default_version = '.*'/default_version = '\${PG_SPARSE_VERSION}'/" svector.control && \
+RUN sed -i "s/default_version = '.*'/default_version = \"${PG_SPARSE_VERSION}\"/" svector.control && \
     make && \
     make install
 RUN rm -rf /tmp/pg_sparse

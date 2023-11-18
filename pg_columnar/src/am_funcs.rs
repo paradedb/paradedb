@@ -18,6 +18,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::execution::context::SessionState;
 use datafusion::execution::runtime_env::RuntimeEnv;
 use datafusion::logical_expr::LogicalPlanBuilder;
+use datafusion::physical_plan::memory::MemoryExec;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 use datafusion::sql::TableReference;
 use crate::CONTEXT;
@@ -119,6 +120,7 @@ pub unsafe extern "C" fn memam_index_delete_tuples(rel: Relation, delstate: *mut
 }
 
 pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData) {
+	// TODO: can I instead use something that implements ExecutionPlan directly?
 
 	// TupleDesc desc = RelationGetDescr(relation);
 	// get the table name from relation: relation->rd_rel->relname
@@ -149,36 +151,22 @@ pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTable
 			schema,
 			vec![Arc::new(id_array)]
 		).unwrap();
-		// create a new memtable using the record batch like let provider = MemTable::try_new(batch.schema(), vec![vec![batch]])?;
-		let provider = MemTable::try_new(batch.schema(), vec![vec![batch]]);
-		if let Ok(newtable) = provider {
-			// convert this using scan into a builder
-			// turn ithe builder into a logical plan
-			let tuple_builder = LogicalPlanBuilder::scan(
-				"test",
-				Arc::new(DefaultTableSource::new(Arc::new(newtable))),
-				None,
-			).build();
-			let session_state = SessionState::new_with_config_rt(
-				SessionConfig::new(),
-				Arc::new(RuntimeEnv::default())
+		// use MemoryExec to read this recordbatch
+		let memory_exec = MemoryExec::try_new(
+			&[vec![batch]],
+			batch.schema(),
+			None,
+		);
+		let session_state = SessionState::new_with_config_rt(
+			SessionConfig::new(),
+			Arc::new(RuntimeEnv::default())
+		);
+		if let Ok(exec_plan) = memory_exec {
+			table.insert_into(
+				&session_state,
+				exec_plan,
+				false
 			);
-			// TODO: this is async asdasdaf
-			// turn it into an execution plan using DefaultPhysicalPlanner
-			if let Ok(logical_plan) = tuple_builder {
-				let exec_plan = DefaultPhysicalPlanner::default().create_physical_plan(
-					logical_plan,
-					&session_state
-				).await;
-				// create default session state and run insert_into using execution plan
-				if let Ok(eplan) = exec_plan {
-					table.insert_into(
-						&session_state,
-						eplan,
-						false
-					);
-				}
-			}
 		}
 	}
 }

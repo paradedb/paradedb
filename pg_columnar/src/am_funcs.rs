@@ -2,19 +2,25 @@
 #![allow(non_snake_case)]
 
 use pgrx::pg_sys::*;
-use pgrx::PgBox;
+use pgrx::{FromDatum, PgBox};
 use core::ffi::c_int;
 use core::ffi::c_char;
 use core::ffi::c_void;
 use std::ptr;
 use pgrx::IntoDatum;
 use std::ptr::copy_nonoverlapping;
-use datafusion::prelude::SessionContext;
+use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
-use datafusion::datasource::MemTable;
+use datafusion::datasource::{DefaultTableSource, MemTable, TableProvider};
 use std::sync::Arc;
 use datafusion::error::Result;
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::execution::context::SessionState;
+use datafusion::execution::runtime_env::RuntimeEnv;
+use datafusion::logical_expr::LogicalPlanBuilder;
+use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
+use datafusion::sql::TableReference;
+use crate::CONTEXT;
 
 
 pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTableSlotOps {
@@ -113,7 +119,68 @@ pub unsafe extern "C" fn memam_index_delete_tuples(rel: Relation, delstate: *mut
 }
 
 pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData) {
-	
+
+	// TupleDesc desc = RelationGetDescr(relation);
+	// get the table name from relation: relation->rd_rel->relname
+	// look up the table (hopefully registered using ctx.register_table) using one of their table functions
+	let table_ref = TableReference::from(name_data_to_str(&(*(*rel).rd_rel).relname));
+	let table: Result<Arc<dyn TableProvider>> = CONTEXT.table_provider(table_ref);
+	// use insert_into with the memtable
+	// I have to input a SessionState and an ExecutionPlan
+	// column.value = DatumGetInt32(slot->tts_values[i]);
+	// desc->natts is number of columns in the tuple
+	// create a logical plan ?? or use the logical plan builder??
+	// to represent insert
+
+	// create a record batch using try_new
+	// read the tuple from slot->tts_values?
+	// the data is in slot->tts_values: ith entry <-> ith column
+	// read tuple desc from it
+	let num_cols = (*slot).tts_nvalid;
+	// let desc = (*slot).tts_tupleDescriptor;
+	let vals = (*slot).tts_values;
+	if num_cols > 0 {
+		let id_array = vec![i32::from_datum(*vals, false)];
+		// create a schema for the recordbatch
+		// test: schema is just
+		let field = Field::new("a", DataType::Int32, false);
+		let schema = SchemaRef::new(Schema::new(vec![field]));
+		let batch = RecordBatch::try_new(
+			schema,
+			vec![Arc::new(id_array)]
+		).unwrap();
+		// create a new memtable using the record batch like let provider = MemTable::try_new(batch.schema(), vec![vec![batch]])?;
+		let provider = MemTable::try_new(batch.schema(), vec![vec![batch]]);
+		if let Ok(newtable) = provider {
+			// convert this using scan into a builder
+			// turn ithe builder into a logical plan
+			let tuple_builder = LogicalPlanBuilder::scan(
+				"test",
+				Arc::new(DefaultTableSource::new(Arc::new(newtable))),
+				None,
+			).build();
+			let session_state = SessionState::new_with_config_rt(
+				SessionConfig::new(),
+				Arc::new(RuntimeEnv::default())
+			);
+			// TODO: this is async asdasdaf
+			// turn it into an execution plan using DefaultPhysicalPlanner
+			if let Ok(logical_plan) = tuple_builder {
+				let exec_plan = DefaultPhysicalPlanner::default().create_physical_plan(
+					logical_plan,
+					&session_state
+				).await;
+				// create default session state and run insert_into using execution plan
+				if let Ok(eplan) = exec_plan {
+					table.insert_into(
+						&session_state,
+						eplan,
+						false
+					);
+				}
+			}
+		}
+	}
 }
 
 pub unsafe extern "C" fn memam_tuple_insert_speculative(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData, specToken: uint32) {
@@ -145,14 +212,16 @@ pub unsafe extern "C" fn memam_finish_bulk_insert(rel: Relation, options: c_int)
 }
 
 pub unsafe extern "C" fn memam_relation_set_new_filenode(rel: Relation, newrnode: *const RelFileNode, persistence: c_char, freezeXid: *mut TransactionId, minmulti: *mut MultiXactId) {
-	let schema = SchemaRef::new(Schema::new(Vec::<Field>::new()));
 	// TODO: put proper column names and types here and use vec! instead of ::new
+	// for now let's have one column with int32
+	let field = Field::new("a", DataType::Int32, false);
+	let schema = SchemaRef::new(Schema::new(vec![field]));
 
 	// Empty table
 	let mem_table = match MemTable::try_new(schema, vec![Vec::<RecordBatch>::new()]).ok() {
 		Some(mem_table) => {
-			let ctx = SessionContext::new();
-			ctx.register_table(pgrx::name_data_to_str(&(*(*rel).rd_rel).relname), Arc::new(mem_table));
+			// let ctx = SessionContext::new();
+			CONTEXT.register_table(name_data_to_str(&(*(*rel).rd_rel).relname), Arc::new(mem_table));
 		},
 		None => panic!("Could not create table")
 	};

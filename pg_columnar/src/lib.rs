@@ -1,6 +1,7 @@
 #![allow(unused)]
 #![allow(non_snake_case)]
 
+use datafusion::prelude::SessionContext;
 use pgrx::prelude::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
@@ -11,6 +12,8 @@ use am_funcs::*;
 // This is a flag that can be set by the user in a session to enable logs.
 // You need to initialize this in every extension that uses `plog!`.
 static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_columnar");
+// let's try adding the session context globally for now so we can retain info about our tables
+static CONTEXT : SessionContext = SessionContext::new();
 
 pgrx::pg_module_magic!();
 
@@ -85,6 +88,7 @@ extern "C" fn mem_tableam_handler(
 
 #[no_mangle]
 extern "C" fn pg_finfo_mem_tableam_handler() -> &'static pg_sys::Pg_finfo_record {
+    // TODO in the blog post he initializes the database here. Does our session context go here?
     const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
     &V1_API
 }

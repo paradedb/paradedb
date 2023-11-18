@@ -13,6 +13,7 @@ use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::datasource::{DefaultTableSource, MemTable, TableProvider};
 use std::sync::Arc;
+use datafusion::arrow::array::Int32Array;
 use datafusion::error::Result;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::execution::context::SessionState;
@@ -120,13 +121,11 @@ pub unsafe extern "C" fn memam_index_delete_tuples(rel: Relation, delstate: *mut
 }
 
 pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData) {
-	// TODO: can I instead use something that implements ExecutionPlan directly?
-
 	// TupleDesc desc = RelationGetDescr(relation);
 	// get the table name from relation: relation->rd_rel->relname
 	// look up the table (hopefully registered using ctx.register_table) using one of their table functions
 	let table_ref = TableReference::from(name_data_to_str(&(*(*rel).rd_rel).relname));
-	let table: Result<Arc<dyn TableProvider>> = CONTEXT.table_provider(table_ref);
+	let table = CONTEXT.table_provider(table_ref);
 	// use insert_into with the memtable
 	// I have to input a SessionState and an ExecutionPlan
 	// column.value = DatumGetInt32(slot->tts_values[i]);
@@ -138,18 +137,19 @@ pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTable
 	// read the tuple from slot->tts_values?
 	// the data is in slot->tts_values: ith entry <-> ith column
 	// read tuple desc from it
+	// TODO: don't just assume defaults and only read first val
 	let num_cols = (*slot).tts_nvalid;
 	// let desc = (*slot).tts_tupleDescriptor;
 	let vals = (*slot).tts_values;
 	if num_cols > 0 {
-		let id_array = vec![i32::from_datum(*vals, false)];
+		let id_array = vec![i32::from_datum(*vals, false).unwrap()];
 		// create a schema for the recordbatch
 		// test: schema is just
 		let field = Field::new("a", DataType::Int32, false);
 		let schema = SchemaRef::new(Schema::new(vec![field]));
 		let batch = RecordBatch::try_new(
 			schema,
-			vec![Arc::new(id_array)]
+			vec![Arc::new(Int32Array::from(id_array))]
 		).unwrap();
 		// use MemoryExec to read this recordbatch
 		let memory_exec = MemoryExec::try_new(
@@ -162,11 +162,13 @@ pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTable
 			Arc::new(RuntimeEnv::default())
 		);
 		if let Ok(exec_plan) = memory_exec {
-			table.insert_into(
-				&session_state,
-				exec_plan,
-				false
-			);
+			if let Ok(provider) = table {
+				provider.insert_into(
+					&session_state,
+					Arc::new(exec_plan),
+					false
+				);
+			}
 		}
 	}
 }

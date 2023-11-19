@@ -120,7 +120,7 @@ pub unsafe extern "C" fn memam_index_delete_tuples(rel: Relation, delstate: *mut
 	return 0;
 }
 
-pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData) {
+pub async unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData) {
 	// TupleDesc desc = RelationGetDescr(relation);
 	// get the table name from relation: relation->rd_rel->relname
 	// look up the table (hopefully registered using ctx.register_table) using one of their table functions
@@ -151,10 +151,11 @@ pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTable
 			schema,
 			vec![Arc::new(Int32Array::from(id_array))]
 		).unwrap();
+		let schema = batch.schema();
 		// use MemoryExec to read this recordbatch
 		let memory_exec = MemoryExec::try_new(
 			&[vec![batch]],
-			batch.schema(),
+			schema.clone(),
 			None,
 		);
 		let session_state = SessionState::new_with_config_rt(
@@ -162,9 +163,10 @@ pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTable
 			Arc::new(RuntimeEnv::default())
 		);
 		if let Ok(exec_plan) = memory_exec {
-			if let Ok(provider) = table {
+			if let Ok(provider) = table.await {
+				// TODO: correct to use session context's state?
 				provider.insert_into(
-					&session_state,
+					&CONTEXT.state(),
 					Arc::new(exec_plan),
 					false
 				);

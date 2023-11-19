@@ -145,3 +145,54 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
 "#,
     name = "bm25_ops_anyelement_operator"
 );
+
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::*;
+
+    use super::{get_index_oid, scan_index};
+    use shared::testing::{QUERY_SQL, SETUP_SQL};
+
+    #[pg_test]
+    fn test_get_index_oid() -> Result<(), spi::Error> {
+        Spi::run(SETUP_SQL)?;
+        let oid = get_index_oid("idx_one_republic", "bm25")?;
+        assert!(oid.is_some());
+        Ok(())
+    }
+
+    #[pg_test]
+    fn test_scan_index() {
+        Spi::run(SETUP_SQL).expect("failed to create table and index");
+        let oid = get_index_oid("idx_one_republic", "bm25").expect("oid not found");
+        assert!(oid.is_some());
+
+        let oid = oid.unwrap();
+        let result_set = scan_index(QUERY_SQL, oid);
+        assert!(result_set.is_empty());
+    }
+
+    #[pg_test]
+    #[should_panic]
+    fn fail_to_scan_index() {
+        // Fail since there is no index created yet
+        let res = Spi::run(QUERY_SQL);
+        assert!(res.is_err());
+
+        Spi::run(SETUP_SQL).expect("failed to create table and index");
+        // Fail due to wrong query
+        let res = Spi::run("SELECT description FROM one_republic_songs WHERE one_republic_songs @@@ 'album:Native';");
+        assert!(res.is_err());
+    }
+
+    #[pg_test]
+    // Since the "search_tantivy" function cannout be tested directly from here,
+    // we'll take advantage of the SPI to test the @@@ operator which has "search_tantivy" as the corresponding procedure
+    fn test_search_tantivy_operator() {
+        Spi::run(SETUP_SQL).expect("failed to create table and index");
+
+        let res = Spi::get_one::<&str>(QUERY_SQL).expect("failed to get one");
+        assert_eq!(res, Some("Counting Stars"));
+    }
+}

@@ -68,6 +68,7 @@ impl ParadeIndex {
     ) -> Result<Self, Box<dyn Error>> {
         let dir = Self::get_data_directory(&name);
         let path = Path::new(&dir);
+
         if path.exists() {
             remove_dir_all(path).expect("failed to remove paradedb directory");
         }
@@ -512,16 +513,171 @@ impl ParadeIndex {
     }
 }
 
-#[cfg(feature = "pg_test")]
+// #[cfg(feature = "pg_test")]
 #[pgrx::pg_schema]
 mod tests {
-    use super::ParadeIndex;
+    use std::{collections::HashMap, fs::OpenOptions, io::BufReader};
 
-    #[pgrx::pg_test]
-    fn test_from_index_name() -> Result<(), Box<dyn std::error::Error>> {
-        let name = "The Score".to_string();
-        let index = ParadeIndex::from_index_name(name);
-        println!("{:#?}", index.fields);
+    use crate::parade_index::fields::{ParadeOption, ParadeTextOptions};
+
+    use serde_json::json;
+    use std::error::Error;
+
+    use super::ParadeIndex;
+    use pgrx::*;
+
+    #[pg_test]
+    fn test_get_data_directory() {
+        let dir_name = "thescore";
+        let current_execution_dir = std::env::current_dir().unwrap();
+        let expected = format!(
+            "{}/paradedb/{dir_name}",
+            current_execution_dir.to_str().unwrap()
+        );
+        let result = ParadeIndex::get_data_directory(dir_name);
+        assert_eq!(result, expected);
+    }
+
+    #[pg_test]
+    fn test_get_field_configs_path() {
+        let name = "thescore";
+        let current_execution_dir = std::env::current_dir().unwrap();
+        let expected = format!(
+            "{}/paradedb/{name}_parade_field_configs.json",
+            current_execution_dir.to_str().unwrap()
+        );
+        let result = ParadeIndex::get_field_configs_path(name);
+        assert_eq!(result, expected);
+    }
+
+    #[pg_test]
+    fn test_serialize_index_field_configs() -> serde_json::Result<()> {
+        let json = r#"{
+            "indexed": true,
+            "fast": false,
+            "stored": true,
+            "fieldnorms": true,
+            "type": "default",
+            "record": "basic",
+            "normalizer": "raw"
+        }"#;
+        let text_option: ParadeTextOptions = serde_json::from_str(json).unwrap();
+        let options = ParadeOption::Text(text_option);
+        let mut field_configs = HashMap::new();
+        field_configs.insert("onerepublic".to_string(), options);
+
+        let result = ParadeIndex::serialize_index_field_configs(&field_configs)?;
+        let expected = json!({
+            "onerepublic": {
+                "Text": json
+            }
+        });
+        assert_eq!(result, expected.as_str().unwrap());
         Ok(())
     }
+
+    #[pg_test]
+    fn test_deserialize_index_field_configs() -> serde_json::Result<()> {
+        let json = r#"{
+           "hozier": {
+                "Text": {
+                    "indexed": true,
+                    "fast": false,
+                    "stored": true,
+                    "fieldnorms": true,
+                    "type": "default",
+                    "record": "basic",
+                    "normalizer": "raw"
+                }
+           }
+        }"#;
+        let result = ParadeIndex::deserialize_index_field_configs(json.to_string())?;
+        let text_option: ParadeTextOptions = serde_json::from_str(json).unwrap();
+        let options = ParadeOption::Text(text_option);
+        let mut expected = HashMap::new();
+        expected.insert("hozier".to_string(), options);
+
+        let res_option = result.get("hoszier");
+        let exp_option = expected.get("hozier");
+        assert_ne!(res_option.is_some(), exp_option.is_some());
+
+        Ok(())
+    }
+
+    fn make_field_config() -> HashMap<String, ParadeOption> {
+        let json = r#"{
+            "indexed": true,
+            "fast": false,
+            "stored": true,
+            "fieldnorms": true,
+            "type": "default",
+            "record": "basic",
+            "normalizer": "raw"
+        }"#;
+        let text_option: ParadeTextOptions = serde_json::from_str(json).unwrap();
+        let options = ParadeOption::Text(text_option);
+        let mut field_configs = HashMap::new();
+        field_configs.insert("onerepublic".to_string(), options);
+        field_configs
+    }
+
+    #[pg_test]
+    fn test_write_index_field_configs() -> Result<(), Box<dyn Error>> {
+        let index_name = "lorde";
+        let field_configs = make_field_config();
+        ParadeIndex::write_index_field_configs(index_name, &field_configs)?;
+
+        let current_execution_dir = std::env::current_dir().unwrap();
+        let index_field_location = format!(
+            "{}/paradedb/{index_name}_parade_field_configs.json",
+            current_execution_dir.to_str().unwrap()
+        );
+
+        let index_field_path = std::path::Path::new(&index_field_location);
+        assert!(index_field_path.exists());
+
+        let file = OpenOptions::new().read(true).open(index_field_path)?;
+        let reader = BufReader::new(file);
+        let result: HashMap<String, ParadeOption> = serde_json::from_reader(reader)?;
+
+        assert_eq!(
+            field_configs.get("onerepublic").is_some(),
+            result.get("onerepublic").is_some()
+        );
+
+        Ok(())
+    }
+
+    #[pg_test]
+    fn test_read_index_field_configs() {
+        let index_name = "tomwalker";
+        let result = ParadeIndex::read_index_field_configs(index_name);
+        assert!(result.is_err());
+    }
+
+    // #[pg_test]
+    // fn test_build_index_schema() -> Result<(), String> {
+    //     Spi::run(SETUP_SQL).expect("failed to setup index");
+    //     let oid = get_index_oid("idx_one_republic", "bm25").expect("failed to get index oid");
+
+    //     unsafe {
+    //         let index =
+    //             pg_sys::index_open(oid.unwrap(), pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+
+    //         let heap = pg_sys::relation_open(
+    //             index.as_ref().unwrap().rd_index.as_ref().unwrap().indrelid,
+    //             pg_sys::AccessShareLock as pg_sys::LOCKMODE,
+    //         );
+
+    //         let heap_relation = PgRelation::from_pg(heap);
+    //         let options: PgBox<ParadeOptions> =
+    //             PgBox::from_pg(heap_relation.rd_options as *mut ParadeOptions);
+
+    //         let res = ParadeIndex::build_index_schema(&heap_relation, &options)
+    //             .expect("failed to build schema");
+    //         println!("{:#?}", res.1);
+    //     }
+
+    //     Ok(())
+    // }
 }

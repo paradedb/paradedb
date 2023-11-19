@@ -83,3 +83,92 @@ pub fn minmax_bm25(
         None => 0.0,
     }
 }
+
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::*;
+    use shared::testing::SETUP_SQL;
+
+    #[pg_test]
+    fn test_rank_bm25() {
+        Spi::run(SETUP_SQL).expect("failed to create index and table");
+        let ctid = Spi::get_one::<pg_sys::ItemPointerData>(
+            "SELECT ctid FROM one_republic_songs WHERE title = 'If I Lose Myself'",
+        )
+        .expect("could not get ctid");
+
+        assert!(ctid.is_some());
+        let ctid = ctid.unwrap();
+        assert_eq!(ctid.ip_posid, 3);
+
+        let query = "SELECT paradedb.rank_bm25(ctid) FROM one_republic_songs WHERE one_republic_songs @@@ 'lyrics:im AND description:song'";
+        let rank = Spi::get_one::<f32>(query)
+            .expect("failed to rank query")
+            .unwrap();
+        assert!(rank > 1.0);
+    }
+
+    #[pg_test]
+    fn test_higlight() {
+        Spi::run(SETUP_SQL).expect("failed to create index and table");
+
+        let query = r#"
+SELECT paradedb.highlight_bm25(ctid, 'idx_one_republic', 'lyrics')
+FROM one_republic_songs
+WHERE one_republic_songs @@@ 'lyrics:im:::max_num_chars=10';
+        "#;
+
+        let highlight = Spi::get_one::<&str>(query)
+            .expect("failed to highlight lyrics")
+            .unwrap();
+        assert_eq!(highlight, "<b>Im</b> shaking");
+    }
+
+    //     #[pg_test]
+    //     fn test_minmax() {
+    //         Spi::run(SETUP_SQL).expect("failed to create index and table");
+
+    //         let add_ratings = r#"
+    //         ALTER TABLE one_republic_songs ADD COLUMN rating vector(7);
+
+    //         WITH NumberedRows AS (
+    //             SELECT ctid,
+    //                 ROW_NUMBER() OVER () as row_num
+    //             FROM one_republic_songs
+    //         )
+    //         UPDATE one_republic_songs m
+    //         SET rating = ('[' ||
+    //             ((n.row_num + 1) % 5 + 1)::integer || ',' ||
+    //             ((n.row_num + 2) % 5 + 2)::integer || ',' ||
+    //             ((n.row_num + 2) % 5 + 3)::integer || ',' ||
+    //             ((n.row_num + 2) % 5 + 4)::integer || ',' ||
+    //             ((n.row_num + 2) % 5 + 5)::integer || ',' ||
+    //             ((n.row_num + 2) % 5 + 6)::integer || ',' ||
+    //             ((n.row_num + 3) % 5 + 7)::integer || ']')::vector
+    //         FROM NumberedRows n
+    //         WHERE m.ctid = n.ctid;
+    //         "#;
+    //         Spi::run(add_ratings).expect("failed to add ratings column to table");
+
+    //         let query = r#"
+    // SELECT
+    //     paradedb.weighted_mean(
+    //         paradedb.minmax_bm25(ctid, 'idx_one_republic', 'lyrics:im AND description:desc'),
+    //         1 - paradedb.minmax_norm(
+    //           '[1,2,3]' <-> rating,
+    //           MIN('[1,2,3]' <-> rating) OVER (),
+    //           MAX('[1,2,3]' <-> rating) OVER ()
+    //         ),
+    //         ARRAY[0.8,0.2]
+    //     ) as score_hybrid
+    // FROM one_republic_songs
+    // ORDER BY score_hybrid DESC
+    // LIMIT 3;
+    //         "#;
+
+    //         let (score1, score2, score3) =
+    //             Spi::get_three::<f32, f32, f32>(query).expect("failed to get min max");
+    //         println!("{:#?}, {:#?}, {:#?}", score1, score2, score3);
+    //     }
+}

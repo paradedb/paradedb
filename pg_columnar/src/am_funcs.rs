@@ -10,28 +10,56 @@ use std::ptr;
 use pgrx::IntoDatum;
 use std::ptr::copy_nonoverlapping;
 use datafusion::prelude::{SessionConfig, SessionContext};
-use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
+use datafusion::arrow::datatypes::{DataType, Field, Int32Type, Schema, SchemaRef};
 use datafusion::datasource::{DefaultTableSource, MemTable, TableProvider};
 use std::sync::Arc;
-use datafusion::arrow::array::Int32Array;
+use datafusion::arrow::array::{Array, ArrayIter, AsArray, Int32Array, PrimitiveArray, Scalar};
 use datafusion::error::Result;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::execution::context::SessionState;
+use datafusion::execution::{RecordBatchStream, SendableRecordBatchStream};
 use datafusion::execution::runtime_env::RuntimeEnv;
 use datafusion::logical_expr::LogicalPlanBuilder;
+use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_plan::memory::MemoryExec;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 use datafusion::sql::TableReference;
 use crate::CONTEXT;
 
+async unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
+	let table_ref = TableReference::from(name_data_to_str(&(*(*rel).rd_rel).relname));
+	CONTEXT.table_provider(table_ref)
+}
 
 pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTableSlotOps {
 	return &TTSOpsVirtual;
 }
 
+// custom DescData representing scan state
+struct TableAMScanDescData {
+	rs_base : TableScanDescData,
+	stream : Option<SendableRecordBatchStream>, // should this be option
+	curr_batch : Option<RecordBatch>,
+}
+
 pub unsafe extern "C" fn memam_scan_begin(rel: Relation, snapshot: Snapshot, nkeys: c_int, key: *mut ScanKeyData, pscan: ParallelTableScanDesc, flags: uint32) -> TableScanDesc {
-	let mut scan = unsafe { PgBox::<TableScanDescData>::alloc0() };
-	scan.rs_rd = rel;
+	// let mut scan = unsafe { PgBox::<TableScanDescData>::alloc0() };
+	let mut scan = unsafe { PgBox::<TableAMScanDescData>::alloc0() };
+	scan.rs_base.rs_rd = rel;
+	let table = get_table_from_relation(rel).await;
+	if let Ok(tab) = table {
+		let scan_exec_plan = tab.scan(
+			&CONTEXT.state(),
+			None,
+			&[],
+			None
+		).await.map(|plan| plan.execute(0, CONTEXT.task_ctx()));
+		// TODO how do deal with all these results
+		if let Ok(Ok(stream)) = scan_exec_plan {
+			scan.stream = stream;
+		}
+	}
+	// TODO: how do I cast this boi
 	return scan.into_pg();
 }
 
@@ -49,6 +77,49 @@ pub unsafe extern "C" fn memam_scan_getnextslot(scan: TableScanDesc, direction: 
 	if done {
 		return false;
 	}
+
+	// cast scan as TableAMScanDescData
+	let tscan = scan as *mut TableAMScanDescData;
+	// TODO: grab the stream and get next
+	if (*tscan).curr_batch.is_none() {
+		let next_batch = (*tscan).stream.next().await;
+		match next_batch {
+			Some(Ok(batch)) => {
+				// the batch is 2-dimensional! :( I only want the first guy in it
+				(*tscan).curr_batch = Some(batch);
+			},
+			_ => (),
+		};
+	}
+	if (*tscan).curr_batch.is_none() {
+		return false;
+	}
+	let batch = (*tscan).curr_batch.unwrap();
+	if batch.num_rows() > 0 {
+		let single_batch = batch.slice(0, 1);
+		let mut col_index = 0;
+		for col in single_batch.columns() {
+			// TODO: casework based on data type and put it into slot and put it into slot
+			// TODO: I have no ide ahow to get the single value col is supposed toh ave!!
+			match col.data_type() {
+				DataType::Int32 => {
+					let prim : &PrimitiveArray<Int32Type> = col.as_primitive();
+					let value_datum : Datum = prim.value(0).into_datum().unwrap();
+					// TODO: actually figure out whether null or not
+					let value_isnull = false;
+					copy_nonoverlapping::<Datum>(&value_datum, (*slot).tts_values.offset(col_index), 1);
+					copy_nonoverlapping::<bool>(&value_isnull, (*slot).tts_isnull.offset(col_index), 1);
+
+				},
+				_ => ()
+			}
+			col_index += 1;
+		}
+
+	} else {
+		return false;
+	}
+
 
 	// TODO: Use RecordBatch::try_new to create new rows (replace dummy 314)
 	let value: int32 = 314;
@@ -120,12 +191,12 @@ pub unsafe extern "C" fn memam_index_delete_tuples(rel: Relation, delstate: *mut
 	return 0;
 }
 
-pub async unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData) {
+pub unsafe extern "C" fn memam_tuple_insert(rel: Relation, slot: *mut TupleTableSlot, cid: CommandId, options: c_int, bistate: *mut BulkInsertStateData) {
 	// TupleDesc desc = RelationGetDescr(relation);
 	// get the table name from relation: relation->rd_rel->relname
 	// look up the table (hopefully registered using ctx.register_table) using one of their table functions
-	let table_ref = TableReference::from(name_data_to_str(&(*(*rel).rd_rel).relname));
-	let table = CONTEXT.table_provider(table_ref);
+	// let table_ref = TableReference::from(name_data_to_str(&(*(*rel).rd_rel).relname));
+	let table = get_table_from_relation(rel);
 	// use insert_into with the memtable
 	// I have to input a SessionState and an ExecutionPlan
 	// column.value = DatumGetInt32(slot->tts_values[i]);
@@ -205,6 +276,7 @@ pub unsafe extern "C" fn memam_finish_bulk_insert(rel: Relation, options: c_int)
 
 pub unsafe extern "C" fn memam_relation_set_new_filenode(rel: Relation, newrnode: *const RelFileNode, persistence: c_char, freezeXid: *mut TransactionId, minmulti: *mut MultiXactId) {
 	// TODO: put proper column names and types here and use vec! instead of ::new
+	// TODO: I think we should read through pgrx::tupdesc::PgTupleDesc for how to get the schema
 	// for now let's have one column with int32
 	let field = Field::new("a", DataType::Int32, false);
 	let schema = SchemaRef::new(Schema::new(vec![field]));

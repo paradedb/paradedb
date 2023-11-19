@@ -13,7 +13,7 @@ use am_funcs::*;
 // You need to initialize this in every extension that uses `plog!`.
 static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_columnar");
 // let's try adding the session context globally for now so we can retain info about our tables
-static CONTEXT : SessionContext = SessionContext::new();
+static CONTEXT: SessionContext = SessionContext::new();
 
 pgrx::pg_module_magic!();
 

@@ -85,7 +85,6 @@ pub unsafe extern "C" fn memam_scan_getnextslot(scan: TableScanDesc, direction: 
 		let next_batch = (*tscan).stream.next().await;
 		match next_batch {
 			Some(Ok(batch)) => {
-				// the batch is 2-dimensional! :( I only want the first guy in it
 				(*tscan).curr_batch = Some(batch);
 			},
 			_ => (),
@@ -95,8 +94,11 @@ pub unsafe extern "C" fn memam_scan_getnextslot(scan: TableScanDesc, direction: 
 		return false;
 	}
 	let batch = (*tscan).curr_batch.unwrap();
-	if batch.num_rows() > 0 {
+	let batch_len = batch.num_rows();
+	if batch_len > 0 {
+		// the batch is 2-dimensional! :( I only want the first guy in it
 		let single_batch = batch.slice(0, 1);
+		(*tscan).curr_batch = (*tscan).curr_batch.slice(1, batch_len - 1);
 		let mut col_index = 0;
 		for col in single_batch.columns() {
 			// TODO: casework based on data type and put it into slot and put it into slot

@@ -520,7 +520,6 @@ mod tests {
 
     use crate::parade_index::fields::{ParadeOption, ParadeTextOptions};
 
-    use serde_json::json;
     use std::error::Error;
 
     use super::ParadeIndex;
@@ -561,18 +560,16 @@ mod tests {
             "record": "basic",
             "normalizer": "raw"
         }"#;
-        let text_option: ParadeTextOptions = serde_json::from_str(json).unwrap();
+        let text_option: ParadeTextOptions =
+            serde_json::from_str(json).expect("failed to serialize text options");
         let options = ParadeOption::Text(text_option);
         let mut field_configs = HashMap::new();
         field_configs.insert("onerepublic".to_string(), options);
 
         let result = ParadeIndex::serialize_index_field_configs(&field_configs)?;
-        let expected = json!({
-            "onerepublic": {
-                "Text": json
-            }
-        });
-        assert_eq!(result, expected.as_str().unwrap());
+        let expected = r#"{"onerepublic":{"Text":{"indexed":true,"fast":false,"stored":true,"fieldnorms":true,"tokenizer":{"type":"default"},"record":"basic","normalizer":"raw"}}}"#;
+
+        assert_eq!(result, expected);
         Ok(())
     }
 

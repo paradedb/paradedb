@@ -193,6 +193,6 @@ mod tests {
         Spi::run(SETUP_SQL).expect("failed to create table and index");
 
         let res = Spi::get_one::<&str>(QUERY_SQL).expect("failed to get one");
-        assert_eq!(res, Some("Counting Stars"));
+        assert_eq!(res, Some("If I Lose Myself"));
     }
 }

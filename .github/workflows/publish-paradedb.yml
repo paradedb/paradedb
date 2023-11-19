@@ -1,8 +1,9 @@
 # workflows/publish-paradedb.yml
 #
 # Publish ParadeDB
-# Publish ParadeDB as a Docker image to Docker Hub. This workflow only runs after a GitHub Release gets
-# created, which happens once we merge to `main`.
+# Publish ParadeDB as a Docker image to Docker Hub and as a Helm Chart to paradedb.github.io via our
+# `paradedb/helm-charts` repository. This workflow only runs after a GitHub Release gets created, which
+# happens once we merge to `main`.
 
 name: Publish ParadeDB
 
@@ -17,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  publish-paradedb:
-    name: Publish ParadeDB for PostgreSQL ${{ matrix.pg_version }} to Docker Hub
+  publish-paradedb-container-image:
+    name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -44,6 +45,18 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_ACCESS_TOKEN }}
 
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v1.6.1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # We also push to ECR, because we list on AWS Marketplace
+      - name: Login to Amazon ECR
+        run: aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 709825985650.dkr.ecr.us-east-1.amazonaws.com
+
+      # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
       - name: Build and Push Docker Image to Docker Hub
         uses: depot/build-push-action@v1
         with:
@@ -74,10 +87,10 @@ jobs:
             HYPOPG_VERSION=1.4.0
             RUM_VERSION=1.3.13
             AGE_VERSION=1.4.0
-            POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_KEY }}}
-            POSTHOG_HOST: ${{ secrets.POSTHOG_HOST }}
-            COMMIT_SHA: ${{ steps.version.outputs.COMMIT_SHA }}
-            TELEMETRY: true
+            POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
+            POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
+            COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
+            TELEMETRY=true
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true
@@ -87,4 +100,28 @@ jobs:
             paradedb/paradedb:latest
             paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}
-            paradedb/paradedb:pg${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+            paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
+            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:latest
+            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.tag }}
+            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.version }}
+
+  publish-paradedb-helm-chart:
+    name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [15]
+
+    steps:
+      - name: Retrieve GitHub Release Version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Trigger paradedb/helm-charts Release Workflow
+        uses: benc-uk/workflow-dispatch@v1
+        with:
+          token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          workflow: publish-helm-chart.yml
+          repo: paradedb/helm-charts
+          ref: main
+          inputs: '{ "appVersion": "${{ steps.version.outputs.version }}" }'

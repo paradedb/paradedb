@@ -1,40 +1,52 @@
-# TODO: Reenable Codecov when we start writing unit tests
-# codecov:
-#   branch: dev
-#   require_ci_to_pass: no
+codecov:
+  branch: dev
+  require_ci_to_pass: no
 
-# coverage:
-#   precision: 2
-#   round: down
-#   range: "70...100"
+coverage:
+  precision: 2
+  round: down
+  range: "0...100" # This ensures that Codecov never fails the CI build
 
-#   status:
-#     project:
-#       pg_bm25:
-#         flags: pg_bm25
-#         target: auto
-#         threshold: 1%
-#       pg_search:
-#         flags: pg_search
-#         target: auto
-#         threshold: 1%
+  status:
+    project:
+      pg_bm25:
+        flags: [pg_bm25]
+        target: auto
+        threshold: 5%
+      pg_search:
+        flags: [pg_search]
+        target: auto
+        threshold: 5%
+      pg_sparse:
+        flags: [pg_sparse]
+        target: auto
+        threshold: 5%
+      shared:
+        flags: [shared]
+        target: auto
+        threshold: 5%
 
-# comment:
-#   layout: "diff, flags, files"
-#   require_base: no
-#   require_head: no
-#   show_carryforward_flags: true
+comment:
+  behavior: default
+  layout: "diff, flags, files"
+  require_base: no
+  require_head: no
+  show_carryforward_flags: true
 
-# flags:
-#   pg_bm25:
-#     paths:
-#       - pg_bm25/*
-#     carryforward: true
-#   pg_search:
-#     paths:
-#       - pg_search/*
-#     carryforward: true
-#   pg_sparse:
-#     paths:
-#       - pg_sparse/*
-#     carryforward: true
+flags:
+  pg_bm25:
+    paths:
+      - pg_bm25/*
+    carryforward: true
+  pg_search:
+    paths:
+      - pg_search/*
+    carryforward: true
+  pg_sparse:
+    paths:
+      - pg_sparse/*
+    carryforward: true
+  shared:
+    paths:
+      - shared/*
+    carryforward: true

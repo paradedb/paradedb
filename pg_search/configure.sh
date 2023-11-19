@@ -18,7 +18,7 @@ if [ $# -eq 0 ]; then
   # No arguments provided; use default versions
   case "$OS_NAME" in
     Darwin)
-      PG_VERSIONS=("16.0" "15.4" "14.9" "13.12" "12.16")
+      PG_VERSIONS=("16.1" "15.5" "14.10" "13.13" "12.17")
       ;;
     Linux)
       PG_VERSIONS=("16" "15" "14" "13" "12")
@@ -29,6 +29,7 @@ else
 fi
 
 echo "Installing pgvector and pg_bm25 into your pgrx environment..."
+echo ""
 
 # Clone pgvector if it doesn't exist
 if [ ! -d "pgvector/" ]; then
@@ -37,6 +38,7 @@ if [ ! -d "pgvector/" ]; then
 fi
 
 echo "Installing pgvector..."
+echo ""
 cd pgvector/
 git fetch --tags
 git checkout "$PGVECTOR_VERSION"
@@ -56,6 +58,7 @@ for version in "${PG_VERSIONS[@]}"; do
   esac
 done
 
+echo ""
 echo "Installing pg_bm25..."
 cd "$CONFIGDIR/../../pg_bm25"
 
@@ -64,10 +67,10 @@ for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pg_bm25 for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
-      cargo pgrx install --pg-config="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" --release
+      cargo pgrx install --pg-config="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" --profile dev
       ;;
     Linux)
-      cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config" --release
+      cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config" --profile dev
       ;;
   esac
 done

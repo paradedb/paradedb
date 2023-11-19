@@ -9,7 +9,6 @@ on:
   pull_request:
   workflow_dispatch:
 
-# Need to add trailing white spaces to this one
 concurrency:
   group: lint-format-${{ github.head_ref || github.ref }}
   cancel-in-progress: true

@@ -12,4 +12,6 @@ target/
 
 # SSH
 *.pem
+
+# Code coverage
 *.profraw

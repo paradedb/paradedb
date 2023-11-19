@@ -32,4 +32,4 @@ jobs:
         run: npm install -g prettier
 
       - name: Check YAML Formatting
-        run: prettier --check "**/*.{yml,yaml}"
+        run: prettier --check "**/*.{yml,yaml}" --ignore-path .prettierignore

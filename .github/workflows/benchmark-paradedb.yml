@@ -45,3 +45,8 @@ jobs:
       - name: Print Results
         working-directory: benchmarks/out/
         run: cat benchmark_${{ steps.system.outputs.system_to_benchmark }}.csv
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark ParadeDB Workflow failed on ${{ steps.system.outputs.system_to_benchmark }} -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}

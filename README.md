@@ -16,6 +16,11 @@
 
 ---
 
+[![Benchmark ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/benchmark-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/benchmark-paradedb.yml)
+[![Publish ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml)
+[![codecov](https://codecov.io/gh/paradedb/paradedb/graph/badge.svg?token=PI3TWD558R)](https://codecov.io/gh/paradedb/paradedb)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
+
 [ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL,
 engineered for lightning-fast full text, similarity, and hybrid search.
 
@@ -89,6 +94,10 @@ psql -h <hostname> -U <user> -d <dbname> -p 5432 -W
 ```
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by adding `-e TELEMETRY=false` (or unsetting the variable) to your `docker run` command, or by setting `TELEMETRY: false` in the `docker-compose.yml` file.
+
+#### ParadeDB Helm Chart
+
+ParadeDB is also available for Kubernetes via our Helm chart. You can find our Helm chart in the [ParadeDB Helm Chart GitHub repository](https://github.com/paradedb/helm-charts) or download it directly from [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
 
 #### ParadeDB Extension(s)
 

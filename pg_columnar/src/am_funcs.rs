@@ -27,9 +27,12 @@ use pgrx::{FromDatum, PgBox};
 use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
+use shared::plog;
 
 unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
-    let table_ref = TableReference::from(name_data_to_str(&(*(*rel).rd_rel).relname));
+    let table_name = name_data_to_str(&(*(*rel).rd_rel).relname);
+    info!("getting table {}", table_name);
+    let table_ref = TableReference::from(table_name);
     task::block_on(CONTEXT.table_provider(table_ref))
 }
 
@@ -53,20 +56,22 @@ async unsafe fn memam_scan_begin_impl(rel: Relation) -> TableScanDesc {
     let table = get_table_from_relation(rel);
     match table {
         Ok(tab) => {
+            info!("found table!");
             let scan_exec_plan = tab
                 .scan(&CONTEXT.state(), None, &[], None)
                 .await
-                .map(|plan| plan.execute(0, CONTEXT.task_ctx()));
+                .map(|plan| {info!("started scan, executing now"); plan.execute(0, CONTEXT.task_ctx())});
             // TODO how do deal with all these results
             match scan_exec_plan {
-                Ok(Ok(stream)) => scan.stream = Some(stream),
-                Err(e) => panic!("{:?}", e),
-                Ok(Err(e)) => panic!("{:?}", e),
+                Ok(Ok(stream)) => {info!("scan successful, got stream"); scan.stream = Some(stream)},
+                Err(e) => info!("{:?}", e),
+                Ok(Err(e)) => info!("{:?}", e),
             }
             // scan.stream = None;
         }
-        Err(e) => panic!("{:?}", e),
+        Err(e) => info!("{:?}", e),
     }
+    info!("casting now");
     // TODO: how do I cast this boi
     return scan.into_pg() as TableScanDesc;
 }
@@ -79,11 +84,14 @@ pub unsafe extern "C" fn memam_scan_begin(
     pscan: ParallelTableScanDesc,
     flags: uint32,
 ) -> TableScanDesc {
+    info!("Calling memam_relation_scan_begin");
     // let mut scan = unsafe { PgBox::<TableScanDescData>::alloc0() };
     task::block_on(memam_scan_begin_impl(rel))
 }
 
-pub unsafe extern "C" fn memam_scan_end(scan: TableScanDesc) {}
+pub unsafe extern "C" fn memam_scan_end(scan: TableScanDesc) {
+    info!("Calling memam_scan_end");
+}
 
 pub unsafe extern "C" fn memam_scan_rescan(
     scan: TableScanDesc,
@@ -93,6 +101,7 @@ pub unsafe extern "C" fn memam_scan_rescan(
     allow_sync: bool,
     allow_pagemode: bool,
 ) {
+    info!("Calling memam_scan_rescan");
 }
 
 async unsafe fn memam_scan_getnextslot_impl(
@@ -130,6 +139,7 @@ async unsafe fn memam_scan_getnextslot_impl(
                 DataType::Int32 => {
                     let prim: &PrimitiveArray<Int32Type> = col.as_primitive();
                     let value_datum: Datum = prim.value(0).into_datum().unwrap();
+                    info!("found value {:?} in col {}", value_datum, col_index);
                     // TODO: actually figure out whether null or not
                     let value_isnull = false;
                     copy_nonoverlapping::<Datum>(
@@ -157,6 +167,7 @@ pub unsafe extern "C" fn memam_scan_getnextslot(
     direction: ScanDirection,
     slot: *mut TupleTableSlot,
 ) -> bool {
+    info!("Calling memam_relation_scan_getnextslot");
     static mut done: bool = false;
 
     if done {
@@ -190,6 +201,7 @@ pub unsafe extern "C" fn memam_scan_set_tidrange(
     mintid: ItemPointer,
     maxtid: ItemPointer,
 ) {
+    info!("Calling memam_scan_set_tidrange");
 }
 
 pub unsafe extern "C" fn memam_scan_getnextslot_tidrange(
@@ -197,10 +209,12 @@ pub unsafe extern "C" fn memam_scan_getnextslot_tidrange(
     direction: ScanDirection,
     slot: *mut TupleTableSlot,
 ) -> bool {
+    info!("Calling memam_scan_getnextslot_tidrange");
     return false;
 }
 
 pub unsafe extern "C" fn memam_parallelscan_estimate(rel: Relation) -> Size {
+    info!("Calling memam_parallelscan_estimate");
     return table_block_parallelscan_estimate(rel);
 }
 
@@ -208,6 +222,7 @@ pub unsafe extern "C" fn memam_parallelscan_initialize(
     rel: Relation,
     pscan: ParallelTableScanDesc,
 ) -> Size {
+    info!("Calling memam_parallelscan_initialize");
     return table_block_parallelscan_initialize(rel, pscan);
 }
 
@@ -215,16 +230,22 @@ pub unsafe extern "C" fn memam_parallelscan_reinitialize(
     rel: Relation,
     pscan: ParallelTableScanDesc,
 ) {
+    info!("Calling memam_parallelscan_reinitialize");
     return table_block_parallelscan_reinitialize(rel, pscan);
 }
 
 pub unsafe extern "C" fn memam_index_fetch_begin(rel: Relation) -> *mut IndexFetchTableData {
+    info!("Calling memam_index_fetch_begin");
     return ptr::null_mut::<IndexFetchTableData>();
 }
 
-pub unsafe extern "C" fn memam_index_fetch_reset(data: *mut IndexFetchTableData) {}
+pub unsafe extern "C" fn memam_index_fetch_reset(data: *mut IndexFetchTableData) {
+    info!("Calling memam_index_fetch_reset");
+}
 
-pub unsafe extern "C" fn memam_index_fetch_end(data: *mut IndexFetchTableData) {}
+pub unsafe extern "C" fn memam_index_fetch_end(data: *mut IndexFetchTableData) {
+    info!("Calling memam_index_fetch_end");
+}
 
 pub unsafe extern "C" fn memam_index_fetch_tuple(
     scan: *mut IndexFetchTableData,
@@ -234,6 +255,7 @@ pub unsafe extern "C" fn memam_index_fetch_tuple(
     call_again: *mut bool,
     all_dead: *mut bool,
 ) -> bool {
+    info!("Calling memam_index_fetch_tuple");
     return false;
 }
 
@@ -243,20 +265,25 @@ pub unsafe extern "C" fn memam_tuple_fetch_row_version(
     snapshot: Snapshot,
     slot: *mut TupleTableSlot,
 ) -> bool {
+    info!("Calling memam_tuple_fetch_row_version");
     return false;
 }
 
 pub unsafe extern "C" fn memam_tuple_tid_valid(scan: TableScanDesc, tid: ItemPointer) -> bool {
+    info!("Calling memam_tuple_tid_valid");
     return false;
 }
 
-pub unsafe extern "C" fn memam_tuple_get_latest_tid(scan: TableScanDesc, tid: ItemPointer) {}
+pub unsafe extern "C" fn memam_tuple_get_latest_tid(scan: TableScanDesc, tid: ItemPointer) {
+    info!("Calling memam_tuple_get_latest_tid");
+}
 
 pub unsafe extern "C" fn memam_tuple_satisfies_snapshot(
     rel: Relation,
     slot: *mut TupleTableSlot,
     snapshot: Snapshot,
 ) -> bool {
+    info!("Calling memam_tuple_satisfies_snapshot");
     return false;
 }
 
@@ -264,6 +291,7 @@ pub unsafe extern "C" fn memam_index_delete_tuples(
     rel: Relation,
     delstate: *mut TM_IndexDeleteOp,
 ) -> TransactionId {
+    info!("Calling memam_index_delete_tuples");
     return 0;
 }
 
@@ -283,6 +311,7 @@ pub unsafe extern "C" fn memam_tuple_insert(
     options: c_int,
     bistate: *mut BulkInsertStateData,
 ) {
+    info!("Calling memam_tuple_insert");
     // TupleDesc desc = RelationGetDescr(relation);
     // get the table name from relation: relation->rd_rel->relname
     // look up the table (hopefully registered using ctx.register_table) using one of their table functions
@@ -302,6 +331,7 @@ pub unsafe extern "C" fn memam_tuple_insert(
     let num_cols = (*slot).tts_nvalid;
     // let desc = (*slot).tts_tupleDescriptor;
     let vals = (*slot).tts_values;
+    info!("{:?}", *vals);
     if num_cols > 0 {
         let id_array = vec![i32::from_datum(*vals, false).unwrap()];
         // create a schema for the recordbatch
@@ -327,6 +357,7 @@ pub unsafe extern "C" fn memam_tuple_insert_speculative(
     bistate: *mut BulkInsertStateData,
     specToken: uint32,
 ) {
+    info!("Calling memam_tuple_insert_speculative");
 }
 
 pub unsafe extern "C" fn memam_tuple_complete_speculative(
@@ -335,6 +366,7 @@ pub unsafe extern "C" fn memam_tuple_complete_speculative(
     specToken: uint32,
     succeeded: bool,
 ) {
+    info!("Calling memam_tuple_complete_speculative");
 }
 
 pub unsafe extern "C" fn memam_multi_insert(
@@ -345,6 +377,7 @@ pub unsafe extern "C" fn memam_multi_insert(
     options: c_int,
     bistate: *mut BulkInsertStateData,
 ) {
+    info!("Calling memam_multi_insert");
 }
 
 pub unsafe extern "C" fn memam_tuple_delete(
@@ -357,6 +390,7 @@ pub unsafe extern "C" fn memam_tuple_delete(
     tmfd: *mut TM_FailureData,
     changingPart: bool,
 ) -> TM_Result {
+    info!("Calling memam_tuple_delete");
     return 0;
 }
 
@@ -372,6 +406,7 @@ pub unsafe extern "C" fn memam_tuple_update(
     lockmode: *mut LockTupleMode,
     update_indexes: *mut bool,
 ) -> TM_Result {
+    info!("Calling memam_tuple_update");
     return 0;
 }
 
@@ -386,10 +421,13 @@ pub unsafe extern "C" fn memam_tuple_lock(
     flags: uint8,
     tmfd: *mut TM_FailureData,
 ) -> TM_Result {
+    info!("Calling memam_tuple_lock");
     return 0;
 }
 
-pub unsafe extern "C" fn memam_finish_bulk_insert(rel: Relation, options: c_int) {}
+pub unsafe extern "C" fn memam_finish_bulk_insert(rel: Relation, options: c_int) {
+    info!("Calling memam_finish_bulk_insert");
+}
 
 pub unsafe extern "C" fn memam_relation_set_new_filenode(
     rel: Relation,
@@ -398,6 +436,7 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
     freezeXid: *mut TransactionId,
     minmulti: *mut MultiXactId,
 ) {
+    info!("Calling memam_relation_set_new_filenode");
     // TODO: put proper column names and types here and use vec! instead of ::new
     // TODO: I think we should read through pgrx::tupdesc::PgTupleDesc for how to get the schema
     // for now let's have one column with int32
@@ -413,13 +452,17 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
                 Arc::new(mem_table),
             );
         }
-        None => panic!("Could not create table"),
+        None => info!("Could not create table"),
     };
 }
 
-pub unsafe extern "C" fn memam_relation_nontransactional_truncate(rel: Relation) {}
+pub unsafe extern "C" fn memam_relation_nontransactional_truncate(rel: Relation) {
+    info!("Calling memam_relation_nontransactional_truncate");
+}
 
-pub unsafe extern "C" fn memam_relation_copy_data(rel: Relation, newrnode: *const RelFileNode) {}
+pub unsafe extern "C" fn memam_relation_copy_data(rel: Relation, newrnode: *const RelFileNode) {
+    info!("Calling memam_relation_copy_data");
+}
 
 pub unsafe extern "C" fn memam_relation_copy_for_cluster(
     NewTable: Relation,
@@ -433,6 +476,7 @@ pub unsafe extern "C" fn memam_relation_copy_for_cluster(
     tups_vacuumed: *mut f64,
     tups_recently_dead: *mut f64,
 ) {
+    info!("Calling memam_relation_copy_for_cluster");
 }
 
 pub unsafe extern "C" fn memam_relation_vacuum(
@@ -440,6 +484,7 @@ pub unsafe extern "C" fn memam_relation_vacuum(
     params: *mut VacuumParams,
     bstrategy: BufferAccessStrategy,
 ) {
+    info!("Calling memam_relation_vacuum");
 }
 
 pub unsafe extern "C" fn memam_scan_analyze_next_block(
@@ -447,6 +492,7 @@ pub unsafe extern "C" fn memam_scan_analyze_next_block(
     blockno: BlockNumber,
     bstrategy: BufferAccessStrategy,
 ) -> bool {
+    info!("Calling memam_scan_analyze_next_block");
     return false;
 }
 
@@ -457,6 +503,7 @@ pub unsafe extern "C" fn memam_scan_analyze_next_tuple(
     deadrows: *mut f64,
     slot: *mut TupleTableSlot,
 ) -> bool {
+    info!("Calling memam_scan_analyze_next_tuple");
     return false;
 }
 
@@ -473,6 +520,7 @@ pub unsafe extern "C" fn memam_index_build_range_scan(
     callback_state: *mut c_void,
     scan: TableScanDesc,
 ) -> f64 {
+    info!("Calling memam_index_build_range_scan");
     return 0.0;
 }
 
@@ -483,17 +531,21 @@ pub unsafe extern "C" fn memam_index_validate_scan(
     snapshot: Snapshot,
     state: *mut ValidateIndexState,
 ) {
+    info!("Calling memam_index_validate_scan");
 }
 
 pub unsafe extern "C" fn memam_relation_size(rel: Relation, forkNumber: ForkNumber) -> uint64 {
+    info!("Calling memam_relation_size");
     return 0;
 }
 
 pub unsafe extern "C" fn memam_relation_needs_toast_table(rel: Relation) -> bool {
+    info!("Calling memam_relation_needs_toast_table");
     return false;
 }
 
 pub unsafe extern "C" fn memam_relation_toast_am(rel: Relation) -> Oid {
+    info!("Calling memam_relation_needs_toast_am");
     return Oid::INVALID;
 }
 
@@ -505,6 +557,7 @@ pub unsafe extern "C" fn memam_relation_fetch_toast_slice(
     slicelength: int32,
     result: *mut varlena,
 ) {
+    info!("Calling memam_relation_fetch_toast_slice");
 }
 
 pub unsafe extern "C" fn memam_relation_estimate_size(
@@ -514,12 +567,14 @@ pub unsafe extern "C" fn memam_relation_estimate_size(
     tuples: *mut f64,
     allvisfrac: *mut f64,
 ) {
+    info!("Calling memam_relation_estimate_size");
 }
 
 pub unsafe extern "C" fn memam_scan_bitmap_next_block(
     scan: TableScanDesc,
     tbmres: *mut TBMIterateResult,
 ) -> bool {
+    info!("Calling memam_scan_bitmap_next_block");
     return false;
 }
 
@@ -528,6 +583,7 @@ pub unsafe extern "C" fn memam_scan_bitmap_next_tuple(
     tbmres: *mut TBMIterateResult,
     slot: *mut TupleTableSlot,
 ) -> bool {
+    info!("Calling memam_scan_bitmap_next_tuple");
     return false;
 }
 
@@ -535,6 +591,7 @@ pub unsafe extern "C" fn memam_scan_sample_next_block(
     scan: TableScanDesc,
     scanstate: *mut SampleScanState,
 ) -> bool {
+    info!("Calling memam_scan_sample_next_block");
     return false;
 }
 
@@ -543,5 +600,6 @@ pub unsafe extern "C" fn memam_scan_sample_next_tuple(
     scanstate: *mut SampleScanState,
     slot: *mut TupleTableSlot,
 ) -> bool {
+    info!("Calling memam_scan_sample_next_tuple");
     return false;
 }

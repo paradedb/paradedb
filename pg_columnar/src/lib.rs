@@ -2,18 +2,22 @@
 #![allow(non_snake_case)]
 
 use datafusion::prelude::SessionContext;
+use pgrx::once_cell::sync::Lazy;
 use pgrx::prelude::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 
 mod am_funcs;
 use am_funcs::*;
+use lazy_static::lazy_static;
 
 // This is a flag that can be set by the user in a session to enable logs.
 // You need to initialize this in every extension that uses `plog!`.
 static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_columnar");
 // let's try adding the session context globally for now so we can retain info about our tables
-static CONTEXT: SessionContext = SessionContext::new();
+lazy_static! {
+    static ref CONTEXT: SessionContext = SessionContext::new();
+}
 
 pgrx::pg_module_magic!();
 

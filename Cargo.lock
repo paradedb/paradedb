@@ -2825,6 +2825,7 @@ version = "0.0.0"
 dependencies = [
  "async-std",
  "datafusion",
+ "lazy_static",
  "pgrx",
  "pgrx-tests",
  "shared",

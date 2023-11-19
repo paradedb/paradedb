@@ -28,9 +28,9 @@ use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
 
-async unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
+unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
     let table_ref = TableReference::from(name_data_to_str(&(*(*rel).rd_rel).relname));
-    CONTEXT.table_provider(table_ref)
+    task::block_on(CONTEXT.table_provider(table_ref))
 }
 
 pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTableSlotOps {
@@ -50,18 +50,22 @@ async unsafe fn memam_scan_begin_impl(rel: Relation) -> TableScanDesc {
     let mut scan = unsafe { PgBox::<TableAMScanDescData>::alloc0() };
     scan.rs_base.rs_rd = rel;
     scan.curr_batch = None;
-    let table = get_table_from_relation(rel).await;
-    if let Ok(tab) = table {
-        let scan_exec_plan = tab
-            .scan(&CONTEXT.state(), None, &[], None)
-            .await
-            .map(|plan| plan.execute(0, CONTEXT.task_ctx()));
-        // TODO how do deal with all these results
-        if let Ok(Ok(stream)) = scan_exec_plan {
-            scan.stream = Some(stream);
-        } else {
-            scan.stream = None;
+    let table = get_table_from_relation(rel);
+    match table {
+        Ok(tab) => {
+            let scan_exec_plan = tab
+                .scan(&CONTEXT.state(), None, &[], None)
+                .await
+                .map(|plan| plan.execute(0, CONTEXT.task_ctx()));
+            // TODO how do deal with all these results
+            match scan_exec_plan {
+                Ok(Ok(stream)) => scan.stream = Some(stream),
+                Err(e) => panic!("{:?}", e),
+                Ok(Err(e)) => panic!("{:?}", e),
+            }
+            // scan.stream = None;
         }
+        Err(e) => panic!("{:?}", e),
     }
     // TODO: how do I cast this boi
     return scan.into_pg() as TableScanDesc;
@@ -95,8 +99,13 @@ async unsafe fn memam_scan_getnextslot_impl(
     tscan: *mut TableAMScanDescData,
     slot: *mut TupleTableSlot,
 ) -> bool {
+    if (*tscan).stream.is_none() {
+        return false;
+    }
+    // TODO: quickfix said to as_mut() this
+    let mut stream = (*tscan).stream.as_mut().unwrap();
     if (*tscan).curr_batch.is_none() {
-        let next_batch = (*tscan).stream.next().await;
+        let next_batch = stream.next().await;
         match next_batch {
             Some(Ok(batch)) => {
                 (*tscan).curr_batch = Some(batch);
@@ -107,12 +116,13 @@ async unsafe fn memam_scan_getnextslot_impl(
     if (*tscan).curr_batch.is_none() {
         return false;
     }
-    let batch = (*tscan).curr_batch.unwrap();
+    // TODO: quickfix said to clone this, is that ok?
+    let batch = (*tscan).curr_batch.clone().unwrap();
     let batch_len = batch.num_rows();
     if batch_len > 0 {
         // the batch is 2-dimensional! :( I only want the first guy in it
         let single_batch = batch.slice(0, 1);
-        (*tscan).curr_batch = (*tscan).curr_batch.slice(1, batch_len - 1);
+        (*tscan).curr_batch = Some(batch.slice(1, batch_len - 1));
         let mut col_index = 0;
         for col in single_batch.columns() {
             // TODO: casework based on data type and put it into slot and put it into slot
@@ -257,9 +267,10 @@ pub unsafe extern "C" fn memam_index_delete_tuples(
     return 0;
 }
 
+// exec_plan contains the recordbatch of tuple to insert
 async unsafe fn memam_tuple_insert_impl(rel: Relation, exec_plan: MemoryExec) {
     let table = get_table_from_relation(rel);
-    if let Ok(provider) = table.await {
+    if let Ok(provider) = table {
         // TODO: correct to use session context's state?
         provider.insert_into(&CONTEXT.state(), Arc::new(exec_plan), false);
     }
@@ -302,8 +313,6 @@ pub unsafe extern "C" fn memam_tuple_insert(
         let schema = batch.schema();
         // use MemoryExec to read this recordbatch
         let memory_exec = MemoryExec::try_new(&[vec![batch]], schema.clone(), None);
-        let session_state =
-            SessionState::new_with_config_rt(SessionConfig::new(), Arc::new(RuntimeEnv::default()));
         if let Ok(exec_plan) = memory_exec {
             task::block_on(memam_tuple_insert_impl(rel, exec_plan));
         }

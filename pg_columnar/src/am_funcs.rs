@@ -24,10 +24,10 @@ use datafusion::sql::TableReference;
 use pgrx::pg_sys::*;
 use pgrx::IntoDatum;
 use pgrx::{FromDatum, PgBox};
+use shared::plog;
 use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
-use shared::plog;
 
 unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
     let table_name = name_data_to_str(&(*(*rel).rd_rel).relname);
@@ -60,10 +60,16 @@ async unsafe fn memam_scan_begin_impl(rel: Relation) -> TableScanDesc {
             let scan_exec_plan = tab
                 .scan(&CONTEXT.state(), None, &[], None)
                 .await
-                .map(|plan| {info!("started scan, executing now"); plan.execute(0, CONTEXT.task_ctx())});
+                .map(|plan| {
+                    info!("started scan, executing now");
+                    plan.execute(0, CONTEXT.task_ctx())
+                });
             // TODO how do deal with all these results
             match scan_exec_plan {
-                Ok(Ok(stream)) => {info!("scan successful, got stream"); scan.stream = Some(stream)},
+                Ok(Ok(stream)) => {
+                    info!("scan successful, got stream");
+                    scan.stream = Some(stream)
+                }
                 Err(e) => info!("{:?}", e),
                 Ok(Err(e)) => info!("{:?}", e),
             }

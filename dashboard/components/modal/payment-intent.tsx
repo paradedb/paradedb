@@ -91,7 +91,7 @@ const EmbeddedPaymentForm = ({ onClose }: EmbeddedPaymentFormProps) => {
     <form onSubmit={handleSubmit}>
       <PaymentElement />
       <PrimaryButton
-        className="rounded-sm mt-6 w-full bg-neutral-100 text-neutral-800 border-0 hover:bg-neutral-100 hover:text-neutral-800 hover:border-0"
+        className="rounded py-3 mt-6 w-full bg-indigo-500 text-gray-100 border-0 hover:bg-indigo-400 hover:text-gray-100 hover:border-0 duration-100"
         type="submit"
         loading={isLoading}
         disabled={!stripe || !elements}
@@ -110,7 +110,7 @@ const PaymentIntentModal = ({
   const [clientSecret, setClientSecret] = useState("");
 
   const appearance = {
-    theme: "minimal",
+    theme: "flat" as any,
   };
   const options = {
     clientSecret,
@@ -158,7 +158,7 @@ const PaymentIntentModal = ({
               leaveFrom="opacity-100 scale-100"
               leaveTo="opacity-0 scale-95"
             >
-              <Dialog.Panel className="bg-white border-0 transform overflow-y-scroll scrollbar-hidden rounded-lg p-12 text-left align-middle transition-all">
+              <Dialog.Panel className="bg-neutral-200 border-0 transform overflow-y-scroll scrollbar-hidden rounded-lg p-12 text-left align-middle transition-all">
                 <Button
                   icon={XMarkIcon}
                   variant="light"

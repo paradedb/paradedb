@@ -221,7 +221,9 @@ actions:
     runtime: node18-actions
     secrets:
       - name: STRIPE_API_KEY
+        value: "##STRIPE_API_KEY##"
       - name: DEFAULT_PRICE_ID
+        value: "##DEFAULT_PRICE_ID##"
     supported_triggers:
       - id: post-login
         version: v3

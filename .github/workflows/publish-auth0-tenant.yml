@@ -1,9 +1,4 @@
-# workflows/publish-auth0-tenant.yml
-#
-# Publish Auth0 Tenant
-# Publish Auth0 tenant.yaml
-
-name: Publish Third-Party PostgreSQL Extensions
+name: Publish Auth0 Tenant
 
 on:
   push:
@@ -19,15 +14,6 @@ jobs:
   publish-auth0-tenant:
     name: Publish Auth0 Tenant
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        environment:
-          - name: DEV
-            ref: /refs/heads/dev
-            branch: dev
-          - name: PROD
-            ref: /refs/heads/main
-            branch: prod
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
@@ -38,8 +24,16 @@ jobs:
       - name: Install dependencies
         run: yarn
 
-      - name: Publish to Auth0
+      - name: Publish to Auth0 (Dev)
+        if: github.ref == 'refs/heads/dev'
         env:
-          AUTH0_CLIENT_SECRET: ${{ secrets['${{ matrix.environment.name }}_AUTH0_CLIENT_SECRET'] }}
-          STRIPE_API_KEY: ${{ secrets['${{ matrix.environment.name }}_STRIPE_API_KEY'] }}
-        run: yarn deploy:${{ matrix.environment.branch }}
+          AUTH0_CLIENT_SECRET: ${{ secrets.DEV_AUTH0_CLIENT_SECRET }}
+          STRIPE_API_KEY: ${{ secrets.DEV_STRIPE_API_KEY }}
+        run: yarn deploy:dev
+
+      - name: Publish to Auth0 (Prod)
+        if: github.ref == 'refs/heads/main'
+        env:
+          AUTH0_CLIENT_SECRET: ${{ secrets.PROD_AUTH0_CLIENT_SECRET }}
+          STRIPE_API_KEY: ${{ secrets.PROD_STRIPE_API_KEY }}
+        run: yarn deploy:prod

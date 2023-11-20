@@ -9,7 +9,7 @@ The dashboard is built on Next.js using Tailwind, Tremor, and Auth0 as the prima
 
 1. Ensure that you have Docker installed and running.
 
-32 Create a file called `.env.local` and paste the following content:
+2. Create a file called `.env.local` and paste the following content:
 
 ```ini
 AUTH0_SECRET='use [openssl rand -hex 32] to generate a 32 bytes value'

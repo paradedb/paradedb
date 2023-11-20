@@ -1,6 +1,7 @@
 "use client";
 
 import classNames from "classnames";
+import useSWR from "swr";
 import { useState, Fragment } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import {
@@ -31,6 +32,9 @@ interface ConfigureInstanceModalProps {
   prices: any[] | undefined;
 }
 
+const fetcher = (uri: string) => fetch(uri).then((res) => res.json());
+const PAYMENT_METHODS_URL = `/api/stripe/paymentMethod`;
+
 const ConfigureInstanceModal = ({
   isOpen,
   onClose,
@@ -39,6 +43,8 @@ const ConfigureInstanceModal = ({
   prices,
 }: ConfigureInstanceModalProps) => {
   const [selectedPlan, setSelectedPlan] = useState(defaultPlan);
+  const { data } = useSWR(PAYMENT_METHODS_URL, fetcher);
+  const paymentMethods = data?.paymentMethods?.data;
 
   return (
     <>
@@ -67,7 +73,7 @@ const ConfigureInstanceModal = ({
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Dialog.Panel className="w-full h-[calc(100vh-40px)] transform overflow-y-scroll scrollbar-hidden rounded-lg bg-darker border border-neutral-800 p-12 text-left align-middle transition-all">
+                <Dialog.Panel className="w-full h-[calc(100vh-30px)] transform overflow-y-scroll scrollbar-hidden rounded-lg bg-darker border border-neutral-800 p-12 text-left align-middle transition-all">
                   <Button
                     icon={XMarkIcon}
                     variant="light"
@@ -183,9 +189,13 @@ const ConfigureInstanceModal = ({
                   </Text>
                   <Title className="mt-8 text-gray-100">Payment Method</Title>
                   <div className="mt-4">
-                    <PrimaryButton onClick={showStripeModal} size="xs">
-                      Add Payment
-                    </PrimaryButton>
+                    {paymentMethods?.length === 0 ? (
+                      <PrimaryButton onClick={showStripeModal} size="xs">
+                        Add Payment
+                      </PrimaryButton>
+                    ) : (
+                      <>TODO</>
+                    )}
                   </div>
                   <hr className="w-full border-neutral-800 mt-12" />
                   <Flex className="justify-start space-x-6 mt-12">

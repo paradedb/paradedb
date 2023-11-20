@@ -1,23 +1,25 @@
 import Stripe from "stripe";
 import { NextResponse } from "next/server";
 
+import { withStripeCustomerId } from "@/utils/api";
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "");
 
-const POST = async () => {
+const POST = withStripeCustomerId(async ({ id }) => {
   try {
-    console.log("here");
     const paymentIntent = await stripe.paymentIntents.create({
       amount: 10000,
       currency: "usd",
       payment_method_types: ["card"],
+      setup_future_usage: "off_session",
+      customer: id,
     });
 
     return NextResponse.json({ clientSecret: paymentIntent.client_secret });
   } catch (err: any) {
-    console.log(err.message);
     return NextResponse.json(err.message, { status: 500 });
   }
-};
+});
 
 const GET = async (req: Request) => {
   try {

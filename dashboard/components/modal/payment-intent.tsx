@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect, Fragment, FormEvent } from "react";
 import { Dialog, Transition } from "@headlessui/react";
 import { Button } from "@tremor/react";
 import { loadStripe } from "@stripe/stripe-js";
@@ -23,49 +23,62 @@ interface PaymentIntentModalProps {
   onClose: () => void;
 }
 
-const EmbeddedPaymentForm = () => {
+interface EmbeddedPaymentFormProps {
+  onClose: () => void;
+}
+
+const EmbeddedPaymentForm = ({ onClose }: EmbeddedPaymentFormProps) => {
   const stripe = useStripe();
   const elements = useElements();
+  const [isLoading, setIsLoading] = useState(false);
 
-  const paymentElementOptions = {
-    layout: "tabs",
-  };
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    if (!stripe || !elements) return;
+    setIsLoading(true);
 
-    stripe.confirmPayment({
+    if (!stripe || !elements) {
+      setIsLoading(false);
+      return;
+    }
+
+    const paymentIntentResult = await stripe.confirmPayment({
       elements,
       confirmParams: {
-        return_url: "http://localhost:3000",
+        return_url: process.env.NEXT_PUBLIC_BASE_URL ?? "",
       },
+      redirect: "if_required",
     });
+
+    if (paymentIntentResult.error) {
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(false);
+    onClose();
   };
 
   useEffect(() => {
-    if (!stripe) {
-      return;
-    }
+    if (!stripe) return;
 
     const clientSecret = new URLSearchParams(window.location.search).get(
       "payment_intent_client_secret",
     );
 
-    if (!clientSecret) {
-      return;
-    }
+    if (!clientSecret) return;
 
     stripe.retrievePaymentIntent(clientSecret);
   }, [stripe]);
 
   return (
     <form onSubmit={handleSubmit}>
-      <PaymentElement options={paymentElementOptions} />
+      <PaymentElement />
       <PrimaryButton
         className="rounded-sm mt-6 w-full bg-neutral-100 text-neutral-800 border-0 hover:bg-neutral-100 hover:text-neutral-800 hover:border-0"
         type="submit"
+        loading={isLoading}
+        disabled={!stripe || !elements}
       >
         Add Payment
       </PrimaryButton>
@@ -85,7 +98,7 @@ const PaymentIntentModal = ({ isOpen, onClose }: PaymentIntentModalProps) => {
   };
 
   useEffect(() => {
-    fetch("/api/stripe/checkout", {
+    fetch("/api/stripe/paymentIntent", {
       method: "POST",
     })
       .then((res) => res.json())
@@ -132,7 +145,7 @@ const PaymentIntentModal = ({ isOpen, onClose }: PaymentIntentModalProps) => {
                 <div className="w-full mt-12">
                   {clientSecret && (
                     <Elements stripe={stripePromise} options={options}>
-                      <EmbeddedPaymentForm />
+                      <EmbeddedPaymentForm onClose={onClose} />
                     </Elements>
                   )}
                 </div>

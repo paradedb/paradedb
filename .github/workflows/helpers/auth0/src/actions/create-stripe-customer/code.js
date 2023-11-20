@@ -7,7 +7,9 @@
 exports.onExecutePostLogin = async (event, api) => {
   const stripe = require("stripe")(event.secrets.STRIPE_API_KEY);
 
-  if (!event.user.app_metadata.stripeCustomerId) {
+  let stripeCustomerId = event.user.app_metadata.stripeCustomerId;
+
+  if (!stripeCustomerId) {
     try {
       // Create customer
       const customer = await stripe.customers.create({
@@ -15,22 +17,17 @@ exports.onExecutePostLogin = async (event, api) => {
         name: event.user.name,
       });
 
-      // Set customer ID in access token claim
-      api.user.setAppMetadata("stripeCustomerId", customer.id);
-      api.accessToken.setCustomClaim(
-        `https://paradedb.com/stripe_customer_id`,
-        customer.id,
-      );
+      stripeCustomerId = customer.id;
 
       // Subscribe customer to free plan
       const subscriptions = await stripe.subscriptions.list({
-        customer: customer.id,
+        customer: stripeCustomerId,
         status: "active",
       });
 
       if (subscriptions.data.length === 0) {
         await stripe.subscriptions.create({
-          customer: customer.id,
+          customer: stripeCustomerId,
           items: [{ price: event.secrets.DEFAULT_PRICE_ID }],
         });
       }
@@ -38,6 +35,13 @@ exports.onExecutePostLogin = async (event, api) => {
       console.log("Error creating Stripe customer:", error);
     }
   }
+
+  // Set customer ID in access token claim
+  api.user.setAppMetadata("stripeCustomerId", stripeCustomerId);
+  api.accessToken.setCustomClaim(
+    `https://paradedb.com/stripe_customer_id`,
+    stripeCustomerId,
+  );
 };
 
 /**

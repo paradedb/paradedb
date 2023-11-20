@@ -173,7 +173,10 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 };
 
 const Template = ({ children }: { children: React.ReactNode }) => (
-  <IntercomProvider autoBoot appId={process.env.INTERCOM_APP_ID ?? ""}>
+  <IntercomProvider
+    autoBoot
+    appId={process.env.NEXT_PUBLIC_INTERCOM_APP_ID ?? ""}
+  >
     <DashboardLayout>{children}</DashboardLayout>
   </IntercomProvider>
 );

@@ -1,10 +1,11 @@
+import jwt from "jsonwebtoken";
 import {
   Session,
   getAccessToken,
   getSession,
   withApiAuthRequired,
 } from "@auth0/nextjs-auth0";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 const withRequest = (
   customFetch: ({
@@ -52,29 +53,49 @@ const withRequest = (
   });
 };
 
-const withAuthenticatedSession = (
+const withStripeCustomerId = (
   func: ({
-    accessToken,
-    session,
+    id,
+    req,
   }: {
-    accessToken: string;
-    session: Session;
+    id: string;
+    req: NextRequest;
   }) => Promise<NextResponse>,
 ) => {
-  return withApiAuthRequired(async () => {
-    console.log("hello");
+  return withApiAuthRequired(async (req: NextRequest) => {
     const { accessToken } = await getAccessToken();
-    const session = await getSession();
 
-    if (!accessToken || !session) {
+    if (!accessToken) {
       return NextResponse.json({
         status: 500,
-        message: "No active session or access token found",
+        message: "No access token found",
       });
     }
 
-    return await func({ accessToken, session });
+    const decoded = jwt.decode(accessToken ?? "") as jwt.JwtPayload;
+
+    if (!decoded)
+      return NextResponse.json({
+        status: 500,
+        message: "Access token could not be decoded",
+      });
+
+    if (!process.env.AUTH0_STRIPE_CLAIM)
+      return NextResponse.json({
+        status: 500,
+        message: "AUTH0_STRIPE_CLAIM not set",
+      });
+
+    const stripeCustomerId = decoded[process.env.AUTH0_STRIPE_CLAIM];
+
+    if (!stripeCustomerId)
+      return NextResponse.json({
+        status: 500,
+        message: "Stripe customer ID not found",
+      });
+
+    return await func({ id: stripeCustomerId, req });
   });
 };
 
-export { withRequest, withAuthenticatedSession };
+export { withRequest, withStripeCustomerId };

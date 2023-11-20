@@ -1,16 +1,16 @@
 import Stripe from "stripe";
-import { NextResponse } from "next/server";
+
 import { withStripeCustomerId } from "@/utils/api";
+import { NextResponse } from "next/server";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "");
 
 const GET = withStripeCustomerId(async ({ id }) => {
-  const subscriptions = await stripe.subscriptions.list({
-    customer: id,
-    status: "active",
+  const paymentMethods = await stripe.customers.listPaymentMethods(id, {
+    type: "card",
   });
 
-  return NextResponse.json({ subscriptions });
+  return NextResponse.json({ paymentMethods });
 });
 
 export { GET };

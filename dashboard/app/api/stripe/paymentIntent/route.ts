@@ -5,10 +5,11 @@ import { withStripeCustomerId } from "@/utils/api";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "");
 
-const POST = withStripeCustomerId(async ({ id }) => {
+const POST = withStripeCustomerId(async ({ id, req }) => {
   try {
+    const body = await req.json();
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: 10000,
+      amount: body?.amount,
       currency: "usd",
       payment_method_types: ["card"],
       setup_future_usage: "off_session",
@@ -17,6 +18,7 @@ const POST = withStripeCustomerId(async ({ id }) => {
 
     return NextResponse.json({ clientSecret: paymentIntent.client_secret });
   } catch (err: any) {
+    console.error(err);
     return NextResponse.json(err.message, { status: 500 });
   }
 });
@@ -36,6 +38,7 @@ const GET = async (req: Request) => {
       customer_email: session.customer_details?.email,
     });
   } catch (err: any) {
+    console.error(err);
     return NextResponse.json(err.message, { status: 500 });
   }
 };

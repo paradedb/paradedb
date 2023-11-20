@@ -9,9 +9,7 @@ const GET = async (req: Request) => {
     const prices = await stripe.prices.list(
       searchParams as Stripe.RequestOptions,
     );
-    return NextResponse.json({
-      prices: prices?.data,
-    });
+    return NextResponse.json(prices);
   } catch (err: any) {
     return new Response(err.message, { status: 500 });
   }

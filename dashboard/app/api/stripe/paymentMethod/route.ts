@@ -10,7 +10,14 @@ const GET = withStripeCustomerId(async ({ id }) => {
     type: "card",
   });
 
-  return NextResponse.json({ paymentMethods });
+  return NextResponse.json(paymentMethods);
 });
 
-export { GET };
+const DELETE = withStripeCustomerId(async ({ req }) => {
+  const body = await req.json();
+  const response = await stripe.paymentMethods.detach(body?.paymentMethodId);
+
+  return NextResponse.json(response);
+});
+
+export { GET, DELETE };

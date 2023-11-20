@@ -187,7 +187,7 @@ const Index = () => {
   const statusRef = useRef(deployStatus);
   const isLoading = !creds || !status;
   const noDatabaseCreated = creds?.status === 404;
-  const currentPlan = subscriptions?.subscriptions?.data?.[0]?.plan;
+  const currentPlan = subscriptions?.data?.[0]?.plan;
   const databaseReady =
     [creds?.host, creds?.user, creds?.password, creds?.port].every(Boolean) &&
     deployStatus === DeployStatus.RUNNING;
@@ -231,6 +231,10 @@ const Index = () => {
   if (creds?.status === 500 && creds?.message === ERR_EXPIRED_ACCESS_TOKEN) {
     redirect("/api/auth/logout");
   }
+
+  const onRefreshSubscription = () => {
+    mutate(SUBSCRIPTION_URL);
+  };
 
   return (
     <div>
@@ -284,6 +288,7 @@ const Index = () => {
             <ConfigureInstanceButton
               disabled={isLoading}
               onConfigureInstance={() => {}}
+              onRefresh={onRefreshSubscription}
             />{" "}
           </Flex>
           {currentPlan === undefined ? (

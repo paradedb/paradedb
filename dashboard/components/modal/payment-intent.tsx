@@ -21,6 +21,7 @@ const stripePromise = loadStripe(
 interface PaymentIntentModalProps {
   isOpen: boolean;
   onClose: () => void;
+  amount: number;
 }
 
 interface EmbeddedPaymentFormProps {
@@ -51,6 +52,21 @@ const EmbeddedPaymentForm = ({ onClose }: EmbeddedPaymentFormProps) => {
     });
 
     if (paymentIntentResult.error) {
+      setIsLoading(false);
+      return;
+    }
+
+    const updateCustomerResult = await fetch("/api/stripe/customer", {
+      method: "PUT",
+      body: JSON.stringify({
+        invoice_settings: {
+          default_payment_method:
+            paymentIntentResult.paymentIntent?.payment_method,
+        },
+      }),
+    });
+
+    if (updateCustomerResult.status !== 200) {
       setIsLoading(false);
       return;
     }
@@ -86,7 +102,11 @@ const EmbeddedPaymentForm = ({ onClose }: EmbeddedPaymentFormProps) => {
   );
 };
 
-const PaymentIntentModal = ({ isOpen, onClose }: PaymentIntentModalProps) => {
+const PaymentIntentModal = ({
+  isOpen,
+  onClose,
+  amount,
+}: PaymentIntentModalProps) => {
   const [clientSecret, setClientSecret] = useState("");
 
   const appearance = {
@@ -98,14 +118,19 @@ const PaymentIntentModal = ({ isOpen, onClose }: PaymentIntentModalProps) => {
   };
 
   useEffect(() => {
+    if (amount <= 0) return;
+
     fetch("/api/stripe/paymentIntent", {
       method: "POST",
+      body: JSON.stringify({
+        amount,
+      }),
     })
       .then((res) => res.json())
       .then((data) => {
         setClientSecret(data.clientSecret);
       });
-  }, []);
+  }, [amount]);
 
   return (
     <Transition appear show={isOpen} as={Fragment}>

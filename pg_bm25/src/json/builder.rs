@@ -156,3 +156,17 @@ impl JsonBuilderValue {
         }
     }
 }
+
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::*;
+
+    use super::JsonBuilder;
+
+    #[pg_test]
+    fn test_new_builder() {
+        let builder = JsonBuilder::new(0);
+        assert_eq!(builder.values.len(), 0);
+    }
+}

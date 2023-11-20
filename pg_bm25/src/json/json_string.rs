@@ -144,3 +144,22 @@ impl std::fmt::Debug for Box<dyn JsonString> {
         f.write_str(&unsafe { String::from_utf8_unchecked(s) })
     }
 }
+
+// #[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use super::JsonString;
+    use pgrx::*;
+
+    #[pg_test]
+    fn test_push_json() {
+        let mut values: Vec<u8> = Vec::new();
+        (32_i32).push_json(&mut values);
+        (64_i64).push_json(&mut values);
+        (0.32_f32).push_json(&mut values);
+        (0.64_f64).push_json(&mut values);
+        false.push_json(&mut values);
+        "new_str".push_json(&mut values);
+        assert_eq!(values.len(), 26);
+    }
+}

@@ -513,7 +513,7 @@ impl ParadeIndex {
     }
 }
 
-// #[cfg(feature = "pg_test")]
+#[cfg(feature = "pg_test")]
 #[pgrx::pg_schema]
 mod tests {
     use std::{collections::HashMap, fs::OpenOptions, io::BufReader};
@@ -524,6 +524,7 @@ mod tests {
 
     use super::ParadeIndex;
     use pgrx::*;
+    use shared::testing::SETUP_SQL;
 
     #[pg_test]
     fn test_get_data_directory() {
@@ -677,4 +678,13 @@ mod tests {
 
     //     Ok(())
     // }
+
+    #[pg_test]
+    fn test_from_index_name() {
+        Spi::run(SETUP_SQL).expect("failed to create index");
+        let index_name = "idx_one_republic";
+        let index = ParadeIndex::from_index_name(index_name.to_string());
+        let fields = index.fields;
+        assert_eq!(fields.len(), 7);
+    }
 }

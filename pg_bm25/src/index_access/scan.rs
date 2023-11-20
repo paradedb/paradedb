@@ -277,3 +277,117 @@ fn write_to_manager(ctid: pg_sys::ItemPointerData, score: f32, doc_address: DocA
     // Add doc address
     manager.add_doc_address(item_pointer_get_both(ctid), doc_address);
 }
+
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use super::{ambeginscan, ambitmapscan, amgettuple, amrescan};
+    use pgrx::*;
+    use shared::testing::SETUP_SQL;
+
+    use crate::operator::get_index_oid;
+
+    #[pg_test]
+    fn test_ambeginscan() {
+        Spi::run(SETUP_SQL).expect("failed to create index and table");
+        let oid = get_index_oid("idx_one_republic", "bm25")
+            .expect("could not find oid for one_republic")
+            .unwrap();
+
+        let index = unsafe { pg_sys::index_open(oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE) };
+        let index_scan = ambeginscan(index, 3 as std::os::raw::c_int, 1 as std::os::raw::c_int);
+        let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(index_scan) };
+
+        assert_eq!(scan.numberOfKeys, 3 as std::os::raw::c_int);
+        assert!(!scan.is_null());
+
+        let tid = scan.xs_heaptid;
+        let blockno = (((tid.ip_blkid.bi_hi as u32) << 16) as u64) << 32;
+
+        let expected = item_pointer_to_u64(tid);
+        assert!(blockno < expected);
+    }
+
+    fn make_scan_key_data() -> *mut pg_sys::ScanKeyData {
+        let mut key = pg_sys::ScanKeyData::default();
+        key.sk_flags = pg_sys::SK_ROW_MEMBER as std::os::raw::c_int
+            | pg_sys::SK_SEARCHARRAY as std::os::raw::c_int;
+        key.sk_strategy = pg_sys::RTOverlapStrategyNumber as std::os::raw::c_ushort;
+        key.sk_attno = 1 as std::os::raw::c_short;
+        if let Ok(oid) = pg_sys::Oid::from_builtin(2276) {
+            key.sk_subtype = oid;
+        }
+        key.sk_argument = "lyrics:im:::max_num_chars=10"
+            .to_string()
+            .into_datum()
+            .unwrap();
+
+        &mut key as *mut pg_sys::ScanKeyData
+    }
+
+    #[pg_test]
+    fn test_ambitmapscan() {
+        Spi::run(SETUP_SQL).expect("failed to create index and table");
+        let oid = get_index_oid("idx_one_republic", "bm25")
+            .expect("could not find oid for one_republic")
+            .unwrap();
+
+        let order_by_no = 2 as std::os::raw::c_int;
+        let nkeys = 1 as std::os::raw::c_int;
+
+        unsafe {
+            // initialize scan
+            let index = pg_sys::index_open(oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+            let index_scan = ambeginscan(index, nkeys, order_by_no);
+            let scan: PgBox<pg_sys::IndexScanDescData> = PgBox::from_pg(index_scan);
+
+            // do the actual scan
+            let keys = make_scan_key_data();
+            // since pg_bm25 indexing ignores this parmeter, we can afford to make it null
+            let orderbys = scan.orderByData;
+            amrescan(index_scan, keys, nkeys, orderbys, order_by_no);
+
+            // carry out the bitmap scan
+            let dsa_area = pg_sys::dsa_create(10);
+            let tbm = pg_sys::tbm_create(20, dsa_area);
+            let bitmapscan = ambitmapscan(index_scan, tbm);
+            assert_eq!(bitmapscan, 2);
+        };
+    }
+
+    #[pg_test]
+    fn test_amgettuple() {
+        unsafe {
+            Spi::run(SETUP_SQL).expect("failed to create index and table");
+            let oid = get_index_oid("idx_one_republic", "bm25")
+                .expect("could not find oid for idx_one_republic")
+                .unwrap();
+
+            let order_by_no = 1 as std::os::raw::c_int;
+            let nkeys = 1 as std::os::raw::c_int;
+
+            // initialize scan
+            let index = pg_sys::index_open(oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
+            let index_scan = ambeginscan(index, nkeys, order_by_no);
+            let scan: PgBox<pg_sys::IndexScanDescData> = PgBox::from_pg(index_scan);
+
+            // populate the iterator
+            let keys = make_scan_key_data();
+            // since pg_bm25 indexing ignores this parmeter, we can afford to make it null
+            // let orderbys = &mut pg_sys::ScanKeyData::default() as *mut pg_sys::ScanKeyData;
+            let orderbys = scan.orderByData;
+            amrescan(index_scan, keys, nkeys, orderbys, order_by_no);
+
+            // pg_bm25 indexing ignores direction for now, so the backward direction here does not matter
+            let tuple_found = amgettuple(index_scan, -1 as std::os::raw::c_int);
+            assert!(tuple_found);
+
+            // we should not have another tuple since the no of keys is just 1
+            let tuple_found = amgettuple(index_scan, -1 as std::os::raw::c_int);
+            assert!(!tuple_found);
+
+            // confirm that the index entry matches the scan keys
+            assert!(!scan.xs_recheck);
+        };
+    }
+}

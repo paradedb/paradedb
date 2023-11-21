@@ -81,6 +81,25 @@ for version in "${PG_VERSIONS[@]}"; do
   esac
 done
 
+echo "Installing pg_sparse..."
+echo ""
+cd "$CONFIGDIR/../../pg_sparse"
+
+# Build and install pg_sparse into the pgrx environment
+for version in "${PG_VERSIONS[@]}"; do
+  echo "Installing pg_sparse for pgrx PostgreSQL $version..."
+  case "$OS_NAME" in
+    Darwin)
+      make clean
+      PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" make && PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" make install
+      ;;
+    Linux)
+      sudo make clean
+      sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make && sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make install
+      ;;
+  esac
+done
+
 echo ""
 echo "Installing pg_bm25..."
 cd "$CONFIGDIR/../../pg_bm25"

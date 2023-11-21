@@ -44,8 +44,8 @@ git fetch --tags
 git checkout "$PGVECTOR_VERSION"
 
 # Configure pgvector like a pgrx extension for compatibility
-sed -i '' -e 's/relocatable = true/relocatable = false/' pg_search.control
-awk '{print} /relocatable = false/ {print "superuser = true\nschema = paradedb"}' pg_search.control > temp && mv temp pg_search.control
+sed -i '' -e 's/relocatable = true/relocatable = false/' vector.control
+awk '{print} /relocatable = false/ {print "superuser = true\nschema = paradedb"}' vector.control > temp && mv temp vector.control
 
 # Install pgvector for all specified pgrx-compatible PostgreSQL versions
 for version in "${PG_VERSIONS[@]}"; do

@@ -28,6 +28,7 @@ use shared::plog;
 use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
+use pgrx::pgbox::AllocatedByRust;
 
 unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
     let table_name = name_data_to_str(&(*(*rel).rd_rel).relname);
@@ -42,7 +43,7 @@ pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTabl
 
 // custom DescData representing scan state
 struct TableAMScanDescData {
-    rs_base: TableScanDescData,
+    rs_base: PgBox::<TableScanDescData, AllocatedByRust>,
     stream: Option<SendableRecordBatchStream>, // should this be option: None if scan failed
     curr_batch: Option<RecordBatch>,
 }
@@ -50,7 +51,12 @@ struct TableAMScanDescData {
 // TODO: add back other args
 // TODO: what should we do if we get a DataFusionError?
 async unsafe fn memam_scan_begin_impl(rel: Relation) -> TableScanDesc {
-    let mut scan = unsafe { PgBox::<TableAMScanDescData>::alloc0() };
+    // let mut scan = unsafe { PgBox::<TableAMScanDescData>::alloc0() };
+    let mut scan: TableAMScanDescData = TableAMScanDescData {
+        rs_base: unsafe { PgBox::<TableScanDescData>::alloc0() },
+        stream: None,
+        curr_batch: None,
+    };
     scan.rs_base.rs_rd = rel;
     scan.curr_batch = None;
     let table = get_table_from_relation(rel);
@@ -79,7 +85,7 @@ async unsafe fn memam_scan_begin_impl(rel: Relation) -> TableScanDesc {
     }
     info!("casting now");
     // TODO: how do I cast this boi
-    return scan.into_pg() as TableScanDesc;
+    return scan.rs_base.into_pg();
 }
 
 pub unsafe extern "C" fn memam_scan_begin(
@@ -114,23 +120,31 @@ async unsafe fn memam_scan_getnextslot_impl(
     tscan: *mut TableAMScanDescData,
     slot: *mut TupleTableSlot,
 ) -> bool {
+    info!("Calling memam_scan_getnextslot_impl");
     if (*tscan).stream.is_none() {
+        info!("returning false");
         return false;
     }
     // TODO: quickfix said to as_mut() this
-    let mut stream = (*tscan).stream.as_mut().unwrap();
+    let mut stream = &(*tscan).stream;
     if (*tscan).curr_batch.is_none() {
-        let next_batch = stream.next().await;
+        info!("curr_batch is none");
+        let next_batch = stream.unwrap().next().await;
+        info!("here a");
         match next_batch {
             Some(Ok(batch)) => {
+                info!("here b");
                 (*tscan).curr_batch = Some(batch);
+                info!("here c");
             }
             _ => (),
         };
     }
     if (*tscan).curr_batch.is_none() {
+        info!("returning false 2");
         return false;
     }
+    info!("here 1");
     // TODO: quickfix said to clone this, is that ok?
     let batch = (*tscan).curr_batch.clone().unwrap();
     let batch_len = batch.num_rows();
@@ -140,6 +154,7 @@ async unsafe fn memam_scan_getnextslot_impl(
         (*tscan).curr_batch = Some(batch.slice(1, batch_len - 1));
         let mut col_index = 0;
         for col in single_batch.columns() {
+            info!("here col {}", col_index);
             // TODO: casework based on data type and put it into slot and put it into slot
             match col.data_type() {
                 DataType::Int32 => {

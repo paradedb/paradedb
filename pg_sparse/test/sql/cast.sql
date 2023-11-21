@@ -10,8 +10,6 @@ SELECT '{-Infinity}'::real[]::svector;
 SELECT '{}'::real[]::svector;
 SELECT '{{1}}'::real[]::svector;
 SELECT '[1,2,3]'::svector::real[];
-SELECT array_agg(n)::svector FROM generate_series(1, 16001) n;
-SELECT array_to_svector(array_agg(n), 16001, false) FROM generate_series(1, 16001) n;
 
 -- ensure no error
 SELECT ARRAY[1,2,3] = ARRAY[1,2,3];

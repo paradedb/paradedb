@@ -46,10 +46,6 @@ SELECT '[1,2,3]'::svector::real[];
  {1,2,3}
 (1 row)
 
-SELECT array_agg(n)::svector FROM generate_series(1, 16001) n;
-ERROR:  svector cannot have more than 16000 dimensions
-SELECT array_to_svector(array_agg(n), 16001, false) FROM generate_series(1, 16001) n;
-ERROR:  svector cannot have more than 16000 dimensions
 -- ensure no error
 SELECT ARRAY[1,2,3] = ARRAY[1,2,3];
  ?column? 

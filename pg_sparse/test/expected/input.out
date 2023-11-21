@@ -1,29 +1,29 @@
 SELECT '[1,2,3]'::svector;
- svector
+ svector 
 ---------
  [1,2,3]
 (1 row)
 
 SELECT '[-1,-2,-3]'::svector;
-   svector
+  svector   
 ------------
  [-1,-2,-3]
 (1 row)
 
 SELECT '[1.,2.,3.]'::svector;
- svector
+ svector 
 ---------
  [1,2,3]
 (1 row)
 
 SELECT ' [ 1,  2 ,    3  ] '::svector;
- svector
+ svector 
 ---------
  [1,2,3]
 (1 row)
 
 SELECT '[1.23456]'::svector;
-  svector
+  svector  
 -----------
  [1.23456]
 (1 row)
@@ -45,19 +45,19 @@ ERROR:  infinite value not allowed in svector
 LINE 1: SELECT '[-Infinity,1]'::svector;
                ^
 SELECT '[1.5e38,-1.5e38]'::svector;
-       svector
+      svector       
 --------------------
  [1.5e+38,-1.5e+38]
 (1 row)
 
 SELECT '[1.5e+38,-1.5e+38]'::svector;
-       svector
+      svector       
 --------------------
  [1.5e+38,-1.5e+38]
 (1 row)
 
 SELECT '[1.5e-38,-1.5e-38]'::svector;
-       svector
+      svector       
 --------------------
  [1.5e-38,-1.5e-38]
 (1 row)

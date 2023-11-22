@@ -15,6 +15,8 @@ import {
 import { usePathname } from "next/navigation";
 
 import { Spinner } from "@/components/skeleton";
+import { AppStateProvider } from "@/components/context";
+import { NotificationModal } from "@/components/modal";
 import Logo from "@/images/logo-with-name.svg";
 
 enum Route {
@@ -96,6 +98,7 @@ const DashboardLayout = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <div className="w-screen h-screen fixed overflow-y-auto overflow-x-hidden">
+      <NotificationModal />
       <Grid numItemsLg={12} className="w-screen">
         <Col
           numColSpanLg={2}
@@ -177,7 +180,9 @@ const Template = ({ children }: { children: React.ReactNode }) => (
     autoBoot
     appId={process.env.NEXT_PUBLIC_INTERCOM_APP_ID ?? ""}
   >
-    <DashboardLayout>{children}</DashboardLayout>
+    <AppStateProvider>
+      <DashboardLayout>{children}</DashboardLayout>
+    </AppStateProvider>
   </IntercomProvider>
 );
 

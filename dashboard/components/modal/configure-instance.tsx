@@ -3,7 +3,7 @@
 import classNames from "classnames";
 import useSWR, { mutate } from "swr";
 import { useState, Fragment } from "react";
-import { Dialog, Transition } from "@headlessui/react";
+import { Popover, Transition } from "@headlessui/react";
 import {
   Flex,
   Bold,
@@ -24,6 +24,8 @@ import { CheckIcon } from "@heroicons/react/24/solid";
 
 import { Card } from "@/components/tremor";
 import { AddPaymentButton } from "@/components/button/add-payment";
+import { useAppState } from "../context";
+import { GENERIC_LOADING, GENERIC_SUCCESS } from "@/components/modal";
 
 interface ConfigureInstanceModalProps {
   isOpen: boolean;
@@ -49,6 +51,7 @@ const ConfigureInstanceModal = ({
   const [selectedPlan, setSelectedPlan] = useState(defaultPlan);
   const [isRemovingPayment, setIsRemovingPayment] = useState(false);
   const [isFinishing, setIsFinishing] = useState(false);
+  const { setNotification } = useAppState();
 
   const { data: paymentMethods } = useSWR(PAYMENT_METHODS_URL, fetcher);
   const { data: subscriptions } = useSWR(SUBSCRIPTION_URL, fetcher);
@@ -65,6 +68,7 @@ const ConfigureInstanceModal = ({
 
   const onClickFinish = async () => {
     setIsFinishing(true);
+    setNotification?.(GENERIC_LOADING);
 
     const method = subscriptions?.data?.length > 0 ? "PUT" : "POST";
     await fetch("/api/stripe/subscription", {
@@ -74,9 +78,16 @@ const ConfigureInstanceModal = ({
         subscriptionId,
       }),
     });
+
+    // @mauricio
+    // TODO: Send API call to backend to swap out instance
+    // You can get the selected plan and instance specs via
+    // prices?.find((price) => price.id === selectedPlan)
+
     onClose();
     onRefresh();
     setIsFinishing(false);
+    setNotification?.(GENERIC_SUCCESS);
   };
 
   const removePaymentMethod = async () => {
@@ -96,7 +107,7 @@ const ConfigureInstanceModal = ({
   return (
     <>
       <Transition appear show={isOpen} as={Fragment}>
-        <Dialog as="div" className="relative z-10" onClose={() => {}}>
+        <Popover className="z-40">
           <Transition.Child
             as={Fragment}
             enter="ease-out duration-300"
@@ -120,7 +131,7 @@ const ConfigureInstanceModal = ({
                 leaveFrom="opacity-100 scale-100"
                 leaveTo="opacity-0 scale-95"
               >
-                <Dialog.Panel className="w-full h-[calc(100vh-30px)] transform overflow-y-scroll scrollbar-hidden rounded-lg bg-darker border border-neutral-800 p-12 text-left align-middle transition-all">
+                <Popover.Panel className="w-full h-[calc(100vh-30px)] transform overflow-y-scroll scrollbar-hidden rounded-lg bg-darker border border-neutral-800 p-12 text-left align-middle transition-all">
                   <Button
                     icon={XMarkIcon}
                     variant="light"
@@ -294,11 +305,11 @@ const ConfigureInstanceModal = ({
                       Go Back
                     </Button>
                   </Flex>
-                </Dialog.Panel>
+                </Popover.Panel>
               </Transition.Child>
             </div>
           </div>
-        </Dialog>
+        </Popover>
       </Transition>
     </>
   );

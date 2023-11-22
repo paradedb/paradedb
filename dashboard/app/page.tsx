@@ -24,6 +24,7 @@ import {
   CpuChipIcon,
   Square3Stack3DIcon,
 } from "@heroicons/react/24/outline";
+import { redirect } from "next/navigation";
 
 import Error from "./error";
 import { Card } from "@/components/tremor";
@@ -33,7 +34,6 @@ import {
   CreateInstanceButton,
   DeleteInstanceButton,
 } from "@/components/button";
-import { redirect } from "next/navigation";
 
 const DATABASE_CREDENTIALS_URL = `/api/databases/credentials`;
 const DATABASE_STATUS_URL = `/api/databases/status`;

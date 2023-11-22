@@ -10,9 +10,11 @@ import {
   useStripe,
   useElements,
 } from "@stripe/react-stripe-js";
-
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import { PrimaryButton } from "@/components/tremor";
+
+import { useAppState } from "@/components/context";
+import { GENERIC_ERROR } from ".";
 
 const stripePromise = loadStripe(
   process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "",
@@ -32,6 +34,7 @@ const EmbeddedPaymentForm = ({ onClose }: EmbeddedPaymentFormProps) => {
   const stripe = useStripe();
   const elements = useElements();
   const [isLoading, setIsLoading] = useState(false);
+  const { setNotification } = useAppState();
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -40,6 +43,7 @@ const EmbeddedPaymentForm = ({ onClose }: EmbeddedPaymentFormProps) => {
 
     if (!stripe || !elements) {
       setIsLoading(false);
+      setNotification?.(GENERIC_ERROR);
       return;
     }
 
@@ -53,6 +57,7 @@ const EmbeddedPaymentForm = ({ onClose }: EmbeddedPaymentFormProps) => {
 
     if (paymentIntentResult.error) {
       setIsLoading(false);
+      setNotification?.(GENERIC_ERROR);
       return;
     }
 
@@ -68,6 +73,7 @@ const EmbeddedPaymentForm = ({ onClose }: EmbeddedPaymentFormProps) => {
 
     if (updateCustomerResult.status !== 200) {
       setIsLoading(false);
+      setNotification?.(GENERIC_ERROR);
       return;
     }
 
@@ -84,7 +90,9 @@ const EmbeddedPaymentForm = ({ onClose }: EmbeddedPaymentFormProps) => {
 
     if (!clientSecret) return;
 
-    stripe.retrievePaymentIntent(clientSecret);
+    stripe.retrievePaymentIntent(clientSecret).then((intent) => {
+      if (intent.error) setNotification?.(GENERIC_ERROR);
+    });
   }, [stripe]);
 
   return (

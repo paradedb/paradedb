@@ -43,21 +43,20 @@ cd pgvector/
 git fetch --tags
 git checkout "$PGVECTOR_VERSION"
 
-# Configure pgvector like a pgrx extension for compatibility
-sed -i '' -e 's/relocatable = true/relocatable = false/' vector.control
-awk '{print} /relocatable = false/ {print "superuser = true\nschema = paradedb"}' vector.control > temp && mv temp vector.control
-
 # Install pgvector for all specified pgrx-compatible PostgreSQL versions
+
+# TODO: does this fix it?
+
 for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pgvector for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
       make clean
-      PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" make && PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" make install
+      make && make install PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config"
       ;;
     Linux)
       sudo make clean
-      sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make && sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make install
+      sudo make && sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make install
       ;;
   esac
 done

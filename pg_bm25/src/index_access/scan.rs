@@ -310,17 +310,15 @@ mod tests {
 
     fn make_scan_key_data() -> *mut pg_sys::ScanKeyData {
         let mut key = pg_sys::ScanKeyData::default();
-        key.sk_flags = pg_sys::SK_ROW_MEMBER as std::os::raw::c_int
-            | pg_sys::SK_SEARCHARRAY as std::os::raw::c_int;
+        key.sk_flags = pg_sys::SK_ISNULL as std::os::raw::c_int;
+        // | pg_sys::SK_ROW_MEMBER as std::os::raw::c_int;
         key.sk_strategy = pg_sys::RTOverlapStrategyNumber as std::os::raw::c_ushort;
         key.sk_attno = 1 as std::os::raw::c_short;
         if let Ok(oid) = pg_sys::Oid::from_builtin(2276) {
             key.sk_subtype = oid;
         }
-        key.sk_argument = "lyrics:im:::max_num_chars=10"
-            .to_string()
-            .into_datum()
-            .unwrap();
+
+        key.sk_argument = pg_sys::Datum::from("im:::limit=10&offset=2".as_ptr());
 
         &mut key as *mut pg_sys::ScanKeyData
     }
@@ -332,7 +330,7 @@ mod tests {
             .expect("could not find oid for one_republic")
             .unwrap();
 
-        let order_by_no = 2 as std::os::raw::c_int;
+        let order_by_no = 1 as std::os::raw::c_int;
         let nkeys = 1 as std::os::raw::c_int;
 
         unsafe {
@@ -348,8 +346,8 @@ mod tests {
             amrescan(index_scan, keys, nkeys, orderbys, order_by_no);
 
             // carry out the bitmap scan
-            let dsa_area = pg_sys::dsa_create(10);
-            let tbm = pg_sys::tbm_create(20, dsa_area);
+            let dsa_area = pg_sys::dsa_create(1);
+            let tbm = pg_sys::tbm_create(2, dsa_area);
             let bitmapscan = ambitmapscan(index_scan, tbm);
             assert_eq!(bitmapscan, 2);
         };

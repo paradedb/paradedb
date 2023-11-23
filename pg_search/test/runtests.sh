@@ -95,8 +95,8 @@ function run_tests() {
   # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
   case "$OS_NAME" in
     Darwin)
-      PG_BIN_PATH="$HOME/.pgrx/$PG_VERSION/pgrx-install/bin"
-      REGRESS="$HOME/.pgrx/$PG_VERSION/pgrx-install/lib/postgresql/pgxs/src/test/regress/pg_regress"
+      PG_BIN_PATH="/opt/homebrew/opt/postgresql@$version/bin"
+      REGRESS="/opt/homebrew/opt/postgresql@$version/lib/postgresql/pgxs/src/test/regress/pg_regress"
       ;;
     Linux)
       PG_BIN_PATH="/usr/lib/postgresql/$PG_VERSION/bin"

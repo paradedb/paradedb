@@ -43,13 +43,16 @@ cd pgvector/
 git fetch --tags
 git checkout "$PGVECTOR_VERSION"
 
-# Install pgvector for all specified pgrx-compatible PostgreSQL versions
+# Install pgvector for all specified pgrx-compatible PostgreSQL versions. We compile
+# pgvector without specifying PG_CONFIG, so that it won't redefine macros that are
+# already defined in the pgrx environment, but we specify PG_CONFIG when installing
+# pgvector to make it available to the pgrx environment at runtime.
 for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pgvector for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
       make clean
-      make && make install PG_CONFIG="$HOME/.pgrx/$version/pgrx-install/bin/pg_config"
+      make && make install PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"      
       ;;
     Linux)
       sudo make clean
@@ -67,7 +70,7 @@ for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pg_bm25 for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
-      cargo pgrx install --pg-config="$HOME/.pgrx/$version/pgrx-install/bin/pg_config" --profile dev
+      cargo pgrx install --pg-config="/opt/homebrew/opt/postgresql@$version/bin/pg_config" --profile dev
       ;;
     Linux)
       cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config" --profile dev

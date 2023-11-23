@@ -65,6 +65,7 @@ for version in "${PG_VERSIONS[@]}"; do
       fi
       ;;
     Linux)
+      # TODO: should I go back to sudo make PG_CONFIG here, then?
       sudo make clean
       sudo make && sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make install
       ;;

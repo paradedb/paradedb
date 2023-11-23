@@ -36,8 +36,7 @@ jobs:
     runs-on: macos-latest
     strategy:
       matrix:
-        # pg_version: [12, 13, 14, 15, 16]
-        pg_version: [15]
+        pg_version: [12, 13, 14, 15, 16]
 
     steps:
       # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only
@@ -82,21 +81,15 @@ jobs:
       #     sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
       #     echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-
-      - name: Setup upterm session
-        uses: lhotari/action-upterm@v1
-
       - name: install postgres
-        run: brew install postgresql@15
-
-
+        run: brew install postgresql@12 postgresql@13 postgresql@14 postgresql@15 postgresql@16
 
       - name: Install pgrx, grcov & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.0
-          cargo install -j $(nproc) --locked grcov
-          rustup component add llvm-tools-preview
+        # cargo install -j $(nproc) --locked grcov
+        # rustup component add llvm-tools-preview
 
       # - name: Initialize pgrx for Current PostgreSQL Version
       #   if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -110,15 +103,11 @@ jobs:
           if [ "$(uname -m)" = "arm64" ]; then
             cargo pgrx init --pg${{ matrix.pg_version }}=/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config
           elif [ "$(uname -m)" = "x86_64" ]; then
-            cargo pgrx init --pg${{ matrix.pg_version }}=/usr/local/bin/pg_config
+            cargo pgrx init --pg${{ matrix.pg_version }}=/usr/local/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config
           else
             echo "Unknown arch, exiting..."
             exit 1
-          fi 
-
-
-      # - name: Setup upterm session
-      #   uses: lhotari/action-upterm@v1
+          fi
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_search Integration Tests

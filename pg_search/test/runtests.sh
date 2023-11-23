@@ -97,11 +97,11 @@ function run_tests() {
     Darwin)
       # Check arch to set proper pg_config path
       if [ "$(uname -m)" = "arm64" ]; then
-        PG_BIN_PATH="/opt/homebrew/opt/postgresql@$version/bin"
-        REGRESS="/opt/homebrew/opt/postgresql@$version/lib/postgresql/pgxs/src/test/regress/pg_regress"
+        PG_BIN_PATH="/opt/homebrew/opt/postgresql@$PG_VERSION/bin"
+        REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
       elif [ "$(uname -m)" = "x86_64" ]; then
-        PG_BIN_PATH="/usr/local/bin"
-        REGRESS="/usr/local/lib/postgresql/pgxs/src/test/regress/pg_regress"        
+        PG_BIN_PATH="/usr/local/opt/postgresql@$PG_VERSION/bin"
+        REGRESS="/usr/local/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
       else
         echo "Unknown arch, exiting..."
         exit 1

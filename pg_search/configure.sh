@@ -54,13 +54,13 @@ for version in "${PG_VERSIONS[@]}"; do
       make clean && make
       # Check arch to set proper pg_config path
       if [ "$(uname -m)" = "arm64" ]; then
-        make install PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"      
+        make install PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"
       elif [ "$(uname -m)" = "x86_64" ]; then
-        make install PG_CONFIG="/usr/local/bin/pg_config"      
+        make install PG_CONFIG="/usr/local/opt/postgresql@$version/bin/pg_config"
       else
         echo "Unknown arch, exiting..."
         exit 1
-      fi      
+      fi
       ;;
     Linux)
       sudo make clean
@@ -82,7 +82,7 @@ for version in "${PG_VERSIONS[@]}"; do
       if [ "$(uname -m)" = "arm64" ]; then
         cargo pgrx install --pg-config="/opt/homebrew/opt/postgresql@$version/bin/pg_config" --profile dev
       elif [ "$(uname -m)" = "x86_64" ]; then
-        cargo pgrx install --pg-config="/usr/local/bin/pg_config" --profile dev       
+        cargo pgrx install --pg-config="/usr/local/opt/postgresql@$version/bin/pg_config" --profile dev
       else
         echo "Unknown arch, exiting..."
         exit 1

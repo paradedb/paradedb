@@ -20,7 +20,7 @@ WHERE <table_name> @@@ '<query>:::<fuzzy_field_options>'
 ```sql
 SELECT *
 FROM mock_items
-WHERE mock_items @@@ 'keybroadd:::fuzzy_fields=description,category'
+WHERE mock_items @@@ 'description:keybroadd:::fuzzy_fields=description,category'
 ```
 </Accordion>
 

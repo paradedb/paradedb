@@ -87,11 +87,6 @@ jobs:
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
 
-      - name: Initialize pgrx for Current PostgreSQL Version
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_sparse/
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_sparse Integration Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

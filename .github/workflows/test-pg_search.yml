@@ -32,8 +32,7 @@ concurrency:
 jobs:
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }}
-    # runs-on: ubuntu-latest
-    runs-on: macos-latest
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         pg_version: [12, 13, 14, 15, 16]
@@ -65,53 +64,28 @@ jobs:
           cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
-      # - name: Remove old postgres, llvm, clang, and install appropriate version
-      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-      #   run: |
-      #     sudo apt-get remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
-      #     apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D15(\D.*)?$' | xargs sudo apt remove -y
-      #     sudo apt-get install -y llvm-15-dev libclang-15-dev clang-15 gcc
+      - name: Remove old postgres, llvm, clang, and install appropriate version
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
+          sudo apt-get remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
+          apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D15(\D.*)?$' | xargs sudo apt remove -y
+          sudo apt-get install -y llvm-15-dev libclang-15-dev clang-15 gcc
 
-      # - name: Install & Configure Supported PostgreSQL Version
-      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-      #   run: |
-      #     wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-      #     sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-      #     sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-      #     sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
-      #     echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-
-      - name: install postgres
-        run: brew install postgresql@12 postgresql@13 postgresql@14 postgresql@15 postgresql@16
-
-      # - name: Install pgrx, grcov & llvm-tools-preview
-      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-      #   run: |
-      #     cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.0
-      #     cargo install -j $(nproc) --locked grcov
-      #     rustup component add llvm-tools-preview
+      - name: Install & Configure Supported PostgreSQL Version
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: cargo install cargo-pgrx --version 0.11.0
-
-      # - name: Initialize pgrx for Current PostgreSQL Version
-      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-      #   working-directory: pg_search/
-      #   run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-
-      - name: Initialize pgrx for Current PostgreSQL Version
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
         run: |
-          if [ "$(uname -m)" = "arm64" ]; then
-            cargo pgrx init --pg${{ matrix.pg_version }}=/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config
-          elif [ "$(uname -m)" = "x86_64" ]; then
-            cargo pgrx init --pg${{ matrix.pg_version }}=/usr/local/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config
-          else
-            echo "Unknown arch, exiting..."
-            exit 1
-          fi
+          cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.0
+          cargo install -j $(nproc) --locked grcov
+          rustup component add llvm-tools-preview
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_search Integration Tests
@@ -134,25 +108,25 @@ jobs:
             ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi
 
-      # - name: Run pg_search Unit Tests
-      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-      #   env:
-      #     LLVM_PROFILE_FILE: target/coverage/pg_search-%p-%m.profraw
-      #     RUST_BACKTRACE: 1
-      #   run: |
-      #     mkdir -p target/coverage target/coverage-report
-      #     cd pg_search/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
+      - name: Run pg_search Unit Tests
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        env:
+          LLVM_PROFILE_FILE: target/coverage/pg_search-%p-%m.profraw
+          RUST_BACKTRACE: 1
+        run: |
+          mkdir -p target/coverage target/coverage-report
+          cd pg_search/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
 
-      # # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
-      # - name: Generate Code Coverage Reports
-      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
-      #   run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
+      # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
+      - name: Generate Code Coverage Reports
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
+        run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
-      # - name: Upload Coverage Reports to Codecov
-      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
-      #   uses: codecov/codecov-action@v3
-      #   with:
-      #     token: ${{ secrets.CODECOV_TOKEN }}
-      #     directory: ./target/coverage-report/
-      #     files: lcov
-      #     fail_ci_if_error: true
+      - name: Upload Coverage Reports to Codecov
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: ./target/coverage-report/
+          files: lcov
+          fail_ci_if_error: true

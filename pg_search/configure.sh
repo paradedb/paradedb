@@ -28,7 +28,23 @@ else
   IFS=',' read -ra PG_VERSIONS <<< "$1"  # Split the argument by comma into an array
 fi
 
-echo "Installing pgvector and pg_bm25 into your pgrx environment..."
+echo "Installing system PostgreSQL..."
+echo ""
+
+# We install, if necessary, all supported PostgreSQL versions into the system
+for version in "${PG_VERSIONS[@]}"; do
+  echo "Installing PostgreSQL $version..."
+  case "$OS_NAME" in
+    Darwin)
+      brew install postgresql@"$version" > /dev/null
+      ;;
+    Linux)
+      sudo apt-get install -y "postgresql-$version" "postgresql-server-dev-$version" > /dev/null
+      ;;
+  esac
+done
+
+echo "Installing pgvector and pg_bm25 into your system PostgreSQL environment..."
 echo ""
 
 # Clone pgvector if it doesn't exist
@@ -48,7 +64,7 @@ git checkout "$PGVECTOR_VERSION"
 # already defined in the pgrx environment, but we specify PG_CONFIG when installing
 # pgvector to make it available to the pgrx environment at runtime.
 for version in "${PG_VERSIONS[@]}"; do
-  echo "Installing pgvector for pgrx PostgreSQL $version..."
+  echo "Installing pgvector for PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
       make clean
@@ -65,9 +81,9 @@ for version in "${PG_VERSIONS[@]}"; do
       fi
       ;;
     Linux)
-      # TODO: should I go back to sudo make PG_CONFIG here, then?
       sudo make clean
-      sudo make && sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make install
+      sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make
+      sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make install
       ;;
   esac
 done
@@ -78,13 +94,15 @@ cd "$CONFIGDIR/../../pg_bm25"
 
 # Build and install pg_bm25 into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do
-  echo "Installing pg_bm25 for pgrx PostgreSQL $version..."
+  echo "Installing pg_bm25 for PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
       # Check arch to set proper pg_config path
       if [ "$(uname -m)" = "arm64" ]; then
+        cargo pgrx init "--pg$version=/opt/homebrew/opt/postgresql@$version/bin/pg_config"
         cargo pgrx install --pg-config="/opt/homebrew/opt/postgresql@$version/bin/pg_config" --profile dev
       elif [ "$(uname -m)" = "x86_64" ]; then
+        cargo pgrx init "--pg$version=/usr/local/opt/postgresql@$version/bin/pg_config"
         cargo pgrx install --pg-config="/usr/local/opt/postgresql@$version/bin/pg_config" --profile dev
       else
         echo "Unknown arch, exiting..."
@@ -92,6 +110,7 @@ for version in "${PG_VERSIONS[@]}"; do
       fi
       ;;
     Linux)
+      cargo pgrx init "--pg$version=/usr/lib/postgresql/$version/bin/pg_config"
       cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config" --profile dev
       ;;
   esac

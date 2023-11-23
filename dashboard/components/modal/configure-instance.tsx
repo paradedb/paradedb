@@ -70,7 +70,7 @@ const ConfigureInstanceModal = ({
     setIsFinishing(true);
     setNotification?.(GENERIC_LOADING);
 
-    const method = subscriptions?.data?.length > 0 ? "PUT" : "POST";
+    let method = subscriptions?.data?.length > 0 ? "PUT" : "POST";
     await fetch("/api/stripe/subscription", {
       method,
       body: JSON.stringify({
@@ -83,6 +83,13 @@ const ConfigureInstanceModal = ({
     // TODO: Send API call to backend to swap out instance
     // You can get the selected plan and instance specs via
     // prices?.find((price) => price.id === selectedPlan)
+    method = "POST"
+    await fetch("/api/databases", {
+      method,
+      body: JSON.stringify({
+        plan: selectedPlan,
+      }),
+    });
 
     onClose();
     onRefresh();

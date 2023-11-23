@@ -15,7 +15,11 @@ const CreateInstanceButton = ({
   const [loading, setLoading] = useState(isCreating);
 
   const createInstance = () => {
-    fetch("/api/databases", { method: "POST" });
+    fetch("/api/databases", {
+      method: "POST", body: JSON.stringify({
+        plan: "free",
+      })
+    });
   };
 
   const onClick = () => {

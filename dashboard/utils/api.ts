@@ -11,9 +11,11 @@ const withRequest = (
   customFetch: ({
     accessToken,
     session,
+    body,
   }: {
     accessToken: string;
     session: Session;
+    body: string;
   }) => Promise<Response>,
 ) => {
   return withApiAuthRequired(async () => {
@@ -31,6 +33,7 @@ const withRequest = (
       const response = await customFetch({
         accessToken,
         session,
+        body,
       });
 
       if (!response.ok) {

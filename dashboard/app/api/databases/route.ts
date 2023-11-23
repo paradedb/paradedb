@@ -10,13 +10,14 @@ const DELETE = withRequest(({ accessToken }) =>
   }),
 );
 
-const POST = withRequest(({ accessToken }) =>
+const POST = withRequest(({ accessToken, body }) =>
   fetch(`${process.env.PROVISIONER_URL}/databases`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
+    body: JSON.stringify(body),
   }),
 );
 

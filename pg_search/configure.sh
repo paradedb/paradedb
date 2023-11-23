@@ -51,11 +51,13 @@ for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pgvector for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
-      make clean && make
+      make clean
       # Check arch to set proper pg_config path
       if [ "$(uname -m)" = "arm64" ]; then
+        make PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"
         make install PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"
       elif [ "$(uname -m)" = "x86_64" ]; then
+        make PG_CONFIG="/usr/local/opt/postgresql@$version/bin/pg_config"
         make install PG_CONFIG="/usr/local/opt/postgresql@$version/bin/pg_config"
       else
         echo "Unknown arch, exiting..."

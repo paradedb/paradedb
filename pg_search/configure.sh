@@ -44,9 +44,6 @@ git fetch --tags
 git checkout "$PGVECTOR_VERSION"
 
 # Install pgvector for all specified pgrx-compatible PostgreSQL versions
-
-# TODO: does this fix it?
-
 for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pgvector for pgrx PostgreSQL $version..."
   case "$OS_NAME" in

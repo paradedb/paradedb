@@ -51,8 +51,16 @@ for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pgvector for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
-      make clean
-      make && make install PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"      
+      make clean && make
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        make install PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"      
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        make install PG_CONFIG="/usr/local/bin/pg_config"      
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi      
       ;;
     Linux)
       sudo make clean
@@ -70,7 +78,15 @@ for version in "${PG_VERSIONS[@]}"; do
   echo "Installing pg_bm25 for pgrx PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
-      cargo pgrx install --pg-config="/opt/homebrew/opt/postgresql@$version/bin/pg_config" --profile dev
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        cargo pgrx install --pg-config="/opt/homebrew/opt/postgresql@$version/bin/pg_config" --profile dev
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        cargo pgrx install --pg-config="/usr/local/bin/pg_config" --profile dev       
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
       ;;
     Linux)
       cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config" --profile dev

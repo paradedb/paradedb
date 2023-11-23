@@ -95,8 +95,17 @@ function run_tests() {
   # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
   case "$OS_NAME" in
     Darwin)
-      PG_BIN_PATH="/opt/homebrew/opt/postgresql@$version/bin"
-      REGRESS="/opt/homebrew/opt/postgresql@$version/lib/postgresql/pgxs/src/test/regress/pg_regress"
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        PG_BIN_PATH="/opt/homebrew/opt/postgresql@$version/bin"
+        REGRESS="/opt/homebrew/opt/postgresql@$version/lib/postgresql/pgxs/src/test/regress/pg_regress"
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        PG_BIN_PATH="/usr/local/bin"
+        REGRESS="/usr/local/lib/postgresql/pgxs/src/test/regress/pg_regress"        
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
       ;;
     Linux)
       PG_BIN_PATH="/usr/lib/postgresql/$PG_VERSION/bin"

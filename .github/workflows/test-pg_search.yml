@@ -106,7 +106,15 @@ jobs:
       - name: Initialize pgrx for Current PostgreSQL Version
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config
+        run: |
+          if [ "$(uname -m)" = "arm64" ]; then
+            cargo pgrx init --pg${{ matrix.pg_version }}=/opt/homebrew/opt/postgresql@${{ matrix.pg_version }}/bin/pg_config
+          elif [ "$(uname -m)" = "x86_64" ]; then
+            cargo pgrx init --pg${{ matrix.pg_version }}=/usr/local/bin/pg_config
+          else
+            echo "Unknown arch, exiting..."
+            exit 1
+          fi 
 
 
       # - name: Setup upterm session

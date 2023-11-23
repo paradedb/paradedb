@@ -1,7 +1,7 @@
 -- Basic search query
 SELECT *
 FROM bm25_search
-WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2';
+WHERE bm25_search @@@ 'description:keyboard OR category:electronics';
 
 -- With BM25 scoring
 SELECT paradedb.rank_bm25(ctid), * 
@@ -19,7 +19,7 @@ DELETE FROM bm25_search WHERE id = 1;
 UPDATE bm25_search SET description = 'PVC Keyboard' WHERE id = 2;
 SELECT *
 FROM bm25_search
-WHERE bm25_search @@@ 'description:keyboard OR category:electronics OR rating>2';
+WHERE bm25_search @@@ 'description:keyboard OR category:electronics';
 
 -- Test search in another namespace/schema
 SELECT *

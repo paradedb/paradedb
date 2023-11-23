@@ -13,11 +13,11 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 -- Without fuzzy field
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics';
 -- With fuzzy field and transpose_cost_one=false and distance=1
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'keybaord:::fuzzy_fields=description&transpose_cost_one=false&distance=1';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:keybaord:::fuzzy_fields=description&transpose_cost_one=false&distance=1';
 -- With fuzzy field and transpose_cost_one=true and distance=1
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'keybaord:::fuzzy_fields=description&transpose_cost_one=true&distance=1';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:keybaord:::fuzzy_fields=description&transpose_cost_one=true&distance=1';
 -- With fuzzy and regex field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description&fuzzy_fields=description';
+SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:com:::regex_fields=description&fuzzy_fields=description';
 -- With regex field 
 SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description';
 -- Default highlighting without max_num_chars

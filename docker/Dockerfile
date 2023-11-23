@@ -79,6 +79,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     sudo \
     gnupg \
     gcc \
+    make \
     uuid-runtime \
     software-properties-common \
     ca-certificates \

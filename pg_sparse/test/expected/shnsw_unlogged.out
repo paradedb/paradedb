@@ -5,8 +5,8 @@ CREATE INDEX ON t USING shnsw (val svectorl2_ops);
 SELECT * FROM t ORDER BY val <-> '[3,3,3]';
    val   
 ---------
- [1,2,3]
  [1,1,1]
+ [1,2,3]
  [0,0,0]
 (3 rows)
 

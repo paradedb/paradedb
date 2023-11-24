@@ -95,8 +95,27 @@ function run_tests() {
   # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
   case "$OS_NAME" in
     Darwin)
-      PG_BIN_PATH="$HOME/.pgrx/$PG_VERSION/pgrx-install/bin"
-      REGRESS="$HOME/.pgrx/$PG_VERSION/pgrx-install/lib/postgresql/pgxs/src/test/regress/pg_regress"
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        PG_BIN_PATH="/opt/homebrew/opt/postgresql@$PG_VERSION/bin"
+        # For some reason, the path structure is different specifically for PostgreSQL 14 on macOS
+        if [ "$PG_VERSION" = "14" ]; then
+          REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql@$PG_VERSION/pgxs/src/test/regress/pg_regress"
+        else
+          REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
+        fi
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        PG_BIN_PATH="/usr/local/opt/postgresql@$PG_VERSION/bin"
+        # For some reason, the path structure is different specifically for PostgreSQL 14 on macOS
+        if [ "$PG_VERSION" = "14" ]; then
+          REGRESS="/usr/local/opt/postgresql@$PG_VERSION/lib/postgresql@$PG_VERSION/pgxs/src/test/regress/pg_regress"
+        else
+          REGRESS="/usr/local/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
+        fi
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
       ;;
     Linux)
       PG_BIN_PATH="/usr/lib/postgresql/$PG_VERSION/bin"

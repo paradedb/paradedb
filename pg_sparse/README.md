@@ -126,8 +126,8 @@ via Homebrew on macOS).
 Then, install and initialize pgrx:
 
 ```bash
-cargo install cargo-pgrx --version 0.11.0
-cargo pgrx init
+cargo install --locked cargo-pgrx --version 0.11.0
+cargo pgrx init --pg15=`which pg_config`
 ```
 
 ### Running the Extension

@@ -3,16 +3,17 @@ mod tests {
     use pgrx::*;
     use shared::testing::dblink;
 
-    const SETUP_SQL: &str = include_str!("tokenizer_chinese_compatible_setup.sql");
-    const QUERY_SQL: &str = include_str!("tokenizer_chinese_compatible_query.sql");
+    const CJK_SETUP_SQL: &str = include_str!("tokenizer_chinese_compatible_setup.sql");
+    const CJK_QUERY_SQL: &str = include_str!("tokenizer_chinese_compatible_query.sql");
+    const LINDERA_SETUP_SQL: &str = include_str!("tokenizer_lindera_setup.sql");
 
     #[pgrx::pg_test]
     fn test_chinese_compatible_tokenizer() {
         // In this test, the index is created and the tokenizer is used in the same transaction.
 
-        Spi::run(SETUP_SQL).expect("error running setup query");
+        Spi::run(CJK_SETUP_SQL).expect("error running setup query");
 
-        let highlight = Spi::get_one(QUERY_SQL);
+        let highlight = Spi::get_one(CJK_QUERY_SQL);
 
         // Assert that the highlight returned by the tokenizer is as expected.
         assert_eq!(
@@ -37,14 +38,14 @@ mod tests {
 
         // Set up the test environment using dblink to run the setup SQL in a separate connection.
         // The setup SQL is expected to prepare the database with the necessary configuration for the tokenizer.
-        let setup_query = format!("SELECT * FROM {} AS (_ text)", &dblink(SETUP_SQL));
+        let setup_query = format!("SELECT * FROM {} AS (_ text)", &dblink(CJK_SETUP_SQL));
         Spi::run(&setup_query).expect("error running dblink setup query");
 
         // Run the test query using dblink to ensure the tokenizer works in a separate connection.
         // The query SQL is expected to test the tokenizer functionality and return a highlighted result.
         let test_query = format!(
             "SELECT * FROM {} AS (highlight_bm25 text)",
-            &dblink(QUERY_SQL)
+            &dblink(CJK_QUERY_SQL)
         );
         let highlight = Spi::get_one(&test_query);
 
@@ -54,5 +55,10 @@ mod tests {
             Ok(Some("<b>张</b>伟")),
             "incorrect result for chinese compatible tokenizer highlight"
         );
+    }
+
+    #[pgrx::pg_test]
+    fn test_lindera_tokenizer() {
+        Spi::run(LINDERA_SETUP_SQL).expect("error running setup query");
     }
 }

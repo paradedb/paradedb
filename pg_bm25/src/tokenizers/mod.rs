@@ -1,9 +1,11 @@
 mod cjk;
 mod code;
+mod lindera;
 
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap, ParadeTokenizer};
 use crate::tokenizers::cjk::ChineseTokenizer;
 use crate::tokenizers::code::CodeTokenizer;
+use crate::tokenizers::lindera::MultiLangTokenizer;
 
 use serde_json::json;
 use shared::plog;
@@ -59,6 +61,12 @@ pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManage
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)
                 .build(),
+            ),
+            ParadeTokenizer::Lindera => Some(
+                TextAnalyzer::builder(MultiLangTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build(),
             ),
             _ => None,
         };

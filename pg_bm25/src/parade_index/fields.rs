@@ -29,6 +29,8 @@ pub enum ParadeTokenizer {
         max_gram: usize,
         prefix_only: bool,
     },
+    #[serde(rename = "lindera")]
+    Lindera,
 }
 
 impl ParadeTokenizer {
@@ -45,6 +47,7 @@ impl ParadeTokenizer {
                 max_gram,
                 prefix_only,
             } => format!("ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}"),
+            ParadeTokenizer::Lindera => "lindera".into(),
         }
     }
 }

@@ -16,9 +16,10 @@ const CreateInstanceButton = ({
 
   const createInstance = () => {
     fetch("/api/databases", {
-      method: "POST", body: JSON.stringify({
+      method: "POST",
+      body: JSON.stringify({
         plan: "free",
-      })
+      }),
     });
   };
 

@@ -75,14 +75,7 @@ fi
 OS_NAME=$(uname)
 if [ "$FLAG_PG_VER" = false ]; then
   # No arguments provided; use default versions
-  case "$OS_NAME" in
-    Darwin)
-      PG_VERSIONS=("16.1" "15.5" "14.10" "13.13" "12.17")
-      ;;
-    Linux)
-      PG_VERSIONS=("16" "15" "14" "13" "12")
-      ;;
-  esac
+  PG_VERSIONS=("16" "15" "14" "13" "12")
 else
   IFS=',' read -ra PG_VERSIONS <<< "$FLAG_PG_VER"  # Split the argument by comma into an array
 fi

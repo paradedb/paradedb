@@ -16,7 +16,7 @@ PGVECTOR_VERSION=v$(jq -r '.extensions.pgvector.version' "$CONFIGDIR/../conf/thi
 # All pgrx-supported PostgreSQL versions to configure for
 if [ $# -eq 0 ]; then
   # No arguments provided; use default versions
-  PG_VERSIONS=("16" "14" "13" "12")
+  PG_VERSIONS=("16" "15" "14" "13" "12")
 else
   IFS=',' read -ra PG_VERSIONS <<< "$1"  # Split the argument by comma into an array
 fi

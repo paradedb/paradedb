@@ -109,24 +109,26 @@ for version in "${PG_VERSIONS[@]}"; do
   esac
 done
 
-# We can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time, so we
-# make one final call to `cargo pgrx init` to load the project's default pgrx PostgreSQL version
+# We can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time, so we make one final call to
+# `cargo pgrx init` to load the project's default pgrx PostgreSQL version (for local development)
 default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
-case "$OS_NAME" in
-  Darwin)
-    # Check arch to set proper pg_config path
-    if [ "$(uname -m)" = "arm64" ]; then
-      cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config"
-    elif [ "$(uname -m)" = "x86_64" ]; then
-      cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config"
-    else
-      echo "Unknown arch, exiting..."
-      exit 1
-    fi
-    ;;
-  Linux)
-    cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config"
-    ;;
-esac
+if [[ " ${PG_VERSIONS[*]} " =~ " $default_pg_version " ]]; then
+  case "$OS_NAME" in
+    Darwin)
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config"
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config"
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
+      ;;
+    Linux)
+      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config"
+      ;;
+  esac
+fi
 
 echo "Done! You can now develop pg_search by running 'cargo pgrx run'!"

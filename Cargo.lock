@@ -1976,6 +1976,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pg_columnar"
+version = "0.0.0"
+dependencies = [
+ "pgrx",
+ "pgrx-tests",
+ "serde",
+ "serde_json",
+ "shared",
+]
+
+[[package]]
 name = "pg_search"
 version = "0.0.0"
 dependencies = [

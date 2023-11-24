@@ -172,6 +172,7 @@ function run_tests() {
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_search extension..."
     sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/"
+    cargo pgrx init "--pg$PG_VERSION=/usr/lib/postgresql/$PG_VERSION/bin/pg_config"
     cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
 
     # Fourth, upgrade the extension installed on the test database to the current version

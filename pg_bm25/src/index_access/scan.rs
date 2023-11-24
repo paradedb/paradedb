@@ -139,7 +139,9 @@ pub extern "C" fn amrescan(
         }
 
         // Construct the query using the lenient parser to tolerate minor errors in the input.
-        query_parser.parse_query_lenient(&query_config.query).0
+        query_parser
+            .parse_query(&query_config.query)
+            .expect("error parsing query")
     };
 
     // Execute the constructed search query on Tantivy.

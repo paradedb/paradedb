@@ -69,13 +69,13 @@ the relevance scores of results.
 `AND`, `OR`, and `NOT` can be used to combine and filter multiple terms.
 
 ```sql
-'keyboard OR toy NOT metal'
+'description:keyboard OR toy NOT metal'
 ```
 
 Use parentheses to group terms and control the order of operations.
 
 ```sql
-'(keyboard OR toy) AND metal'
+'(description:keyboard OR category:toy) AND description:metal'
 ```
 
 ### Set Operator
@@ -116,7 +116,7 @@ SQL's `LIMIT` and `OFFSET` options.
 ```sql
 SELECT *
 FROM mock_items
-WHERE mock_items @@@ 'keyboard:::limit=100&offset=50'
+WHERE mock_items @@@ 'description:keyboard:::limit=100&offset=50'
 ```
 
 ## Filtering
@@ -128,7 +128,7 @@ The standard SQL `WHERE` clause is used perform range and filter queries:
 ```sql
 SELECT *
 FROM mock_items
-WHERE mock_items @@@ 'keyboard'
+WHERE mock_items @@@ 'description:keyboard'
 AND rating>=3;
 ```
 
@@ -137,6 +137,6 @@ AND rating>=3;
 ```sql
 SELECT *
 FROM your_table
-WHERE mock_items @@@ 'keyboard'
+WHERE mock_items @@@ 'description:keyboard'
 WHERE purchase_date > '2023-01-01 12:00:00-05';
 ```

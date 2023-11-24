@@ -9,5 +9,5 @@ INSERT INTO "Activity" (name, age) VALUES ('Hannah', 22);
 INSERT INTO "Activity" (name, age) VALUES ('Ivan', 30);
 INSERT INTO "Activity" (name, age) VALUES ('Julia', 25);
 CREATE INDEX ON "Activity" USING bm25(("Activity".*)) WITH (text_fields='{"name": {}}');
-SELECT * FROM "Activity" WHERE "Activity" @@@ 'alice';
+SELECT * FROM "Activity" WHERE "Activity" @@@ 'name:alice';
 

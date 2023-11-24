@@ -108,7 +108,7 @@ pub struct ParadeTextOptions {
     #[serde(default)]
     pub tokenizer: ParadeTokenizer,
     #[schema(value_type = IndexRecordOptionSchema)]
-    #[serde(default)]
+    #[serde(default = "default_as_freqs_and_positions")]
     record: IndexRecordOption,
     #[serde(default)]
     normalizer: ParadeNormalizer,
@@ -243,7 +243,7 @@ pub struct ParadeJsonOptions {
     #[serde(default)]
     pub tokenizer: ParadeTokenizer,
     #[schema(value_type = IndexRecordOptionSchema)]
-    #[serde(default)]
+    #[serde(default = "default_as_freqs_and_positions")]
     record: IndexRecordOption,
     #[serde(default)]
     normalizer: ParadeNormalizer,
@@ -305,4 +305,8 @@ pub type ParadeFieldConfigDeserializedResult = serde_json::Result<ParadeOptionMa
 
 fn default_as_true() -> bool {
     true
+}
+
+fn default_as_freqs_and_positions() -> IndexRecordOption {
+    IndexRecordOption::WithFreqsAndPositions
 }

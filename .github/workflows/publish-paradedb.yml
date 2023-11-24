@@ -91,6 +91,7 @@ jobs:
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
             TELEMETRY=true
+            BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

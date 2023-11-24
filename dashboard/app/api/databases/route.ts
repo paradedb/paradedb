@@ -10,15 +10,11 @@ const DELETE = withRequest(({ accessToken }) =>
   }),
 );
 
-const POST = withRequest(({ accessToken, body }) => {
+const POST = withRequest(async ({ accessToken, req }) => {
   const apiUrl = `${process.env.PROVISIONER_URL}/databases`;
+  const body = await req.json();
 
-  console.log("Sending POST request to:", apiUrl);
-  console.log("Request headers:", {
-    Authorization: `Bearer ${accessToken}`,
-    "Content-Type": "application/json",
-  });
-  console.log("Request body:", JSON.stringify(body));
+  console.log(body);
 
   return fetch(apiUrl, {
     method: "POST",

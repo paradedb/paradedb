@@ -11,12 +11,14 @@ const withRequest = (
   customFetch: ({
     accessToken,
     session,
+    req,
   }: {
     accessToken: string;
     session: Session;
+    req: NextRequest;
   }) => Promise<Response>,
 ) => {
-  return withApiAuthRequired(async () => {
+  return withApiAuthRequired(async (req: NextRequest) => {
     try {
       const { accessToken } = await getAccessToken();
       const session = await getSession();
@@ -31,6 +33,7 @@ const withRequest = (
       const response = await customFetch({
         accessToken,
         session,
+        req,
       });
 
       if (!response.ok) {

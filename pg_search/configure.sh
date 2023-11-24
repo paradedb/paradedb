@@ -114,7 +114,7 @@ done
 
 echo ""
 echo "Installing pg_bm25..."
-cd "$CONFIGDIR/../../pg_bm25"
+cd "$CONFIGDIR/../pg_bm25"
 
 # Build and install pg_bm25 into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do

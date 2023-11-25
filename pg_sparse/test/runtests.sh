@@ -146,7 +146,7 @@ function run_tests() {
 
   # Configure pgrx to use system PostgreSQL
   echo "Initializing pgrx environment..."
-  cargo pgrx init "--pg$PG_VERSION=$PG_BIN_PATH/pg_config"
+  cargo pgrx init "--pg$PG_VERSION=$PG_BIN_PATH/pg_config" > /dev/null
 
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
@@ -207,10 +207,10 @@ for PG_VERSION in "${PG_VERSIONS[@]}"; do
   # Install the specific PostgreSQL version if it's not already installed
   case "$OS_NAME" in
     Darwin)
-      brew install postgresql@"$PG_VERSION" > /dev/null
+      brew install postgresql@"$PG_VERSION" > /dev/null 2>&1
       ;;
     Linux)
-      sudo apt-get install -y "postgresql-$PG_VERSION" "postgresql-server-dev-$PG_VERSION" > /dev/null
+      sudo apt-get install -y "postgresql-$PG_VERSION" "postgresql-server-dev-$PG_VERSION" > /dev/null 2>&1
       ;;
   esac
 
@@ -227,21 +227,19 @@ wait
 # Once the tests are done, we reset the pgrx environment to use the project's default, since we
 # can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time (for local development)
 default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
-if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
-  case "$OS_NAME" in
-    Darwin)
-      # Check arch to set proper pg_config path
-      if [ "$(uname -m)" = "arm64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config"
-      elif [ "$(uname -m)" = "x86_64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config"
-      else
-        echo "Unknown arch, exiting..."
-        exit 1
-      fi
-      ;;
-    Linux)
-      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config"
-      ;;
-  esac
-fi
+case "$OS_NAME" in
+  Darwin)
+    # Check arch to set proper pg_config path
+    if [ "$(uname -m)" = "arm64" ]; then
+      cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null 2>&1
+    elif [ "$(uname -m)" = "x86_64" ]; then
+      cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null 2>&1
+    else
+      echo "Unknown arch, exiting..."
+      exit 1
+    fi
+    ;;
+  Linux)
+    cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config" > /dev/null 2>&1
+    ;;
+esac

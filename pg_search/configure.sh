@@ -117,16 +117,16 @@ if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
     Darwin)
       # Check arch to set proper pg_config path
       if [ "$(uname -m)" = "arm64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config"
+        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
       elif [ "$(uname -m)" = "x86_64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config"
+        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
       else
         echo "Unknown arch, exiting..."
         exit 1
       fi
       ;;
     Linux)
-      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config"
+      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config" > /dev/null
       ;;
   esac
 fi

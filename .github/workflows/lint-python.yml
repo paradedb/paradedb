@@ -30,14 +30,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Dependencies
-        run: pip install black pylint flake8
-
-      - name: Run Black for Code Formatting
-        run: black --check .
+      - name: Run Ruff for Linting and Formatting
+        uses: chartboost/ruff-action@v1
 
       - name: Run Pylint for Static Code Analysis
-        run: pylint **/*.py
-
-      - name: Run Flake8 for Style Guide Enforcement
-        run: flake8 . --max-line-length=100
+        run: pip install pylint && pylint **/*.py

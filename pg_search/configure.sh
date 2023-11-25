@@ -29,10 +29,10 @@ for version in "${PG_VERSIONS[@]}"; do
   echo "Installing PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
-      brew install postgresql@"$version" > /dev/null
+      brew install postgresql@"$version" > /dev/null 2>&1
       ;;
     Linux)
-      sudo apt-get install -y "postgresql-$version" "postgresql-server-dev-$version" > /dev/null
+      sudo apt-get install -y "postgresql-$version" "postgresql-server-dev-$version" > /dev/null 2>&1
       ;;
   esac
 done
@@ -92,10 +92,10 @@ for version in "${PG_VERSIONS[@]}"; do
     Darwin)
       # Check arch to set proper pg_config path
       if [ "$(uname -m)" = "arm64" ]; then
-        cargo pgrx init "--pg$version=/opt/homebrew/opt/postgresql@$version/bin/pg_config"
+        cargo pgrx init "--pg$version=/opt/homebrew/opt/postgresql@$version/bin/pg_config" > /dev/null
         cargo pgrx install --pg-config="/opt/homebrew/opt/postgresql@$version/bin/pg_config" --profile dev
       elif [ "$(uname -m)" = "x86_64" ]; then
-        cargo pgrx init "--pg$version=/usr/local/opt/postgresql@$version/bin/pg_config"
+        cargo pgrx init "--pg$version=/usr/local/opt/postgresql@$version/bin/pg_config" > /dev/null
         cargo pgrx install --pg-config="/usr/local/opt/postgresql@$version/bin/pg_config" --profile dev
       else
         echo "Unknown arch, exiting..."
@@ -117,16 +117,16 @@ if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
     Darwin)
       # Check arch to set proper pg_config path
       if [ "$(uname -m)" = "arm64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config"
+        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
       elif [ "$(uname -m)" = "x86_64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config"
+        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
       else
         echo "Unknown arch, exiting..."
         exit 1
       fi
       ;;
     Linux)
-      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config"
+      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config" > /dev/null
       ;;
   esac
 fi

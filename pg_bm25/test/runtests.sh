@@ -240,6 +240,6 @@ case "$OS_NAME" in
     fi
     ;;
   Linux)
-    cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config" > /dev/null 2>&1
+    cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config"
     ;;
 esac

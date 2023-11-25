@@ -59,6 +59,7 @@ repos:
     rev: v8.51.0
     hooks:
       - id: eslint
+        entry: cd dashboard/ && eslint
         files: \.[jt]sx?$ # *.js, *.jsx, *.ts and *.tsx
         types: [file]
         additional_dependencies:

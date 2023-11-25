@@ -2,7 +2,8 @@
   "name": "paradedb-auth0",
   "version": "1.0.0",
   "description": "ParadeDB Auth0 configuration and rules",
-  "repository": "https://github.com/paradedb/paradedb",
+  "repository": "https://github.com/paradedb/paradedb/tree/main/.github/workflows/helpers/auth0",
+  "license": "AGPL-3.0",
   "private": true,
   "scripts": {
     "dump:dev": "node ./scripts/dump.js dev",

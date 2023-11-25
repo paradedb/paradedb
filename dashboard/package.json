@@ -1,6 +1,9 @@
 {
-  "name": "dashboard",
+  "name": "paradedb-dashboard",
   "version": "0.1.0",
+  "description": "ParadeDB Dashboard -- https://paradedb.com",
+  "repository": "https://github.com/paradedb/paradedb/tree/main/dashboard",
+  "license": "AGPL-3.0",
   "private": true,
   "scripts": {
     "dev": "next dev",

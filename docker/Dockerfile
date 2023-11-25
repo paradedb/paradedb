@@ -181,7 +181,7 @@ FROM base as paradedb
 ARG TARGETARCH
 
 # Needed for publishing to ArtifactHub
-LABEL org.opencontainers.image.created=$BUILD_DATE
+LABEL org.opencontainers.image.created="$BUILD_DATE"
 LABEL org.opencontainers.image.description="PostgreSQL for Search"
 LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
 

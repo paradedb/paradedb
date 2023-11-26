@@ -169,8 +169,8 @@ mod tests {
         assert!(oid.is_some());
 
         let oid = oid.unwrap();
-        let result_set = scan_index(QUERY_SQL, oid);
-        assert!(result_set.is_empty());
+        let result_set = scan_index("lyrics:im", oid);
+        assert_eq!(result_set.len(), 2);
     }
 
     #[pg_test]
@@ -182,7 +182,7 @@ mod tests {
 
         Spi::run(SETUP_SQL).expect("failed to create table and index");
         // Fail due to wrong query
-        let res = Spi::run("SELECT description FROM one_republic_songs WHERE one_republic_songs @@@ 'album:Native';");
+        let res = Spi::run("SELECT description FROM one_republic_songs WHERE one_republic_songs @@@ 'album:Native'");
         assert!(res.is_err());
     }
 

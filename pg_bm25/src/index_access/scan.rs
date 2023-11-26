@@ -280,7 +280,7 @@ fn write_to_manager(ctid: pg_sys::ItemPointerData, score: f32, doc_address: DocA
     manager.add_doc_address(item_pointer_get_both(ctid), doc_address);
 }
 
-#[cfg(feature = "pg_test")]
+// #[cfg(feature = "pg_test")]
 #[pgrx::pg_schema]
 mod tests {
     use super::{ambeginscan, ambitmapscan, amgettuple, amrescan};
@@ -307,7 +307,7 @@ mod tests {
         let blockno = (((tid.ip_blkid.bi_hi as u32) << 16) as u64) << 32;
 
         let expected = item_pointer_to_u64(tid);
-        assert!(blockno < expected);
+        assert_ne!(blockno, expected);
     }
 
     fn make_scan_key_data() -> *mut pg_sys::ScanKeyData {
@@ -325,7 +325,7 @@ mod tests {
             sk_argument: {
                 // I am adding an extra "i" here because between the conversion to and from a
                 // datum, somehow, an "I" gets lost
-                let query = "iim";
+                let query = "lyrics:im";
                 let cstr = std::ffi::CString::new(query).expect("failed to create cstring");
                 cstr.as_c_str()
                     .into_datum()

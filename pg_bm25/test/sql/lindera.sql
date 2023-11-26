@@ -1,3 +1,4 @@
+-- Lindera Korean tokenizer
 CREATE TABLE IF NOT EXISTS korean (
     id SERIAL PRIMARY KEY,
     author TEXT,
@@ -25,3 +26,61 @@ WITH (
 SELECT * FROM korean WHERE korean @@@ 'author:김민준';
 SELECT * FROM korean WHERE korean @@@ 'title:"경기"';
 SELECT * FROM korean WHERE korean @@@ 'message:"지역 축제"';
+
+-- Lindera Chinese tokenizer
+CREATE TABLE IF NOT EXISTS chinese (
+    id SERIAL PRIMARY KEY,
+    author TEXT,
+    title TEXT,
+    message TEXT
+);
+
+INSERT INTO chinese (author, title, message)
+VALUES
+    ('李华', '北京的新餐馆', '北京市中心新开了一家餐馆，以其现代设计和独特的菜肴选择而闻名。'),
+    ('张伟', '篮球比赛回顾', '昨日篮球比赛精彩纷呈，尤其是最后时刻的逆转成为了比赛的亮点。'),
+    ('王芳', '本地文化节', '本周末将举行一个地方文化节，预计将有各种食物和表演。');
+
+CREATE INDEX idx_chinese
+ON chinese
+USING bm25 ((chinese.*))
+WITH (
+    text_fields='{
+        author: {tokenizer: {type: "chinese_lindera"}, record: "position"},
+        title: {tokenizer: {type: "chinese_lindera"}, record: "position"},
+        message: {tokenizer: {type: "chinese_lindera"}, record: "position"}
+    }'
+);
+
+SELECT * FROM chinese WHERE chinese @@@ 'author:华';
+SELECT * FROM chinese WHERE chinese @@@ 'title:北京';
+SELECT * FROM chinese WHERE chinese @@@ 'message:文化节';
+
+-- Lindera Japanese tokenizer
+CREATE TABLE IF NOT EXISTS japanese (
+    id SERIAL PRIMARY KEY,
+    author TEXT,
+    title TEXT,
+    message TEXT
+);
+
+INSERT INTO japanese (author, title, message)
+VALUES
+    ('佐藤健', '東京の新しいカフェ', '東京の中心部に新しいカフェがオープンしました。モダンなデザインとユニークなコーヒーが特徴です。'),
+    ('鈴木一郎', 'サッカー試合レビュー', '昨日のサッカー試合では素晴らしいゴールが見られました。終了間際のドラマチックな展開がハイライトでした。'),
+    ('高橋花子', '地元の祭り', '今週末に地元で祭りが開催されます。様々な食べ物とパフォーマンスが用意されています。');
+
+CREATE INDEX idx_japanese
+ON japanese
+USING bm25 ((japanese.*))
+WITH (
+    text_fields='{
+        author: {tokenizer: {type: "japanese_lindera"}, record: "position"},
+        title: {tokenizer: {type: "japanese_lindera"}, record: "position"},
+        message: {tokenizer: {type: "japanese_lindera"}, record: "position"}
+    }'
+);
+
+SELECT * FROM japanese WHERE japanese @@@ 'author:佐藤';
+SELECT * FROM japanese WHERE japanese @@@ 'title:サッカー';
+SELECT * FROM japanese WHERE japanese @@@ 'message:祭り';

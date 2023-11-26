@@ -1,3 +1,13 @@
+/*
+ *
+ * IMPORTANT NOTICE:
+ * This file has been copied from Quickwit, an open source project, and is subject to the terms
+ * and conditions of the GNU Affero General Public License (AGPL) version 3.0.
+ * Please review the full licensing details at <http://www.gnu.org/licenses/>.
+ * By using this file, you agree to comply with the AGPL v3.0 terms.
+ *
+ */
+
 use lindera_core::mode::Mode;
 use lindera_dictionary::{load_dictionary_from_config, DictionaryConfig, DictionaryKind};
 use lindera_tokenizer::token::Token as LinderaToken;

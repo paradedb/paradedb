@@ -47,7 +47,7 @@ vector database on top.
 - [ ] Search
   - [x] Full-text search with BM25 with [pg_bm25](https://github.com/paradedb/paradedb/tree/dev/pg_bm25#overview)
   - [x] Similarity search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
-  - [ ] Sparse vector similarity search with [pg_sparse](https://github.com/paradedb/paradedb/tree/dev/pg_sparse#overview)
+  - [x] Sparse vector similarity search with [pg_sparse](https://github.com/paradedb/paradedb/tree/dev/pg_sparse#overview)
   - [x] Hybrid search with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [x] Real-time search
   - [ ] Faceted search

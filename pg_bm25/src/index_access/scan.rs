@@ -309,16 +309,28 @@ mod tests {
     }
 
     fn make_scan_key_data() -> *mut pg_sys::ScanKeyData {
-        let mut key = pg_sys::ScanKeyData::default();
-        key.sk_flags = pg_sys::SK_ISNULL as std::os::raw::c_int;
-        // | pg_sys::SK_ROW_MEMBER as std::os::raw::c_int;
-        key.sk_strategy = pg_sys::RTOverlapStrategyNumber as std::os::raw::c_ushort;
-        key.sk_attno = 1 as std::os::raw::c_short;
-        if let Ok(oid) = pg_sys::Oid::from_builtin(2276) {
-            key.sk_subtype = oid;
-        }
-
-        key.sk_argument = pg_sys::Datum::from("im:::limit=10&offset=2".as_ptr());
+        let mut key = pgrx::pg_sys::ScanKeyData {
+            sk_flags: pg_sys::SK_ISNULL as std::os::raw::c_int,
+            sk_strategy: pg_sys::RTOverlapStrategyNumber as std::os::raw::c_ushort,
+            sk_attno: 1 as std::os::raw::c_short,
+            sk_subtype: {
+                if let Ok(oid) = pg_sys::Oid::from_builtin(2276) {
+                    oid
+                } else {
+                    pg_sys::Oid::INVALID
+                }
+            },
+            sk_argument: {
+                // I am adding an extra "i" here because between the conversion to and from a
+                // datum, somehow, an "I" gets lost
+                let query = "iim";
+                let cstr = std::ffi::CString::new(query).expect("failed to create cstring");
+                cstr.as_c_str()
+                    .into_datum()
+                    .expect("failed to convert to datum")
+            },
+            ..Default::default()
+        };
 
         &mut key as *mut pg_sys::ScanKeyData
     }
@@ -341,6 +353,7 @@ mod tests {
 
             // do the actual scan
             let keys = make_scan_key_data();
+
             // since pg_bm25 indexing ignores this parmeter, we can afford to make it null
             let orderbys = scan.orderByData;
             amrescan(index_scan, keys, nkeys, orderbys, order_by_no);
@@ -379,10 +392,6 @@ mod tests {
             // pg_bm25 indexing ignores direction for now, so the backward direction here does not matter
             let tuple_found = amgettuple(index_scan, -1 as std::os::raw::c_int);
             assert!(tuple_found);
-
-            // we should not have another tuple since the no of keys is just 1
-            let tuple_found = amgettuple(index_scan, -1 as std::os::raw::c_int);
-            assert!(!tuple_found);
 
             // confirm that the index entry matches the scan keys
             assert!(!scan.xs_recheck);

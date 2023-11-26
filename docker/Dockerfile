@@ -114,7 +114,6 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     checkinstall \
     clang \
     git \
-    make \
     cmake \
     pkg-config \
     liblz4-dev \
@@ -232,8 +231,8 @@ COPY pg_sparse/ /tmp/pg_sparse
 RUN sed -i "s/default_version = .*/default_version = '${PG_SPARSE_VERSION}'/" svector.control && \
     sed -i "s/^EXTVERSION = .*/EXTVERSION = ${PG_SPARSE_VERSION}/" Makefile && \
     make && \
-    make install
-RUN rm -rf /tmp/pg_sparse
+    make install && \
+    rm -rf /tmp/pg_sparse
 WORKDIR /
 
 # Copy entrypoint script, which will be handled by the official image

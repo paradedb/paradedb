@@ -1,9 +1,8 @@
-/dist/
-/log/
-/results/
-/tmp_check/
-/sql/svector--?.?.?.sql
-regression.*
+# PostgreSQL
+dist/
+sql/svector--?.?.?.sql
+
+# Libraries
 *.o
 *.so
 *.bc
@@ -14,4 +13,6 @@ regression.*
 *.exp
 
 # pg_regress
+results/
 test/test_logs.log
+regression.*

@@ -18,3 +18,6 @@ target/
 
 # Binaries
 *.deb
+
+# Ruff
+.ruff_cache/

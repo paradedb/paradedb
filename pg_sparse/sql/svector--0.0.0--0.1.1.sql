@@ -1,4 +1,3 @@
--- complain if script is sourced in psql, rather than via CREATE EXTENSION
 \echo Use "ALTER EXTENSION svector UPDATE TO '0.1.1'" to load this file. \quit
 
 CREATE FUNCTION svectorrecv(internal, oid, integer) RETURNS svector

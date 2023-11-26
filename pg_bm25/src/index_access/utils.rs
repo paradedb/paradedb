@@ -105,12 +105,17 @@ pub fn categorize_tupdesc(tupdesc: &PgTupleDesc) -> Vec<CategorizedAttribute> {
             continue;
         }
         let attname = attribute.name();
-        let typoid = attribute.type_oid();
+        let attribute_type_oid = attribute.type_oid();
 
         let conversion_func: Box<ConversionFunc> = {
-            let attribute_type_oid = attribute.type_oid();
+            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
+            let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
+                (PgOid::from(array_type), true)
+            } else {
+                (attribute_type_oid, false)
+            };
 
-            match &attribute_type_oid {
+            match &base_oid {
                 PgOid::BuiltIn(builtin) => match builtin {
                     PgBuiltInOids::BOOLOID => Box::new(|builder, name, datum, _oid| {
                         builder.add_bool(name, unsafe { bool::from_datum(datum, false) }.unwrap())
@@ -138,7 +143,7 @@ pub fn categorize_tupdesc(tupdesc: &PgTupleDesc) -> Vec<CategorizedAttribute> {
                         })
                     }
                     PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                        handle_as_generic_string(attribute_type_oid.value())
+                        handle_as_generic_string(is_array, base_oid.value())
                     }
                     PgBuiltInOids::JSONOID => Box::new(|builder, name, datum, _oid| {
                         builder.add_json_string(
@@ -149,6 +154,7 @@ pub fn categorize_tupdesc(tupdesc: &PgTupleDesc) -> Vec<CategorizedAttribute> {
                     PgBuiltInOids::JSONBOID => Box::new(|builder, name, datum, _oid| {
                         builder.add_jsonb(name, unsafe { JsonB::from_datum(datum, false) }.unwrap())
                     }),
+
                     _ => Box::new(|_, _, _, _| {}),
                 },
                 PgOid::Invalid => {
@@ -162,7 +168,7 @@ pub fn categorize_tupdesc(tupdesc: &PgTupleDesc) -> Vec<CategorizedAttribute> {
             .expect("failed to convert attribute name to json");
         categorized_attributes.push(CategorizedAttribute {
             attname,
-            typoid: typoid.value(),
+            typoid: attribute_type_oid.value(),
             conversion_func,
             attno,
         });
@@ -171,7 +177,7 @@ pub fn categorize_tupdesc(tupdesc: &PgTupleDesc) -> Vec<CategorizedAttribute> {
     categorized_attributes
 }
 
-fn handle_as_generic_string(base_type_oid: pg_sys::Oid) -> Box<ConversionFunc> {
+fn handle_as_generic_string(is_array: bool, base_type_oid: pg_sys::Oid) -> Box<ConversionFunc> {
     let mut output_func = pg_sys::InvalidOid;
     let mut is_varlena = false;
 
@@ -179,15 +185,43 @@ fn handle_as_generic_string(base_type_oid: pg_sys::Oid) -> Box<ConversionFunc> {
         pg_sys::getTypeOutputInfo(base_type_oid, &mut output_func, &mut is_varlena);
     }
 
-    Box::new(move |builder, name, datum, _oid| {
-        let result =
-            unsafe { std::ffi::CStr::from_ptr(pg_sys::OidOutputFunctionCall(output_func, datum)) };
-        let result_str = result
-            .to_str()
-            .expect("failed to convert unsupported type to a string");
+    if is_array {
+        Box::new(move |builder, name, datum, _oid| {
+            let array: Array<pg_sys::Datum> = unsafe { Array::from_datum(datum, false).unwrap() };
 
-        builder.add_string(name, result_str.to_string());
-    })
+            let mut values = Vec::with_capacity(array.len());
+            for e in array.iter() {
+                if let Some(element_datum) = e {
+                    if base_type_oid == pg_sys::TEXTOID || base_type_oid == pg_sys::VARCHAROID {
+                        values.push(Some(
+                            unsafe { String::from_datum(element_datum, false) }.unwrap(),
+                        ));
+                    } else {
+                        let result = unsafe {
+                            std::ffi::CStr::from_ptr(pg_sys::OidOutputFunctionCall(
+                                output_func,
+                                element_datum,
+                            ))
+                        };
+                        values.push(Some(result.to_str().unwrap().to_string()));
+                    }
+                }
+            }
+
+            builder.add_string_array(name, values)
+        })
+    } else {
+        Box::new(move |builder, name, datum, _oid| {
+            let result = unsafe {
+                std::ffi::CStr::from_ptr(pg_sys::OidOutputFunctionCall(output_func, datum))
+            };
+            let result_str = result
+                .to_str()
+                .expect("failed to convert unsupported type to a string");
+
+            builder.add_string(name, result_str.to_string());
+        })
+    }
 }
 
 pub unsafe fn row_to_json(

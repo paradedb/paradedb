@@ -1,5 +1,5 @@
 use crate::json::json_string::JsonString;
-use pgrx::JsonB;
+use pgrx::*;
 use tantivy::schema::Field;
 use tantivy::Document;
 
@@ -18,6 +18,7 @@ pub enum JsonBuilderValue {
     json_string(pgrx::JsonString),
     jsonb(JsonB),
     json_value(serde_json::Value),
+    string_array(Vec<Option<String>>),
 }
 
 #[derive(Debug)]
@@ -95,6 +96,12 @@ impl JsonBuilder {
             .push((attname, JsonBuilderValue::json_value(value)));
     }
 
+    #[inline]
+    pub fn add_string_array(&mut self, attname: String, value: Vec<Option<String>>) {
+        self.values
+            .push((attname, JsonBuilderValue::string_array(value)));
+    }
+
     pub fn build(&self, json: &mut Vec<u8>) {
         json.push(b'{');
         for (idx, (key, value)) in self.values.iter().enumerate() {
@@ -119,6 +126,7 @@ impl JsonBuilder {
                 JsonBuilderValue::json_string(v) => v.push_json(json),
                 JsonBuilderValue::jsonb(v) => v.push_json(json),
                 JsonBuilderValue::json_value(v) => v.push_json(json),
+                JsonBuilderValue::string_array(v) => v.push_json(json),
             }
         }
         json.push(b'}');
@@ -151,6 +159,13 @@ impl JsonBuilderValue {
             }
             JsonBuilderValue::json_value(serde_json::Value::Object(map)) => {
                 doc.add_json_object(*field, map.clone());
+            }
+            JsonBuilderValue::string_array(val) => {
+                for v in val {
+                    if let Some(v) = v {
+                        doc.add_text(*field, &v);
+                    }
+                }
             }
             _ => {} // Ignore other types for now
         }

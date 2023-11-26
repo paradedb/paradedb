@@ -28,7 +28,8 @@ pub extern "C" fn ambulkdelete(
     stats.into_pg()
 }
 
-// #[cfg(feature = "pg_test")]
+#[cfg(feature = "pg_test")]
+#[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15",))]
 #[pgrx::pg_schema]
 mod tests {
     use super::ambulkdelete;

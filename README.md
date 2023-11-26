@@ -143,4 +143,4 @@ Thank you for helping us make ParadeDB better for everyone :heart:.
 
 ## License
 
-ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE), except for `pg_sparse` which is licensed under the [PostgreSQL License](pg_sparse/LICENSE).

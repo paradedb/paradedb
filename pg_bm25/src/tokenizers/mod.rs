@@ -1,11 +1,11 @@
 mod cjk;
 mod code;
-mod multilang;
+mod lindera;
 
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap, ParadeTokenizer};
 use crate::tokenizers::cjk::ChineseTokenizer;
 use crate::tokenizers::code::CodeTokenizer;
-use crate::tokenizers::multilang::{
+use crate::tokenizers::lindera::{
     LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer,
 };
 

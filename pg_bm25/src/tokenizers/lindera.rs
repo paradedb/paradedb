@@ -49,47 +49,97 @@ pub struct LinderaKoreanTokenizer {
 }
 
 impl Tokenizer for LinderaChineseTokenizer {
-    type TokenStream<'a> = LinderaTokenStream<'a>;
+    type TokenStream<'a> = MultiLanguageTokenStream<'a>;
 
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
-        LinderaTokenStream {
+        if text.trim().is_empty() {
+            return MultiLanguageTokenStream::Empty;
+        }
+
+        let lindera_token_stream = LinderaTokenStream {
             tokens: CMN_TOKENIZER
                 .tokenize(text)
                 .expect("Lindera Chinese tokenizer failed"),
             token: &mut self.token,
-        }
+        };
+
+        MultiLanguageTokenStream::Lindera(lindera_token_stream)
     }
 }
 
 impl Tokenizer for LinderaJapaneseTokenizer {
-    type TokenStream<'a> = LinderaTokenStream<'a>;
+    type TokenStream<'a> = MultiLanguageTokenStream<'a>;
 
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
-        LinderaTokenStream {
+        if text.trim().is_empty() {
+            return MultiLanguageTokenStream::Empty;
+        }
+
+        let lindera_token_stream = LinderaTokenStream {
             tokens: JPN_TOKENIZER
                 .tokenize(text)
                 .expect("Lindera Japanese tokenizer failed"),
             token: &mut self.token,
-        }
+        };
+
+        MultiLanguageTokenStream::Lindera(lindera_token_stream)
     }
 }
 
 impl Tokenizer for LinderaKoreanTokenizer {
-    type TokenStream<'a> = LinderaTokenStream<'a>;
+    type TokenStream<'a> = MultiLanguageTokenStream<'a>;
 
     fn token_stream<'a>(&'a mut self, text: &'a str) -> Self::TokenStream<'a> {
-        LinderaTokenStream {
+        if text.trim().is_empty() {
+            return MultiLanguageTokenStream::Empty;
+        }
+
+        let lindera_token_stream = LinderaTokenStream {
             tokens: KOR_TOKENIZER
                 .tokenize(text)
                 .expect("Lindera Korean tokenizer failed"),
             token: &mut self.token,
-        }
+        };
+
+        MultiLanguageTokenStream::Lindera(lindera_token_stream)
     }
+}
+
+pub enum MultiLanguageTokenStream<'a> {
+    Empty,
+    Lindera(LinderaTokenStream<'a>),
 }
 
 pub struct LinderaTokenStream<'a> {
     pub tokens: Vec<LinderaToken<'a>>,
     pub token: &'a mut Token,
+}
+
+impl<'a> TokenStream for MultiLanguageTokenStream<'a> {
+    fn advance(&mut self) -> bool {
+        match self {
+            MultiLanguageTokenStream::Empty => false,
+            MultiLanguageTokenStream::Lindera(tokenizer) => tokenizer.advance(),
+        }
+    }
+
+    fn token(&self) -> &Token {
+        match self {
+            MultiLanguageTokenStream::Empty => {
+                panic!("Cannot call token() on an empty token stream.")
+            }
+            MultiLanguageTokenStream::Lindera(tokenizer) => tokenizer.token(),
+        }
+    }
+
+    fn token_mut(&mut self) -> &mut Token {
+        match self {
+            MultiLanguageTokenStream::Empty => {
+                panic!("Cannot call token_mut() on an empty token stream.")
+            }
+            MultiLanguageTokenStream::Lindera(tokenizer) => tokenizer.token_mut(),
+        }
+    }
 }
 
 impl<'a> TokenStream for LinderaTokenStream<'a> {
@@ -119,7 +169,6 @@ impl<'a> TokenStream for LinderaTokenStream<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pgrx::*;
     use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
     fn test_helper<T: Tokenizer>(tokenizer: &mut T, text: &str) -> Vec<Token> {
@@ -201,7 +250,6 @@ mod tests {
         let mut tokenizer = LinderaJapaneseTokenizer::default();
         {
             let tokens = test_helper(&mut tokenizer, "");
-            info!("TOKEN LEN {:?}", tokens.len());
             assert_eq!(tokens.len(), 0);
         }
         {

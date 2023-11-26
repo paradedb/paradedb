@@ -14,9 +14,9 @@ ON korean
 USING bm25 ((korean.*))
 WITH (
     text_fields='{
-        author: {tokenizer: {type: "lindera"}, record: "position"},
-        title: {tokenizer: {type: "lindera"}, record: "position"},
-        message: {tokenizer: {type: "lindera"}, record: "position"}
+        author: {tokenizer: {type: "korean_lindera"}, record: "position"},
+        title: {tokenizer: {type: "korean_lindera"}, record: "position"},
+        message: {tokenizer: {type: "korean_lindera"}, record: "position"}
     }'
 );
 SELECT * FROM korean WHERE korean @@@ 'author:김민준';

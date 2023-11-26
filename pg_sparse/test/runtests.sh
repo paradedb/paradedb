@@ -79,37 +79,6 @@ function run_tests() {
   export PGDATA="$TMPDIR"
   export PGHOST="$TMPDIR"
 
-  # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
-  case "$OS_NAME" in
-    Darwin)
-      # Check arch to set proper pg_config path
-      if [ "$(uname -m)" = "arm64" ]; then
-        PG_BIN_PATH="/opt/homebrew/opt/postgresql@$PG_VERSION/bin"
-        # For some reason, the path structure is different specifically for PostgreSQL 14 on macOS
-        if [ "$PG_VERSION" = "14" ]; then
-          REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql@$PG_VERSION/pgxs/src/test/regress/pg_regress"
-        else
-          REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
-        fi
-      elif [ "$(uname -m)" = "x86_64" ]; then
-        PG_BIN_PATH="/usr/local/opt/postgresql@$PG_VERSION/bin"
-        # For some reason, the path structure is different specifically for PostgreSQL 14 on macOS
-        if [ "$PG_VERSION" = "14" ]; then
-          REGRESS="/usr/local/opt/postgresql@$PG_VERSION/lib/postgresql@$PG_VERSION/pgxs/src/test/regress/pg_regress"
-        else
-          REGRESS="/usr/local/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
-        fi
-      else
-        echo "Unknown arch, exiting..."
-        exit 1
-      fi
-      ;;
-    Linux)
-      PG_BIN_PATH="/usr/lib/postgresql/$PG_VERSION/bin"
-      REGRESS="/usr/lib/postgresql/$PG_VERSION/lib/pgxs/src/test/regress/pg_regress"
-      ;;
-  esac
-
   # Create a temporary password file
   PWFILE=$(mktemp)
   echo "$PGPASSWORD" > "$PWFILE"
@@ -178,24 +147,3 @@ done
 
 # Wait for all child processes to finish
 wait
-# Once the tests are done, we reset the pgrx environment to use the project's default, since we
-# can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time (for local development)
-default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
-if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
-  case "$OS_NAME" in
-    Darwin)
-      # Check arch to set proper pg_config path
-      if [ "$(uname -m)" = "arm64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
-      elif [ "$(uname -m)" = "x86_64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
-      else
-        echo "Unknown arch, exiting..."
-        exit 1
-      fi
-      ;;
-    Linux)
-      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config" > /dev/null
-      ;;
-  esac
-fi

@@ -107,11 +107,14 @@ function run_tests() {
   echo "Reloading PostgreSQL configuration..."
   pg_ctl restart > /dev/null
 
+  # Build and install the extension
+  echo "Building and installing pg_sparse..."
+  make
+  make install
+
   # Execute tests using pg_regress
   # We always test on the upcoming version, which means that this test also acts as an extension upgrade test
   echo "Running tests..."
-  make
-  make install
   make installcheck
   make prove_installcheck
 

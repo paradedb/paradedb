@@ -64,9 +64,9 @@ mod tests {
                 estimated_count: true,
                 num_index_tuples: 1.0,
                 tuples_removed: 0.0,
-                #[cfg(any(feature = "pg15", feature = "pg16"))]
+                #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
                 pages_newly_deleted: 2,
-                #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14",))]
+                #[cfg(any(feature = "pg12", feature = "pg13",))]
                 pages_removed: 2,
 
                 pages_deleted: 1,

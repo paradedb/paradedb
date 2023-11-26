@@ -75,14 +75,7 @@ fi
 OS_NAME=$(uname)
 if [ "$FLAG_PG_VER" = false ]; then
   # No arguments provided; use default versions
-  case "$OS_NAME" in
-    Darwin)
-      PG_VERSIONS=("16.1" "15.5" "14.10" "13.13" "12.17")
-      ;;
-    Linux)
-      PG_VERSIONS=("16" "15" "14" "13" "12")
-      ;;
-  esac
+  PG_VERSIONS=("16" "15" "14" "13" "12")
 else
   IFS=',' read -ra PG_VERSIONS <<< "$FLAG_PG_VER"  # Split the argument by comma into an array
 fi
@@ -95,8 +88,27 @@ function run_tests() {
   # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
   case "$OS_NAME" in
     Darwin)
-      PG_BIN_PATH="$HOME/.pgrx/$PG_VERSION/pgrx-install/bin"
-      REGRESS="$HOME/.pgrx/$PG_VERSION/pgrx-install/lib/postgresql/pgxs/src/test/regress/pg_regress"
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        PG_BIN_PATH="/opt/homebrew/opt/postgresql@$PG_VERSION/bin"
+        # For some reason, the path structure is different specifically for PostgreSQL 14 on macOS
+        if [ "$PG_VERSION" = "14" ]; then
+          REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql@$PG_VERSION/pgxs/src/test/regress/pg_regress"
+        else
+          REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
+        fi
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        PG_BIN_PATH="/usr/local/opt/postgresql@$PG_VERSION/bin"
+        # For some reason, the path structure is different specifically for PostgreSQL 14 on macOS
+        if [ "$PG_VERSION" = "14" ]; then
+          REGRESS="/usr/local/opt/postgresql@$PG_VERSION/lib/postgresql@$PG_VERSION/pgxs/src/test/regress/pg_regress"
+        else
+          REGRESS="/usr/local/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
+        fi
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
       ;;
     Linux)
       PG_BIN_PATH="/usr/lib/postgresql/$PG_VERSION/bin"
@@ -131,6 +143,10 @@ function run_tests() {
   # Reload PostgreSQL configuration
   echo "Reloading PostgreSQL configuration..."
   "$PG_BIN_PATH/pg_ctl" restart > /dev/null
+
+  # Configure pgrx to use system PostgreSQL
+  echo "Initializing pgrx environment..."
+  cargo pgrx init "--pg$PG_VERSION=$PG_BIN_PATH/pg_config" > /dev/null
 
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
@@ -188,6 +204,16 @@ for PG_VERSION in "${PG_VERSIONS[@]}"; do
   echo "***********************************************************"
   echo ""
 
+  # Install the specific PostgreSQL version if it's not already installed
+  case "$OS_NAME" in
+    Darwin)
+      brew install postgresql@"$PG_VERSION" > /dev/null 2>&1
+      ;;
+    Linux)
+      sudo apt-get install -y "postgresql-$PG_VERSION" "postgresql-server-dev-$PG_VERSION" > /dev/null 2>&1
+      ;;
+  esac
+
   if [ "$FLAG_PROCESS_TYPE" = "threaded" ]; then
     run_tests &
   else
@@ -197,3 +223,25 @@ done
 
 # Wait for all child processes to finish
 wait
+
+# Once the tests are done, we reset the pgrx environment to use the project's default, since we
+# can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time (for local development)
+default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
+if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
+  case "$OS_NAME" in
+    Darwin)
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
+      ;;
+    Linux)
+      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config" > /dev/null
+      ;;
+  esac
+fi

@@ -36,6 +36,7 @@ ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG TELEMETRY
+ARG BUILD_DATE
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
@@ -65,6 +66,7 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
     TELEMETRY=${TELEMETRY} \
+    BUILD_DATE=${BUILD_DATE} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
@@ -179,7 +181,7 @@ FROM base as paradedb
 ARG TARGETARCH
 
 # Needed for publishing to ArtifactHub
-LABEL org.opencontainers.image.created="2023-11-16"
+LABEL org.opencontainers.image.created="$BUILD_DATE"
 LABEL org.opencontainers.image.description="PostgreSQL for Search"
 LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
 

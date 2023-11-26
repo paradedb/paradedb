@@ -77,18 +77,14 @@ repos:
       - id: clippy
       - id: cargo-check
 
-  - repo: https://github.com/psf/black
-    rev: 23.9.1
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.1.6
     hooks:
-      - id: black
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
 
   - repo: https://github.com/pylint-dev/pylint
     rev: v3.0.1
     hooks:
       - id: pylint
-
-  - repo: https://github.com/PyCQA/flake8
-    rev: 6.1.0
-    hooks:
-      - id: flake8
-        args: ["--max-line-length=100"]

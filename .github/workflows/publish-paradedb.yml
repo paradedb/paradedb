@@ -36,6 +36,10 @@ jobs:
           echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Retrieve Current Date
+        id: current_date
+        run: echo "BUILD_DATE=$(date -u +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
       - name: Configure Depot CLI
         uses: depot/setup-action@v1
 
@@ -91,6 +95,7 @@ jobs:
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
             TELEMETRY=true
+            BUILD_DATE=${{ steps.current_date.outputs.BUILD_DATE }}
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

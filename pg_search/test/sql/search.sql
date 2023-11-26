@@ -10,9 +10,9 @@ SELECT
     paradedb.weighted_mean(
         paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
         1 - paradedb.minmax_norm(
-          ARRAY[1,2,3]::vector <-> embedding, 
-          MIN(ARRAY[1,2,3]::vector <-> embedding) OVER (), 
-          MAX(ARRAY[1,2,3]::vector <-> embedding) OVER ()
+          '[1,2,3]' <-> embedding, 
+          MIN('[1,2,3]' <-> embedding) OVER (), 
+          MAX('[1,2,3]' <-> embedding) OVER ()
         ),
         ARRAY[0.5,0.5]
     ) as score_hybrid
@@ -29,9 +29,9 @@ SELECT
     paradedb.weighted_mean(
         paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
         1 - paradedb.minmax_norm(
-          ARRAY[1,2,3]::vector <-> embedding, 
-          MIN(ARRAY[1,2,3]::vector <-> embedding) OVER (), 
-          MAX(ARRAY[1,2,3]::vector <-> embedding) OVER ()
+          '[1,2,3]' <-> embedding, 
+          MIN('[1,2,3]' <-> embedding) OVER (), 
+          MAX('[1,2,3]' <-> embedding) OVER ()
         ),
         ARRAY[1,0]
     ) as score_hybrid
@@ -48,9 +48,9 @@ SELECT
     paradedb.weighted_mean(
         paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
         1 - paradedb.minmax_norm(
-          ARRAY[1,2,3]::vector <-> embedding, 
-          MIN(ARRAY[1,2,3]::vector <-> embedding) OVER (), 
-          MAX(ARRAY[1,2,3]::vector <-> embedding) OVER ()
+          '[1,2,3]' <-> embedding, 
+          MIN('[1,2,3]' <-> embedding) OVER (), 
+          MAX('[1,2,3]' <-> embedding) OVER ()
         ),
         ARRAY[0,1]
     ) as score_hybrid

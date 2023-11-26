@@ -28,7 +28,7 @@ pub extern "C" fn ambulkdelete(
     stats.into_pg()
 }
 
-#[cfg(feature = "pg_test")]
+// #[cfg(feature = "pg_test")]
 #[pgrx::pg_schema]
 mod tests {
     use super::ambulkdelete;
@@ -64,7 +64,11 @@ mod tests {
                 estimated_count: true,
                 num_index_tuples: 1.0,
                 tuples_removed: 0.0,
+                #[cfg(any(feature = "pg15", feature = "pg16"))]
                 pages_newly_deleted: 2,
+                #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14",))]
+                pages_removed: 2,
+
                 pages_deleted: 1,
                 pages_free: 0,
             };

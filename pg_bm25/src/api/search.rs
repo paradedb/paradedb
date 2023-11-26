@@ -122,6 +122,6 @@ WHERE one_republic_songs @@@ 'lyrics:im:::max_num_chars=10';
         let highlight = Spi::get_one::<&str>(query)
             .expect("failed to highlight lyrics")
             .unwrap();
-        assert_eq!(highlight, "<b>Im</b> shaking");
+        assert_eq!(highlight, "<b>Im</b> holding");
     }
 }

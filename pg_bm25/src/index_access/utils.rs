@@ -190,21 +190,19 @@ fn handle_as_generic_string(is_array: bool, base_type_oid: pg_sys::Oid) -> Box<C
             let array: Array<pg_sys::Datum> = unsafe { Array::from_datum(datum, false).unwrap() };
 
             let mut values = Vec::with_capacity(array.len());
-            for e in array.iter() {
-                if let Some(element_datum) = e {
-                    if base_type_oid == pg_sys::TEXTOID || base_type_oid == pg_sys::VARCHAROID {
-                        values.push(Some(
-                            unsafe { String::from_datum(element_datum, false) }.unwrap(),
-                        ));
-                    } else {
-                        let result = unsafe {
-                            std::ffi::CStr::from_ptr(pg_sys::OidOutputFunctionCall(
-                                output_func,
-                                element_datum,
-                            ))
-                        };
-                        values.push(Some(result.to_str().unwrap().to_string()));
-                    }
+            for element_datum in array.iter().flatten() {
+                if base_type_oid == pg_sys::TEXTOID || base_type_oid == pg_sys::VARCHAROID {
+                    values.push(Some(
+                        unsafe { String::from_datum(element_datum, false) }.unwrap(),
+                    ));
+                } else {
+                    let result = unsafe {
+                        std::ffi::CStr::from_ptr(pg_sys::OidOutputFunctionCall(
+                            output_func,
+                            element_datum,
+                        ))
+                    };
+                    values.push(Some(result.to_str().unwrap().to_string()));
                 }
             }
 

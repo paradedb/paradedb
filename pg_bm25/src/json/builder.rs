@@ -161,10 +161,8 @@ impl JsonBuilderValue {
                 doc.add_json_object(*field, map.clone());
             }
             JsonBuilderValue::string_array(val) => {
-                for v in val {
-                    if let Some(v) = v {
-                        doc.add_text(*field, &v);
-                    }
+                for v in val.iter().flatten() {
+                    doc.add_text(*field, v);
                 }
             }
             _ => {} // Ignore other types for now

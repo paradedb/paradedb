@@ -39,56 +39,52 @@ jobs:
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} checkinstall
+
+          # Update permissions for PostgreSQL directories for extensions installation
+          sudo chown -R $(whoami) \
+            /usr/share/postgresql/${{ matrix.pg_version }}/extension/ \
+            /usr/lib/postgresql/${{ matrix.pg_version }}/bin/ \
+            /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ \
+            /usr/include/postgresql/${{ matrix.pg_version }}/server/ \
+            /usr/share/postgresql/${{ matrix.pg_version }}/contrib/ \
+            /usr/local/share/man/ \
+            /usr/share/doc/
+
+          # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Update Version in svector.control
         working-directory: pg_sparse/
-        run: sed -i "s/default_version = '.*'/default_version = '\${PG_SPARSE_VERSION}'/" svector.control
+        run: sed -i "s/default_version = '.*'/default_version = '\${{ steps.version.outputs.version }}'/" svector.control
 
-      - name: Build pg_sparse Extension
-        working-directory: pg_sparse/
-        run: make && make install
-
-      - name: Create .deb Package
+      - name: Build & Package pg_sparse as a .deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+          PG_MAJOR_VERSION: ${{ matrix.pg_version }}
+          ARCH: ${{ matrix.arch }}
         run: |
-          # Create installable package
-          mkdir archive
-          cp `find target/release -type f -name "pg_sparse*"` archive
-          package_dir=pg_sparse-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu
+          # Download & extract source code
+          mkdir -p "/tmp/pg_sparse-${{ steps.version.outputs.version }}"
+          cp pg_sparse/** "/tmp/pg_sparse-${{ steps.version.outputs.version }}/"
+          cd "/tmp/pg_sparse-${{ steps.version.outputs.version }}"
 
-          # Copy files into directory structure
-          mkdir -p ${package_dir}/usr/lib/postgresql/lib
-          mkdir -p ${package_dir}/var/lib/postgresql/extension
-          cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
-          cp archive/*.control ${package_dir}/var/lib/postgresql/extension
-          cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
+          # Set pg_config path
+          export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-          # Symlinks to copy files into directory structure
-          mkdir -p ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-          mkdir -p ${package_dir}/usr/share/postgresql/${{ matrix.pg_version}}/extension
-          cp archive/*.so ${package_dir}/usr/lib/postgresql/${{ matrix.pg_version }}/lib
-          cp archive/*.control ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
-          cp archive/*.sql ${package_dir}/usr/share/postgresql/${{ matrix.pg_version }}/extension
 
-          # Create control file (package name cannot have underscore)
-          mkdir -p ${package_dir}/DEBIAN
-          touch ${package_dir}/DEBIAN/control
-          deb_version=${{ steps.version.outputs.version }}
-          CONTROL_FILE="${package_dir}/DEBIAN/control"
-          echo 'Package: pg-sparse' >> $CONTROL_FILE
-          echo 'Version:' ${deb_version} >> $CONTROL_FILE
-          echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
-          echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-          echo 'Description: Sparse vector similarity search in Postgres' >> $CONTROL_FILE
+          # Set OPTFLAGS to an empty string if it's not already set
+          OPTFLAGS=${OPTFLAGS:-""}
 
-          # Create .deb package
-          sudo chown -R root:root ${package_dir}
-          sudo chmod -R 00755 ${package_dir}
-          sudo dpkg-deb --build --root-owner-group ${package_dir}
+          # Disable -march=native to avoid "illegal instruction" errors on macOS arm64 by
+          # setting OPTFLAGS to an empty string
+          OPTFLAGS=""
+
+          # Build & package pg_sparse
+          make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
+          checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp -- make USE_PGXS=1 install
 
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL
@@ -100,5 +96,5 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_sparse-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
+          asset_path: /tmp/${pg_sparse//_/-}_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb
           asset_name: pg_sparse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb

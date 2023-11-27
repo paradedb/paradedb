@@ -21,13 +21,13 @@ pub struct CategorizedAttribute {
     pub attno: usize,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq)]
 pub struct SearchQuery {
     pub query: String,
     pub config: SearchQueryConfig,
 }
 
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Default, PartialEq)]
 pub struct SearchQueryConfig {
     pub offset: Option<usize>,
     pub limit: Option<usize>,
@@ -316,5 +316,86 @@ where
         }
 
         Ok(output)
+    }
+}
+
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use super::{
+        categorize_tupdesc, handle_as_generic_string, lookup_index_tupdesc, SearchQuery,
+        SearchQueryConfig,
+    };
+    use crate::json::builder::{JsonBuilder, JsonBuilderValue};
+    use crate::operator::get_index_oid;
+    use pgrx::*;
+    use shared::testing::SETUP_SQL;
+
+    #[pg_test]
+    fn convert_str_to_search_query() {
+        let query = "lyrics:im:::limit=10&offset=50";
+        let expected = SearchQuery {
+            query: "lyrics:im".to_string(),
+            config: SearchQueryConfig {
+                offset: Some(50),
+                limit: Some(10),
+                ..Default::default()
+            },
+        };
+        let search_query: SearchQuery = query.parse().expect("failed to parse query");
+        assert_eq!(search_query, expected);
+    }
+
+    fn make_tuple() -> PgTupleDesc<'static> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        let oid = get_index_oid("idx_one_republic", "bm25").expect("failed to get index oid");
+
+        let index = unsafe {
+            pg_sys::index_open(oid.unwrap(), pg_sys::AccessShareLock as pg_sys::LOCKMODE)
+        };
+        let index_rel = unsafe { PgRelation::from_pg(index) };
+        lookup_index_tupdesc(&index_rel)
+    }
+
+    #[pg_test]
+    fn test_lookup_index_tupdesc() {
+        let tuple = make_tuple();
+        assert_eq!(tuple.len(), tuple.natts as usize);
+    }
+
+    #[pg_test]
+    fn test_categorize_tupdesc() {
+        let tuple = make_tuple();
+        let categories = categorize_tupdesc(&tuple);
+
+        assert_eq!(categories.len(), tuple.natts as usize);
+
+        for (category, tuple_member) in categories.iter().zip(tuple.iter()) {
+            let name: &str = serde_json::from_str(&category.attname).expect("failed to convert");
+            assert_eq!(name, tuple_member.name());
+        }
+    }
+
+    #[pg_test]
+    fn test_handle_as_generic_string() {
+        let func = handle_as_generic_string(PgBuiltInOids::VARCHAROID.into());
+        let mut builder = JsonBuilder::new(1);
+        let attname = "description";
+        // new OR track :)
+        let datum = "Mirage".into_datum().expect("failed to convert to datum");
+        (func)(
+            &mut builder,
+            attname.to_string(),
+            datum,
+            PgBuiltInOids::VARCHAROID.into(),
+        );
+
+        let (_, value) = builder.values.first().unwrap();
+        match value {
+            JsonBuilderValue::string(val) => {
+                assert_eq!(val, "Mirage");
+            }
+            _ => assert!(false),
+        }
     }
 }

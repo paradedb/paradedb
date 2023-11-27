@@ -410,7 +410,7 @@ mod tests {
 
     #[pg_test]
     fn test_handle_as_generic_string() {
-        let func = handle_as_generic_string(PgBuiltInOids::VARCHAROID.into());
+        let func = handle_as_generic_string(false, PgBuiltInOids::VARCHAROID.into());
         let mut builder = JsonBuilder::new(1);
         let attname = "description";
         // new OR track :)
@@ -426,6 +426,36 @@ mod tests {
         match value {
             JsonBuilderValue::string(val) => {
                 assert_eq!(val, "Mirage");
+            }
+            _ => assert!(false),
+        }
+    }
+
+    #[pg_test]
+    fn test_handle_as_generic_string_array() {
+        let func = handle_as_generic_string(true, PgBuiltInOids::VARCHAROID.into());
+        let mut builder = JsonBuilder::new(1);
+        let attname = "2023_Tracks";
+        // 2023 OR singles :)
+        let singles = vec!["Counting Stars", "Mirage", "Ranaway"];
+        let datum = singles
+            .clone()
+            .into_datum()
+            .expect("failed to convert tracks to datum");
+        (func)(
+            &mut builder,
+            attname.to_string(),
+            datum,
+            PgBuiltInOids::VARCHAROID.into(),
+        );
+
+        let (_, value) = builder.values.first().unwrap();
+        match value {
+            JsonBuilderValue::string_array(values) => {
+                assert_eq!(values.len(), singles.len());
+                for (single, value) in singles.iter().zip(values.iter()) {
+                    assert_eq!(value.clone().unwrap(), single.to_string());
+                }
             }
             _ => assert!(false),
         }

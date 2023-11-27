@@ -21,7 +21,18 @@ telemetry = ["shared/telemetry"]
 [dependencies]
 csv = "1.2.2"
 json5 = "0.4.1"
+lindera-core = "0.27.1"
+lindera-dictionary = "0.27.1"
+lindera-tokenizer = { version = "0.27.1", features = [
+  "cc-cedict-compress",
+  "cc-cedict",
+  "ipadic-compress",
+  "ipadic",
+  "ko-dic-compress",
+  "ko-dic",
+] }
 memoffset = "0.9.0"
+once_cell = "1.18.0"
 pgrx = "=0.11.0"
 rustc-hash = "1.1.0"
 serde = "1.0.188"

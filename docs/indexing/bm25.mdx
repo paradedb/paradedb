@@ -211,9 +211,6 @@ FROM paradedb.schema_bm25('<index_name>');
 <ParamField body="whitespace">
   Tokenizes the text by splitting on whitespaces.
 </ParamField>
-<ParamField body="chinese_compatible">
-  Segments text considering Chinese character nuances while effectively tokenizing mixed scripts. Splits based on whitespace and punctuation. Filters out tokens larger than 255 bytes.
-</ParamField>
 <ParamField body="ngram">
   Tokenizes text by splitting words into overlapping substrings based on the specified parameters:
 
@@ -223,6 +220,18 @@ FROM paradedb.schema_bm25('<index_name>');
 
 `prefix_only`: When set to true, the tokenizer generates n-grams that start from the beginning of the word only, ensuring a prefix progression. If false, n-grams are created from all possible character combinations within the min_gram and max_gram range.
 
+</ParamField>
+<ParamField body="chinese_compatible">
+  Tokenizes text considering Chinese character nuances. Splits based on whitespace and punctuation. Filters out tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="chinese_lindera">
+  Tokenizes text using the Lindera tokenizer, which uses the CC-CEDICT dictionary to segment and tokenize text.
+</ParamField>
+<ParamField body="korean_lindera">
+  Tokenizes text using the Lindera tokenizer, which uses the KoDic dictionary to segment and tokenize text.
+</ParamField>
+<ParamField body="japanese_lindera">
+  Tokenizes text using the Lindera tokenizer, which uses the IPADIC dictionary to segment and tokenize text.
 </ParamField>
 
 ## Normalizers

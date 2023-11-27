@@ -29,6 +29,12 @@ pub enum ParadeTokenizer {
         max_gram: usize,
         prefix_only: bool,
     },
+    #[serde(rename = "chinese_lindera")]
+    ChineseLindera,
+    #[serde(rename = "japanese_lindera")]
+    JapaneseLindera,
+    #[serde(rename = "korean_lindera")]
+    KoreanLindera,
 }
 
 impl ParadeTokenizer {
@@ -45,6 +51,9 @@ impl ParadeTokenizer {
                 max_gram,
                 prefix_only,
             } => format!("ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}"),
+            ParadeTokenizer::ChineseLindera => "chinese_lindera".into(),
+            ParadeTokenizer::JapaneseLindera => "japanese_lindera".into(),
+            ParadeTokenizer::KoreanLindera => "korean_lindera".into(),
         }
     }
 }

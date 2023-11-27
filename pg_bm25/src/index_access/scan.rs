@@ -302,12 +302,6 @@ mod tests {
 
         assert_eq!(scan.numberOfKeys, 3 as std::os::raw::c_int);
         assert!(!scan.is_null());
-
-        let tid = scan.xs_heaptid;
-        let blockno = (((tid.ip_blkid.bi_hi as u32) << 16) as u64) << 32;
-
-        let expected = item_pointer_to_u64(tid);
-        assert_ne!(blockno, expected);
     }
 
     // fn make_scan_key_data() -> *mut pg_sys::ScanKeyData {

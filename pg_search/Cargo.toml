@@ -1,7 +1,7 @@
 [package]
 name = "pg_search"
 description = "Hybrid search for PostgreSQL"
-version = "0.0.0"
+version = "0.3.3"
 edition = "2021"
 license = "AGPL-3.0"
 

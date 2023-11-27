@@ -463,8 +463,14 @@ impl ParadeIndex {
 
             let attribute_type_oid = attribute.type_oid();
             let attname = attribute.name();
+            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
+            let base_oid = if array_type != pg_sys::InvalidOid {
+                PgOid::from(array_type)
+            } else {
+                attribute_type_oid
+            };
 
-            let field = match &attribute_type_oid {
+            let field = match &base_oid {
                 PgOid::BuiltIn(builtin) => match builtin {
                     PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
                         text_fields.get(attname).map(|options| {

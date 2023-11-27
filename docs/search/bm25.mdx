@@ -37,10 +37,19 @@ The query string accepts ParadeQL, a mini query language which can be used to co
 
 ### Specifying Fields
 
-If your table has multiple text fields, you can specify which field to search.
+Each query must specify which field to search over. In the following example, we are querying for
+"keyboard" against the "description" field.
 
 ```sql
 'description:keyboard'
+```
+
+### Phrase Search
+
+Phrases containing spaces should be wrapped in double quotes.
+
+```sql
+'description:"plastic keyboard"'
 ```
 
 ### JSON Fields

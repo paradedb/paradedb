@@ -57,7 +57,8 @@ Each input to `WITH ()` accepts a [JSON5](https://json5.org)-formatted string. K
 </ParamField>
 <ParamField body="text_fields">
   A JSON string which specifies which text columns should be indexed and how they should be indexed.
-  Keys are the names of columns, and values are config options. Accepts columns of type `varchar` or `text`.
+  Keys are the names of columns, and values are config options. Accepts columns of type `varchar`, `text`,
+  `varchar[]`, and `text[]`.
   <Expandable title="Config Options">
     <ParamField body="indexed" default={true}>
       Whether the field is indexed. Must be `true` in order for the field to be tokenized and

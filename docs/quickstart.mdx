@@ -28,9 +28,9 @@ connection credentials. By default, this will start a ParadeDB instance at `http
 
 ## Connect to ParadeDB
 
-    <Note>
-**Prerequisite** Ensure that you have `psql` installed on your machine.
-        </Note>
+<Note>
+  **Prerequisite** Ensure that you have `psql` installed on your machine.
+</Note>
 
 To connect to ParadeDB, run
 
@@ -51,8 +51,8 @@ CREATE TABLE mock_items AS SELECT * FROM paradedb.search_test_table;
 SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
 ```
 
-    <Accordion title="Expected Response">
-                ```csv
+<Accordion title="Expected Response">
+```csv
  id |       description        | rating |  category   | embedding
 ----+--------------------------+--------+-------------+-----------
   1 | Ergonomic metal keyboard |      4 | Electronics | [3,4,5]
@@ -60,7 +60,7 @@ SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
   3 | Sleek running shoes      |      5 | Footwear    | [5,6,7]
 (3 rows)
 ```
-    </Accordion>
+</Accordion>
 
 Next, let's index this table for full-text search:
 
@@ -73,11 +73,11 @@ WITH (
 );
 ```
 
-    <Accordion title="Expected Response">
-                ```bash
+<Accordion title="Expected Response">
+```bash
 CREATE INDEX
 ```
-    </Accordion>
+</Accordion>
 
 Under the hood, this command creates a Postgres-native index called `idx_mock_items`, which contains
 an inverted index of the `mock_items` table. [Custom index configuration options](/indexing/bm25), such as
@@ -91,8 +91,8 @@ FROM mock_items
 WHERE mock_items @@@ 'description:keyboard OR category:electronics';
 ```
 
-    <Accordion title="Expected Response">
-                ``` csv
+<Accordion title="Expected Response">
+``` csv
          description         | rating |  category
 -----------------------------+--------+-------------
  Plastic Keyboard            |      4 | Electronics
@@ -102,7 +102,7 @@ WHERE mock_items @@@ 'description:keyboard OR category:electronics';
  Bluetooth-enabled speaker   |      3 | Electronics
 (5 rows)
 ```
-    </Accordion>
+</Accordion>
 
 You may have noticed the above SQL query makes use of
 the custom `@@@` operator and of [ParadeQL, our mini query language](search/bm25). This mini language supports phrase queries,
@@ -118,8 +118,8 @@ FROM mock_items
 ORDER BY embedding <-> '[1,2,3]' LIMIT 3;
 ```
 
-    <Accordion title="Expected Response">
-                ``` csv
+<Accordion title="Expected Response">
+``` csv
        description       |  category  | rating | embedding
 -------------------------+------------+--------+-----------
  Artistic ceramic vase   | Home Decor |      4 | [1,2,3]
@@ -127,7 +127,7 @@ ORDER BY embedding <-> '[1,2,3]' LIMIT 3;
  Designer wall paintings | Home Decor |      5 | [1,2,3]
 (3 rows)
 ```
-    </Accordion>
+</Accordion>
 
 ## Hybrid Search
 
@@ -156,8 +156,8 @@ ORDER BY score_hybrid DESC
 LIMIT 3;
 ```
 
-    <Accordion title="Expected Response">
-                ```csv
+<Accordion title="Expected Response">
+```csv
          description         |  category   | rating |    score_hybrid
 -----------------------------+-------------+--------+--------------------
  Plastic Keyboard            | Electronics |      4 | 0.9142857142857144
@@ -165,7 +165,7 @@ LIMIT 3;
  Innovative wireless earbuds | Electronics |      5 | 0.6309006759098599
 (3 rows)
 ```
-    </Accordion>
+</Accordion>
 
 In this query, we first use `paradedb.minmax_bm25` to calculate each row's normalized BM25 score with respect to
 the query "keyboard." Next, we use a function called `paradedb.minmax_norm` to normalize the HNSW scores, and invert

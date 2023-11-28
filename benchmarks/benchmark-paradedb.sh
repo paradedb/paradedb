@@ -64,23 +64,23 @@ echo "* Benchmarking ParadeDB version: $FLAG_TAG"
 echo "*******************************************************"
 echo ""
 
-# If the tag is "local", we build ParadeDB from source to test the current commit
+# If the tag is "local", we build ParadeDB from source to test the current commit. Otherwise,
+# we pull the Docker image for the specified tag from Docker Hub.
 if [ "$FLAG_TAG" == "local" ]; then
-  echo "Building ParadeDB from source..."
-  docker build -t paradedb/paradedb:"$FLAG_TAG" "$BENCHDIR/../docker"
+  echo "Building & Spinning up ParadeDB $FLAG_TAG From Source..."
+  docker-compose -f "$BENCHDIR/../docker/docker-compose.yml" up -d
   echo ""
+else
+  echo "Spinning up ParadeDB $FLAG_TAG server..."
+  docker run \
+    -d \
+    --name paradedb \
+    -e POSTGRES_USER=myuser \
+    -e POSTGRES_PASSWORD=mypassword \
+    -e POSTGRES_DB=mydatabase \
+    -p $PORT:5432 \
+    paradedb/paradedb:"$FLAG_TAG"
 fi
-
-# Install and run Docker container for ParadeDB in detached mode
-echo "Spinning up ParadeDB $FLAG_TAG server..."
-docker run \
-  -d \
-  --name paradedb \
-  -e POSTGRES_USER=myuser \
-  -e POSTGRES_PASSWORD=mypassword \
-  -e POSTGRES_DB=mydatabase \
-  -p $PORT:5432 \
-  paradedb/paradedb:"$FLAG_TAG"
 
 # Wait for Docker container to spin up
 echo ""

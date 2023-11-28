@@ -34,7 +34,7 @@ do
   esac
 done
 
-PORT=5431
+PORT=5432
 OUTPUT_CSV=out/benchmark_paradedb.csv
 BENCHDIR="$(dirname "$0")"
 
@@ -51,9 +51,9 @@ cleanup() {
   if docker ps -q --filter "name=paradedb" | grep -q .; then
     docker kill paradedb
     docker rm paradedb
-  elif docker ps -q --filter "name=paradedb-dev" | grep -q .; then
-    docker kill paradedb-dev
-    docker rm paradedb-dev
+  elif docker ps -q --filter "name=docker-paradedb-dev-1" | grep -q .; then
+    docker kill docker-paradedb-dev-1
+    docker rm docker-paradedb-dev-1
   fi
   echo "Done!"
 }

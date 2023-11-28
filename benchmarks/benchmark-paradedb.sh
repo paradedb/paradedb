@@ -74,11 +74,11 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg PG_SPARSE_VERSION=0.0.0 \
     --build-arg PGVECTOR_VERSION="$(jq -r '.extensions.pgvector.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg PG_CRON_VERSION="$(jq -r '.extensions.pg_cron.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_NET_VERSION="$(jq -r '.extensions.pg_net.version' '../conf/third_party_pg_extensions.json')" \
+    --build-arg PG_NET_VERSION=0.7.2 \
     --build-arg PG_IVM_VERSION="$(jq -r '.extensions.pg_ivm.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_GRAPHQL_VERSION="$(jq -r '.extensions.pg_graphql.version' '../conf/third_party_pg_extensions.json')" \
+    --build-arg PG_GRAPHQL_VERSION=1.3.0 \
     --build-arg PG_HASHIDS_VERSION="$(jq -r '.extensions.pg_hashids.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_JSONSCHEMA_VERSION="$(jq -r '.extensions.pg_jsonschema.version' '../conf/third_party_pg_extensions.json')" \
+    --build-arg PG_JSONSCHEMA_VERSION=0.1.4 \
     --build-arg PG_REPACK_VERSION="$(jq -r '.extensions.pg_repack.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg PG_STAT_MONITOR_VERSION="$(jq -r '.extensions.pg_stat_monitor.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg PG_HINT_PLAN_VERSION="$(jq -r '.extensions.pg_hint_plan.version' '../conf/third_party_pg_extensions.json')" \
@@ -88,7 +88,7 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg PGAUDIT_VERSION="$(jq -r '.extensions.pgaudit.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg POSTGIS_VERSION="$(jq -r '.extensions.postgis.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg PGROUTING_VERSION="$(jq -r '.extensions.pgrouting.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PGSQL_HTTP_VERSION="$(jq -r '.extensions.pgsql-http.version' '../conf/third_party_pg_extensions.json')" \
+    --build-arg PGSQL_HTTP_VERSION=1.6.0 \
     --build-arg HYPOPG_VERSION="$(jq -r '.extensions.hypopg.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg RUM_VERSION="$(jq -r '.extensions.rum.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg AGE_VERSION="$(jq -r '.extensions.age.version' '../conf/third_party_pg_extensions.json')" \

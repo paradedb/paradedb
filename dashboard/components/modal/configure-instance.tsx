@@ -79,15 +79,12 @@ const ConfigureInstanceModal = ({
       }),
     });
 
-    // @mauricio
-    // TODO: Send API call to backend to swap out instance
-    // You can get the selected plan and instance specs via
-    // prices?.find((price) => price.id === selectedPlan)
-    method = "POST";
+    const plan = prices?.find((price) => price.id === selectedPlan)
+    method = "PUT";
     await fetch("/api/databases", {
       method,
       body: JSON.stringify({
-        plan: selectedPlan,
+        plan: plan.id,
       }),
     });
 

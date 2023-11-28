@@ -26,4 +26,21 @@ const POST = withRequest(async ({ accessToken, req }) => {
   });
 });
 
-export { POST, DELETE };
+const PUT = withRequest(async ({ accessToken, req }) => {
+  const apiUrl = `${process.env.PROVISIONER_URL}/databases`;
+  const body = await req.json();
+
+  console.log(body);
+
+  return fetch(apiUrl, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+});
+
+
+export { POST, PUT, DELETE };

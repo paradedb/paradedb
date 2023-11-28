@@ -15,10 +15,11 @@ const CreateInstanceButton = ({
   const [loading, setLoading] = useState(isCreating);
 
   const createInstance = () => {
+    // TODO: don't hardcode id?
     fetch("/api/databases", {
       method: "POST",
       body: JSON.stringify({
-        plan: "free",
+        plan: "price_1ODBnKFLdqcXYNJa8VWQPkw8",
       }),
     });
   };

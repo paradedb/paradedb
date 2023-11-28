@@ -34,7 +34,7 @@ do
   esac
 done
 
-PORT=5432
+PORT=5431
 OUTPUT_CSV=out/benchmark_paradedb.csv
 BENCHDIR="$(dirname "$0")"
 
@@ -50,11 +50,8 @@ cleanup() {
   echo "Cleaning up benchmark environment..."
   if docker ps -q --filter "name=paradedb" | grep -q .; then
     docker kill paradedb
-    docker rm paradedb
-  elif docker ps -q --filter "name=docker-paradedb-dev-1" | grep -q .; then
-    docker kill docker-paradedb-dev-1
-    docker rm docker-paradedb-dev-1
   fi
+  docker rm paradedb
   echo "Done!"
 }
 
@@ -67,24 +64,30 @@ echo "* Benchmarking ParadeDB version: $FLAG_TAG"
 echo "*******************************************************"
 echo ""
 
-# If the tag is "local", we build ParadeDB from source to test the current commit. Otherwise,
-# we pull the Docker image for the specified tag from Docker Hub.
+# If the tag is "local", build ParadeDB from source to test the current commit
 if [ "$FLAG_TAG" == "local" ]; then
-  echo "Building & Spinning up ParadeDB $FLAG_TAG From Source..."
-  docker buildx create --use
-  docker compose -f "$BENCHDIR/../docker/docker-compose.dev.yml" up -d
+  echo "Building ParadeDB From Source..."
+  # We only install our extensions
+  docker build -t paradedb/paradedb:"$FLAG_TAG" \
+    --build-arg PG_VERSION_MAJOR=15 \
+    --build-arg PG_BM25_VERSION=0.0.0 \
+    --build-arg PG_SEARCH_VERSION=0.0.0 \
+    --build-arg PG_SPARSE_VERSION=0.0.0 \
+    --build-arg PGVECTOR_VERSION=0.5.1 \
+    "$BENCHDIR/../docker"
   echo ""
-else
-  echo "Spinning up ParadeDB $FLAG_TAG server..."
-  docker run \
-    -d \
-    --name paradedb \
-    -e POSTGRES_USER=myuser \
-    -e POSTGRES_PASSWORD=mypassword \
-    -e POSTGRES_DB=mydatabase \
-    -p $PORT:5432 \
-    paradedb/paradedb:"$FLAG_TAG"
 fi
+
+# Install and run Docker container for ParadeDB in detached mode
+echo "Spinning up ParadeDB $FLAG_TAG server..."
+docker run \
+  -d \
+  --name paradedb \
+  -e POSTGRES_USER=myuser \
+  -e POSTGRES_PASSWORD=mypassword \
+  -e POSTGRES_DB=mydatabase \
+  -p $PORT:5432 \
+  paradedb/paradedb:"$FLAG_TAG"
 
 # Wait for Docker container to spin up
 echo ""

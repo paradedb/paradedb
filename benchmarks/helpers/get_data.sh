@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 
 HOST=localhost
-PORT=5432
+PORT=5431
 DATABASE=mydatabase
 USER=myuser
 PASSWORD=mypassword

@@ -9,8 +9,8 @@ mkdir -p out
 # shellcheck disable=SC1091
 source "helpers/get_data.sh"
 
-PORT=5432
-PG_VERSION=15.5
+PORT=5431
+PG_VERSION=15.4
 OUTPUT_CSV=out/benchmark_tsquery.csv
 
 # Cleanup function to stop and remove the Docker container

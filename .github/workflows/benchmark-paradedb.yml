@@ -36,7 +36,15 @@ jobs:
 
       # Necessary for benchmark-paradedb.sh, which uses our docker-compose.dev.yml file
       - name: Update Docker Compose
-        run: sudo apt-get update && sudo apt-get install -y docker-compose
+        run: |
+          # Remove current docker-compose (Ubuntu 22.04 has 1.29.2, we need >= 2.0.0)
+          sudo apt-get remove docker-compose
+
+          # Install docker-compose 2.3.3
+          mkdir -p ~/.docker/cli-plugins/
+          curl -SL https://github.com/docker/compose/releases/download/v2.3.3/docker-compose-linux-x86_64 -o ~/.docker/cli-plugins/docker-compose
+          chmod +x ~/.docker/cli-plugins/docker-compose
+          docker compose version
 
       - name: Configure System to Benchmark
         id: system

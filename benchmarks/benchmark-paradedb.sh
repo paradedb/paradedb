@@ -36,13 +36,12 @@ done
 
 PORT=5431
 OUTPUT_CSV=out/benchmark_paradedb.csv
-BENCHDIR="$(dirname "$0")"
 
 # Ensure the "out" directory exists
-mkdir -p "$BENCHDIR/out"
+mkdir -p out/
 
 # shellcheck disable=SC1091
-source "$BENCHDIR/helpers/get_data.sh"
+source "helpers/get_data.sh"
 
 # Cleanup function to stop and remove the Docker container
 cleanup() {
@@ -74,7 +73,7 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg PG_SEARCH_VERSION=0.0.0 \
     --build-arg PG_SPARSE_VERSION=0.0.0 \
     --build-arg PGVECTOR_VERSION=0.5.1 \
-    "$BENCHDIR/../docker"
+    "../docker/"
   echo ""
 fi
 
@@ -102,7 +101,7 @@ load_data
 echo "Done!"
 
 # Output file for recording times
-echo "Table Size,Index Time,Search Time" > "$BENCHDIR/$OUTPUT_CSV"
+echo "Table Size,Index Time,Search Time" > "$OUTPUT_CSV"
 
 # Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset
 TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 1500000 2000000 2500000 3000000 3500000 4000000 4500000 5000000)

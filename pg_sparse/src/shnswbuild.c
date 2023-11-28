@@ -55,6 +55,7 @@ CreateMetaPage(HnswBuildState * buildstate)
 	metap = HnswPageGetMeta(page);
 	metap->magicNumber = HNSW_MAGIC_NUMBER;
 	metap->version = HNSW_VERSION;
+	metap->dimensions = buildstate->dimensions;
 	metap->m = buildstate->m;
 	metap->efConstruction = buildstate->efConstruction;
 	metap->entryBlkno = InvalidBlockNumber;
@@ -104,6 +105,7 @@ CreateElementPages(HnswBuildState * buildstate)
 {
 	Relation	index = buildstate->index;
 	ForkNumber	forkNum = buildstate->forkNum;
+	int			dimensions = buildstate->dimensions;
 	Size		etupSize;
 	Size		maxSize;
 	HnswElementTuple etup;
@@ -422,6 +424,11 @@ InitBuildState(HnswBuildState * buildstate, Relation heap, Relation index, Index
 
 	buildstate->m = HnswGetM(index);
 	buildstate->efConstruction = HnswGetEfConstruction(index);
+	buildstate->dimensions = TupleDescAttr(index->rd_att, 0)->atttypmod;
+
+	/* Require column to have dimensions to be indexed */
+	if (buildstate->dimensions < 0)
+		elog(ERROR, "column does not have dimensions");
 
 	if (buildstate->efConstruction < 2 * buildstate->m)
 		elog(ERROR, "ef_construction must be greater than or equal to 2 * m");

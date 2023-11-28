@@ -145,7 +145,7 @@ typedef struct HnswBuildState
 	ForkNumber	forkNum;
 
 	/* Settings */
-	// int			dimensions;
+	int			dimensions;
 	int			m;
 	int			efConstruction;
 
@@ -177,7 +177,7 @@ typedef struct HnswMetaPageData
 {
 	uint32		magicNumber;
 	uint32		version;
-	// uint32		dimensions;
+	uint32		dimensions;
 	uint16		m;
 	uint16		efConstruction;
 	BlockNumber entryBlkno;

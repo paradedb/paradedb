@@ -1,5 +1,5 @@
 use pgrx::prelude::*;
-use pg_sys::{self, PlannedStmt, Query, standard_planner, planner_hook, ParamListInfoData};
+use pg_sys::{self, PlannedStmt, Query, standard_planner, planner_hook, ParamListInfoData, ExecutorRun_hook, QueryDesc, standard_ExecutorRun, Node, NodeTag};
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 
@@ -38,6 +38,36 @@ extern "C" fn columnar_planner(
     }
 }
 
+unsafe extern "C" fn columnar_executor_run(query_desc: *mut QueryDesc, direction: i32, count: u64, execute_once: bool) {
+    // Log the entry into the custom planner
+    info!("Entering columnar_executor_run");
+
+    // Imitate ExplainNode for recursive plan scanning behavior
+    let ps = (*query_desc).planstate;
+    let plan = (*ps).plan;
+
+    let node = plan as *mut Node;
+    let node_tag = unsafe { (*node).type_ };
+    // info!("Node type {}", node_tag);
+    match node_tag {
+        NodeTag::T_ModifyTable => {
+            info!("Modify table");
+        },
+        // Handle other node types...
+        _ => {}
+    }
+
+    if !(*ps).subPlan.is_null() {
+        info!("SUBPLAN");
+    }
+
+    unsafe {
+        standard_ExecutorRun(query_desc, direction, count, execute_once);
+        // Log the fact that standard planner was called
+        info!("Standard ExecutorRun called");
+    }
+}
+
 // initializes telemetry
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
@@ -46,6 +76,7 @@ pub unsafe extern "C" fn _PG_init() {
     telemetry::posthog::init("pg_columnar deployment");
     PARADE_LOGS_GLOBAL.init();
     planner_hook = Some(columnar_planner as _); // Corrected cast
+    ExecutorRun_hook = Some(columnar_executor_run as _);
 }
 
 

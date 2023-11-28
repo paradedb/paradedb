@@ -1,5 +1,7 @@
 use pgrx::Spi;
 
+pub const SETUP_SQL: &str = include_str!("sql/index_setup.sql");
+
 /// Executes a query on a remote PostgreSQL database using dblink.
 ///
 /// `dblink` is a PostgreSQL extension that allows a user to connect to a different PostgreSQL

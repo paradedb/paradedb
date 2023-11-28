@@ -88,7 +88,7 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg PGAUDIT_VERSION="$(jq -r '.extensions.pgaudit.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg POSTGIS_VERSION="$(jq -r '.extensions.postgis.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg PGROUTING_VERSION="$(jq -r '.extensions.pgrouting.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PGSQL_HTTP_VERSION="$(jq -r '.extensions.pgsql_http.version' '../conf/third_party_pg_extensions.json')" \
+    --build-arg PGSQL_HTTP_VERSION="$(jq -r '.extensions.pgsql-http.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg HYPOPG_VERSION="$(jq -r '.extensions.hypopg.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg RUM_VERSION="$(jq -r '.extensions.rum.version' '../conf/third_party_pg_extensions.json')" \
     --build-arg AGE_VERSION="$(jq -r '.extensions.age.version' '../conf/third_party_pg_extensions.json')" \

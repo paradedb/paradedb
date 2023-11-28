@@ -68,7 +68,7 @@ echo ""
 # we pull the Docker image for the specified tag from Docker Hub.
 if [ "$FLAG_TAG" == "local" ]; then
   echo "Building & Spinning up ParadeDB $FLAG_TAG From Source..."
-  docker-compose -f "$BENCHDIR/../docker/docker-compose.yml" up -d
+  docker-compose -f "$BENCHDIR/../docker/docker-compose.dev.yml" up -d
   echo ""
 else
   echo "Spinning up ParadeDB $FLAG_TAG server..."

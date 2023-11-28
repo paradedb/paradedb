@@ -38,9 +38,10 @@ jobs:
         id: system
         run: echo "system_to_benchmark=${{ github.event.inputs.name || 'paradedb' }}" >> $GITHUB_OUTPUT
 
+      # The '-t local' tag is used for benchmark-paradedb.sh and ignored by other scripts
       - name: Run Benchmarking Script
         working-directory: benchmarks/
-        run: ./benchmark-${{ steps.system.outputs.system_to_benchmark }}.sh
+        run: ./benchmark-${{ steps.system.outputs.system_to_benchmark }}.sh -t local
 
       - name: Print Results
         working-directory: benchmarks/out/

@@ -1,17 +1,48 @@
 #!/bin/bash
 
+# This script benchmarks the performance of ParadeDB, specifically pg_bm25, for index
+# and search time.
+
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# Ensure the "out" directory exists
-mkdir -p out
+# Handle params
+usage() {
+  echo "Usage: $0 [OPTIONS]"
+  echo "Options:"
+  echo " -h (optional),   Display this help message"
+  echo " -t (optional),   Docker tag to use for paradedb/paradedb:tag. Use 'local' to build from source. Default: 'latest'"
+  exit 1
+}
 
-# shellcheck disable=SC1091
-source "helpers/get_data.sh"
+# Instantiate vars
+FLAG_TAG="latest"
+
+# Assign flags to vars and check
+while getopts "ht:" flag
+do
+  case $flag in
+    h)
+      usage
+      ;;
+    t)
+      FLAG_TAG=$OPTARG
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
 
 PORT=5431
-PARADEDB_VERSION=latest
 OUTPUT_CSV=out/benchmark_paradedb.csv
+BENCHDIR="$(dirname "$0")"
+
+# Ensure the "out" directory exists
+mkdir -p "$BENCHDIR/out"
+
+# shellcheck disable=SC1091
+source "$BENCHDIR/helpers/get_data.sh"
 
 # Cleanup function to stop and remove the Docker container
 cleanup() {
@@ -29,12 +60,19 @@ trap cleanup EXIT
 
 echo ""
 echo "*******************************************************"
-echo "* Benchmarking ParadeDB version: $PARADEDB_VERSION"
+echo "* Benchmarking ParadeDB version: $FLAG_TAG"
 echo "*******************************************************"
 echo ""
 
+# If the tag is "local", we build ParadeDB from source to test the current commit
+if [ "$FLAG_TAG" == "local" ]; then
+  echo "Building ParadeDB from source..."
+  docker build -t paradedb/paradedb:"$FLAG_TAG" "$BENCHDIR/../docker"
+  echo ""
+fi
+
 # Install and run Docker container for ParadeDB in detached mode
-echo "Spinning up ParadeDB $PARADEDB_VERSION server..."
+echo "Spinning up ParadeDB $FLAG_TAG server..."
 docker run \
   -d \
   --name paradedb \
@@ -42,7 +80,10 @@ docker run \
   -e POSTGRES_PASSWORD=mypassword \
   -e POSTGRES_DB=mydatabase \
   -p $PORT:5432 \
-  paradedb/paradedb:$PARADEDB_VERSION
+  paradedb/paradedb:"$FLAG_TAG"
+
+
+
 
 # Wait for Docker container to spin up
 echo ""

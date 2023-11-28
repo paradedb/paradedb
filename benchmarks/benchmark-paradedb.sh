@@ -82,9 +82,6 @@ docker run \
   -p $PORT:5432 \
   paradedb/paradedb:"$FLAG_TAG"
 
-
-
-
 # Wait for Docker container to spin up
 echo ""
 echo "Waiting for server to spin up..."

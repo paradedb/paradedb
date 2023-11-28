@@ -68,12 +68,13 @@ if [ "$FLAG_TAG" == "local" ]; then
   echo "Building ParadeDB From Source..."
   # We only install our extensions
   docker build -t paradedb/paradedb:"$FLAG_TAG" \
+    -f "../docker/Dockerfile" \
     --build-arg PG_VERSION_MAJOR=15 \
     --build-arg PG_BM25_VERSION=0.0.0 \
     --build-arg PG_SEARCH_VERSION=0.0.0 \
     --build-arg PG_SPARSE_VERSION=0.0.0 \
-    --build-arg PGVECTOR_VERSION=0.5.1 \
-    "../docker/"
+    --build-arg PGVECTOR_VERSION=$(jq -r '.extensions.pgvector.version' "../conf/third_party_pg_extensions.json") \
+    "../"
   echo ""
 fi
 

@@ -50,8 +50,11 @@ cleanup() {
   echo "Cleaning up benchmark environment..."
   if docker ps -q --filter "name=paradedb" | grep -q .; then
     docker kill paradedb
+    docker rm paradedb
+  elif docker ps -q --filter "name=paradedb-dev" | grep -q .; then
+    docker kill paradedb-dev
+    docker rm paradedb-dev
   fi
-  docker rm paradedb
   echo "Done!"
 }
 

@@ -34,6 +34,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      # Necessary for benchmark-paradedb.sh, which uses our docker-compose.dev.yml file
+      - name: Update Docker Compose
+        run: sudo apt-get update && sudo apt-get install -y docker-compose
+
       - name: Configure System to Benchmark
         id: system
         run: echo "system_to_benchmark=${{ github.event.inputs.name || 'paradedb' }}" >> $GITHUB_OUTPUT

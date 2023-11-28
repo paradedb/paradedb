@@ -659,32 +659,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // #[pg_test]
-    // fn test_build_index_schema() -> Result<(), String> {
-    //     Spi::run(SETUP_SQL).expect("failed to setup index");
-    //     let oid = get_index_oid("idx_one_republic", "bm25").expect("failed to get index oid");
-
-    //     unsafe {
-    //         let index =
-    //             pg_sys::index_open(oid.unwrap(), pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-
-    //         let heap = pg_sys::relation_open(
-    //             index.as_ref().unwrap().rd_index.as_ref().unwrap().indrelid,
-    //             pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-    //         );
-
-    //         let heap_relation = PgRelation::from_pg(heap);
-    //         let options: PgBox<ParadeOptions> =
-    //             PgBox::from_pg(heap_relation.rd_options as *mut ParadeOptions);
-
-    //         let res = ParadeIndex::build_index_schema(&heap_relation, &options)
-    //             .expect("failed to build schema");
-    //         println!("{:#?}", res.1);
-    //     }
-
-    //     Ok(())
-    // }
-
     #[pg_test]
     fn test_from_index_name() {
         Spi::run(SETUP_SQL).expect("failed to create index");

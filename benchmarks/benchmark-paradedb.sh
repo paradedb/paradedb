@@ -95,7 +95,7 @@ load_data
 echo "Done!"
 
 # Output file for recording times
-echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
+echo "Table Size,Index Time,Search Time" > "$BENCHDIR/$OUTPUT_CSV"
 
 # Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset
 TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 1500000 2000000 2500000 3000000 3500000 4000000 4500000 5000000)

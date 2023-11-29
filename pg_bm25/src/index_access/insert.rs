@@ -38,10 +38,10 @@ pub unsafe extern "C" fn aminsert(
 unsafe fn aminsert_internal(
     index_relation: pg_sys::Relation,
     values: *mut pg_sys::Datum,
-    heap_tid: pg_sys::ItemPointer,
+    ctid: pg_sys::ItemPointer,
 ) -> bool {
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
-    let index_name = index_relation_ref.name().to_string();
+    let index_name = index_relation_ref.name();
 
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);
     let attributes = categorize_tupdesc(&tupdesc);
@@ -54,7 +54,7 @@ unsafe fn aminsert_internal(
 
     // Insert row to parade index
     let mut parade_index = get_parade_index(index_name);
-    parade_index.insert(*heap_tid, builder);
+    parade_index.insert(*ctid, builder);
 
     true
 }

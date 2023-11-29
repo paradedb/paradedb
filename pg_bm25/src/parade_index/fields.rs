@@ -306,9 +306,6 @@ pub enum ParadeOption {
 }
 
 pub type ParadeOptionMap = HashMap<String, ParadeOption>;
-pub type ParadeFieldConfigSerialized = String;
-pub type ParadeFieldConfigSerializedResult = serde_json::Result<ParadeFieldConfigSerialized>;
-pub type ParadeFieldConfigDeserializedResult = serde_json::Result<ParadeOptionMap>;
 
 // TODO: Enable DateTime and IP fields
 

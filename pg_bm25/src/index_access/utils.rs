@@ -70,7 +70,7 @@ pub fn create_parade_index(
     ParadeIndex::new(index_name, heap_relation, options)
 }
 
-pub fn get_parade_index(index_name: String) -> ParadeIndex {
+pub fn get_parade_index(index_name: &str) -> ParadeIndex {
     ParadeIndex::from_index_name(index_name)
 }
 

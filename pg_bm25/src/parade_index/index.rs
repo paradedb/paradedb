@@ -1,5 +1,6 @@
 use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use pgrx::*;
+use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use shared::plog;
 use std::collections::HashMap;
@@ -16,11 +17,8 @@ use tantivy::{
 use tantivy::{IndexReader, IndexWriter, SingleSegmentIndexWriter, TantivyError};
 
 use crate::index_access::options::ParadeOptions;
-use crate::json::builder::JsonBuilder;
-use crate::parade_index::fields::{
-    ParadeFieldConfigDeserializedResult, ParadeFieldConfigSerialized,
-    ParadeFieldConfigSerializedResult, ParadeOption, ParadeOptionMap,
-};
+use crate::json::builder::{JsonBuilder, JsonBuilderValue};
+use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 const CACHE_NUM_BLOCKS: usize = 10;
@@ -43,20 +41,43 @@ const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
 /// this cache, tied to its own lifecycle.
 static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
 
+pub enum ParadeIndexId {
+    Number(i64),
+}
+
+impl TryFrom<&JsonBuilderValue> for ParadeIndexId {
+    type Error = Box<dyn Error>;
+
+    fn try_from(value: &JsonBuilderValue) -> Result<Self, Self::Error> {
+        match value {
+            JsonBuilderValue::i16(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
+            JsonBuilderValue::i32(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
+            JsonBuilderValue::i64(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
+            JsonBuilderValue::u32(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
+            JsonBuilderValue::u64(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
+            _ => Err(format!("Unsupported conversion: {:#?}", value).into()),
+        }
+    }
+}
+
 pub struct TantivyScanState {
     pub schema: Schema,
     pub query: Box<dyn Query>,
     pub query_parser: QueryParser,
     pub searcher: Searcher,
     pub iterator: *mut std::vec::IntoIter<(Score, DocAddress)>,
+    pub key_field_name: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
 pub struct ParadeIndex {
     pub name: String,
     pub fields: HashMap<String, Field>,
     pub field_configs: ParadeOptionMap,
+    pub key_field_name: String,
+    #[serde(skip_serializing, deserialize_with = "ParadeIndex::deserialize_reader")]
     reader: IndexReader,
+    #[serde(skip_serializing)]
     underlying_index: Index,
 }
 
@@ -75,7 +96,8 @@ impl ParadeIndex {
 
         create_dir_all(path).expect("failed to create paradedb directory");
 
-        let result = Self::build_index_schema(heap_relation, &options);
+        let key_field_name = options.get_key_field();
+        let result = Self::build_index_schema(heap_relation, &key_field_name, &options);
         let (schema, fields) = match result {
             Ok((s, f)) => (s, f),
             Err(e) => {
@@ -113,7 +135,6 @@ impl ParadeIndex {
             field_configs.insert(field_name, ParadeOption::Boolean(options));
         }
 
-        Self::write_index_field_configs(&name, &field_configs)?;
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
         let reader = Self::reader(&underlying_index).unwrap_or_else(|_| {
@@ -134,9 +155,15 @@ impl ParadeIndex {
             field_configs,
             reader,
             underlying_index,
+            key_field_name,
         };
+
+        // Serialize ParadeIndex to disk so it can be initialized by other connections.
+        new_self.to_disk();
+
+        // Save a reference to this ParadeIndex so it can be re-used by this connection.
         unsafe {
-            new_self.to_cached_index(name);
+            new_self.to_cached_index();
         }
 
         Ok(new_self)
@@ -167,7 +194,7 @@ impl ParadeIndex {
         PARADE_INDEX_MEMORY.as_ref()?.get(name).cloned()
     }
 
-    unsafe fn to_cached_index(&self, name: String) {
+    unsafe fn to_cached_index(&self) {
         if PARADE_INDEX_MEMORY.is_none() {
             PARADE_INDEX_MEMORY = Some(HashMap::new());
         }
@@ -175,10 +202,10 @@ impl ParadeIndex {
         PARADE_INDEX_MEMORY
             .as_mut()
             .unwrap()
-            .insert(name, self.clone());
+            .insert(self.name.clone(), self.clone());
     }
 
-    pub fn from_index_name(name: String) -> Self {
+    pub fn from_index_name(name: &str) -> Self {
         unsafe {
             // First check cache to see if we can retrieve the index from memory.
             if let Some(new_self) = Self::from_cached_index(&name) {
@@ -186,40 +213,11 @@ impl ParadeIndex {
             }
         }
 
-        let dir = Self::get_data_directory(&name);
-
-        let mut underlying_index = Index::open_in_dir(dir).expect("failed to open index");
-        let schema = underlying_index.schema();
-
-        let fields = schema
-            .fields()
-            .map(|field| {
-                let (field, entry) = field;
-                (entry.name().to_string(), field)
-            })
-            .collect();
-
-        let field_configs =
-            Self::read_index_field_configs(&name).expect("failed to open index field configs");
-
-        // We need to setup tokenizers again after retrieving an index from disk.
-        Self::setup_tokenizers(&mut underlying_index, &field_configs);
-
-        let reader = Self::reader(&underlying_index).unwrap_or_else(|_| {
-            panic!("failed to create index reader while retrieving index: {name}")
-        });
-
-        let new_self = Self {
-            name: name.clone(),
-            fields,
-            field_configs,
-            reader,
-            underlying_index,
-        };
+        let new_self = Self::from_disk(name);
 
         // Since we've re-fetched the index, save it to the cache.
         unsafe {
-            new_self.to_cached_index(name);
+            new_self.to_cached_index();
         }
 
         new_self
@@ -228,33 +226,33 @@ impl ParadeIndex {
     pub fn insert_with_writer(
         &mut self,
         writer: &mut SingleSegmentIndexWriter,
-        heap_tid: ItemPointerData,
+        ctid: ItemPointerData,
         builder: JsonBuilder,
     ) {
         // This method is both an implemenation for `self.insert`, and used publicly
         // during index build, where we want to make sure that the same writer is used
         // for the entire build.
         let mut doc: Document = Document::new();
-        for (col_name, value) in builder.values {
+        for (col_name, value) in builder.values.iter() {
             let field_option = self.fields.get(col_name.trim_matches('"'));
             if let Some(field) = field_option {
                 value.add_to_tantivy_doc(&mut doc, field);
             }
         }
 
-        let field_option = self.fields.get("heap_tid");
-        doc.add_u64(*field_option.unwrap(), item_pointer_to_u64(heap_tid));
+        let field_option = self.fields.get("ctid");
+        doc.add_u64(*field_option.unwrap(), item_pointer_to_u64(ctid));
         writer.add_document(doc).expect("failed to add document");
     }
 
-    pub fn insert(&mut self, heap_tid: ItemPointerData, builder: JsonBuilder) {
+    pub fn insert(&mut self, ctid: ItemPointerData, builder: JsonBuilder) {
         // We expect this method to be called during regular inserts (after index creation).
         // We need to create a new writer each time to avoid race conditions, and make sure
         // to reload the reader afterwards.
         let mut writer = self
             .single_segment_writer()
             .expect("Could not retrieve single segment writer for insert");
-        self.insert_with_writer(&mut writer, heap_tid, builder);
+        self.insert_with_writer(&mut writer, ctid, builder);
         writer.commit().unwrap();
         self.reload();
     }
@@ -272,9 +270,9 @@ impl ParadeIndex {
                        // necessary
 
         let schema = self.underlying_index.schema();
-        let heap_tid_field = schema
-            .get_field("heap_tid")
-            .expect("Field 'heap_tid' not found in schema");
+        let ctid_field = schema
+            .get_field("ctid")
+            .expect("Field 'ctid' not found in schema");
 
         let searcher = self.searcher();
 
@@ -285,18 +283,16 @@ impl ParadeIndex {
 
             for doc_id in 0..segment_reader.num_docs() {
                 if let Ok(stored_fields) = store_reader.get(doc_id) {
-                    if let Some(Value::U64(heap_tid_val)) = stored_fields.get_first(heap_tid_field)
-                    {
+                    if let Some(Value::U64(ctid_val)) = stored_fields.get_first(ctid_field) {
                         if let Some(actual_callback) = callback {
-                            let mut heap_tid = pg_sys::ItemPointerData::default();
-                            u64_to_item_pointer(*heap_tid_val, &mut heap_tid);
+                            let mut ctid = pg_sys::ItemPointerData::default();
+                            u64_to_item_pointer(*ctid_val, &mut ctid);
 
                             let should_delete =
-                                unsafe { actual_callback(&mut heap_tid, callback_state) };
+                                unsafe { actual_callback(&mut ctid, callback_state) };
 
                             if should_delete {
-                                let term_to_delete =
-                                    Term::from_field_u64(heap_tid_field, *heap_tid_val);
+                                let term_to_delete = Term::from_field_u64(ctid_field, *ctid_val);
                                 index_writer.delete_term(term_to_delete);
                                 stats_binding.pages_deleted += 1;
                             } else {
@@ -327,12 +323,15 @@ impl ParadeIndex {
         );
         let empty_query = query_parser.parse_query("").unwrap();
 
+        let key_field_name = self.key_field_name.to_string();
+
         TantivyScanState {
             schema,
             query: empty_query,
             query_parser,
             searcher,
             iterator: std::ptr::null_mut(),
+            key_field_name,
         }
     }
 
@@ -391,49 +390,41 @@ impl ParadeIndex {
         format!("{}_parade_field_configs.json", dir_path)
     }
 
-    fn serialize_index_field_configs(
-        field_configs: &ParadeOptionMap,
-    ) -> ParadeFieldConfigSerializedResult {
-        serde_json::to_string(&field_configs)
-    }
+    fn to_disk(&self) {
+        let index_name = &self.name;
+        let config_path = &Self::get_field_configs_path(index_name);
+        let serialized_data = serde_json::to_string(self).unwrap_or_else(|err| {
+            panic!("could not serialize index config for {index_name}: {err:?}")
+        });
+        let mut file = File::create(config_path).unwrap_or_else(|err| {
+            panic!("could not create file to save index {index_name} at {config_path}: {err:?}")
+        });
 
-    fn deserialize_index_field_configs(
-        serialized_data: ParadeFieldConfigSerialized,
-    ) -> ParadeFieldConfigDeserializedResult {
-        serde_json::from_str(&serialized_data)
-    }
+        file.write_all(serialized_data.as_bytes())
+            .unwrap_or_else(|err| {
+                panic!("could not write index for index {index_name} at {config_path}: {err:?}")
+            });
 
-    fn write_index_field_configs(
-        index_name: &str,
-        field_configs: &ParadeOptionMap,
-    ) -> Result<(), Box<dyn Error>> {
-        // Serialize the entire HashMap into a format writable to disk.
-        let serialized_data = Self::serialize_index_field_configs(field_configs)?;
-        let config_path = Self::get_field_configs_path(index_name);
-        let mut file = File::create(config_path)?;
-
-        file.write_all(serialized_data.as_bytes())?;
         // Rust automatically flushes data to disk at the end of the scope,
         // so this call to "flush()" isn't strictly necessary.
         // We're doing it explicitly as a reminder in case we extend this method.
         file.flush().unwrap();
-
-        Ok(())
     }
 
-    fn read_index_field_configs(index_name: &str) -> Result<ParadeOptionMap, Box<dyn Error>> {
-        let config_path = Self::get_field_configs_path(index_name);
+    fn from_disk(index_name: &str) -> Self {
+        let config_path = &Self::get_field_configs_path(index_name);
+        let serialized_data = fs::read_to_string(config_path).unwrap_or_else(|err| {
+            panic!("could not read index config for {index_name} from {config_path}: {err:?}")
+        });
 
-        let serialized_data = fs::read_to_string(config_path)?;
-
-        // Deserialize the data from disk back into a HashMap<String, ParadeFieldConfig>.
-        let deserialized_data = Self::deserialize_index_field_configs(serialized_data)?;
-
-        Ok(deserialized_data)
+        serde_json::from_str(&serialized_data).unwrap_or_else(|err| {
+            panic!("could not deserialize config from disk for index {index_name}: {err:?}");
+        })
     }
 
     fn build_index_schema(
         heap_relation: &PgRelation,
+        key_field_name: &str,
         options: &PgBox<ParadeOptions>,
     ) -> Result<(Schema, HashMap<String, Field>), String> {
         let tupdesc = heap_relation.tuple_desc();
@@ -463,6 +454,7 @@ impl ParadeIndex {
 
             let attribute_type_oid = attribute.type_oid();
             let attname = attribute.name();
+            let is_key_field = attname == key_field_name;
             let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
             let base_oid = if array_type != pg_sys::InvalidOid {
                 PgOid::from(array_type)
@@ -473,34 +465,62 @@ impl ParadeIndex {
             let field = match &base_oid {
                 PgOid::BuiltIn(builtin) => match builtin {
                     PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                        text_fields.get(attname).map(|options| {
-                            let text_options: TextOptions = (*options).into();
-                            schema_builder.add_text_field(attname, text_options)
-                        })
+                        if is_key_field {
+                            panic!("bm25 key field must be an integer type, received text")
+                        } else {
+                            text_fields.get(attname).map(|options| {
+                                let text_options: TextOptions = (*options).into();
+                                schema_builder.add_text_field(attname, text_options)
+                            })
+                        }
                     }
                     PgBuiltInOids::INT2OID
                     | PgBuiltInOids::INT4OID
                     | PgBuiltInOids::INT8OID
                     | PgBuiltInOids::OIDOID
-                    | PgBuiltInOids::XIDOID => numeric_fields.get(attname).map(|options| {
-                        let numeric_options: NumericOptions = (*options).into();
-                        schema_builder.add_i64_field(attname, numeric_options)
-                    }),
+                    | PgBuiltInOids::XIDOID => {
+                        if is_key_field {
+                            schema_builder
+                                .add_i64_field(attname, INDEXED | STORED)
+                                .into()
+                        } else {
+                            numeric_fields.get(attname).map(|options| {
+                                let numeric_options: NumericOptions = (*options).into();
+                                schema_builder.add_i64_field(attname, numeric_options)
+                            })
+                        }
+                    }
                     PgBuiltInOids::FLOAT4OID
                     | PgBuiltInOids::FLOAT8OID
-                    | PgBuiltInOids::NUMERICOID => numeric_fields.get(attname).map(|options| {
-                        let numeric_options: NumericOptions = (*options).into();
-                        schema_builder.add_f64_field(attname, numeric_options)
-                    }),
-                    PgBuiltInOids::BOOLOID => boolean_fields.get(attname).map(|options| {
-                        let boolean_options: NumericOptions = (*options).into();
-                        schema_builder.add_bool_field(attname, boolean_options)
-                    }),
+                    | PgBuiltInOids::NUMERICOID => {
+                        if is_key_field {
+                            panic!("bm25 key field must be an integer type, received float")
+                        } else {
+                            numeric_fields.get(attname).map(|options| {
+                                let numeric_options: NumericOptions = (*options).into();
+                                schema_builder.add_f64_field(attname, numeric_options)
+                            })
+                        }
+                    }
+                    PgBuiltInOids::BOOLOID => {
+                        if is_key_field {
+                            panic!("bm25 id column must be an integer type, received bool")
+                        } else {
+                            boolean_fields.get(attname).map(|options| {
+                                let boolean_options: NumericOptions = (*options).into();
+                                schema_builder.add_bool_field(attname, boolean_options)
+                            })
+                        }
+                    }
                     PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
-                        json_fields.get(attname).map(|options| {
-                            let json_options: JsonObjectOptions = (*options).into();
-                            schema_builder.add_json_field(attname, json_options)
-                        })
+                        if is_key_field {
+                            panic!("bm25 id column must be an integer type, received json")
+                        } else {
+                            json_fields.get(attname).map(|options| {
+                                let json_options: JsonObjectOptions = (*options).into();
+                                schema_builder.add_json_field(attname, json_options)
+                            })
+                        }
                     }
                     _ => None,
                 },
@@ -512,10 +532,55 @@ impl ParadeIndex {
             }
         }
 
-        let field = schema_builder.add_u64_field("heap_tid", INDEXED | STORED);
-        fields.insert("heap_tid".to_string(), field);
+        // "ctid" is a reserved column name in Postgres, so we don't need to worry about
+        // creating a name conflict with a user-named column.
+        let ctid_field = schema_builder.add_u64_field("ctid", INDEXED | STORED);
+        fields.insert("ctid".to_string(), ctid_field);
 
         Ok((schema_builder.build(), fields))
+    }
+}
+
+impl<'de> Deserialize<'de> for ParadeIndex {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        // A helper struct that lets use use the default serialization for most fields.
+        #[derive(Deserialize)]
+        struct ParadeIndexHelper {
+            name: String,
+            fields: HashMap<String, Field>,
+            field_configs: ParadeOptionMap,
+            key_field_name: String,
+        }
+
+        // Deserialize into the struct with automatic handling for most fields
+        let ParadeIndexHelper {
+            name,
+            fields,
+            field_configs,
+            key_field_name,
+        } = ParadeIndexHelper::deserialize(deserializer)?;
+
+        let dir = Self::get_data_directory(&name);
+        let mut underlying_index = Index::open_in_dir(dir).expect("failed to open index");
+        // We need to setup tokenizers again after retrieving an index from disk.
+        Self::setup_tokenizers(&mut underlying_index, &field_configs);
+
+        let reader = Self::reader(&underlying_index).unwrap_or_else(|_| {
+            panic!("failed to create index reader while retrieving index: {name}")
+        });
+
+        // Construct the ParadeIndex
+        Ok(ParadeIndex {
+            name,
+            fields,
+            field_configs,
+            reader,
+            underlying_index,
+            key_field_name,
+        })
     }
 }
 

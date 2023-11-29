@@ -1,7 +1,3 @@
-use pgrx::{
-    item_pointer_get_both,
-    pg_sys::{BlockNumber, ItemPointerData, OffsetNumber},
-};
 use std::collections::HashMap;
 use tantivy::{
     query::Query,
@@ -24,13 +20,11 @@ pub fn get_fresh_executor_manager() -> &'static mut Manager {
     }
 }
 
-type BlockInfo = (BlockNumber, OffsetNumber);
-
 pub struct Manager {
     max_score: f32,
     min_score: f32,
-    scores: Option<HashMap<BlockInfo, f32>>,
-    doc_addresses: Option<HashMap<BlockInfo, DocAddress>>,
+    scores: Option<HashMap<i64, f32>>,
+    doc_addresses: Option<HashMap<i64, DocAddress>>,
     snippet_generators: Option<HashMap<String, SnippetGenerator>>,
 }
 
@@ -45,17 +39,16 @@ impl Manager {
         }
     }
 
-    pub fn add_score(&mut self, ctid: (BlockNumber, OffsetNumber), score: f32) {
+    pub fn add_score(&mut self, bm25_id: i64, score: f32) {
         if self.scores.is_none() {
             self.scores.replace(HashMap::new());
         }
 
-        self.scores.as_mut().unwrap().insert(ctid, score);
+        self.scores.as_mut().unwrap().insert(bm25_id, score);
     }
 
-    pub fn get_score(&mut self, ctid: ItemPointerData) -> Option<f32> {
-        let (block, offset) = item_pointer_get_both(ctid);
-        self.scores.as_mut().unwrap().get(&(block, offset)).copied()
+    pub fn get_score(&mut self, bm25_id: i64) -> Option<f32> {
+        self.scores.as_mut().unwrap().get(&bm25_id).copied()
     }
 
     pub fn set_max_score(&mut self, max_score: f32) {
@@ -74,7 +67,7 @@ impl Manager {
         self.min_score
     }
 
-    pub fn add_doc_address(&mut self, ctid: (BlockNumber, OffsetNumber), doc_address: DocAddress) {
+    pub fn add_doc_address(&mut self, bm25_id: i64, doc_address: DocAddress) {
         if self.doc_addresses.is_none() {
             self.doc_addresses.replace(HashMap::new());
         }
@@ -82,16 +75,11 @@ impl Manager {
         self.doc_addresses
             .as_mut()
             .unwrap()
-            .insert(ctid, doc_address);
+            .insert(bm25_id, doc_address);
     }
 
-    pub fn get_doc_address(&mut self, ctid: ItemPointerData) -> Option<DocAddress> {
-        let (block, offset) = item_pointer_get_both(ctid);
-        self.doc_addresses
-            .as_mut()
-            .unwrap()
-            .get(&(block, offset))
-            .copied()
+    pub fn get_doc_address(&mut self, bm25_id: i64) -> Option<DocAddress> {
+        self.doc_addresses.as_mut().unwrap().get(&bm25_id).copied()
     }
 
     pub fn add_snippet_generators(

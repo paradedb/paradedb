@@ -84,7 +84,7 @@ To index the table, use the following SQL command:
 CREATE INDEX idx_mock_items
 ON mock_items
 USING bm25 ((mock_items.*))
-WITH (text_fields='{"description": {}, "category": {}}');
+WITH (key_field='id', text_fields='{"description": {}, "category": {}}');
 ```
 
 Once the indexing is complete, you can run various search functions on it.

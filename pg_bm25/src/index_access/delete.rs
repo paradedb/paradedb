@@ -13,8 +13,8 @@ pub extern "C" fn ambulkdelete(
     let mut stats = unsafe { PgBox::from_pg(stats) };
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
-    let index_name = &index_relation.name().to_string();
-    let parade_index = get_parade_index(index_name.into());
+    let index_name = index_relation.name();
+    let parade_index = get_parade_index(index_name);
 
     if stats.is_null() {
         stats = unsafe {

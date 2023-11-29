@@ -20,6 +20,7 @@ telemetry = ["shared/telemetry"]
 
 [dependencies]
 csv = "1.2.2"
+indexmap = "2.1.0"
 json5 = "0.4.1"
 lindera-core = "0.27.1"
 lindera-dictionary = "0.27.1"

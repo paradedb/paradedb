@@ -151,7 +151,7 @@ const InstanceCard = ({
             loading={isLoading}
           />
           <CredentialsListItem
-            name="Dashboard"
+            name="Database"
             value={creds?.dbname}
             icon={<ServerStackIcon className="w-4 text-indigo-400" />}
             hide={false}
@@ -185,7 +185,6 @@ const Index = () => {
   const deployStatus = status?.deploy_status;
   const credsRef = useRef(creds);
   const statusRef = useRef(deployStatus);
-  const isLoading = !creds || !status;
   const noDatabaseCreated = creds?.status === 404;
   const currentPlan = subscriptions?.data?.[0]?.plan;
   const databaseReady =
@@ -243,7 +242,7 @@ const Index = () => {
         {!noDatabaseCreated && (
           <DeleteInstanceButton
             onDeleteInstance={onDeleteInstance}
-            disabled={isLoading}
+            disabled={!databaseReady}
           />
         )}
       </Flex>
@@ -253,7 +252,7 @@ const Index = () => {
             creds={creds}
             status={status}
             onCreateInstance={onCreateInstance}
-            isLoading={isLoading}
+            isLoading={!databaseReady}
           />
         </Col>
         {!noDatabaseCreated && (
@@ -286,7 +285,7 @@ const Index = () => {
           <Flex>
             <Title className="text-gray-100 mt-12">Plan</Title>
             <ConfigureInstanceButton
-              disabled={isLoading}
+              disabled={!databaseReady}
               onConfigureInstance={() => {}}
               onRefresh={onRefreshSubscription}
             />{" "}

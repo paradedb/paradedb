@@ -218,7 +218,6 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
     apt-fast update && apt-fast install -y --no-install-recommends /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
-
 # Copy the ParadeDB pgrx extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/

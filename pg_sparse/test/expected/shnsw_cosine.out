@@ -18,5 +18,9 @@ SELECT COUNT(*) FROM (SELECT * FROM t ORDER BY val <=> '[0,0,0]') t2;
 (1 row)
 
 SELECT COUNT(*) FROM (SELECT * FROM t ORDER BY val <=> (SELECT NULL::svector)) t2;
-ERROR:  different svector dimensions 0 and 3
+ count 
+-------
+     3
+(1 row)
+
 DROP TABLE t;

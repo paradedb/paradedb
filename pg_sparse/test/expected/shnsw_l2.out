@@ -6,14 +6,21 @@ INSERT INTO t (val) VALUES ('[1,2,4]');
 SELECT * FROM t ORDER BY val <-> '[3,3,3]';
    val   
 ---------
- [1,2,3]
  [1,2,4]
  [1,1,1]
+ [1,2,3]
  [0,0,0]
 (4 rows)
 
 SELECT * FROM t ORDER BY val <-> (SELECT NULL::svector);
-ERROR:  different svector dimensions 0 and 3
+   val   
+---------
+ [1,2,4]
+ [1,1,1]
+ [1,2,3]
+ [0,0,0]
+(4 rows)
+
 SELECT COUNT(*) FROM t;
  count 
 -------

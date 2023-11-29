@@ -109,8 +109,27 @@ function run_tests() {
 
   # Build and install the extension
   echo "Building and installing pg_sparse..."
-  make
-  make install
+  case "$OS_NAME" in
+    Darwin)
+      make clean
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        make PG_CONFIG="/opt/homebrew/opt/postgresql@$PG_VERSION/bin/pg_config"
+        make install PG_CONFIG="/opt/homebrew/opt/postgresql@$PG_VERSION/bin/pg_config"
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        make PG_CONFIG="/usr/local/opt/postgresql@$PG_VERSION/bin/pg_config"
+        make install PG_CONFIG="/usr/local/opt/postgresql@$PG_VERSION/bin/pg_config"
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
+      ;;
+    Linux)
+      sudo make clean
+      sudo PG_CONFIG="/usr/lib/postgresql/$PG_VERSION/bin/pg_config" make
+      sudo PG_CONFIG="/usr/lib/postgresql/$PG_VERSION/bin/pg_config" make install
+      ;;
+  esac
 
   # Execute tests using pg_regress
   # We always test on the upcoming version, which means that this test also acts as an extension upgrade test

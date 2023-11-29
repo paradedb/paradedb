@@ -17,7 +17,7 @@ on:
       - ".github/workflows/test-pg_bm25.yml"
   push:
     branches:
-      - dev # Run CI on the dev branch after every merge. This is important to fill the GitHub Actions cache in a way that pull requests can see it
+      - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
   workflow_dispatch:
     inputs:
       test_upgrade_version:

@@ -72,6 +72,19 @@ CheckExpectedDim(int32 typmod, int dim)
 				 errmsg("expected %d dimensions, not %d", typmod, dim)));
 }
 
+
+/*
+ * Ensure expected non-zero elements
+ */
+static inline void
+CheckExpectedNElem(int32 typmod, int n_elem)
+{
+	if (typmod != -1 && typmod != n_elem)
+		ereport(ERROR,
+				(errcode(ERRCODE_DATA_EXCEPTION),
+				 errmsg("expected %d non-zero elements, not %d", typmod, n_elem)));
+}
+
 /*
  * Ensure valid dimensions
  */
@@ -82,6 +95,18 @@ CheckDim(int dim)
 		ereport(ERROR,
 				(errcode(ERRCODE_DATA_EXCEPTION),
 				 errmsg("svector must have at least 1 dimension")));
+}
+
+/*
+ * Ensure valid n elements
+ */
+static inline void
+CheckNElem(int n_elem)
+{
+	if (n_elem > VECTOR_MAX_N)
+		ereport(ERROR,
+				(errcode(ERRCODE_PROGRAM_LIMIT_EXCEEDED),
+				 errmsg("vector cannot have more than %d non-zero elements", VECTOR_MAX_N)));
 }
 
 /*
@@ -405,6 +430,7 @@ svectorrecv(PG_FUNCTION_ARGS)
 	unused = pq_getmsgint(buf, sizeof(int16));
 
 	CheckDim(dim);
+	CheckNElem(n_elem);
 	CheckExpectedDim(typmod, dim);
 
 	if (unused != 0)
@@ -554,9 +580,9 @@ array_to_svector(PG_FUNCTION_ARGS)
 /*
  * Convert svector to float4[]
  */
-PGDLLEXPORT PG_FUNCTION_INFO_V1(svectorto_float4);
+PGDLLEXPORT PG_FUNCTION_INFO_V1(svector_to_float4);
 Datum
-svectorto_float4(PG_FUNCTION_ARGS)
+svector_to_float4(PG_FUNCTION_ARGS)
 {
 	Vector	   *vec = PG_GETARG_VECTOR_P(0);
 	Datum	   *datums;
@@ -860,22 +886,32 @@ l1_distance(PG_FUNCTION_ARGS)
 	int b_i = 0;
 	float a_value = 0.0;
 	float b_value = 0.0;
-	while (a_i < a->n_elem && b_i < b->n_elem) {
-		if (ax[a_i].index == bx[b_i].index) {
-			a_value = ax[a_i].value;
-			b_value = bx[b_i].value;
-			a_i++;
-			b_i++;
-		} else if (ax[a_i].index < bx[b_i].index) {
-			a_value = ax[a_i].value;
-			b_value = 0;
-			a_i++;
-		} else if (bx[b_i].index < ax[a_i].index) {
+	while (a_i < a->n_elem || b_i < b->n_elem) {
+		if (a_i >= a->n_elem) {
 			a_value = 0;
 			b_value = bx[b_i].value;
 			b_i++;
+		} else if (b_i >= b->n_elem) {
+			a_value = ax[a_i].value;
+			b_value = 0;
+			a_i++;
+		} else {
+			if (ax[a_i].index == bx[b_i].index) {
+				a_value = ax[a_i].value;
+				b_value = bx[b_i].value;
+				a_i++;
+				b_i++;
+			} else if (ax[a_i].index < bx[b_i].index) {
+				a_value = ax[a_i].value;
+				b_value = 0;
+				a_i++;
+			} else if (bx[b_i].index < ax[a_i].index) {
+				a_value = 0;
+				b_value = bx[b_i].value;
+				b_i++;
+			}
 		}
-		distance += fabsf(ax[a_i].value - bx[b_i].value);
+		distance += fabsf(a_value - b_value);
 	}
 
 	PG_RETURN_FLOAT8((double) distance);
@@ -1002,9 +1038,9 @@ svector_add(PG_FUNCTION_ARGS)
 				b_i++;
 			}
 		}
-		i++;
 		rx[i].value = a_value + b_value;
 		rx[i].index = sum_index;
+		i++;
 	}
 
 	/* Check for overflow */
@@ -1043,7 +1079,7 @@ svector_sub(PG_FUNCTION_ARGS)
 		} else if (b_i >= b->n_elem) {
 			a_i++;
 		} else {
-			if (ax[a_i].index == bx[b_i].index && ax[a_i].value + bx[b_i].value != 0) {
+			if (ax[a_i].index == bx[b_i].index && ax[a_i].value - bx[b_i].value != 0) {
 				a_i++;
 				b_i++;
 			} else if (ax[a_i].index < bx[b_i].index) {
@@ -1076,7 +1112,7 @@ svector_sub(PG_FUNCTION_ARGS)
 			diff_index = ax[a_i].index;
 			a_i++;
 		} else {
-			if (ax[a_i].index == bx[b_i].index && ax[a_i].value + bx[b_i].value != 0) {
+			if (ax[a_i].index == bx[b_i].index && ax[a_i].value - bx[b_i].value != 0) {
 				a_value = ax[a_i].value;
 				b_value = bx[b_i].value;
 				diff_index = ax[a_i].index;
@@ -1094,9 +1130,9 @@ svector_sub(PG_FUNCTION_ARGS)
 				b_i++;
 			}
 		}
-		i++;
 		rx[i].value = a_value - b_value;
 		rx[i].index = diff_index;
+		i++;
 	}
 
 	/* Check for overflow */

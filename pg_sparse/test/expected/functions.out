@@ -153,3 +153,4 @@ SELECT l1_distance('[3e38]', '[-3e38]');
 -------------
     Infinity
 (1 row)
+

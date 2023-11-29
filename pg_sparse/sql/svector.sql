@@ -116,7 +116,7 @@ CREATE FUNCTION array_to_svector(double precision[], integer, boolean) RETURNS s
 CREATE FUNCTION array_to_svector(numeric[], integer, boolean) RETURNS svector
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-CREATE FUNCTION svectorto_float4(svector, integer, boolean) RETURNS real[]
+CREATE FUNCTION svector_to_float4(svector, integer, boolean) RETURNS real[]
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
 -- casts
@@ -125,7 +125,7 @@ CREATE CAST (svector AS svector)
 	WITH FUNCTION svector(svector, integer, boolean) AS IMPLICIT;
 
 CREATE CAST (svector AS real[])
-	WITH FUNCTION svectorto_float4(svector, integer, boolean) AS IMPLICIT;
+	WITH FUNCTION svector_to_float4(svector, integer, boolean) AS IMPLICIT;
 
 CREATE CAST (integer[] AS svector)
 	WITH FUNCTION array_to_svector(integer[], integer, boolean) AS ASSIGNMENT;

@@ -1,17 +1,47 @@
 #!/bin/bash
 
+# This script benchmarks the performance of ParadeDB, specifically pg_bm25, for index
+# and search time.
+
 # Exit on subcommand errors
 set -Eeuo pipefail
 
+# Handle params
+usage() {
+  echo "Usage: $0 [OPTIONS]"
+  echo "Options:"
+  echo " -h (optional),   Display this help message"
+  echo " -t (optional),   Docker tag to use for paradedb/paradedb:tag. Use 'local' to build from source. Default: 'latest'"
+  exit 1
+}
+
+# Instantiate vars
+FLAG_TAG="latest"
+
+# Assign flags to vars and check
+while getopts "ht:" flag
+do
+  case $flag in
+    h)
+      usage
+      ;;
+    t)
+      FLAG_TAG=$OPTARG
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+PORT=5431
+OUTPUT_CSV=out/benchmark_paradedb.csv
+
 # Ensure the "out" directory exists
-mkdir -p out
+mkdir -p out/
 
 # shellcheck disable=SC1091
 source "helpers/get_data.sh"
-
-PORT=5431
-PARADEDB_VERSION=latest
-OUTPUT_CSV=out/benchmark_paradedb.csv
 
 # Cleanup function to stop and remove the Docker container
 cleanup() {
@@ -29,12 +59,46 @@ trap cleanup EXIT
 
 echo ""
 echo "*******************************************************"
-echo "* Benchmarking ParadeDB version: $PARADEDB_VERSION"
+echo "* Benchmarking ParadeDB version: $FLAG_TAG"
 echo "*******************************************************"
 echo ""
 
+# If the tag is "local", build ParadeDB from source to test the current commit
+if [ "$FLAG_TAG" == "local" ]; then
+  echo "Building ParadeDB From Source..."
+  docker build -t paradedb/paradedb:"$FLAG_TAG" \
+    --no-cache \
+    -f "../docker/Dockerfile" \
+    --build-arg PG_VERSION_MAJOR="15" \
+    --build-arg PG_BM25_VERSION="0.0.0" \
+    --build-arg PG_SEARCH_VERSION="0.0.0" \
+    --build-arg PG_SPARSE_VERSION="0.0.0" \
+    --build-arg PG_GRAPHQL_VERSION="1.3.0" \
+    --build-arg PG_JSONSCHEMA_VERSION="0.1.4" \
+    --build-arg PGSQL_HTTP_VERSION="1.6.0" \
+    --build-arg PG_NET_VERSION="0.7.2" \
+    --build-arg PGVECTOR_VERSION="0.5.1" \
+    --build-arg PG_CRON_VERSION="1.6.0" \
+    --build-arg PG_IVM_VERSION="1.5.1" \
+    --build-arg PG_HASHIDS_VERSION="1.2.1" \
+    --build-arg PG_REPACK_VERSION="1.4.8" \
+    --build-arg PG_STAT_MONITOR_VERSION="2.0.1" \
+    --build-arg PG_HINT_PLAN_VERSION="1.5.0" \
+    --build-arg PG_ROARINGBITMAP_VERSION="0.5.4" \
+    --build-arg PGFACETING_VERSION="0.1.0" \
+    --build-arg PGTAP_VERSION="1.3.0" \
+    --build-arg PGAUDIT_VERSION="1.7.0" \
+    --build-arg POSTGIS_VERSION="3.4.0" \
+    --build-arg PGROUTING_VERSION="3.5.0" \
+    --build-arg HYPOPG_VERSION="1.4.0" \
+    --build-arg RUM_VERSION="1.3.13" \
+    --build-arg AGE_VERSION="1.4.0" \
+    "../"
+  echo ""
+fi
+
 # Install and run Docker container for ParadeDB in detached mode
-echo "Spinning up ParadeDB $PARADEDB_VERSION server..."
+echo "Spinning up ParadeDB $FLAG_TAG server..."
 docker run \
   -d \
   --name paradedb \
@@ -42,7 +106,7 @@ docker run \
   -e POSTGRES_PASSWORD=mypassword \
   -e POSTGRES_DB=mydatabase \
   -p $PORT:5432 \
-  paradedb/paradedb:$PARADEDB_VERSION
+  paradedb/paradedb:"$FLAG_TAG"
 
 # Wait for Docker container to spin up
 echo ""
@@ -57,7 +121,7 @@ load_data
 echo "Done!"
 
 # Output file for recording times
-echo "Table Size,Index Time,Search Time" > $OUTPUT_CSV
+echo "Table Size,Index Time,Search Time" > "$OUTPUT_CSV"
 
 # Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset
 TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 1500000 2000000 2500000 3000000 3500000 4000000 4500000 5000000)

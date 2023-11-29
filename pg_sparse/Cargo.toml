@@ -22,7 +22,7 @@ telemetry = ["shared/telemetry"]
 csv = "1.2.2"
 hnswlib = { git = "https://github.com/paradedb/hnswlib.git", rev="16096b04db19ca00ee7250e27680c8d9296c7c37" }
 memoffset = "0.9.0"
-pgrx = "=0.11.0"
+pgrx = "=0.11.1"
 rustc-hash = "1.1.0"
 shared = { version = "0.1.0", path = "../shared" }
 serde = "1.0.188"
@@ -32,4 +32,4 @@ utoipa = "3.5.0"
 
 [dev-dependencies]
 approx = "0.5.1"
-pgrx-tests = "=0.11.0"
+pgrx-tests = "=0.11.1"

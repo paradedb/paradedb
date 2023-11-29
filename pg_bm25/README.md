@@ -186,7 +186,7 @@ Then, install and initialize pgrx:
 
 ```bash
 # Note: Replace --pg15 with your version of Postgres, if different (i.e. --pg16, --pg14, etc.)
-cargo install --locked cargo-pgrx --version 0.11.0
+cargo install --locked cargo-pgrx --version 0.11.1
 cargo pgrx init --pg15=`which pg_config`
 ```
 

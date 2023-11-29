@@ -126,7 +126,7 @@ via Homebrew on macOS).
 Then, install and initialize pgrx:
 
 ```bash
-cargo install --locked cargo-pgrx --version 0.11.0
+cargo install --locked cargo-pgrx --version 0.11.1
 cargo pgrx init --pg15=`which pg_config`
 ```
 

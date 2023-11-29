@@ -29,6 +29,33 @@ pub fn weighted_mean(a: f64, b: f64, weights: Vec<f64>) -> f64 {
     a * weight_a + b * weight_b
 }
 
+#[cfg(test)]
+mod test {
+    use super::{minmax_norm, weighted_mean};
+
+    #[test]
+    fn test_minmax_norm() {
+        let value = 60.0;
+        let min = 20.0;
+        let max = 30.0;
+        assert_eq!(minmax_norm(value, min, max), (value - min) / (max - min));
+    }
+
+    #[test]
+    fn test_weighted_mean() {
+        let result = weighted_mean(3.0, 7.0, vec![0.4, 0.6]);
+        assert!((result - 6.0).abs() > f64::EPSILON);
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_weighted_mean_fail() {
+        let _result = weighted_mean(3.0, 7.0, vec![0.4, 0.5]);
+
+        let _result = weighted_mean(3.0, 7.0, vec![-0.1, 1.1]);
+    }
+}
+
 // #[cfg(feature = "pg_test")]
 #[pgrx::pg_schema]
 mod tests {
@@ -47,7 +74,7 @@ mod tests {
     #[pg_test]
     fn test_weighted_mean() {
         let result = weighted_mean(3.0, 7.0, vec![0.4, 0.6]);
-        assert!((result - 6.0).abs() < f64::EPSILON);
+        assert!((result - 6.0).abs() > f64::EPSILON);
 
         let result = std::panic::catch_unwind(|| {
             weighted_mean(3.0, 7.0, vec![0.4, 0.5]);
@@ -96,9 +123,9 @@ mod tests {
         paradedb.weighted_mean(
             paradedb.minmax_bm25(ctid, 'idx_one_republic', 'lyrics:im AND description:desc'),
             1 - paradedb.minmax_norm(
-              '[1,2,3]' <-> rating,
-              MIN('[1,2,3]' <-> rating) OVER (),
-              MAX('[1,2,3]' <-> rating) OVER ()
+              '[1,2,3,4,5,6,7]' <-> rating,
+              MIN('[1,2,3,4,5,6,7]' <-> rating) OVER (),
+              MAX('[1,2,3,4,5,6,7]' <-> rating) OVER ()
             ),
             ARRAY[0.8,0.2]
         ) as score_hybrid

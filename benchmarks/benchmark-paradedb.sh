@@ -69,30 +69,30 @@ if [ "$FLAG_TAG" == "local" ]; then
   docker build -t paradedb/paradedb:"$FLAG_TAG" \
     --no-cache \
     -f "../docker/Dockerfile" \
-    --build-arg PG_VERSION_MAJOR=15 \
-    --build-arg PG_BM25_VERSION=0.0.0 \
-    --build-arg PG_SEARCH_VERSION=0.0.0 \
-    --build-arg PG_SPARSE_VERSION=0.0.0 \
-    --build-arg PG_GRAPHQL_VERSION=1.3.0 \
-    --build-arg PG_JSONSCHEMA_VERSION=0.1.4 \
-    --build-arg PGSQL_HTTP_VERSION=1.6.0 \
-    --build-arg PG_NET_VERSION=0.7.2 \
-    --build-arg PGVECTOR_VERSION="$(jq -r '.extensions.pgvector.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_CRON_VERSION="$(jq -r '.extensions.pg_cron.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_IVM_VERSION="$(jq -r '.extensions.pg_ivm.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_HASHIDS_VERSION="$(jq -r '.extensions.pg_hashids.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_REPACK_VERSION="$(jq -r '.extensions.pg_repack.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_STAT_MONITOR_VERSION="$(jq -r '.extensions.pg_stat_monitor.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_HINT_PLAN_VERSION="$(jq -r '.extensions.pg_hint_plan.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PG_ROARINGBITMAP_VERSION="$(jq -r '.extensions.pg_roaringbitmap.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PGFACETING_VERSION="$(jq -r '.extensions.pgfaceting.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PGTAP_VERSION="$(jq -r '.extensions.pgtap.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PGAUDIT_VERSION="$(jq -r '.extensions.pgaudit.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg POSTGIS_VERSION="$(jq -r '.extensions.postgis.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg PGROUTING_VERSION="$(jq -r '.extensions.pgrouting.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg HYPOPG_VERSION="$(jq -r '.extensions.hypopg.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg RUM_VERSION="$(jq -r '.extensions.rum.version' '../conf/third_party_pg_extensions.json')" \
-    --build-arg AGE_VERSION="$(jq -r '.extensions.age.version' '../conf/third_party_pg_extensions.json')" \
+    --build-arg PG_VERSION_MAJOR="15" \
+    --build-arg PG_BM25_VERSION="0.0.0" \
+    --build-arg PG_SEARCH_VERSION="0.0.0" \
+    --build-arg PG_SPARSE_VERSION="0.0.0" \
+    --build-arg PG_GRAPHQL_VERSION="1.3.0" \
+    --build-arg PG_JSONSCHEMA_VERSION="0.1.4" \
+    --build-arg PGSQL_HTTP_VERSION="1.6.0" \
+    --build-arg PG_NET_VERSION="0.7.2" \
+    --build-arg PGVECTOR_VERSION="0.5.1" \
+    --build-arg PG_CRON_VERSION="1.6.0" \
+    --build-arg PG_IVM_VERSION="1.5.1" \
+    --build-arg PG_HASHIDS_VERSION="1.2.1" \
+    --build-arg PG_REPACK_VERSION="1.4.8" \
+    --build-arg PG_STAT_MONITOR_VERSION="2.0.1" \
+    --build-arg PG_HINT_PLAN_VERSION="1.5.0" \
+    --build-arg PG_ROARINGBITMAP_VERSION="0.5.4" \
+    --build-arg PGFACETING_VERSION="0.1.0" \
+    --build-arg PGTAP_VERSION="1.3.0" \
+    --build-arg PGAUDIT_VERSION="1.7.0" \
+    --build-arg POSTGIS_VERSION="3.4.0" \
+    --build-arg PGROUTING_VERSION="3.5.0" \
+    --build-arg HYPOPG_VERSION="1.4.0" \
+    --build-arg RUM_VERSION="1.3.13" \
+    --build-arg AGE_VERSION="1.4.0" \
     "../"
   echo ""
 fi

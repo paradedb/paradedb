@@ -18,7 +18,6 @@ on:
   push:
     branches:
       - dev # Run CI on the dev branch after every merge. This is important to fill the GitHub Actions cache in a way that pull requests can see it
-      - phil/fix-ci
   workflow_dispatch:
     inputs:
       test_upgrade_version:
@@ -88,17 +87,6 @@ jobs:
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
 
-      - name: Run pg_bm25 Unit Tests
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_bm25/
-        env:
-          LLVM_PROFILE_FILE: target/coverage/pg_bm25-%p-%m.profraw
-          RUST_BACKTRACE: 1
-        run: |
-          mkdir -p ../target/coverage ../target/coverage-report
-          cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-          cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
-
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_bm25 Integration Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
@@ -119,6 +107,16 @@ jobs:
           else
             ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi
+
+      - name: Run pg_bm25 Unit Tests
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_bm25/
+        env:
+          LLVM_PROFILE_FILE: target/coverage/pg_bm25-%p-%m.profraw
+          RUST_BACKTRACE: 1
+        run: |
+          mkdir -p ../target/coverage ../target/coverage-report
+          cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports

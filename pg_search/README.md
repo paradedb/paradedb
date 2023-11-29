@@ -91,7 +91,7 @@ SELECT
     category,
     rating,
     paradedb.weighted_mean(
-        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'keyboard'),
+        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
         1 - paradedb.minmax_norm(
           '[1,2,3]' <-> embedding,
           MIN('[1,2,3]' <-> embedding) OVER (),

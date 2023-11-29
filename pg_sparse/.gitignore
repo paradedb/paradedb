@@ -1,22 +1,18 @@
-# VS Code
-.vscode/
+# PostgreSQL
+dist/
+sql/svector--?.?.?.sql
 
-# macOS
-.DS_Store
-
-# Cargo
-target/
-debug/
-results/
-
-# Rustfmt
-**/*.rs.bk
-
-# Code Coverage
-*.profraw
+# Libraries
+*.o
+*.so
+*.bc
+*.dll
+*.dylib
+*.obj
+*.lib
+*.exp
 
 # pg_regress
-test/results/
+results/
 test/test_logs.log
-regression.diffs
-regression.out
+regression.*

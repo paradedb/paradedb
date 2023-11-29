@@ -15,9 +15,6 @@ on:
       - "pg_sparse/**"
       - "!pg_sparse/README.md"
       - ".github/workflows/test-pg_sparse.yml"
-  push:
-    branches:
-      - dev # Run CI on the dev branch after every merge. This is important to fill the GitHub Actions cache in a way that pull requests can see it
   workflow_dispatch:
     inputs:
       test_upgrade_version:
@@ -38,96 +35,33 @@ jobs:
         pg_version: [12, 13, 14, 15, 16]
 
     steps:
-      # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only
-      # needs to happen once, so we skip the workflow for all but one of the matrix jobs in that case.
-      - name: Check if Skipping
-        id: check_skip
-        run: |
-          if [[ "${{ github.event_name }}" = "push" && "${{ matrix.pg_version }}" != "15" ]]; then
-            echo "This is a push event to fill Rust cache. Skipping this job."
-            echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
-          fi
-
       - name: Checkout Git Repository
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the main branch, but load it on all branches.
-      - name: Install Rust Cache
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ runner.os }}-rust-cache-pg_sparse-${{ HashFiles('Cargo.lock') }}
-          cache-targets: true
-          cache-on-failure: true
-          cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
-
       - name: Remove old postgres, llvm, clang, and install appropriate version
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           sudo apt-get remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
           apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D15(\D.*)?$' | xargs sudo apt remove -y
           sudo apt-get install -y llvm-15-dev libclang-15-dev clang-15 gcc
 
       - name: Install & Configure Supported PostgreSQL Version
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/include/postgresql/${{ matrix.pg_version }}/server/extension/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Install pgrx, grcov & llvm-tools-preview
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      # We update to latest + 1, so that we can test upgrading to the current version
+      - name: Update Version in svector.control
+        working-directory: pg_sparse/
         run: |
-          cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.1
-          cargo install -j $(nproc) --locked grcov
-          rustup component add llvm-tools-preview
+          NEW_VERSION_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
+          sed -i "s/^default_version = .*/default_version = '${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_VERSION_PATCH}'/" svector.control
+          sed -i "s/^EXTVERSION = .*/EXTVERSION = ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_VERSION_PATCH}/" Makefile
+          cat svector.control
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
-      - name: Run pg_sparse Integration Tests
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      - name: Run pg_sparse Tests
         working-directory: pg_sparse/
-        run: |
-          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
-            # Retrieve the version to test upgrading to
-            if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
-              echo "New version not provided, assuming the next release is incrementing patch..."
-              NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
-              NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}
-              echo "$NEW_VERSION"
-            else
-              echo "Using the provided new version (likely a manual major or minor version increment)..."
-              NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
-            fi
-            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION"
-          else
-            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
-          fi
-
-      - name: Run pg_sparse Unit Tests
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_sparse/
-        env:
-          LLVM_PROFILE_FILE: target/coverage/pg_sparse-%p-%m.profraw
-          RUST_BACKTRACE: 1
-        run: |
-          mkdir -p ../target/coverage ../target/coverage-report
-          cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
-
-      # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
-      - name: Generate Code Coverage Reports
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
-        run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
-
-      - name: Upload Coverage Reports to Codecov
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
-        uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: ./target/coverage-report/
-          files: lcov
-          fail_ci_if_error: true
+        run: ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"

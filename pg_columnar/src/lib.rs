@@ -32,7 +32,7 @@ extern "C" fn columnar_planner(
         // Log the fact that standard planner was called
         info!("Standard planner called");
 
-        // TODO: iterate through result and convert to substrait plan - first iterate through plan when UDFs are involved and determin if behavior is correct
+        // TODO: iterate through result and convert to substrait plan - first iterate through plan when UDFs are involved and determine if behavior is correct
 
         result
     }
@@ -43,22 +43,64 @@ unsafe extern "C" fn columnar_executor_run(query_desc: *mut QueryDesc, direction
     info!("Entering columnar_executor_run");
 
     // Imitate ExplainNode for recursive plan scanning behavior
-    let ps = (*query_desc).planstate;
-    let plan = (*ps).plan;
-
+    let ps = (*queryDesc).plannedstmt;
+    let plan = (*ps).planTree;
     let node = plan as *mut Node;
-    let node_tag = unsafe { (*node).type_ };
-    // info!("Node type {}", node_tag);
-    match node_tag {
-        NodeTag::T_ModifyTable => {
-            info!("Modify table");
-        },
-        // Handle other node types...
-        _ => {}
-    }
+    let node_tag = unsafe { (*node).type_};
 
-    if !(*ps).subPlan.is_null() {
-        info!("SUBPLAN");
+    match node_tag {
+        NodeTag::T_SeqScan => {
+            let scan = (SeqScan*) plan;
+            let rte = list_nth((*ps).rtable, (*scan).scan.scanrelid - 1);
+
+            // match (*rte).rtekind {
+            //     RTEKIND_RTE_RELATION => {
+            //         let relation = RelationIdGetRelation(rte->relid);
+            //     }
+            // }
+            let relation = RelationIdGetRelation((*rte).relid);
+
+            let table = substrait::NamedTable {
+                names: vec![(*(*relation).rd_rel).relname],
+                advanced_extension: None
+            };
+
+            let type_info = substrait::Struct {
+                types: vec![],
+                type_variation_reference: 0,
+                nullability: substrait::proto::type::Nullability::Required,
+            };
+            let base_schema = substrait::NamedStruct {
+                names: vec![],
+                struct: None
+            };
+
+            let list = (*plan).targetlist;
+            if ((*plan).targetlist != NULL) {
+                for (let i = 0; i < list.length; i++) {
+                    let list_cell = list.elements.offset(i);
+                    let list_cell_node = (*list_cell).ptr_value as mut* Node;
+                    let list_cell_node_tag = unsafe { (*list_cell_node).type_ };
+                    match (list_cell_node_tag) {
+                        NodeTag::T_Var => {
+                            let var = list_cell_node_tag as *mut Var;
+                            let list_cell_rte = list_nth((*ps).rtable, (*var).varno - 1);
+                            base_schema.names.push(get_attname((*list_cell_rte).relid, (*var).varattno, false));
+                        }
+                    }
+                }
+            }
+
+            let sget = substrait::ReadRel {
+                common: None,
+                base_schema: base_schema,
+                filter: None,
+                best_effort_filter: None,
+                projection: None,
+                advanced_extension: None,
+                read_type: None
+            };
+        }
     }
 
     unsafe {

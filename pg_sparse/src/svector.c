@@ -858,16 +858,24 @@ l1_distance(PG_FUNCTION_ARGS)
 
 	int a_i = 0;
 	int b_i = 0;
+	float a_value = 0.0;
+	float b_value = 0.0;
 	while (a_i < a->n_elem && b_i < b->n_elem) {
 		if (ax[a_i].index == bx[b_i].index) {
-			distance += fabsf(ax[a_i].value - bx[b_i].value);
+			a_value = ax[a_i].value;
+			b_value = bx[b_i].value;
 			a_i++;
 			b_i++;
 		} else if (ax[a_i].index < bx[b_i].index) {
+			a_value = ax[a_i].value;
+			b_value = 0;
 			a_i++;
 		} else if (bx[b_i].index < ax[a_i].index) {
+			a_value = 0;
+			b_value = bx[b_i].value;
 			b_i++;
 		}
+		distance += fabsf(ax[a_i].value - bx[b_i].value);
 	}
 
 	PG_RETURN_FLOAT8((double) distance);
@@ -939,14 +947,11 @@ svector_add(PG_FUNCTION_ARGS)
 	int b_i = 0;
 	while (a_i < a->n_elem || b_i < b->n_elem) {
 		if (a_i >= a->n_elem) {
-			result_n_elem++;
 			b_i++;
 		} else if (b_i >= b->n_elem) {
-			result_n_elem++;
 			a_i++;
 		} else {
 			if (ax[a_i].index == bx[b_i].index && ax[a_i].value + bx[b_i].value != 0) {
-				result_n_elem++;
 				a_i++;
 				b_i++;
 			} else if (ax[a_i].index < bx[b_i].index) {
@@ -955,6 +960,7 @@ svector_add(PG_FUNCTION_ARGS)
 				b_i++;
 			}
 		}
+		result_n_elem++;
 	}
 
 	result = InitVector(result_n_elem, a->dim);
@@ -963,28 +969,42 @@ svector_add(PG_FUNCTION_ARGS)
 	int i = 0;
 	a_i = 0;
 	b_i = 0;
+	float a_value = 0.0;
+	float b_value = 0.0;
+	int sum_index = 0;
 	while (a_i < a->n_elem || b_i < b->n_elem) {
 		if (a_i >= a->n_elem) {
-			rx[i].index = bx[b_i].index;
-			rx[i].value = bx[b_i].value;
+			a_value = 0;
+			b_value = bx[b_i].value;
+			sum_index = bx[b_i].index;
 			b_i++;
 		} else if (b_i >= b->n_elem) {
-			rx[i].index = ax[a_i].index;
-			rx[i].value = ax[a_i].value;
+			a_value = ax[a_i].value;
+			b_value = 0;
+			sum_index = ax[a_i].index;
 			a_i++;
 		} else {
 			if (ax[a_i].index == bx[b_i].index && ax[a_i].value + bx[b_i].value != 0) {
-				rx[i].index = ax[a_i].index;
-				rx[i].value = ax[a_i].value + bx[b_i].value;
-				i++;
+				a_value = ax[a_i].value;
+				b_value = bx[b_i].value;
+				sum_index = ax[a_i].index;
 				a_i++;
 				b_i++;
 			} else if (ax[a_i].index < bx[b_i].index) {
+				a_value = ax[a_i].value;
+				b_value = 0;
+				sum_index = ax[a_i].index;
 				a_i++;
 			} else if (bx[b_i].index < ax[a_i].index) {
+				a_value = 0;
+				b_value = bx[b_i].value;
+				sum_index = bx[b_i].index;
 				b_i++;
 			}
 		}
+		i++;
+		rx[i].value = a_value + b_value;
+		rx[i].index = sum_index;
 	}
 
 	/* Check for overflow */
@@ -1019,14 +1039,11 @@ svector_sub(PG_FUNCTION_ARGS)
 	int b_i = 0;
 	while (a_i < a->n_elem || b_i < b->n_elem) {
 		if (a_i >= a->n_elem) {
-			result_n_elem++;
 			b_i++;
 		} else if (b_i >= b->n_elem) {
-			result_n_elem++;
 			a_i++;
 		} else {
-			if (ax[a_i].index == bx[b_i].index && ax[a_i].value - bx[b_i].value != 0) {
-				result_n_elem++;
+			if (ax[a_i].index == bx[b_i].index && ax[a_i].value + bx[b_i].value != 0) {
 				a_i++;
 				b_i++;
 			} else if (ax[a_i].index < bx[b_i].index) {
@@ -1035,6 +1052,7 @@ svector_sub(PG_FUNCTION_ARGS)
 				b_i++;
 			}
 		}
+		result_n_elem++;
 	}
 
 	result = InitVector(result_n_elem, a->dim);
@@ -1043,28 +1061,42 @@ svector_sub(PG_FUNCTION_ARGS)
 	int i = 0;
 	a_i = 0;
 	b_i = 0;
+	float a_value = 0.0;
+	float b_value = 0.0;
+	int diff_index = 0;
 	while (a_i < a->n_elem || b_i < b->n_elem) {
 		if (a_i >= a->n_elem) {
-			rx[i].index = -bx[b_i].index;
-			rx[i].value = -bx[b_i].value;
+			a_value = 0;
+			b_value = bx[b_i].value;
+			diff_index = bx[b_i].index;
 			b_i++;
 		} else if (b_i >= b->n_elem) {
-			rx[i].index = ax[a_i].index;
-			rx[i].value = ax[a_i].value;
+			a_value = ax[a_i].value;
+			b_value = 0;
+			diff_index = ax[a_i].index;
 			a_i++;
 		} else {
-			if (ax[a_i].index == bx[b_i].index && ax[a_i].value - bx[b_i].value != 0) {
-				rx[i].index = ax[a_i].index;
-				rx[i].value = ax[a_i].value - bx[b_i].value;
-				i++;
+			if (ax[a_i].index == bx[b_i].index && ax[a_i].value + bx[b_i].value != 0) {
+				a_value = ax[a_i].value;
+				b_value = bx[b_i].value;
+				diff_index = ax[a_i].index;
 				a_i++;
 				b_i++;
 			} else if (ax[a_i].index < bx[b_i].index) {
+				a_value = ax[a_i].value;
+				b_value = 0;
+				diff_index = ax[a_i].index;
 				a_i++;
 			} else if (bx[b_i].index < ax[a_i].index) {
+				a_value = 0;
+				b_value = bx[b_i].value;
+				diff_index = bx[b_i].index;
 				b_i++;
 			}
 		}
+		i++;
+		rx[i].value = a_value - b_value;
+		rx[i].index = diff_index;
 	}
 
 	/* Check for overflow */

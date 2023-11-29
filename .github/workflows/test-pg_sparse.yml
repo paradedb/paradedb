@@ -110,12 +110,13 @@ jobs:
 
       - name: Run pg_sparse Unit Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        working-directory: pg_sparse/
         env:
           LLVM_PROFILE_FILE: target/coverage/pg_sparse-%p-%m.profraw
           RUST_BACKTRACE: 1
         run: |
-          mkdir -p target/coverage target/coverage-report
-          cd pg_sparse/ && cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
+          mkdir -p ../target/coverage ../target/coverage-report
+          cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports

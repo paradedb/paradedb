@@ -81,3 +81,35 @@ pub fn schema_bm25(
 
     TableIterator::new(field_rows)
 }
+
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use super::schema_bm25;
+    use pgrx::*;
+    use shared::testing::SETUP_SQL;
+
+    #[pg_test]
+    fn test_schema_bm25() {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        let schemas = schema_bm25("idx_one_republic").collect::<Vec<_>>();
+        let names = schemas
+            .iter()
+            .map(|schema| schema.0.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(schemas.len(), 7);
+        assert_eq!(
+            names,
+            vec![
+                "title",
+                "album",
+                "release_year",
+                "genre",
+                "description",
+                "lyrics",
+                "heap_tid"
+            ]
+        );
+    }
+}

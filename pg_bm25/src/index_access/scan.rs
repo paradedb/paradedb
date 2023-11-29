@@ -279,3 +279,28 @@ fn write_to_manager(ctid: pg_sys::ItemPointerData, score: f32, doc_address: DocA
     // Add doc address
     manager.add_doc_address(item_pointer_get_both(ctid), doc_address);
 }
+
+// #[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use super::ambeginscan;
+    use pgrx::*;
+    use shared::testing::SETUP_SQL;
+
+    use crate::operator::get_index_oid;
+
+    #[pg_test]
+    fn test_ambeginscan() {
+        Spi::run(SETUP_SQL).expect("failed to create index and table");
+        let oid = get_index_oid("idx_one_republic", "bm25")
+            .expect("could not find oid for one_republic")
+            .unwrap();
+
+        let index = unsafe { pg_sys::index_open(oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE) };
+        let index_scan = ambeginscan(index, 3 as std::os::raw::c_int, 1 as std::os::raw::c_int);
+        let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(index_scan) };
+
+        assert_eq!(scan.numberOfKeys, 3 as std::os::raw::c_int);
+        assert!(!scan.is_null());
+    }
+}

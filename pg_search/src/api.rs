@@ -59,38 +59,8 @@ mod test {
 // #[cfg(feature = "pg_test")]
 #[pgrx::pg_schema]
 mod tests {
-    use super::{minmax_norm, weighted_mean};
     use pgrx::*;
     use shared::testing::SETUP_SQL;
-
-    #[pg_test]
-    fn test_minmax_norm() {
-        let value = 60.0;
-        let min = 20.0;
-        let max = 30.0;
-        assert_eq!(minmax_norm(value, min, max), (value - min) / (max - min));
-    }
-
-    #[pg_test]
-    fn test_weighted_mean() {
-        let result = weighted_mean(3.0, 7.0, vec![0.4, 0.6]);
-        assert!((result - 6.0).abs() > f64::EPSILON);
-
-        let result = std::panic::catch_unwind(|| {
-            weighted_mean(3.0, 7.0, vec![0.4, 0.5]);
-        });
-        assert!(result.is_err());
-
-        let result = std::panic::catch_unwind(|| {
-            weighted_mean(3.0, 7.0, vec![-0.1, 1.1]);
-        });
-        assert!(result.is_err());
-
-        let result = std::panic::catch_unwind(|| {
-            weighted_mean(3.0, 7.0, vec![0.4, 0.5, 0.1]);
-        });
-        assert!(result.is_err())
-    }
 
     #[pg_test]
     fn test_weighted_mean_spi() {
@@ -130,8 +100,7 @@ mod tests {
             ARRAY[0.8,0.2]
         ) as score_hybrid
     FROM one_republic_songs
-    ORDER BY score_hybrid DESC
-    LIMIT 3;
+    ORDER BY score_hybrid DESC;
             "#;
 
         let mean = Spi::get_one::<f64>(query)

@@ -73,7 +73,8 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install common dependencies to builder and runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
     curl \
     wget \
     sudo \

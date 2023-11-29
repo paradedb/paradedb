@@ -228,6 +228,7 @@ wait
 # can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time (for local development)
 default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
 if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
+  echo "Tests completed. Resetting pgrx environment to use default version: $default_pg_version..."
   case "$OS_NAME" in
     Darwin)
       # Check arch to set proper pg_config path
@@ -244,4 +245,5 @@ if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
       cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config" > /dev/null
       ;;
   esac
+  echo "Done, goodbye!"
 fi

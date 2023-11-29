@@ -18,6 +18,7 @@ on:
   push:
     branches:
       - dev # Run CI on the dev branch after every merge. This is important to fill the GitHub Actions cache in a way that pull requests can see it
+      - phil/fix-ci
   workflow_dispatch:
     inputs:
       test_upgrade_version:

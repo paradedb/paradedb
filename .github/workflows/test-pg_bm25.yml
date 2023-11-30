@@ -68,8 +68,6 @@ jobs:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
-
-
       - name: Remove old postgres, llvm, clang, and install appropriate version
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |

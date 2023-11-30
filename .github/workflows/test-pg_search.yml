@@ -57,7 +57,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.73.0
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the main branch, but load it on all branches.
+      # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: Swatinem/rust-cache@v2

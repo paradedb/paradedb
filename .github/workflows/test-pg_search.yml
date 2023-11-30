@@ -52,17 +52,17 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
-      # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the main branch, but load it on all branches.
-      - name: Install Rust Cache
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
-          cache-targets: true
-          cache-on-failure: true
-          cache-all-crates: true
-          save-if: ${{ github.ref == 'refs/heads/dev' }}
+      # # Caches from base branches are available to PRs, but not across unrelated branches, so we only
+      # # save the cache on the main branch, but load it on all branches.
+      # - name: Install Rust Cache
+      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+      #   uses: Swatinem/rust-cache@v2
+      #   with:
+      #     shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
+      #     cache-targets: true
+      #     cache-on-failure: true
+      #     cache-all-crates: true
+      #     save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

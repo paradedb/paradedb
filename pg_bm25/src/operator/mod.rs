@@ -152,7 +152,7 @@ mod tests {
     use pgrx::*;
 
     const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
-    const QUERY_SQL: &str = include_str!("../../sql/search_query.sql");    
+    const QUERY_SQL: &str = include_str!("../../sql/search_query.sql");
 
     use super::{get_index_oid, scan_index};
 

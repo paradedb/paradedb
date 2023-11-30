@@ -23,7 +23,7 @@ SELECT
     category,
     rating,
     paradedb.weighted_mean(
-        paradedb.minmax_bm25(ctid, '[index_name]', '[query]'),
+        paradedb.minmax_bm25(id, '[index_name]', '[query]'),
         1 - paradedb.minmax_norm(
           [l2_distance],
           MIN([l2_distance]) OVER (),

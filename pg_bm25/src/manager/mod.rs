@@ -161,15 +161,6 @@ mod tests {
     #[pgrx::pg_test]
     fn test_current_executor_manager() {
         let expected = get_fresh_executor_manager();
-        // let item_ptr = ItemPointerData {
-        //     ip_blkid: BlockIdData {
-        //         bi_hi: 10,
-        //         bi_lo: 0,
-        //     },
-        //     ip_posid: 8,
-        // };
-        // let ctid = item_pointer_get_both(item_ptr);
-
         let key = 25;
 
         expected.add_score(key, 3.3);
@@ -187,23 +178,6 @@ mod tests {
 
     #[pgrx::pg_test]
     fn test_add_score() {
-        //     let first_item_ptr = ItemPointerData {
-        //         ip_blkid: BlockIdData {
-        //             bi_hi: 10,
-        //             bi_lo: 0,
-        //         },
-        //         ip_posid: 8,
-        //     };
-        //     let second_item_ptr = ItemPointerData {
-        //         ip_blkid: BlockIdData {
-        //             bi_hi: 88,
-        //             bi_lo: 22,
-        //         },
-        //         ip_posid: 3,
-        //     };
-        //     let first_ctid = item_pointer_get_both(first_item_ptr);
-        //     let second_ctid = item_pointer_get_both(second_item_ptr);
-
         let first_key = 25;
         let second_key = 35;
 

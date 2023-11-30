@@ -248,7 +248,6 @@ impl ParadeLogsGlobal {
 /// Example test run:
 /// ```
 /// #[cfg(any(test, feature = "pg_test"))]
-/// #[]
 /// mod tests {
 ///     #[pgrx::pg_test]
 ///     fn test_parade_logs() {

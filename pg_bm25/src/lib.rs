@@ -18,8 +18,8 @@ pgrx::pg_module_magic!();
 
 extension_sql_file!("../sql/_bootstrap.sql");
 
-pub const SETUP_SQL: &str = include_str!("index_setup.sql");
-pub const QUERY_SQL: &str = include_str!("search_query.sql");
+pub const SETUP_SQL: &str = include_str!("../sql/index_setup.sql");
+pub const QUERY_SQL: &str = include_str!("../sql/search_query.sql");
 
 // Initializes option parsing and telemetry
 #[allow(clippy::missing_safety_doc)]

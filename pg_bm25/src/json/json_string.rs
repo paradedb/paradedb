@@ -146,7 +146,7 @@ impl std::fmt::Debug for Box<dyn JsonString> {
 }
 
 #[cfg(feature = "pg_test")]
-#[pgrx::pg_schema]
+#[]
 mod tests {
     use super::JsonString;
     use pgrx::*;

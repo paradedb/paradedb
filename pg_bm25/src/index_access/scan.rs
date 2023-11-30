@@ -281,7 +281,7 @@ fn write_to_manager(ctid: pg_sys::ItemPointerData, score: f32, doc_address: DocA
 }
 
 // #[cfg(feature = "pg_test")]
-#[pgrx::pg_schema]
+#[]
 mod tests {
     use super::ambeginscan;
     use pgrx::*;

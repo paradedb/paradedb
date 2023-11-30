@@ -321,7 +321,7 @@ fn default_as_freqs_and_positions() -> IndexRecordOption {
 }
 
 #[cfg(feature = "pg_test")]
-#[pgrx::pg_schema]
+#[]
 mod tests {
 
     use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};

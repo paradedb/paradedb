@@ -352,7 +352,7 @@ where
 }
 
 #[cfg(feature = "pg_test")]
-#[pgrx::pg_schema]
+#[]
 mod tests {
     use super::{
         categorize_tupdesc, handle_as_generic_string, lookup_index_tupdesc, SearchQuery,

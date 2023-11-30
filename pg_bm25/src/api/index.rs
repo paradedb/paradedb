@@ -83,7 +83,6 @@ pub fn schema_bm25(
 }
 
 #[cfg(feature = "pg_test")]
-#[pgrx::pg_schema]
 mod tests {
     use super::schema_bm25;
     use pgrx::*;

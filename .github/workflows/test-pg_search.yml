@@ -61,7 +61,6 @@ jobs:
       #     shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
       #     cache-targets: true
       #     cache-on-failure: true
-      #     cache-all-crates: true
       #     save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Remove old postgres, llvm, clang, and install appropriate version

@@ -47,7 +47,6 @@ if [ ! -d "pgvector/" ]; then
 fi
 
 echo "Installing pgvector..."
-echo ""
 cd pgvector/
 git fetch --tags
 git checkout "$PGVECTOR_VERSION"
@@ -63,7 +62,7 @@ for version in "${PG_VERSIONS[@]}"; do
       make clean
       # Check arch to set proper pg_config path
       if [ "$(uname -m)" = "arm64" ]; then
-        make PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"
+        make PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config" > /dev/null
         make install PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"
       elif [ "$(uname -m)" = "x86_64" ]; then
         make PG_CONFIG="/usr/local/opt/postgresql@$version/bin/pg_config"
@@ -83,7 +82,6 @@ done
 
 echo ""
 echo "Installing pg_sparse..."
-echo ""
 cd "$CONFIGDIR/../../pg_sparse"
 
 # Build and install pg_sparse into the pgrx environment
@@ -94,7 +92,7 @@ for version in "${PG_VERSIONS[@]}"; do
       make clean
       # Check arch to set proper pg_config path
       if [ "$(uname -m)" = "arm64" ]; then
-        make PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"
+        make PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config" > /dev/null
         make install PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"
       elif [ "$(uname -m)" = "x86_64" ]; then
         make PG_CONFIG="/usr/local/opt/postgresql@$version/bin/pg_config"

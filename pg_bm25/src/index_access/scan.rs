@@ -12,8 +12,6 @@ use crate::{
     parade_index::index::TantivyScanState,
 };
 
-const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
-
 #[pg_guard]
 pub extern "C" fn ambeginscan(
     indexrel: pg_sys::Relation,
@@ -287,6 +285,8 @@ fn write_to_manager(ctid: pg_sys::ItemPointerData, score: f32, doc_address: DocA
 mod tests {
     use super::ambeginscan;
     use pgrx::*;
+
+    const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
 
     use crate::operator::get_index_oid;
 

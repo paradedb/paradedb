@@ -13,8 +13,6 @@ use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
 use crate::parade_index::index::ParadeIndex;
 
-const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
-
 type ConversionFunc = dyn Fn(&mut JsonBuilder, String, pg_sys::Datum, pg_sys::Oid);
 pub struct CategorizedAttribute {
     pub attname: String,
@@ -363,6 +361,8 @@ mod tests {
     use crate::json::builder::{JsonBuilder, JsonBuilderValue};
     use crate::operator::get_index_oid;
     use pgrx::*;
+
+    const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
 
     #[pg_test]
     fn convert_str_to_search_query() {

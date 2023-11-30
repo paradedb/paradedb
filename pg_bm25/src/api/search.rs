@@ -5,8 +5,6 @@ use crate::manager::get_current_executor_manager;
 use crate::operator::scan_index;
 use crate::parade_index::index::ParadeIndex;
 
-const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
-
 #[pg_extern]
 pub fn rank_bm25(ctid: Option<ItemPointerData>) -> f32 {
     match ctid {
@@ -90,6 +88,8 @@ pub fn minmax_bm25(
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::*;
+
+    const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
 
     #[pg_test]
     fn test_rank_bm25() {

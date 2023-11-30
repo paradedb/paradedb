@@ -254,7 +254,7 @@ CREATE INDEX ON items (category_id);
 Or a [partial index](https://www.postgresql.org/docs/current/indexes-partial.html) on the svector column for approximate search:
 
 ```sql
-CREATE INDEX ON items USING ivfflat (embedding svectorl2_ops) WITH (lists = 100)
+CREATE INDEX ON items USING shnsw (embedding svectorl2_ops) WITH (lists = 100)
     WHERE (category_id = 123);
 ```
 

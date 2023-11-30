@@ -146,13 +146,15 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
     name = "bm25_ops_anyelement_operator"
 );
 
+const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
+const QUERY_SQL: &str = include_str!("../../sql/search_query.sql");
+
 #[cfg(feature = "pg_test")]
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::*;
 
     use super::{get_index_oid, scan_index};
-    use shared::testing::{QUERY_SQL, SETUP_SQL};
 
     #[pg_test]
     fn test_get_index_oid() -> Result<(), spi::Error> {

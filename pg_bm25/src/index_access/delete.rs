@@ -2,6 +2,8 @@ use pgrx::*;
 
 use crate::index_access::utils::get_parade_index;
 
+const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
+
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
     info: *mut pg_sys::IndexVacuumInfo,
@@ -34,7 +36,6 @@ pub extern "C" fn ambulkdelete(
 mod tests {
     use super::ambulkdelete;
     use pgrx::*;
-    use shared::testing::SETUP_SQL;
 
     use crate::operator::get_index_oid;
 

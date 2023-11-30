@@ -8,6 +8,8 @@ use tantivy::query::AllQuery;
 
 use crate::index_access::utils::get_parade_index;
 
+const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
+
 #[pg_extern]
 pub fn aggregation(index_name: &str, query: &str) -> JsonB {
     // Get Parade index
@@ -32,7 +34,6 @@ pub fn aggregation(index_name: &str, query: &str) -> JsonB {
 mod tests {
     use super::aggregation;
     use pgrx::*;
-    use shared::testing::SETUP_SQL;
 
     #[pg_test]
     fn test_histogram_aggregation() {

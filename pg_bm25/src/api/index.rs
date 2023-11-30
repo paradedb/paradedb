@@ -4,6 +4,8 @@ use tantivy::schema::*;
 use crate::index_access::utils::get_parade_index;
 use crate::parade_index::fields::ToString;
 
+const SETUP_SQL: &str = include_str!("../../sql/index_setup.sql");
+
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 pub fn schema_bm25(
@@ -87,7 +89,6 @@ pub fn schema_bm25(
 mod tests {
     use super::schema_bm25;
     use pgrx::*;
-    use shared::testing::SETUP_SQL;
 
     #[pg_test]
     fn test_schema_bm25() {

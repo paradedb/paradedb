@@ -1,6 +1,8 @@
 use pgrx::*;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::manager::get_current_executor_manager;
+use crate::operator;
 use crate::parade_index::index::ParadeIndex;
 
 #[pg_extern]
@@ -31,21 +33,23 @@ pub fn highlight_bm25(bm25_id: i64, index_name: String, field_name: String) -> S
 #[pg_extern]
 pub fn minmax_bm25(
     bm25_id: i64,
-    _index_name: &str,
-    _query: &str,
-    _fcinfo: pg_sys::FunctionCallInfo,
+    index_name: &str,
+    query: &str,
+    fcinfo: pg_sys::FunctionCallInfo,
 ) -> f32 {
-    // let indexrel =
-    //     PgRelation::open_with_name_and_share_lock(index_name).expect("could not open index");
-    // let index_oid = indexrel.oid();
-    // let mut lookup_by_query = pg_func_extra(fcinfo, || {
-    //     FxHashMap::<(pg_sys::Oid, Option<String>), FxHashSet<u64>>::default()
-    // });
+    let indexrel =
+        PgRelation::open_with_name_and_share_lock(index_name).expect("could not open index");
+    let index_oid = indexrel.oid();
+    let mut lookup_by_query = unsafe {
+        pg_func_extra(fcinfo, || {
+            FxHashMap::<(pg_sys::Oid, Option<String>), FxHashSet<u64>>::default()
+        })
+    };
 
-    // lookup_by_query
-    //     .entry((index_oid, Some(String::from(query))))
-    //     .or_insert_with(|| scan_index(query, index_oid))
-    //     .contains(&bm25_id);
+    lookup_by_query
+        .entry((index_oid, Some(String::from(query))))
+        .or_insert_with(|| operator::scan_index(query, index_oid))
+        .contains(&(bm25_id as u64));
 
     let max_score = get_current_executor_manager().get_max_score();
     let min_score = get_current_executor_manager().get_min_score();

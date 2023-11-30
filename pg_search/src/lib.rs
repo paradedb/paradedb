@@ -36,7 +36,6 @@ pub mod pg_test {
 }
 
 #[cfg(any(test, feature = "pg_test"))]
-#[]
 mod tests {
     #[pgrx::pg_test]
     fn test_parade_logs() {

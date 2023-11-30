@@ -171,7 +171,6 @@ impl JsonBuilderValue {
 }
 
 #[cfg(feature = "pg_test")]
-#[]
 mod tests {
     use pgrx::*;
 

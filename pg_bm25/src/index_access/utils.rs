@@ -352,7 +352,6 @@ where
 }
 
 #[cfg(feature = "pg_test")]
-#[]
 mod tests {
     use super::{
         categorize_tupdesc, handle_as_generic_string, lookup_index_tupdesc, SearchQuery,

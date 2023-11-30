@@ -520,7 +520,6 @@ impl ParadeIndex {
 }
 
 #[cfg(feature = "pg_test")]
-#[]
 mod tests {
     use std::{collections::HashMap, fs::OpenOptions, io::BufReader};
 

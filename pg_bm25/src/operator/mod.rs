@@ -147,7 +147,6 @@ CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25
 );
 
 #[cfg(feature = "pg_test")]
-#[]
 mod tests {
     use pgrx::*;
 

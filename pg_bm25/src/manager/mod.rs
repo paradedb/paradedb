@@ -149,7 +149,6 @@ impl Manager {
 }
 
 #[cfg(feature = "pg_test")]
-#[]
 mod tests {
     use std::collections::HashMap;
 

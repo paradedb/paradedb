@@ -587,11 +587,6 @@ impl<'de> Deserialize<'de> for ParadeIndex {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use std::{collections::HashMap, fs::OpenOptions, io::BufReader};
-
-    use crate::parade_index::fields::{ParadeOption, ParadeTextOptions};
-
-    use std::error::Error;
 
     use super::ParadeIndex;
     use pgrx::*;
@@ -622,114 +617,18 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_serialize_index_field_configs() -> serde_json::Result<()> {
-        let json = r#"{
-            "indexed": true,
-            "fast": false,
-            "stored": true,
-            "fieldnorms": true,
-            "type": "default",
-            "record": "basic",
-            "normalizer": "raw"
-        }"#;
-        let text_option: ParadeTextOptions =
-            serde_json::from_str(json).expect("failed to serialize text options");
-        let options = ParadeOption::Text(text_option);
-        let mut field_configs = HashMap::new();
-        field_configs.insert("onerepublic".to_string(), options);
-
-        let result = ParadeIndex::serialize_index_field_configs(&field_configs)?;
-        let expected = r#"{"onerepublic":{"Text":{"indexed":true,"fast":false,"stored":true,"fieldnorms":true,"tokenizer":{"type":"default"},"record":"basic","normalizer":"raw"}}}"#;
-
-        assert_eq!(result, expected);
-        Ok(())
-    }
-
-    #[pg_test]
-    fn test_deserialize_index_field_configs() -> serde_json::Result<()> {
-        let json = r#"{
-           "hozier": {
-                "Text": {
-                    "indexed": true,
-                    "fast": false,
-                    "stored": true,
-                    "fieldnorms": true,
-                    "type": "default",
-                    "record": "basic",
-                    "normalizer": "raw"
-                }
-           }
-        }"#;
-        let result = ParadeIndex::deserialize_index_field_configs(json.to_string())?;
-        let text_option: ParadeTextOptions = serde_json::from_str(json).unwrap();
-        let options = ParadeOption::Text(text_option);
-        let mut expected = HashMap::new();
-        expected.insert("hozier".to_string(), options);
-
-        let res_option = result.get("hoszier");
-        let exp_option = expected.get("hozier");
-        assert_ne!(res_option.is_some(), exp_option.is_some());
-
-        Ok(())
-    }
-
-    fn make_field_config() -> HashMap<String, ParadeOption> {
-        let json = r#"{
-            "indexed": true,
-            "fast": false,
-            "stored": true,
-            "fieldnorms": true,
-            "type": "default",
-            "record": "basic",
-            "normalizer": "raw"
-        }"#;
-        let text_option: ParadeTextOptions = serde_json::from_str(json).unwrap();
-        let options = ParadeOption::Text(text_option);
-        let mut field_configs = HashMap::new();
-        field_configs.insert("onerepublic".to_string(), options);
-        field_configs
-    }
-
-    #[pg_test]
-    fn test_write_index_field_configs() -> Result<(), Box<dyn Error>> {
-        let index_name = "lorde";
-        let field_configs = make_field_config();
-        ParadeIndex::write_index_field_configs(index_name, &field_configs)?;
-
-        let current_execution_dir = std::env::current_dir().unwrap();
-        let index_field_location = format!(
-            "{}/paradedb/{index_name}_parade_field_configs.json",
-            current_execution_dir.to_str().unwrap()
-        );
-
-        let index_field_path = std::path::Path::new(&index_field_location);
-        assert!(index_field_path.exists());
-
-        let file = OpenOptions::new().read(true).open(index_field_path)?;
-        let reader = BufReader::new(file);
-        let result: HashMap<String, ParadeOption> = serde_json::from_reader(reader)?;
-
-        assert_eq!(
-            field_configs.get("onerepublic").is_some(),
-            result.get("onerepublic").is_some()
-        );
-
-        Ok(())
-    }
-
-    #[pg_test]
-    fn test_read_index_field_configs() {
+    #[should_panic]
+    fn test_index_from_disk_panics() {
         let index_name = "tomwalker";
-        let result = ParadeIndex::read_index_field_configs(index_name);
-        assert!(result.is_err());
+        ParadeIndex::from_disk(index_name);
     }
 
     #[pg_test]
     fn test_from_index_name() {
         Spi::run(SETUP_SQL).expect("failed to create index");
         let index_name = "idx_one_republic";
-        let index = ParadeIndex::from_index_name(index_name.to_string());
+        let index = ParadeIndex::from_index_name(index_name);
         let fields = index.fields;
-        assert_eq!(fields.len(), 7);
+        assert_eq!(fields.len(), 8);
     }
 }

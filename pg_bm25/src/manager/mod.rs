@@ -141,18 +141,12 @@ impl Manager {
 mod tests {
     use std::collections::HashMap;
 
-    use pgrx::{
-        item_pointer_get_both,
-        pg_sys::{BlockIdData, ItemPointerData},
-    };
     use tantivy::{
         doc,
         query::{Query, RegexQuery},
         schema::{Field, Schema, TEXT},
         DocAddress, Document, Index, Searcher, SnippetGenerator,
     };
-
-    use crate::manager::BlockInfo;
 
     use super::{get_current_executor_manager, get_fresh_executor_manager};
 
@@ -167,16 +161,18 @@ mod tests {
     #[pgrx::pg_test]
     fn test_current_executor_manager() {
         let expected = get_fresh_executor_manager();
-        let item_ptr = ItemPointerData {
-            ip_blkid: BlockIdData {
-                bi_hi: 10,
-                bi_lo: 0,
-            },
-            ip_posid: 8,
-        };
-        let ctid = item_pointer_get_both(item_ptr);
+        // let item_ptr = ItemPointerData {
+        //     ip_blkid: BlockIdData {
+        //         bi_hi: 10,
+        //         bi_lo: 0,
+        //     },
+        //     ip_posid: 8,
+        // };
+        // let ctid = item_pointer_get_both(item_ptr);
 
-        expected.add_score(ctid, 3.3);
+        let key = 25;
+
+        expected.add_score(key, 3.3);
         expected.set_max_score(66.8);
         expected.set_min_score(2.2);
 
@@ -186,77 +182,60 @@ mod tests {
             expected.get_max_score() - manager.get_min_score(),
             64.600006
         );
-        assert_eq!(manager.get_score(item_ptr), expected.get_score(item_ptr));
+        assert_eq!(manager.get_score(key), expected.get_score(key));
     }
 
     #[pgrx::pg_test]
     fn test_add_score() {
-        let first_item_ptr = ItemPointerData {
-            ip_blkid: BlockIdData {
-                bi_hi: 10,
-                bi_lo: 0,
-            },
-            ip_posid: 8,
-        };
-        let second_item_ptr = ItemPointerData {
-            ip_blkid: BlockIdData {
-                bi_hi: 88,
-                bi_lo: 22,
-            },
-            ip_posid: 3,
-        };
-        let first_ctid = item_pointer_get_both(first_item_ptr);
-        let second_ctid = item_pointer_get_both(second_item_ptr);
+        //     let first_item_ptr = ItemPointerData {
+        //         ip_blkid: BlockIdData {
+        //             bi_hi: 10,
+        //             bi_lo: 0,
+        //         },
+        //         ip_posid: 8,
+        //     };
+        //     let second_item_ptr = ItemPointerData {
+        //         ip_blkid: BlockIdData {
+        //             bi_hi: 88,
+        //             bi_lo: 22,
+        //         },
+        //         ip_posid: 3,
+        //     };
+        //     let first_ctid = item_pointer_get_both(first_item_ptr);
+        //     let second_ctid = item_pointer_get_both(second_item_ptr);
+
+        let first_key = 25;
+        let second_key = 35;
 
         let manager = get_fresh_executor_manager();
-        manager.add_score(first_ctid, 46.9);
-        manager.add_score(second_ctid, 66.5);
+        manager.add_score(first_key, 46.9);
+        manager.add_score(second_key, 66.5);
 
-        let mut expected: HashMap<BlockInfo, f32> = HashMap::new();
-        expected.insert((655360, 8), 46.9);
-        expected.insert((5767190, 3), 66.5);
+        let mut expected: HashMap<i64, f32> = HashMap::new();
+        expected.insert(first_key, 46.9);
+        expected.insert(second_key, 66.5);
 
         assert_eq!(expected, manager.scores.clone().unwrap());
 
-        let item_ptr = ItemPointerData {
-            ip_blkid: BlockIdData {
-                bi_hi: 777,
-                bi_lo: 99,
-            },
-            ip_posid: 333,
-        };
-        assert_eq!(manager.get_score(item_ptr), None);
+        let third_key = 45;
+        assert_eq!(manager.get_score(third_key), None);
     }
 
     #[pgrx::pg_test]
     fn test_add_doc_address() {
-        let first_item_ptr = ItemPointerData {
-            ip_blkid: BlockIdData {
-                bi_hi: 10,
-                bi_lo: 0,
-            },
-            ip_posid: 8,
-        };
-        let second_item_ptr = ItemPointerData {
-            ip_blkid: BlockIdData {
-                bi_hi: 88,
-                bi_lo: 22,
-            },
-            ip_posid: 3,
-        };
-        let first_ctid = item_pointer_get_both(first_item_ptr);
-        let second_ctid = item_pointer_get_both(second_item_ptr);
+        let first_key = 55;
+        let second_key = 65;
 
         let first_doc_address = DocAddress::new(0, 1);
         let second_doc_address = DocAddress::new(0, 2);
 
         let manager = get_fresh_executor_manager();
-        manager.add_doc_address(first_ctid, first_doc_address);
-        manager.add_doc_address(second_ctid, second_doc_address);
+        manager.add_doc_address(first_key, first_doc_address);
+        manager.add_doc_address(second_key, second_doc_address);
 
-        let mut expected: HashMap<BlockInfo, DocAddress> = HashMap::new();
-        expected.insert((655360, 8), first_doc_address);
-        expected.insert((5767190, 3), second_doc_address);
+        let mut expected: HashMap<i64, DocAddress> = HashMap::new();
+        expected.insert(first_key, first_doc_address);
+        expected.insert(second_key, second_doc_address);
 
         assert_eq!(&expected, manager.doc_addresses.as_mut().unwrap());
         assert_eq!(manager.doc_addresses.as_mut().unwrap().len(), 2);

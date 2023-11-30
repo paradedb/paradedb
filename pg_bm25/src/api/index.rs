@@ -98,17 +98,18 @@ mod tests {
             .map(|schema| schema.0.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(schemas.len(), 7);
+        assert_eq!(schemas.len(), 8);
         assert_eq!(
             names,
             vec![
+                "song_id",
                 "title",
                 "album",
                 "release_year",
                 "genre",
                 "description",
                 "lyrics",
-                "heap_tid"
+                "ctid"
             ]
         );
     }

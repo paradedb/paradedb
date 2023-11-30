@@ -83,3 +83,45 @@ pub fn minmax_bm25(
         None => 0.0,
     }
 }
+
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::*;
+    use shared::testing::SETUP_SQL;
+
+    #[pg_test]
+    fn test_rank_bm25() {
+        Spi::run(SETUP_SQL).expect("failed to create index and table");
+        let ctid = Spi::get_one::<pg_sys::ItemPointerData>(
+            "SELECT ctid FROM one_republic_songs WHERE title = 'If I Lose Myself'",
+        )
+        .expect("could not get ctid");
+
+        assert!(ctid.is_some());
+        let ctid = ctid.unwrap();
+        assert_eq!(ctid.ip_posid, 3);
+
+        let query = "SELECT paradedb.rank_bm25(ctid) FROM one_republic_songs WHERE one_republic_songs @@@ 'lyrics:im AND description:song'";
+        let rank = Spi::get_one::<f32>(query)
+            .expect("failed to rank query")
+            .unwrap();
+        assert!(rank > 1.0);
+    }
+
+    #[pg_test]
+    fn test_higlight() {
+        Spi::run(SETUP_SQL).expect("failed to create index and table");
+
+        let query = r#"
+SELECT paradedb.highlight_bm25(ctid, 'idx_one_republic', 'lyrics')
+FROM one_republic_songs
+WHERE one_republic_songs @@@ 'lyrics:im:::max_num_chars=10';
+        "#;
+
+        let highlight = Spi::get_one::<&str>(query)
+            .expect("failed to highlight lyrics")
+            .unwrap();
+        assert_eq!(highlight, "<b>Im</b> holding");
+    }
+}

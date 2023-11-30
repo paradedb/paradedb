@@ -25,7 +25,7 @@ jobs:
           - runner: ubuntu-latest
             pg_version: 15
             arch: amd64
-          - runner: buildjet-8vcpu-ubuntu-2204-arm
+          - runner: ubicloud-standard-8-ubuntu-2204-arm
             pg_version: 15
             arch: arm64
 
@@ -46,7 +46,7 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version 0.11.0
+        run: cargo install --locked cargo-pgrx --version 0.11.1
 
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_bm25/

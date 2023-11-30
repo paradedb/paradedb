@@ -3,7 +3,7 @@
 <br>
 </h1>
 
-[![Testing](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml)
+[![Test pg_search](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml)
 
 ## Overview
 
@@ -122,7 +122,7 @@ Then, install and initialize pgrx:
 
 ```bash
 # Note: Replace --pg15 with your version of Postgres, if different (i.e. --pg16, --pg14, etc.)
-cargo install --locked cargo-pgrx --version 0.11.0
+cargo install --locked cargo-pgrx --version 0.11.1
 cargo pgrx init --pg15=`which pg_config`
 ```
 

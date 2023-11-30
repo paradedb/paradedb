@@ -319,3 +319,133 @@ fn default_as_true() -> bool {
 fn default_as_freqs_and_positions() -> IndexRecordOption {
     IndexRecordOption::WithFreqsAndPositions
 }
+
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+
+    use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
+
+    use super::{
+        default_as_true, ParadeBooleanOptions, ParadeJsonOptions, ParadeNormalizer,
+        ParadeNumericOptions, ParadeTextOptions, ParadeTokenizer,
+    };
+
+    #[pgrx::pg_test]
+    fn test_parade_tokenizer() {
+        let tokenizer = ParadeTokenizer::Default;
+        assert_eq!(tokenizer.name(), "default".to_string());
+
+        let tokenizer = ParadeTokenizer::EnStem;
+        assert_eq!(tokenizer.name(), "en_stem".to_string());
+
+        let json = r#"{
+            "type": "ngram",
+            "min_gram": 20,
+            "max_gram": 60,
+            "prefix_only": true
+        }"#;
+        let tokenizer: ParadeTokenizer = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            tokenizer,
+            ParadeTokenizer::Ngram {
+                min_gram: 20,
+                max_gram: 60,
+                prefix_only: true
+            }
+        );
+    }
+
+    #[pgrx::pg_test]
+    fn test_parade_normalizer() {
+        assert_eq!(ParadeNormalizer::Lowercase.name(), "lowercase");
+        assert_ne!(ParadeNormalizer::Raw, ParadeNormalizer::Lowercase);
+    }
+
+    #[pgrx::pg_test]
+    fn test_parade_text_options() {
+        let json = r#"{
+            "indexed": true,
+            "fast": false,
+            "stored": true,
+            "fieldnorms": true,
+            "type": "default",
+            "record": "basic",
+            "normalizer": "raw"
+        }"#;
+        let parade_text_option: ParadeTextOptions = serde_json::from_str(json).unwrap();
+        let expected = TextOptions::from(parade_text_option);
+
+        let text_options = TextOptions::from(ParadeTextOptions::default());
+        assert_eq!(expected.is_stored(), text_options.is_stored());
+        assert_eq!(
+            expected.get_fast_field_tokenizer_name(),
+            text_options.get_fast_field_tokenizer_name()
+        );
+
+        let text_options = text_options.set_fast(Some("index"));
+        assert_ne!(expected.is_fast(), text_options.is_fast());
+    }
+
+    #[pgrx::pg_test]
+    fn test_parade_numeric_options() {
+        let json = r#"{
+            "indexed": true,
+            "stored": true,
+            "fieldnorms": false,
+            "fast": true
+        }"#;
+        let expected: NumericOptions = serde_json::from_str(json).unwrap();
+        let int_options = NumericOptions::from(ParadeNumericOptions::default());
+
+        assert_eq!(int_options, expected);
+    }
+
+    #[pgrx::pg_test]
+    fn test_parade_boolean_options() {
+        let json = r#"{
+            "indexed": true,
+            "stored": true,
+            "fieldnorms": false,
+            "fast": true
+        }"#;
+        let expected: NumericOptions = serde_json::from_str(json).unwrap();
+        let int_options = NumericOptions::from(ParadeBooleanOptions::default());
+
+        assert_eq!(int_options, expected);
+    }
+
+    #[pgrx::pg_test]
+    fn test_parade_jsonobject_options() {
+        let json = r#"{
+            "indexed": true,
+            "fast": false,
+            "stored": true,
+            "expand_dots": true,
+            "type": "default",
+            "record": "basic",
+            "normalizer": "raw"
+        }"#;
+        let parade_json_option: ParadeJsonOptions = serde_json::from_str(json).unwrap();
+        let expected = JsonObjectOptions::from(parade_json_option);
+
+        let json_object_options = JsonObjectOptions::from(ParadeJsonOptions::default());
+        assert_eq!(expected.is_stored(), json_object_options.is_stored());
+        assert_eq!(
+            expected.get_fast_field_tokenizer_name(),
+            json_object_options.get_fast_field_tokenizer_name()
+        );
+        assert_eq!(
+            expected.is_expand_dots_enabled(),
+            json_object_options.is_expand_dots_enabled()
+        );
+
+        let text_options = json_object_options.set_fast(Some("index"));
+        assert_ne!(expected.is_fast(), text_options.is_fast());
+    }
+
+    #[pgrx::pg_test]
+    fn test_default_as_true() {
+        assert!(default_as_true())
+    }
+}

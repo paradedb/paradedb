@@ -103,9 +103,7 @@ mod tests {
     ORDER BY score_hybrid DESC;
             "#;
 
-        let mean = Spi::get_one::<f64>(query)
-            .expect("failed to get min max")
-            .expect("failed to get weighted mean");
-        assert!(mean < f64::EPSILON);
+        let mean = Spi::get_one::<f64>(query).expect("failed to get min max");
+        assert!(mean.is_none());
     }
 }

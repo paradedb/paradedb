@@ -147,3 +147,216 @@ impl Manager {
         snippet.to_html()
     }
 }
+
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use std::collections::HashMap;
+
+    use pgrx::{
+        item_pointer_get_both,
+        pg_sys::{BlockIdData, ItemPointerData},
+    };
+    use tantivy::{
+        doc,
+        query::{Query, RegexQuery},
+        schema::{Field, Schema, TEXT},
+        DocAddress, Document, Index, Searcher, SnippetGenerator,
+    };
+
+    use crate::manager::BlockInfo;
+
+    use super::{get_current_executor_manager, get_fresh_executor_manager};
+
+    #[pgrx::pg_test]
+    fn test_fresh_executor_manager() {
+        let manager = get_fresh_executor_manager();
+        assert_eq!(manager.scores, None);
+        assert_eq!(manager.max_score, 0.0);
+        assert_eq!(manager.min_score, 0.0);
+    }
+
+    #[pgrx::pg_test]
+    fn test_current_executor_manager() {
+        let expected = get_fresh_executor_manager();
+        let item_ptr = ItemPointerData {
+            ip_blkid: BlockIdData {
+                bi_hi: 10,
+                bi_lo: 0,
+            },
+            ip_posid: 8,
+        };
+        let ctid = item_pointer_get_both(item_ptr);
+
+        expected.add_score(ctid, 3.3);
+        expected.set_max_score(66.8);
+        expected.set_min_score(2.2);
+
+        let manager = get_current_executor_manager();
+        assert_eq!(manager.get_min_score(), expected.get_min_score());
+        assert_eq!(
+            expected.get_max_score() - manager.get_min_score(),
+            64.600006
+        );
+        assert_eq!(manager.get_score(item_ptr), expected.get_score(item_ptr));
+    }
+
+    #[pgrx::pg_test]
+    fn test_add_score() {
+        let first_item_ptr = ItemPointerData {
+            ip_blkid: BlockIdData {
+                bi_hi: 10,
+                bi_lo: 0,
+            },
+            ip_posid: 8,
+        };
+        let second_item_ptr = ItemPointerData {
+            ip_blkid: BlockIdData {
+                bi_hi: 88,
+                bi_lo: 22,
+            },
+            ip_posid: 3,
+        };
+        let first_ctid = item_pointer_get_both(first_item_ptr);
+        let second_ctid = item_pointer_get_both(second_item_ptr);
+
+        let manager = get_fresh_executor_manager();
+        manager.add_score(first_ctid, 46.9);
+        manager.add_score(second_ctid, 66.5);
+
+        let mut expected: HashMap<BlockInfo, f32> = HashMap::new();
+        expected.insert((655360, 8), 46.9);
+        expected.insert((5767190, 3), 66.5);
+
+        assert_eq!(expected, manager.scores.clone().unwrap());
+
+        let item_ptr = ItemPointerData {
+            ip_blkid: BlockIdData {
+                bi_hi: 777,
+                bi_lo: 99,
+            },
+            ip_posid: 333,
+        };
+        assert_eq!(manager.get_score(item_ptr), None);
+    }
+
+    #[pgrx::pg_test]
+    fn test_add_doc_address() {
+        let first_item_ptr = ItemPointerData {
+            ip_blkid: BlockIdData {
+                bi_hi: 10,
+                bi_lo: 0,
+            },
+            ip_posid: 8,
+        };
+        let second_item_ptr = ItemPointerData {
+            ip_blkid: BlockIdData {
+                bi_hi: 88,
+                bi_lo: 22,
+            },
+            ip_posid: 3,
+        };
+        let first_ctid = item_pointer_get_both(first_item_ptr);
+        let second_ctid = item_pointer_get_both(second_item_ptr);
+
+        let first_doc_address = DocAddress::new(0, 1);
+        let second_doc_address = DocAddress::new(0, 2);
+
+        let manager = get_fresh_executor_manager();
+        manager.add_doc_address(first_ctid, first_doc_address);
+        manager.add_doc_address(second_ctid, second_doc_address);
+
+        let mut expected: HashMap<BlockInfo, DocAddress> = HashMap::new();
+        expected.insert((655360, 8), first_doc_address);
+        expected.insert((5767190, 3), second_doc_address);
+
+        assert_eq!(&expected, manager.doc_addresses.as_mut().unwrap());
+        assert_eq!(manager.doc_addresses.as_mut().unwrap().len(), 2);
+    }
+
+    fn prepare_schema() -> tantivy::Result<(Schema, Searcher, Field)> {
+        let mut schema_builder = Schema::builder();
+        let title = schema_builder.add_text_field("title", TEXT);
+        let schema = schema_builder.build();
+        let index = Index::create_in_ram(schema.clone());
+
+        {
+            let mut index_writer = index.writer(3_000_000)?;
+            index_writer.add_document(doc!(
+                title => "The Name of the Wind",
+            ))?;
+            index_writer.add_document(doc!(
+                title => "The Diary of Muadib",
+            ))?;
+            index_writer.add_document(doc!(
+                title => "A Dairy Cow",
+            ))?;
+            index_writer.add_document(doc!(
+                title => "The Diary of a Young Girl",
+            ))?;
+            index_writer.commit()?;
+        }
+
+        let reader = index.reader()?;
+        let searcher = reader.searcher();
+        Ok((schema, searcher, title))
+    }
+
+    #[pgrx::pg_test]
+    fn test_add_snippet_generators() -> tantivy::Result<()> {
+        let (schema, searcher, title) = prepare_schema()?;
+        let query: Box<dyn Query> = Box::new(RegexQuery::from_pattern("d[ai]{2}ry", title)?);
+
+        let manager = get_fresh_executor_manager();
+        manager.add_snippet_generators(&searcher, &schema, &query, Some(3));
+        let snippet_generators = manager.snippet_generators.as_mut().unwrap();
+
+        assert_eq!(snippet_generators.len(), 1);
+        assert!(snippet_generators.get("title").is_some());
+        assert!(snippet_generators.get("id").is_none());
+
+        Ok(())
+    }
+
+    #[pgrx::pg_test]
+    #[should_panic]
+    fn fail_get_highlight() {
+        let (schema, searcher, title) = prepare_schema().unwrap();
+        let query: Box<dyn Query> =
+            Box::new(RegexQuery::from_pattern("d[ai]{2}ry", title).unwrap());
+
+        let manager = get_fresh_executor_manager();
+        manager.add_snippet_generators(&searcher, &schema, &query, None);
+
+        let mut doc = Document::default();
+        doc.add_text(title, "Diary of The Dairy Cow");
+
+        manager.get_highlight("me", &doc);
+    }
+
+    #[pgrx::pg_test]
+    fn test_get_highlight() {
+        let (schema, searcher, title) = prepare_schema().unwrap();
+        let query: Box<dyn Query> =
+            Box::new(RegexQuery::from_pattern("d[ai]{2}ry", title).unwrap());
+
+        let manager = get_fresh_executor_manager();
+        manager.add_snippet_generators(&searcher, &schema, &query, None);
+
+        let mut doc = Document::default();
+        doc.add_text(title, "Diary of The Dairy Cow");
+
+        let highlight = manager.get_highlight("title", &doc);
+        assert_eq!(highlight, Some("".to_string()));
+    }
+
+    #[pgrx::pg_test]
+    fn test_parse_snippet() {
+        let (_schema, searcher, title) = prepare_schema().unwrap();
+        let query: Box<dyn Query> =
+            Box::new(RegexQuery::from_pattern("d[ai]{2}ry", title).unwrap());
+        let snippet_generator = SnippetGenerator::create(&searcher, &query, title).unwrap();
+        let snippet = snippet_generator.snippet("pg_bm25 is a postgres extension by paradedb");
+        assert_eq!("", snippet.to_html());
+    }
+}

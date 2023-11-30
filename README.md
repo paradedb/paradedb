@@ -47,7 +47,7 @@ vector database on top.
 - [ ] Search
   - [x] Full-text search with BM25 with [pg_bm25](https://github.com/paradedb/paradedb/tree/dev/pg_bm25#overview)
   - [x] Similarity search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
-  - [ ] Sparse vector similarity search with [pg_sparse](https://github.com/paradedb/paradedb/tree/dev/pg_sparse#overview)
+  - [x] Sparse vector similarity search with [pg_sparse](https://github.com/paradedb/paradedb/tree/dev/pg_sparse#overview)
   - [x] Hybrid search with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [x] Real-time search
   - [ ] Faceted search
@@ -143,4 +143,4 @@ Thank you for helping us make ParadeDB better for everyone :heart:.
 
 ## License
 
-ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE), except for `pg_sparse` which is licensed under the [PostgreSQL License](pg_sparse/LICENSE).

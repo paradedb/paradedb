@@ -82,8 +82,39 @@ for version in "${PG_VERSIONS[@]}"; do
 done
 
 echo ""
+echo "Installing pg_sparse..."
+echo ""
+cd "$CONFIGDIR/../../pg_sparse"
+
+# Build and install pg_sparse into the pgrx environment
+for version in "${PG_VERSIONS[@]}"; do
+  echo "Installing pg_sparse for PostgreSQL $version..."
+  case "$OS_NAME" in
+    Darwin)
+      make clean
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        make PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"
+        make install PG_CONFIG="/opt/homebrew/opt/postgresql@$version/bin/pg_config"
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        make PG_CONFIG="/usr/local/opt/postgresql@$version/bin/pg_config"
+        make install PG_CONFIG="/usr/local/opt/postgresql@$version/bin/pg_config"
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
+      ;;
+    Linux)
+      sudo make clean
+      sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make
+      sudo PG_CONFIG="/usr/lib/postgresql/$version/bin/pg_config" make install
+      ;;
+  esac
+done
+
+echo ""
 echo "Installing pg_bm25..."
-cd "$CONFIGDIR/../../pg_bm25"
+cd "$CONFIGDIR/../pg_bm25"
 
 # Build and install pg_bm25 into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do

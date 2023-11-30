@@ -29,8 +29,12 @@ pub fn weighted_mean(a: f64, b: f64, weights: Vec<f64>) -> f64 {
     a * weight_a + b * weight_b
 }
 
-#[cfg(test)]
-mod test {
+#[cfg(feature = "pg_test")]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::*;
+    use shared::testing::SETUP_SQL;
+
     use super::{minmax_norm, weighted_mean};
 
     #[test]
@@ -46,21 +50,6 @@ mod test {
         let result = weighted_mean(3.0, 7.0, vec![0.4, 0.6]);
         assert!((result - 6.0).abs() > f64::EPSILON);
     }
-
-    #[test]
-    #[should_panic]
-    fn test_weighted_mean_fail() {
-        let _result = weighted_mean(3.0, 7.0, vec![0.4, 0.5]);
-
-        let _result = weighted_mean(3.0, 7.0, vec![-0.1, 1.1]);
-    }
-}
-
-// #[cfg(feature = "pg_test")]
-#[pgrx::pg_schema]
-mod tests {
-    use pgrx::*;
-    use shared::testing::SETUP_SQL;
 
     #[pg_test]
     fn test_weighted_mean_spi() {

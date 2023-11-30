@@ -92,8 +92,8 @@ jobs:
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
 
-      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we 
-      # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we 
+      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
+      # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
       # clean any cached pg_search build artifacts before running the tests
       - name: Clean Cached Build Artifacts
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'

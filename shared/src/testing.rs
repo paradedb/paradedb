@@ -1,7 +1,7 @@
 use pgrx::Spi;
 
-pub const SETUP_SQL: &str = include_str!("sql/index_setup.sql");
-pub const QUERY_SQL: &str = include_str!("sql/search_query.sql");
+// pub const SETUP_SQL: &str = include_str!("sql/index_setup.sql");
+// pub const QUERY_SQL: &str = include_str!("sql/search_query.sql");
 
 /// Executes a query on a remote PostgreSQL database using dblink.
 ///

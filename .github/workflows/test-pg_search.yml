@@ -115,7 +115,10 @@ jobs:
           LLVM_PROFILE_FILE: target/coverage/pg_search-%p-%m.profraw
           RUST_BACKTRACE: full
         run: |
+          # Create the code coverage directory and update dependencies schema to `tests` to enable unit testing
           mkdir -p ../target/coverage ../target/coverage-report
+          sed -i 's/schema = paradedb/schema = tests/' pg_search.control
+          sed -i 's/schema = paradedb/schema = tests/' ../pg_bm25/pg_bm25.control
           cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them

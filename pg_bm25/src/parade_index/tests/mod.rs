@@ -1,3 +1,4 @@
+#[pgrx::pg_schema]
 mod tests {
     use pgrx::*;
     use shared::testing::dblink;

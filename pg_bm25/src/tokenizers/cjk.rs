@@ -132,7 +132,7 @@ mod tests {
     use tantivy::tokenizer::{Token, TokenStream};
 
     #[pg_test]
-    fn test_chinese_tokenizer() {
+    fn test_cjk_chinese_tokenizer() {
         let text = "Hello world, 你好世界, bonjour monde";
 
         let mut options = ParadeTextOptions::default();
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_chinese_tokenizer_no_space() {
+    fn test_cjk_chinese_tokenizer_no_space() {
         let text = "Hello你好bonjour";
 
         let mut options = ParadeTextOptions::default();

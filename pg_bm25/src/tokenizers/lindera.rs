@@ -179,8 +179,8 @@ impl<'a> TokenStream for LinderaTokenStream<'a> {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use pgrx::*;
     use super::*;
+    use pgrx::*;
     use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
     fn test_helper<T: Tokenizer>(tokenizer: &mut T, text: &str) -> Vec<Token> {
@@ -193,7 +193,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_chinese_tokenizer() {
+    fn test_lindera_chinese_tokenizer() {
         let mut tokenizer = LinderaChineseTokenizer::default();
         let tokens = test_helper(
             &mut tokenizer,
@@ -245,7 +245,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_chinese_tokenizer_with_empty_string() {
+    fn test_lindera_chinese_tokenizer_with_empty_string() {
         let mut tokenizer = LinderaChineseTokenizer::default();
         {
             let tokens = test_helper(&mut tokenizer, "");

@@ -154,7 +154,7 @@ pub fn dump_bm25(
     TableIterator::new(results)
 }
 
-#[cfg(feature = "pg_test")]
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::schema_bm25;

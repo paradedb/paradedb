@@ -119,8 +119,10 @@ impl<'a> TokenStream for ChineseTokenStream<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
+    use pgrx::*;
     use std::collections::HashMap;
 
     use crate::{
@@ -129,8 +131,8 @@ mod tests {
     };
     use tantivy::tokenizer::{Token, TokenStream};
 
-    #[test]
-    fn test_chinese_tokenizer() {
+    #[pg_test]
+    fn test_cjk_chinese_tokenizer() {
         let text = "Hello world, 你好世界, bonjour monde";
 
         let mut options = ParadeTextOptions::default();
@@ -213,8 +215,8 @@ mod tests {
         assert_eq!(dbg!(res), dbg!(expected));
     }
 
-    #[test]
-    fn test_chinese_tokenizer_no_space() {
+    #[pg_test]
+    fn test_cjk_chinese_tokenizer_no_space() {
         let text = "Hello你好bonjour";
 
         let mut options = ParadeTextOptions::default();

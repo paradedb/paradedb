@@ -33,9 +33,11 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Retrieve GitHub Tag Version
+      - name: Retrieve Ubuntu & GitHub Tag Versions
         id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        run: |
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "ubuntu_version=$(lsb_release -rs | sed 's/\.//')" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -65,7 +67,7 @@ jobs:
           # Create installable package
           mkdir archive
           cp `find target/release -type f -name "pg_bm25*"` archive
-          package_dir=pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu
+          package_dir=pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.ubuntu_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
@@ -107,5 +109,5 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
-          asset_name: pg_bm25-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-linux-gnu.deb
+          asset_path: ./pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.ubuntu_version }}.deb
+          asset_name: pg_bm25-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.ubuntu_version }}.deb

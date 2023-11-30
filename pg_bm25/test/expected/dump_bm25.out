@@ -44,3 +44,13 @@ SELECT * FROM paradedb.dump_bm25('idxdumpbm25') ORDER BY heap_tid;
        41 | {"rating": 3, "category": "Apparel", "in_stock": false, "metadata": {"color": "Red", "location": "Canada"}, "description": "Warm woolen sweater"}
 (41 rows)
 
+SELECT * FROM paradedb.dump_bm25('idxmockitems') WHERE content->>'category' = 'Electronics' ORDER BY heap_tid;
+ heap_tid |                                                                               content                                                                               
+----------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        1 | {"rating": 4, "category": "Electronics", "in_stock": true, "metadata": {"color": "Silver", "location": "United States"}, "description": "Ergonomic metal keyboard"}
+        2 | {"rating": 4, "category": "Electronics", "in_stock": false, "metadata": {"color": "Black", "location": "Canada"}, "description": "Plastic Keyboard"}
+       12 | {"rating": 5, "category": "Electronics", "in_stock": true, "metadata": {"color": "Black", "location": "China"}, "description": "Innovative wireless earbuds"}
+       22 | {"rating": 4, "category": "Electronics", "in_stock": true, "metadata": {"color": "Black", "location": "United States"}, "description": "Fast charging power bank"}
+       32 | {"rating": 3, "category": "Electronics", "in_stock": true, "metadata": {"color": "Black", "location": "Canada"}, "description": "Bluetooth-enabled speaker"}
+(5 rows)
+

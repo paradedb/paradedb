@@ -78,27 +78,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     sudo \
     gnupg \
-    # gcc \
+    gcc \
     make \
     uuid-runtime \
-    # software-properties-common \
-    # ca-certificates \
-    # libssl-dev \
-    # libopenblas-dev \
-    # python3-dev \
-    # python3-pip \
+    software-properties-common \
+    ca-certificates \
+    libssl-dev \
+    libopenblas-dev \
+    python3-dev \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install apt-fast
 RUN /bin/bash -c "$(curl -sL https://git.io/vokNn)"
 
 # Add PostgreSQL's third party repository to get the latest versions
+RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
 
-RUN mkdir -p /usr/share/keyrings/
-ADD https://www.postgresql.org/media/keys/ACCC4CF8.asc /usr/share/keyrings/postgres.gpg
-RUN echo "deb [signed-by=/usr/share/keyrings/postgres.gpg] http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-fast update && apt-fast install -y --no-install-recommends \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 

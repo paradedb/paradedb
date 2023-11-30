@@ -5,7 +5,7 @@ pub extern "C" fn amvalidate(_opclassoid: pg_sys::Oid) -> bool {
     true
 }
 
-#[cfg(feature = "pg_test")]
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::amvalidate;

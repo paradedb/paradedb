@@ -119,7 +119,8 @@ impl<'a> TokenStream for ChineseTokenStream<'a> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
 mod tests {
     use std::collections::HashMap;
 
@@ -129,7 +130,7 @@ mod tests {
     };
     use tantivy::tokenizer::{Token, TokenStream};
 
-    #[test]
+    #[pg_test]
     fn test_chinese_tokenizer() {
         let text = "Hello world, 你好世界, bonjour monde";
 
@@ -213,7 +214,7 @@ mod tests {
         assert_eq!(dbg!(res), dbg!(expected));
     }
 
-    #[test]
+    #[pg_test]
     fn test_chinese_tokenizer_no_space() {
         let text = "Hello你好bonjour";
 

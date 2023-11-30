@@ -320,7 +320,7 @@ fn default_as_freqs_and_positions() -> IndexRecordOption {
     IndexRecordOption::WithFreqsAndPositions
 }
 
-#[cfg(feature = "pg_test")]
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
 

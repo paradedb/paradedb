@@ -179,6 +179,7 @@ impl<'a> TokenStream for LinderaTokenStream<'a> {
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
+    use pgrx::*;
     use super::*;
     use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 

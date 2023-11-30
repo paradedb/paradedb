@@ -84,7 +84,7 @@ pub fn minmax_bm25(
     }
 }
 
-#[cfg(feature = "pg_test")]
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::*;

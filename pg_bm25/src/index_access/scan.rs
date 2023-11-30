@@ -280,7 +280,7 @@ fn write_to_manager(ctid: pg_sys::ItemPointerData, score: f32, doc_address: DocA
     manager.add_doc_address(item_pointer_get_both(ctid), doc_address);
 }
 
-// #[cfg(feature = "pg_test")]
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::ambeginscan;

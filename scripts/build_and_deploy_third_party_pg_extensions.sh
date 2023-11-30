@@ -65,6 +65,9 @@ build_and_publish_pg_extension() {
   # needs to be semVer compliant, so we sanitize the version first before using it anywhere
   SANITIZED_PG_EXTENSION_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
 
+  # Retrieve the version of Ubuntu we're running on, to specify in the .deb filename
+  UBUNTU_VERSION=$(lsb_release -rs | sed 's/\.//')
+
   # Check if the GitHub Release exists
   release_url="https://github.com/paradedb/third-party-pg_extensions/releases/tag/$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-$ARCH"
   if curl --output /dev/null --silent --head --fail "$release_url"; then
@@ -85,7 +88,7 @@ build_and_publish_pg_extension() {
     upload_url=$(echo "$release_response" | jq .upload_url --raw-output | sed "s/{?name,label}//")
 
     # Upload the .deb file to the newly created GitHub release
-    asset_name="$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-linux-gnu.deb"
+    asset_name="$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-$UBUNTU_VERSION.deb"
     deb_file_path="/tmp/${PG_EXTENSION_NAME//_/-}_$SANITIZED_PG_EXTENSION_VERSION-1_$ARCH.deb"
     curl -X POST "${upload_url}?name=${asset_name}" \
       -H "Authorization: token $GITHUB_TOKEN" \

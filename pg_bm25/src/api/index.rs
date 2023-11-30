@@ -1,5 +1,6 @@
 use pgrx::{iter::TableIterator, *};
-use tantivy::schema::*;
+use serde_json::{Map, Value};
+use tantivy::{collector::*, query::AllQuery, schema::*};
 
 use crate::index_access::utils::get_parade_index;
 use crate::parade_index::fields::ToString;
@@ -80,6 +81,77 @@ pub fn schema_bm25(
     }
 
     TableIterator::new(field_rows)
+}
+
+#[pg_extern]
+pub fn dump_bm25(
+    index_name: String,
+) -> TableIterator<'static, (name!(heap_tid, i64), name!(content, pgrx::JsonB))> {
+    let parade_index = get_parade_index(index_name.to_string());
+    let state = parade_index.scan();
+    let searcher = state.searcher;
+    let schema = parade_index.schema();
+
+    let heap_tid_field = schema.get_field("heap_tid").unwrap();
+    let top_docs = searcher
+        .search(&AllQuery, &DocSetCollector)
+        .expect("failed to search");
+
+    let results = top_docs.into_iter().map(move |doc_address| {
+        let retrieved_doc = searcher.doc(doc_address).unwrap();
+        let heap_tid = retrieved_doc
+            .get_first(heap_tid_field)
+            .expect("Could not get heap_tid field")
+            .as_u64()
+            .expect("Could not convert heap_tid to u64") as i64;
+
+        let mut json_map = Map::new();
+        for (field, _) in schema.fields() {
+            if field == heap_tid_field {
+                continue;
+            }
+
+            let field_entry = schema.get_field_entry(field);
+            let field_name = field_entry.name();
+            match field_entry.field_type() {
+                tantivy::schema::FieldType::Str(_) => {
+                    if let Some(text) = retrieved_doc.get_first(field).and_then(|f| f.as_text()) {
+                        json_map.insert(field_name.to_string(), Value::String(text.to_string()));
+                    }
+                }
+                tantivy::schema::FieldType::U64(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_u64()) {
+                        json_map.insert(field_name.to_string(), Value::Number(val.into()));
+                    }
+                }
+                tantivy::schema::FieldType::I64(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_i64()) {
+                        json_map.insert(field_name.to_string(), Value::Number(val.into()));
+                    }
+                }
+                tantivy::schema::FieldType::F64(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_f64()) {
+                        json_map.insert(field_name.to_string(), Value::from(val));
+                    }
+                }
+                tantivy::schema::FieldType::Bool(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_bool()) {
+                        json_map.insert(field_name.to_string(), Value::Bool(val));
+                    }
+                }
+                tantivy::schema::FieldType::JsonObject(_) => {
+                    if let Some(val) = retrieved_doc.get_first(field).and_then(|f| f.as_json()) {
+                        json_map.insert(field_name.to_string(), Value::Object(val.clone()));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        (heap_tid, pgrx::JsonB(Value::Object(json_map)))
+    });
+
+    TableIterator::new(results)
 }
 
 #[cfg(feature = "pg_test")]

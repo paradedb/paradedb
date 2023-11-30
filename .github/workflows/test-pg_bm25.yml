@@ -116,7 +116,7 @@ jobs:
           RUST_BACKTRACE: 1
         run: |
           mkdir -p ../target/coverage ../target/coverage-report
-          cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev
+          cargo pgrx test --features "pg${{ matrix.pg_version }} pg_test" --profile dev
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports

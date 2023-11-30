@@ -1,0 +1,46 @@
+SELECT * FROM paradedb.dump_bm25('idxdumpbm25') ORDER BY heap_tid;
+ heap_tid |                                                                               content                                                                                
+----------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        1 | {"rating": 4, "category": "Electronics", "in_stock": true, "metadata": {"color": "Silver", "location": "United States"}, "description": "Ergonomic metal keyboard"}
+        2 | {"rating": 4, "category": "Electronics", "in_stock": false, "metadata": {"color": "Black", "location": "Canada"}, "description": "Plastic Keyboard"}
+        3 | {"rating": 5, "category": "Footwear", "in_stock": true, "metadata": {"color": "Blue", "location": "China"}, "description": "Sleek running shoes"}
+        4 | {"rating": 3, "category": "Footwear", "in_stock": false, "metadata": {"color": "White", "location": "United States"}, "description": "White jogging shoes"}
+        5 | {"rating": 4, "category": "Footwear", "in_stock": true, "metadata": {"color": "Brown", "location": "Canada"}, "description": "Generic shoes"}
+        6 | {"rating": 5, "category": "Photography", "in_stock": false, "metadata": {"color": "Black", "location": "China"}, "description": "Compact digital camera"}
+        7 | {"rating": 2, "category": "Books", "in_stock": true, "metadata": {"color": "Brown", "location": "United States"}, "description": "Hardcover book on history"}
+        8 | {"rating": 3, "category": "Groceries", "in_stock": true, "metadata": {"color": "Green", "location": "Canada"}, "description": "Organic green tea"}
+        9 | {"rating": 4, "category": "Home Decor", "in_stock": false, "metadata": {"color": "Silver", "location": "China"}, "description": "Modern wall clock"}
+       10 | {"rating": 1, "category": "Toys", "in_stock": true, "metadata": {"color": "Multicolor", "location": "United States"}, "description": "Colorful kids toy"}
+       11 | {"rating": 5, "category": "Apparel", "in_stock": true, "metadata": {"color": "Blue", "location": "Canada"}, "description": "Soft cotton shirt"}
+       12 | {"rating": 5, "category": "Electronics", "in_stock": true, "metadata": {"color": "Black", "location": "China"}, "description": "Innovative wireless earbuds"}
+       13 | {"rating": 4, "category": "Footwear", "in_stock": true, "metadata": {"color": "Brown", "location": "United States"}, "description": "Sturdy hiking boots"}
+       14 | {"rating": 3, "category": "Furniture", "in_stock": true, "metadata": {"color": "Clear", "location": "Canada"}, "description": "Elegant glass table"}
+       15 | {"rating": 2, "category": "Beauty", "in_stock": false, "metadata": {"color": "White", "location": "China"}, "description": "Refreshing face wash"}
+       16 | {"rating": 4, "category": "Photography", "in_stock": true, "metadata": {"color": "Black", "location": "United States"}, "description": "High-resolution DSLR"}
+       17 | {"rating": 3, "category": "Books", "in_stock": true, "metadata": {"color": "Multicolor", "location": "Canada"}, "description": "Paperback romantic novel"}
+       18 | {"rating": 5, "category": "Groceries", "in_stock": true, "metadata": {"color": "Brown", "location": "China"}, "description": "Freshly ground coffee beans"}
+       19 | {"rating": 4, "category": "Home Decor", "in_stock": false, "metadata": {"color": "Multicolor", "location": "United States"}, "description": "Artistic ceramic vase"}
+       20 | {"rating": 3, "category": "Toys", "in_stock": true, "metadata": {"color": "Multicolor", "location": "Canada"}, "description": "Interactive board game"}
+       21 | {"rating": 5, "category": "Apparel", "in_stock": false, "metadata": {"color": "Blue", "location": "China"}, "description": "Slim-fit denim jeans"}
+       22 | {"rating": 4, "category": "Electronics", "in_stock": true, "metadata": {"color": "Black", "location": "United States"}, "description": "Fast charging power bank"}
+       23 | {"rating": 3, "category": "Footwear", "in_stock": true, "metadata": {"color": "Brown", "location": "Canada"}, "description": "Comfortable slippers"}
+       24 | {"rating": 5, "category": "Furniture", "in_stock": false, "metadata": {"color": "Brown", "location": "China"}, "description": "Classic leather sofa"}
+       25 | {"rating": 4, "category": "Beauty", "in_stock": true, "metadata": {"color": "White", "location": "United States"}, "description": "Anti-aging serum"}
+       26 | {"rating": 4, "category": "Photography", "in_stock": true, "metadata": {"color": "Black", "location": "Canada"}, "description": "Portable tripod stand"}
+       27 | {"rating": 2, "category": "Books", "in_stock": false, "metadata": {"color": "Multicolor", "location": "China"}, "description": "Mystery detective novel"}
+       28 | {"rating": 5, "category": "Groceries", "in_stock": true, "metadata": {"color": "Brown", "location": "United States"}, "description": "Organic breakfast cereal"}
+       29 | {"rating": 5, "category": "Home Decor", "in_stock": true, "metadata": {"color": "Multicolor", "location": "Canada"}, "description": "Designer wall paintings"}
+       30 | {"rating": 4, "category": "Toys", "in_stock": true, "metadata": {"color": "Multicolor", "location": "China"}, "description": "Robot building kit"}
+       31 | {"rating": 4, "category": "Apparel", "in_stock": true, "metadata": {"color": "Blue", "location": "United States"}, "description": "Sporty tank top"}
+       32 | {"rating": 3, "category": "Electronics", "in_stock": true, "metadata": {"color": "Black", "location": "Canada"}, "description": "Bluetooth-enabled speaker"}
+       33 | {"rating": 5, "category": "Footwear", "in_stock": false, "metadata": {"color": "Gray", "location": "China"}, "description": "Winter woolen socks"}
+       34 | {"rating": 4, "category": "Furniture", "in_stock": true, "metadata": {"color": "Brown", "location": "United States"}, "description": "Rustic bookshelf"}
+       35 | {"rating": 4, "category": "Beauty", "in_stock": true, "metadata": {"color": "Pink", "location": "Canada"}, "description": "Moisturizing lip balm"}
+       36 | {"rating": 5, "category": "Photography", "in_stock": false, "metadata": {"color": "Black", "location": "China"}, "description": "Lightweight camera bag"}
+       37 | {"rating": 3, "category": "Books", "in_stock": true, "metadata": {"color": "Multicolor", "location": "United States"}, "description": "Historical fiction book"}
+       38 | {"rating": 4, "category": "Groceries", "in_stock": true, "metadata": {"color": "Yellow", "location": "Canada"}, "description": "Pure honey jar"}
+       39 | {"rating": 5, "category": "Home Decor", "in_stock": false, "metadata": {"color": "Brown", "location": "China"}, "description": "Handcrafted wooden frame"}
+       40 | {"rating": 4, "category": "Toys", "in_stock": true, "metadata": {"color": "Brown", "location": "United States"}, "description": "Plush teddy bear"}
+       41 | {"rating": 3, "category": "Apparel", "in_stock": false, "metadata": {"color": "Red", "location": "Canada"}, "description": "Warm woolen sweater"}
+(41 rows)
+

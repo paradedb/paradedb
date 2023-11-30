@@ -3,5 +3,5 @@ default_version = '@CARGO_VERSION@'
 module_pathname = '$libdir/pg_search'
 relocatable = false
 superuser = true
-schema = paradedb
+schema = tests
 requires = 'pg_bm25,vector,svector'

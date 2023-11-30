@@ -116,8 +116,10 @@ jobs:
           RUST_BACKTRACE: full
         run: |
           # Update the schema in the control files to `tests` to enable unit testing across multiple extensions
-          # sed -i 's/schema = paradedb/schema = tests/' pg_search.control
-          # sed -i 's/schema = paradedb/schema = tests/' ../pg_bm25/pg_bm25.control
+          sed -i 's/schema = paradedb/schema = tests/' pg_search.control
+          sed -i 's/schema = paradedb/schema = tests/' ../pg_bm25/pg_bm25.control
+          cat pg_search.control
+          cat ../pg_bm25/pg_bm25.control
 
           mkdir -p ../target/coverage ../target/coverage-report
           cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev

@@ -82,7 +82,7 @@ pub fn schema_bm25(
     TableIterator::new(field_rows)
 }
 
-#[cfg(feature = "pg_test")]
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::schema_bm25;

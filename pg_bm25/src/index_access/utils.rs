@@ -351,7 +351,7 @@ where
     }
 }
 
-#[cfg(feature = "pg_test")]
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use super::{
@@ -427,7 +427,7 @@ mod tests {
             JsonBuilderValue::string(val) => {
                 assert_eq!(val, "Mirage");
             }
-            _ => assert!(false),
+            _ => panic!("Expected string, found other."),
         }
     }
 
@@ -457,7 +457,7 @@ mod tests {
                     assert_eq!(value.clone().unwrap(), single.to_string());
                 }
             }
-            _ => assert!(false),
+            _ => panic!("Incorrect type: expected string_array."),
         }
     }
 }

@@ -58,10 +58,10 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: Swatinem/rust-cache@v2
         with:
+          prefix-key: "v1-"
           shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
           cache-targets: true
           cache-on-failure: true
-          cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
@@ -113,7 +113,7 @@ jobs:
         working-directory: pg_search/
         env:
           LLVM_PROFILE_FILE: target/coverage/pg_search-%p-%m.profraw
-          RUST_BACKTRACE: 1
+          RUST_BACKTRACE: full
         run: |
           mkdir -p ../target/coverage ../target/coverage-report
           cargo pgrx test --features pg${{ matrix.pg_version }} --profile dev

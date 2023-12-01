@@ -674,25 +674,30 @@ svectorl2_squared_distance(PG_FUNCTION_ARGS)
 	float b_value = 0.0;
 	while (a_i < a->n_elem || b_i < b->n_elem) {
 		if (a_i >= a->n_elem) {
-			diff = -bx[b_i].value;
-			distance += diff * diff;
+			a_value = 0;
+			b_value = bx[b_i].value;
 			b_i++;
 		} else if (b_i >= b->n_elem) {
-			diff = ax[a_i].value;
-			distance += diff * diff;
+			a_value = ax[a_i].value;
+			b_value = 0;
 			a_i++;
 		} else {
 			if (ax[a_i].index == bx[b_i].index) {
-				diff = ax[a_i].value - bx[b_i].value;
-				distance += diff * diff;
+				a_value = ax[a_i].value;
+				b_value = bx[b_i].value;
 				a_i++;
 				b_i++;
 			} else if (ax[a_i].index < bx[b_i].index) {
+				a_value = ax[a_i].value;
+				b_value = 0;
 				a_i++;
 			} else if (bx[b_i].index < ax[a_i].index) {
+				a_value = 0;
+				b_value = bx[b_i].value;
 				b_i++;
 			}
 		}
+		distance += (a_value - b_value) * (a_value - b_value);
 	}
 
 	PG_RETURN_FLOAT8((double) distance);

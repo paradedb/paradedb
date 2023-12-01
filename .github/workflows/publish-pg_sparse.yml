@@ -89,9 +89,6 @@ jobs:
           make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
           checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp -- make USE_PGXS=1 install
 
-          # Move .deb to root directory
-          mv ../pg-sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb ./pg_sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb
-
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL
         id: upload_url

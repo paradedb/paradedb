@@ -50,13 +50,11 @@ jobs:
 
           # Update permissions for PostgreSQL directories for extensions installation
           sudo chown -R $(whoami) \
-            /usr/share/postgresql/${{ matrix.pg_version }}/extension/ \
-            /usr/lib/postgresql/${{ matrix.pg_version }}/bin/ \
-            /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ \
             /usr/include/postgresql/${{ matrix.pg_version }}/server/ \
-            /usr/share/postgresql/${{ matrix.pg_version }}/contrib/ \
+            /usr/share/postgresql/${{ matrix.pg_version }}/
+            /usr/lib/postgresql/${{ matrix.pg_version }}/ \
             /usr/local/share/man/ \
-            /usr/share/doc/
+            /usr/share/doc/ \
 
           # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH

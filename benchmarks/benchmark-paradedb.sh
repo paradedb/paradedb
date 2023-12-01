@@ -48,6 +48,7 @@ cleanup() {
   if [ -s query_error.log ]; then
     echo "!!! Benchmark cleanup triggered !!!"
     cat query_error.log
+    rm -rf query_error.log
   fi
   echo ""
   echo "Cleaning up benchmark environment..."
@@ -55,6 +56,7 @@ cleanup() {
     docker kill paradedb > /dev/null 2>&1
   fi
   docker rm paradedb > /dev/null 2>&1
+  rm -rf query_output.log
   echo "Done, goodbye!"
 }
 
@@ -71,7 +73,6 @@ echo ""
 if [ "$FLAG_TAG" == "local" ]; then
   echo "Building ParadeDB From Source..."
   docker build -t paradedb/paradedb:"$FLAG_TAG" \
-    --no-cache \
     -f "../docker/Dockerfile" \
     --build-arg PG_VERSION_MAJOR="15" \
     --build-arg PG_BM25_VERSION="0.0.0" \
@@ -97,6 +98,16 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg HYPOPG_VERSION="1.4.0" \
     --build-arg RUM_VERSION="1.3.13" \
     --build-arg AGE_VERSION="1.4.0" \
+    --build-arg CITUS_VERSION="12.1.1" \
+    --build-arg PGSODIUM_VERSION="3.1.9" \
+    --build-arg PGFINCORE_VERSION="1.3.1" \
+    --build-arg PG_PARTMAN_VERSION="5.0.0" \
+    --build-arg PG_JOBMON_VERSION="1.4.1" \
+    --build-arg PG_AUTO_FAILOVER_VERSION="2.1" \
+    --build-arg PG_SHOW_PLANS_VERSION="2.0.2" \
+    --build-arg SQLITE_FDW_VERSION="2.4.0" \
+    --build-arg PGDDL_VERSION="0.27" \
+    --build-arg MYSQL_FDW_VERSION="2.9.1" \
     "../"
   echo ""
 fi

@@ -202,7 +202,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     # pgsodium
     libsodium-dev \
     # mysql_fdw
-    libmysqlclient-dev \
+    default-libmysqlclient-dev \
     # barman
     barman \
     barman-cli-cloud \

@@ -65,14 +65,13 @@ unsafe extern "C" fn columnar_executor_run(query_desc: *mut QueryDesc, direction
                 advanced_extension: None
             };
 
-            let type_info = substrait::Struct {
-                types: vec![],
-                type_variation_reference: 0,
-                nullability: substrait::proto::type::Nullability::Required,
-            };
             let base_schema = substrait::NamedStruct {
                 names: vec![],
-                struct: None
+                struct: substrait::Struct {
+                    types: vec![],
+                    type_variation_reference: 0,
+                    nullability: substrait::proto::type::Nullability::Required,
+                },
             };
 
             let list = (*plan).targetlist;
@@ -87,7 +86,10 @@ unsafe extern "C" fn columnar_executor_run(query_desc: *mut QueryDesc, direction
                             let list_cell_rte = list_nth((*ps).rtable, (*var).varno - 1);
                             base_schema.names.push(get_attname((*list_cell_rte).relid, (*var).varattno, false));
                         }
+                        base_schema.struct.types.push()
                     }
+                    // TODO: nullability constraints and type conversion
+                    //       see `DuckDBToSubstrait::DuckToSubstraitType` for type conversion reference
                 }
             }
 

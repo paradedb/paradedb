@@ -61,7 +61,7 @@ jobs:
           # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      # Install requirements for: rum, pgaudit, postgis, pg_repack, AGE
+      # Install requirements for: rum, pgaudit, postgis, pg_repack, AGE, pg_auto_failover
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -83,7 +83,9 @@ jobs:
             zlib1g-dev \
             bison \
             flex \
-            libreadline-dev
+            libreadline-dev \
+            libxslt-dev \
+            libpam0g-dev
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases

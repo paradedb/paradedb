@@ -620,7 +620,6 @@ l2_distance(PG_FUNCTION_ARGS)
 	VecEl	   *ax = a->x;
 	VecEl	   *bx = b->x;
 	float		distance = 0.0;
-	float		diff;
 
 	CheckDims(a, b);
 
@@ -666,12 +665,13 @@ svectorl2_squared_distance(PG_FUNCTION_ARGS)
 	VecEl	   *ax = a->x;
 	VecEl	   *bx = b->x;
 	float		distance = 0.0;
-	float		diff;
 
 	CheckDims(a, b);
 
 	int a_i = 0;
 	int b_i = 0;
+	float a_value = 0.0;
+	float b_value = 0.0;
 	while (a_i < a->n_elem || b_i < b->n_elem) {
 		if (a_i >= a->n_elem) {
 			diff = -bx[b_i].value;

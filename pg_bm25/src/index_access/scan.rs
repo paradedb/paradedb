@@ -12,6 +12,8 @@ use crate::{
     parade_index::index::TantivyScanState,
 };
 
+const MAX_TOP_DOCS: usize = 100000;
+
 #[pg_guard]
 pub extern "C" fn ambeginscan(
     indexrel: pg_sys::Relation,
@@ -86,16 +88,8 @@ pub extern "C" fn amrescan(
     let searcher = &state.searcher;
     let schema = &state.schema;
 
-    // Extract limit and offset from the query config or set defaults.
-    let limit = query_config.config.limit.unwrap_or({
-        let num_docs = searcher.num_docs() as usize;
-        if num_docs > 0 {
-            num_docs // The collector will panic if it's passed a limit of 0.
-        } else {
-            1 // Since there's no docs to return anyways, just use 1.
-        }
-    });
-    let offset = query_config.config.offset.unwrap_or(0);
+    state.limit = MAX_TOP_DOCS;
+    state.offset = query_config.config.offset.unwrap_or(0);
 
     // Construct the actual Tantivy search query based on the mode determined above.
     let tantivy_query: Box<dyn Query> = if using_regex_fields {
@@ -144,21 +138,6 @@ pub extern "C" fn amrescan(
             .expect("error parsing query")
     };
 
-    // Execute the constructed search query on Tantivy.
-    let top_docs = searcher
-        .search(
-            &tantivy_query,
-            &TopDocs::with_limit(limit).and_offset(offset),
-        )
-        .expect("failed to search");
-
-    // Cache min/max score
-    let scores: Vec<f32> = top_docs.iter().map(|(score, _)| *score).collect();
-    let max_score = scores.iter().fold(0.0f32, |a, b| a.max(*b));
-    let min_score = scores.iter().fold(0.0f32, |a, b| a.min(*b));
-    manager.set_max_score(max_score);
-    manager.set_min_score(min_score);
-
     // Extract highlight_max_num_chars from the query config and add snippet generators.
     manager.add_snippet_generators(
         searcher,
@@ -169,10 +148,6 @@ pub extern "C" fn amrescan(
 
     // Cache the constructed query in the scan state for potential subsequent use.
     state.query = tantivy_query;
-
-    // Store the search results in the scan state, ensuring they get freed when the current memory context is deleted.
-    state.iterator =
-        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(top_docs.into_iter());
 }
 
 #[pg_guard]
@@ -189,9 +164,43 @@ pub extern "C" fn amgettuple(
 
     scan.xs_recheck = false;
 
-    let iter = unsafe { state.iterator.as_mut() }.expect("no iterator in state");
+    if state.current == 0 {
+        // Execute the constructed search query on Tantivy.
+        let top_docs = state
+            .searcher
+            .search(
+                &state.query,
+                &TopDocs::with_limit(state.limit).and_offset(state.offset),
+            )
+            .expect("failed to search");
 
-    match iter.next() {
+        state.results = top_docs.clone().into_iter();
+        state.n_results += top_docs.len();
+        state.no_more_results = top_docs.len() < state.limit;
+    }
+
+    if state.current >= state.n_results {
+        if state.no_more_results {
+            return false;
+        }
+
+        state.offset += MAX_TOP_DOCS;
+        state.limit = MAX_TOP_DOCS;
+
+        let top_docs = state
+            .searcher
+            .search(
+                &state.query,
+                &TopDocs::with_limit(state.limit).and_offset(state.offset),
+            )
+            .expect("failed to search");
+
+        state.results = top_docs.clone().into_iter();
+        state.n_results += top_docs.len();
+        state.no_more_results = top_docs.len() < state.limit;
+    }
+
+    match state.results.next() {
         Some((score, doc_address)) => {
             #[cfg(any(
                 feature = "pg12",
@@ -222,52 +231,12 @@ pub extern "C" fn amgettuple(
             }
 
             write_to_manager(*tid, score, doc_address);
+
+            state.current += 1;
             true
         }
         None => false,
     }
-}
-
-#[pg_guard]
-pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TIDBitmap) -> i64 {
-    // We get a fresh executor manager here to clear out memory from previous queries.
-    let manager = get_fresh_executor_manager();
-    let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
-    let state =
-        unsafe { (scan.opaque as *mut TantivyScanState).as_mut() }.expect("no scandesc state");
-    let searcher = &state.searcher;
-    let schema = &state.schema;
-    let query = &state.query;
-
-    // Add snippet generators
-    manager.add_snippet_generators(searcher, schema, query, None);
-
-    let mut cnt = 0i64;
-    let iterator = unsafe { state.iterator.as_mut() }.expect("no iterator in state");
-
-    for (score, doc_address) in iterator {
-        let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
-        let heap_tid_field = schema
-            .get_field("heap_tid")
-            .expect("field 'heap_tid' not found in schema");
-
-        if let tantivy::schema::Value::U64(heap_tid_value) = retrieved_doc
-            .get_first(heap_tid_field)
-            .expect("heap_tid field not found in doc")
-        {
-            let mut tid = pg_sys::ItemPointerData::default();
-            u64_to_item_pointer(*heap_tid_value, &mut tid);
-
-            unsafe {
-                pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
-            }
-
-            write_to_manager(tid, score, doc_address);
-            cnt += 1;
-        }
-    }
-
-    cnt
 }
 
 #[inline]
@@ -278,6 +247,18 @@ fn write_to_manager(ctid: pg_sys::ItemPointerData, score: f32, doc_address: DocA
 
     // Add doc address
     manager.add_doc_address(item_pointer_get_both(ctid), doc_address);
+
+    // Calculate min/max scores
+    let current_max_score = manager.get_max_score();
+    let current_min_score = manager.get_min_score();
+
+    if score > current_max_score {
+        manager.set_max_score(score);
+    }
+
+    if score < current_min_score {
+        manager.set_min_score(score);
+    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

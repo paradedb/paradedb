@@ -33,6 +33,9 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@1.73.0
+
       - name: Retrieve Ubuntu & GitHub Tag Versions
         id: version
         run: |

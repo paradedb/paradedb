@@ -114,4 +114,3 @@ jobs:
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./pg_search-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
           asset_name: pg_search-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
-          asset_content_type: application/vnd.debian.binary-package

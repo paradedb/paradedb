@@ -237,7 +237,7 @@ impl ParadeOptions {
 
     pub fn get_key_field(&self) -> String {
         let key_field = self.get_str(self.key_field_offset, "".to_string());
-        if key_field == "" {
+        if key_field.is_empty() {
             panic!("no key_field supplied for bm25 index")
         }
         key_field

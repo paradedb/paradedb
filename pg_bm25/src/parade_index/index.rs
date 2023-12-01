@@ -50,11 +50,11 @@ impl TryFrom<&JsonBuilderValue> for ParadeIndexId {
 
     fn try_from(value: &JsonBuilderValue) -> Result<Self, Self::Error> {
         match value {
-            JsonBuilderValue::i16(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
-            JsonBuilderValue::i32(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
-            JsonBuilderValue::i64(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
-            JsonBuilderValue::u32(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
-            JsonBuilderValue::u64(v) => Ok(ParadeIndexId::Number(v.clone() as i64)),
+            JsonBuilderValue::i16(v) => Ok(ParadeIndexId::Number(*v as i64)),
+            JsonBuilderValue::i32(v) => Ok(ParadeIndexId::Number(*v as i64)),
+            JsonBuilderValue::i64(v) => Ok(ParadeIndexId::Number(*v)),
+            JsonBuilderValue::u32(v) => Ok(ParadeIndexId::Number(*v as i64)),
+            JsonBuilderValue::u64(v) => Ok(ParadeIndexId::Number(*v as i64)),
             _ => Err(format!("Unsupported conversion: {:#?}", value).into()),
         }
     }
@@ -208,7 +208,7 @@ impl ParadeIndex {
     pub fn from_index_name(name: &str) -> Self {
         unsafe {
             // First check cache to see if we can retrieve the index from memory.
-            if let Some(new_self) = Self::from_cached_index(&name) {
+            if let Some(new_self) = Self::from_cached_index(name) {
                 return new_self;
             }
         }

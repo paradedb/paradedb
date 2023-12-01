@@ -283,7 +283,6 @@ pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TI
 
         match ctid_field_value {
             tantivy::schema::Value::U64(val) => {
-                //
                 let mut tid = pg_sys::ItemPointerData::default();
                 u64_to_item_pointer(*val, &mut tid);
                 unsafe {

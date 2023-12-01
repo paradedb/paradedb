@@ -3,7 +3,10 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# List of extensions to possibly install (if a version variable is set)
+# List of extensions to possibly pre-install (if a version variable is set). Note that
+# this is not an exhaustive list of extensions that can be installed, only the ones that
+# we pre-install. For the full list of extensions available, see: 
+# https://paradedb.notion.site/PostgreSQL-Extensions-Supported-on-ParadeDB-0aefcad16b6846ca9b3c7099cfc9e4f1?pvs=4
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
   [pg_search]=${PG_SEARCH_VERSION:-}
@@ -29,7 +32,6 @@ declare -A extensions=(
   [rum]=${RUM_VERSION:-}
   [age]=${AGE_VERSION:-}
   [citus]=${CITUS_VERSION:-}
-  [pgsodium]=${PGSODIUM_VERSION:-}
   [pgfincore]=${PGFINCORE_VERSION:-}
   [pg_partman]=${PG_PARTMAN_VERSION:-}
   [pg_jobmon]=${PG_JOBMON_VERSION:-}
@@ -46,7 +48,7 @@ declare -A preload_names=(
   [pg_net]=pg_net
   [pgaudit]=pgaudit
   [citus]=citus
-  [pgsodium]=pgsodium
+  # [pgsodium]=pgsodium
   [pg_partman]=pg_partman_bgw
 )
 

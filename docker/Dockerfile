@@ -191,7 +191,7 @@ LABEL org.opencontainers.image.created="$BUILD_DATE"
 LABEL org.opencontainers.image.description="PostgreSQL for Search"
 LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
 
-# Install barman (for backups, and postgis runtime dependencies
+# Install third-party extensions runtime dependencies, and barman (for backups)
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     # postgis
     libgeos-c1v5 \
@@ -199,6 +199,10 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     libprotobuf-c1 \
     libc++1 \
     libc++abi1 \
+    # pgsodium
+    libsodium-dev \
+    # mysql_fdw
+    libmysqlclient-dev \
     # barman
     barman \
     barman-cli-cloud \

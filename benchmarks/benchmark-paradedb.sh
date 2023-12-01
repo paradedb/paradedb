@@ -45,6 +45,11 @@ source "helpers/get_data.sh"
 
 # Cleanup function to stop and remove the Docker container
 cleanup() {
+  echo "Benchmark cleanup triggered..."
+  if [ -s query_error.log ]; then
+    echo "Error occurred during execution. This is likely the cause of the cleanup trigger."
+    cat query_error.log
+  fi
   echo ""
   echo "Cleaning up benchmark environment..."
   if docker ps -q --filter "name=paradedb" | grep -q .; then
@@ -138,12 +143,12 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Time indexing
   echo "-- Timing indexing..."
-  start_time=$( (time db_query "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING bm25 (($TABLE_NAME.*)) WITH (text_fields='{\"url\": {}, \"title\": {}, \"body\": {}}');" > /dev/null) 2>&1 )
+  start_time=$( { time db_query "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING bm25 (($TABLE_NAME.*)) WITH (text_fields='{\"url\": {}, \"title\": {}, \"body\": {}}');" > query_output.log 2> query_error.log ; } 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
   echo "-- Timing search..."
-  start_time=$( (time db_query "SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'body:Canada' LIMIT 10" > /dev/null) 2>&1 )
+  start_time=$( (time db_query "SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'body:Canada' LIMIT 10" > query_output.log 2> query_error.log ; } 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Record times to CSV

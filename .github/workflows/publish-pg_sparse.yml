@@ -100,7 +100,7 @@ jobs:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: ./tmp/pg-sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb
-          asset_name: pg_sparse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
+          asset_name: pg-sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb
 
       # upload_url=$(echo "$release_response" | jq .upload_url --raw-output | sed "s/{?name,label}//")
       # - name: Upload pg_sparse .deb to GitHub Release

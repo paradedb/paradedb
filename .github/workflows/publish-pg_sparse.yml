@@ -98,7 +98,7 @@ jobs:
         run: |
           asset_name="pg_sparse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb"
           deb_file_path="/tmp/pg-sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb"
-          curl -X POST "${{ steps.upload_url.outputs.upload_url }}?name=${asset_name}" \
+          curl -X POST ${{ steps.upload_url.outputs.upload_url }}?name=${asset_name} \
             -H "Authorization: token ${{ secrets.GHA_CREATE_RELEASE_PAT }}" \
             -H "Content-Type: application/vnd.DEBIAN.binary-package" \
             --data-binary "@${deb_file_path}"

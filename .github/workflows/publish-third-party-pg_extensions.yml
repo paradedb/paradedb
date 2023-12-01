@@ -48,6 +48,9 @@ jobs:
           wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null
           sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
 
+          # Create any necessary directories
+          sudo mkdir -p /usr/share/postgresql/${{ matrix.pg_version }}/pgfincore/
+
           # Update permissions for PostgreSQL directories for extensions installation
           sudo chown -R $(whoami) \
             /usr/lib/postgresql/${{ matrix.pg_version }}/bin/ \

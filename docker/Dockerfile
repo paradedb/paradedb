@@ -242,9 +242,9 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/postgis-v${POSTGIS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/postgis-v${POSTGIS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/postgis.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/rum-v${RUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/rum-v${RUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/rum.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/sqlite_fdw-v${SQLITE_FDW_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/sqlite_fdw-v${SQLITE_FDW_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/sqlite_fdw.deb && \
-    curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_net.deb && \
-    curl -L "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_graphql.deb && \
-    curl -L "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_jsonschema.deb && \
+    curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \
+    curl -L "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_graphql.deb && \
+    curl -L "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_jsonschema.deb && \
     apt-fast update && apt-fast install -y --no-install-recommends /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 

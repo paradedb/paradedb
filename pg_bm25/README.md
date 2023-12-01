@@ -87,6 +87,9 @@ USING bm25 ((mock_items.*))
 WITH (key_field='id', text_fields='{"description": {}, "category": {}}');
 ```
 
+Note the mandatory `key_field` option in the `WITH` code. Every `bm25` index needs a `key_field`, which should be the name of a column that will function as a row's unique identifier within the index. Usually, the `key_field` can just be the name of your table's primary key column.
+
+
 Once the indexing is complete, you can run various search functions on it.
 
 ### Basic Search

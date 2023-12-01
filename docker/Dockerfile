@@ -232,10 +232,16 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/hypopg-v${HYPOPG_VERSION}-$TARGETARCH/hypopg-v${HYPOPG_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/hypopg.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/rum-v${RUM_VERSION}-$TARGETARCH/rum-v${RUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/rum.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/age-v${AGE_VERSION}-$TARGETARCH/age-v${AGE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/age.deb && \
-    
-
-
-
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/citus-v${CITUS_VERSION}-$TARGETARCH/citus-v${CITUS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/citus.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgsodium-v${PGSODIUM_VERSION}-$TARGETARCH/pgsodium-v${PGSODIUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgsodium.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgfincore-v${PGFINCORE_VERSION}-$TARGETARCH/pgfincore-v${PGFINCORE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgfincore.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_partman-v${PG_PARTMAN_VERSION}-$TARGETARCH/pg_partman-v${PG_PARTMAN_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_partman.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_jobmon-v${PG_JOBMON_VERSION}-$TARGETARCH/pg_jobmon-v${PG_JOBMON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_jobmon.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_auto_failover-v${PG_AUTO_FAILOVER_VERSION}-$TARGETARCH/pg_auto_failover-v${PG_AUTO_FAILOVER_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_auto_failover.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_show_plans-v${PG_SHOW_PLANS_VERSION}-$TARGETARCH/pg_show_plans-v${PG_SHOW_PLANS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_show_plans.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/sqlite_fdw-v${SQLITE_FDW_VERSION}-$TARGETARCH/sqlite_fdw-v${SQLITE_FDW_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/sqlite_fdw.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgddl-v${PGDDL_VERSION}-$TARGETARCH/pgddl-v${PGDDL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgddl.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/mysql_fdw-v${MYSQL_FDW_VERSION}-$TARGETARCH/mysql_fdw-v${MYSQL_FDW_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/mysql_fdw.deb && \
     curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_net.deb && \
     curl -L "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_graphql.deb && \
     curl -L "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_jsonschema.deb && \

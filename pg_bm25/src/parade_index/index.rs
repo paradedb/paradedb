@@ -13,7 +13,7 @@ use tantivy::{
     schema::*,
     DocAddress, Document, Index, IndexSettings, Score, Searcher, Term,
 };
-use tantivy::{IndexReader, IndexWriter, SingleSegmentIndexWriter, TantivyError};
+use tantivy::{IndexReader, IndexWriter, TantivyError};
 
 use crate::index_access::options::ParadeOptions;
 use crate::json::builder::JsonBuilder;
@@ -227,7 +227,7 @@ impl ParadeIndex {
 
     pub fn insert_with_writer(
         &mut self,
-        writer: &mut SingleSegmentIndexWriter,
+        writer: &mut IndexWriter,
         heap_tid: ItemPointerData,
         builder: JsonBuilder,
     ) {
@@ -344,8 +344,9 @@ impl ParadeIndex {
         self.reader.searcher()
     }
 
-    pub fn single_segment_writer(&self) -> Result<SingleSegmentIndexWriter, TantivyError> {
-        SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_TANTIVY_MEMORY_BUDGET)
+    pub fn single_segment_writer(&self) -> Result<IndexWriter, TantivyError> {
+        self.underlying_index
+            .writer_with_num_threads(1, INDEX_TANTIVY_MEMORY_BUDGET)
     }
 
     pub fn writer(&self) -> Result<IndexWriter, TantivyError> {

@@ -1,6 +1,6 @@
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
-use tantivy::SingleSegmentIndexWriter;
+use tantivy::IndexWriter;
 
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{
@@ -13,7 +13,7 @@ use crate::parade_index::index::ParadeIndex;
 struct BuildState<'a> {
     count: usize,
     parade_index: &'a mut ParadeIndex,
-    index_writer: SingleSegmentIndexWriter,
+    index_writer: IndexWriter,
     memcxt: PgMemoryContexts,
 }
 
@@ -59,7 +59,7 @@ pub extern "C" fn ambuild(
     // Create ParadeDB Index
     let mut parade_index = create_parade_index(index_name.clone(), &heap_relation, rdopts).unwrap();
 
-    let state = do_heap_scan(
+    let mut state = do_heap_scan(
         index_info,
         &heap_relation,
         &index_relation,

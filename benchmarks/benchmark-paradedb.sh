@@ -45,18 +45,17 @@ source "helpers/get_data.sh"
 
 # Cleanup function to stop and remove the Docker container
 cleanup() {
-  echo "Benchmark cleanup triggered..."
   if [ -s query_error.log ]; then
-    echo "Error occurred during execution. This is likely the cause of the cleanup trigger."
+    echo "!!! Benchmark cleanup triggered !!!"
     cat query_error.log
   fi
   echo ""
   echo "Cleaning up benchmark environment..."
   if docker ps -q --filter "name=paradedb" | grep -q .; then
-    docker kill paradedb
+    docker kill paradedb > /dev/null 2>&1
   fi
-  docker rm paradedb
-  echo "Done!"
+  docker rm paradedb > /dev/null 2>&1
+  echo "Done, goodbye!"
 }
 
 # Register the cleanup function to run when the script exits
@@ -160,7 +159,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Cleanup: drop temporary table and index
   echo "-- Cleaning up..."
-  db_query "DROP TABLE $TABLE_NAME;"
   db_query "DROP INDEX IF EXISTS $INDEX_NAME;"
+  db_query "DROP TABLE $TABLE_NAME;"
   echo "Done!"
 done

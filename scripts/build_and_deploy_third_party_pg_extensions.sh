@@ -88,7 +88,7 @@ build_and_publish_pg_extension() {
     upload_url=$(echo "$release_response" | jq .upload_url --raw-output | sed "s/{?name,label}//")
 
     # Upload the .deb file to the newly created GitHub release
-    asset_name="$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-$UBUNTU_VERSION.deb"
+    asset_name="$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-ubuntu$UBUNTU_VERSION.deb"
     deb_file_path="/tmp/${PG_EXTENSION_NAME//_/-}_$SANITIZED_PG_EXTENSION_VERSION-1_$ARCH.deb"
     curl -X POST "${upload_url}?name=${asset_name}" \
       -H "Authorization: token $GITHUB_TOKEN" \

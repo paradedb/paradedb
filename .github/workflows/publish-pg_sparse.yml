@@ -38,7 +38,7 @@ jobs:
       - name: Retrieve Ubuntu & GitHub Tag Versions
         id: version
         run: |
-          echo "version=0.2.2" >> $GITHUB_OUTPUT
+          echo "version=0.3.12" >> $GITHUB_OUTPUT
           echo "ubuntu_version=$(lsb_release -rs | sed 's/\.//')" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version
@@ -100,4 +100,4 @@ jobs:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
           asset_path: /tmp/pg_sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb            
-          asset_name: pg_sparse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.ubuntu_version }}.deb
+          asset_name: pg_sparse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb

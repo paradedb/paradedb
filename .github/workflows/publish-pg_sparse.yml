@@ -38,7 +38,7 @@ jobs:
       - name: Retrieve Ubuntu & GitHub Tag Versions
         id: version
         run: |
-          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "version=0.2.2" >> $GITHUB_OUTPUT
           echo "ubuntu_version=$(lsb_release -rs | sed 's/\.//')" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version
@@ -77,7 +77,6 @@ jobs:
 
           # Set pg_config path
           export PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-
 
           # Set OPTFLAGS to an empty string if it's not already set
           OPTFLAGS=${OPTFLAGS:-""}

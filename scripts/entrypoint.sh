@@ -10,7 +10,7 @@ set -Eeuo pipefail
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
   [pg_search]=${PG_SEARCH_VERSION:-}
-  [pg_sparse]=${PG_SPARSE_VERSION:-}
+  [svector]=${PG_SPARSE_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
   [pg_net]=${PG_NET_VERSION:-}
@@ -35,10 +35,10 @@ declare -A extensions=(
   [pgfincore]=${PGFINCORE_VERSION:-}
   [pg_partman]=${PG_PARTMAN_VERSION:-}
   [pg_jobmon]=${PG_JOBMON_VERSION:-}
-  [pg_auto_failover]=${PG_AUTO_FAILOVER_VERSION:-}
+  # [pgautofailover]=${PG_AUTO_FAILOVER_VERSION:-} # Need to install btree_gist to install pgautofailover
   [pg_show_plans]=${PG_SHOW_PLANS_VERSION:-}
   [sqlite_fdw]=${SQLITE_FDW_VERSION:-}
-  [pgddl]=${PGDDL_VERSION:-}
+  [ddlx]=${PGDDL_VERSION:-}
   [mysql_fdw]=${MYSQL_FDW_VERSION:-}
 )
 

@@ -67,11 +67,12 @@ build_and_publish_pg_extension() {
   # needs to be semVer compliant, so we sanitize the version first before using it anywhere
   SANITIZED_PG_EXTENSION_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
 
-  # Retrieve the version of Ubuntu we're running on, to specify in the .deb filename
+  # Retrieve the versions of Ubuntu and Postgres we're running on, to specify in the .deb filename
   UBUNTU_VERSION=$(lsb_release -rs | sed 's/\.//')
+  PG_VERSION=15
 
   # Check if the GitHub Release exists
-  release_url="https://github.com/paradedb/third-party-pg_extensions/releases/tag/$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-$ARCH"
+  release_url="https://github.com/paradedb/third-party-pg_extensions/releases/tag/$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_VERSION-$ARCH-ubuntu$UBUNTU_VERSION"
   if curl --output /dev/null --silent --head --fail "$release_url"; then
     echo "Release for $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION already exists, skipping..."
   else

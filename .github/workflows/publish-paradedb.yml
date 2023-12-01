@@ -91,10 +91,20 @@ jobs:
             HYPOPG_VERSION=1.4.0
             RUM_VERSION=1.3.13
             AGE_VERSION=1.4.0
+            CITUS_VERSION=12.1.1
+            PGSODIUM_VERSION=3.1.9
+            PGFINCORE_VERSION=1.3.1
+            PG_PARTMAN_VERSION=5.0.0
+            PG_JOBMON_VERSION=1.4.1
+            PG_AUTO_FAILOVER_VERSION=2.1
+            PG_SHOW_PLANS_VERSION=2.0.2
+            SQLITE_FDW_VERSION=2.4.0
+            PGDDL_VERSION=0.27
+            MYSQL_FDW_VERSION=2.9.1
+            TELEMETRY=true
             POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
-            TELEMETRY=true
             BUILD_DATE=${{ steps.current_date.outputs.BUILD_DATE }}
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile

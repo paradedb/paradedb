@@ -32,6 +32,16 @@ ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
 ARG AGE_VERSION
+ARG CITUS_VERSION
+ARG PGSODIUM_VERSION
+ARG PGFINCORE_VERSION
+ARG PG_PARTMAN_VERSION
+ARG PG_JOBMON_VERSION
+ARG PG_AUTO_FAILOVER_VERSION
+ARG PG_SHOW_PLANS_VERSION
+ARG SQLITE_FDW_VERSION
+ARG PGDDL_VERSION
+ARG MYSQL_FDW_VERSION
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
@@ -62,6 +72,16 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     HYPOPG_VERSION=${HYPOPG_VERSION} \
     RUM_VERSION=${RUM_VERSION} \
     AGE_VERSION=${AGE_VERSION} \
+    CITUS_VERSION=${CITUS_VERSION} \
+    PGSODIUM_VERSION=${PGSODIUM_VERSION} \
+    PGFINCORE_VERSION=${PGFINCORE_VERSION} \
+    PG_PARTMAN_VERSION=${PG_PARTMAN_VERSION} \
+    PG_JOBMON_VERSION=${PG_JOBMON_VERSION} \
+    PG_AUTO_FAILOVER_VERSION=${PG_AUTO_FAILOVER_VERSION} \
+    PG_SHOW_PLANS_VERSION=${PG_SHOW_PLANS_VERSION} \
+    SQLITE_FDW_VERSION=${SQLITE_FDW_VERSION} \
+    PGDDL_VERSION=${PGDDL_VERSION} \
+    MYSQL_FDW_VERSION=${MYSQL_FDW_VERSION} \
     POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
@@ -212,6 +232,10 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/hypopg-v${HYPOPG_VERSION}-$TARGETARCH/hypopg-v${HYPOPG_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/hypopg.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/rum-v${RUM_VERSION}-$TARGETARCH/rum-v${RUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/rum.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/age-v${AGE_VERSION}-$TARGETARCH/age-v${AGE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/age.deb && \
+    
+
+
+
     curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \
     curl -L "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_graphql.deb && \
     curl -L "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_jsonschema.deb && \

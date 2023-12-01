@@ -28,8 +28,16 @@ declare -A extensions=(
   [hypopg]=${HYPOPG_VERSION:-}
   [rum]=${RUM_VERSION:-}
   [age]=${AGE_VERSION:-}
-  [pg_partman]=${PGPARTMAN_VERSION:-}
-  [pg_jobmon]=${PGJOBMON_VERSION:-}
+  [citus]=${CITUS_VERSION:-}
+  [pgsodium]=${PGSODIUM_VERSION:-}
+  [pgfincore]=${PGFINCORE_VERSION:-}
+  [pg_partman]=${PG_PARTMAN_VERSION:-}
+  [pg_jobmon]=${PG_JOBMON_VERSION:-}
+  [pg_auto_failover]=${PG_AUTO_FAILOVER_VERSION:-}
+  [pg_show_plans]=${PG_SHOW_PLANS_VERSION:-}
+  [sqlite_fdw]=${SQLITE_FDW_VERSION:-}
+  [pgddl]=${PGDDL_VERSION:-}
+  [mysql_fdw]=${MYSQL_FDW_VERSION:-}
 )
 
 # List of extensions that must be added to shared_preload_libraries

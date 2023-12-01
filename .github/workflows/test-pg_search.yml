@@ -94,11 +94,11 @@ jobs:
 
       # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
-      # clean any cached pg_search build artifacts before running the tests
+      # clean any cached pg_search & dependencies build artifacts before running the tests
       - name: Clean Cached Build Artifacts
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
         working-directory: pg_search/
-        run: cargo clean -p pg_search
+        run: cargo clean
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_search Integration Tests

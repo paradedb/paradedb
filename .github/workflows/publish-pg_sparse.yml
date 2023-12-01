@@ -89,9 +89,6 @@ jobs:
           make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
           checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp -- make USE_PGXS=1 install
 
-          # Move package to root directory
-          mv /tmp/pg_sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb ./
-
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL
         id: upload_url
@@ -102,5 +99,5 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb
+          asset_path: ./tmp/pg-sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb
           asset_name: pg_sparse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb

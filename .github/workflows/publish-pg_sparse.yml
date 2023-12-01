@@ -99,5 +99,5 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: /tmp/${pg_sparse//_/-}_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb
+          asset_path: /tmp/pg_sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb            
           asset_name: pg_sparse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.ubuntu_version }}.deb

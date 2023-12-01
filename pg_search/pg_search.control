@@ -4,4 +4,4 @@ module_pathname = '$libdir/pg_search'
 relocatable = false
 superuser = true
 schema = paradedb
-requires = 'pg_bm25,vector'
+requires = 'pg_bm25,vector,svector'

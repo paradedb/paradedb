@@ -28,6 +28,8 @@ declare -A extensions=(
   [hypopg]=${HYPOPG_VERSION:-}
   [rum]=${RUM_VERSION:-}
   [age]=${AGE_VERSION:-}
+  [pg_partman]=${PGPARTMAN_VERSION:-}
+  [pg_jobmon]=${PGJOBMON_VERSION:-}
 )
 
 # List of extensions that must be added to shared_preload_libraries
@@ -35,6 +37,9 @@ declare -A preload_names=(
   [pg_cron]=pg_cron
   [pg_net]=pg_net
   [pgaudit]=pgaudit
+  [citus]=citus
+  [pgsodium]=pgsodium
+  [pg_partman]=pg_partman_bgw
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed

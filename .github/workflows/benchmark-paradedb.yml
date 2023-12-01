@@ -15,7 +15,7 @@ on:
       - staging
       - main
     paths:
-      - 'benchmarks/**'
+      - "benchmarks/**"
   workflow_dispatch:
     inputs:
       name:

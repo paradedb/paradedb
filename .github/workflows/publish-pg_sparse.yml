@@ -9,8 +9,6 @@ on:
   push:
     tags:
       - "v*"
-    branches:
-      - phil/fix-sparse-deploy
   workflow_dispatch:
 
 concurrency:
@@ -38,7 +36,7 @@ jobs:
       - name: Retrieve Ubuntu & GitHub Tag Versions
         id: version
         run: |
-          echo "version=0.3.12" >> $GITHUB_OUTPUT
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           echo "ubuntu_version=$(lsb_release -rs | sed 's/\.//')" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version

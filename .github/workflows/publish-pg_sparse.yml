@@ -9,6 +9,8 @@ on:
   push:
     tags:
       - "v*"
+    branches:
+      - phil/fix-sparse-deploy
   workflow_dispatch:
 
 concurrency:
@@ -70,7 +72,7 @@ jobs:
         run: |
           # Download & extract source code
           mkdir -p "/tmp/pg_sparse-${{ steps.version.outputs.version }}"
-          cp pg_sparse/** "/tmp/pg_sparse-${{ steps.version.outputs.version }}/"
+          cp -r pg_sparse/** "/tmp/pg_sparse-${{ steps.version.outputs.version }}/"
           cd "/tmp/pg_sparse-${{ steps.version.outputs.version }}"
 
           # Set pg_config path

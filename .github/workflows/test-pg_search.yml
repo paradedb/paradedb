@@ -98,7 +98,7 @@ jobs:
       - name: Clean Cached Build Artifacts
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
         working-directory: pg_search/
-        run: cargo clean -p pg_search -p pg_bm25 -p shared -p test -p pgrx-tests
+        run: cargo clean -p pg_search -p pg_bm25 -p shared -p pgrx-tests
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_search Integration Tests

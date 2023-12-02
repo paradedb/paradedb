@@ -1,7 +1,11 @@
 use pgrx::prelude::*;
-use pg_sys::{self, PlannedStmt, Query, standard_planner, planner_hook, ParamListInfoData, ExecutorRun_hook, QueryDesc, standard_ExecutorRun, Node, NodeTag};
+use pg_sys::{self, PlannedStmt, Query, SeqScan, standard_planner, planner_hook, ParamListInfoData, ExecutorRun_hook, QueryDesc, standard_ExecutorRun, Node, NodeTag};
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
+
+use crate::to_substrait::transform_seqscan_to_substrait;
+
+mod to_substrait;
 
 pgrx::pg_module_magic!();
 
@@ -43,65 +47,24 @@ unsafe extern "C" fn columnar_executor_run(query_desc: *mut QueryDesc, direction
     info!("Entering columnar_executor_run");
 
     // Imitate ExplainNode for recursive plan scanning behavior
-    let ps = (*queryDesc).plannedstmt;
+    let ps = (*query_desc).plannedstmt;
     let plan = (*ps).planTree;
     let node = plan as *mut Node;
-    let node_tag = unsafe { (*node).type_};
+    let node_tag = (*node).type_;
+    let rtable = (*ps).rtable;
+
+    // Create default Substrait plan
+    let mut sget = substrait::proto::ReadRel::default();
 
     match node_tag {
         NodeTag::T_SeqScan => {
-            let scan = (SeqScan*) plan;
-            let rte = list_nth((*ps).rtable, (*scan).scan.scanrelid - 1);
-
-            // match (*rte).rtekind {
-            //     RTEKIND_RTE_RELATION => {
-            //         let relation = RelationIdGetRelation(rte->relid);
-            //     }
-            // }
-            let relation = RelationIdGetRelation((*rte).relid);
-
-            let table = substrait::NamedTable {
-                names: vec![(*(*relation).rd_rel).relname],
-                advanced_extension: None
-            };
-
-            let base_schema = substrait::NamedStruct {
-                names: vec![],
-                struct: substrait::Struct {
-                    types: vec![],
-                    type_variation_reference: 0,
-                    nullability: substrait::proto::type::Nullability::Required,
-                },
-            };
-
-            let list = (*plan).targetlist;
-            if ((*plan).targetlist != NULL) {
-                for (let i = 0; i < list.length; i++) {
-                    let list_cell = list.elements.offset(i);
-                    let list_cell_node = (*list_cell).ptr_value as mut* Node;
-                    let list_cell_node_tag = unsafe { (*list_cell_node).type_ };
-                    match (list_cell_node_tag) {
-                        NodeTag::T_Var => {
-                            let var = list_cell_node_tag as *mut Var;
-                            let list_cell_rte = list_nth((*ps).rtable, (*var).varno - 1);
-                            base_schema.names.push(get_attname((*list_cell_rte).relid, (*var).varattno, false));
-                        }
-                        base_schema.struct.types.push()
-                    }
-                    // TODO: nullability constraints and type conversion
-                    //       see `DuckDBToSubstrait::DuckToSubstraitType` for type conversion reference
-                }
+            let scan: *mut SeqScan = plan as *mut SeqScan;
+            if let Err(e) = transform_seqscan_to_substrait(rtable, scan, &mut sget) {
+                error!("Error transforming SeqScan to Substrait: {}", e);
             }
-
-            let sget = substrait::ReadRel {
-                common: None,
-                base_schema: base_schema,
-                filter: None,
-                best_effort_filter: None,
-                projection: None,
-                advanced_extension: None,
-                read_type: None
-            };
+        }
+        _ => {
+            // TODO: Add missing types
         }
     }
 
@@ -124,22 +87,9 @@ pub unsafe extern "C" fn _PG_init() {
 }
 
 
-#[pg_extern]
-fn hello_pg_columnar() -> &'static str {
-    "Hello, pg_columnar"
-}
-
-
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_schema]
 mod tests {
-    use pgrx::prelude::*;
-
-    #[pg_test]
-    fn test_hello_pg_planner() {
-        assert_eq!("Hello, pg_columnar", crate::hello_pg_columnar());
-    }
-
 }
 
 /// This module is required by `cargo pgrx test` invocations.

@@ -5,7 +5,7 @@ set -Eeuo pipefail
 
 # List of extensions to possibly pre-install (if a version variable is set). Note that
 # this is not an exhaustive list of extensions that can be installed, only the ones that
-# we pre-install. For the full list of extensions available, see: 
+# we pre-install. For the full list of extensions available, see:
 # https://paradedb.notion.site/PostgreSQL-Extensions-Supported-on-ParadeDB-0aefcad16b6846ca9b3c7099cfc9e4f1?pvs=4
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}

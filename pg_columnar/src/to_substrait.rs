@@ -15,6 +15,7 @@ use substrait::proto::r#type;
 
 // from chapter 8.1 of the postgres docs
 #[repr(u32)]
+#[derive(Debug)]
 pub enum PostgresType {
     Boolean = 16,
     Integer = 23,
@@ -131,7 +132,6 @@ pub fn transform_seqscan_to_substrait(
     // find the table we're supposed to be scanning by querying the range table
     // RangeTblqEntry
     // scanrelid is index into the range table
-    // we use relid - 1 because that's what
     let rte = unsafe { rt_fetch((*scan).scan.scanrelid, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
     let relname = unsafe { &mut (*(*relation).rd_rel).relname as *mut NameData };
@@ -142,6 +142,7 @@ pub fn transform_seqscan_to_substrait(
     let tablename_str = unsafe { CStr::from_ptr(relname as *const _ as *const i8) }
         .to_string_lossy() // Convert to a String
         .into_owned();
+    info!("table name {:?}", tablename_str);
     let table_names = vec![tablename_str]; // Create a Vec<String> with the table name
 
     // TODO: I only passed in a single table name, but this seems to be for arbitrary many tables that the SeqScan is over, probably
@@ -187,11 +188,12 @@ pub fn transform_seqscan_to_substrait(
                         let var_relid = (*var_rte).relid;
                         // varattno is the attribute number, or 0 for all attributes
                         let att_name = get_attname(var_relid, (*var).varattno, false);
-                        let tablename = CStr::from_ptr(att_name).to_string_lossy().into_owned();
+                        let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
                         // vartype is the pg_type OID for the type of this var
                         let att_type = PostgresType::from_oid((*var).vartype);
                         if let Some(pg_type) = att_type {
-                            col_names.push(tablename);
+                            info!("found attribute {:?} with type {:?}", att_name_str, pg_type);
+                            col_names.push(att_name_str);
                             // TODO: fill out nullability
                             // TODO: no unwrap, handle error
                             col_types
@@ -208,6 +210,9 @@ pub fn transform_seqscan_to_substrait(
     }
     base_schema.names = col_names;
     base_schema.r#struct = Some(col_types);
-    unsafe { (*sget).base_schema = Some(base_schema) };
+    unsafe {
+        (*sget).base_schema = Some(base_schema);
+        (*sget).read_type = Some(table)
+    };
     Ok(())
 }

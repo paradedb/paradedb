@@ -131,7 +131,8 @@ pub fn transform_seqscan_to_substrait(
     // find the table we're supposed to be scanning by querying the range table
     // RangeTblqEntry
     // scanrelid is index into the range table
-    let rte = unsafe { pgrx_list_nth(rtable, ((*scan).scan.scanrelid - 1)) as *mut RangeTblEntry };
+    // we use relid - 1 because that's what 
+    let rte = unsafe {rt_fetch((*scan).scan.scanrelid, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
     let relname = unsafe { &mut (*(*relation).rd_rel).relname as *mut NameData };
 
@@ -181,7 +182,7 @@ pub fn transform_seqscan_to_substrait(
                         // target list var no = scanrelid
                         let var = list_cell_node as *mut pgrx::pg_sys::Var;
                         // varno is the index of var's relation in the range table
-                        let var_rte = pgrx_list_nth(rtable, (*var).varno) as *mut RangeTblEntry;
+                        let var_rte = rt_fetch((*var).varno, rtable);
                         let var_relid = (*var_rte).relid;
                         // varattno is the attribute number, or 0 for all attributes
                         let att_name = get_attname(var_relid, (*var).varattno, false);

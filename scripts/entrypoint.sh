@@ -12,8 +12,6 @@ declare -A extensions=(
   [pg_search]=${PG_SEARCH_VERSION:-}
   [svector]=${PG_SPARSE_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
-  [pg_cron]=${PG_CRON_VERSION:-}
-  [pg_net]=${PG_NET_VERSION:-}
   [pg_ivm]=${PG_IVM_VERSION:-}
   [pg_graphql]=${PG_GRAPHQL_VERSION:-}
   [pg_hashids]=${PG_HASHIDS_VERSION:-}
@@ -23,7 +21,6 @@ declare -A extensions=(
   [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
   [pgfaceting]=${PGFACETING_VERSION:-}
   [pgtap]=${PGTAP_VERSION:-}
-  [pgaudit]=${PGAUDIT_VERSION:-}
   [postgis]=${POSTGIS_VERSION:-}
   [pgrouting]=${PGROUTING_VERSION:-}
   [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
@@ -31,11 +28,14 @@ declare -A extensions=(
   [hypopg]=${HYPOPG_VERSION:-}
   [rum]=${RUM_VERSION:-}
   [age]=${AGE_VERSION:-}
-  [citus]=${CITUS_VERSION:-}
   [pgfincore]=${PGFINCORE_VERSION:-}
-  [pg_partman]=${PG_PARTMAN_VERSION:-}
   [pg_jobmon]=${PG_JOBMON_VERSION:-}
-  # [pgautofailover]=${PG_AUTO_FAILOVER_VERSION:-} # Need to install btree_gist to install pgautofailover
+  [pg_cron]=${PG_CRON_VERSION:-}
+  # [pg_net]=${PG_NET_VERSION:-}
+  # [pgaudit]=${PGAUDIT_VERSION:-}
+  # [citus]=${CITUS_VERSION:-}
+  # [pg_partman]=${PG_PARTMAN_VERSION:-}
+  # [pgautofailover]=${PG_AUTO_FAILOVER_VERSION:-}
   [pg_show_plans]=${PG_SHOW_PLANS_VERSION:-}
   [sqlite_fdw]=${SQLITE_FDW_VERSION:-}
   [ddlx]=${PGDDL_VERSION:-}
@@ -45,11 +45,15 @@ declare -A extensions=(
 # List of extensions that must be added to shared_preload_libraries
 declare -A preload_names=(
   [pg_cron]=pg_cron
-  [pg_net]=pg_net
-  [pgaudit]=pgaudit
-  [citus]=citus
+  # These are commented out since we don't install them by default on ParadeDB. If you
+  # would like to install them, uncomment the line(s) below and add the extension(s) to
+  # the extensions list above
+  # [pg_net]=pg_net
+  # [pgaudit]=pgaudit
+  # [citus]=citus
   # [pgsodium]=pgsodium
-  [pg_partman]=pg_partman_bgw
+  # [pgautofailover]=pgautofailover
+  # [pg_partman]=pg_partman_bgw
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed

@@ -62,6 +62,7 @@ unsafe extern "C" fn columnar_executor_run(
 
     // Create default Substrait plan
     let mut sget = substrait::proto::ReadRel::default();
+    info!("Node tag {:?}", node_tag);
 
     match node_tag {
         NodeTag::T_SeqScan => {
@@ -85,16 +86,33 @@ unsafe extern "C" fn columnar_executor_run(
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
 #[pg_guard]
-pub unsafe extern "C" fn _PG_init() {
+// #[no_mangle]
+pub extern "C" fn _PG_init() {
     telemetry::posthog::init("pg_columnar deployment");
     PARADE_LOGS_GLOBAL.init();
-    planner_hook = Some(columnar_planner as _); // Corrected cast
-    ExecutorRun_hook = Some(columnar_executor_run as _);
+    unsafe {
+        planner_hook = Some(columnar_planner as _); // Corrected cast
+        ExecutorRun_hook = Some(columnar_executor_run as _);
+    }
+}
+
+// We have this here in order to force the hook during CREATE EXTENSION
+// This is probably avoided if we LOAD the extension instead?
+#[pg_extern]
+fn hello_pg_planner() -> &'static str {
+    "Hello, pg_planner"
 }
 
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_schema]
-mod tests {}
+mod tests {
+    use pgrx::prelude::*;
+
+    #[pg_test]
+    fn test_hello_pg_planner() {
+        assert_eq!("Hello, pg_planner", crate::hello_pg_planner());
+    }
+}
 
 /// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.

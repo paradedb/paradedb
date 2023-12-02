@@ -6,7 +6,7 @@
 use pg_sys::{
     namestrcpy, pgrx_list_nth, NameData, PlannedStmt, RangeTblEntry, RelationIdGetRelation, SeqScan,
 };
-use pgrx::pg_sys::{Oid, get_attname, NodeTag, rt_fetch};
+use pgrx::pg_sys::{get_attname, rt_fetch, NodeTag, Oid};
 use pgrx::prelude::*;
 use pgrx::spi::Error;
 use std::ffi::CStr;
@@ -131,8 +131,8 @@ pub fn transform_seqscan_to_substrait(
     // find the table we're supposed to be scanning by querying the range table
     // RangeTblqEntry
     // scanrelid is index into the range table
-    // we use relid - 1 because that's what 
-    let rte = unsafe {rt_fetch((*scan).scan.scanrelid, rtable) };
+    // we use relid - 1 because that's what
+    let rte = unsafe { rt_fetch((*scan).scan.scanrelid, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
     let relname = unsafe { &mut (*(*relation).rd_rel).relname as *mut NameData };
 
@@ -174,7 +174,8 @@ pub fn transform_seqscan_to_substrait(
         if !list.is_null() {
             let elements = (*list).elements;
             for i in 0..(*list).length {
-                let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+                let list_cell_node =
+                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
                 match (*list_cell_node).type_ {
                     NodeTag::T_Var => {
                         // the varno and varattno identify the "semantic referent", which is a base-relation column
@@ -182,23 +183,24 @@ pub fn transform_seqscan_to_substrait(
                         // target list var no = scanrelid
                         let var = list_cell_node as *mut pgrx::pg_sys::Var;
                         // varno is the index of var's relation in the range table
-                        let var_rte = rt_fetch((*var).varno, rtable);
+                        let var_rte = rt_fetch((*var).varno as u32, rtable);
                         let var_relid = (*var_rte).relid;
                         // varattno is the attribute number, or 0 for all attributes
                         let att_name = get_attname(var_relid, (*var).varattno, false);
+                        let tablename = CStr::from_ptr(att_name).to_string_lossy().into_owned();
                         // vartype is the pg_type OID for the type of this var
                         let att_type = PostgresType::from_oid((*var).vartype);
                         if let Some(pg_type) = att_type {
-                            col_names.push(att_name as NameData);
+                            col_names.push(tablename);
                             // TODO: fill out nullability
                             // TODO: no unwrap, handle error
                             col_types
                                 .types
-                                .push(postgres_to_substrait_type(pg_type, false).unwrap());
+                                .push(postgres_to_substrait_type(pg_type, false)?);
                         } else {
                             info!("Oid {} is not supported", (*var).vartype);
                         }
-                    },
+                    }
                     _ => {}
                 }
             }
@@ -206,6 +208,6 @@ pub fn transform_seqscan_to_substrait(
     }
     base_schema.names = col_names;
     base_schema.r#struct = Some(col_types);
-    (*sget).base_schema = Some(base_schema);
+    unsafe { (*sget).base_schema = Some(base_schema) };
     Ok(())
 }

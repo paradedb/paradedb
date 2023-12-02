@@ -6,7 +6,7 @@
 use pg_sys::{
     namestrcpy, pgrx_list_nth, NameData, PlannedStmt, RangeTblEntry, RelationIdGetRelation, SeqScan,
 };
-use pgrx::pg_sys::Oid;
+use pgrx::pg_sys::{Oid, get_attname, NodeTag, rt_fetch};
 use pgrx::prelude::*;
 use pgrx::spi::Error;
 use std::ffi::CStr;
@@ -14,7 +14,7 @@ use substrait::proto;
 use substrait::proto::r#type;
 
 // from chapter 8.1 of the postgres docs
-#[repr(Oid)]
+#[repr(u32)]
 pub enum PostgresType {
     Boolean = 16,
     Integer = 23,
@@ -33,7 +33,7 @@ pub enum PostgresType {
 
 impl PostgresType {
     fn from_oid(oid: Oid) -> Option<PostgresType> {
-        match oid {
+        match oid.as_u32() {
             16 => Some(PostgresType::Boolean),
             23 => Some(PostgresType::Integer),
             20 => Some(PostgresType::BigInt),
@@ -84,7 +84,7 @@ pub fn postgres_to_substrait_type(
         PostgresType::Text | PostgresType::VarChar | PostgresType::BpChar => {
             let mut text_type = proto::r#type::VarChar::default();
             text_type.set_nullability(type_nullability);
-            s_type.kind = Some(proto::r#type::Kind::VarChar(text_type));
+            s_type.kind = Some(proto::r#type::Kind::Varchar(text_type));
         }
         // TODO: Add missing types
         PostgresType::SmallInt => {
@@ -171,10 +171,10 @@ pub fn transform_seqscan_to_substrait(
     // we're only supposed to consider Vars, which correspond to columns
     unsafe {
         let list = (*plan).targetlist;
-        if list != pgrx::NULL {
+        if !list.is_null() {
             let elements = (*list).elements;
             for i in 0..(*list).length {
-                let list_cell_node = elements.offset(i).ptr_value as *mut pgrx::pg_sys::Node;
+                let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
                 match (*list_cell_node).type_ {
                     NodeTag::T_Var => {
                         // the varno and varattno identify the "semantic referent", which is a base-relation column
@@ -189,21 +189,23 @@ pub fn transform_seqscan_to_substrait(
                         // vartype is the pg_type OID for the type of this var
                         let att_type = PostgresType::from_oid((*var).vartype);
                         if let Some(pg_type) = att_type {
-                            col_names.push(att_name);
+                            col_names.push(att_name as NameData);
                             // TODO: fill out nullability
+                            // TODO: no unwrap, handle error
                             col_types
                                 .types
-                                .push(postgres_to_substrait_type(pg_type, false));
+                                .push(postgres_to_substrait_type(pg_type, false).unwrap());
                         } else {
                             info!("Oid {} is not supported", (*var).vartype);
                         }
-                    }
+                    },
+                    _ => {}
                 }
             }
         }
     }
     base_schema.names = col_names;
-    base_schema.r#struct = col_types;
-    sget.base_schema = Some(base_schema);
+    base_schema.r#struct = Some(col_types);
+    (*sget).base_schema = Some(base_schema);
     Ok(())
 }

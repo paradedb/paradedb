@@ -168,6 +168,18 @@ pub fn transform_seqscan_to_substrait(
     };
     */
 
+    // TODO: nullability: chatgpt said this in C:
+    // Oid relid = PG_GETARG_OID(0); // Assume a table OID is passed as argument
+    // Relation rel;
+    // TupleDesc tupdesc;
+    // bool attnotnull;
+
+    // rel = relation_open(relid, AccessShareLock);
+    // tupdesc = RelationGetDescr(rel);
+
+    // // Assuming you want to check the first attribute
+    // Form_pg_attribute attr = TupleDescAttr(tupdesc, 0);
+    // attnotnull = attr->attnotnull;
     // Iterate through the targetlist, which kinda looks like the columns the `SELECT` pulls
     // we're only supposed to consider Vars, which correspond to columns
     unsafe {
@@ -200,6 +212,7 @@ pub fn transform_seqscan_to_substrait(
                                 .types
                                 .push(postgres_to_substrait_type(pg_type, false)?);
                         } else {
+                            // TODO: return error?
                             info!("Oid {} is not supported", (*var).vartype);
                         }
                     }

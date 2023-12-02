@@ -11,7 +11,7 @@ use crate::index_access::utils::get_parade_index;
 #[pg_extern]
 pub fn aggregation(index_name: &str, query: &str) -> JsonB {
     // Get Parade index
-    let parade_index = get_parade_index(index_name.to_string());
+    let parade_index = get_parade_index(index_name);
 
     // Initialize aggregation searcher + collector
     let searcher = parade_index.searcher();

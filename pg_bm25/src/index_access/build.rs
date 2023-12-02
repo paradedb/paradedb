@@ -1,12 +1,11 @@
-use pgrx::*;
-use std::panic::{self, AssertUnwindSafe};
-use tantivy::SingleSegmentIndexWriter;
-
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{
     categorize_tupdesc, create_parade_index, lookup_index_tupdesc, row_to_json,
 };
 use crate::parade_index::index::ParadeIndex;
+use pgrx::*;
+use std::panic::{self, AssertUnwindSafe};
+use tantivy::SingleSegmentIndexWriter;
 
 // For now just pass the count and parade
 // index on the build callback state
@@ -23,7 +22,7 @@ impl<'a> BuildState<'a> {
         let index_writer = {
             // We create a new copy of the index in this block so that we can
             // get an owned instance of a single segment writer.
-            let parade_index = ParadeIndex::from_index_name(index_name.into());
+            let parade_index = ParadeIndex::from_index_name(index_name);
             parade_index
                 .single_segment_writer()
                 .expect("could not create writer for index build")
@@ -146,6 +145,11 @@ unsafe extern "C" fn build_callback_internal(
 
     let values = std::slice::from_raw_parts(values, 1);
     let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
+
+    // Validate the index key field
+    let _bm25_index_id = builder.get_index_id(&state.parade_index.key_field_name);
+
+    // Keys are quoted in the json_map.
 
     // Insert row to parade index
     state

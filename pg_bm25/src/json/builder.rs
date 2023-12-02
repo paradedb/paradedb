@@ -1,4 +1,7 @@
+use indexmap::IndexMap;
+
 use crate::json::json_string::JsonString;
+use crate::parade_index::index::ParadeIndexId;
 use pgrx::*;
 use tantivy::schema::Field;
 use tantivy::Document;
@@ -23,83 +26,94 @@ pub enum JsonBuilderValue {
 
 #[derive(Debug)]
 pub struct JsonBuilder {
-    pub values: Vec<(String, JsonBuilderValue)>,
+    // Using IndexMap to maintain insertion order.
+    pub values: IndexMap<String, JsonBuilderValue>,
 }
 
 #[allow(dead_code)]
 impl JsonBuilder {
     pub fn new(num_fields: usize) -> Self {
         JsonBuilder {
-            values: Vec::with_capacity(num_fields + 5),
+            values: IndexMap::with_capacity(num_fields + 5),
         }
+    }
+
+    pub fn get_index_id(&self, index_id_column_name: &str) -> ParadeIndexId {
+        self.values
+            .get(&format!("\"{index_id_column_name}\""))
+            .unwrap_or_else(|| panic!("jsonbuilder found no column named {index_id_column_name}"))
+            .try_into()
+            .unwrap_or_else(|err| {
+                panic!("could not parse ParadeIndexId for {index_id_column_name}: {err}")
+            })
     }
 
     #[inline]
     pub fn add_bool(&mut self, attname: String, value: bool) {
-        self.values.push((attname, JsonBuilderValue::bool(value)));
+        self.values.insert(attname, JsonBuilderValue::bool(value));
     }
 
     #[inline]
     pub fn add_i16(&mut self, attname: String, value: i16) {
-        self.values.push((attname, JsonBuilderValue::i16(value)));
+        self.values.insert(attname, JsonBuilderValue::i16(value));
     }
 
     #[inline]
     pub fn add_i32(&mut self, attname: String, value: i32) {
-        self.values.push((attname, JsonBuilderValue::i32(value)));
+        self.values.insert(attname, JsonBuilderValue::i32(value));
     }
 
     #[inline]
     pub fn add_i64(&mut self, attname: String, value: i64) {
-        self.values.push((attname, JsonBuilderValue::i64(value)));
+        self.values.insert(attname, JsonBuilderValue::i64(value));
     }
 
     #[inline]
     pub fn add_u32(&mut self, attname: String, value: u32) {
-        self.values.push((attname, JsonBuilderValue::u32(value)));
+        self.values.insert(attname, JsonBuilderValue::u32(value));
     }
 
     #[inline]
     pub fn add_u64(&mut self, attname: String, value: u64) {
-        self.values.push((attname, JsonBuilderValue::u64(value)));
+        self.values.insert(attname, JsonBuilderValue::u64(value));
     }
 
     #[inline]
     pub fn add_f32(&mut self, attname: String, value: f32) {
-        self.values.push((attname, JsonBuilderValue::f32(value)));
+        self.values.insert(attname, JsonBuilderValue::f32(value));
     }
 
     #[inline]
     pub fn add_f64(&mut self, attname: String, value: f64) {
-        self.values.push((attname, JsonBuilderValue::f64(value)));
+        self.values.insert(attname, JsonBuilderValue::f64(value));
     }
 
     #[inline]
     pub fn add_string(&mut self, attname: String, value: String) {
-        self.values.push((attname, JsonBuilderValue::string(value)));
+        self.values.insert(attname, JsonBuilderValue::string(value));
     }
 
     #[inline]
     pub fn add_json_string(&mut self, attname: String, value: pgrx::JsonString) {
         self.values
-            .push((attname, JsonBuilderValue::json_string(value)));
+            .insert(attname, JsonBuilderValue::json_string(value));
     }
 
     #[inline]
     pub fn add_jsonb(&mut self, attname: String, value: JsonB) {
-        self.values.push((attname, JsonBuilderValue::jsonb(value)));
+        self.values.insert(attname, JsonBuilderValue::jsonb(value));
     }
 
     #[inline]
     pub fn add_json_value(&mut self, attname: String, value: serde_json::Value) {
         self.values
-            .push((attname, JsonBuilderValue::json_value(value)));
+            .insert(attname, JsonBuilderValue::json_value(value));
     }
 
     #[inline]
     pub fn add_string_array(&mut self, attname: String, value: Vec<Option<String>>) {
         self.values
-            .push((attname, JsonBuilderValue::string_array(value)));
+            .insert(attname, JsonBuilderValue::string_array(value));
     }
 
     pub fn build(&self, json: &mut Vec<u8>) {

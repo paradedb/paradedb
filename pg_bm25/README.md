@@ -84,8 +84,10 @@ To index the table, use the following SQL command:
 CREATE INDEX idx_mock_items
 ON mock_items
 USING bm25 ((mock_items.*))
-WITH (text_fields='{"description": {}, "category": {}}');
+WITH (key_field='id', text_fields='{"description": {}, "category": {}}');
 ```
+
+Note the mandatory `key_field` option in the `WITH` code. Every `bm25` index needs a `key_field`, which should be the name of a column that will function as a row's unique identifier within the index. Usually, the `key_field` can just be the name of your table's primary key column.
 
 Once the indexing is complete, you can run various search functions on it.
 
@@ -116,7 +118,7 @@ This will return:
 Scoring and highlighting are supported:
 
 ```sql
-SELECT description, rating, category, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'idx_mock_items', 'description')
+SELECT description, rating, category, paradedb.rank_bm25(id), paradedb.highlight_bm25(id, 'idx_mock_items', 'description')
 FROM mock_items
 WHERE mock_items @@@ 'description:keyboard OR category:electronics'
 LIMIT 5;

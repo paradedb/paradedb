@@ -35,6 +35,7 @@ pub struct ParadeOptions {
     numeric_fields_offset: i32,
     boolean_fields_offset: i32,
     json_fields_offset: i32,
+    key_field_offset: i32,
 }
 
 #[pg_guard]
@@ -85,6 +86,11 @@ extern "C" fn validate_json_fields(value: *const std::os::raw::c_char) {
         from_str(&json_str).expect("failed to validate boolean_fields");
 }
 
+#[pg_guard]
+extern "C" fn validate_key_field(value: *const std::os::raw::c_char) {
+    cstr_to_rust_str(value);
+}
+
 #[inline]
 fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
     if value.is_null() {
@@ -98,7 +104,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
 }
 
 // For now, we support changing the tokenizer between default, raw, and en_stem
-const NUM_REL_OPTS: usize = 4;
+const NUM_REL_OPTS: usize = 5;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -124,6 +130,11 @@ pub unsafe extern "C" fn amoptions(
             optname: "json_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
             offset: offset_of!(ParadeOptions, json_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "key_field".as_pg_cstr(),
+            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            offset: offset_of!(ParadeOptions, key_field_offset) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -224,6 +235,14 @@ impl ParadeOptions {
             .expect("failed to parse json_fields")
     }
 
+    pub fn get_key_field(&self) -> String {
+        let key_field = self.get_str(self.key_field_offset, "".to_string());
+        if key_field.is_empty() {
+            panic!("no key_field supplied for bm25 index")
+        }
+        key_field
+    }
+
     fn get_str(&self, offset: i32, default: String) -> String {
         if offset == 0 {
             default
@@ -280,6 +299,17 @@ pub unsafe fn init() {
         "JSON string specifying how JSON fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_json_fields),
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        {
+            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
+        },
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "key_field".as_pg_cstr(),
+        "Column name as a string specify the unique identifier for a row".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_key_field),
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE

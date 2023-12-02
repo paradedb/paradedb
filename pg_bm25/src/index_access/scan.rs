@@ -21,7 +21,7 @@ pub extern "C" fn ambeginscan(
     let mut scandesc: PgBox<pg_sys::IndexScanDescData> =
         unsafe { PgBox::from_pg(pg_sys::RelationGetIndexScan(indexrel, nkeys, norderbys)) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
-    let index_name = index_relation.name().to_string();
+    let index_name = index_relation.name();
 
     // Create the index and scan
     let parade_index = get_parade_index(index_name);
@@ -205,23 +205,40 @@ pub extern "C" fn amgettuple(
             let searcher = &state.searcher;
             let schema = &state.schema;
             let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
+            let _v: Vec<_> = schema.fields().collect();
 
-            let heap_tid_field = schema
-                .get_field("heap_tid")
-                .expect("field 'heap_tid' not found in schema");
+            let ctid_name = "ctid";
+            let ctid_field = schema.get_field(ctid_name).unwrap_or_else(|err| {
+                panic!("error retrieving {ctid_name} field from schema: {err:?}")
+            });
+            let ctid_field_value = retrieved_doc
+                .get_first(ctid_field)
+                .unwrap_or_else(|| panic!("cannot find {ctid_name} field on retrieved document"));
 
-            if let tantivy::schema::Value::U64(heap_tid_value) = retrieved_doc
-                .get_first(heap_tid_field)
-                .expect("heap_tid field not found in doc")
-            {
-                u64_to_item_pointer(*heap_tid_value, tid);
+            let key_field_name = &state.key_field_name;
+            let key_field = schema
+                .get_field(key_field_name)
+                .unwrap_or_else(|_| panic!("field '{key_field_name}' not found in schema"));
+            let key_field_value = retrieved_doc.get_first(key_field).unwrap_or_else(|| {
+                panic!("cannot find id field '{key_field_name}' on retrieved document")
+            });
+
+            match ctid_field_value {
+                tantivy::schema::Value::U64(val) => {
+                    u64_to_item_pointer(*val, tid);
+                    if unsafe { !item_pointer_is_valid(tid) } {
+                        panic!("invalid item pointer: {:?}", item_pointer_get_both(*tid));
+                    }
+                }
+                _ => panic!("incorrect type in {ctid_name} field: {ctid_field_value:?}"),
+            };
+
+            if let tantivy::schema::Value::I64(val) = key_field_value {
+                write_to_manager(*val, score, doc_address);
+            } else {
+                panic!("incorrect type in {key_field_name} field: {key_field_value:?}")
             }
 
-            if unsafe { !item_pointer_is_valid(tid) } {
-                panic!("invalid item pointer: {:?}", item_pointer_get_both(*tid));
-            }
-
-            write_to_manager(*tid, score, doc_address);
             true
         }
         None => false,
@@ -247,23 +264,39 @@ pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TI
 
     for (score, doc_address) in iterator {
         let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
-        let heap_tid_field = schema
-            .get_field("heap_tid")
-            .expect("field 'heap_tid' not found in schema");
 
-        if let tantivy::schema::Value::U64(heap_tid_value) = retrieved_doc
-            .get_first(heap_tid_field)
-            .expect("heap_tid field not found in doc")
-        {
-            let mut tid = pg_sys::ItemPointerData::default();
-            u64_to_item_pointer(*heap_tid_value, &mut tid);
+        let key_field_name = &state.key_field_name;
+        let key_field = schema
+            .get_field(key_field_name)
+            .unwrap_or_else(|_| panic!("field '{key_field_name}' not found in schema"));
+        let key_field_value = retrieved_doc.get_first(key_field).unwrap_or_else(|| {
+            panic!("cannot find id field '{key_field_name}' on retrieved document")
+        });
 
-            unsafe {
-                pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
+        let ctid_name = "ctid";
+        let ctid_field = schema.get_field(ctid_name).unwrap_or_else(|err| {
+            panic!("error retrieving {ctid_name} field from schema: {err:?}")
+        });
+        let ctid_field_value = retrieved_doc
+            .get_first(ctid_field)
+            .unwrap_or_else(|| panic!("cannot find {ctid_name} field on retrieved document"));
+
+        match ctid_field_value {
+            tantivy::schema::Value::U64(val) => {
+                let mut tid = pg_sys::ItemPointerData::default();
+                u64_to_item_pointer(*val, &mut tid);
+                unsafe {
+                    pg_sys::tbm_add_tuples(tbm, &mut tid, 1, false);
+                }
             }
+            _ => panic!("incorrect type in {ctid_name} field: {ctid_field_value:?}"),
+        };
 
-            write_to_manager(tid, score, doc_address);
+        if let tantivy::schema::Value::I64(val) = key_field_value {
+            write_to_manager(*val, score, doc_address);
             cnt += 1;
+        } else {
+            panic!("incorrect type in {key_field_name} field: {key_field_value:?}")
         }
     }
 
@@ -271,13 +304,13 @@ pub extern "C" fn ambitmapscan(scan: pg_sys::IndexScanDesc, tbm: *mut pg_sys::TI
 }
 
 #[inline]
-fn write_to_manager(ctid: pg_sys::ItemPointerData, score: f32, doc_address: DocAddress) {
+fn write_to_manager(bm25_id: i64, score: f32, doc_address: DocAddress) {
     let manager = get_current_executor_manager();
     // Add score
-    manager.add_score(item_pointer_get_both(ctid), score);
+    manager.add_score(bm25_id, score);
 
     // Add doc address
-    manager.add_doc_address(item_pointer_get_both(ctid), doc_address);
+    manager.add_doc_address(bm25_id, doc_address);
 }
 
 #[cfg(any(test, feature = "pg_test"))]

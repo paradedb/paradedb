@@ -69,6 +69,7 @@ CREATE INDEX idx_mock_items
 ON mock_items
 USING bm25 ((mock_items.*))
 WITH (
+  key_field='id',
   text_fields='{"description": {"tokenizer": {"type": "en_stem"}}, "category": {}}'
 );
 ```
@@ -82,6 +83,17 @@ CREATE INDEX
 Under the hood, this command creates a Postgres-native index called `idx_mock_items`, which contains
 an inverted index of the `mock_items` table. [Custom index configuration options](/indexing/bm25), such as
 tokenizers, can be specified in the `WITH` option.
+
+Note the mandatory `key_field` option in the `WITH` code. Every `bm25` index needs a `key_field`, which should
+be the name of a column that will function as a row's unique identifier within the index. Usually, the `key_field`
+can just be the name of your table's primary key column.
+
+Currently, only integer IDs are supported in the `key_field` column, so if you're primary key is a composite
+or a string, just add another column with serial IDs to your table:
+
+```sql
+ALTER TABLE mock_items ADD COLUMN bm25_id SERIAL
+````
 
 Let's execute a full-text search:
 
@@ -143,7 +155,7 @@ SELECT
     category,
     rating,
     paradedb.weighted_mean(
-        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        paradedb.minmax_bm25(id, 'idx_mock_items', 'description:keyboard'),
         1 - paradedb.minmax_norm(
           '[1,2,3]' <-> embedding,
           MIN('[1,2,3]' <-> embedding) OVER (),

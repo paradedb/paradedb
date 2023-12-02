@@ -16,6 +16,7 @@ CREATE INDEX idx_korean
 ON korean
 USING bm25 ((korean.*))
 WITH (
+    key_field='id',
     text_fields='{
         author: {tokenizer: {type: "korean_lindera"}, record: "position"},
         title: {tokenizer: {type: "korean_lindera"}, record: "position"},
@@ -45,6 +46,7 @@ CREATE INDEX idx_chinese
 ON chinese
 USING bm25 ((chinese.*))
 WITH (
+    key_field='id',
     text_fields='{
         author: {tokenizer: {type: "chinese_lindera"}, record: "position"},
         title: {tokenizer: {type: "chinese_lindera"}, record: "position"},
@@ -74,6 +76,7 @@ CREATE INDEX idx_japanese
 ON japanese
 USING bm25 ((japanese.*))
 WITH (
+    key_field='id',
     text_fields='{
         author: {tokenizer: {type: "japanese_lindera"}, record: "position"},
         title: {tokenizer: {type: "japanese_lindera"}, record: "position"},

@@ -4,7 +4,7 @@ FROM bm25_search
 WHERE bm25_search @@@ 'description:keyboard OR category:electronics';
 
 -- With BM25 scoring
-SELECT paradedb.rank_bm25(ctid), * 
+SELECT paradedb.rank_bm25(bm25_search.id), * 
 FROM bm25_search 
 WHERE bm25_search @@@ 'category:electronics OR description:keyboard';
 

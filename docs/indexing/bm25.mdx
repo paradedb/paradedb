@@ -20,6 +20,7 @@ CREATE INDEX <index_name>
 ON <schema_name>.<table_name>
 USING bm25 ((<table_name>.*))
 WITH (
+  key_field='<key_field>'
   text_fields='<text_fields>',
   numeric_fields='<numeric_fields>',
   boolean_fields='<boolean_fields>',
@@ -34,6 +35,7 @@ CREATE INDEX idx_mock_items
 ON mock_items
 USING bm25 ((mock_items.*))
 WITH (
+  key_field='<key_field>'
   text_fields='{
     description: {tokenizer: {type: "en_stem"}}, category: {fast: true}
   }'
@@ -54,6 +56,11 @@ Each input to `WITH ()` accepts a [JSON5](https://json5.org)-formatted string. K
 <ParamField body="schema_name">
   The name of the schema, or namespace, of the table. The schema name only needs
   to be provided if the table is not in the `public` schema.
+</ParamField>
+<ParamField body="key_field">
+  The name of a column in the table that represents a unique identifier for each record. Usually, this
+  is the same column that is the primary key of table. Currently, only integer IDs are supported, so
+  if necessary you may consider creating a dedicated column to use e.g: `ALTER TABLE mock_items ADD COLUMN bm25_id SERIAL`.
 </ParamField>
 <ParamField body="text_fields">
   A JSON string which specifies which text columns should be indexed and how they should be indexed.

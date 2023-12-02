@@ -1,5 +1,8 @@
+use pg_sys::{
+    self, planner_hook, standard_ExecutorRun, standard_planner, ExecutorRun_hook, Node, NodeTag,
+    ParamListInfoData, PlannedStmt, Query, QueryDesc, SeqScan,
+};
 use pgrx::prelude::*;
-use pg_sys::{self, PlannedStmt, Query, SeqScan, standard_planner, planner_hook, ParamListInfoData, ExecutorRun_hook, QueryDesc, standard_ExecutorRun, Node, NodeTag};
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 
@@ -19,7 +22,7 @@ extern "C" fn columnar_planner(
     parse: *mut Query,
     query_string: *const i8,
     cursor_options: i32,
-    bound_params: *mut ParamListInfoData
+    bound_params: *mut ParamListInfoData,
 ) -> *mut PlannedStmt {
     // Log the entry into the custom planner
     info!("Entering columnar_planner");
@@ -29,7 +32,6 @@ extern "C" fn columnar_planner(
         let query_str = unsafe { std::ffi::CStr::from_ptr(query_string) }.to_string_lossy();
         info!("Query string: {}", query_str);
     }
-
 
     unsafe {
         let result = standard_planner(parse, query_string, cursor_options, bound_params);
@@ -42,13 +44,18 @@ extern "C" fn columnar_planner(
     }
 }
 
-unsafe extern "C" fn columnar_executor_run(query_desc: *mut QueryDesc, direction: i32, count: u64, execute_once: bool) {
+unsafe extern "C" fn columnar_executor_run(
+    query_desc: *mut QueryDesc,
+    direction: i32,
+    count: u64,
+    execute_once: bool,
+) {
     // Log the entry into the custom planner
     info!("Entering columnar_executor_run");
 
     // Imitate ExplainNode for recursive plan scanning behavior
     let ps = (*query_desc).plannedstmt;
-    let plan = (*ps).planTree;
+    let plan: *mut pg_sys::Plan = (*ps).planTree;
     let node = plan as *mut Node;
     let node_tag = (*node).type_;
     let rtable = (*ps).rtable;
@@ -58,8 +65,7 @@ unsafe extern "C" fn columnar_executor_run(query_desc: *mut QueryDesc, direction
 
     match node_tag {
         NodeTag::T_SeqScan => {
-            let scan: *mut SeqScan = plan as *mut SeqScan;
-            if let Err(e) = transform_seqscan_to_substrait(rtable, scan, &mut sget) {
+            if let Err(e) = transform_seqscan_to_substrait(ps, &mut sget) {
                 error!("Error transforming SeqScan to Substrait: {}", e);
             }
         }
@@ -86,11 +92,9 @@ pub unsafe extern "C" fn _PG_init() {
     ExecutorRun_hook = Some(columnar_executor_run as _);
 }
 
-
 #[cfg(any(test, feature = "pg_test"))]
 #[pg_schema]
-mod tests {
-}
+mod tests {}
 
 /// This module is required by `cargo pgrx test` invocations.
 /// It must be visible at the root of your extension crate.

@@ -7,13 +7,24 @@ use pgrx::prelude::*;
 use pgrx::spi::Error;
 use pg_sys::{PlannedStmt, SeqScan, RelationIdGetRelation, RangeTblEntry, NameData, pgrx_list_nth, namestrcpy};
 use std::ffi::CStr;
+use substrait::proto;
+use substrait::proto::r#type;
 
+// from chapter 8.1 of the postgres docs
 pub enum PostgresType {
     Boolean,
     Integer,
     BigInt,
     Text,
-    // TODO: Add missing types
+    SmallInt,
+    Decimal, //variable
+    Real,
+    Double,
+    Char,
+    VarChar,
+    BpChar,
+    // done: numeric types and character types
+    // TODO: unlimited vs limited length, variable precision
 }
 
 impl PostgresType {
@@ -29,45 +40,71 @@ impl PostgresType {
 }
 
 // This function converts a PostgresType to a SubstraitType
-pub fn postgres_to_substrait_type(p_type: PostgresType, not_null: bool) -> Result<substrait::proto::Type, Error> {
-    let mut s_type = substrait::proto::Type::default(); // Create a new Type instance.
+pub fn postgres_to_substrait_type(p_type: PostgresType, not_null: bool) -> Result<proto::Type, Error> {
+    let mut s_type = proto::Type::default(); // Create a new Type instance.
 
     // Set the nullability.
     let type_nullability = if not_null {
-        substrait::proto::r#type::Nullability::Required
+        proto::r#type::Nullability::Required
     } else {
-        substrait::proto::r#type::Nullability::Nullable
+        proto::r#type::Nullability::Nullable
     };
 
     // Map each PostgresType to a Substrait type.
     match p_type {
         PostgresType::Boolean => {
-            let mut bool_type = substrait::proto::r#type::Boolean::default();
+            let mut bool_type = proto::r#type::Boolean::default();
             bool_type.set_nullability(type_nullability);
-            s_type.kind = Some(substrait::proto::r#type::Kind::Bool(bool_type));
+            s_type.kind = Some(proto::r#type::Kind::Bool(bool_type));
         },
         PostgresType::Integer => {
-            let mut int_type = substrait::proto::r#type::I32::default();
+            let mut int_type = proto::r#type::I32::default();
             int_type.set_nullability(type_nullability);
-            s_type.kind = Some(substrait::proto::r#type::Kind::I32(int_type));
+            s_type.kind = Some(proto::r#type::Kind::I32(int_type));
         },
         PostgresType::BigInt => {
-            let mut bigint_type = substrait::proto::r#type::I64::default();
+            let mut bigint_type = proto::r#type::I64::default();
             bigint_type.set_nullability(type_nullability);
-            s_type.kind = Some(substrait::proto::r#type::Kind::I64(bigint_type));
+            s_type.kind = Some(proto::r#type::Kind::I64(bigint_type));
         },
-        PostgresType::Text => {
-            let mut text_type = substrait::proto::r#type::VarChar::default();
+        PostgresType::Text | PostgresType::VarChar | PostgresType::BpChar=> {
+            let mut text_type = proto::r#type::VarChar::default();
             text_type.set_nullability(type_nullability);
-            s_type.kind = Some(substrait::proto::r#type::Kind::Varchar(text_type));
+            s_type.kind = Some(proto::r#type::Kind::VarChar(text_type));
         },
         // TODO: Add missing types
+        PostgresType::SmallInt => {
+            let mut int_type = proto::r#type::I16::default();
+            int_type.set_nullability(type_nullability);
+            s_type.kind = Some(proto::r#type::Kind::I16(int_type));
+        },
+        PostgresType::Decimal => {
+            // TODO: user-specified precision
+            let mut decimal_type = proto::r#type::Decimal::default();
+            decimal_type.set_nullability(type_nullability);
+            s_type.kind = Some(proto::r#type::Kind::Decimal(decimal_type));
+        },
+        PostgresType::Real => {
+            let mut float_type = proto::r#type::Fp32::default();
+            float_type.set_nullability(type_nullability);
+            s_type.kind = Some(proto::r#type::Kind::Fp32(float_type));
+        },
+        PostgresType::Double => {
+            let mut float_type = proto::r#type::Fp64::default();
+            float_type.set_nullability(type_nullability);
+            s_type.kind = Some(proto::r#type::Kind::Fp64(float_type));
+        },
+        PostgresType::Char => {
+            let mut text_type = proto::r#type::FixedChar::default();
+            text_type.set_nullability(type_nullability);
+            s_type.kind = Some(proto::r#type::Kind::FixedChar(text_type));
+        }
     }
     Ok(s_type) // Return the Substrait type
 }
 
 // This function converts a Postgres SeqScan to a Substrait ReadRel
-pub fn transform_seqscan_to_substrait(ps: *mut PlannedStmt, sget: *mut substrait::proto::ReadRel) -> Result<(), Error> {
+pub fn transform_seqscan_to_substrait(ps: *mut PlannedStmt, sget: *mut proto::ReadRel) -> Result<(), Error> {
     // Plan variables
     let plan = unsafe { (*ps).planTree };
     let scan = plan as *mut SeqScan;
@@ -88,17 +125,17 @@ pub fn transform_seqscan_to_substrait(ps: *mut PlannedStmt, sget: *mut substrait
 
     // TODO: I only passed in a single table name, but this seems to be for arbitrary many tables that the SeqScan is over, probably
     // we'll need to tweak the logic here to make it work for multiple tables
-    let table = substrait::proto::read_rel::ReadType::NamedTable(substrait::proto::read_rel::NamedTable {
+    let table = proto::read_rel::ReadType::NamedTable(proto::read_rel::NamedTable {
         names: table_names,
         advanced_extension: None
     });
 
-    let base_schema = substrait::proto::NamedStruct {
+    let base_schema = proto::NamedStruct {
         names: vec![],
-        r#struct: Some(substrait::proto::r#type::Struct {
+        r#struct: Some(proto::r#type::Struct {
             types: vec![],
             type_variation_reference: 0,
-            nullability: Into::into(substrait::proto::r#type::Nullability::Required),
+            nullability: Into::into(proto::r#type::Nullability::Required),
         }),
     };
 
@@ -130,7 +167,7 @@ pub fn transform_seqscan_to_substrait(ps: *mut PlannedStmt, sget: *mut substrait
 
 
     // TODO: Make sure this is correct
-    let sget = substrait::proto::ReadRel {
+    let sget = proto::ReadRel {
         common: None,
         base_schema: Some(base_schema),
         filter: None,

@@ -198,30 +198,36 @@ pub fn transform_seqscan_to_substrait(
                         let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
                         let col_name = (*target_entry).resname;
                         if !col_name.is_null() {
-                            let col_name_str = CStr::from_ptr(col_name).to_string_lossy().into_owend();
+                            let col_name_str =
+                                CStr::from_ptr(col_name).to_string_lossy().into_owned();
+                            info!("column name {:?}", col_name_str);
                             // type of column
                             // get the tupel descr data
                             // sanity check?
                             let tupdesc = (*relation).rd_att;
+                            // resorigcol: column's original number in source table
                             let col_num = (*target_entry).resorigcol;
-                            if (*tupdesc).n_atts > 0 && col_num < (*tupdesc).n_atts {
+                            // TODO: I did these type conversions just to silence the compiler
+                            if (*tupdesc).natts > 0 && (col_num as i32) < (*tupdesc).natts {
                                 // TODO: figure out how to access this in rust
-                                let pg_att : FormData_pg_attribute = (*tupdesc).attrs[col_num];
-                                let att_type = pg_att.atttypid;
-                                let att_not_null = pg_att.attnotnull; // !!!!! nullability
-                        let att_type = PostgresType::from_oid(pg_att.atttypid);
-                        if let Some(pg_type) = att_type {
-                            info!("found attribute {:?} with type {:?}", att_name_str, pg_type);
-                            col_names.push(col_name_str);
-                            // TODO: fill out nullability
-                            // TODO: no unwrap, handle error
-                            col_types
-                                .types
-                                .push(postgres_to_substrait_type(pg_type, att_not_null)?);
+                                let pg_att = (*tupdesc).attrs.as_mut_ptr().offset(col_num as isize);
+                                let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
+                                let att_type = PostgresType::from_oid((*pg_att).atttypid);
+                                if let Some(pg_type) = att_type {
+                                    info!(
+                                        "found attribute {:?} with type {:?}",
+                                        col_name_str, pg_type
+                                    );
+                                    col_names.push(col_name_str);
+                                    // TODO: fill out nullability
+                                    // TODO: no unwrap, handle error
+                                    col_types
+                                        .types
+                                        .push(postgres_to_substrait_type(pg_type, att_not_null)?);
+                                }
                             }
                         }
-
-                    },
+                    }
                     NodeTag::T_Var => {
                         // the varno and varattno identify the "semantic referent", which is a base-relation column
                         // unless the reference is to a join ...

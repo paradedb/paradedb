@@ -4,8 +4,9 @@
  * */
 
 use pg_sys::{
-    namestrcpy, pgrx_list_nth, FormData_pg_attribute, Node, NameData, PlannedStmt, RangeTblEntry,
-    RelationData, RelationIdGetRelation, SeqScan,
+    namestrcpy, pgrx_list_nth, Const, Datum, FormData_pg_attribute, FormData_pg_operator, List,
+    NameData, Node, OpExpr, PlannedStmt, RangeTblEntry, RelationData, RelationIdGetRelation,
+    SearchSysCache1, SeqScan, SysCacheIdentifier_OPEROID, Var, GETSTRUCT,
 };
 use pgrx::pg_sys::{get_attname, rt_fetch, NodeTag, Oid};
 use pgrx::prelude::*;
@@ -130,8 +131,15 @@ pub fn postgres_to_substrait_type(
     Ok(s_type) // Return the Substrait type
 }
 
+unsafe fn transform_const(constant: *mut Const) {
+    // need the type and value, I think
+    let type_oid = (*constant).consttype;
+    let val = (*constant).constvalue;
+    info!("constant {:?}", val.value());
+}
+
 // TODO
-fn transform_var(var: *mut Var) {
+unsafe fn transform_var(var: *mut Var, rtable: *mut List) {
     if (*var).xpr.type_ != NodeTag::T_Var {
         return;
     }
@@ -147,11 +155,46 @@ fn transform_var(var: *mut Var) {
 }
 
 // TODO
-fn transform_opexpr(op_expr: *mut OpExpr) {
+unsafe fn transform_opexpr(op_expr: *mut OpExpr, rtable: *mut List) {
     // TODO: cast this as datum
-    let oper_tup = SearchSysCache1(SysCacheIdentifier_OPEROID, (*op_expr).opno);
+    let oper_tup = SearchSysCache1(
+        SysCacheIdentifier_OPEROID as i32,
+        Datum::from((*op_expr).opno),
+    );
     // figure out what kind of operator this is
-    // iterate through args
+    if !oper_tup.is_null() {
+        let pg_op = GETSTRUCT(oper_tup) as *const FormData_pg_operator;
+        let oprname = CStr::from_ptr((*pg_op).oprname.data.as_ptr().cast())
+            .to_string_lossy()
+            .to_owned();
+        info!("operator name {:?}, id {:?}", oprname, (*pg_op).oid);
+        // iterate through args
+        let list = (*op_expr).args;
+        if !list.is_null() {
+            info!("enumerating through args");
+            let elements = (*list).elements;
+            for i in 0..(*list).length {
+                let list_cell_node =
+                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+                info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+                match (*list_cell_node).type_ {
+                    NodeTag::T_Var => {
+                        let var = list_cell_node as *mut pgrx::pg_sys::Var;
+                        transform_var(var, rtable);
+                    }
+                    NodeTag::T_OpExpr => {
+                        let child_op_expr = list_cell_node as *mut OpExpr;
+                        transform_opexpr(child_op_expr, rtable);
+                    }
+                    NodeTag::T_Const => {
+                        let constant = list_cell_node as *mut Const;
+                        transform_const(constant);
+                    }
+                    _ => (),
+                }
+            }
+        }
+    }
 }
 
 // This function converts a Postgres SeqScan to a Substrait ReadRel
@@ -185,12 +228,13 @@ pub fn transform_seqscan_to_substrait(
                 match (*list_cell_node).type_ {
                     NodeTag::T_Var => {
                         let var = list_cell_node as *mut pgrx::pg_sys::Var;
-                        info!("{:?}", (*var));
-                    },
+                        transform_var(var, rtable);
+                    }
                     NodeTag::T_OpExpr => {
-                        let op_expr = 
-                    },
-                    _ => ()
+                        let op_expr = list_cell_node as *mut OpExpr;
+                        transform_opexpr(op_expr, rtable);
+                    }
+                    _ => (),
                 }
             }
         }
@@ -246,6 +290,7 @@ pub fn transform_seqscan_to_substrait(
     unsafe {
         let list = (*plan).targetlist;
         if !list.is_null() {
+            info!("enumerating through target list");
             let elements = (*list).elements;
             for i in 0..(*list).length {
                 let list_cell_node =
@@ -337,7 +382,7 @@ pub fn transform_seqscan_to_substrait(
     Ok(())
 }
 
-// This function takes in a Postgres node (e.g. SeqScan), which is analogous to a 
+// This function takes in a Postgres node (e.g. SeqScan), which is analogous to a
 // DuckDB LogicalOperator, and it converts it to a Substrait Rel
 // Note: We assume the Postgres plan tree is being walked outside of this function, but
 // we could combine the two

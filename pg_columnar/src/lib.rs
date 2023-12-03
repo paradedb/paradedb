@@ -77,6 +77,8 @@ unsafe extern "C" fn columnar_executor_run(
     let rtable = (*ps).rtable;
 
     // Create default Substrait plan
+    let mut splan = substrait::proto::Plan::default();
+    // TODO: fill out the plan
     let mut sget = substrait::proto::ReadRel::default();
 
     match node_tag {
@@ -89,6 +91,9 @@ unsafe extern "C" fn columnar_executor_run(
             // TODO: Add missing types
         }
     }
+    // splan.relations = Some(RelType::Root(RelRoot { input: Some(sget), names: $(names of output fields) }
+    // splan.extensions and extension_uris should be filled in while we're transforming
+    // TODO: print out the plan so we can confirm it
 
     unsafe {
         standard_ExecutorRun(query_desc, direction, count, execute_once);

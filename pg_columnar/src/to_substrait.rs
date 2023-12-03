@@ -210,7 +210,8 @@ pub fn transform_seqscan_to_substrait(
                             // TODO: I did these type conversions just to silence the compiler
                             if (*tupdesc).natts > 0 && (col_num as i32) < (*tupdesc).natts {
                                 // TODO: figure out how to access this in rust
-                                let pg_att = (*tupdesc).attrs.as_mut_ptr().offset(col_num as isize);
+                                let pg_att =
+                                    (*tupdesc).attrs.as_mut_ptr().offset((col_num - 1) as isize);
                                 let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
                                 let att_type = PostgresType::from_oid((*pg_att).atttypid);
                                 if let Some(pg_type) = att_type {

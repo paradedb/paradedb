@@ -4,7 +4,8 @@
  * */
 
 use pg_sys::{
-    namestrcpy, pgrx_list_nth, NameData, PlannedStmt, RangeTblEntry, RelationIdGetRelation, SeqScan,
+    namestrcpy, pgrx_list_nth, FormData_pg_attribute, NameData, PlannedStmt, RangeTblEntry,
+    RelationData, RelationIdGetRelation, SeqScan,
 };
 use pgrx::pg_sys::{get_attname, rt_fetch, NodeTag, Oid};
 use pgrx::prelude::*;
@@ -48,6 +49,17 @@ impl PostgresType {
             1042 => Some(PostgresType::BpChar),
             _ => None,
         }
+    }
+}
+
+// TODO: return type: option or just a pointer?
+unsafe fn get_attr(table: *mut RelationData, index: isize) -> *const FormData_pg_attribute {
+    let tupdesc = (*table).rd_att;
+    let natts = (*tupdesc).natts;
+    if natts > 0 && (index as i32) <= natts {
+        return (*tupdesc).attrs.as_ptr().offset(index - 1);
+    } else {
+        return std::ptr::null();
     }
 }
 
@@ -118,6 +130,30 @@ pub fn postgres_to_substrait_type(
     Ok(s_type) // Return the Substrait type
 }
 
+// TODO
+fn transform_var(var: *mut Var) {
+    if (*var).xpr.type_ != NodeTag::T_Var {
+        return;
+    }
+    // get the attribute
+    let var_rte = rt_fetch((*var).varno as u32, rtable);
+    let var_relid = (*var_rte).relid;
+    // varattno is the attribute number, or 0 for all attributes
+    let att_name = get_attname(var_relid, (*var).varattno, false);
+    let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
+    // for now, return the attribute name and type
+    let att_type = PostgresType::from_oid((*var).vartype);
+    info!("{:?} type {:?}", att_name_str, att_type);
+}
+
+// TODO
+fn transform_opexpr(op_expr: *mut OpExpr) {
+    // TODO: cast this as datum
+    let oper_tup = SearchSysCache1(SysCacheIdentifier_OPEROID, (*op_expr).opno);
+    // figure out what kind of operator this is
+    // iterate through args
+}
+
 // This function converts a Postgres SeqScan to a Substrait ReadRel
 pub fn transform_seqscan_to_substrait(
     ps: *mut PlannedStmt,
@@ -135,6 +171,43 @@ pub fn transform_seqscan_to_substrait(
     let rte = unsafe { rt_fetch((*scan).scan.scanrelid, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
     let relname = unsafe { &mut (*(*relation).rd_rel).relname as *mut NameData };
+
+    // let's enumerate all the fields in Plan, especially qual and initPlan
+    unsafe {
+        let list = (*plan).qual;
+        if !list.is_null() {
+            info!("enumerating through qual");
+            let elements = (*list).elements;
+            for i in 0..(*list).length {
+                let list_cell_node =
+                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+                info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+                match (*list_cell_node).type_ {
+                    NodeTag::T_Var => {
+                        let var = list_cell_node as *mut pgrx::pg_sys::Var;
+                        info!("{:?}", (*var));
+                    },
+                    NodeTag::T_OpExpr => {
+                        let op_expr = 
+                    },
+                    _ => ()
+                }
+            }
+        }
+    }
+    /*
+    let list = (*plan).initPlan;
+    if !list.is_null() {
+        // these are subplan nodes that are supposed to exist in ps.sbplans
+        info!("enumerating through initPlan");
+        let elements = (*list).elements;
+        for i in 0..(*list).length {
+            let list_cell_node =
+                (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+            info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+        }
+    }
+    */
 
     // TODO: I think we can make this much simpler by exposing NameStr directly in pgrx::pg_sys
     let tablename = unsafe { CStr::from_ptr(relname as *const _ as *const i8) };
@@ -168,20 +241,8 @@ pub fn transform_seqscan_to_substrait(
     };
     */
 
-    // TODO: nullability: chatgpt said this in C:
-    // Oid relid = PG_GETARG_OID(0); // Assume a table OID is passed as argument
-    // Relation rel;
-    // TupleDesc tupdesc;
-    // bool attnotnull;
-
-    // rel = relation_open(relid, AccessShareLock);
-    // tupdesc = RelationGetDescr(rel);
-
-    // // Assuming you want to check the first attribute
-    // Form_pg_attribute attr = TupleDescAttr(tupdesc, 0);
-    // attnotnull = attr->attnotnull;
     // Iterate through the targetlist, which kinda looks like the columns the `SELECT` pulls
-    // we're only supposed to consider Vars, which correspond to columns
+    // The nodes are T_TargetEntry
     unsafe {
         let list = (*plan).targetlist;
         if !list.is_null() {
@@ -204,14 +265,12 @@ pub fn transform_seqscan_to_substrait(
                             // type of column
                             // get the tupel descr data
                             // sanity check?
-                            let tupdesc = (*relation).rd_att;
+                            // let tupdesc = (*relation).rd_att;
                             // resorigcol: column's original number in source table
                             let col_num = (*target_entry).resorigcol;
                             // TODO: I did these type conversions just to silence the compiler
-                            if (*tupdesc).natts > 0 && (col_num as i32) < (*tupdesc).natts {
-                                // TODO: figure out how to access this in rust
-                                let pg_att =
-                                    (*tupdesc).attrs.as_mut_ptr().offset((col_num - 1) as isize);
+                            let pg_att = get_attr(relation, col_num as isize);
+                            if !pg_att.is_null() {
                                 let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
                                 let att_type = PostgresType::from_oid((*pg_att).atttypid);
                                 if let Some(pg_type) = att_type {
@@ -225,10 +284,16 @@ pub fn transform_seqscan_to_substrait(
                                     col_types
                                         .types
                                         .push(postgres_to_substrait_type(pg_type, att_not_null)?);
+                                } else {
+                                    info!(
+                                        "OID {:?} isn't convertable to substrait type yet",
+                                        (*pg_att).atttypid
+                                    );
                                 }
                             }
                         }
                     }
+                    /*
                     NodeTag::T_Var => {
                         // the varno and varattno identify the "semantic referent", which is a base-relation column
                         // unless the reference is to a join ...
@@ -255,6 +320,7 @@ pub fn transform_seqscan_to_substrait(
                             info!("Oid {} is not supported", (*var).vartype);
                         }
                     }
+                    */
                     _ => {}
                 }
             }

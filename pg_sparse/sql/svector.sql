@@ -4,27 +4,27 @@
 
 CREATE TYPE svector;
 
-CREATE FUNCTION svectorin(cstring, oid, integer) RETURNS svector
+CREATE FUNCTION svector_in(cstring, oid, integer) RETURNS svector
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-CREATE FUNCTION svectorout(svector) RETURNS cstring
+CREATE FUNCTION svector_out(svector) RETURNS cstring
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-CREATE FUNCTION svectortypmod_in(cstring[]) RETURNS integer
+CREATE FUNCTION svector_typmod_in(cstring[]) RETURNS integer
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-CREATE FUNCTION svectorrecv(internal, oid, integer) RETURNS svector
+CREATE FUNCTION svector_recv(internal, oid, integer) RETURNS svector
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-CREATE FUNCTION svectorsend(svector) RETURNS bytea
+CREATE FUNCTION svector_send(svector) RETURNS bytea
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
 CREATE TYPE svector (
-	INPUT     = svectorin,
-	OUTPUT    = svectorout,
-	TYPMOD_IN = svectortypmod_in,
-	RECEIVE   = svectorrecv,
-	SEND      = svectorsend,
+	INPUT     = svector_in,
+	OUTPUT    = svector_out,
+	TYPMOD_IN = svector_typmod_in,
+	RECEIVE   = svector_recv,
+	SEND      = svector_send,
 	STORAGE   = extended
 );
 
@@ -83,7 +83,7 @@ CREATE FUNCTION svector_gt(svector, svector) RETURNS bool
 CREATE FUNCTION svector_cmp(svector, svector) RETURNS int4
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
-CREATE FUNCTION svectorl2_squared_distance(svector, svector) RETURNS float8
+CREATE FUNCTION svector_l2_squared_distance(svector, svector) RETURNS float8
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT PARALLEL SAFE;
 
 CREATE FUNCTION svector_negative_inner_product(svector, svector) RETURNS float8
@@ -230,12 +230,12 @@ CREATE OPERATOR CLASS svectorops
 	FUNCTION 1 svector_cmp(svector, svector);
 
 
-CREATE OPERATOR CLASS svectorl2_ops
+CREATE OPERATOR CLASS svector_l2_ops
 	FOR TYPE svector USING shnsw AS
 	OPERATOR 1 <-> (svector, svector) FOR ORDER BY float_ops,
-	FUNCTION 1 svectorl2_squared_distance(svector, svector);
+	FUNCTION 1 svector_l2_squared_distance(svector, svector);
 
-CREATE OPERATOR CLASS svectorip_ops
+CREATE OPERATOR CLASS svector_ip_ops
 	FOR TYPE svector USING shnsw AS
 	OPERATOR 1 <#> (svector, svector) FOR ORDER BY float_ops,
 	FUNCTION 1 svector_negative_inner_product(svector, svector);

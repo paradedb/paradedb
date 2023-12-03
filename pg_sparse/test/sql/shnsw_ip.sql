@@ -2,7 +2,7 @@ SET enable_seqscan = off;
 
 CREATE TABLE t (val svector(3));
 INSERT INTO t (val) VALUES ('[0,0,0]'), ('[1,2,3]'), ('[1,1,1]'), (NULL);
-CREATE INDEX ON t USING shnsw (val svectorip_ops);
+CREATE INDEX ON t USING shnsw (val svector_ip_ops);
 
 INSERT INTO t (val) VALUES ('[1,2,4]');
 

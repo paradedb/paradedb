@@ -195,9 +195,9 @@ float_underflow_error(void)
 /*
  * Convert textual representation to internal representation
  */
-PGDLLEXPORT PG_FUNCTION_INFO_V1(svectorin);
+PGDLLEXPORT PG_FUNCTION_INFO_V1(svector_in);
 Datum
-svectorin(PG_FUNCTION_ARGS)
+svector_in(PG_FUNCTION_ARGS)
 {
 	char	   *str = PG_GETARG_CSTRING(0);
 	int32		typmod = PG_GETARG_INT32(2);
@@ -312,9 +312,9 @@ svectorin(PG_FUNCTION_ARGS)
 /*
  * Convert internal representation to textual representation
  */
-PGDLLEXPORT PG_FUNCTION_INFO_V1(svectorout);
+PGDLLEXPORT PG_FUNCTION_INFO_V1(svector_out);
 Datum
-svectorout(PG_FUNCTION_ARGS)
+svector_out(PG_FUNCTION_ARGS)
 {
 	Vector	   *svector = PG_GETARG_VECTOR_P(0);
 	int32       n_elem = svector->n_elem;
@@ -384,7 +384,7 @@ svectorout(PG_FUNCTION_ARGS)
 void
 PrintVector(char *msg, Vector * svector)
 {
-	char	   *out = DatumGetPointer(DirectFunctionCall1(svectorout, PointerGetDatum(svector)));
+	char	   *out = DatumGetPointer(DirectFunctionCall1(svector_out, PointerGetDatum(svector)));
 
 	elog(INFO, "%s = %s", msg, out);
 	pfree(out);
@@ -393,9 +393,9 @@ PrintVector(char *msg, Vector * svector)
 /*
  * Convert type modifier
  */
-PGDLLEXPORT PG_FUNCTION_INFO_V1(svectortypmod_in);
+PGDLLEXPORT PG_FUNCTION_INFO_V1(svector_typmod_in);
 Datum
-svectortypmod_in(PG_FUNCTION_ARGS)
+svector_typmod_in(PG_FUNCTION_ARGS)
 {
 	ArrayType  *ta = PG_GETARG_ARRAYTYPE_P(0);
 	int32	   *tl;
@@ -414,9 +414,9 @@ svectortypmod_in(PG_FUNCTION_ARGS)
 /*
  * Convert external binary representation to internal representation
  */
-PGDLLEXPORT PG_FUNCTION_INFO_V1(svectorrecv);
+PGDLLEXPORT PG_FUNCTION_INFO_V1(svector_recv);
 Datum
-svectorrecv(PG_FUNCTION_ARGS)
+svector_recv(PG_FUNCTION_ARGS)
 {
 	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
 	int32		typmod = PG_GETARG_INT32(2);
@@ -452,9 +452,9 @@ svectorrecv(PG_FUNCTION_ARGS)
 /*
  * Convert internal representation to the external binary representation
  */
-PGDLLEXPORT PG_FUNCTION_INFO_V1(svectorsend);
+PGDLLEXPORT PG_FUNCTION_INFO_V1(svector_send);
 Datum
-svectorsend(PG_FUNCTION_ARGS)
+svector_send(PG_FUNCTION_ARGS)
 {
 	Vector	   *vec = PG_GETARG_VECTOR_P(0);
 	StringInfoData buf;
@@ -626,27 +626,34 @@ l2_distance(PG_FUNCTION_ARGS)
 	/* Auto-vectorized */
 	int a_i = 0;
 	int b_i = 0;
+	float a_value = 0.0;
+	float b_value = 0.0;
 	while (a_i < a->n_elem || b_i < b->n_elem) {
 		if (a_i >= a->n_elem) {
-			diff = -bx[b_i].value;
-			distance += diff * diff;
+			a_value = 0;
+			b_value = bx[b_i].value;
 			b_i++;
 		} else if (b_i >= b->n_elem) {
-			diff = ax[a_i].value;
-			distance += diff * diff;
+			a_value = ax[a_i].value;
+			b_value = 0;
 			a_i++;
 		} else {
 			if (ax[a_i].index == bx[b_i].index) {
-				diff = ax[a_i].value - bx[b_i].value;
-				distance += diff * diff;
+				a_value = ax[a_i].value;
+				b_value = bx[b_i].value;
 				a_i++;
 				b_i++;
 			} else if (ax[a_i].index < bx[b_i].index) {
+				a_value = ax[a_i].value;
+				b_value = 0;
 				a_i++;
 			} else if (bx[b_i].index < ax[a_i].index) {
+				a_value = 0;
+				b_value = bx[b_i].value;
 				b_i++;
 			}
 		}
+		distance += (a_value - b_value) * (a_value - b_value);
 	}
 
 	PG_RETURN_FLOAT8(sqrt((double) distance));
@@ -656,9 +663,9 @@ l2_distance(PG_FUNCTION_ARGS)
  * Get the L2 squared distance between vectors
  * This saves a sqrt calculation
  */
-PGDLLEXPORT PG_FUNCTION_INFO_V1(svectorl2_squared_distance);
+PGDLLEXPORT PG_FUNCTION_INFO_V1(svector_l2_squared_distance);
 Datum
-svectorl2_squared_distance(PG_FUNCTION_ARGS)
+svector_l2_squared_distance(PG_FUNCTION_ARGS)
 {
 	Vector	   *a = PG_GETARG_VECTOR_P(0);
 	Vector	   *b = PG_GETARG_VECTOR_P(1);

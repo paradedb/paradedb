@@ -1,20 +1,20 @@
 \echo Use "ALTER EXTENSION svector UPDATE TO '0.1.1'" to load this file. \quit
 
-CREATE FUNCTION svectorrecv(internal, oid, integer) RETURNS svector
+CREATE FUNCTION svector_recv(internal, oid, integer) RETURNS svector
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT;
 
-CREATE FUNCTION svectorsend(svector) RETURNS bytea
+CREATE FUNCTION svector_send(svector) RETURNS bytea
 	AS 'MODULE_PATHNAME' LANGUAGE C IMMUTABLE STRICT;
 
-ALTER TYPE svector SET ( RECEIVE = svectorrecv, SEND = svectorsend );
+ALTER TYPE svector SET ( RECEIVE = svector_recv, SEND = svector_send );
 
 -- functions
 
-ALTER FUNCTION svectorin(cstring, oid, integer) PARALLEL SAFE;
-ALTER FUNCTION svectorout(svector) PARALLEL SAFE;
-ALTER FUNCTION svectortypmod_in(cstring[]) PARALLEL SAFE;
-ALTER FUNCTION svectorrecv(internal, oid, integer) PARALLEL SAFE;
-ALTER FUNCTION svectorsend(svector) PARALLEL SAFE;
+ALTER FUNCTION svector_in(cstring, oid, integer) PARALLEL SAFE;
+ALTER FUNCTION svector_out(svector) PARALLEL SAFE;
+ALTER FUNCTION svector_typmod_in(cstring[]) PARALLEL SAFE;
+ALTER FUNCTION svector_recv(internal, oid, integer) PARALLEL SAFE;
+ALTER FUNCTION svector_send(svector) PARALLEL SAFE;
 ALTER FUNCTION l2_distance(svector, svector) PARALLEL SAFE;
 ALTER FUNCTION inner_product(svector, svector) PARALLEL SAFE;
 ALTER FUNCTION cosine_distance(svector, svector) PARALLEL SAFE;
@@ -30,7 +30,7 @@ ALTER FUNCTION svector_ne(svector, svector) PARALLEL SAFE;
 ALTER FUNCTION svector_ge(svector, svector) PARALLEL SAFE;
 ALTER FUNCTION svector_gt(svector, svector) PARALLEL SAFE;
 ALTER FUNCTION svector_cmp(svector, svector) PARALLEL SAFE;
-ALTER FUNCTION svectorl2_squared_distance(svector, svector) PARALLEL SAFE;
+ALTER FUNCTION svector_l2_squared_distance(svector, svector) PARALLEL SAFE;
 ALTER FUNCTION svector_negative_inner_product(svector, svector) PARALLEL SAFE;
 ALTER FUNCTION svector_spherical_distance(svector, svector) PARALLEL SAFE;
 ALTER FUNCTION svector(svector, integer, boolean) PARALLEL SAFE;

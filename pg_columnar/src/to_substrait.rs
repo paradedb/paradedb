@@ -4,9 +4,9 @@
  * */
 
 use pg_sys::{
-    namestrcpy, pgrx_list_nth, Const, Datum, FormData_pg_attribute, FormData_pg_operator, List,
-    NameData, Node, OpExpr, PlannedStmt, RangeTblEntry, RelationData, RelationIdGetRelation,
-    SearchSysCache1, SeqScan, SysCacheIdentifier_OPEROID, Var, GETSTRUCT,
+    namestrcpy, pgrx_list_nth, BuiltinOid, Const, Datum, FormData_pg_attribute,
+    FormData_pg_operator, List, NameData, Node, OpExpr, PlannedStmt, RangeTblEntry, RelationData,
+    RelationIdGetRelation, SearchSysCache1, SeqScan, SysCacheIdentifier_OPEROID, Var, GETSTRUCT,
 };
 use pgrx::pg_sys::{get_attname, rt_fetch, NodeTag, Oid};
 use pgrx::prelude::*;
@@ -117,8 +117,8 @@ unsafe fn transform_var(var: *mut Var, rtable: *mut List) {
     let att_name = get_attname(var_relid, (*var).varattno, false);
     let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
     // for now, return the attribute name and type
-    let att_type = PostgresType::from_oid((*var).vartype);
-    info!("{:?} type {:?}", att_name_str, att_type);
+    // let att_type = PostgresType::from_oid((*var).vartype);
+    info!("{:?} type {:?}", att_name_str, (*var).vartype);
 }
 
 // TODO
@@ -284,23 +284,24 @@ pub fn transform_seqscan_to_substrait(
                             let pg_att = get_attr(relation, col_num as isize);
                             if !pg_att.is_null() {
                                 let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
-                                let att_type = PostgresType::from_oid((*pg_att).atttypid);
-                                if let Some(pg_type) = att_type {
-                                    info!(
-                                        "found attribute {:?} with type {:?}",
-                                        col_name_str, pg_type
-                                    );
-                                    col_names.push(col_name_str);
-                                    // TODO: fill out nullability
-                                    // TODO: no unwrap, handle error
-                                    col_types
-                                        .types
-                                        .push(postgres_to_substrait_type(pg_type, att_not_null)?);
-                                } else {
-                                    info!(
-                                        "OID {:?} isn't convertable to substrait type yet",
-                                        (*pg_att).atttypid
-                                    );
+                                let p_type_id = BuiltinOid::try_from((*pg_att).atttypid);
+                                if let Ok(built_in_oid) = p_type_id {
+                                    if let Ok(substrait_type) =
+                                        postgres_to_substrait_type(built_in_oid, att_not_null)
+                                    {
+                                        info!(
+                                            "found attribute {:?} with type {:?}",
+                                            col_name_str, substrait_type
+                                        );
+                                        col_names.push(col_name_str);
+                                        // TODO: no unwrap, handle error
+                                        col_types.types.push(substrait_type);
+                                    } else {
+                                        info!(
+                                            "OID {:?} isn't convertable to substrait type yet",
+                                            (*pg_att).atttypid
+                                        );
+                                    }
                                 }
                             }
                         }

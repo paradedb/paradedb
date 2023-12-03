@@ -39,8 +39,22 @@ extern "C" fn columnar_planner(
         info!("Standard planner called");
 
         // TODO: iterate through result and convert to substrait plan - first iterate through plan when UDFs are involved and determine if behavior is correct
-
         result
+    }
+}
+
+unsafe fn describe_nodes(tree: *mut pg_sys::Plan) {
+    info!("Describing plan");
+    // Imitate ExplainNode for recursive plan scanning behavior
+    let node_tag = (*tree).type_;
+    info!("Node tag {:?}", node_tag);
+    if !(*tree).lefttree.is_null() {
+        info!("Left tree");
+        describe_nodes((*tree).lefttree);
+    }
+    if !(*tree).righttree.is_null() {
+        info!("Right tree");
+        describe_nodes((*tree).righttree);
     }
 }
 
@@ -56,13 +70,14 @@ unsafe extern "C" fn columnar_executor_run(
     // Imitate ExplainNode for recursive plan scanning behavior
     let ps = (*query_desc).plannedstmt;
     let plan: *mut pg_sys::Plan = (*ps).planTree;
+    describe_nodes(plan);
+
     let node = plan as *mut Node;
     let node_tag = (*node).type_;
     let rtable = (*ps).rtable;
 
     // Create default Substrait plan
     let mut sget = substrait::proto::ReadRel::default();
-    info!("Node tag {:?}", node_tag);
 
     match node_tag {
         NodeTag::T_SeqScan => {

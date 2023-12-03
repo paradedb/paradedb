@@ -4,7 +4,7 @@
  * */
 
 use pg_sys::{
-    namestrcpy, pgrx_list_nth, FormData_pg_attribute, NameData, PlannedStmt, RangeTblEntry,
+    namestrcpy, pgrx_list_nth, FormData_pg_attribute, Node, NameData, PlannedStmt, RangeTblEntry,
     RelationData, RelationIdGetRelation, SeqScan,
 };
 use pgrx::pg_sys::{get_attname, rt_fetch, NodeTag, Oid};
@@ -335,4 +335,220 @@ pub fn transform_seqscan_to_substrait(
         (*sget).read_type = Some(table)
     };
     Ok(())
+}
+
+// This function takes in a Postgres node (e.g. SeqScan), which is analogous to a 
+// DuckDB LogicalOperator, and it converts it to a Substrait Rel
+// Note: We assume the Postgres plan tree is being walked outside of this function, but
+// we could combine the two
+//
+// In Postgres, pretty much everything is a node, which is confusing. Here is a list of all
+// the node types I found in the source code:
+//
+// These are nodes that I don't think are relevant to our work for the query plan, but listing here for reference:
+// [NOT RELEVANT HERE] Executor state nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/execnodes.h
+// [NOT RELEVANT HERE] Path nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/pathnodes.h
+// [NOT RELEVANT HERE] Value nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/value.h
+// [NOT RELEVANT HERE] Primitive nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/primnodes.h
+// [NOT RELEVANT HERE] Memory Context nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/memnodes.h
+// [NOT RELEVANT HERE] Miscellaneous nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/miscnodes.h
+// [NOT RELEVANT HERE] Param nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/params.h
+// [NOT RELEVANT HERE] Replication grammar parse nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/replnodes.h
+//
+// These are nodes which I believe we need to handle:
+// TODO: The important ones are probably the Query plan nodes, we can start with that and decide later for the rest. I doubt we will need to do all of them.
+// Query plan nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/plannodes.h
+// Execution nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/backend/executor/execAmi.c#L428
+// Expression nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/backend/nodes/nodeFuncs.c#L79
+// Utility statement nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/backend/tcop/utility.c#L139
+// Extensible nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/execnodes.h
+// Tagged nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/miscnodes.h
+pub fn transform_op_to_substrait(node: *mut Node) -> Result<proto::Rel, Error> {
+    let node_tag = unsafe { (*node).type_ };
+    match node_tag {
+        NodeTag::T_SeqScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_SampleScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_IndexScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_IndexOnlyScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_BitmapIndexScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_BitmapHeapScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_TidScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_TidRangeScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_SubqueryScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_FunctionScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_TableFuncScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_ValuesScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_CteScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_WorkTableScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_NamedTuplestoreScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_ForeignScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_CustomScan => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Join => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_NestLoop => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_MergeJoin => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_HashJoin => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Material => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Sort => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_IncrementalSort => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Group => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Agg => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_WindowAgg => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Unique => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Gather => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_GatherMerge => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Hash => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_SetOp => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_LockRows => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Limit => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_NestLoopParam => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_PlanRowMark => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Append => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_MergeAppend => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_RecursiveUnion => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Result => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_ProjectSet => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Memoize => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_ModifyTable => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_ExtensibleNode => {
+            // TODO: Add function
+            Ok(proto::Rel::default())
+        }
+        NodeTag::T_Invalid => {
+            // TODO: Log error instead
+            Ok(proto::Rel::default())
+        }
+        _ => {
+            // TODO: Log error instead
+            Ok(proto::Rel::default())
+        }
+    }
 }

@@ -15,44 +15,6 @@ use std::ffi::CStr;
 use substrait::proto;
 use substrait::proto::r#type;
 
-// from chapter 8.1 of the postgres docs
-#[repr(u32)]
-#[derive(Debug)]
-pub enum PostgresType {
-    Boolean = 16,
-    Integer = 23,
-    BigInt = 20,
-    Text = 25,
-    SmallInt = 21,
-    Decimal = 1700, //variable
-    Real = 700,
-    Double = 701,
-    Char = 18,
-    VarChar = 1043,
-    BpChar = 1042,
-    // done: numeric types and character types
-    // TODO: unlimited vs limited length, variable precision
-}
-
-impl PostgresType {
-    fn from_oid(oid: Oid) -> Option<PostgresType> {
-        match oid.as_u32() {
-            16 => Some(PostgresType::Boolean),
-            23 => Some(PostgresType::Integer),
-            20 => Some(PostgresType::BigInt),
-            25 => Some(PostgresType::Text),
-            21 => Some(PostgresType::SmallInt),
-            1700 => Some(PostgresType::Decimal),
-            700 => Some(PostgresType::Real),
-            701 => Some(PostgresType::Double),
-            18 => Some(PostgresType::Char),
-            1043 => Some(PostgresType::VarChar),
-            1042 => Some(PostgresType::BpChar),
-            _ => None,
-        }
-    }
-}
-
 // TODO: return type: option or just a pointer?
 unsafe fn get_attr(table: *mut RelationData, index: isize) -> *const FormData_pg_attribute {
     let tupdesc = (*table).rd_att;
@@ -64,9 +26,9 @@ unsafe fn get_attr(table: *mut RelationData, index: isize) -> *const FormData_pg
     }
 }
 
-// This function converts a PostgresType to a SubstraitType
+// This function converts a PgBuiltInOids to a SubstraitType
 pub fn postgres_to_substrait_type(
-    p_type: PostgresType,
+    p_type: PgBuiltInOids,
     not_null: bool,
 ) -> Result<proto::Type, Error> {
     let mut s_type = proto::Type::default(); // Create a new Type instance.
@@ -78,54 +40,59 @@ pub fn postgres_to_substrait_type(
         proto::r#type::Nullability::Nullable
     };
 
-    // Map each PostgresType to a Substrait type.
+    // Map each PgBuiltInOids (the Postgres types) to a Substrait type.
+    // TODO: Are we covering all OIDs?
+    // You can see the full list of OIDs here https://docs.rs/pgrx/latest/pgrx/pg_sys/type.PgBuiltInOids.html
     match p_type {
-        PostgresType::Boolean => {
+        PgBuiltInOids::BOOLOID => {
             let mut bool_type = proto::r#type::Boolean::default();
             bool_type.set_nullability(type_nullability);
             s_type.kind = Some(proto::r#type::Kind::Bool(bool_type));
         }
-        PostgresType::Integer => {
+        PgBuiltInOids::INT4OID => {
             let mut int_type = proto::r#type::I32::default();
             int_type.set_nullability(type_nullability);
             s_type.kind = Some(proto::r#type::Kind::I32(int_type));
         }
-        PostgresType::BigInt => {
+        PgBuiltInOids::INT8OID => {
             let mut bigint_type = proto::r#type::I64::default();
             bigint_type.set_nullability(type_nullability);
             s_type.kind = Some(proto::r#type::Kind::I64(bigint_type));
         }
-        PostgresType::Text | PostgresType::VarChar | PostgresType::BpChar => {
+        PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID | PgBuiltInOids::BPCHAROID => {
             let mut text_type = proto::r#type::VarChar::default();
             text_type.set_nullability(type_nullability);
             s_type.kind = Some(proto::r#type::Kind::Varchar(text_type));
         }
         // TODO: Add missing types
-        PostgresType::SmallInt => {
+        PgBuiltInOids::INT2OID => {
             let mut int_type = proto::r#type::I16::default();
             int_type.set_nullability(type_nullability);
             s_type.kind = Some(proto::r#type::Kind::I16(int_type));
         }
-        PostgresType::Decimal => {
+        PgBuiltInOids::NUMERICOID => {
             // TODO: user-specified precision
             let mut decimal_type = proto::r#type::Decimal::default();
             decimal_type.set_nullability(type_nullability);
             s_type.kind = Some(proto::r#type::Kind::Decimal(decimal_type));
         }
-        PostgresType::Real => {
+        PgBuiltInOids::FLOAT4OID => {
             let mut float_type = proto::r#type::Fp32::default();
             float_type.set_nullability(type_nullability);
             s_type.kind = Some(proto::r#type::Kind::Fp32(float_type));
         }
-        PostgresType::Double => {
+        PgBuiltInOids::FLOAT8OID => {
             let mut float_type = proto::r#type::Fp64::default();
             float_type.set_nullability(type_nullability);
             s_type.kind = Some(proto::r#type::Kind::Fp64(float_type));
         }
-        PostgresType::Char => {
+        PgBuiltInOids::CHAROID => {
             let mut text_type = proto::r#type::FixedChar::default();
             text_type.set_nullability(type_nullability);
             s_type.kind = Some(proto::r#type::Kind::FixedChar(text_type));
+        }
+        _ => {
+            // TODO: Implement the rest of the types
         }
     }
     Ok(s_type) // Return the Substrait type

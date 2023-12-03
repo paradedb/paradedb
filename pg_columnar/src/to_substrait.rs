@@ -13,6 +13,7 @@ use pgrx::prelude::*;
 use pgrx::spi::Error;
 use std::ffi::CStr;
 use substrait::proto;
+use substrait::proto::expression::literal::LiteralType;
 use substrait::proto::r#type;
 
 // TODO: return type: option or just a pointer?
@@ -98,11 +99,20 @@ pub fn postgres_to_substrait_type(
     Ok(s_type) // Return the Substrait type
 }
 
-unsafe fn transform_const(constant: *mut Const) {
+unsafe fn transform_const(constant: *mut Const) -> proto::Expression {
     // need the type and value, I think
     let type_oid = (*constant).consttype;
     let val = (*constant).constvalue;
     info!("constant {:?}", val.value());
+    proto::Expression {
+        rex_type: Some(proto::expression::RexType::Literal(
+            proto::expression::Literal {
+                nullable: false, // TODO: correct?
+                type_variation_reference: 0,
+                literal_type: Some(LiteralType::I32(val.value() as i32)), // TODO: convert type_oid to the correct type
+            },
+        )),
+    }
 }
 
 // TODO
@@ -350,6 +360,27 @@ pub fn transform_seqscan_to_substrait(
     Ok(())
 }
 
+// TODO: figure out what the return type of each transform function should be (a rextype??)
+unsafe fn transform_expr_to_substrait(expr: *mut Node) -> Result<proto::Expression, Error> {
+    let node_tag = (*expr).type_;
+    match node_tag {
+        // TODO: these transform functions should return results so errors can propagate. I think.
+        NodeTag::T_Const => {
+            // literal
+            Ok(transform_const(expr as *mut Const))
+        }
+        NodeTag::T_Var => {
+            Ok(proto::Expression::default())
+            // field reference
+        }
+        NodeTag::T_OpExpr => {
+            Ok(proto::Expression::default())
+            // expression
+        }
+        _ => Ok(proto::Expression::default()),
+    }
+}
+
 // This function takes in a Postgres node (e.g. SeqScan), which is analogous to a
 // DuckDB LogicalOperator, and it converts it to a Substrait Rel
 // Note: We assume the Postgres plan tree is being walked outside of this function, but
@@ -376,7 +407,7 @@ pub fn transform_seqscan_to_substrait(
 // Utility statement nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/backend/tcop/utility.c#L139
 // Extensible nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/execnodes.h
 // Tagged nodes -- https://github.com/postgres/postgres/blob/fd5e8b440dfd633be74e3dd3382d4a9038dba24f/src/include/nodes/miscnodes.h
-pub fn transform_op_to_substrait(node: *mut Node) -> Result<proto::Rel, Error> {
+pub fn transform_plan_to_substrait(node: *mut Node) -> Result<proto::Rel, Error> {
     let node_tag = unsafe { (*node).type_ };
     match node_tag {
         NodeTag::T_SeqScan => {

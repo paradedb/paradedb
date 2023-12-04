@@ -177,8 +177,8 @@ unsafe fn transform_opexpr(op_expr: *mut OpExpr, rtable: *mut List) {
 // This function converts a Postgres SeqScan to a Substrait ReadRel
 pub fn transform_seqscan_to_substrait(
     ps: *mut PlannedStmt,
-    sget: *mut proto::ReadRel,
-) -> Result<(), Error> {
+    // sget: *mut proto::ReadRel,
+) -> Result<proto::ReadRell, Error> {
     // Plan variables
     let plan = unsafe { (*ps).planTree };
     let scan = plan as *mut SeqScan;
@@ -245,6 +245,7 @@ pub fn transform_seqscan_to_substrait(
         names: table_names,
         advanced_extension: None,
     });
+    // TODO: fix << WARNING:  relcache reference leak: relation "test_table" not closed >>
 
     // following duckdb, create a new schema and fill it with column names
     let mut base_schema = proto::NamedStruct::default();
@@ -353,11 +354,20 @@ pub fn transform_seqscan_to_substrait(
     }
     base_schema.names = col_names;
     base_schema.r#struct = Some(col_types);
-    unsafe {
-        (*sget).base_schema = Some(base_schema);
-        (*sget).read_type = Some(table)
-    };
-    Ok(())
+    // unsafe {
+    //     (*sget).base_schema = Some(base_schema);
+    //     (*sget).read_type = Some(table)
+    // };
+    let sget = proto::ReadRel {
+        common: None,
+        base_schema: Some(base_schema),
+        filter: None,
+        best_effort_filter: None,
+        projection: None,
+        advanced_extension: None,
+        read_type: Some(table)
+    }
+    Ok(sget)
 }
 
 // TODO: figure out what the return type of each transform function should be (a rextype??)

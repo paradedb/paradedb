@@ -83,7 +83,7 @@ SELECT * FROM items ORDER BY embedding <-> '[0,1,0,2]' LIMIT 5;
 
 Also supports inner product (`<#>`) and cosine distance (`<=>`).
 
-Note: `<#>` returns the negative inner product since Postgresx only supports `ASC` order index scans on operators
+Note: `<#>` returns the negative inner product since Postgres only supports `ASC` order index scans on operators
 
 ### Storing
 

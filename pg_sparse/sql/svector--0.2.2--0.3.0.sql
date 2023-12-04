@@ -25,12 +25,12 @@ CREATE ACCESS METHOD shnsw TYPE INDEX HANDLER shnswhandler;
 
 COMMENT ON ACCESS METHOD shnsw IS 'shnsw index access method';
 
-CREATE OPERATOR CLASS svectorl2_ops
+CREATE OPERATOR CLASS svector_l2_ops
 	FOR TYPE svector USING shnsw AS
 	OPERATOR 1 <-> (svector, svector) FOR ORDER BY float_ops,
-	FUNCTION 1 svectorl2_squared_distance(svector, svector);
+	FUNCTION 1 svector_l2_squared_distance(svector, svector);
 
-CREATE OPERATOR CLASS svectorip_ops
+CREATE OPERATOR CLASS svector_ip_ops
 	FOR TYPE svector USING shnsw AS
 	OPERATOR 1 <#> (svector, svector) FOR ORDER BY float_ops,
 	FUNCTION 1 svector_negative_inner_product(svector, svector);

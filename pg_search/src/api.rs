@@ -77,10 +77,14 @@ mod tests {
             "#;
         Spi::run(add_ratings).expect("failed to add ratings column to table");
 
+        // hnsw index
+        Spi::run("CREATE INDEX ON one_republic_songs USING hnsw (rating vector_l2_ops);")
+            .expect("failed to create hnsw index");
+
         let query = r#"
     SELECT
         paradedb.weighted_mean(
-            paradedb.minmax_bm25(ctid, 'idx_one_republic', 'lyrics:im AND description:desc'),
+            paradedb.minmax_bm25(song_id, 'idx_one_republic', 'lyrics:im'),
             1 - paradedb.minmax_norm(
               '[1,2,3,4,5,6,7]' <-> rating,
               MIN('[1,2,3,4,5,6,7]' <-> rating) OVER (),
@@ -92,7 +96,7 @@ mod tests {
     ORDER BY score_hybrid DESC;
             "#;
 
-        let mean = Spi::get_one::<f64>(query).expect("failed to get min max");
-        assert!(mean.is_none());
+        let mean = Spi::get_one::<f64>(query).expect("failed to get weighted mean");
+        assert!(mean.unwrap() > f64::EPSILON);
     }
 }

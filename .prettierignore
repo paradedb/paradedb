@@ -5,6 +5,7 @@
 /docker/.docker_cache_dev/
 /docs/quickstart.mdx
 /docs/blog/introducing_bm25.mdx
+/docs/blog/introducing_sparse.mdx
 /docs/search/autocomplete.mdx
 /docs/search/fuzzy.mdx
 /pg_search/pgvector/

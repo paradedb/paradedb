@@ -108,7 +108,7 @@ const InstanceCard = ({
     return <Error />;
   }
 
-  if (noDatabaseCreated) {
+  if (noDatabaseCreated || isCreating) {
     return (
       <Card>
         <Flex flexDirection="col" alignItems="start" className="space-y-6">
@@ -186,6 +186,7 @@ const Index = () => {
   const credsRef = useRef(creds);
   const statusRef = useRef(deployStatus);
   const noDatabaseCreated = creds?.status === 404;
+  const isCreating = deployStatus === DeployStatus.PENDING;
   const currentPlan = subscriptions?.data?.[0]?.plan;
   const databaseReady =
     [creds?.host, creds?.user, creds?.password, creds?.port].every(Boolean) &&
@@ -239,7 +240,7 @@ const Index = () => {
     <div>
       <Flex>
         <Title className="text-gray-100">Database</Title>
-        {!noDatabaseCreated && (
+        {!noDatabaseCreated && !isCreating && (
           <DeleteInstanceButton
             onDeleteInstance={onDeleteInstance}
             disabled={!databaseReady}
@@ -255,7 +256,7 @@ const Index = () => {
             isLoading={!databaseReady}
           />
         </Col>
-        {!noDatabaseCreated && (
+        {!noDatabaseCreated && !isCreating && (
           <Col numColSpanLg={4} className="h-full space-y-8">
             <Card>
               <Flex>
@@ -280,7 +281,7 @@ const Index = () => {
           </Col>
         )}
       </Grid>
-      {!noDatabaseCreated && (
+      {!noDatabaseCreated && !isCreating && (
         <>
           <Flex>
             <Title className="text-gray-100 mt-12">Plan</Title>

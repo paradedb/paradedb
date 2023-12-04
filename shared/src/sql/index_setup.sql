@@ -27,6 +27,7 @@ CREATE INDEX idx_one_republic
 ON one_republic_songs
 USING bm25 ((one_republic_songs.*))
 WITH (
+    key_field='song_id',
     text_fields='{
         title: {},
         album: {},

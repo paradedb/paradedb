@@ -1,4 +1,4 @@
-CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*)) WITH (text_fields='{"description": {}, "category": {}}', numeric_fields='{"rating": {}}', boolean_fields='{"in_stock": {}}', json_fields='{"metadata": {}}');;;
+CREATE INDEX idx_mock_items ON mock_items USING bm25 ((mock_items.*)) WITH (key_field='id', text_fields='{"description": {}, "category": {}}', numeric_fields='{"rating": {}}', boolean_fields='{"in_stock": {}}', json_fields='{"metadata": {}}');;;
 CREATE INDEX ON mock_items USING hnsw (embedding vector_l2_ops);
 
 -- Hybrid search with equal weights
@@ -8,7 +8,7 @@ SELECT
     rating,
     embedding,
     paradedb.weighted_mean(
-        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        paradedb.minmax_bm25(id, 'idx_mock_items', 'description:keyboard'),
         1 - paradedb.minmax_norm(
           '[1,2,3]' <-> embedding, 
           MIN('[1,2,3]' <-> embedding) OVER (), 
@@ -27,7 +27,7 @@ SELECT
     rating,
     embedding,
     paradedb.weighted_mean(
-        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        paradedb.minmax_bm25(id, 'idx_mock_items', 'description:keyboard'),
         1 - paradedb.minmax_norm(
           '[1,2,3]' <-> embedding, 
           MIN('[1,2,3]' <-> embedding) OVER (), 
@@ -46,7 +46,7 @@ SELECT
     rating,
     embedding,
     paradedb.weighted_mean(
-        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        paradedb.minmax_bm25(id, 'idx_mock_items', 'description:keyboard'),
         1 - paradedb.minmax_norm(
           '[1,2,3]' <-> embedding, 
           MIN('[1,2,3]' <-> embedding) OVER (), 

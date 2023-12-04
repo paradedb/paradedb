@@ -20,7 +20,7 @@ pub extern "C" fn amvacuumcleanup(
 
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
-    let index_name = index_relation.name().to_string();
+    let index_name = index_relation.name();
     let parade_index = get_parade_index(index_name);
 
     // Cleanup the garbage

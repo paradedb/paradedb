@@ -57,15 +57,16 @@ jobs:
         uses: dtolnay/rust-toolchain@1.73.0
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
-      # save the cache on the main branch, but load it on all branches.
+      # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v1-"
+          prefix-key: "v1"
           shared-key: ${{ runner.os }}-rust-cache-pg_bm25-${{ HashFiles('Cargo.lock') }}
           cache-targets: true
           cache-on-failure: true
+          cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Remove old postgres, llvm, clang, and install appropriate version
@@ -90,6 +91,14 @@ jobs:
           cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.1
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
+
+      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_bm25 extension. Since we
+      # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
+      # clean any cached pg_bm25 & dependencies build artifacts before running the tests
+      - name: Clean Cached Build Artifacts
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
+        working-directory: pg_bm25/
+        run: cargo clean
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_bm25 Integration Tests

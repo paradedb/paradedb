@@ -11,7 +11,7 @@ INSERT INTO example_table (text_array, varchar_array) VALUES
 
 CREATE INDEX ON example_table
 USING bm25 ((example_table.*))
-WITH (text_fields='{text_array: {}, varchar_array: {}}');
+WITH (key_field='id', text_fields='{text_array: {}, varchar_array: {}}');
 
 SELECT * FROM example_table WHERE example_table @@@ 'text_array:text1';
 SELECT * FROM example_table WHERE example_table @@@ 'text_array:"single element"';

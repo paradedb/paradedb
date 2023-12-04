@@ -20,7 +20,7 @@ pub fn schema_bm25(
     name!(record, Option<String>),
     name!(normalizer, Option<String>),
 )> {
-    let parade_index = get_parade_index(index_name.to_string());
+    let parade_index = get_parade_index(index_name);
     let schema = parade_index.schema();
 
     let mut field_rows = Vec::new();
@@ -98,17 +98,18 @@ mod tests {
             .map(|schema| schema.0.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(schemas.len(), 7);
+        assert_eq!(schemas.len(), 8);
         assert_eq!(
             names,
             vec![
+                "song_id",
                 "title",
                 "album",
                 "release_year",
                 "genre",
                 "description",
                 "lyrics",
-                "heap_tid"
+                "ctid"
             ]
         );
     }

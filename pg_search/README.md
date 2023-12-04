@@ -73,7 +73,7 @@ To perform a hybrid search, you'll first need to create a BM25 and a HNSW index 
 CREATE INDEX idx_mock_items
 ON mock_items
 USING bm25 ((mock_items.*))
-WITH (text_fields='{"description": {}, "category": {}}');
+WITH (key_field='id', text_fields='{"description": {}, "category": {}}');
 
 -- HNSW index
 CREATE INDEX ON mock_items USING hnsw (embedding vector_l2_ops);
@@ -91,7 +91,7 @@ SELECT
     category,
     rating,
     paradedb.weighted_mean(
-        paradedb.minmax_bm25(ctid, 'idx_mock_items', 'description:keyboard'),
+        paradedb.minmax_bm25(id, 'idx_mock_items', 'description:keyboard'),
         1 - paradedb.minmax_norm(
           '[1,2,3]' <-> embedding,
           MIN('[1,2,3]' <-> embedding) OVER (),

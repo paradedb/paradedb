@@ -67,6 +67,8 @@ unsafe extern "C" fn columnar_executor_run(
     // Log the entry into the custom planner
     info!("Entering columnar_executor_run");
 
+    let mut ctx = SessionContext::new();
+
     // Imitate ExplainNode for recursive plan scanning behavior
     let ps = (*query_desc).plannedstmt;
     let plan: *mut pg_sys::Plan = (*ps).planTree;
@@ -94,9 +96,25 @@ unsafe extern "C" fn columnar_executor_run(
     // splan.relations = Some(RelType::Root(RelRoot { input: Some(sget), names: $(names of output fields) }
     // splan.extensions and extension_uris should be filled in while we're transforming
     // TODO: print out the plan so we can confirm it
+    // TODO: get the names
+    splan.relations = Some(RelType::Root(RelRoot { input: Some(sget), names: vec![]}))
 
     unsafe {
-        standard_ExecutorRun(query_desc, direction, count, execute_once);
+        // TODO: instead of standard_ExecutorRun, should pass substrait plan to DataFusion and process results
+        // standard_ExecutorRun(query_desc, direction, count, execute_once);
+        let logical_plan = from_substrait_plan(ctx, splan);
+        let results = ctx.execute_logical_plan(logical_plan);
+
+        let sendTuples = (query_desc.operation == CMD_SELECT ||
+                  query_desc.plannedstmt.hasReturning);
+
+        if (sendTuples) {
+            let dest = query_desc.dest;
+            dest.rStartup(dest, operation, query_desc.tupDesc);
+            // TODO: is this where we should conver the results to tuples and pass to dest?
+            dest.receiveSlot(/* SLOT */, dest);
+        }
+
         // Log the fact that standard planner was called
         info!("Standard ExecutorRun called");
     }

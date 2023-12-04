@@ -136,6 +136,9 @@ function run_tests() {
   echo "Running tests..."
   make installcheck
 
+  echo "Printing the diff between the expected and actual test results, if any..."
+  cat "$LOG_DIR/../regression.diffs"
+
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.
   # echo "Displaying PostgreSQL ERROR logs from tests..."

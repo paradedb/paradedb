@@ -29,9 +29,9 @@ pub fn highlight_bm25(_bm25_id: i64, _index_name: String, _field_name: String) -
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[pg_extern]
 pub fn minmax_bm25(
-    _bm25_id: i64,
-    _index_name: &str,
-    _query: &str,
+    bm25_id: i64,
+    index_name: &str,
+    query: &str,
     _fcinfo: pg_sys::FunctionCallInfo,
 ) -> f32 {
     // let indexrel =

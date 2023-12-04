@@ -74,7 +74,8 @@ BEGIN
     END IF;
 END $$;
 
--- This create_bm25 function to dynamically create index and query functions
+-- This create_bm25 function to dynamically create index and query functions.
+-- This call will create a new function called 'dynamicbm25', which can be used to query.
 -- Example:
 --
 -- CALL create_bm25(
@@ -84,8 +85,16 @@ END $$;
 --     text_fields => '{"description": {}, "category": {}}'::text
 -- );
 
---- This call will create a new function called 'dynamicbm25', which can be used to query.
-
+-- This procedure creates a dynamic BM25 index and a corresponding search function for a given table.
+-- Parameters:
+--   function_name: The name of the search function to be created.
+--   table_name: The name of the table on which the BM25 index is to be created.
+--   key_field: The primary key field of the table.
+--   schema_name: The schema in which the table resides. Defaults to the current schema.
+--   text_fields: JSON object representing the text fields for the index.
+--   numeric_fields: JSON object representing the numeric fields for the index.
+--   boolean_fields: JSON object representing the boolean fields for the index.
+--   json_fields: JSON object representing the json fields for the index.
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     function_name text,
     table_name text,
@@ -98,28 +107,33 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
 )
 LANGUAGE plpgsql AS $$
 BEGIN
-	-- Drop existing index and function if they exist
-	CALL paradedb.drop_bm25(
-		function_name => function_name,
-		schema_name => schema_name
-	);
+    -- Drop any existing index and function with the same name to avoid conflicts.
+    CALL paradedb.drop_bm25(
+        function_name => function_name,
+        schema_name => schema_name
+    );
 
-    -- Create the BM25 index
+    -- Create a new BM25 index on the specified table.
+    -- The index is created dynamically based on the function parameters.
     EXECUTE format('CREATE INDEX %I ON %I.%I USING bm25 ((%I.%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
                    function_name, schema_name, table_name, schema_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields);
 
-    -- Create the dynamic function
+    -- Dynamically create a new function for performing searches on the indexed table.
     EXECUTE format($f$
+        -- If you add parameters to the function here, you must also add them to the `drop_bm25`
+        -- function, or you'll get a runtime "function does not exist" error when you try to drop.
         CREATE OR REPLACE FUNCTION %I.%I(
-            query text,
-            offset_rows integer DEFAULT NULL,
-            limit_rows integer DEFAULT NULL,
-            fuzzy_fields text DEFAULT NULL,
-            distance integer DEFAULT NULL,
-            transpose_cost_one boolean DEFAULT NULL,
-            prefix text DEFAULT NULL,
-            regex_fields text DEFAULT NULL,
-            max_num_chars integer DEFAULT NULL
+            query text, -- The search query
+            highlight boolean DEFAULT false, -- Flag to enable/disable search result highlighting
+            rank boolean DEFAULT false, -- Flag to enable/disable search result ranking
+            offset_rows integer DEFAULT NULL, -- Offset for paginated results
+            limit_rows integer DEFAULT NULL, -- Limit for paginated results
+            fuzzy_fields text DEFAULT NULL, -- Fields where fuzzy search is applied
+            distance integer DEFAULT NULL, -- Distance parameter for fuzzy search
+            transpose_cost_one boolean DEFAULT NULL, -- Transpose cost parameter for fuzzy search
+            prefix text DEFAULT NULL, -- Prefix parameter for searches
+            regex_fields text DEFAULT NULL, -- Fields where regex search is applied
+            max_num_chars integer DEFAULT NULL -- Maximum character limit for searches
         ) RETURNS SETOF %I.%I AS $func$
         DECLARE
             json_string text;
@@ -140,8 +154,33 @@ BEGIN
                 	'max_num_chars', max_num_chars
             	)
         	)::text;
+
+            -- Construct the SELECT part of the query
             select_string := format($m$ SELECT * FROM %I.%I WHERE (%I.ctid)$m$);
+            -- Build the main query by appending the JSON string to the SELECT string
             main_query := select_string || '@@@' || '''' || json_string || '''';
+
+             -- Append JOIN clause for highlight functionality if the highlight flag is true
+            IF highlight THEN
+                main_query := main_query
+                || ' LEFT JOIN highlight_bm25('
+                || key_field || ', '
+                || function_name || ', '
+                || query
+                || ') as h ON id = h.i';                
+            END IF;
+
+            -- Append JOIN clause for rank functionality if the rank flag is true
+            IF rank THEN
+                main_query := main_query
+                || ' LEFT JOIN rank_bm25('
+                || key_field || ', '
+                || function_name || ', '
+                || query
+                || ') as h ON id = h.i';
+            END IF;
+
+            -- Execute the final query and return the results
         	RETURN QUERY EXECUTE main_query; 
         END;
         $func$ LANGUAGE plpgsql;
@@ -179,9 +218,22 @@ BEGIN
     END IF;
 
     -- Drop the dynamic function if it exists
+    -- Make sure to keep this function signature identical to the one created in `create_bm25`
     IF function_exists > 0 THEN
-        EXECUTE format('DROP FUNCTION %I.%I(query text, start integer, max_rows integer, fuzzy_fields text, distance integer, transpose_cost_one boolean, prefix text, regex_fields text, max_num_chars integer);',
-                       schema_name, function_name);
+        EXECUTE format($f$ DROP FUNCTION %I.%I(
+            query text,
+            highlight boolean,
+            rank boolean,
+            offset_rows integer,
+            limit_rows integer,
+            fuzzy_fields text,
+            distance integer,
+            transpose_cost_one boolean,
+            prefix text,
+            regex_fields text,
+            max_num_chars integer
+            )
+            $f$, schema_name, function_name);
     END IF;
 END;
 $$;

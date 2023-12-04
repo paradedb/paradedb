@@ -83,6 +83,7 @@
     {
       "group": "Blog",
       "pages": [
+        "blog/introducing_sparse",
         "blog/introducing_paradedb_cloud",
         "blog/introducing_bm25",
         "blog/introducing_paradedb"

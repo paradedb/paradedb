@@ -63,27 +63,27 @@ Enable the extension (do this once in each database where you want to use it):
 CREATE EXTENSION svector;
 ```
 
-Create a sparse vector column with 3 dimensions:
+Create a sparse vector column with 4 dimensions:
 
 ```sql
-CREATE TABLE items (id bigserial PRIMARY KEY, embedding svector(3));
+CREATE TABLE items (id bigserial PRIMARY KEY, embedding svector(4));
 ```
 
 Insert vectors:
 
 ```sql
-INSERT INTO items (embedding) VALUES ('[1,2,3]'), ('[4,5,6]');
+INSERT INTO items (embedding) VALUES ('[1,2,0,3]'), ('[0,4,0,6]');
 ```
 
 Get the nearest neighbors by L2 distance:
 
 ```sql
-SELECT * FROM items ORDER BY embedding <-> '[3,1,2]' LIMIT 5;
+SELECT * FROM items ORDER BY embedding <-> '[0,1,0,2]' LIMIT 5;
 ```
 
 Also supports inner product (`<#>`) and cosine distance (`<=>`).
 
-Note: `<#>` returns the negative inner product since Postgres only supports `ASC` order index scans on operators
+Note: `<#>` returns the negative inner product since Postgresx only supports `ASC` order index scans on operators
 
 ### Storing
 
@@ -102,20 +102,20 @@ ALTER TABLE items ADD COLUMN embedding svector(3);
 Insert sparse vectors:
 
 ```sql
-INSERT INTO items (embedding) VALUES ('[1,2,3]'), ('[4,5,6]');
+INSERT INTO items (embedding) VALUES ('[0,1,2,3]'), ('[4,5,0,6]');
 ```
 
 Upsert sparse vectors:
 
 ```sql
-INSERT INTO items (id, embedding) VALUES (1, '[1,2,3]'), (2, '[4,5,6]')
+INSERT INTO items (id, embedding) VALUES (1, '[0,1,2,3]'), (2, '[4,5,0,6]')
     ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding;
 ```
 
 Update sparse vectors:
 
 ```sql
-UPDATE items SET embedding = '[1,2,3]' WHERE id = 1;
+UPDATE items SET embedding = '[0,1,2,3]' WHERE id = 1;
 ```
 
 Delete sparse vectors:
@@ -129,7 +129,7 @@ DELETE FROM items WHERE id = 1;
 Get the nearest neighbors to a sparse vector:
 
 ```sql
-SELECT * FROM items ORDER BY embedding <-> '[3,1,2]' LIMIT 5;
+SELECT * FROM items ORDER BY embedding <-> '[3,0,1,2]' LIMIT 5;
 ```
 
 Get the nearest neighbors to a row:
@@ -141,7 +141,7 @@ SELECT * FROM items WHERE id != 1 ORDER BY embedding <-> (SELECT embedding FROM 
 Get rows within a certain distance:
 
 ```sql
-SELECT * FROM items WHERE embedding <-> '[3,1,2]' < 5;
+SELECT * FROM items WHERE embedding <-> '[3,0,1,2]' < 5;
 ```
 
 Note: Combine with `ORDER BY` and `LIMIT` to use an index.
@@ -151,19 +151,19 @@ Note: Combine with `ORDER BY` and `LIMIT` to use an index.
 Get the distance:
 
 ```sql
-SELECT embedding <-> '[3,1,2]' AS distance FROM items;
+SELECT embedding <-> '[3,0,1,2]' AS distance FROM items;
 ```
 
 For inner product, multiply by -1 (since `<#>` returns the negative inner product):
 
 ```sql
-SELECT (embedding <#> '[3,1,2]') * -1 AS inner_product FROM items;
+SELECT (embedding <#> '[3,0.1,2]') * -1 AS inner_product FROM items;
 ```
 
 For cosine similarity, use 1 - cosine distance:
 
 ```sql
-SELECT 1 - (embedding <=> '[3,1,2]') AS cosine_similarity FROM items;
+SELECT 1 - (embedding <=> '[3,0,1,2]') AS cosine_similarity FROM items;
 ```
 
 ### HNSW Index

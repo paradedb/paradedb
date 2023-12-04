@@ -123,6 +123,9 @@ function run_tests() {
   # Ensure a clean environment
   trap '$PG_BIN_PATH/pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
   rm -rf "$TMPDIR"
+  rm -rf "$LOG_DIR/test_logs.log"
+  rm -rf "$LOG_DIR/../regression.diffs"
+  rm -rf "$LOG_DIR/../regression.out"
   unset TESTS
 
   # Initialize the test database

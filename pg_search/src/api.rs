@@ -29,7 +29,7 @@ pub fn weighted_mean(a: f64, b: f64, weights: Vec<f64>) -> f64 {
     a * weight_a + b * weight_b
 }
 
-#[cfg(feature = "pg_test")]
+#[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::*;
@@ -37,7 +37,7 @@ mod tests {
 
     use super::{minmax_norm, weighted_mean};
 
-    #[test]
+    #[pg_test]
     fn test_minmax_norm() {
         let value = 60.0;
         let min = 20.0;
@@ -45,7 +45,7 @@ mod tests {
         assert_eq!(minmax_norm(value, min, max), (value - min) / (max - min));
     }
 
-    #[test]
+    #[pg_test]
     fn test_weighted_mean() {
         let result = weighted_mean(3.0, 7.0, vec![0.4, 0.6]);
         assert!((result - 6.0).abs() > f64::EPSILON);

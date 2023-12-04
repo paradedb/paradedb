@@ -152,11 +152,15 @@ function run_tests() {
 
     # First, download & install dependencies for the first release at which we started supporting upgrades (v0.3.3)
     BASE_RELEASE="0.3.3"
-    echo "Installing dependencies (pg_bm25 v$BASE_RELEASE and pgvector) onto the test database..."
+    echo "Installing dependencies (pg_bm25 v$BASE_RELEASE, pg_sparse v$BASE_RELEASE, and pgvector) onto the test database..."
     # pg_bm25
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
     sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
+    # pg_sparse
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    curl -LOJ "$DOWNLOAD_URL" > /dev/null
+    sudo dpkg -i "pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
     # pgvector
     sudo apt-get install -y postgresql-15-pgvector > /dev/null
 

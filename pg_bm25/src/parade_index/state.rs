@@ -20,6 +20,7 @@ pub struct TantivyScanState {
     pub searcher: Searcher,
     pub iterator: *mut std::vec::IntoIter<(Score, DocAddress)>,
     pub config: SearchConfig,
+    pub key_field_name: String,
 }
 
 impl TantivyScanState {
@@ -34,24 +35,25 @@ impl TantivyScanState {
             config: config.clone(),
             searcher: parade_index.searcher(),
             iterator: std::ptr::null_mut(),
+            key_field_name: parade_index.key_field_name.clone(),
         }
     }
 
-    pub fn heap_tid(&mut self, doc_address: DocAddress) -> u64 {
+    pub fn ctid(&mut self, doc_address: DocAddress) -> u64 {
         let retrieved_doc = self.searcher.doc(doc_address).expect("could not find doc");
 
-        let heap_tid_field = self
+        let ctid_field = self
             .schema
-            .get_field("heap_tid")
-            .expect("field 'heap_tid' not found in schema");
+            .get_field("ctid")
+            .expect("field 'ctid' not found in schema");
 
-        if let tantivy::schema::Value::U64(heap_tid_value) = retrieved_doc
-            .get_first(heap_tid_field)
-            .expect("heap_tid field not found in doc")
+        if let tantivy::schema::Value::U64(ctid_value) = retrieved_doc
+            .get_first(ctid_field)
+            .expect("ctid field not found in doc")
         {
-            *heap_tid_value
+            *ctid_value
         } else {
-            panic!("error unwrapping head_tid value")
+            panic!("error unwrapping ctid value")
         }
     }
 
@@ -130,6 +132,7 @@ impl TantivyScanState {
         tantivy_query
     }
 
+    #[allow(dead_code)]
     pub fn snippet_generators(
         &mut self,
         query_config: &SearchConfig,

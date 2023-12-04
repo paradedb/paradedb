@@ -87,8 +87,9 @@ END $$;
 --- This call will create a new function called 'dynamicbm25', which can be used to query.
 
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
-    index_name text,
+    function_name text,
     table_name text,
+    key_field text,
     schema_name text DEFAULT CURRENT_SCHEMA,
     text_fields text DEFAULT '{}',
     numeric_fields text DEFAULT '{}',
@@ -99,13 +100,13 @@ LANGUAGE plpgsql AS $$
 BEGIN
 	-- Drop existing index and function if they exist
 	CALL paradedb.drop_bm25(
-		index_name => index_name,
+		function_name => function_name,
 		schema_name => schema_name
 	);
 
     -- Create the BM25 index
-    EXECUTE format('CREATE INDEX %I ON %I.%I USING bm25 ((%I.%I.*)) WITH (text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
-                   index_name, schema_name, table_name, schema_name, table_name, text_fields, numeric_fields, boolean_fields, json_fields);
+    EXECUTE format('CREATE INDEX %I ON %I.%I USING bm25 ((%I.%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
+                   function_name, schema_name, table_name, schema_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields);
 
     -- Create the dynamic function
     EXECUTE format($f$
@@ -120,8 +121,12 @@ BEGIN
             regex_fields text DEFAULT NULL,
             max_num_chars integer DEFAULT NULL
         ) RETURNS SETOF %I.%I AS $func$
+        DECLARE
+            json_string text;
+            select_string text;
+            main_query text;
         BEGIN
-        	RETURN QUERY SELECT * FROM %I.%I WHERE (%I.ctid) @@@ json_strip_nulls(
+           json_string := json_strip_nulls(
         		json_build_object(
         	    	'index_name', %L,
             		'query', query,
@@ -135,14 +140,17 @@ BEGIN
                 	'max_num_chars', max_num_chars
             	)
         	)::text;
-        	        END;
+            select_string := format($m$ SELECT * FROM %I.%I WHERE (%I.ctid)$m$);
+            main_query := select_string || '@@@' || '''' || json_string || '''';
+        	RETURN QUERY EXECUTE main_query; 
+        END;
         $func$ LANGUAGE plpgsql;
-    $f$, schema_name, index_name, schema_name, table_name, schema_name, table_name, table_name, index_name);
+    $f$, schema_name, function_name, schema_name, table_name, function_name, schema_name, table_name, table_name);
 END;
 $$;
 
 CREATE OR REPLACE PROCEDURE paradedb.drop_bm25(
-    index_name text,
+    function_name text,
     schema_name text DEFAULT CURRENT_SCHEMA
 )
 LANGUAGE plpgsql AS $$
@@ -155,7 +163,7 @@ BEGIN
     FROM pg_class c
     JOIN pg_namespace n ON c.relnamespace = n.oid
     WHERE n.nspname = schema_name
-      AND c.relname = index_name
+      AND c.relname = function_name
       AND c.relkind = 'i';  -- 'i' for index
 
     -- Check if the function exists
@@ -163,17 +171,17 @@ BEGIN
     FROM pg_proc p
     JOIN pg_namespace n ON p.pronamespace = n.oid
     WHERE n.nspname = schema_name
-      AND p.proname = index_name;
+      AND p.proname = function_name;
 
     -- Drop the BM25 index if it exists
     IF index_exists > 0 THEN
-        EXECUTE format('DROP INDEX %I.%I;', schema_name, index_name);
+        EXECUTE format('DROP INDEX %I.%I;', schema_name, function_name);
     END IF;
 
     -- Drop the dynamic function if it exists
     IF function_exists > 0 THEN
         EXECUTE format('DROP FUNCTION %I.%I(query text, start integer, max_rows integer, fuzzy_fields text, distance integer, transpose_cost_one boolean, prefix text, regex_fields text, max_num_chars integer);',
-                       schema_name, index_name);
+                       schema_name, function_name);
     END IF;
 END;
 $$;

@@ -1,13 +1,9 @@
-use std::str::FromStr;
-
-use pgrx::*;
-use tantivy::DocAddress;
-
 use crate::{
     index_access::utils::{get_parade_index, SearchConfig},
-    manager::{get_current_executor_manager, get_fresh_executor_manager},
     parade_index::state::TantivyScanState,
 };
+use pgrx::*;
+use std::str::FromStr;
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -58,20 +54,6 @@ pub extern "C" fn amrescan(
 
     let top_docs = state.search();
 
-    // Cache min/max scorequery_config: SearchQuery
-    let scores: Vec<f32> = top_docs.iter().map(|(score, _)| *score).collect();
-    let max_score = scores.iter().fold(0.0f32, |a, b| a.max(*b));
-    let min_score = scores.iter().fold(0.0f32, |a, b| a.min(*b));
-
-    // We get a fresh executor manager here to clear out memory from previous queries.
-    let manager = get_fresh_executor_manager();
-    manager.set_max_score(max_score);
-    manager.set_min_score(min_score);
-
-    // Add snippet generators.
-    let snippet_generators = state.snippet_generators(&query_config);
-    manager.set_snippet_generators(snippet_generators);
-
     // Store the search results in the scan state, ensuring they get freed when the current memory context is deleted.
     state.iterator =
         PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(top_docs.into_iter());
@@ -101,7 +83,7 @@ pub extern "C" fn amgettuple(
     let iter = unsafe { state.iterator.as_mut() }.expect("no iterator in state");
 
     match iter.next() {
-        Some((score, doc_address)) => {
+        Some((_score, doc_address)) => {
             #[cfg(any(
                 feature = "pg12",
                 feature = "pg13",
@@ -128,7 +110,7 @@ pub extern "C" fn amgettuple(
             let key_field = schema
                 .get_field(key_field_name)
                 .unwrap_or_else(|_| panic!("field '{key_field_name}' not found in schema"));
-            let key_field_value = retrieved_doc.get_first(key_field).unwrap_or_else(|| {
+            let _key_field_value = retrieved_doc.get_first(key_field).unwrap_or_else(|| {
                 panic!("cannot find id field '{key_field_name}' on retrieved document")
             });
 
@@ -142,26 +124,10 @@ pub extern "C" fn amgettuple(
                 _ => panic!("incorrect type in {ctid_name} field: {ctid_field_value:?}"),
             };
 
-            if let tantivy::schema::Value::I64(val) = key_field_value {
-                write_to_manager(*val, score, doc_address);
-            } else {
-                panic!("incorrect type in {key_field_name} field: {key_field_value:?}")
-            }
-
             true
         }
         None => false,
     }
-}
-
-#[inline]
-fn write_to_manager(bm25_id: i64, score: f32, doc_address: DocAddress) {
-    let manager = get_current_executor_manager();
-    // Add score
-    manager.add_score(bm25_id, score);
-
-    // Add doc address
-    manager.add_doc_address(bm25_id, doc_address);
 }
 
 #[cfg(any(test, feature = "pg_test"))]

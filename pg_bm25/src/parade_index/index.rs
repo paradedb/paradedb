@@ -9,17 +9,16 @@ use std::ffi::{CStr, CString};
 use std::fs::{self, create_dir_all, remove_dir_all, File};
 use std::io::Write;
 use std::path::Path;
-use tantivy::query::Query;
 use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher, Term};
-use tantivy::{
-    DocAddress, IndexReader, IndexWriter, Score, SingleSegmentIndexWriter, TantivyError,
-};
+use tantivy::{IndexReader, IndexWriter, SingleSegmentIndexWriter, TantivyError};
 
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::SearchConfig;
 use crate::json::builder::{JsonBuilder, JsonBuilderValue};
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
+
+use super::state::TantivyScanState;
 
 const CACHE_NUM_BLOCKS: usize = 10;
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
@@ -58,15 +57,6 @@ impl TryFrom<&JsonBuilderValue> for ParadeIndexId {
             _ => Err(format!("Unsupported conversion: {:#?}", value).into()),
         }
     }
-}
-
-pub struct TantivyScanState {
-    pub schema: Schema,
-    pub query: Box<dyn Query>,
-    pub query_parser: QueryParser,
-    pub searcher: Searcher,
-    pub iterator: *mut std::vec::IntoIter<(Score, DocAddress)>,
-    pub key_field_name: String,
 }
 
 #[derive(Clone, Serialize)]

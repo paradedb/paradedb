@@ -1,17 +1,10 @@
 mod build;
 mod funcs;
 
-use datafusion::prelude::SessionContext;
-use lazy_static::lazy_static;
 use pgrx::*;
 
 use crate::table_access::build::*;
 use crate::table_access::funcs::*;
-
-// Let's try adding the session context globally for now so we can retain info about our tables
-lazy_static! {
-    static ref CONTEXT: SessionContext = SessionContext::new();
-}
 
 extension_sql!(
     r#"

@@ -28,10 +28,11 @@ use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
 
-use crate::table_access::CONTEXT;
+use crate::datafusion::CONTEXT;
 
 unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
-    let table_name = name_data_to_str(&(*(*rel).rd_rel).relname);
+    let pgrel = PgRelation::from_pg(rel);
+    let table_name = format!("{:?}", rel);
     info!("getting table {}", table_name);
     let table_ref = TableReference::from(table_name);
     task::block_on(CONTEXT.table_provider(table_ref))

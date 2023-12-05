@@ -7,6 +7,7 @@ use pgrx::prelude::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 
+mod datafusion;
 mod table_access;
 
 // This is a flag that can be set by the user in a session to enable logs.
@@ -22,7 +23,6 @@ extern "C" fn pg_finfo_mem_tableam_handler() -> &'static pg_sys::Pg_finfo_record
     &V1_API
 }
 
-// initializes telemetry
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
 #[pg_guard]

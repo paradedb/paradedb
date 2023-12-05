@@ -60,7 +60,10 @@ jobs:
 
       - name: Update Version in svector.control
         working-directory: pg_sparse/
-        run: sed -i "s/default_version = '.*'/default_version = '\${{ steps.version.outputs.version }}'/" svector.control
+        run: |
+          sed -i "s/^default_version = .*/default_version = '${{ steps.version.outputs.version }}'/" svector.control
+          sed -i "s/^EXTVERSION = .*/EXTVERSION = ${{ steps.version.outputs.version }}/" Makefile
+          cat svector.control
 
       - name: Build & Package pg_sparse as a .deb
         env:

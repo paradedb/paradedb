@@ -177,8 +177,9 @@ unsafe fn transform_opexpr(op_expr: *mut OpExpr, rtable: *mut List) {
 // This function converts a Postgres SeqScan to a Substrait ReadRel
 pub fn transform_seqscan_to_substrait(
     ps: *mut PlannedStmt,
-    // sget: *mut proto::ReadRel,
-) -> Result<proto::ReadRell, Error> {
+    sget: *mut proto::ReadRel,
+// ) -> Result<proto::ReadRel, Error> {
+) -> Result<(), Error> {
     // Plan variables
     let plan = unsafe { (*ps).planTree };
     let scan = plan as *mut SeqScan;
@@ -354,20 +355,21 @@ pub fn transform_seqscan_to_substrait(
     }
     base_schema.names = col_names;
     base_schema.r#struct = Some(col_types);
-    // unsafe {
-    //     (*sget).base_schema = Some(base_schema);
-    //     (*sget).read_type = Some(table)
-    // };
-    let sget = proto::ReadRel {
-        common: None,
-        base_schema: Some(base_schema),
-        filter: None,
-        best_effort_filter: None,
-        projection: None,
-        advanced_extension: None,
-        read_type: Some(table)
-    }
-    Ok(sget)
+    unsafe {
+        (*sget).base_schema = Some(base_schema);
+        (*sget).read_type = Some(table)
+    };
+    Ok(())
+    // let sget = proto::ReadRel {
+    //     common: None,
+    //     base_schema: Some(base_schema),
+    //     filter: None,
+    //     best_effort_filter: None,
+    //     projection: None,
+    //     advanced_extension: None,
+    //     read_type: Some(table)
+    // }
+    // Ok(sget)
 }
 
 // TODO: figure out what the return type of each transform function should be (a rextype??)

@@ -28,15 +28,7 @@ use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
 
-use crate::datafusion::CONTEXT;
-
-unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
-    let pgrel = PgRelation::from_pg(rel);
-    let table_name = format!("{:?}", rel);
-    info!("getting table {}", table_name);
-    let table_ref = TableReference::from(table_name);
-    task::block_on(CONTEXT.table_provider(table_ref))
-}
+use crate::datafusion::{CONTEXT, DFTable};
 
 pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTableSlotOps {
     &TTSOpsVirtual
@@ -60,29 +52,24 @@ async unsafe fn memam_scan_begin_impl(rel: Relation) -> TableScanDesc {
     };
     scan.rs_base.rs_rd = rel;
     scan.curr_batch = None;
-    let table = get_table_from_relation(rel);
-    match table {
-        Ok(tab) => {
-            info!("found table!");
-            let scan_exec_plan = tab
-                .scan(&CONTEXT.state(), None, &[], None)
-                .await
-                .map(|plan| {
-                    info!("started scan, executing now");
-                    plan.execute(0, CONTEXT.task_ctx())
-                });
-            // TODO how do deal with all these results
-            match scan_exec_plan {
-                Ok(Ok(stream)) => {
-                    info!("scan successful, got stream");
-                    scan.stream = Some(stream)
-                }
-                Err(e) => info!("{:?}", e),
-                Ok(Err(e)) => info!("{:?}", e),
-            }
-            // scan.stream = None;
+    let pgrel = unsafe { PgRelation::from_pg(rel) };
+    let table = DFTable::get_from_pg(&pgrel);
+    info!("found table!");
+    let scan_exec_plan = table
+        .scan(&CONTEXT.state(), None, &[], None)
+        .await
+        .map(|plan| {
+            info!("started scan, executing now");
+            plan.execute(0, CONTEXT.task_ctx())
+        });
+    // TODO how do deal with all these results
+    match scan_exec_plan {
+        Ok(Ok(stream)) => {
+            info!("scan successful, got stream");
+            scan.stream = Some(stream)
         }
         Err(e) => info!("{:?}", e),
+        Ok(Err(e)) => info!("{:?}", e),
     }
     info!("casting now");
     // TODO: how do I cast this boi
@@ -316,11 +303,9 @@ pub unsafe extern "C" fn memam_index_delete_tuples(
 
 // exec_plan contains the recordbatch of tuple to insert
 async unsafe fn memam_tuple_insert_impl(rel: Relation, exec_plan: MemoryExec) {
-    let table = get_table_from_relation(rel);
-    if let Ok(provider) = table {
-        // TODO: correct to use session context's state?
-        provider.insert_into(&CONTEXT.state(), Arc::new(exec_plan), false);
-    }
+    let pgrel = unsafe { PgRelation::from_pg(rel) };
+    let table = DFTable::get_from_pg(&pgrel);
+    table.insert_into(&CONTEXT.state(), Arc::new(exec_plan), false);
 }
 
 pub unsafe extern "C" fn memam_tuple_insert(

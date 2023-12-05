@@ -2,14 +2,16 @@ use core::ffi::c_char;
 use datafusion::arrow::array::{Array, ArrayIter, AsArray, Int32Array, PrimitiveArray, Scalar};
 use datafusion::arrow::datatypes::{DataType, Field, Int32Type, Schema, SchemaRef, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::datasource::MemTable;
+use datafusion::datasource::{MemTable, TableProvider};
 use datafusion::prelude::SessionContext;
+use datafusion::sql::TableReference;
 use lazy_static::lazy_static;
 use pgrx::pg_sys::*;
 use pgrx::*;
 use serde::Serialize;
 use std::fmt::format;
 use std::sync::Arc;
+use async_std::task;
 
 // Let's try adding the session context globally for now so we can retain info about our tables
 lazy_static! {
@@ -19,6 +21,11 @@ lazy_static! {
 #[derive(Clone, Serialize)]
 pub struct DFTable;
 impl DFTable {
+    pub fn get_from_pg(pgrel: &PgRelation) -> Arc<dyn TableProvider> {
+        let table_ref = TableReference::from(format!("{}", (*pgrel).oid()));
+        task::block_on(CONTEXT.table_provider(table_ref)).expect("Could not get table")
+    }
+
     pub fn create_from_pg(pgrel: &PgRelation, persistence: u8) {
         let schema = Self::schema_from_pg(&pgrel);
         if persistence == RELPERSISTENCE_PERMANENT {

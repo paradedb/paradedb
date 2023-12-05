@@ -10,6 +10,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to set for the pg_bm25 release. This publishes the current commit tagged with the provided version, to the correspoding GitHub Release"
+        required: true
+        default: ""
 
 concurrency:
   group: publish-pg_bm25-${{ github.head_ref || github.ref }}
@@ -39,7 +44,12 @@ jobs:
       - name: Retrieve Ubuntu & GitHub Tag Versions
         id: version
         run: |
-          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          # If no workflow_dispatch version is provided, we use workflow tag trigger version
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT       
+          else
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          fi
           echo "ubuntu_version=$(lsb_release -rs | sed 's/\.//')" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version

@@ -19,10 +19,10 @@ telemetry = ["shared/telemetry"]
 
 [dependencies]
 datafusion = "33.0.0"
-pgrx = "=0.11.0"
+pgrx = "=0.11.1"
 shared = { version = "0.1.0", path = "../shared" }
 async-std = "1.12.0"
 lazy_static = "1.4.0"
 
 [dev-dependencies]
-pgrx-tests = "=0.11.0"
+pgrx-tests = "=0.11.1"

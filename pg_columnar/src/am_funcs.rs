@@ -8,7 +8,7 @@ use core::ffi::c_char;
 use core::ffi::c_int;
 use core::ffi::c_void;
 use datafusion::arrow::array::{Array, ArrayIter, AsArray, Int32Array, PrimitiveArray, Scalar};
-use datafusion::arrow::datatypes::{DataType, Field, Int32Type, Schema, SchemaRef};
+use datafusion::arrow::datatypes::{DataType, Field, Int32Type, Schema, SchemaRef, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::datasource::{DefaultTableSource, MemTable, TableProvider};
 use datafusion::error::Result;
@@ -21,14 +21,13 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion::sql::TableReference;
+use pgrx::*;
 use pgrx::pg_sys::*;
-use pgrx::IntoDatum;
-use pgrx::{FromDatum, PgBox};
+use pgrx::pg_sys::varlena;
 use shared::plog;
 use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
-use pgrx::pgbox::AllocatedByRust;
 
 unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
     let table_name = name_data_to_str(&(*(*rel).rd_rel).relname);
@@ -126,10 +125,10 @@ async unsafe fn memam_scan_getnextslot_impl(
         return false;
     }
     // TODO: quickfix said to as_mut() this
-    let mut stream = &(*tscan).stream;
+    let mut stream = &mut (*tscan).stream;
     if (*tscan).curr_batch.is_none() {
         info!("curr_batch is none");
-        let next_batch = stream.unwrap().next().await;
+        let next_batch = stream.as_mut().unwrap().next().await;
         info!("here a");
         match next_batch {
             Some(Ok(batch)) => {
@@ -458,16 +457,61 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
     minmulti: *mut MultiXactId,
 ) {
     info!("Calling memam_relation_set_new_filenode");
-    // TODO: put proper column names and types here and use vec! instead of ::new
-    // TODO: I think we should read through pgrx::tupdesc::PgTupleDesc for how to get the schema
-    // for now let's have one column with int32
-    let field = Field::new("a", DataType::Int32, false);
-    let schema = SchemaRef::new(Schema::new(vec![field]));
+    let pgrel = unsafe { PgRelation::from_pg(rel) };
+    let tupdesc = pgrel.tuple_desc();
+    let mut fields = Vec::with_capacity(tupdesc.len());
+
+    for (attno, attribute) in tupdesc.iter().enumerate() {
+        if attribute.is_dropped() {
+            continue;
+        }
+        let attname = attribute.name();
+        let attribute_type_oid = attribute.type_oid();
+
+        let field = {
+            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
+            let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
+                (PgOid::from(array_type), true)
+            } else {
+                (attribute_type_oid, false)
+            };
+
+            if is_array {
+                panic!("Array data types are not supported");
+            }
+    
+            match &base_oid {
+                PgOid::BuiltIn(builtin) => match builtin {
+                    PgBuiltInOids::BOOLOID => Field::new(attname, DataType::Boolean, true),
+                    PgBuiltInOids::INT2OID => Field::new(attname, DataType::Int16, true),
+                    PgBuiltInOids::INT4OID => Field::new(attname, DataType::Int32, true),
+                    PgBuiltInOids::INT8OID => Field::new(attname, DataType::Int64, true),
+                    PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => Field::new(attname, DataType::UInt32, true),
+                    PgBuiltInOids::FLOAT4OID => Field::new(attname, DataType::Float32, true),
+                    PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => Field::new(attname, DataType::Float64, true),
+                    PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => Field::new(attname, DataType::Utf8, true),
+                    PgBuiltInOids::TIMEOID => Field::new(attname, DataType::Time32(TimeUnit::Second), true),
+                    PgBuiltInOids::TIMESTAMPOID => Field::new(attname, DataType::Timestamp(TimeUnit::Second, None), true),
+                    PgBuiltInOids::DATEOID => Field::new(attname, DataType::Date32, true),
+                    PgBuiltInOids::TIMESTAMPTZOID => panic!("Timestamp with time zone data type not supported"),
+                    PgBuiltInOids::TIMETZOID => panic!("Time with time zone data type not supported"),
+                    PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => panic!("JSON data type not supported"),                    _ => panic!("Unsupported PostgreSQL type: {:?}", builtin),
+                },
+                PgOid::Custom(_custom) => panic!("Custom data types are not supported"),
+                PgOid::Invalid => panic!("{} has a type oid of InvalidOid", attname),
+                _ => panic!("Unsupported PostgreSQL type oid: {}", base_oid.value()),
+            }
+        };
+
+        fields.push(field);
+    }
+
+    let schema = SchemaRef::new(Schema::new(fields));
+    info!("schema: {:?}", schema);
 
     // Empty table
     let mem_table = match MemTable::try_new(schema, vec![Vec::<RecordBatch>::new()]).ok() {
         Some(mem_table) => {
-            // let ctx = SessionContext::new();
             CONTEXT.register_table(
                 name_data_to_str(&(*(*rel).rd_rel).relname),
                 Arc::new(mem_table),
@@ -475,6 +519,8 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
         }
         None => info!("Could not create table"),
     };
+
+    // let _pg_table = RelationCreateStorage(newrnode, persistence, true);
 }
 
 pub unsafe extern "C" fn memam_relation_nontransactional_truncate(rel: Relation) {

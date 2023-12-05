@@ -1,7 +1,0 @@
-comment = 'pg_search: Hybrid search for PostgreSQL'
-default_version = '@CARGO_VERSION@'
-module_pathname = '$libdir/pg_search'
-relocatable = false
-superuser = true
-schema = paradedb
-requires = 'pg_bm25,vector'

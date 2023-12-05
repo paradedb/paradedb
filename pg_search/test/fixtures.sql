@@ -1,4 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS svector;
 CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
 CALL paradedb.create_search_test_table();

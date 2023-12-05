@@ -165,7 +165,7 @@ function run_tests() {
     # pg_sparse
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
-    sudo dpkg -i "pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb" > /dev/null
+    sudo dpkg -i "pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
     # pgvector
     sudo apt-get install -y postgresql-15-pgvector > /dev/null
 
@@ -188,7 +188,7 @@ function run_tests() {
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
   else
     # Install dependencies
-    echo "Installing dependencies (pg_bm25 and pgvector) onto the test database..."
+    echo "Installing dependencies (pg_bm25, pg_sparse, and pgvector) onto the test database..."
     "$TESTDIR/../configure.sh" "$PG_VERSION"
 
     # Use cargo-pgx to install the extension for the specified version

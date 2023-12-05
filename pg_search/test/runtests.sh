@@ -153,7 +153,6 @@ function run_tests() {
     # Don't send telemetry when running tests
     export TELEMETRY=false
 
-
     # First, download & install the first release at which we started supporting upgrades for *ALL* dependencies (v0.3.12). While
     # we started supporting upgrades for pg_bm25 and pg_search at v0.3.3, we didn't start supporting upgrades for pg_sparse until
     # v0.3.12, so we need to start our upgrade test at that version.
@@ -209,7 +208,6 @@ function run_tests() {
   # Execute tests using pg_regress
   echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
-
   if [ -f "$LOG_DIR/../regression.diffs" ]; then
     echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
     cat "$LOG_DIR/../regression.diffs"

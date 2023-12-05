@@ -19,7 +19,11 @@ const priceIDs = {
 
 const getConfig = (env) => {
   // List of environment variables that must be defined in order for deploy to succeed.
-  const REQUIRED_ENV_VARS = ["AUTH0_CLIENT_SECRET", "STRIPE_API_KEY"];
+  const REQUIRED_ENV_VARS = [
+    "AUTH0_CLIENT_SECRET",
+    "STRIPE_API_KEY",
+    "INTERCOM_ACCESS_TOKEN",
+  ];
 
   REQUIRED_ENV_VARS.forEach((v) => {
     if (!process.env[v]) {
@@ -36,6 +40,7 @@ const getConfig = (env) => {
     AUTH0_REPLACE_KEYWORD_MAPPINGS: {
       STRIPE_API_KEY: process.env.STRIPE_API_KEY,
       DEFAULT_PRICE_ID: priceIDs[env],
+      INTERCOM_ACCESS_TOKEN: process.env.INTERCOM_ACCESS_TOKEN,
     },
     // Only auto-delete resources on dev
     AUTH0_ALLOW_DELETE: env === "dev" && false,

@@ -224,6 +224,8 @@ actions:
         value: "##STRIPE_API_KEY##"
       - name: DEFAULT_PRICE_ID
         value: "##DEFAULT_PRICE_ID##"
+      - name: INTERCOM_ACCESS_TOKEN
+        value: "##INTERCOM_ACCESS_TOKEN##"
     supported_triggers:
       - id: post-login
         version: v3

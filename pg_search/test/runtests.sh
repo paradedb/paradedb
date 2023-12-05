@@ -123,6 +123,9 @@ function run_tests() {
   # Ensure a clean environment
   trap '$PG_BIN_PATH/pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
   rm -rf "$TMPDIR"
+  rm -rf "$LOG_DIR/test_logs.log"
+  rm -rf "$LOG_DIR/../regression.diffs"
+  rm -rf "$LOG_DIR/../regression.out"
   unset TESTS
 
   # Initialize the test database
@@ -152,11 +155,15 @@ function run_tests() {
 
     # First, download & install dependencies for the first release at which we started supporting upgrades (v0.3.3)
     BASE_RELEASE="0.3.3"
-    echo "Installing dependencies (pg_bm25 v$BASE_RELEASE and pgvector) onto the test database..."
+    echo "Installing dependencies (pg_bm25 v$BASE_RELEASE, pg_sparse v$BASE_RELEASE, and pgvector) onto the test database..."
     # pg_bm25
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
     sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
+    # pg_sparse
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    curl -LOJ "$DOWNLOAD_URL" > /dev/null
+    sudo dpkg -i "pg_sparse-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
     # pgvector
     sudo apt-get install -y postgresql-15-pgvector > /dev/null
 
@@ -199,6 +206,10 @@ function run_tests() {
   # Execute tests using pg_regress
   echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
+  if [ -f "$LOG_DIR/../regression.diffs" ]; then
+    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
+    cat "$LOG_DIR/../regression.diffs"
+  fi
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.

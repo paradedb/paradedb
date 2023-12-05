@@ -123,6 +123,9 @@ function run_tests() {
   # Ensure a clean environment
   trap '$PG_BIN_PATH/pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
   rm -rf "$TMPDIR"
+  rm -rf "$LOG_DIR/test_logs.log"
+  rm -rf "$LOG_DIR/../regression.diffs"
+  rm -rf "$LOG_DIR/../regression.out"
   unset TESTS
 
   # Initialize the test database
@@ -189,6 +192,10 @@ function run_tests() {
   # Execute tests using pg_regress
   echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
+  if [ -f "$LOG_DIR/../regression.diffs" ]; then
+    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
+    cat "$LOG_DIR/../regression.diffs"
+  fi
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.

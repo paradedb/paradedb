@@ -86,6 +86,9 @@ function run_tests() {
   # Ensure a clean environment
   trap 'pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
   rm -rf "$TMPDIR"
+  rm -rf "$LOG_DIR/test_logs.log"
+  rm -rf "$LOG_DIR/../regression.diffs"
+  rm -rf "$LOG_DIR/../regression.out"
   unset TESTS
 
   # Initialize the test database
@@ -135,6 +138,10 @@ function run_tests() {
   # We always test on the upcoming version, which means that this test also acts as an extension upgrade test
   echo "Running tests..."
   make installcheck
+  if [ -f "$LOG_DIR/../regression.diffs" ]; then
+    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
+    cat "$LOG_DIR/../regression.diffs"
+  fi
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.

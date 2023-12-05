@@ -153,8 +153,10 @@ function run_tests() {
     # Don't send telemetry when running tests
     export TELEMETRY=false
 
-    # First, download & install dependencies for the first release at which we started supporting upgrades (v0.3.3)
-    BASE_RELEASE="0.3.3"
+    # First, download & install the first release at which we started supporting upgrades for *ALL* dependencies (v0.3.12). While
+    # we started supporting upgrades for pg_bm25 and pg_search at v0.3.3, we didn't start supporting upgrades for pg_sparse until
+    # v0.3.12, so we need to start our upgrade test at that version.
+    BASE_RELEASE="0.3.12"
     echo "Installing dependencies (pg_bm25 v$BASE_RELEASE, pg_sparse v$BASE_RELEASE, and pgvector) onto the test database..."
     # pg_bm25
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"

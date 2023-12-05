@@ -211,6 +211,9 @@ function run_tests() {
 
   # Execute tests using pg_regress
   echo "Running tests..."
+
+  echo "LOG_DIR: $LOG_DIR"
+
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
   if [ -f "$LOG_DIR/../regression.diffs" ]; then
     echo "Some test(s) failed! Printing the diff between the expected and actual test results..."

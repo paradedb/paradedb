@@ -138,7 +138,10 @@ function run_tests() {
   # We always test on the upcoming version, which means that this test also acts as an extension upgrade test
   echo "Running tests..."
   make installcheck
-  [ -f "$LOG_DIR/../regression.diffs" ] && echo "Some test(s) failed! Printing the diff between the expected and actual test results..." && cat "$LOG_DIR/../regression.diffs"
+  if [ -f "$LOG_DIR/../regression.diffs" ]; then
+    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
+    cat "$LOG_DIR/../regression.diffs"
+  fi
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.

@@ -206,7 +206,10 @@ function run_tests() {
   # Execute tests using pg_regress
   echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
-  [ -f "$LOG_DIR/../regression.diffs" ] && echo "Some test(s) failed! Printing the diff between the expected and actual test results..." && cat "$LOG_DIR/../regression.diffs"
+  if [ -f "$LOG_DIR/../regression.diffs" ]; then
+    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
+    cat "$LOG_DIR/../regression.diffs"
+  fi
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.

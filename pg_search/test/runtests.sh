@@ -176,6 +176,9 @@ function run_tests() {
 
     # Second, load the extension into the test database
     echo "Loading pg_search extension version v$BASE_RELEASE into the test database..."
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION svector VERSION '$BASE_RELEASE' CASCADE;" -d test_db
+
+
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE' CASCADE;" -d test_db
 
     # Third, build & install the current version of the extension

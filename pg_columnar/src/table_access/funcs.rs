@@ -1,7 +1,6 @@
 #![allow(unused)]
 #![allow(non_snake_case)]
 
-use crate::CONTEXT;
 use async_std::stream::StreamExt;
 use async_std::task;
 use core::ffi::c_char;
@@ -21,13 +20,15 @@ use datafusion::physical_plan::ExecutionPlan;
 use datafusion::physical_planner::{DefaultPhysicalPlanner, PhysicalPlanner};
 use datafusion::prelude::{SessionConfig, SessionContext};
 use datafusion::sql::TableReference;
-use pgrx::*;
-use pgrx::pg_sys::*;
 use pgrx::pg_sys::varlena;
+use pgrx::pg_sys::*;
+use pgrx::*;
 use shared::plog;
 use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
+
+use crate::table_access::CONTEXT;
 
 unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider>> {
     let table_name = name_data_to_str(&(*(*rel).rd_rel).relname);
@@ -42,7 +43,7 @@ pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTabl
 
 // custom DescData representing scan state
 struct TableAMScanDescData {
-    rs_base: PgBox::<TableScanDescData, AllocatedByRust>,
+    rs_base: PgBox<TableScanDescData, AllocatedByRust>,
     stream: Option<SendableRecordBatchStream>, // should this be option: None if scan failed
     curr_batch: Option<RecordBatch>,
 }
@@ -456,7 +457,6 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
     freezeXid: *mut TransactionId,
     minmulti: *mut MultiXactId,
 ) {
-    info!("Calling memam_relation_set_new_filenode");
     let pgrel = unsafe { PgRelation::from_pg(rel) };
     let tupdesc = pgrel.tuple_desc();
     let mut fields = Vec::with_capacity(tupdesc.len());
@@ -479,23 +479,40 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
             if is_array {
                 panic!("Array data types are not supported");
             }
-    
+
             match &base_oid {
                 PgOid::BuiltIn(builtin) => match builtin {
                     PgBuiltInOids::BOOLOID => Field::new(attname, DataType::Boolean, true),
                     PgBuiltInOids::INT2OID => Field::new(attname, DataType::Int16, true),
                     PgBuiltInOids::INT4OID => Field::new(attname, DataType::Int32, true),
                     PgBuiltInOids::INT8OID => Field::new(attname, DataType::Int64, true),
-                    PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => Field::new(attname, DataType::UInt32, true),
+                    PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => {
+                        Field::new(attname, DataType::UInt32, true)
+                    }
                     PgBuiltInOids::FLOAT4OID => Field::new(attname, DataType::Float32, true),
-                    PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => Field::new(attname, DataType::Float64, true),
-                    PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => Field::new(attname, DataType::Utf8, true),
-                    PgBuiltInOids::TIMEOID => Field::new(attname, DataType::Time32(TimeUnit::Second), true),
-                    PgBuiltInOids::TIMESTAMPOID => Field::new(attname, DataType::Timestamp(TimeUnit::Second, None), true),
+                    PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
+                        Field::new(attname, DataType::Float64, true)
+                    }
+                    PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
+                        Field::new(attname, DataType::Utf8, true)
+                    }
+                    PgBuiltInOids::TIMEOID => {
+                        Field::new(attname, DataType::Time32(TimeUnit::Second), true)
+                    }
+                    PgBuiltInOids::TIMESTAMPOID => {
+                        Field::new(attname, DataType::Timestamp(TimeUnit::Second, None), true)
+                    }
                     PgBuiltInOids::DATEOID => Field::new(attname, DataType::Date32, true),
-                    PgBuiltInOids::TIMESTAMPTZOID => panic!("Timestamp with time zone data type not supported"),
-                    PgBuiltInOids::TIMETZOID => panic!("Time with time zone data type not supported"),
-                    PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => panic!("JSON data type not supported"),                    _ => panic!("Unsupported PostgreSQL type: {:?}", builtin),
+                    PgBuiltInOids::TIMESTAMPTZOID => {
+                        panic!("Timestamp with time zone data type not supported")
+                    }
+                    PgBuiltInOids::TIMETZOID => {
+                        panic!("Time with time zone data type not supported")
+                    }
+                    PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
+                        panic!("JSON data type not supported")
+                    }
+                    _ => panic!("Unsupported PostgreSQL type: {:?}", builtin),
                 },
                 PgOid::Custom(_custom) => panic!("Custom data types are not supported"),
                 PgOid::Invalid => panic!("{} has a type oid of InvalidOid", attname),
@@ -507,7 +524,6 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
     }
 
     let schema = SchemaRef::new(Schema::new(fields));
-    info!("schema: {:?}", schema);
 
     // Empty table
     let mem_table = match MemTable::try_new(schema, vec![Vec::<RecordBatch>::new()]).ok() {
@@ -517,10 +533,8 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
                 Arc::new(mem_table),
             );
         }
-        None => info!("Could not create table"),
+        None => panic!("An unexpected error occured creating the table"),
     };
-
-    // let _pg_table = RelationCreateStorage(newrnode, persistence, true);
 }
 
 pub unsafe extern "C" fn memam_relation_nontransactional_truncate(rel: Relation) {

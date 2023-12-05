@@ -1,0 +1,202 @@
+-- Invalid create_bm25
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config'
+);
+ERROR:  no key_field parameter given for bm25 index "index_config"
+CONTEXT:  PL/pgSQL function create_bm25(text,text,text,text,text,text,text,text) line 18 at RAISE
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	key_field => 'id'
+);
+ERROR:  no text_fields, numeric_fields, boolean_fields, or json_fields were specified for index index_config
+CONTEXT:  PL/pgSQL function create_bm25(text,text,text,text,text,text,text,text) line 22 at RAISE
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	key_field => 'id',
+	invalid_field => '{}'		
+);
+ERROR:  procedure paradedb.create_bm25(index_name => unknown, table_name => unknown, key_field => unknown, invalid_field => unknown) does not exist
+LINE 1: CALL paradedb.create_bm25(
+             ^
+HINT:  No procedure matches the given name and argument types. You might need to add explicit type casts.
+-- Default text field
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	text_fields => '{"description": {}}'
+);
+SELECT * from index_config.schema();
+    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
+-------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
+ id          | I64        | t      | t       | t    | t          |             |           |          | 
+ description | Str        | t      | t       | f    | t          |             | default   | position | 
+ ctid        | U64        | t      | t       | f    | t          |             |           |          | 
+(3 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+-- Text field with options
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	text_fields => '{"description": {"fast": true, "tokenizer": { "type": "en_stem" }, "record": "freq", "normalizer": "raw"}}'
+);
+SELECT * from index_config.schema();
+    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
+-------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
+ id          | I64        | t      | t       | t    | t          |             |           |        | 
+ description | Str        | t      | t       | t    | t          |             | en_stem   | freq   | raw
+ ctid        | U64        | t      | t       | f    | t          |             |           |        | 
+(3 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+-- Multiple text fields
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	text_fields => '{"description": {fast: true, tokenizer: { type: "en_stem" }, record: "freq", normalizer: "raw"}, category: {}}'
+);
+SELECT * from index_config.schema();
+    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
+-------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
+ id          | I64        | t      | t       | t    | t          |             |           |          | 
+ description | Str        | t      | t       | t    | t          |             | en_stem   | freq     | raw
+ category    | Str        | t      | t       | f    | t          |             | default   | position | 
+ ctid        | U64        | t      | t       | f    | t          |             |           |          | 
+(4 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+-- Default numeric field
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	numeric_fields => '{"rating": {}}'
+);
+SELECT * from index_config.schema();
+  name  | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
+--------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
+ id     | I64        | t      | t       | t    | t          |             |           |        | 
+ rating | I64        | t      | t       | t    | f          |             |           |        | 
+ ctid   | U64        | t      | t       | f    | t          |             |           |        | 
+(3 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+-- Numeric field with options
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	numeric_fields => '{"rating": {"fast": false}}'
+);
+SELECT * from index_config.schema();
+  name  | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
+--------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
+ id     | I64        | t      | t       | t    | t          |             |           |        | 
+ rating | I64        | t      | t       | f    | f          |             |           |        | 
+ ctid   | U64        | t      | t       | f    | t          |             |           |        | 
+(3 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+-- Default boolean field
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	boolean_fields => '{"in_stock": {}}'
+);
+SELECT * from index_config.schema();
+   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
+----------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
+ id       | I64        | t      | t       | t    | t          |             |           |        | 
+ in_stock | Bool       | t      | t       | t    | f          |             |           |        | 
+ ctid     | U64        | t      | t       | f    | t          |             |           |        | 
+(3 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+-- Boolean field with options
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	boolean_fields => '{"in_stock": {"fast": false}}'
+);
+SELECT * from index_config.schema();
+   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
+----------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
+ id       | I64        | t      | t       | t    | t          |             |           |        | 
+ in_stock | Bool       | t      | t       | f    | f          |             |           |        | 
+ ctid     | U64        | t      | t       | f    | t          |             |           |        | 
+(3 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+-- Default Json field
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	json_fields => '{"metadata": {}}'
+);
+SELECT * from index_config.schema();
+   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
+----------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
+ id       | I64        | t      | t       | t    | t          |             |           |          | 
+ metadata | JsonObject | t      | t       | f    | f          | t           | default   | position | 
+ ctid     | U64        | t      | t       | f    | t          |             |           |          | 
+(3 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+-- Json field with options
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	json_fields => '{metadata: {fast: true, expand_dots: false, tokenizer: { type: "raw" }, normalizer: "raw"}}'
+);
+SELECT * from index_config.schema();
+   name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
+----------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
+ id       | I64        | t      | t       | t    | t          |             |           |          | 
+ metadata | JsonObject | t      | t       | t    | f          | f           | raw       | position | raw
+ ctid     | U64        | t      | t       | f    | t          |             |           |          | 
+(3 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+-- Multiple fields
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	text_fields => '{description: {}, category: {}}',
+	numeric_fields => '{rating: {}}',
+	boolean_fields => '{in_stock: {}}',
+	json_fields => '{metadata: {}}'
+);
+SELECT * from index_config.schema();
+    name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
+-------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
+ id          | I64        | t      | t       | t    | t          |             |           |          | 
+ description | Str        | t      | t       | f    | t          |             | default   | position | 
+ rating      | I64        | t      | t       | t    | f          |             |           |          | 
+ category    | Str        | t      | t       | f    | t          |             | default   | position | 
+ in_stock    | Bool       | t      | t       | t    | f          |             |           |          | 
+ metadata    | JsonObject | t      | t       | f    | f          | t           | default   | position | 
+ ctid        | U64        | t      | t       | f    | t          |             |           |          | 
+(7 rows)
+
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');

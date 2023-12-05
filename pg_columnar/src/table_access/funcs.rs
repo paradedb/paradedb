@@ -38,7 +38,7 @@ unsafe fn get_table_from_relation(rel: Relation) -> Result<Arc<dyn TableProvider
 }
 
 pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTableSlotOps {
-    return &TTSOpsVirtual;
+    &TTSOpsVirtual
 }
 
 // custom DescData representing scan state
@@ -85,7 +85,7 @@ async unsafe fn memam_scan_begin_impl(rel: Relation) -> TableScanDesc {
     }
     info!("casting now");
     // TODO: how do I cast this boi
-    return scan.rs_base.into_pg();
+    scan.rs_base.into_pg()
 }
 
 pub unsafe extern "C" fn memam_scan_begin(
@@ -131,13 +131,10 @@ async unsafe fn memam_scan_getnextslot_impl(
         info!("curr_batch is none");
         let next_batch = stream.as_mut().unwrap().next().await;
         info!("here a");
-        match next_batch {
-            Some(Ok(batch)) => {
-                info!("here b");
-                (*tscan).curr_batch = Some(batch);
-                info!("here c");
-            }
-            _ => (),
+        if let Some(Ok(batch)) = next_batch {
+            info!("here b");
+            (*tscan).curr_batch = Some(batch);
+            info!("here c");
         };
     }
     if (*tscan).curr_batch.is_none() {
@@ -178,9 +175,9 @@ async unsafe fn memam_scan_getnextslot_impl(
             }
             col_index += 1;
         }
-        return true;
+        true
     } else {
-        return false;
+        false
     }
 }
 pub unsafe extern "C" fn memam_scan_getnextslot(
@@ -231,12 +228,12 @@ pub unsafe extern "C" fn memam_scan_getnextslot_tidrange(
     slot: *mut TupleTableSlot,
 ) -> bool {
     info!("Calling memam_scan_getnextslot_tidrange");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_parallelscan_estimate(rel: Relation) -> Size {
     info!("Calling memam_parallelscan_estimate");
-    return table_block_parallelscan_estimate(rel);
+    table_block_parallelscan_estimate(rel)
 }
 
 pub unsafe extern "C" fn memam_parallelscan_initialize(
@@ -244,7 +241,7 @@ pub unsafe extern "C" fn memam_parallelscan_initialize(
     pscan: ParallelTableScanDesc,
 ) -> Size {
     info!("Calling memam_parallelscan_initialize");
-    return table_block_parallelscan_initialize(rel, pscan);
+    table_block_parallelscan_initialize(rel, pscan)
 }
 
 pub unsafe extern "C" fn memam_parallelscan_reinitialize(
@@ -252,12 +249,12 @@ pub unsafe extern "C" fn memam_parallelscan_reinitialize(
     pscan: ParallelTableScanDesc,
 ) {
     info!("Calling memam_parallelscan_reinitialize");
-    return table_block_parallelscan_reinitialize(rel, pscan);
+    table_block_parallelscan_reinitialize(rel, pscan)
 }
 
 pub unsafe extern "C" fn memam_index_fetch_begin(rel: Relation) -> *mut IndexFetchTableData {
     info!("Calling memam_index_fetch_begin");
-    return ptr::null_mut::<IndexFetchTableData>();
+    ptr::null_mut::<IndexFetchTableData>()
 }
 
 pub unsafe extern "C" fn memam_index_fetch_reset(data: *mut IndexFetchTableData) {
@@ -277,7 +274,7 @@ pub unsafe extern "C" fn memam_index_fetch_tuple(
     all_dead: *mut bool,
 ) -> bool {
     info!("Calling memam_index_fetch_tuple");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_tuple_fetch_row_version(
@@ -287,12 +284,12 @@ pub unsafe extern "C" fn memam_tuple_fetch_row_version(
     slot: *mut TupleTableSlot,
 ) -> bool {
     info!("Calling memam_tuple_fetch_row_version");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_tuple_tid_valid(scan: TableScanDesc, tid: ItemPointer) -> bool {
     info!("Calling memam_tuple_tid_valid");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_tuple_get_latest_tid(scan: TableScanDesc, tid: ItemPointer) {
@@ -305,7 +302,7 @@ pub unsafe extern "C" fn memam_tuple_satisfies_snapshot(
     snapshot: Snapshot,
 ) -> bool {
     info!("Calling memam_tuple_satisfies_snapshot");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_index_delete_tuples(
@@ -313,7 +310,7 @@ pub unsafe extern "C" fn memam_index_delete_tuples(
     delstate: *mut TM_IndexDeleteOp,
 ) -> TransactionId {
     info!("Calling memam_index_delete_tuples");
-    return 0;
+    0
 }
 
 // exec_plan contains the recordbatch of tuple to insert
@@ -412,7 +409,7 @@ pub unsafe extern "C" fn memam_tuple_delete(
     changingPart: bool,
 ) -> TM_Result {
     info!("Calling memam_tuple_delete");
-    return 0;
+    0
 }
 
 pub unsafe extern "C" fn memam_tuple_update(
@@ -428,7 +425,7 @@ pub unsafe extern "C" fn memam_tuple_update(
     update_indexes: *mut bool,
 ) -> TM_Result {
     info!("Calling memam_tuple_update");
-    return 0;
+    0
 }
 
 pub unsafe extern "C" fn memam_tuple_lock(
@@ -443,7 +440,7 @@ pub unsafe extern "C" fn memam_tuple_lock(
     tmfd: *mut TM_FailureData,
 ) -> TM_Result {
     info!("Calling memam_tuple_lock");
-    return 0;
+    0
 }
 
 pub unsafe extern "C" fn memam_finish_bulk_insert(rel: Relation, options: c_int) {
@@ -526,7 +523,7 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
     let schema = SchemaRef::new(Schema::new(fields));
 
     // Empty table
-    let mem_table = match MemTable::try_new(schema, vec![Vec::<RecordBatch>::new()]).ok() {
+    match MemTable::try_new(schema, vec![Vec::<RecordBatch>::new()]).ok() {
         Some(mem_table) => {
             CONTEXT.register_table(
                 name_data_to_str(&(*(*rel).rd_rel).relname),
@@ -574,7 +571,7 @@ pub unsafe extern "C" fn memam_scan_analyze_next_block(
     bstrategy: BufferAccessStrategy,
 ) -> bool {
     info!("Calling memam_scan_analyze_next_block");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_scan_analyze_next_tuple(
@@ -585,7 +582,7 @@ pub unsafe extern "C" fn memam_scan_analyze_next_tuple(
     slot: *mut TupleTableSlot,
 ) -> bool {
     info!("Calling memam_scan_analyze_next_tuple");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_index_build_range_scan(
@@ -602,7 +599,7 @@ pub unsafe extern "C" fn memam_index_build_range_scan(
     scan: TableScanDesc,
 ) -> f64 {
     info!("Calling memam_index_build_range_scan");
-    return 0.0;
+    0.0
 }
 
 pub unsafe extern "C" fn memam_index_validate_scan(
@@ -617,17 +614,17 @@ pub unsafe extern "C" fn memam_index_validate_scan(
 
 pub unsafe extern "C" fn memam_relation_size(rel: Relation, forkNumber: ForkNumber) -> uint64 {
     info!("Calling memam_relation_size");
-    return 0;
+    0
 }
 
 pub unsafe extern "C" fn memam_relation_needs_toast_table(rel: Relation) -> bool {
     info!("Calling memam_relation_needs_toast_table");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_relation_toast_am(rel: Relation) -> Oid {
     info!("Calling memam_relation_needs_toast_am");
-    return Oid::INVALID;
+    Oid::INVALID
 }
 
 pub unsafe extern "C" fn memam_relation_fetch_toast_slice(
@@ -656,7 +653,7 @@ pub unsafe extern "C" fn memam_scan_bitmap_next_block(
     tbmres: *mut TBMIterateResult,
 ) -> bool {
     info!("Calling memam_scan_bitmap_next_block");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_scan_bitmap_next_tuple(
@@ -665,7 +662,7 @@ pub unsafe extern "C" fn memam_scan_bitmap_next_tuple(
     slot: *mut TupleTableSlot,
 ) -> bool {
     info!("Calling memam_scan_bitmap_next_tuple");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_scan_sample_next_block(
@@ -673,7 +670,7 @@ pub unsafe extern "C" fn memam_scan_sample_next_block(
     scanstate: *mut SampleScanState,
 ) -> bool {
     info!("Calling memam_scan_sample_next_block");
-    return false;
+    false
 }
 
 pub unsafe extern "C" fn memam_scan_sample_next_tuple(
@@ -682,5 +679,5 @@ pub unsafe extern "C" fn memam_scan_sample_next_tuple(
     slot: *mut TupleTableSlot,
 ) -> bool {
     info!("Calling memam_scan_sample_next_tuple");
-    return false;
+    false
 }

@@ -190,7 +190,7 @@ This will run all unit tests defined in `/src`. To add a new unit test, simply a
 To run the integration test suite, simply run:
 
 ```bash
-./test/runtests.sh -p threaded
+./test/runtests.sh -p sequential
 ```
 
 This will create a temporary database, initialize it with the SQL commands defined in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test, simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to `/test/expected` for the expected output, and it will automatically get picked up by the test suite.

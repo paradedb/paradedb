@@ -63,5 +63,5 @@ jobs:
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_sparse Tests
-        working-directory: pg_sparse/
-        run: ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
+        working-directory: pg_sparse/test/
+        run: ./runtests.sh -p sequential -v "${{ matrix.pg_version }}"

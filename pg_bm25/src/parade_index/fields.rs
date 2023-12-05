@@ -35,6 +35,8 @@ pub enum ParadeTokenizer {
     JapaneseLindera,
     #[serde(rename = "korean_lindera")]
     KoreanLindera,
+    #[serde(rename = "icu")]
+    ICUTokenizer,
 }
 
 impl ParadeTokenizer {
@@ -54,6 +56,7 @@ impl ParadeTokenizer {
             ParadeTokenizer::ChineseLindera => "chinese_lindera".into(),
             ParadeTokenizer::JapaneseLindera => "japanese_lindera".into(),
             ParadeTokenizer::KoreanLindera => "korean_lindera".into(),
+            ParadeTokenizer::ICUTokenizer => "icu".into(),
         }
     }
 }

@@ -2273,12 +2273,16 @@ dependencies = [
  "paradedb-tantivy",
  "pgrx",
  "pgrx-tests",
+<<<<<<< HEAD
  "reqwest",
  "rust_icu_ubrk",
  "rustc-hash",
  "serde",
  "serde_json",
  "serde_path_to_error",
+=======
+ "serde",
+>>>>>>> 14f4772b (Commit lockfile)
  "shared",
  "thiserror",
  "tiny_http",
@@ -3008,9 +3012,15 @@ checksum = "a3f0bf26fd526d2a95683cd0f87bf103b8539e2ca1ef48ce002d67aad59aa0b4"
 
 [[package]]
 name = "serde"
+<<<<<<< HEAD
 version = "1.0.195"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63261df402c67811e9ac6def069e4786148c4563f4b50fd4bf30aa370d626b02"
+=======
+version = "1.0.193"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25dd9975e68d0cb5aa1120c288333fc98731bd1dd12f561e468ea4728c042b89"
+>>>>>>> 14f4772b (Commit lockfile)
 dependencies = [
  "serde_derive",
 ]
@@ -3027,9 +3037,15 @@ dependencies = [
 
 [[package]]
 name = "serde_derive"
+<<<<<<< HEAD
 version = "1.0.195"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "46fe8f8603d81ba86327b23a2e9cdf49e1255fb94a4c5f297f6ee0547178ea2c"
+=======
+version = "1.0.193"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43576ca501357b9b071ac53cdc7da8ef0cbd9493d8df094cd821777ea6e894d3"
+>>>>>>> 14f4772b (Commit lockfile)
 dependencies = [
  "proc-macro2",
  "quote",

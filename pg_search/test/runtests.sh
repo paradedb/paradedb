@@ -173,10 +173,13 @@ function run_tests() {
 
     # Second, load the extension into the test database
     echo "Loading pg_search extension version v$BASE_RELEASE into the test database..."
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION svector VERSION '$BASE_RELEASE' CASCADE;" -d test_db
 
 
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE' CASCADE;" -d test_db
+
+
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION svector VERSION '$BASE_RELEASE' CASCADE;" -d test_db
+
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_search extension..."
@@ -185,6 +188,7 @@ function run_tests() {
     cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
 
     # Fourth, upgrade the extension installed on the test database to the current version
+    echo "Upgrading the pg_search extension to the current version..."
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
   else
     # Install dependencies
@@ -208,18 +212,15 @@ function run_tests() {
   # Execute tests using pg_regress
   echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${BASEDIR}/test/" "${TESTS[@]}"
-  if [ -f "$BASEDIR/regression.out" ]; then
-    echo "Some test(s) failed!"
-    echo "Printing tests .out file..."
-    cat "$BASEDIR/regression.out"
-    echo "Printing tests .diffs file..." 
+  if [ -f "$BASEDIR/regression.diffs" ]; then
+    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
     cat "$BASEDIR/regression.diffs"
   fi
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.
   echo "Displaying PostgreSQL ERROR logs from tests..."
-  cat "$BASEDIR/test/test_logs.log"
+  # cat "$BASEDIR/test/test_logs.log"
 }
 
 # Loop over PostgreSQL versions

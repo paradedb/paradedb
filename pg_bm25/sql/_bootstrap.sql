@@ -146,6 +146,13 @@ BEGIN
         index_json => index_json
     );
 
+    EXECUTE paradedb.format_bm25_function(
+        function_name => format('%I.rank', schema_name),
+        return_type => format('TABLE(%s bigint, rank_bm25 real)', key_field),
+        function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(search_config);',
+        index_json => index_json
+    );
+
    END;
 $$;
 
@@ -175,7 +182,7 @@ BEGIN
             highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only)
         ) RETURNS %s AS $func$
         DECLARE
-            search_config JSONB;
+            search_config JSON;
         BEGIN
            -- Merge the outer 'index_json' object into the parameters passed to the dynamic function.
            search_config := jsonb_strip_nulls(

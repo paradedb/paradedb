@@ -8,9 +8,14 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
+# Determine the base directory of the script
+BASEDIR=$(dirname "$0")
+cd "$BASEDIR/"
+BASEDIR=$(pwd)
+
+# Vars
 OS_NAME=$(uname)
-CONFIGDIR="$(dirname "$0")"
-PGVECTOR_VERSION=v$(jq -r '.extensions.pgvector.version' "$CONFIGDIR/../conf/third_party_pg_extensions.json")
+PGVECTOR_VERSION=v$(jq -r '.extensions.pgvector.version' "$BASEDIR/../conf/third_party_pg_extensions.json")
 
 # All pgrx-supported PostgreSQL versions to configure for
 if [ $# -eq 0 ]; then
@@ -83,7 +88,7 @@ done
 echo ""
 echo "Installing pg_sparse..."
 echo ""
-cd "../pg_sparse"
+cd "$BASEDIR/../pg_sparse"
 
 # Build and install pg_sparse into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do
@@ -113,7 +118,7 @@ done
 
 echo ""
 echo "Installing pg_bm25..."
-cd "../pg_bm25"
+cd "$BASEDIR/../pg_bm25"
 
 # Build and install pg_bm25 into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do

@@ -120,9 +120,9 @@ function run_tests() {
   # Ensure a clean environment
   trap '$PG_BIN_PATH/pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
   rm -rf "$TMPDIR"
-  rm -rf "$BASEDIR/test_logs.log"
-  rm -rf "$BASEDIR/../regression.diffs"
-  rm -rf "$BASEDIR/../regression.out"
+  rm -rf "$BASEDIR/test/test_logs.log"
+  rm -rf "$BASEDIR/regression.diffs"
+  rm -rf "$BASEDIR/regression.out"
   unset TESTS
 
   # Initialize the test database
@@ -134,7 +134,7 @@ function run_tests() {
   # Set PostgreSQL logging configuration
   echo "Setting test database logging configuration..."
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db > /dev/null
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$BASEDIR';" -d test_db > /dev/null
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$BASEDIR/test/';" -d test_db > /dev/null
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db > /dev/null
 
   # Configure search_path to include the paradedb schema
@@ -189,7 +189,7 @@ function run_tests() {
   else
     # Install dependencies
     echo "Installing dependencies (pg_bm25, pg_sparse, and pgvector) onto the test database..."
-    "$BASEDIR/../configure.sh" "$PG_VERSION"
+    "$BASEDIR/configure.sh" "$PG_VERSION"
 
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_search extension onto the test database..."
@@ -203,14 +203,14 @@ function run_tests() {
 
   # Execute the fixtures to create the test data
   echo "Loading test data..."
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${BASEDIR}/fixtures.sql" -d test_db > /dev/null
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${BASEDIR}/test/fixtures.sql" -d test_db > /dev/null
 
   # Execute tests using pg_regress
   echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${BASEDIR}" "${TESTS[@]}"
-  if [ -f "$BASEDIR/../regression.diffs" ]; then
+  if [ -f "$BASEDIR/regression.diffs" ]; then
     echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
-    cat "$BASEDIR/../regression.diffs"
+    cat "$BASEDIR/regression.diffs"
   fi
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are

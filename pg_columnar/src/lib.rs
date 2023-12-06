@@ -1,7 +1,13 @@
+#![allow(unused)]
+#![allow(non_snake_case)]
+
 use pg_sys::{
     self, planner_hook, standard_ExecutorRun, standard_planner, ExecutorRun_hook, Node, NodeTag,
     ParamListInfoData, PlannedStmt, Query, QueryDesc, SeqScan,
 };
+
+use lazy_static::lazy_static;
+use pgrx::once_cell::sync::Lazy;
 use pgrx::prelude::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
@@ -26,6 +32,9 @@ use pgrx::pg_sys::heap_tuple_get_struct;
 use pgrx::pg_sys::Datum;
 use pgrx::pg_sys::SysCacheIdentifier_AMOID;
 use pgrx::pg_sys::SearchSysCache1;
+
+mod datafusion;
+mod table_access;
 
 
 pgrx::pg_module_magic!();
@@ -182,15 +191,11 @@ fn hello_pg_planner() -> &'static str {
     "Hello, pg_planner"
 }
 
-#[cfg(any(test, feature = "pg_test"))]
-#[pg_schema]
-mod tests {
-    use pgrx::prelude::*;
-
-    #[pg_test]
-    fn test_hello_pg_planner() {
-        assert_eq!("Hello, pg_planner", crate::hello_pg_planner());
-    }
+#[no_mangle]
+extern "C" fn pg_finfo_mem_tableam_handler() -> &'static pg_sys::Pg_finfo_record {
+    // TODO in the blog post he initializes the database here. Does our session context go here?
+    const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
+    &V1_API
 }
 
 /// This module is required by `cargo pgrx test` invocations.
@@ -204,5 +209,19 @@ pub mod pg_test {
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         // return any postgresql.conf settings that are required for your tests
         vec![]
+    }
+}
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    #[pgrx::pg_test]
+    fn test_hello_pg_planner() {
+        assert_eq!("Hello, pg_planner", crate::hello_pg_planner());
+    }
+
+    #[pgrx::pg_test]
+    fn test_parade_logs() {
+        shared::test_plog!("pg_columnar");
     }
 }

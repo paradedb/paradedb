@@ -1,3 +1,4 @@
+use async_std::task;
 use core::ffi::c_char;
 use datafusion::arrow::array::{Array, ArrayIter, AsArray, Int32Array, PrimitiveArray, Scalar};
 use datafusion::arrow::datatypes::{DataType, Field, Int32Type, Schema, SchemaRef, TimeUnit};
@@ -11,7 +12,6 @@ use pgrx::*;
 use serde::Serialize;
 use std::fmt::format;
 use std::sync::Arc;
-use async_std::task;
 
 // Let's try adding the session context globally for now so we can retain info about our tables
 lazy_static! {

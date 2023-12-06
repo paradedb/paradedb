@@ -28,7 +28,8 @@ use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
 
-use crate::datafusion::{CONTEXT, DFTable};
+use crate::datafusion::{DFTable, CONTEXT};
+use crate::table_access::utils::detoast;
 
 pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTableSlotOps {
     &TTSOpsVirtual
@@ -308,6 +309,7 @@ async unsafe fn memam_tuple_insert_impl(rel: Relation, exec_plan: MemoryExec) {
     table.insert_into(&CONTEXT.state(), Arc::new(exec_plan), false);
 }
 
+#[pg_guard]
 pub unsafe extern "C" fn memam_tuple_insert(
     rel: Relation,
     slot: *mut TupleTableSlot,
@@ -315,42 +317,43 @@ pub unsafe extern "C" fn memam_tuple_insert(
     options: c_int,
     bistate: *mut BulkInsertStateData,
 ) {
-    info!("Calling memam_tuple_insert");
-    // TupleDesc desc = RelationGetDescr(relation);
-    // get the table name from relation: relation->rd_rel->relname
-    // look up the table (hopefully registered using ctx.register_table) using one of their table functions
-    // let table_ref = TableReference::from(name_data_to_str(&(*(*rel).rd_rel).relname));
-    // use insert_into with the memtable
-    // I have to input a SessionState and an ExecutionPlan
-    // column.value = DatumGetInt32(slot->tts_values[i]);
-    // desc->natts is number of columns in the tuple
-    // create a logical plan ?? or use the logical plan builder??
-    // to represent insert
+    info!("Tuple insert called");
+    let tupdesc = (*slot).tts_tupleDescriptor;
+    let nvalid = (*slot).tts_nvalid as i32;
+    let natts = (*tupdesc).natts as i32;
 
-    // create a record batch using try_new
-    // read the tuple from slot->tts_values?
-    // the data is in slot->tts_values: ith entry <-> ith column
-    // read tuple desc from it
-    // TODO: don't just assume defaults and only read first val
-    let num_cols = (*slot).tts_nvalid;
-    // let desc = (*slot).tts_tupleDescriptor;
-    let vals = (*slot).tts_values;
-    info!("{:?}", *vals);
-    if num_cols > 0 {
-        let id_array = vec![i32::from_datum(*vals, false).unwrap()];
-        // create a schema for the recordbatch
-        // test: schema is just one column of Int32
-        let field = Field::new("a", DataType::Int32, false);
-        let schema = SchemaRef::new(Schema::new(vec![field]));
-        let batch =
-            RecordBatch::try_new(schema, vec![Arc::new(Int32Array::from(id_array))]).unwrap();
-        let schema = batch.schema();
-        // use MemoryExec to read this recordbatch
-        let memory_exec = MemoryExec::try_new(&[vec![batch]], schema.clone(), None);
-        if let Ok(exec_plan) = memory_exec {
-            task::block_on(memam_tuple_insert_impl(rel, exec_plan));
-        }
+    // Ensure that all values have materialized
+    if nvalid < natts {
+        slot_getsomeattrs_int(slot, natts);
     }
+
+    info!("detoasting...");
+
+    // Detoast values
+    let pgtupdesc = unsafe { PgTupleDesc::from_pg(tupdesc) };
+    let values = detoast(&pgtupdesc, slot);
+
+    // Convert Datum values to DF types
+
+    // let num_cols = (*slot).tts_nvalid;
+    // // let desc = (*slot).tts_tupleDescriptor;
+    // let vals = (*slot).tts_values;
+    // info!("INSERTING THE FOLLOWING {:?}", *vals);
+    // if num_cols > 0 {
+    //     let id_array = vec![i32::from_datum(*vals, false).unwrap()];
+    //     // create a schema for the recordbatch
+    //     // test: schema is just one column of Int32
+    //     let field = Field::new("a", DataType::Int32, false);
+    //     let schema = SchemaRef::new(Schema::new(vec![field]));
+    //     let batch =
+    //         RecordBatch::try_new(schema, vec![Arc::new(Int32Array::from(id_array))]).unwrap();
+    //     let schema = batch.schema();
+    //     // use MemoryExec to read this recordbatch
+    //     let memory_exec = MemoryExec::try_new(&[vec![batch]], schema.clone(), None);
+    //     if let Ok(exec_plan) = memory_exec {
+    //         task::block_on(memam_tuple_insert_impl(rel, exec_plan));
+    //     }
+    // }
 }
 
 pub unsafe extern "C" fn memam_tuple_insert_speculative(

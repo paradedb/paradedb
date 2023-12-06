@@ -59,7 +59,7 @@ done
 
 # Determine the base directory of the script
 BASEDIR=$(dirname "$0")
-cd "$BASEDIR"
+cd "$BASEDIR/../"
 BASEDIR=$(pwd)
 
 # Vars
@@ -67,14 +67,6 @@ OS_NAME=$(uname)
 export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
-
-# Set the directory to output PostgreSQL logs to
-CURRENT_DIR_NAME=$(basename "$(pwd)")
-if [[ $CURRENT_DIR_NAME != *test* ]]; then
-  BASEDIR="$(pwd)/test"
-else
-  BASEDIR="$(pwd)"
-fi
 
 # All pgrx-supported PostgreSQL versions to configure for
 OS_NAME=$(uname)

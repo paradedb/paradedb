@@ -72,6 +72,30 @@ else
   IFS=',' read -ra PG_VERSIONS <<< "$FLAG_PG_VER"  # Split the argument by comma into an array
 fi
 
+
+# Cleanup function
+cleanup() {
+  # Check if regression.diffs exists and print if present
+  if [ -f "$BASEDIR/regression.diffs" ]; then
+    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
+    cat "$BASEDIR/regression.diffs"
+  fi
+  echo "Cleaning up..."
+
+  # Clean up the test database and temporary files
+  "$PG_BIN_PATH/pg_ctl" stop -m i > /dev/null
+  rm -rf "$PWFILE"
+  rm -rf "$TMPDIR"
+  rm -rf "$BASEDIR/test/test_logs.log"
+  rm -rf "$BASEDIR/regression.diffs"
+  rm -rf "$BASEDIR/regression.out"
+  echo "Done, goodbye!"
+}
+
+# Register the cleanup function to run when the script exits
+trap cleanup EXIT
+
+
 function run_tests() {
   TMPDIR="$(mktemp -d)"
   export PGDATA="$TMPDIR"
@@ -82,11 +106,6 @@ function run_tests() {
   echo "$PGPASSWORD" > "$PWFILE"
 
   # Ensure a clean environment
-  trap 'pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
-  rm -rf "$TMPDIR"
-  rm -rf "$BASEDIR/test/test_logs.log"
-  rm -rf "$BASEDIR/regression.diffs"
-  rm -rf "$BASEDIR/regression.out"
   unset TESTS
 
   # Initialize the test database
@@ -136,16 +155,6 @@ function run_tests() {
   # We always test on the upcoming version, which means that this test also acts as an extension upgrade test
   echo "Running tests..."
   make installcheck
-  exit_status=$?
-  if [ $exit_status -ne 0 ]; then
-    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
-    cat "$BASEDIR/regression.diffs"
-
-    # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
-    # expected, since we are testing error handling/invalid cases in our regression tests.
-    echo "Displaying PostgreSQL ERROR logs from tests..."
-    # cat "$BASEDIR/test/test_logs.log"
-  fi
 }
 
 # Loop over PostgreSQL versions

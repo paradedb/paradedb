@@ -89,7 +89,7 @@ cleanup() {
 
   # Clean up the test database and temporary files
   "$PG_BIN_PATH/pg_ctl" stop -m i > /dev/null
-  rm -f "$PWFILE"
+  rm -rf "$PWFILE"
   rm -rf "$TMPDIR"
   rm -rf "$BASEDIR/test/test_logs.log"
   rm -rf "$BASEDIR/regression.diffs"
@@ -168,8 +168,6 @@ function run_tests() {
     echo "Running extension upgrade test..."
     # Don't send telemetry when running tests
     export TELEMETRY=false
-
-
 
     # First, download & install the first release at which we started supporting upgrades for *ALL* dependencies (v0.3.12). While
     # we started supporting upgrades for pg_bm25 and pg_search at v0.3.3, we didn't start supporting upgrades for pg_sparse until

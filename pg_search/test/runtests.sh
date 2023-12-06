@@ -169,6 +169,12 @@ function run_tests() {
     # Don't send telemetry when running tests
     export TELEMETRY=false
 
+
+    # For the dependencies of `pg_search`, we need to install their latest version since we're upgrading
+    BASE_RELEASE="0.3.12"
+
+
+
     # First, download & install the first release at which we started supporting upgrades for *ALL* dependencies (v0.3.12). While
     # we started supporting upgrades for pg_bm25 and pg_search at v0.3.3, we didn't start supporting upgrades for pg_sparse until
     # v0.3.12, so we need to start our upgrade test at that version.
@@ -186,19 +192,14 @@ function run_tests() {
     sudo apt-get install -y postgresql-15-pgvector > /dev/null
 
     # Second, download & install the first release at which we started supporting upgrades (v0.3.3)
+    BASE_RELEASE="0.3.3"
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
     sudo dpkg -i "pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb" > /dev/null
 
     # Second, load the extension into the test database
     echo "Loading pg_search extension version v$BASE_RELEASE into the test database..."
-
-
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE' CASCADE;" -d test_db
-
-
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION svector VERSION '$BASE_RELEASE' CASCADE;" -d test_db
-
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_search extension..."

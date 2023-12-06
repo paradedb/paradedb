@@ -1,3 +1,4 @@
+DROP EXTENSION IF EXISTS pg_search CASCADE;
 CREATE EXTENSION IF NOT EXISTS pg_search CASCADE;
 
 CALL paradedb.create_search_test_table();

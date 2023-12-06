@@ -1,3 +1,4 @@
+DROP EXTENSION IF EXISTS pg_bm25;
 CREATE EXTENSION IF NOT EXISTS pg_bm25;
 
 CALL paradedb.create_bm25_test_table(); -- creates table named "paradeb.bm25_test_table" by default

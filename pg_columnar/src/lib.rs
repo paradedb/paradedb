@@ -111,6 +111,8 @@ unsafe extern "C" fn columnar_executor_run(
 
     let planstate = (*query_desc).planstate;
 
+    info!("{:?}", node_tag);
+
     match node_tag {
         NodeTag::T_SeqScan => {
             info!("match T_SeqScan");
@@ -128,7 +130,7 @@ unsafe extern "C" fn columnar_executor_run(
 
             ReleaseSysCache(amTup);
 
-            if (am_handler == memhandler_oid) {
+            if am_handler == memhandler_oid {
                 standard_ExecutorRun(query_desc, direction, count, execute_once);
                 info!("Standard ExecutorRun called");
                 return;

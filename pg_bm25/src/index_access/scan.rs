@@ -96,7 +96,6 @@ pub extern "C" fn amgettuple(
             let searcher = &state.searcher;
             let schema = &state.schema;
             let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
-            let _v: Vec<_> = schema.fields().collect();
 
             let ctid_name = "ctid";
             let ctid_field = schema.get_field(ctid_name).unwrap_or_else(|err| {

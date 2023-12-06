@@ -75,12 +75,15 @@ impl TantivyScanState {
             .expect("failed to search")
     }
 
+    pub fn doc(&self, doc_address: DocAddress) -> tantivy::Result<Document> {
+        self.searcher.doc(doc_address)
+    }
+
     fn query(
         query_config: &SearchConfig,
         schema: &Schema,
         parser: &mut QueryParser,
     ) -> Box<dyn Query> {
-        //
         let fuzzy_fields = &query_config.fuzzy_fields;
         let regex_fields = &query_config.regex_fields;
 

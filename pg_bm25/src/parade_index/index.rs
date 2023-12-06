@@ -40,20 +40,20 @@ const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
 /// this cache, tied to its own lifecycle.
 static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
 
-pub enum ParadeIndexId {
+pub enum ParadeIndexKey {
     Number(i64),
 }
 
-impl TryFrom<&JsonBuilderValue> for ParadeIndexId {
+impl TryFrom<&JsonBuilderValue> for ParadeIndexKey {
     type Error = Box<dyn Error>;
 
     fn try_from(value: &JsonBuilderValue) -> Result<Self, Self::Error> {
         match value {
-            JsonBuilderValue::i16(v) => Ok(ParadeIndexId::Number(*v as i64)),
-            JsonBuilderValue::i32(v) => Ok(ParadeIndexId::Number(*v as i64)),
-            JsonBuilderValue::i64(v) => Ok(ParadeIndexId::Number(*v)),
-            JsonBuilderValue::u32(v) => Ok(ParadeIndexId::Number(*v as i64)),
-            JsonBuilderValue::u64(v) => Ok(ParadeIndexId::Number(*v as i64)),
+            JsonBuilderValue::i16(v) => Ok(ParadeIndexKey::Number(*v as i64)),
+            JsonBuilderValue::i32(v) => Ok(ParadeIndexKey::Number(*v as i64)),
+            JsonBuilderValue::i64(v) => Ok(ParadeIndexKey::Number(*v)),
+            JsonBuilderValue::u32(v) => Ok(ParadeIndexKey::Number(*v as i64)),
+            JsonBuilderValue::u64(v) => Ok(ParadeIndexKey::Number(*v as i64)),
             _ => Err(format!("Unsupported conversion: {:#?}", value).into()),
         }
     }
@@ -69,6 +69,8 @@ pub struct ParadeIndex {
     reader: IndexReader,
     #[serde(skip_serializing)]
     underlying_index: Index,
+    #[serde(skip_serializing)]
+    key_field: Field,
 }
 
 impl ParadeIndex {
@@ -104,6 +106,10 @@ impl ParadeIndex {
             .settings(settings.clone())
             .create_in_dir(dir)
             .expect("failed to create index");
+
+        let key_field = schema.get_field(&key_field_name).unwrap_or_else(|_| {
+            panic!("error creating index: key_field '{key_field_name}' does not exist in schema",)
+        });
 
         // Save the json_fields used to configure the index to disk.
         // We'll need to retrieve these along with the index.
@@ -146,6 +152,7 @@ impl ParadeIndex {
             reader,
             underlying_index,
             key_field_name,
+            key_field,
         };
 
         // Serialize ParadeIndex to disk so it can be initialized by other connections.
@@ -211,6 +218,19 @@ impl ParadeIndex {
         }
 
         new_self
+    }
+
+    pub fn get_key_value(&self, document: &Document) -> ParadeIndexKey {
+        let key_field_name = &self.key_field_name;
+        let value = document.get_first(self.key_field).unwrap_or_else(|| {
+            panic!("cannot find key field '{key_field_name}' on retrieved document")
+        });
+
+        match value {
+            tantivy::schema::Value::U64(val) => ParadeIndexKey::Number(val.clone() as i64),
+            tantivy::schema::Value::I64(val) => ParadeIndexKey::Number(val.clone() as i64),
+            _ => panic!("invalid type for parade index key in document"),
+        }
     }
 
     pub fn insert_with_writer(
@@ -549,8 +569,15 @@ impl<'de> Deserialize<'de> for ParadeIndex {
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
+        let schema = underlying_index.schema();
         let reader = Self::reader(&underlying_index).unwrap_or_else(|_| {
             panic!("failed to create index reader while retrieving index: {name}")
+        });
+
+        let key_field = schema.get_field(&key_field_name).unwrap_or_else(|_| {
+            panic!(
+                "error deserializing index: key_field '{key_field_name}' does not exist in schema",
+            )
         });
 
         // Construct the ParadeIndex
@@ -561,6 +588,7 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             reader,
             underlying_index,
             key_field_name,
+            key_field,
         })
     }
 }

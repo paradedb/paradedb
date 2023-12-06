@@ -79,7 +79,6 @@ END $$;
 -- Example:
 --
 -- CALL create_bm25(
---     function_name => 'dynamicbm25',
 --     schema_name => 'paradedb',
 --     table_name => 'bm25_test_table',
 --     text_fields => '{"description": {}, "category": {}}'::text
@@ -87,7 +86,6 @@ END $$;
 
 -- This procedure creates a dynamic BM25 index and a corresponding search function for a given table.
 -- Parameters:
---   function_name: The name of the search function to be created.
 --   table_name: The name of the table on which the BM25 index is to be created.
 --   key_field: The primary key field of the table.
 --   schema_name: The schema in which the table resides. Defaults to the current schema.
@@ -96,36 +94,68 @@ END $$;
 --   boolean_fields: JSON object representing the boolean fields for the index.
 --   json_fields: JSON object representing the json fields for the index.
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
-    function_name text,
+    schema_name text,
     table_name text,
     key_field text,
-    schema_name text DEFAULT CURRENT_SCHEMA,
+    table_schema_name text DEFAULT CURRENT_SCHEMA,
     text_fields text DEFAULT '{}',
     numeric_fields text DEFAULT '{}',
     boolean_fields text DEFAULT '{}',
     json_fields text DEFAULT '{}'
 )
 LANGUAGE plpgsql AS $$
+DECLARE
+    index_name text;
+    index_json JSONB;
 BEGIN
-    -- Drop any existing index and function with the same name to avoid conflicts.
-    CALL paradedb.drop_bm25(
-        function_name => function_name,
-        schema_name => schema_name
+    index_name := format('%s_bm25', schema_name);
+    index_json := jsonb_build_object(
+        'schema_name', schema_name,
+        'table_name', table_name,
+        'key_field', key_field,
+        'table_schema_name', table_schema_name,
+        'index_name', index_name
     );
+
+    -- Drop any existing index and function with the same name to avoid conflicts.
+    CALL paradedb.drop_bm25(schema_name);
+
+    -- Create the new, empty schema.
+    EXECUTE format('CREATE SCHEMA %I', schema_name);
 
     -- Create a new BM25 index on the specified table.
     -- The index is created dynamically based on the function parameters.
-    EXECUTE format('CREATE INDEX %I ON %I.%I USING bm25 ((%I.%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
-                   function_name, schema_name, table_name, schema_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields);
+    EXECUTE format('CREATE INDEX %I ON %I USING bm25 ((%I.%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
+                   index_name, table_name, table_schema_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields);
 
     -- Dynamically create a new function for performing searches on the indexed table.
-    EXECUTE format($f$
+    -- Note the EXECUTE in the query function. The format_bm25_query function is just
+    -- a Rust helper that returns a string, so that string must dynamically be executed.
+    EXECUTE paradedb.format_bm25_function(
+        format('%I.search', schema_name),
+        format('SETOF %I.%I', table_schema_name, table_name),
+        'EXECUTE paradedb.format_bm25_query',
+        index_json
+    );
+
+   END;
+$$;
+
+-- A helper function to format a search query. The "template" below is used by several
+-- search functions, like "search", "rank", and "highlight", so we've extracted the code
+-- into a common function.
+CREATE OR REPLACE FUNCTION paradedb.format_bm25_function(
+    function_name text,
+    return_type text,
+    query_function text,
+    index_json jsonb
+) RETURNS text AS $outerfunc$
+BEGIN
+     RETURN format($f$
         -- If you add parameters to the function here, you must also add them to the `drop_bm25`
         -- function, or you'll get a runtime "function does not exist" error when you try to drop.
-        CREATE OR REPLACE FUNCTION %I.%I(
+        CREATE OR REPLACE FUNCTION %s(
             query text, -- The search query
-            highlight boolean DEFAULT false, -- Flag to enable/disable search result highlighting
-            rank boolean DEFAULT false, -- Flag to enable/disable search result ranking
             offset_rows integer DEFAULT NULL, -- Offset for paginated results
             limit_rows integer DEFAULT NULL, -- Limit for paginated results
             fuzzy_fields text DEFAULT NULL, -- Fields where fuzzy search is applied
@@ -134,15 +164,12 @@ BEGIN
             prefix text DEFAULT NULL, -- Prefix parameter for searches
             regex_fields text DEFAULT NULL, -- Fields where regex search is applied
             max_num_chars integer DEFAULT NULL -- Maximum character limit for searches
-        ) RETURNS SETOF %I.%I AS $func$
+        ) RETURNS %s AS $func$
         DECLARE
-            json_string text;
-            select_string text;
-            main_query text;
+            search_config JSON;
         BEGIN
-           json_string := json_strip_nulls(
-        		json_build_object(
-        	    	'index_name', %L,
+           search_config := jsonb_strip_nulls(
+        		'%s'::jsonb || jsonb_build_object(
             		'query', query,
                 	'offset_rows', offset_rows,
                 	'limit_rows', limit_rows,
@@ -153,87 +180,25 @@ BEGIN
                 	'regex_fields', regex_fields,
                 	'max_num_chars', max_num_chars
             	)
-        	)::text;
-
-            -- Construct the SELECT part of the query
-            select_string := format($m$ SELECT * FROM %I.%I WHERE (%I.ctid)$m$);
-            -- Build the main query by appending the JSON string to the SELECT string
-            main_query := select_string || '@@@' || '''' || json_string || '''';
-
-             -- Append JOIN clause for highlight functionality if the highlight flag is true
-            IF highlight THEN
-                main_query := main_query
-                || ' LEFT JOIN highlight_bm25('
-                || key_field || ', '
-                || function_name || ', '
-                || query
-                || ') as h ON id = h.i';                
-            END IF;
-
-            -- Append JOIN clause for rank functionality if the rank flag is true
-            IF rank THEN
-                main_query := main_query
-                || ' LEFT JOIN rank_bm25('
-                || key_field || ', '
-                || function_name || ', '
-                || query
-                || ') as h ON id = h.i';
-            END IF;
-
-            -- Execute the final query and return the results
-        	RETURN QUERY EXECUTE main_query; 
+        	);
+        	RETURN QUERY %s(search_config); 
         END;
         $func$ LANGUAGE plpgsql;
-    $f$, schema_name, function_name, schema_name, table_name, function_name, schema_name, table_name, table_name);
+    $f$, function_name, return_type, index_json, query_function);
 END;
-$$;
+$outerfunc$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE PROCEDURE paradedb.drop_bm25(
-    function_name text,
-    schema_name text DEFAULT CURRENT_SCHEMA
+    schema_name text
 )
 LANGUAGE plpgsql AS $$
 DECLARE
+    index_name text;
     function_exists int;
     index_exists int;
 BEGIN
-    -- Check if the index exists
-    SELECT INTO index_exists COUNT(*)
-    FROM pg_class c
-    JOIN pg_namespace n ON c.relnamespace = n.oid
-    WHERE n.nspname = schema_name
-      AND c.relname = function_name
-      AND c.relkind = 'i';  -- 'i' for index
-
-    -- Check if the function exists
-    SELECT INTO function_exists COUNT(*)
-    FROM pg_proc p
-    JOIN pg_namespace n ON p.pronamespace = n.oid
-    WHERE n.nspname = schema_name
-      AND p.proname = function_name;
-
-    -- Drop the BM25 index if it exists
-    IF index_exists > 0 THEN
-        EXECUTE format('DROP INDEX %I.%I;', schema_name, function_name);
-    END IF;
-
-    -- Drop the dynamic function if it exists
-    -- Make sure to keep this function signature identical to the one created in `create_bm25`
-    IF function_exists > 0 THEN
-        EXECUTE format($f$ DROP FUNCTION %I.%I(
-            query text,
-            highlight boolean,
-            rank boolean,
-            offset_rows integer,
-            limit_rows integer,
-            fuzzy_fields text,
-            distance integer,
-            transpose_cost_one boolean,
-            prefix text,
-            regex_fields text,
-            max_num_chars integer
-            )
-            $f$, schema_name, function_name);
-    END IF;
-END;
+    index_name := format('%s_bm25', schema_name);
+    EXECUTE format('DROP SCHEMA IF EXISTS %s CASCADE', schema_name);
+    EXECUTE format('DROP INDEX IF EXISTS %I', index_name); 
+  END;
 $$;

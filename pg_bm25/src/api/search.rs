@@ -1,4 +1,44 @@
-use pgrx::*;
+use std::str::FromStr;
+
+use pgrx::{prelude::TableIterator, *};
+use tantivy::{schema::FieldType, SnippetGenerator};
+
+use crate::{
+    index_access::utils::{get_parade_index, SearchConfig},
+    parade_index::index::ParadeIndexKey,
+};
+
+#[pg_extern]
+pub fn format_bm25_query(json: Json) -> String {
+    let pgrx::Json(json_value) = json;
+    let json_string = json_value.to_string();
+    let search_config: SearchConfig =
+        serde_json::from_value(json_value.clone()).expect("could not parse search config");
+
+    info!("{search_config:#?}");
+
+    let table = &search_config.table_name;
+    let schema = &search_config.table_schema_name;
+    let key = &search_config.key_field;
+
+    let mut main_query = format!("SELECT * FROM {schema}.{table}");
+
+    if let Some(highlight_field_name) = &search_config.highlight {
+        main_query = format!(
+            r#"
+                {main_query}
+                LEFT JOIN paradedb.highlight_bm25('{highlight_field_name}', '{json_string}') AS h
+                ON {schema}.{table}.{key} = h.{key}
+            "#
+        )
+    }
+
+    main_query = format!("{main_query} WHERE ({schema}.{table}.ctid) @@@ '{json_string}'");
+
+    info!("{}", main_query);
+
+    main_query
+}
 
 #[pg_extern]
 pub fn rank_bm25(_bm25_id: i64) -> f32 {
@@ -9,29 +49,60 @@ pub fn rank_bm25(_bm25_id: i64) -> f32 {
 }
 
 #[pg_extern]
-pub fn highlight_bm25(_bm25_id: i64, _index_name: String, _field_name: String) -> String {
-    // let manager = get_current_executor_manager();
-    // let parade_index = ParadeIndex::from_index_name(&index_name);
-    // let doc_address = manager
-    //     .get_doc_address(bm25_id)
-    //     .expect("could not lookup doc address in manager in highlight_bm25");
-    // let retrieved_doc = parade_index
-    //     .searcher()
-    //     .doc(doc_address)
-    //     .expect("searcher could not retrieve doc by address in highlight_bm25");
+pub fn highlight_bm25(
+    field_name: String,
+    config_json: String,
+) -> TableIterator<'static, (name!(id, i64), name!(highlight_bm25, String))> {
+    let search_config =
+        SearchConfig::from_str(&config_json).expect("could not parse search config");
+    let parade_index = get_parade_index(&search_config.index_name);
+    let schema = parade_index.schema();
+    let mut scan_state = parade_index.scan_state(&search_config);
+    let top_docs = scan_state.search();
 
-    // manager
-    //     .get_highlight(&field_name, &retrieved_doc)
-    //     .unwrap_or("".into())
-    "".to_string()
+    let highlight_field = schema
+        .get_field(&field_name)
+        .unwrap_or_else(|err| panic!("error highlighting field {field_name}: {err:?}"));
+    let highlight_field_entry = schema.get_field_entry(highlight_field);
+
+    let mut snippet_generator = if let FieldType::Str(_) = highlight_field_entry.field_type() {
+        SnippetGenerator::create(&parade_index.searcher(), &scan_state.query, highlight_field)
+            .unwrap_or_else(|err| {
+                panic!("failed to create snippet generator for field: {field_name}... {err}")
+            })
+    } else {
+        panic!("can only highlight text fields")
+    };
+
+    if let Some(max_num_chars) = search_config.max_num_chars {
+        snippet_generator.set_max_num_chars(max_num_chars);
+    }
+
+    let mut field_rows = Vec::new();
+    for (_, doc_address) in top_docs {
+        let document = scan_state
+            .doc(doc_address)
+            .unwrap_or_else(|err| panic!("error retrieving document for highlighting: {err:?}"));
+        let snippet = snippet_generator.snippet_from_doc(&document);
+        let html = snippet.to_html();
+
+        #[allow(unreachable_patterns)]
+        let key = match parade_index.get_key_value(&document) {
+            ParadeIndexKey::Number(k) => k,
+            _ => unimplemented!("non-integer index keys are not yet implemented"),
+        };
+        field_rows.push((key, html));
+    }
+
+    TableIterator::new(field_rows)
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[pg_extern]
 pub fn minmax_bm25(
-    bm25_id: i64,
-    index_name: &str,
-    query: &str,
+    _bm25_id: i64,
+    _index_name: &str,
+    _query: &str,
     _fcinfo: pg_sys::FunctionCallInfo,
 ) -> f32 {
     // let indexrel =

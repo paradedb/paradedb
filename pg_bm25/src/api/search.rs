@@ -13,8 +13,6 @@ pub fn format_bm25_query(json: JsonB) -> String {
     let search_config: SearchConfig =
         serde_json::from_value(json_value.clone()).expect("could not parse search config");
 
-    info!("{search_config:#?}");
-
     let table = &search_config.table_name;
     let schema = &search_config.table_schema_name;
     let key = &search_config.key_field;
@@ -32,8 +30,6 @@ pub fn format_bm25_query(json: JsonB) -> String {
     }
 
     main_query = format!("{main_query} WHERE ({schema}.{table}.ctid) @@@ '{json_string}'");
-
-    info!("{}", main_query);
 
     main_query
 }

@@ -182,7 +182,7 @@ BEGIN
             highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only)
         ) RETURNS %s AS $func$
         DECLARE
-            search_config JSON;
+            search_config JSONB;
         BEGIN
            -- Merge the outer 'index_json' object into the parameters passed to the dynamic function.
            search_config := jsonb_strip_nulls(

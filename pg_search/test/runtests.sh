@@ -77,6 +77,30 @@ else
   IFS=',' read -ra PG_VERSIONS <<< "$FLAG_PG_VER"  # Split the argument by comma into an array
 fi
 
+
+# Cleanup function 
+cleanup() {
+  # Check if regression.diffs exists and print if present
+  if [ -f "$BASEDIR/regression.diffs" ]; then
+      echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
+      cat "$BASEDIR/regression.diffs"
+  fi
+  echo "Cleaning up..."
+
+  # Clean up the test database and temporary files
+  $PG_BIN_PATH/pg_ctl stop -m i
+  rm -f "$PWFILE"
+  rm -rf "$TMPDIR"
+  rm -rf "$BASEDIR/test/test_logs.log"
+  rm -rf "$BASEDIR/regression.diffs"
+  rm -rf "$BASEDIR/regression.out"
+  echo "Done, goodbye!"
+}
+
+# Register the cleanup function to run when the script exits
+trap cleanup SIGINT SIGTERM EXIT ERR
+
+
 function run_tests() {
   TMPDIR="$(mktemp -d)"
   export PGDATA="$TMPDIR"
@@ -118,11 +142,6 @@ function run_tests() {
   echo "$PGPASSWORD" > "$PWFILE"
 
   # Ensure a clean environment
-  trap '$PG_BIN_PATH/pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
-  rm -rf "$TMPDIR"
-  rm -rf "$BASEDIR/test/test_logs.log"
-  rm -rf "$BASEDIR/regression.diffs"
-  rm -rf "$BASEDIR/regression.out"
   unset TESTS
 
   # Initialize the test database
@@ -212,16 +231,6 @@ function run_tests() {
   # Execute tests using pg_regress
   echo "Running tests..."
   ${REGRESS} --use-existing --dbname=test_db --inputdir="${BASEDIR}/test/" "${TESTS[@]}"
-  exit_status=$?
-  if [ $exit_status -ne 0 ]; then
-    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
-    cat "$BASEDIR/regression.diffs"
-
-    # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
-    # expected, since we are testing error handling/invalid cases in our regression tests.
-    echo "Displaying PostgreSQL ERROR logs from tests..."
-    # cat "$BASEDIR/test/test_logs.log"
-  fi
 }
 
 # Loop over PostgreSQL versions

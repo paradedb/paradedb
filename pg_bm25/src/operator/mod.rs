@@ -39,66 +39,11 @@ fn search_tantivy(
         let search_config: SearchConfig =
             SearchConfig::from_str(config_json).expect("could not parse search config");
         let index_name = search_config.index_name;
-
         panic!("the index {index_name} doesn't exist. call create_bm25 first.");
     };
 
     hash_set.contains(&tid)
 }
-
-// #[inline]
-// pub fn scan_index(query: &str, index_oid: pg_sys::Oid) -> FxHashSet<u64> {
-//     unsafe {
-//         let index = pg_sys::index_open(index_oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-//         let heap = pg_sys::relation_open(
-//             index.as_ref().unwrap().rd_index.as_ref().unwrap().indrelid,
-//             pg_sys::AccessShareLock as pg_sys::LOCKMODE,
-//         );
-
-//         let mut keys = PgBox::<pg_sys::ScanKeyData>::alloc0();
-//         keys.sk_argument = query.into_datum().unwrap();
-
-//         let scan = pg_sys::index_beginscan(heap, index, pg_sys::GetTransactionSnapshot(), 1, 0);
-//         pg_sys::index_rescan(scan, keys.into_pg(), 1, std::ptr::null_mut(), 0);
-
-//         let mut lookup = FxHashSet::default();
-//         loop {
-//             check_for_interrupts!();
-
-//             #[cfg(any(
-//                 feature = "pg12",
-//                 feature = "pg13",
-//                 feature = "pg14",
-//                 feature = "pg15",
-//                 feature = "pg16"
-//             ))]
-//             let tid = {
-//                 let slot = pg_sys::MakeSingleTupleTableSlot(
-//                     heap.as_ref().unwrap().rd_att,
-//                     &pg_sys::TTSOpsBufferHeapTuple,
-//                 );
-
-//                 if !pg_sys::index_getnext_slot(
-//                     scan,
-//                     pg_sys::ScanDirection_ForwardScanDirection,
-//                     slot,
-//                 ) {
-//                     pg_sys::ExecDropSingleTupleTableSlot(slot);
-//                     break;
-//                 }
-
-//                 let tid = item_pointer_to_u64(slot.as_ref().unwrap().tts_tid);
-//                 pg_sys::ExecDropSingleTupleTableSlot(slot);
-//                 tid
-//             };
-//             lookup.insert(tid);
-//         }
-//         pg_sys::index_endscan(scan);
-//         pg_sys::index_close(index, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-//         pg_sys::relation_close(heap, pg_sys::AccessShareLock as pg_sys::LOCKMODE);
-//         lookup
-//     }
-// }
 
 #[cfg(any(test, feature = "pg_test"))]
 pub fn get_index_oid(
@@ -162,17 +107,6 @@ mod tests {
         assert!(oid.is_some());
         Ok(())
     }
-
-    // #[pg_test]
-    // fn test_scan_index() {
-    //     Spi::run(SETUP_SQL).expect("failed to create table and index");
-    //     let oid = get_index_oid("idx_one_republic", "bm25").expect("oid not found");
-    //     assert!(oid.is_some());
-
-    //     let oid = oid.unwrap();
-    //     let result_set = scan_index("lyrics:im", oid);
-    //     assert_eq!(result_set.len(), 2);
-    // }
 
     #[pg_test]
     #[should_panic]

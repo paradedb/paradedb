@@ -118,7 +118,7 @@ This will return:
 Scoring and highlighting are supported:
 
 ```sql
-SELECT description, rating, category, paradedb.rank_bm25(id), paradedb.highlight_bm25(id, 'idx_mock_items', 'description')
+SELECT description, rating, category, paradedb.rank_bm25(ctid), paradedb.highlight_bm25(ctid, 'idx_mock_items', 'description')
 FROM mock_items
 WHERE mock_items @@@ 'description:keyboard OR category:electronics'
 LIMIT 5;

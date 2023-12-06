@@ -79,7 +79,7 @@ pub fn highlight_bm25(
     let top_docs = scan_state.search();
 
     let highlight_field = schema
-        .get_field(&field_name)
+        .get_field(field_name)
         .unwrap_or_else(|err| panic!("error highlighting field {field_name}: {err:?}"));
     let highlight_field_entry = schema.get_field_entry(highlight_field);
 

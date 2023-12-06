@@ -78,17 +78,17 @@ else
 fi
 
 
-# Cleanup function 
+# Cleanup function
 cleanup() {
   # Check if regression.diffs exists and print if present
   if [ -f "$BASEDIR/regression.diffs" ]; then
-      echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
-      cat "$BASEDIR/regression.diffs"
+    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
+    cat "$BASEDIR/regression.diffs"
   fi
   echo "Cleaning up..."
 
   # Clean up the test database and temporary files
-  $PG_BIN_PATH/pg_ctl stop -m i
+  "$PG_BIN_PATH/pg_ctl" stop -m i
   rm -f "$PWFILE"
   rm -rf "$TMPDIR"
   rm -rf "$BASEDIR/test/test_logs.log"
@@ -193,9 +193,9 @@ function run_tests() {
 
     # Second, download & install the first release at which we started supporting upgrades (v0.3.3)
     BASE_RELEASE="0.3.3"
-    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
-    sudo dpkg -i "pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb" > /dev/null
+    sudo dpkg -i "pg_search-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb" > /dev/null
 
     # Second, load the extension into the test database
     echo "Loading pg_search extension version v$BASE_RELEASE into the test database..."

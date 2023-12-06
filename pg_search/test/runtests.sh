@@ -219,7 +219,7 @@ function run_tests() {
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.
   echo "Displaying PostgreSQL ERROR logs from tests..."
-  grep "ERROR" "$BASEDIR/test/test_logs.log"
+  cat "$BASEDIR/test/test_logs.log"
 }
 
 # Loop over PostgreSQL versions

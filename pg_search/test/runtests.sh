@@ -199,7 +199,7 @@ function run_tests() {
   # Get a list of all tests
   while IFS= read -r line; do
     TESTS+=("$line")
-  done < <(find "${BASEDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
+  done < <(find "${BASEDIR}/test/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
 
   # Execute the fixtures to create the test data
   echo "Loading test data..."

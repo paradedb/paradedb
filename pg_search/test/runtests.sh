@@ -57,19 +57,16 @@ do
   esac
 done
 
+# Determine the base directory of the script
+BASEDIR=$(dirname "$0")
+cd "$BASEDIR"
+BASEDIR=$(pwd)
+
+# Vars
 OS_NAME=$(uname)
-TESTDIR="$(dirname "$0")"
 export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
-
-# Set the directory to output PostgreSQL logs to
-CURRENT_DIR_NAME=$(basename "$(pwd)")
-if [[ $CURRENT_DIR_NAME != *test* ]]; then
-  LOG_DIR="$(pwd)/test"
-else
-  LOG_DIR="$(pwd)"
-fi
 
 # All pgrx-supported PostgreSQL versions to configure for
 OS_NAME=$(uname)
@@ -123,9 +120,9 @@ function run_tests() {
   # Ensure a clean environment
   trap '$PG_BIN_PATH/pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
   rm -rf "$TMPDIR"
-  rm -rf "$LOG_DIR/test_logs.log"
-  rm -rf "$LOG_DIR/../regression.diffs"
-  rm -rf "$LOG_DIR/../regression.out"
+  rm -rf "$BASEDIR/test_logs.log"
+  rm -rf "$BASEDIR/../regression.diffs"
+  rm -rf "$BASEDIR/../regression.out"
   unset TESTS
 
   # Initialize the test database
@@ -137,7 +134,7 @@ function run_tests() {
   # Set PostgreSQL logging configuration
   echo "Setting test database logging configuration..."
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db > /dev/null
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db > /dev/null
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$BASEDIR';" -d test_db > /dev/null
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db > /dev/null
 
   # Configure search_path to include the paradedb schema
@@ -176,7 +173,6 @@ function run_tests() {
 
     # Second, load the extension into the test database
     echo "Loading pg_search extension version v$BASE_RELEASE into the test database..."
-    cat /usr/share/postgresql/15/extension/svector.control
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION svector VERSION '$BASE_RELEASE' CASCADE;" -d test_db
 
 
@@ -193,7 +189,7 @@ function run_tests() {
   else
     # Install dependencies
     echo "Installing dependencies (pg_bm25, pg_sparse, and pgvector) onto the test database..."
-    "$TESTDIR/../configure.sh" "$PG_VERSION"
+    "$BASEDIR/../configure.sh" "$PG_VERSION"
 
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_search extension onto the test database..."
@@ -203,27 +199,24 @@ function run_tests() {
   # Get a list of all tests
   while IFS= read -r line; do
     TESTS+=("$line")
-  done < <(find "${TESTDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
+  done < <(find "${BASEDIR}/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
 
   # Execute the fixtures to create the test data
   echo "Loading test data..."
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${TESTDIR}/fixtures.sql" -d test_db > /dev/null
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${BASEDIR}/fixtures.sql" -d test_db > /dev/null
 
   # Execute tests using pg_regress
   echo "Running tests..."
-
-  echo "LOG_DIR: $LOG_DIR"
-
-  ${REGRESS} --use-existing --dbname=test_db --inputdir="${TESTDIR}" "${TESTS[@]}"
-  if [ -f "$LOG_DIR/../regression.diffs" ]; then
+  ${REGRESS} --use-existing --dbname=test_db --inputdir="${BASEDIR}" "${TESTS[@]}"
+  if [ -f "$BASEDIR/../regression.diffs" ]; then
     echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
-    cat "$LOG_DIR/../regression.diffs"
+    cat "$BASEDIR/../regression.diffs"
   fi
 
   # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
   # expected, since we are testing error handling/invalid cases in our regression tests.
   # echo "Displaying PostgreSQL ERROR logs from tests..."
-  # grep "ERROR" "$LOG_DIR/test_logs.log"
+  # grep "ERROR" "$BASEDIR/test_logs.log"
 }
 
 # Loop over PostgreSQL versions

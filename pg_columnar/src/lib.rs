@@ -20,16 +20,17 @@ use substrait::proto::rel::RelType::Read;
 use substrait::proto::plan_rel::RelType::Root;
 use substrait::proto::PlanRel;
 
-use pgrx::pg_sys::get_am_name;
-use core::ffi::CStr;
-use pgrx::pg_sys::ScanState;
-use pgrx::pg_sys::LookupFuncName;
-use pgrx::pg_sys::list_make1_impl;
-use pgrx::pg_sys::INTERNALOID;
-use pgrx::pg_sys::makeString;
-use pgrx::pg_sys::ListCell;
 use std::ffi::CString;
-use core::ffi::c_void;
+use pgrx::pg_sys::ScanState;
+use pgrx::pg_sys::get_am_name;
+use pgrx::pg_sys::get_am_oid;
+use pgrx::pg_sys::GetTableAmRoutine;
+use pgrx::pg_sys::ReleaseSysCache;
+use pgrx::pg_sys::FormData_pg_am;
+use pgrx::pg_sys::heap_tuple_get_struct;
+use pgrx::pg_sys::Datum;
+use pgrx::pg_sys::SysCacheIdentifier_AMOID;
+use pgrx::pg_sys::SearchSysCache1;
 
 
 pgrx::pg_module_magic!();
@@ -116,37 +117,22 @@ unsafe extern "C" fn columnar_executor_run(
             // Check if the table is using our table AM before running our custom logic
             let scanstate = planstate as *mut ScanState;
             let rel = (*scanstate).ss_currentRelation;
-            let am_oid = (*rel).rd_amhandler;
+            let am_handler = (*rel).rd_amhandler;
 
-            // let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(am_oid));
-            // info!("here 2");
-            // let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
-            // info!("here 3");
-
-            info!("{}", am_oid);
-            let argtype = [INTERNALOID];
-            info!("here 1");
             let handlername_cstr = CString::new("mem").unwrap();
-            info!("here 2");
             let handlername_ptr = handlername_cstr.as_ptr() as *mut i8;
-            info!("here 3");
-            let mut handlername_listcell = ListCell::default();
-            info!("here 4");
-            handlername_listcell.ptr_value = makeString(handlername_ptr) as *mut c_void;
-            info!("here 5");
-            let handlername_list = list_make1_impl(NodeTag::T_List, handlername_listcell);
-            info!("here 6");
-            let memhandler_oid = LookupFuncName(handlername_list, 1, argtype.as_ptr(), false);
-            info!("{}", memhandler_oid);
-            // let handler_name = CStr::from_ptr(get_am_name(am_oid)).to_string_lossy().into_owned();
-            // info!("{}", handler_name);
+            let memam_oid = get_am_oid(handlername_ptr, true);
+            let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(memam_oid));
+            let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
+            let memhandler_oid = (*amForm).amhandler;
 
-            // if name_data_to_str(&(*(*amForm)).amname) != "mem" {
-            //     standard_ExecutorRun(query_desc, direction, count, execute_once);
-            // }
+            ReleaseSysCache(amTup);
 
-            // ReleaseSysCache(amTup);
-            info!("released");
+            if (am_handler == memhandler_oid) {
+                standard_ExecutorRun(query_desc, direction, count, execute_once);
+                info!("Standard ExecutorRun called");
+                return;
+            }
 
             if let Err(e) = transform_seqscan_to_substrait(ps, &mut sget) {
                 error!("Error transforming SeqScan to Substrait: {}", e);

@@ -41,6 +41,7 @@ pub struct SearchConfig {
     #[serde(default, deserialize_with = "from_csv")]
     pub regex_fields: Vec<String>,
     pub max_num_chars: Option<usize>,
+    pub highlight_field: Option<String>,
 }
 
 impl FromStr for SearchConfig {

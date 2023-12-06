@@ -131,11 +131,19 @@ BEGIN
     -- Dynamically create a new function for performing searches on the indexed table.
     -- Note the EXECUTE in the query function. The format_bm25_query function is just
     -- a Rust helper that returns a string, so that string must dynamically be executed.
+    -- The variable 'search_config' is available to the function_body parameter.
     EXECUTE paradedb.format_bm25_function(
-        format('%I.search', schema_name),
-        format('SETOF %I.%I', table_schema_name, table_name),
-        'EXECUTE paradedb.format_bm25_query',
-        index_json
+        function_name => format('%I.search', schema_name),        	
+        return_type => format('SETOF %I.%I', table_schema_name, table_name),
+        function_body => 'RETURN QUERY EXECUTE paradedb.format_bm25_query(search_config);',
+        index_json => index_json
+    );
+
+    EXECUTE paradedb.format_bm25_function(
+        function_name => format('%I.highlight', schema_name),
+        return_type => format('TABLE(%s bigint, highlight_bm25 text)', key_field),
+        function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(search_config);',
+        index_json => index_json
     );
 
    END;
@@ -147,7 +155,7 @@ $$;
 CREATE OR REPLACE FUNCTION paradedb.format_bm25_function(
     function_name text,
     return_type text,
-    query_function text,
+    function_body text,
     index_json jsonb
 ) RETURNS text AS $outerfunc$
 BEGIN
@@ -163,11 +171,13 @@ BEGIN
             transpose_cost_one boolean DEFAULT NULL, -- Transpose cost parameter for fuzzy search
             prefix text DEFAULT NULL, -- Prefix parameter for searches
             regex_fields text DEFAULT NULL, -- Fields where regex search is applied
-            max_num_chars integer DEFAULT NULL -- Maximum character limit for searches
+            max_num_chars integer DEFAULT NULL, -- Maximum character limit for searches
+            highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only)
         ) RETURNS %s AS $func$
         DECLARE
-            search_config JSON;
+            search_config JSONB;
         BEGIN
+           -- Merge the outer 'index_json' object into the parameters passed to the dynamic function.
            search_config := jsonb_strip_nulls(
         		'%s'::jsonb || jsonb_build_object(
             		'query', query,
@@ -178,13 +188,14 @@ BEGIN
                 	'transpose_cost_one', transpose_cost_one,
                 	'prefix', prefix,
                 	'regex_fields', regex_fields,
-                	'max_num_chars', max_num_chars
+                	'max_num_chars', max_num_chars,
+                    'highlight_field', highlight_field
             	)
         	);
-        	RETURN QUERY %s(search_config); 
+            %s
         END;
         $func$ LANGUAGE plpgsql;
-    $f$, function_name, return_type, index_json, query_function);
+    $f$, function_name, return_type, index_json, function_body);
 END;
 $outerfunc$ LANGUAGE plpgsql;
 

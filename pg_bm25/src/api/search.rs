@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use pgrx::{prelude::TableIterator, *};
 use tantivy::{schema::FieldType, SnippetGenerator};
 
@@ -9,8 +7,8 @@ use crate::{
 };
 
 #[pg_extern]
-pub fn format_bm25_query(json: Json) -> String {
-    let pgrx::Json(json_value) = json;
+pub fn format_bm25_query(json: JsonB) -> String {
+    let pgrx::JsonB(json_value) = json;
     let json_string = json_value.to_string();
     let search_config: SearchConfig =
         serde_json::from_value(json_value.clone()).expect("could not parse search config");
@@ -50,13 +48,17 @@ pub fn rank_bm25(_bm25_id: i64) -> f32 {
 
 #[pg_extern]
 pub fn highlight_bm25(
-    field_name: String,
-    config_json: String,
+    config_json: JsonB,
 ) -> TableIterator<'static, (name!(id, i64), name!(highlight_bm25, String))> {
-    let search_config =
-        SearchConfig::from_str(&config_json).expect("could not parse search config");
+    let JsonB(search_config_json) = config_json;
+    let search_config: SearchConfig =
+        serde_json::from_value(search_config_json).expect("could not parse search config");
     let parade_index = get_parade_index(&search_config.index_name);
     let schema = parade_index.schema();
+    let function_schema = &search_config.schema_name;
+    let field_name = search_config.highlight_field.as_ref().unwrap_or_else(|| {
+        panic!("highlight_field parameter required for {function_schema}.highlight function")
+    });
     let mut scan_state = parade_index.scan_state(&search_config);
     let top_docs = scan_state.search();
 

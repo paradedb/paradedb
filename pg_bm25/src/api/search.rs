@@ -39,11 +39,31 @@ pub fn format_bm25_query(json: JsonB) -> String {
 }
 
 #[pg_extern]
-pub fn rank_bm25(_bm25_id: i64) -> f32 {
-    // get_current_executor_manager()
-    //     .get_score(bm25_id)
-    //     .unwrap_or(0.0f32)
-    0.0
+pub fn rank_bm25(
+    config_json: JsonB,
+) -> TableIterator<'static, (name!(id, i64), name!(rank_bm25, f32))> {
+    let JsonB(search_config_json) = config_json;
+    let search_config: SearchConfig =
+        serde_json::from_value(search_config_json).expect("could not parse search config");
+    let parade_index = get_parade_index(&search_config.index_name);
+
+    let mut scan_state = parade_index.scan_state(&search_config);
+    let top_docs = scan_state.search();
+
+    let mut field_rows = Vec::new();
+    for (score, doc_address) in top_docs.into_iter() {
+        let document = scan_state
+            .doc(doc_address)
+            .unwrap_or_else(|err| panic!("error retrieving document for highlighting: {err:?}"));
+
+        #[allow(unreachable_patterns)]
+        let key = match parade_index.get_key_value(&document) {
+            ParadeIndexKey::Number(k) => k,
+            _ => unimplemented!("non-integer index keys are not yet implemented"),
+        };
+        field_rows.push((key, score));
+    }
+    TableIterator::new(field_rows)
 }
 
 #[pg_extern]

@@ -317,22 +317,28 @@ pub unsafe extern "C" fn memam_tuple_insert(
     options: c_int,
     bistate: *mut BulkInsertStateData,
 ) {
-    info!("Tuple insert called");
-    let tupdesc = (*slot).tts_tupleDescriptor;
-    let nvalid = (*slot).tts_nvalid as i32;
-    let natts = (*tupdesc).natts as i32;
-
-    // Ensure that all values have materialized
-    if nvalid < natts {
-        slot_getsomeattrs_int(slot, natts);
+    unsafe {
+        PgMemoryContexts::TopTransactionContext.switch_to(|context| {
+            let mut temp_context = PgMemoryContexts::new("Insert context");
+            let mut old_context = temp_context.set_as_current();
+        
+            let tupdesc = (*slot).tts_tupleDescriptor;
+            let nvalid = (*slot).tts_nvalid as i32;
+            let natts = (*tupdesc).natts as i32;
+        
+            // Ensure that all values have materialized
+            if nvalid < natts {
+                slot_getsomeattrs_int(slot, natts);
+            }
+                
+            // Detoast values
+            let pgtupdesc = unsafe { PgTupleDesc::from_pg(tupdesc) };
+            let values = detoast(&pgtupdesc, slot);
+        
+            old_context.set_as_current();
+            temp_context.reset();
+        })
     }
-
-    info!("detoasting...");
-
-    // Detoast values
-    let pgtupdesc = unsafe { PgTupleDesc::from_pg(tupdesc) };
-    let values = detoast(&pgtupdesc, slot);
-
     // Convert Datum values to DF types
 
     // let num_cols = (*slot).tts_nvalid;

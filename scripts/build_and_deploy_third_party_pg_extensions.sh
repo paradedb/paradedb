@@ -47,6 +47,8 @@ build_and_package_pg_extension() {
     # We need to make the build directory the same name as the extension directory for checkinstall
     mkdir "$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION" && cd "$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION"
     cmake ..
+  elif [ "$PG_EXTENSION_NAME" == "citus" ]; then
+    ./configure
   fi
   make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
   checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp -- make USE_PGXS=1 install
@@ -65,13 +67,13 @@ build_and_publish_pg_extension() {
   # needs to be semVer compliant, so we sanitize the version first before using it anywhere
   SANITIZED_PG_EXTENSION_VERSION=$(sanitize_version "$PG_EXTENSION_VERSION")
 
-  # Retrieve the version of Ubuntu we're running on, to specify in the .deb filename
+  # Retrieve the versions of Ubuntu and Postgres we're running on, to specify in the .deb filename
   UBUNTU_VERSION=$(lsb_release -rs | sed 's/\.//')
 
   # Check if the GitHub Release exists
-  release_url="https://github.com/paradedb/third-party-pg_extensions/releases/tag/$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-$ARCH"
+  release_url="https://github.com/paradedb/third-party-pg_extensions/releases/tag/$PG_EXTENSION_NAME-v$SANITIZED_PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-ubuntu$UBUNTU_VERSION"
   if curl --output /dev/null --silent --head --fail "$release_url"; then
-    echo "Release for $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION already exists, skipping..."
+    echo "Release for $PG_EXTENSION_NAME version $PG_EXTENSION_VERSION $ARCH on PostgreSQL $PG_MAJOR_VERSION and Ubuntu 22.04 already exists, skipping..."
   else
     # Build and package the extension as a .deb
     build_and_package_pg_extension "$PG_EXTENSION_NAME" "$SANITIZED_PG_EXTENSION_VERSION" "$PG_EXTENSION_URL"
@@ -81,7 +83,7 @@ build_and_publish_pg_extension() {
         -H "Authorization: token $GITHUB_TOKEN" \
         -H "Content-Type: application/json" \
         -d '{
-        "tag_name": "'"$PG_EXTENSION_NAME"'-v'"$SANITIZED_PG_EXTENSION_VERSION"'-'"$ARCH"'",
+        "tag_name": "'"$PG_EXTENSION_NAME"'-v'"$SANITIZED_PG_EXTENSION_VERSION"'-pg'"$PG_MAJOR_VERSION"'-'"$ARCH"'-ubuntu'"$UBUNTU_VERSION"'",
         "name": "'"$PG_EXTENSION_NAME"' '"$SANITIZED_PG_EXTENSION_VERSION"' '"$ARCH"'",
         "body": "Internal ParadeDB Release for '"$PG_EXTENSION_NAME"' version '"$SANITIZED_PG_EXTENSION_VERSION"' for arch '"$ARCH"'. This release is not intended for public use."
     }')

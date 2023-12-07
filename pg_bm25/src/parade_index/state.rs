@@ -134,34 +134,4 @@ impl TantivyScanState {
 
         tantivy_query
     }
-
-    #[allow(dead_code)]
-    pub fn snippet_generators(
-        &mut self,
-        query_config: &SearchConfig,
-    ) -> HashMap<String, SnippetGenerator> {
-        let mut snippet_generators = HashMap::new();
-        for field in &mut self.schema.fields() {
-            let field_name = field.1.name().to_string();
-
-            if let FieldType::Str(_) = field.1.field_type() {
-                let mut snippet_generator = SnippetGenerator::create(
-                    &self.searcher,
-                    &self.query,
-                    field.0,
-                )
-                .unwrap_or_else(|err| {
-                    panic!("failed to create snippet generator for field: {field_name}... {err}")
-                });
-
-                if let Some(max_num_chars) = query_config.max_num_chars {
-                    snippet_generator.set_max_num_chars(max_num_chars);
-                }
-
-                snippet_generators.insert(field_name, snippet_generator);
-            }
-        }
-
-        snippet_generators
-    }
 }

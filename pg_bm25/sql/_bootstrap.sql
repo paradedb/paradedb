@@ -94,9 +94,9 @@ END $$;
 --   boolean_fields: JSON object representing the boolean fields for the index.
 --   json_fields: JSON object representing the json fields for the index.
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
-    index_name text,
-    table_name text,
-    key_field text,
+    index_name text DEFAULT '',
+    table_name text DEFAULT '',
+    key_field text DEFAULT '',
     schema_name text DEFAULT CURRENT_SCHEMA,
     text_fields text DEFAULT '{}',
     numeric_fields text DEFAULT '{}',
@@ -107,6 +107,22 @@ LANGUAGE plpgsql AS $$
 DECLARE
     index_json JSONB;
 BEGIN
+    IF index_name IS NULL OR index_name = '' THEN
+        RAISE EXCEPTION 'no index_name parameter given for bm25 index';
+    END IF;
+
+    IF table_name IS NULL OR table_name = '' THEN
+        RAISE EXCEPTION 'no table_name parameter given for bm25 index "%"', index_name;
+    END IF;
+
+    IF key_field IS NULL OR key_field = '' THEN
+        RAISE EXCEPTION 'no key_field parameter given for bm25 index "%"', index_name;
+    END IF;
+
+    IF text_fields = '{}' AND numeric_fields = '{}' AND boolean_fields = '{}' AND json_fields = '{}' THEN
+        RAISE EXCEPTION 'no text_fields, numeric_fields, boolean_fields, or json_fields were specified for index %', index_name;
+    END IF;
+
     index_json := jsonb_build_object(
         'index_name', format('%s_bm25_index', index_name),
         'table_name', table_name,

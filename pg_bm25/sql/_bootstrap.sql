@@ -86,18 +86,18 @@ END $$;
 
 -- This procedure creates a dynamic BM25 index and a corresponding search function for a given table.
 -- Parameters:
+--   index_name: The schema in which the table resides. Defaults to the current schema.
 --   table_name: The name of the table on which the BM25 index is to be created.
 --   key_field: The primary key field of the table.
---   schema_name: The schema in which the table resides. Defaults to the current schema.
 --   text_fields: JSON object representing the text fields for the index.
 --   numeric_fields: JSON object representing the numeric fields for the index.
 --   boolean_fields: JSON object representing the boolean fields for the index.
 --   json_fields: JSON object representing the json fields for the index.
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
-    schema_name text,
+    index_name text,
     table_name text,
     key_field text,
-    table_schema_name text DEFAULT CURRENT_SCHEMA,
+    schema_name text DEFAULT CURRENT_SCHEMA,
     text_fields text DEFAULT '{}',
     numeric_fields text DEFAULT '{}',
     boolean_fields text DEFAULT '{}',
@@ -105,54 +105,51 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
 )
 LANGUAGE plpgsql AS $$
 DECLARE
-    index_name text;
     index_json JSONB;
 BEGIN
-    index_name := format('%s_bm25', schema_name);
     index_json := jsonb_build_object(
-        'schema_name', schema_name,
+        'index_name', format('%s_bm25_index', index_name),
         'table_name', table_name,
         'key_field', key_field,
-        'table_schema_name', table_schema_name,
-        'index_name', index_name
+        'schema_name', schema_name
     );
 
     -- Drop any existing index and function with the same name to avoid conflicts.
-    CALL paradedb.drop_bm25(schema_name);
+    CALL paradedb.drop_bm25(index_name);
 
     -- Create the new, empty schema.
-    EXECUTE format('CREATE SCHEMA %I', schema_name);
+    EXECUTE format('CREATE SCHEMA %s', index_name);
 
     -- Create a new BM25 index on the specified table.
     -- The index is created dynamically based on the function parameters.
-    EXECUTE format('CREATE INDEX %I ON %I USING bm25 ((%I.%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
-                   index_name, table_name, table_schema_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields);
+    EXECUTE format('CREATE INDEX %s_bm25_index ON %I.%I USING bm25 ((%I.%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
+                   index_name, schema_name, table_name, schema_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields);
 
     -- Dynamically create a new function for performing searches on the indexed table.
-    -- Note the EXECUTE in the query function. The format_bm25_query function is just
-    -- a Rust helper that returns a string, so that string must dynamically be executed.
-    -- The variable 'search_config' is available to the function_body parameter.
+    -- The variable '__paradedb_search_config__' is available to the function_body parameter.
+    -- Note that due to how the SQL query is parsed, this variable cannot share a name with
+    -- any existing table or column. The possibility of a naming collision is inevitable, but
+    -- we choose '__paradedb_search_config__' in hopes of avoiding a collision.
     EXECUTE paradedb.format_bm25_function(
-        function_name => format('%I.search', schema_name),        	
-        return_type => format('SETOF %I.%I', table_schema_name, table_name),
-        function_body => 'RETURN QUERY EXECUTE paradedb.format_bm25_query(search_config);',
+        function_name => format('%I.search', index_name),        	
+        return_type => format('SETOF %I.%I', schema_name, table_name),
+        function_body => format('RETURN QUERY SELECT * FROM %I.%I WHERE (%I.%I.ctid) @@@ __paradedb_search_config__;', schema_name, table_name, schema_name, table_name),
         index_json => index_json
     );
 
     EXECUTE paradedb.format_bm25_function(
-        function_name => format('%I.highlight', schema_name),
+        function_name => format('%I.highlight', index_name),
         return_type => format('TABLE(%s bigint, highlight_bm25 text)', key_field),
-        function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(search_config);',
+        function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(__paradedb_search_config__);',
         index_json => index_json
     );
 
     EXECUTE paradedb.format_bm25_function(
-        function_name => format('%I.rank', schema_name),
+        function_name => format('%I.rank', index_name),
         return_type => format('TABLE(%s bigint, rank_bm25 real)', key_field),
-        function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(search_config);',
+        function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__);',
         index_json => index_json
     );
-
    END;
 $$;
 
@@ -182,10 +179,10 @@ BEGIN
             highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only)
         ) RETURNS %s AS $func$
         DECLARE
-            search_config JSONB;
+            __paradedb_search_config__ JSONB;
         BEGIN
            -- Merge the outer 'index_json' object into the parameters passed to the dynamic function.
-           search_config := jsonb_strip_nulls(
+           __paradedb_search_config__ := jsonb_strip_nulls(
         		'%s'::jsonb || jsonb_build_object(
             		'query', query,
                 	'offset_rows', offset_rows,
@@ -207,16 +204,11 @@ END;
 $outerfunc$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE PROCEDURE paradedb.drop_bm25(
-    schema_name text
+    index_name text
 )
 LANGUAGE plpgsql AS $$
-DECLARE
-    index_name text;
-    function_exists int;
-    index_exists int;
 BEGIN
-    index_name := format('%s_bm25', schema_name);
-    EXECUTE format('DROP SCHEMA IF EXISTS %s CASCADE', schema_name);
-    EXECUTE format('DROP INDEX IF EXISTS %I', index_name); 
+    EXECUTE format('DROP SCHEMA IF EXISTS %s CASCADE', index_name);
+    EXECUTE format('DROP INDEX IF EXISTS %s_bm25_index', index_name); 
   END;
 $$;

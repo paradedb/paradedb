@@ -7,34 +7,6 @@ use crate::{
 };
 
 #[pg_extern]
-pub fn format_bm25_query(json: JsonB) -> String {
-    let pgrx::JsonB(json_value) = json;
-    let json_string = json_value.to_string();
-    let search_config: SearchConfig =
-        serde_json::from_value(json_value.clone()).expect("could not parse search config");
-
-    let table = &search_config.table_name;
-    let schema = &search_config.table_schema_name;
-    let key = &search_config.key_field;
-
-    let mut main_query = format!("SELECT * FROM {schema}.{table}");
-
-    if let Some(highlight_field_name) = &search_config.highlight {
-        main_query = format!(
-            r#"
-                {main_query}
-                LEFT JOIN paradedb.highlight_bm25('{highlight_field_name}', '{json_string}') AS h
-                ON {schema}.{table}.{key} = h.{key}
-            "#
-        )
-    }
-
-    main_query = format!("{main_query} WHERE ({schema}.{table}.ctid) @@@ '{json_string}'");
-
-    main_query
-}
-
-#[pg_extern]
 pub fn rank_bm25(
     config_json: JsonB,
 ) -> TableIterator<'static, (name!(id, i64), name!(rank_bm25, f32))> {

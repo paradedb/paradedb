@@ -28,9 +28,6 @@ pub struct SearchConfig {
     pub index_name: String,
     pub table_name: String,
     pub key_field: String,
-    pub table_schema_name: String,
-    pub highlight: Option<String>,
-    pub rank: Option<bool>,
     pub offset_rows: Option<usize>,
     pub limit_rows: Option<usize>,
     #[serde(default, deserialize_with = "from_csv")]

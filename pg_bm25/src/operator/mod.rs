@@ -1,19 +1,17 @@
-use std::str::FromStr;
-
+use crate::index_access::utils::{get_parade_index, SearchConfig};
 use pgrx::*;
 use rustc_hash::FxHashSet;
-
-use crate::index_access::utils::{get_parade_index, SearchConfig};
 
 #[pg_extern]
 fn search_tantivy(
     element: AnyElement,
-    config_json: &str,
+    config_json: JsonB,
     fcinfo: pg_sys::FunctionCallInfo,
 ) -> bool {
     let default_hash_set = || {
-        let search_config =
-            SearchConfig::from_str(config_json).expect("could not parse search config");
+        let JsonB(search_config_json) = &config_json;
+        let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
+            .expect("could not parse search config");
 
         let parade_index = get_parade_index(&search_config.index_name);
         let mut scan_state = parade_index.scan_state(&search_config);
@@ -36,8 +34,9 @@ fn search_tantivy(
                 .expect("could not create item pointer from tuple"),
         )
     } else {
-        let search_config: SearchConfig =
-            SearchConfig::from_str(config_json).expect("could not parse search config");
+        let JsonB(search_config_json) = &config_json;
+        let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
+            .expect("could not parse search config");
         let index_name = search_config.index_name;
         panic!("the index {index_name} doesn't exist. call create_bm25 first.");
     };
@@ -81,11 +80,11 @@ extension_sql!(
 CREATE OPERATOR pg_catalog.@@@ (
     PROCEDURE = search_tantivy,
     LEFTARG = anyelement,
-    RIGHTARG = text
+    RIGHTARG = jsonb
 );
 
 CREATE OPERATOR CLASS anyelement_bm25_ops DEFAULT FOR TYPE anyelement USING bm25 AS
-    OPERATOR 1 pg_catalog.@@@(anyelement, text),
+    OPERATOR 1 pg_catalog.@@@(anyelement, jsonb),
     STORAGE anyelement;
 
 "#,

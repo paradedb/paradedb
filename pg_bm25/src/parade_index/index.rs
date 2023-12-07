@@ -635,7 +635,7 @@ mod tests {
     #[pg_test]
     fn test_from_index_name() {
         Spi::run(SETUP_SQL).expect("failed to create index");
-        let index_name = "idx_one_republic";
+        let index_name = "one_republic_songs_bm25_index";
         let index = ParadeIndex::from_index_name(index_name);
         let fields = index.fields;
         assert_eq!(fields.len(), 8);

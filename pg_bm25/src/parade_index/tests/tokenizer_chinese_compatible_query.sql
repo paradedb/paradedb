@@ -1,1 +1,1 @@
-SELECT paradedb.highlight_bm25(posts.id, 'idx_posts_fts', 'author') from posts where posts @@@ 'author:张';
+SELECT highlight_bm25 FROM posts.highlight('author:张', highlight_field => 'author');

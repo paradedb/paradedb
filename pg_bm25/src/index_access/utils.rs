@@ -342,28 +342,16 @@ where
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::{categorize_tupdesc, handle_as_generic_string, lookup_index_tupdesc, SearchConfig};
+    use super::{categorize_tupdesc, handle_as_generic_string, lookup_index_tupdesc};
     use crate::json::builder::{JsonBuilder, JsonBuilderValue};
     use crate::operator::get_index_oid;
     use pgrx::*;
     use shared::testing::SETUP_SQL;
 
-    #[pg_test]
-    fn convert_str_to_search_query() {
-        let query = "lyrics:im:::limit=10&offset=50";
-        let expected = SearchConfig {
-            query: "lyrics:im".to_string(),
-            offset_rows: Some(50),
-            limit_rows: Some(10),
-            ..Default::default()
-        };
-        let search_query: SearchConfig = query.parse().expect("failed to parse query");
-        assert_eq!(search_query, expected);
-    }
-
     fn make_tuple() -> PgTupleDesc<'static> {
         Spi::run(SETUP_SQL).expect("failed to setup index");
-        let oid = get_index_oid("idx_one_republic", "bm25").expect("failed to get index oid");
+        let oid = get_index_oid("one_republic_songs_bm25_index", "bm25")
+            .expect("failed to get index oid");
 
         let index = unsafe {
             pg_sys::index_open(oid.unwrap(), pg_sys::AccessShareLock as pg_sys::LOCKMODE)

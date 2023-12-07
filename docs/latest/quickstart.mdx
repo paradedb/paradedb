@@ -42,83 +42,68 @@ If you are using ParadeDB Cloud, your connection credentials can be found in the
 
 ## Full Text Search
 
-ParadeDB comes with a helper function that creates a test table to help you get started.
-Once connected with `psql`, run the following commands to create this test table:
+ParadeDB comes with a helpful procedure that creates a test table to help you get started.
+Once connected with `psql`, run the following commands to create and inspect this test table.
 
 ```sql
 CALL paradedb.create_search_test_table();
-CREATE TABLE mock_items AS SELECT * FROM paradedb.search_test_table;
-SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
+
+SELECT description, rating, category, embedding
+FROM paradedb.search_test_table
+LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-```csv
- id |       description        | rating |  category   | embedding
-----+--------------------------+--------+-------------+-----------
-  1 | Ergonomic metal keyboard |      4 | Electronics | [3,4,5]
-  2 | Plastic Keyboard         |      4 | Electronics | [4,5,6]
-  3 | Sleek running shoes      |      5 | Footwear    | [5,6,7]
-(3 rows)
-```
+  ```csv id | description | rating | category | embedding
+  ----+--------------------------+--------+-------------+----------- 1 |
+  Ergonomic metal keyboard | 4 | Electronics | [3,4,5] 2 | Plastic Keyboard | 4
+  | Electronics | [4,5,6] 3 | Sleek running shoes | 5 | Footwear | [5,6,7] (3
+  rows) ```
 </Accordion>
 
-Next, let's index this table for full-text search:
+Next, let's create a BM25 index called `search_idx` on this table. We'll index the
+`description` and `category` fields and configure the tokenizer on the `description` field.
 
 ```sql
-CREATE INDEX idx_mock_items
-ON mock_items
-USING bm25 ((mock_items.*))
-WITH (
-  key_field='id',
-  text_fields='{"description": {"tokenizer": {"type": "en_stem"}}, "category": {}}'
+CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        schema_name => 'paradedb',
+        table_name => 'search_test_table',
+        key_field => 'id',
+        text_fields => '{"description": {"tokenizer": {"type": "en_stem"}}, "category": {}}'
 );
 ```
 
-<Accordion title="Expected Response">
-```bash
-CREATE INDEX
-```
-</Accordion>
-
-Under the hood, this command creates a Postgres-native index called `idx_mock_items`, which contains
-an inverted index of the `mock_items` table. [Custom index configuration options](/indexing/bm25), such as
-tokenizers, can be specified in the `WITH` option.
-
-Note the mandatory `key_field` option in the `WITH` code. Every `bm25` index needs a `key_field`, which should
+Note the mandatory `key_field` option. Every BM25 index needs a `key_field`, which should
 be the name of a column that will function as a row's unique identifier within the index. Usually, the `key_field`
 can just be the name of your table's primary key column.
 
 Currently, only integer IDs are supported in the `key_field` column, so if you're primary key is a composite
-or a string, just add another column with serial IDs to your table:
+or a string, just add another column with serial IDs to your table and use that as your `key_field`.
 
 ```sql
-ALTER TABLE mock_items ADD COLUMN bm25_id SERIAL
-````
+ALTER TABLE paradedb.search_test_table
+ADD COLUMN bm25_id SERIAL;
+```
 
-Let's execute a full-text search:
+Let's execute a full-text search. We'll look for rows where `description` matches the query `shoes` or
+`category` matches `electronics`.
 
 ```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE mock_items @@@ ('idx_mock_items', 'description:keyboard OR category:electronics');
+SELECT *
+FROM search_idx.search('description:keyboard OR category:electronics')
+LIMIT 5;
 ```
 
 <Accordion title="Expected Response">
-``` csv
-         description         | rating |  category
------------------------------+--------+-------------
- Plastic Keyboard            |      4 | Electronics
- Ergonomic metal keyboard    |      4 | Electronics
- Innovative wireless earbuds |      5 | Electronics
- Fast charging power bank    |      4 | Electronics
- Bluetooth-enabled speaker   |      3 | Electronics
-(5 rows)
-```
+  ``` csv description | rating | category
+  -----------------------------+--------+------------- Plastic Keyboard | 4 |
+  Electronics Ergonomic metal keyboard | 4 | Electronics Innovative wireless
+  earbuds | 5 | Electronics Fast charging power bank | 4 | Electronics
+  Bluetooth-enabled speaker | 3 | Electronics (5 rows) ```
 </Accordion>
 
-You may have noticed the above SQL query makes use of
-the custom `@@@` operator and of [ParadeQL, our mini query language](search/bm25). This mini language supports phrase queries,
-set queries, boolean queries and more.
+You may have noticed the above SQL query makes use of [ParadeQL, our mini query language](search/bm25).
 
 ## Similarity Search
 
@@ -126,19 +111,15 @@ Let's query our table with a vector and order the results by L2 distance:
 
 ```sql
 SELECT description, category, rating, embedding
-FROM mock_items
+FROM paradedb.search_test_table
 ORDER BY embedding <-> '[1,2,3]' LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-``` csv
-       description       |  category  | rating | embedding
--------------------------+------------+--------+-----------
- Artistic ceramic vase   | Home Decor |      4 | [1,2,3]
- Modern wall clock       | Home Decor |      4 | [1,2,3]
- Designer wall paintings | Home Decor |      5 | [1,2,3]
-(3 rows)
-```
+  ``` csv description | category | rating | embedding
+  -------------------------+------------+--------+----------- Artistic ceramic
+  vase | Home Decor | 4 | [1,2,3] Modern wall clock | Home Decor | 4 | [1,2,3]
+  Designer wall paintings | Home Decor | 5 | [1,2,3] (3 rows) ```
 </Accordion>
 
 ## Hybrid Search
@@ -169,14 +150,11 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-```csv
-         description         |  category   | rating |    score_hybrid
------------------------------+-------------+--------+--------------------
- Plastic Keyboard            | Electronics |      4 | 0.9142857142857144
- Ergonomic metal keyboard    | Electronics |      4 | 0.8337662424360004
- Innovative wireless earbuds | Electronics |      5 | 0.6309006759098599
-(3 rows)
-```
+  ```csv description | category | rating | score_hybrid
+  -----------------------------+-------------+--------+--------------------
+  Plastic Keyboard | Electronics | 4 | 0.9142857142857144 Ergonomic metal
+  keyboard | Electronics | 4 | 0.8337662424360004 Innovative wireless earbuds |
+  Electronics | 5 | 0.6309006759098599 (3 rows) ```
 </Accordion>
 
 In this query, we first use `paradedb.minmax_bm25` to calculate each row's normalized BM25 score with respect to

@@ -1,0 +1,263 @@
+---
+title: BM25 Index
+---
+
+## What is BM25?
+
+BM25, which stands for Best Matching 25, is the go-to choice for many modern search engines like ElasticSearch.
+It ranks documents by considering how often a term appears and how unique that term is across all
+documents. BM25 is especially useful when you need to find exact keywords or phrases within documents.
+
+The BM25 index enables full text search over a table and relevance scoring using the BM25 algorithm.
+
+## Creating a BM25 Index
+
+The following command creates a BM25 index over a table. Once an index is created, it automatically
+stays in sync with the underlying table as the data changes.
+
+```sql
+CREATE INDEX <index_name>
+ON <schema_name>.<table_name>
+USING bm25 ((<table_name>.*))
+WITH (
+  key_field='<key_field>'
+  text_fields='<text_fields>',
+  numeric_fields='<numeric_fields>',
+  boolean_fields='<boolean_fields>',
+  json_fields='<json_fields>',
+);
+```
+
+<Accordion title="Example Usage">
+
+```sql
+CREATE INDEX idx_mock_items
+ON mock_items
+USING bm25 ((mock_items.*))
+WITH (
+  key_field='<key_field>'
+  text_fields='{
+    description: {tokenizer: {type: "en_stem"}}, category: {fast: true}
+  }'
+);
+```
+
+</Accordion>
+
+Each input to `WITH ()` accepts a [JSON5](https://json5.org)-formatted string. Keys don't need to be quoted, and trailing commas and comments are allowed. JSON5 is backwards-compatible, so standard JSON works too.
+
+<ParamField body="index_name" required>
+  The name of the index. The index name can be anything, as long as doesn't
+  conflict with an existing index.
+</ParamField>
+<ParamField body="table_name" required>
+  The name of the table being indexed.
+</ParamField>
+<ParamField body="schema_name">
+  The name of the schema, or namespace, of the table. The schema name only needs
+  to be provided if the table is not in the `public` schema.
+</ParamField>
+<ParamField body="key_field">
+  The name of a column in the table that represents a unique identifier for each record. Usually, this
+  is the same column that is the primary key of table. Currently, only integer IDs are supported, so
+  if necessary you may consider creating a dedicated column to use e.g: `ALTER TABLE mock_items ADD COLUMN bm25_id SERIAL`.
+</ParamField>
+<ParamField body="text_fields">
+  A JSON string which specifies which text columns should be indexed and how they should be indexed.
+  Keys are the names of columns, and values are config options. Accepts columns of type `varchar`, `text`,
+  `varchar[]`, and `text[]`.
+  <Expandable title="Config Options">
+    <ParamField body="indexed" default={true}>
+      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
+      searchable.
+    </ParamField>
+    <ParamField body="stored" default={true}>
+      Whether the original value of the field is stored.
+    </ParamField>
+    <ParamField body="fast" default={false}>
+      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
+      Fast fields are also useful for accelerated scoring and filtering.
+    </ParamField>
+    <ParamField body="fieldnorms" default={true}>
+      Fieldnorms store information about the length of the text field. Must be `true` to calculate
+      the BM25 score.
+    </ParamField>
+    <ParamField body="tokenizer" default="default">
+      The name of the tokenizer. See [tokenizers](bm25#tokenizers) for a list of available tokenizers.
+    </ParamField>
+    <ParamField body="record" default="basic">
+      Describes the amount of information indexed. See [records](bm25#records) for a list of available
+      record types.
+    </ParamField>
+    <ParamField body="normalizer" default="raw">
+      The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See
+      [normalizers](bm25#normalizers) for a list of available normalizers.
+    </ParamField>
+  </Expandable>
+</ParamField>
+<ParamField body="numeric_fields">
+  A JSON string which specifies which numeric columns should be indexed and how they should be indexed.
+  Keys are the names of columns, and values are config options. Accepts columns of type `int2`, `int4`, `int8`, `oid`, `xid`, `float4`, `float8`, and `numeric`.
+  <Expandable title="Config Options">
+    <ParamField body="indexed" default={true}>
+      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
+      searchable.
+    </ParamField>
+    <ParamField body="stored" default={true}>
+      Whether the original value of the field is stored.
+    </ParamField>
+    <ParamField body="fast" default={true}>
+      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
+      Fast fields are also useful for accelerated scoring and filtering.
+    </ParamField>
+  </Expandable>
+</ParamField>
+<ParamField body="boolean_fields">
+  A JSON string which specifies which boolean columns should be indexed and how they should be indexed.
+  Keys are the names of columns, and values are config options. Accepts columns of type `boolean`.
+  <Expandable title="Config Options">
+    <ParamField body="indexed" default={true}>
+      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
+      searchable.
+    </ParamField>
+    <ParamField body="stored" default={true}>
+      Whether the original value of the field is stored.
+    </ParamField>
+    <ParamField body="fast" default={true}>
+      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
+      Fast fields are also useful for accelerated scoring and filtering.
+    </ParamField>
+  </Expandable>
+</ParamField>
+<ParamField body="json_fields">
+  A JSON string which specifies which JSON columns should be indexed and how they should be indexed.
+  Keys are the names of columns, and values are config options. Accepts columns of type `json` and `jsonb`.
+  Once indexed, search can be performed on nested text fields within JSON values.
+  <Expandable title="Config Options">
+    <ParamField body="indexed" default={true}>
+      Whether the field is indexed. Must be `true` in order for the field to be tokenized and
+      searchable.
+    </ParamField>
+    <ParamField body="stored" default={true}>
+      Whether the original value of the field is stored.
+    </ParamField>
+    <ParamField body="fast" default={false}>
+      Fast fields can be random-accessed rapidly. Fields used for aggregation must have `fast` set to `true`.
+      Fast fields are also useful for accelerated scoring and filtering.
+    </ParamField>
+    <ParamField body="expand_dots" default={true}>
+      If `true`, JSON keys containing a `.` will be expanded. For instance, if `expand_dots` is `true`,
+      `{"metadata.color": "red"}` will be indexed as if it was `{"metadata": {"color": "red"}}`.
+    </ParamField>
+    <ParamField body="tokenizer" default="default">
+      The name of the tokenizer. See [tokenizers](bm25#tokenizers) for a list of available tokenizers.
+    </ParamField>
+    <ParamField body="record" default="basic">
+      Describes the amount of information indexed. See [records](bm25#records) for a list of available
+      record types.
+    </ParamField>
+    <ParamField body="normalizer" default="raw">
+      The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See
+      [normalizers](bm25#normalizers) for a list of available normalizers.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Deleting a BM25 Index
+
+The following command deletes a BM25 index:
+
+```sql
+DROP INDEX <index_name>;
+```
+
+<Accordion title="Example Usage">
+
+```sql
+DROP INDEX idx_mock_items;
+```
+
+</Accordion>
+
+<ParamField body="index_name" required>
+  The name of the index you wish to delete.
+</ParamField>
+
+## Recreating a BM25 Index
+
+A BM25 index only needs to be recreated if the underlying table schema changes — for instance, if a new
+column is added or the name of a column changes. To recreate the index, simply delete the index and create
+a new one using the commands provided above.
+
+## Getting Info on a BM25 Index
+
+The `paradedb.schema_bm25` function returns a table with information about the index schema.
+
+```sql
+SELECT *
+FROM paradedb.schema_bm25('<index_name>');
+```
+
+<ParamField body="index_name" required>
+  The name of the index.
+</ParamField>
+
+## Tokenizers
+
+<ParamField body="default">
+  Chops the text on according to whitespace and punctuation, removes tokens that
+  are too long, and converts to lowercase. Filters out tokens larger than 255
+  bytes.
+</ParamField>
+<ParamField body="raw">
+  Does not process nor tokenize text. Filters out tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="en_stem">
+  Like `default`, but also applies stemming on the resulting tokens. Filters out
+  tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="whitespace">
+  Tokenizes the text by splitting on whitespaces.
+</ParamField>
+<ParamField body="ngram">
+  Tokenizes text by splitting words into overlapping substrings based on the specified parameters:
+
+`min_gram`: Defines the minimum length for the n-grams. For instance, if set to 2, the smallest token created would be of length 2 characters.
+
+`max_gram`: Determines the maximum length of the n-grams. If set to 5, the largest token produced would be of length 5 characters.
+
+`prefix_only`: When set to true, the tokenizer generates n-grams that start from the beginning of the word only, ensuring a prefix progression. If false, n-grams are created from all possible character combinations within the min_gram and max_gram range.
+
+</ParamField>
+<ParamField body="chinese_compatible">
+  Tokenizes text considering Chinese character nuances. Splits based on whitespace and punctuation. Filters out tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="chinese_lindera">
+  Tokenizes text using the Lindera tokenizer, which uses the CC-CEDICT dictionary to segment and tokenize text.
+</ParamField>
+<ParamField body="korean_lindera">
+  Tokenizes text using the Lindera tokenizer, which uses the KoDic dictionary to segment and tokenize text.
+</ParamField>
+<ParamField body="japanese_lindera">
+  Tokenizes text using the Lindera tokenizer, which uses the IPADIC dictionary to segment and tokenize text.
+</ParamField>
+
+## Normalizers
+
+<ParamField body="raw">
+  Does not process nor tokenize text. Filters out tokens larger than 255 bytes.
+</ParamField>
+<ParamField body="lowercase">
+  Applies a lowercase transformation on the text. Filters token larger than 255
+  bytes.
+</ParamField>
+
+## Records
+
+<ParamField body="basic">Records only the document IDs.</ParamField>
+<ParamField body="freq">
+  Records the document IDs as well as term frequency.
+</ParamField>
+<ParamField body="position">
+  Records the document ID, term frequency and positions of occurrences.
+</ParamField>

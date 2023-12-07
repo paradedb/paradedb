@@ -37,48 +37,93 @@
       "url": "blog"
     }
   ],
+  "versions": ["Latest", "<v0.4"],
   "navigation": [
     {
       "group": "Documentation",
       "pages": [
         "introduction",
-        "quickstart",
+        "v0.4/quickstart",
         "import",
         {
           "group": "Indexing",
-          "pages": ["indexing/overview", "indexing/bm25", "indexing/hnsw"]
+          "pages": [
+            "v0.4/indexing/overview",
+            "v0.4/indexing/bm25",
+            "v0.4/indexing/hnsw"
+          ]
         },
         {
           "group": "Full Text Search",
           "pages": [
-            "search/bm25",
-            "search/scoring",
-            "search/highlighting",
-            "search/fuzzy",
-            "search/autocomplete"
+            "v0.4/search/bm25",
+            "v0.4/search/scoring",
+            "v0.4/search/highlighting",
+            "v0.4/search/fuzzy",
+            "v0.4/search/autocomplete"
           ]
         },
         {
           "group": "Similarity Search",
-          "pages": ["search/hnsw"]
+          "pages": ["v0.4/search/hnsw"]
         },
         {
           "group": "Hybrid Search",
-          "pages": ["search/hybrid"]
+          "pages": ["v0.4/search/hybrid"]
         },
         {
           "group": "Aggregations",
           "pages": [
-            "aggregations/overview",
-            "aggregations/bucket",
-            "aggregations/metrics"
+            "v0.4/aggregations/overview",
+            "v0.4/aggregations/bucket",
+            "v0.4/aggregations/metrics"
           ]
         },
         {
           "group": "Deployment",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         }
-      ]
+      ],
+      "version": "<v0.4"
+    },
+    {
+      "group": "Documentation",
+      "pages": [
+        "introduction",
+        "latest/quickstart",
+        "import",
+        {
+          "group": "Full Text Search",
+          "pages": [
+            "latest/search/bm25",
+            "latest/search/scoring",
+            "latest/search/highlighting",
+            "latest/search/fuzzy",
+            "latest/search/autocomplete"
+          ]
+        },
+        {
+          "group": "Similarity Search",
+          "pages": ["latest/search/hnsw"]
+        },
+        {
+          "group": "Hybrid Search",
+          "pages": ["v0.4/search/hybrid"]
+        },
+        {
+          "group": "Aggregations",
+          "pages": [
+            "v0.4/aggregations/overview",
+            "v0.4/aggregations/bucket",
+            "v0.4/aggregations/metrics"
+          ]
+        },
+        {
+          "group": "Deployment",
+          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
+        }
+      ],
+      "version": "Latest"
     },
     {
       "group": "Blog",

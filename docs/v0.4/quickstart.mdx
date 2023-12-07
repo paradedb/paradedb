@@ -1,0 +1,170 @@
+---
+title: Quickstart
+---
+
+This guide will walk you through the following steps to get started with ParadeDB:
+
+1. Create a ParadeDB instance
+2. Connect to ParadeDB
+3. Execute full text, similarity, and hybrid search with SQL
+
+## Create a ParadeDB Instance
+
+The fastest way to create an instance is through the [ParadeDB Cloud dashboard](https://dashboard.paradedb.com).
+Alternatively, you can also pull the ParadeDB docker image and run it locally.
+
+```bash
+docker run \
+  -e POSTGRES_USER=<user> \
+  -e POSTGRES_PASSWORD=<password> \
+  -e POSTGRES_DB=<dbname> \
+  -p 5432:5432 \
+  -d \
+  paradedb/paradedb:latest
+```
+
+You may set `user`, `password`, and `dbname` to whatever values you want — these will be your database
+connection credentials. By default, this will start a ParadeDB instance at `http://localhost:5432`.
+
+## Connect to ParadeDB
+
+<Note>
+  **Prerequisite** Ensure that you have `psql` installed on your machine.
+</Note>
+
+To connect to ParadeDB, run
+
+```bash
+psql -h <hostname> -U <user> -d <dbname> -p <port> -W
+```
+
+If you are using ParadeDB Cloud, your connection credentials can be found in the cloud console.
+
+## Full Text Search
+
+ParadeDB comes with a helper function that creates a test table to help you get started.
+Once connected with `psql`, run the following commands to create this test table:
+
+```sql
+CALL paradedb.create_search_test_table();
+CREATE TABLE mock_items AS SELECT * FROM paradedb.search_test_table;
+SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
+```
+
+<Accordion title="Expected Response">
+  ```csv id | description | rating | category | embedding
+  ----+--------------------------+--------+-------------+----------- 1 |
+  Ergonomic metal keyboard | 4 | Electronics | [3,4,5] 2 | Plastic Keyboard | 4
+  | Electronics | [4,5,6] 3 | Sleek running shoes | 5 | Footwear | [5,6,7] (3
+  rows) ```
+</Accordion>
+
+Next, let's index this table for full-text search:
+
+```sql
+CREATE INDEX idx_mock_items
+ON mock_items
+USING bm25 ((mock_items.*))
+WITH (
+  key_field='id',
+  text_fields='{"description": {"tokenizer": {"type": "en_stem"}}, "category": {}}'
+);
+```
+
+<Accordion title="Expected Response">```bash CREATE INDEX ```</Accordion>
+
+Under the hood, this command creates a Postgres-native index called `idx_mock_items`, which contains
+an inverted index of the `mock_items` table. [Custom index configuration options](/indexing/bm25), such as
+tokenizers, can be specified in the `WITH` option.
+
+Note the mandatory `key_field` option in the `WITH` code. Every `bm25` index needs a `key_field`, which should
+be the name of a column that will function as a row's unique identifier within the index. Usually, the `key_field`
+can just be the name of your table's primary key column.
+
+Currently, only integer IDs are supported in the `key_field` column, so if you're primary key is a composite
+or a string, just add another column with serial IDs to your table:
+
+```sql
+ALTER TABLE mock_items ADD COLUMN bm25_id SERIAL
+```
+
+Let's execute a full-text search:
+
+```sql
+SELECT description, rating, category
+FROM mock_items
+WHERE mock_items @@@ ('idx_mock_items', 'description:keyboard OR category:electronics');
+```
+
+<Accordion title="Expected Response">
+  ``` csv description | rating | category
+  -----------------------------+--------+------------- Plastic Keyboard | 4 |
+  Electronics Ergonomic metal keyboard | 4 | Electronics Innovative wireless
+  earbuds | 5 | Electronics Fast charging power bank | 4 | Electronics
+  Bluetooth-enabled speaker | 3 | Electronics (5 rows) ```
+</Accordion>
+
+You may have noticed the above SQL query makes use of
+the custom `@@@` operator and of [ParadeQL, our mini query language](search/bm25). This mini language supports phrase queries,
+set queries, boolean queries and more.
+
+## Similarity Search
+
+Let's query our table with a vector and order the results by L2 distance:
+
+```sql
+SELECT description, category, rating, embedding
+FROM mock_items
+ORDER BY embedding <-> '[1,2,3]' LIMIT 3;
+```
+
+<Accordion title="Expected Response">
+  ``` csv description | category | rating | embedding
+  -------------------------+------------+--------+----------- Artistic ceramic
+  vase | Home Decor | 4 | [1,2,3] Modern wall clock | Home Decor | 4 | [1,2,3]
+  Designer wall paintings | Home Decor | 5 | [1,2,3] (3 rows) ```
+</Accordion>
+
+## Hybrid Search
+
+Finally, let's implement hybrid search, which combines BM25-based full text scores with vector-based
+similarity scores. Hybrid search is especially useful in scenarios where you want to match by both
+exact keywords and semantic meaning.
+
+Let's execute a hybrid search:
+
+```sql
+SELECT
+    description,
+    category,
+    rating,
+    paradedb.weighted_mean(
+        paradedb.minmax_bm25(id, 'idx_mock_items', 'description:keyboard'),
+        1 - paradedb.minmax_norm(
+          '[1,2,3]' <-> embedding,
+          MIN('[1,2,3]' <-> embedding) OVER (),
+          MAX('[1,2,3]' <-> embedding) OVER ()
+        ),
+        ARRAY[0.8,0.2]
+    ) as score_hybrid
+FROM mock_items
+ORDER BY score_hybrid DESC
+LIMIT 3;
+```
+
+<Accordion title="Expected Response">
+  ```csv description | category | rating | score_hybrid
+  -----------------------------+-------------+--------+--------------------
+  Plastic Keyboard | Electronics | 4 | 0.9142857142857144 Ergonomic metal
+  keyboard | Electronics | 4 | 0.8337662424360004 Innovative wireless earbuds |
+  Electronics | 5 | 0.6309006759098599 (3 rows) ```
+</Accordion>
+
+In this query, we first use `paradedb.minmax_bm25` to calculate each row's normalized BM25 score with respect to
+the query "keyboard." Next, we use a function called `paradedb.minmax_norm` to normalize the HNSW scores, and invert
+the scores such that the lowest HNSW score is ranked the highest. Finally, we combine the two scores as a weighted average, assigning a weight of `0.8` to the first BM25 score and
+a weight of `0.2` to the latter score.
+
+## Congratulations!
+
+You've now seen how ParadeDB serves as both a Postgres database and search engine.

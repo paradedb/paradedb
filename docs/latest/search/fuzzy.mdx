@@ -1,0 +1,53 @@
+---
+title: Fuzzy Search
+---
+
+## Overview
+
+Fuzzy search allows users to obtain search results that approximately match the query term,
+accommodating minor typos, spelling errors, or variations in the input. This enhances the search experience by
+providing relevant results even when the query is not spelled exactly.
+
+## Basic Usage
+
+```sql
+SELECT *
+FROM <table_name>
+WHERE <table_name> @@@ ('<index_name>', '<query>:::<fuzzy_field_options>')
+```
+
+<Accordion title="Example Usage">
+  ```sql SELECT * FROM mock_items WHERE mock_items @@@
+  'description:keybroadd:::fuzzy_fields=description,category' ```
+</Accordion>
+
+<ParamField body="table_name" required>
+  The name of the table.
+</ParamField>
+<ParamField body="query" required>
+  The query string.
+</ParamField>
+<ParamField body="fuzzy_field_options" required>
+  Fuzzy field config options.
+  <Expandable title="Config Options">
+    <ParamField body="fuzzy_fields" required>
+      A comma-separated string list of column names to perform fuzzy search
+      over.
+    </ParamField>
+    <ParamField body="distance" default={2}>
+      The maximum Levenshtein distance (i.e. single character edits) allowed to
+      consider a term in the index as a match for the query term. Maximum value
+      is `2`.
+    </ParamField>
+    <ParamField body="transpose_cost_one" default={true}>
+      When set to `true`, transpositions (swapping two adjacent characters) as a
+      single edit in the Levenshtein distance calculation, while `false`
+      considers it two separate edits (a deletion and an insertion).
+    </ParamField>
+    <ParamField body="prefix" default={true}>
+      When set to `true`, the initial substring (prefix) of the query term is
+      exempted from the fuzzy edit distance calculation, while false includes
+      the entire string in the calculation.
+    </ParamField>
+  </Expandable>
+</ParamField>

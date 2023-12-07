@@ -102,7 +102,7 @@ mod tests {
     #[pg_test]
     fn test_get_index_oid() -> Result<(), spi::Error> {
         Spi::run(SETUP_SQL)?;
-        let oid = get_index_oid("idx_one_republic", "bm25")?;
+        let oid = get_index_oid("one_republic_songs_bm25_index", "bm25")?;
         assert!(oid.is_some());
         Ok(())
     }

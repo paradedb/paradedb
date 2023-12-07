@@ -141,7 +141,7 @@ mod tests {
     #[pg_test]
     fn test_ambeginscan() {
         Spi::run(SETUP_SQL).expect("failed to create index and table");
-        let oid = get_index_oid("idx_one_republic", "bm25")
+        let oid = get_index_oid("one_republic_songs_bm25_index", "bm25")
             .expect("could not find oid for one_republic")
             .unwrap();
 

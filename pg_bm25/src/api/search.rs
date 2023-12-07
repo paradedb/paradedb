@@ -145,7 +145,10 @@ mod tests {
         let ctid = ctid.unwrap();
         assert_eq!(ctid.ip_posid, 3);
 
-        let query = "SELECT paradedb.rank_bm25(song_id) FROM one_republic_songs WHERE one_republic_songs @@@ 'lyrics:im AND description:song'";
+        let query = r#"
+            SELECT rank_bm25 FROM one_republic_songs.rank('lyrics:im AND description:song')
+        "#;
+
         let rank = Spi::get_one::<f32>(query)
             .expect("failed to rank query")
             .unwrap();
@@ -157,9 +160,8 @@ mod tests {
         Spi::run(SETUP_SQL).expect("failed to create index and table");
 
         let query = r#"
-SELECT paradedb.highlight_bm25(song_id, 'idx_one_republic', 'lyrics')
-FROM one_republic_songs
-WHERE one_republic_songs @@@ 'lyrics:im:::max_num_chars=10';
+            SELECT highlight_bm25
+            FROM one_republic_songs.highlight('lyrics:im', highlight_field => 'lyrics', max_num_chars => 10);
         "#;
 
         let highlight = Spi::get_one::<&str>(query)

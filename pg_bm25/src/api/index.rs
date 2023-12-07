@@ -92,7 +92,7 @@ mod tests {
     #[pg_test]
     fn test_schema_bm25() {
         Spi::run(SETUP_SQL).expect("failed to setup index");
-        let schemas = schema_bm25("idx_one_republic").collect::<Vec<_>>();
+        let schemas = schema_bm25("one_republic_songs_bm25_index").collect::<Vec<_>>();
         let names = schemas
             .iter()
             .map(|schema| schema.0.as_str())

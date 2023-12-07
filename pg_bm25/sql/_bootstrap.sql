@@ -166,6 +166,13 @@ BEGIN
         function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__);',
         index_json => index_json
     );
+
+    EXECUTE paradedb.format_bm25_function(
+        function_name => format('%I.rank_minmax', index_name),
+        return_type => format('TABLE(%s bigint, minmax_bm25 real)', key_field),
+        function_body => 'RETURN QUERY SELECT * FROM paradedb.minmax_bm25(__paradedb_search_config__);',
+        index_json => index_json
+    );
    END;
 $$;
 

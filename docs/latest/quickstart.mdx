@@ -145,12 +145,11 @@ CALL paradedb.create_bm25(
         schema_name => 'paradedb',
         table_name => 'search_test_table',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "ngrams", min_gram: 4, max_gram: 4, prefix_only: false}}, category: {}}'
+        text_fields => '{description: {tokenizer: {type: "ngram", min_gram: 4, max_gram: 4, prefix_only: false}}, category: {}}'
 );
 
 SELECT description, rating, category
-FROM ngrams_idx.search('description:blue')
-LIMIT 5;
+FROM ngrams_idx.search('description:blue');
 ```
 
 <Accordion title="Expected Response">

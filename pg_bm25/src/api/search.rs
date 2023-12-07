@@ -90,41 +90,44 @@ pub fn highlight_bm25(
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[pg_extern]
 pub fn minmax_bm25(
-    _bm25_id: i64,
-    _index_name: &str,
-    _query: &str,
-    _fcinfo: pg_sys::FunctionCallInfo,
-) -> f32 {
-    // let indexrel =
-    //     PgRelation::open_with_name_and_share_lock(index_name).expect("could not open index");
-    // let index_oid = indexrel.oid();
-    // let mut lookup_by_query = unsafe {
-    //     pg_func_extra(fcinfo, || {
-    //         FxHashMap::<(pg_sys::Oid, Option<String>), FxHashSet<u64>>::default()
-    //     })
-    // };
+    config_json: JsonB,
+) -> TableIterator<'static, (name!(id, i64), name!(rank_bm25, f32))> {
+    let JsonB(search_config_json) = config_json;
+    let search_config: SearchConfig =
+        serde_json::from_value(search_config_json).expect("could not parse search config");
+    let parade_index = get_parade_index(&search_config.index_name);
 
-    // lookup_by_query
-    //     .entry((index_oid, Some(String::from(query))))
-    //     .or_insert_with(|| operator::scan_index(query, index_oid))
-    //     .contains(&(bm25_id as u64));
+    let mut scan_state = parade_index.scan_state(&search_config);
+    let top_docs = scan_state.search();
+    let (min_score, max_score) = top_docs
+        .iter()
+        .map(|(score, _)| *score)
+        .fold((f32::MAX, f32::MIN), |(min, max), score| {
+            (min.min(score), max.max(score))
+        });
+    let score_range = max_score - min_score;
+    let mut field_rows = Vec::new();
+    
+    for (score, doc_address) in top_docs.into_iter() {
+        let document = scan_state
+            .doc(doc_address)
+            .unwrap_or_else(|err| panic!("error retrieving document for highlighting: {err:?}"));
 
-    // let max_score = get_current_executor_manager().get_max_score();
-    // let min_score = get_current_executor_manager().get_min_score();
-    // let raw_score = get_current_executor_manager()
-    //     .get_score(bm25_id)
-    //     .unwrap_or(0.0);
+        #[allow(unreachable_patterns)]
+        let key = match parade_index.get_key_value(&document) {
+            ParadeIndexKey::Number(k) => k,
+            _ => unimplemented!("non-integer index keys are not yet implemented"),
+        };
 
-    // if raw_score == 0.0 && min_score == max_score {
-    //     return 0.0;
-    // }
+        let normalized_score = if score_range == 0.0 {
+            1.0
+        } else {
+            (score - min_score) / score_range
+        };
 
-    // if min_score == max_score {
-    //     return 1.0;
-    // }
-
-    // (raw_score - min_score) / (max_score - min_score)
-    0.0
+        field_rows.push((key, normalized_score));
+    }
+    TableIterator::new(field_rows)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

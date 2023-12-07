@@ -1,13 +1,29 @@
--- Invalid CREATE INDEX
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*));
+-- Invalid create_bm25
+CALL paradedb.create_bm25(
+	index_name => 'mock_items',
+	table_name => 'mock_items'
+);
 ERROR:  no key_field supplied for bm25 index
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id');
+CALL paradedb.create_bm25(
+	index_name => 'mock_items',
+	table_name => 'mock_items',
+    key_field => 'id'
+);
 ERROR:  no text_fields, numeric_fields, boolean_fields, or json_fields were specified
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (invalid_field='{}');
+CALL paradedb.create_bm25(
+	index_name => 'mock_items',
+	table_name => 'mock_items',
+    invalid_field => '{}'
+);
 ERROR:  unrecognized parameter "invalid_field"
 -- Default text field
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', text_fields='{"description": {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.create_bm25(
+	index_name => 'mock_items',
+	table_name => 'mock_items',
+    key_field => 'id',
+    text_fields => '{"description": {}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id          | I64        | t      | t       | f    | t          |             |           |          | 
@@ -15,10 +31,15 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid        | U64        | t      | t       | f    | t          |             |           |          | 
 (3 rows)
 
-DROP INDEX idxindexconfig;
+CALL paradedb.drop_bm25('mock_items');
 -- Text field with options
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', text_fields='{"description": {"fast": true, "tokenizer": { "type": "en_stem" }, "record": "freq", "normalizer": "raw"}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.create_bm25(
+	index_name => 'idxindexconfig',
+	table_name => 'idxindexconfig',
+    key_field => 'id',
+    text_fields => '{"description": {"fast": true, "tokenizer": { "type": "en_stem" }, "record": "freq", "normalizer": "raw"}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id          | I64        | t      | t       | f    | t          |             |           |        | 
@@ -26,10 +47,15 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid        | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-DROP INDEX idxindexconfig;
+CALL paradedb.drop_bm25('mock_items');
 -- Multiple text fields
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', text_fields='{"description": {fast: true, tokenizer: { type: "en_stem" }, record: "freq", normalizer: "raw"}, category: {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.create_bm25(
+	index_name => 'idxindexconfig',
+	table_name => 'idxindexconfig',
+    key_field => 'id',
+    text_fields => '{"description": {fast: true, tokenizer: { type: "en_stem" }, record: "freq", normalizer: "raw"}, category: {}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id          | I64        | t      | t       | f    | t          |             |           |          | 
@@ -38,10 +64,15 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid        | U64        | t      | t       | f    | t          |             |           |          | 
 (4 rows)
 
-DROP INDEX idxindexconfig;
+CALL paradedb.drop_bm25('mock_items');
 -- Default numeric field
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', numeric_fields='{"rating": {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.create_bm25(
+	index_name => 'idxindexconfig',
+	table_name => 'idxindexconfig',
+    key_field => 'id',
+    numeric_fields => '{"rating": {}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
   name  | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 --------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id     | I64        | t      | t       | f    | t          |             |           |        | 
@@ -49,10 +80,15 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid   | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-DROP INDEX idxindexconfig;
+CALL paradedb.drop_bm25('mock_items');
 -- Numeric field with options
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', numeric_fields='{"rating": {"fast": false}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.create_bm25(
+	index_name => 'idxindexconfig',
+	table_name => 'idxindexconfig',
+    key_field => 'id',
+    numeric_fields => '{"rating": {"fast": false}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
   name  | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 --------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id     | I64        | t      | t       | f    | t          |             |           |        | 
@@ -60,10 +96,15 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid   | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-DROP INDEX idxindexconfig;
+CALL paradedb.drop_bm25('mock_items');
 -- Default boolean field
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', boolean_fields='{"in_stock": {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.create_bm25(
+	index_name => 'mock_items',
+	table_name => 'mock_items',
+    key_field => 'id',
+    boolean_fields => '{"in_stock": {}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id       | I64        | t      | t       | f    | t          |             |           |        | 
@@ -71,10 +112,15 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid     | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-DROP INDEX idxindexconfig;
+CALL paradedb.drop_bm25('mock_items');
 -- Boolean field with options
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', boolean_fields='{"in_stock": {"fast": false}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.create_bm25(
+	index_name => 'mock_items',
+	table_name => 'mock_items',
+    key_field => 'id',
+    boolean_fields => '{"in_stock": {"fast": false}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id       | I64        | t      | t       | f    | t          |             |           |        | 
@@ -82,10 +128,15 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid     | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-DROP INDEX idxindexconfig;
--- Default Json field
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', json_fields='{"metadata": {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.drop_bm25('mock_items');
+-- default json field
+CALL paradedb.create_bm25(
+	index_name => 'mock_items',
+	table_name => 'mock_items',
+    key_field => 'id',
+    json_fields => '{"metadata": {}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id       | I64        | t      | t       | f    | t          |             |           |          | 
@@ -93,10 +144,15 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid     | U64        | t      | t       | f    | t          |             |           |          | 
 (3 rows)
 
-DROP INDEX idxindexconfig;
+CALL paradedb.drop_bm25('mock_items');
 -- Json field with options
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', json_fields='{metadata: {fast: true, expand_dots: false, tokenizer: { type: "raw" }, normalizer: "raw"}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.create_bm25(
+	index_name => 'mock_items',
+	table_name => 'mock_items',
+    key_field => 'id',
+    json_fields => '{metadata: {fast: true, expand_dots: false, tokenizer: { type: "raw" }, normalizer: "raw"}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id       | I64        | t      | t       | f    | t          |             |           |          | 
@@ -104,10 +160,15 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid     | U64        | t      | t       | f    | t          |             |           |          | 
 (3 rows)
 
-DROP INDEX idxindexconfig;
+CALL paradedb.drop_bm25('mock_items');
 -- Multiple fields
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', text_fields='{description: {}, category: {}}', numeric_fields='{rating: {}}', boolean_fields='{in_stock: {}}', json_fields='{metadata: {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
+CALL paradedb.create_bm25(
+	index_name => 'mock_items',
+	table_name => 'mock_items',
+    key_field => 'id',
+    text_fields => '{description: {}, category: {}}', numeric_fields='{rating: {}}', boolean_fields='{in_stock: {}}', json_fields='{metadata: {}}'
+);
+SELECT * from paradedb.schema_bm25('mock_items');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id          | I64        | t      | t       | f    | t          |             |           |          | 
@@ -119,4 +180,4 @@ SELECT * from paradedb.schema_bm25('idxindexconfig');
  ctid        | U64        | t      | t       | f    | t          |             |           |          | 
 (7 rows)
 
-DROP INDEX idxindexconfig;
+CALL paradedb.drop_bm25('mock_items');

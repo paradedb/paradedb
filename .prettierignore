@@ -3,10 +3,13 @@
 /benchmarks/wiki-articles.json
 /dashboard/yarn.lock
 /docker/.docker_cache_dev/
-/docs/quickstart.mdx
+/docs/v0.4/quickstart.mdx
+/docs/latest/quickstart.mdx
 /docs/blog/introducing_bm25.mdx
 /docs/blog/introducing_sparse.mdx
-/docs/search/autocomplete.mdx
-/docs/search/fuzzy.mdx
+/docs/v0.4/search/autocomplete.mdx
+/docs/v0.4/search/fuzzy.mdx
+/docs/latest/search/autocomplete.mdx
+/docs/latest/search/fuzzy.mdx
 /pg_search/pgvector/
 /pg_search/test/pgvector/

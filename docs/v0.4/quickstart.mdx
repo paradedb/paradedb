@@ -52,11 +52,14 @@ SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-  ```csv id | description | rating | category | embedding
-  ----+--------------------------+--------+-------------+----------- 1 |
-  Ergonomic metal keyboard | 4 | Electronics | [3,4,5] 2 | Plastic Keyboard | 4
-  | Electronics | [4,5,6] 3 | Sleek running shoes | 5 | Footwear | [5,6,7] (3
-  rows) ```
+```csv
+ id |       description        | rating |  category   | embedding
+----+--------------------------+--------+-------------+-----------
+  1 | Ergonomic metal keyboard |      4 | Electronics | [3,4,5]
+  2 | Plastic Keyboard         |      4 | Electronics | [4,5,6]
+  3 | Sleek running shoes      |      5 | Footwear    | [5,6,7]
+(3 rows)
+```
 </Accordion>
 
 Next, let's index this table for full-text search:
@@ -71,7 +74,11 @@ WITH (
 );
 ```
 
-<Accordion title="Expected Response">```bash CREATE INDEX ```</Accordion>
+<Accordion title="Expected Response">
+```bash
+CREATE INDEX
+```
+</Accordion>
 
 Under the hood, this command creates a Postgres-native index called `idx_mock_items`, which contains
 an inverted index of the `mock_items` table. [Custom index configuration options](/indexing/bm25), such as
@@ -86,7 +93,7 @@ or a string, just add another column with serial IDs to your table:
 
 ```sql
 ALTER TABLE mock_items ADD COLUMN bm25_id SERIAL
-```
+````
 
 Let's execute a full-text search:
 
@@ -97,11 +104,16 @@ WHERE mock_items @@@ ('idx_mock_items', 'description:keyboard OR category:electr
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | rating | category
-  -----------------------------+--------+------------- Plastic Keyboard | 4 |
-  Electronics Ergonomic metal keyboard | 4 | Electronics Innovative wireless
-  earbuds | 5 | Electronics Fast charging power bank | 4 | Electronics
-  Bluetooth-enabled speaker | 3 | Electronics (5 rows) ```
+``` csv
+         description         | rating |  category
+-----------------------------+--------+-------------
+ Plastic Keyboard            |      4 | Electronics
+ Ergonomic metal keyboard    |      4 | Electronics
+ Innovative wireless earbuds |      5 | Electronics
+ Fast charging power bank    |      4 | Electronics
+ Bluetooth-enabled speaker   |      3 | Electronics
+(5 rows)
+```
 </Accordion>
 
 You may have noticed the above SQL query makes use of
@@ -119,10 +131,14 @@ ORDER BY embedding <-> '[1,2,3]' LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-  ``` csv description | category | rating | embedding
-  -------------------------+------------+--------+----------- Artistic ceramic
-  vase | Home Decor | 4 | [1,2,3] Modern wall clock | Home Decor | 4 | [1,2,3]
-  Designer wall paintings | Home Decor | 5 | [1,2,3] (3 rows) ```
+``` csv
+       description       |  category  | rating | embedding
+-------------------------+------------+--------+-----------
+ Artistic ceramic vase   | Home Decor |      4 | [1,2,3]
+ Modern wall clock       | Home Decor |      4 | [1,2,3]
+ Designer wall paintings | Home Decor |      5 | [1,2,3]
+(3 rows)
+```
 </Accordion>
 
 ## Hybrid Search
@@ -153,11 +169,14 @@ LIMIT 3;
 ```
 
 <Accordion title="Expected Response">
-  ```csv description | category | rating | score_hybrid
-  -----------------------------+-------------+--------+--------------------
-  Plastic Keyboard | Electronics | 4 | 0.9142857142857144 Ergonomic metal
-  keyboard | Electronics | 4 | 0.8337662424360004 Innovative wireless earbuds |
-  Electronics | 5 | 0.6309006759098599 (3 rows) ```
+```csv
+         description         |  category   | rating |    score_hybrid
+-----------------------------+-------------+--------+--------------------
+ Plastic Keyboard            | Electronics |      4 | 0.9142857142857144
+ Ergonomic metal keyboard    | Electronics |      4 | 0.8337662424360004
+ Innovative wireless earbuds | Electronics |      5 | 0.6309006759098599
+(3 rows)
+```
 </Accordion>
 
 In this query, we first use `paradedb.minmax_bm25` to calculate each row's normalized BM25 score with respect to

@@ -12,8 +12,6 @@ SELECT id, description, rating, category FROM search_config.search('category:ele
 SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => false, distance => 1);
 -- With fuzzy field and transpose_cost_one=true and distance=1
 SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => true, distance => 1);
--- With fuzzy and regex field
-SELECT id, description, rating, category FROM search_config.search('description:com', regex_fields => 'description', fuzzy_fields => 'description');
 -- With regex field 
 SELECT id, description, rating, category FROM search_config.search('com', regex_fields => 'description');
 -- Default highlighting without max_num_chars

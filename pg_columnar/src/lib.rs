@@ -15,11 +15,16 @@ use shared::telemetry;
 use crate::to_substrait::transform_seqscan_to_substrait;
 
 mod to_substrait;
-use substrait::proto::RelRoot;
-use substrait::proto::Rel;
-use substrait::proto::rel::RelType::Read;
-use substrait::proto::plan_rel::RelType::Root;
-use substrait::proto::PlanRel;
+use datafusion::common::cast::as_primitive_array;
+use datafusion_substrait::substrait::proto::RelRoot;
+use datafusion_substrait::substrait::proto::Rel;
+use datafusion_substrait::substrait::proto::rel::RelType::Read;
+use datafusion_substrait::substrait::proto::plan_rel::RelType::Root;
+use datafusion_substrait::substrait::proto::PlanRel;
+use datafusion_substrait::logical_plan::consumer::from_substrait_plan;
+use datafusion::common::arrow::array::types::{Int8Type, Int16Type, Int32Type, Int64Type, UInt32Type, Float32Type, GenericStringType, Time32SecondType, TimestampSecondType, Date32Type};
+use datafusion::arrow::datatypes::{DataType, TimeUnit};
+use datafusion::arrow::array::AsArray;
 
 use std::ffi::CString;
 use pgrx::pg_sys::ScanState;
@@ -32,10 +37,16 @@ use pgrx::pg_sys::heap_tuple_get_struct;
 use pgrx::pg_sys::Datum;
 use pgrx::pg_sys::SysCacheIdentifier_AMOID;
 use pgrx::pg_sys::SearchSysCache1;
+use pgrx::PgRelation;
+use pgrx::PgTupleDesc;
+use pgrx::pg_sys::CmdType_CMD_SELECT;
+use pgrx::pg_sys::MakeTupleTableSlot;
+use pgrx::pg_sys::TTSOpsVirtual;
 
-mod datafusion;
+use futures::executor;
+
+mod col_datafusion;
 mod table_access;
-
 
 pgrx::pg_module_magic!();
 
@@ -85,7 +96,7 @@ unsafe fn describe_nodes(tree: *mut pg_sys::Plan) {
     }
 }
 
-unsafe extern "C" fn columnar_executor_run(
+async unsafe extern "C" fn columnar_executor_run_internal(
     query_desc: *mut QueryDesc,
     direction: i32,
     count: u64,
@@ -104,9 +115,9 @@ unsafe extern "C" fn columnar_executor_run(
     let rtable = (*ps).rtable;
 
     // Create default Substrait plan
-    let mut splan = substrait::proto::Plan::default();
+    let mut splan = datafusion_substrait::substrait::proto::Plan::default();
     // TODO: fill out the plan
-    let mut sget = substrait::proto::ReadRel::default();
+    let mut sget = datafusion_substrait::substrait::proto::ReadRel::default();
 
     let planstate = (*query_desc).planstate;
 
@@ -129,7 +140,8 @@ unsafe extern "C" fn columnar_executor_run(
 
             ReleaseSysCache(amTup);
 
-            if am_handler == memhandler_oid {
+            info!("{:?} ? {:?}", am_handler, memhandler_oid);
+            if am_handler != memhandler_oid {
                 standard_ExecutorRun(query_desc, direction, count, execute_once);
                 info!("Standard ExecutorRun called");
                 return;
@@ -138,36 +150,104 @@ unsafe extern "C" fn columnar_executor_run(
             if let Err(e) = transform_seqscan_to_substrait(ps, &mut sget) {
                 error!("Error transforming SeqScan to Substrait: {}", e);
             }
+
+            // splan.relations = Some(RelType::Root(RelRoot { input: Some(sget), names: $(names of output fields) }
+            // splan.extensions and extension_uris should be filled in while we're transforming
+            // TODO: print out the plan so we can confirm it
+            // TODO: get the names
+            splan.relations = vec![PlanRel{ rel_type: Some(Root(RelRoot { input: Some(Rel{ rel_type: Some(Read(Box::new(sget))) }), names: vec![]}))}];
+
+            info!("start if nest");
+            if let Ok(logical_plan) = from_substrait_plan(&col_datafusion::CONTEXT, &splan).await {
+                info!("if 2");
+                if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await {
+                    info!("if 3");
+                    if let Ok(recordbatchvec) = dataframe.collect().await {
+                        let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT ||
+                                  (*(*query_desc).plannedstmt).hasReturning);
+
+                        if (sendTuples) {
+                            info!("send tuples");
+                            let recordbatch = &recordbatchvec[0];
+                            let dest = (*query_desc).dest;
+                            let rStartup = (*dest).rStartup;
+                            match rStartup {
+                                Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
+                                None => panic!("no rstartup"),
+                            };
+                            info!("rstartup complete");
+                            let tuple_desc = PgTupleDesc::from_pg((*query_desc).tupDesc);
+
+                            let receiveSlot = (*dest).receiveSlot;
+                            match receiveSlot {
+                                Some(f) => for row_index in 0..recordbatch.num_rows() {
+                                    let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsVirtual);
+                                    let mut col_index = 0;
+                                    for attr in tuple_desc.iter() {
+                                        let column = recordbatch.column(col_index);
+                                        let dt = column.data_type();
+                                        let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
+                                        match dt {
+                                            DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
+                                            DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
+                                            DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
+                                            DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
+                                            DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
+                                            DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
+                                            // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
+                                            DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
+                                            DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
+                                            DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
+                                            _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
+                                        };
+                                        col_index += 1;
+                                    }
+                                    f(tuple_table_slot, dest);
+                                },
+                                None => panic!("no receiveslot"),
+                            }
+
+                            let rShutdown = (*dest).rShutdown;
+                            match rShutdown {
+                                Some(f) => f(dest),
+                                None => panic!("no rshutdown"),
+                            }
+                        } else {
+                            info!("no sendTuples");
+                        }
+                    } else {
+                        info!("dataframe collect failed");
+                    }
+                } else {
+                    info!("failed executing logical plan");
+                }
+            } else {
+                info!("failed to create dataframe");
+            }
+
+            return;
         }
         _ => {
             // TODO: Add missing types
         }
     }
-    // splan.relations = Some(RelType::Root(RelRoot { input: Some(sget), names: $(names of output fields) }
-    // splan.extensions and extension_uris should be filled in while we're transforming
-    // TODO: print out the plan so we can confirm it
-    // TODO: get the names
-    splan.relations = vec![PlanRel{ rel_type: Some(Root(RelRoot { input: Some(Rel{ rel_type: Some(Read(Box::new(sget))) }), names: vec![]}))}];
 
     unsafe {
-        // TODO: instead of standard_ExecutorRun, should pass substrait plan to DataFusion and process results
+        info!("calling standard_ExecutorRun");
         standard_ExecutorRun(query_desc, direction, count, execute_once);
-        // let logical_plan = from_substrait_plan(ctx, splan);
-        // let results = CONTEXT.execute_logical_plan(logical_plan);
-
-        // let sendTuples = (query_desc.operation == CMD_SELECT ||
-        //           query_desc.plannedstmt.hasReturning);
-
-        // if (sendTuples) {
-        //     let dest = query_desc.dest;
-        //     dest.rStartup(dest, operation, query_desc.tupDesc);
-        //     // TODO: is this where we should conver the results to tuples and pass to dest?
-        //     dest.receiveSlot(/* SLOT */, dest);
-        // }
 
         // Log the fact that standard planner was called
         info!("Standard ExecutorRun called");
     }
+}
+
+unsafe extern "C" fn columnar_executor_run(
+    query_desc: *mut QueryDesc,
+    direction: i32,
+    count: u64,
+    execute_once: bool,
+) {
+    executor::block_on(columnar_executor_run_internal(query_desc, direction, count, execute_once));
 }
 
 // initializes telemetry

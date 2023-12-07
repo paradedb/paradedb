@@ -1,11 +1,12 @@
 use async_std::task;
 use core::ffi::c_char;
-use datafusion::arrow::array::{Array, ArrayIter, AsArray, Int32Array, PrimitiveArray, Scalar};
-use datafusion::arrow::datatypes::{DataType, Field, Int32Type, Schema, SchemaRef, TimeUnit};
+use datafusion::common::arrow::array::types::{BooleanType, Int16Type, Int32Type, Int64Type, UInt32Type, Float32Type, GenericStringType, Time32SecondType, TimestampSecondType, Date32Type};
+use datafusion::arrow::datatypes::{ArrowPrimitiveType, DataType, Field, Schema, SchemaRef, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::datasource::{MemTable, TableProvider};
 use datafusion::prelude::SessionContext;
 use datafusion::sql::TableReference;
+use datafusion::common::cast::as_primitive_array;
 use lazy_static::lazy_static;
 use pgrx::pg_sys::*;
 use pgrx::*;

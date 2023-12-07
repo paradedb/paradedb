@@ -2,7 +2,7 @@ use core::ffi::c_char;
 use pgrx::pg_sys::*;
 use pgrx::*;
 
-use crate::datafusion::DFTable;
+use crate::col_datafusion::DFTable;
 
 #[pg_guard]
 pub unsafe extern "C" fn memam_relation_set_new_filenode(

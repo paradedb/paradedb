@@ -28,7 +28,7 @@ use std::ptr;
 use std::ptr::copy_nonoverlapping;
 use std::sync::Arc;
 
-use crate::datafusion::{DFTable, CONTEXT};
+use crate::col_datafusion::{DFTable, CONTEXT};
 use crate::table_access::utils::detoast;
 
 pub unsafe extern "C" fn memam_slot_callbacks(rel: Relation) -> *const TupleTableSlotOps {

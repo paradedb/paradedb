@@ -11,10 +11,11 @@ use pg_sys::{
 use pgrx::pg_sys::{get_attname, rt_fetch, NodeTag, Oid};
 use pgrx::prelude::*;
 use pgrx::spi::Error;
+use pgrx::PgRelation;
 use std::ffi::CStr;
-use substrait::proto;
-use substrait::proto::expression::literal::LiteralType;
-use substrait::proto::r#type;
+use datafusion_substrait::substrait::proto;
+use datafusion_substrait::substrait::proto::expression::literal::LiteralType;
+use datafusion_substrait::substrait::proto::r#type;
 
 // TODO: return type: option or just a pointer?
 unsafe fn get_attr(table: *mut RelationData, index: isize) -> *const FormData_pg_attribute {
@@ -191,7 +192,8 @@ pub fn transform_seqscan_to_substrait(
     // scanrelid is index into the range table
     let rte = unsafe { rt_fetch((*scan).scan.scanrelid, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
-    let relname = unsafe { &mut (*(*relation).rd_rel).relname as *mut NameData };
+    // let relname = unsafe { &mut (*(*relation).rd_rel).relname as *mut NameData };
+    let pg_relation = unsafe { PgRelation::from_pg(relation) };
 
     // let's enumerate all the fields in Plan, especially qual and initPlan
     unsafe {
@@ -231,14 +233,17 @@ pub fn transform_seqscan_to_substrait(
     }
     */
 
-    // TODO: I think we can make this much simpler by exposing NameStr directly in pgrx::pg_sys
-    let tablename = unsafe { CStr::from_ptr(relname as *const _ as *const i8) };
-    unsafe { namestrcpy(relname, tablename.as_ptr()) };
-    let tablename_str = unsafe { CStr::from_ptr(relname as *const _ as *const i8) }
-        .to_string_lossy() // Convert to a String
-        .into_owned();
-    info!("table name {:?}", tablename_str);
-    let table_names = vec![tablename_str]; // Create a Vec<String> with the table name
+    // // TODO: I think we can make this much simpler by exposing NameStr directly in pgrx::pg_sys
+    // let tablename = unsafe { CStr::from_ptr(relname as *const _ as *const i8) };
+    // unsafe { namestrcpy(relname, tablename.as_ptr()) };
+    // let tablename_str = unsafe { CStr::from_ptr(relname as *const _ as *const i8) }
+    //     .to_string_lossy() // Convert to a String
+    //     .into_owned();
+    // info!("table name {:?}", tablename_str);
+    // let table_names = vec![tablename_str]; // Create a Vec<String> with the table name
+    // // TODO: in Table AM, we create tables using the OID instead, so we should probably pass that instead?
+    let tablename = format!("{}", pg_relation.oid());
+    let table_names = vec![tablename];
 
     // TODO: I only passed in a single table name, but this seems to be for arbitrary many tables that the SeqScan is over, probably
     // we'll need to tweak the logic here to make it work for multiple tables
@@ -359,6 +364,7 @@ pub fn transform_seqscan_to_substrait(
         (*sget).base_schema = Some(base_schema);
         (*sget).read_type = Some(table)
     };
+    info!("finished creating plan");
     Ok(())
     // let sget = proto::ReadRel {
     //     common: None,

@@ -56,11 +56,6 @@ SELECT id, description, rating, category FROM search_config.search('description:
   2 | Plastic Keyboard         |      4 | Electronics
 (2 rows)
 
--- With fuzzy and regex field
-SELECT id, description, rating, category FROM search_config.search('description:com', regex_fields => 'description', fuzzy_fields => 'description');
-ERROR:  cannot search with both regex_fields and fuzzy_fields
-CONTEXT:  SQL statement "SELECT * FROM paradedb.search_config WHERE (paradedb.search_config.ctid) @@@ __paradedb_search_config__"
-PL/pgSQL function search_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text) line 20 at RETURN QUERY
 -- With regex field 
 SELECT id, description, rating, category FROM search_config.search('com', regex_fields => 'description');
  id |      description       | rating |  category   

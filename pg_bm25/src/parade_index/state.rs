@@ -1,10 +1,7 @@
-use std::collections::HashMap;
-
 use crate::index_access::utils::SearchConfig;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, RegexQuery};
 use tantivy::query_grammar::Occur;
-use tantivy::SnippetGenerator;
 use tantivy::{
     query::{Query, QueryParser},
     schema::*,

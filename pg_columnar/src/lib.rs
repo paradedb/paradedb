@@ -13,6 +13,7 @@ use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 
 use crate::to_substrait::transform_seqscan_to_substrait;
+use crate::to_substrait::transform_modify_to_substrait;
 
 mod to_substrait;
 use datafusion::common::cast::as_primitive_array;
@@ -42,6 +43,9 @@ use pgrx::PgTupleDesc;
 use pgrx::pg_sys::CmdType_CMD_SELECT;
 use pgrx::pg_sys::MakeTupleTableSlot;
 use pgrx::pg_sys::TTSOpsVirtual;
+use pgrx::pg_sys::ModifyTable;
+use pgrx::pg_sys::rt_fetch;
+use pgrx::pg_sys::RelationIdGetRelation;
 
 use futures::executor;
 
@@ -118,6 +122,7 @@ async unsafe extern "C" fn columnar_executor_run_internal(
     let mut splan = datafusion_substrait::substrait::proto::Plan::default();
     // TODO: fill out the plan
     let mut sget = datafusion_substrait::substrait::proto::ReadRel::default();
+    let mut sput = datafusion_substrait::substrait::proto::WriteRel::default();
 
     let planstate = (*query_desc).planstate;
 
@@ -127,9 +132,9 @@ async unsafe extern "C" fn columnar_executor_run_internal(
         NodeTag::T_SeqScan => {
             info!("match T_SeqScan");
             // Check if the table is using our table AM before running our custom logic
-            let scanstate = planstate as *mut ScanState;
-            let rel = (*scanstate).ss_currentRelation;
-            let am_handler = (*rel).rd_amhandler;
+            let rte = unsafe { rt_fetch(((*ps).planTree as SeqScan).scan.scanrelid, rtable) };
+            let relation = unsafe { RelationIdGetRelation((*rte).relid) };
+            let am_handler = (*relation).rd_amhandler;
 
             let handlername_cstr = CString::new("mem").unwrap();
             let handlername_ptr = handlername_cstr.as_ptr() as *mut i8;
@@ -137,9 +142,7 @@ async unsafe extern "C" fn columnar_executor_run_internal(
             let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(memam_oid));
             let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
             let memhandler_oid = (*amForm).amhandler;
-
             ReleaseSysCache(amTup);
-
             info!("{:?} ? {:?}", am_handler, memhandler_oid);
             if am_handler != memhandler_oid {
                 standard_ExecutorRun(query_desc, direction, count, execute_once);
@@ -220,6 +223,73 @@ async unsafe extern "C" fn columnar_executor_run_internal(
                         } else {
                             info!("no sendTuples");
                         }
+                    } else {
+                        info!("dataframe collect failed");
+                    }
+                } else {
+                    info!("failed executing logical plan");
+                }
+            } else {
+                info!("failed to create dataframe");
+            }
+
+            return;
+        }
+
+        NodeTag::T_ModifyTable => {
+            info!("match T_ModifyTable");
+            // Check if the table is using our table AM before running our custom logic
+            let rte = unsafe { rt_fetch(((*ps).planTree as ModifyTable).nominalRelation, rtable) };
+            let relation = unsafe { RelationIdGetRelation((*rte).relid) };
+            let am_handler = (*relation).rd_amhandler;
+
+            let handlername_cstr = CString::new("mem").unwrap();
+            let handlername_ptr = handlername_cstr.as_ptr() as *mut i8;
+            let memam_oid = get_am_oid(handlername_ptr, true);
+            let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(memam_oid));
+            let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
+            let memhandler_oid = (*amForm).amhandler;
+            ReleaseSysCache(amTup);
+            info!("{:?} ? {:?}", am_handler, memhandler_oid);
+            if am_handler != memhandler_oid {
+                standard_ExecutorRun(query_desc, direction, count, execute_once);
+                info!("Standard ExecutorRun called");
+                return;
+            }
+
+            // TODO: this is super sus but we need to do something like this to get through the tree 
+            //       and pass the appropriate logical plans back up to their parent nodes
+            
+            let input: LogicalPlan = if !(*tree).lefttree.is_null() && (*((*tree).lefttree as *mut Node)).type_ == NodeTag::T_Result {
+                transform_result_to_datafusion((*tree).lefttree, rtable)
+            } else if !(*tree).righttree.is_null() && (*((*tree).righttree as *mut Node)).type_ == NodeTag::T_Result {
+                transform_result_to_datafusion((*tree).righttree, rtable)
+            } else {
+                LogicalPlanBuilder::scan(
+                    object_name_to_string(&table_name),
+                    table_source,
+                    None,
+                )?
+                .build()?
+            }
+
+            if let Err(e) = transform_modify_to_substrait(ps, &mut sput) {
+                error!("Error transforming ModifyTable to Substrait: {}", e);
+            }
+
+            // splan.relations = Some(RelType::Root(RelRoot { input: Some(sput), names: $(names of output fields) }
+            // splan.extensions and extension_uris should be filled in while we're transforming
+            // TODO: print out the plan so we can confirm it
+            // TODO: get the names
+            splan.relations = vec![PlanRel{ rel_type: Some(Root(RelRoot { input: Some(Rel{ rel_type: Some(Write(Box::new(sput))) }), names: vec![]}))}];
+
+            info!("start if nest");
+            if let Ok(logical_plan) = from_substrait_plan(&col_datafusion::CONTEXT, &splan).await {
+                info!("if 2");
+                if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await {
+                    info!("if 3");
+                    if let Ok(recordbatchvec) = dataframe.collect().await {
+                        // TODO: implement sendTuples to support returning tuples
                     } else {
                         info!("dataframe collect failed");
                     }

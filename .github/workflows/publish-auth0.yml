@@ -38,7 +38,7 @@ jobs:
             echo "environment=prod" >> $GITHUB_OUTPUT
             echo "auth0_secret=${{ secrets.AUTH_CLIENT_SECRET_PROD }}" >> $GITHUB_OUTPUT
             echo "stripe_api_key=${{ secrets.STRIPE_API_KEY_PROD }}" >> $GITHUB_OUTPUT
-            echo "intercom_access_token=${{ secrets.INTERCOM_ACCESS_TOKEN_PROD }}" >> $GITHUB_OUTPUT
+            echo "intercom_access_token=${{ secrets.INTERCOM_ACCESS_TOKEN }}" >> $GITHUB_OUTPUT
             echo "Using prod configuration..."
           elif [[ "${{ github.ref }}" == "refs/heads/staging" ]]; then
             echo "environment=staging" >> $GITHUB_OUTPUT
@@ -47,7 +47,7 @@ jobs:
             echo "environment=dev" >> $GITHUB_OUTPUT
             echo "auth0_secret=${{ secrets.AUTH_CLIENT_SECRET_DEV }}" >> $GITHUB_OUTPUT
             echo "stripe_api_key=${{ secrets.STRIPE_API_KEY_DEV }}" >> $GITHUB_OUTPUT
-            echo "intercom_access_token=${{ secrets.INTERCOM_ACCESS_TOKEN_DEV }}" >> $GITHUB_OUTPUT
+            echo "intercom_access_token=${{ secrets.INTERCOM_ACCESS_TOKEN }}" >> $GITHUB_OUTPUT
             echo "Using dev configuration..."
           fi
 

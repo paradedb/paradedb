@@ -42,5 +42,4 @@ const PUT = withRequest(async ({ accessToken, req }) => {
   });
 });
 
-
 export { POST, PUT, DELETE };

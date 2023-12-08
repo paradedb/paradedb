@@ -79,7 +79,7 @@ const ConfigureInstanceModal = ({
       }),
     });
 
-    const plan = prices?.find((price) => price.id === selectedPlan)
+    const plan = prices?.find((price) => price.id === selectedPlan);
     method = "PUT";
     await fetch("/api/databases", {
       method,

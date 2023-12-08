@@ -168,9 +168,12 @@ async unsafe extern "C" fn columnar_executor_run_internal(
 
                         if (sendTuples) {
                             info!("send tuples");
-                            let recordbatch = &recordbatchvec[0];
+                            info!("{:?}", recordbatchvec);
+                            info!("get dest");
                             let dest = (*query_desc).dest;
+                            info!("get rstartup");
                             let rStartup = (*dest).rStartup;
+                            info!("running rstartup");
                             match rStartup {
                                 Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
                                 None => panic!("no rstartup"),
@@ -180,29 +183,31 @@ async unsafe extern "C" fn columnar_executor_run_internal(
 
                             let receiveSlot = (*dest).receiveSlot;
                             match receiveSlot {
-                                Some(f) => for row_index in 0..recordbatch.num_rows() {
-                                    let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsVirtual);
-                                    let mut col_index = 0;
-                                    for attr in tuple_desc.iter() {
-                                        let column = recordbatch.column(col_index);
-                                        let dt = column.data_type();
-                                        let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
-                                        match dt {
-                                            DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
-                                            DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
-                                            DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
-                                            DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
-                                            DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
-                                            DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
-                                            // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
-                                            DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
-                                            DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
-                                            DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
-                                            _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
-                                        };
-                                        col_index += 1;
+                                Some(f) => for recordbatch in recordbatchvec.iter() {
+                                    for row_index in 0..recordbatch.num_rows() {
+                                        let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsVirtual);
+                                        let mut col_index = 0;
+                                        for attr in tuple_desc.iter() {
+                                            let column = recordbatch.column(col_index);
+                                            let dt = column.data_type();
+                                            let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
+                                            match dt {
+                                                DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
+                                                DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
+                                                DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
+                                                DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
+                                                DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
+                                                DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
+                                                // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
+                                                DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
+                                                DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
+                                                DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
+                                                _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
+                                            };
+                                            col_index += 1;
+                                        }
+                                        f(tuple_table_slot, dest);
                                     }
-                                    f(tuple_table_slot, dest);
                                 },
                                 None => panic!("no receiveslot"),
                             }

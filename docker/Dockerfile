@@ -264,13 +264,13 @@ WORKDIR /tmp/pg_sparse
 COPY pg_sparse/ /tmp/pg_sparse
 RUN sed -i "s/default_version = .*/default_version = '${PG_SPARSE_VERSION}'/" svector.control && \
     sed -i "s/^EXTVERSION = .*/EXTVERSION = ${PG_SPARSE_VERSION}/" Makefile && \
+    make clean && \
     make && \
     make install && \
     rm -rf /tmp/pg_sparse
 WORKDIR /
 
-# Copy entrypoint script, which will be handled by the official image
-# initialization scipt
+# Copy entrypoint script, which will be handled by the official image initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
 # Change the uid of postgres to 26

@@ -250,33 +250,63 @@ Finally, let's implement hybrid search, which combines BM25-based full text scor
 similarity scores. Hybrid search is especially useful in scenarios where you want to match by both
 exact keywords and semantic meaning.
 
-Let's execute a hybrid search that calculates the similarity and BM25 scores for each row, normalizes
-
+The `rank_hybrid` function accepts a BM25 query and a similarity query. It normalizes the BM25 and similarity scores
+and combines them using a weighted average.
 
 ```sql
-WITH similarity AS (
-  SELECT
-    id,
-    description,
-    1 - ((embedding <-> '[1,2,3]') - MIN('[1,2,3]' <-> embedding) OVER ()) /
-      (MAX('[1,2,3]' <-> embedding) OVER () - MIN('[1,2,3]' <-> embedding) OVER ()) AS score
-  FROM mock_items
-  ORDER BY embedding <-> '[1,2,3]'
-  LIMIT 20
-),
-bm25 AS (
-  SELECT s.id, s.description, r.minmax_bm25 as score
-  FROM ngrams_idx.search('description:keyboard') as s
-  LEFT JOIN ngrams_idx.rank_minmax('description:keyboard') as r ON s.id = r.id
-  LIMIT 20
+SELECT * FROM search_idx.rank_hybrid(
+    bm25_query => 'description:keyboard OR category:electronics',
+    similarity_query => '''[1,2,3]'' <-> embedding',
+    bm25_weight => 0.9,
+    similarity_weight => 0.1
 )
-SELECT
-    COALESCE(similarity.description, bm25.description) as description,
-    COALESCE(similarity.score, 0.0) * 0.5 + COALESCE(bm25.score, 0.0) * 0.5 AS score_hybrid
-FROM similarity
-FULL OUTER JOIN bm25 ON similarity.id = bm25.id
-ORDER BY score_hybrid DESC;
+LIMIT 5;
 ```
+
+<Accordion title="Expected Response">
+``` csv
+ id | rank_hybrid
+----+-------------
+  2 |  0.95714283
+  1 |   0.8487012
+ 29 |         0.1
+ 39 |         0.1
+  9 |         0.1
+(5 rows)
+```
+</Accordion>
+
+Let's join this table with our `mock_items` table to see the results of our hybrid search:
+
+```sql
+SELECT mock_items.description, mock_items.category, mock_items.embedding, search.rank_hybrid
+FROM mock_items
+LEFT JOIN (
+    SELECT * FROM search_idx.rank_hybrid(
+        bm25_query => 'description:keyboard OR category:electronics',
+        similarity_query => '''[1,2,3]'' <-> embedding',
+        bm25_weight => 0.9,
+        similarity_weight => 0.1
+    )
+) search ON mock_items.id = search.id
+LIMIT 5;
+```
+
+<Accordion title="Expected Response">
+``` csv
+       description        |  category   | embedding | rank_hybrid
+--------------------------+-------------+-----------+-------------
+ Plastic Keyboard         | Electronics | [4,5,6]   |  0.95714283
+ Ergonomic metal keyboard | Electronics | [3,4,5]   |   0.8487012
+ Designer wall paintings  | Home Decor  | [1,2,3]   |         0.1
+ Handcrafted wooden frame | Home Decor  | [1,2,3]   |         0.1
+ Modern wall clock        | Home Decor  | [1,2,3]   |         0.1
+(5 rows)
+```
+</Accordion>
+
+As we can see, results with the word `keyboard` scored higher than results with an embedding of
+`[1,2,3]` because we placed a weight of `0.9` on the BM25 scores.
 
 ## Congratulations!
 

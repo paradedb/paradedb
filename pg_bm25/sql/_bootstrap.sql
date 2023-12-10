@@ -174,10 +174,10 @@ BEGIN
             WITH similarity AS (
                 SELECT
                     __key_field__ as key_field,
-                    1 - ((__embedding_query__) - MIN(__embedding_query__) OVER ()) / 
-                    (MAX(__embedding_query__) OVER () - MIN(__embedding_query__) OVER ()) AS score
+                    1 - ((__similarity_query__) - MIN(__similarity_query__) OVER ()) / 
+                    (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ()) AS score
                 FROM %I
-                ORDER BY __embedding_query__
+                ORDER BY __similarity_query__
                 LIMIT $2
             ),
             bm25 AS (
@@ -271,10 +271,10 @@ BEGIN
             -- function, or you'll get a runtime "function does not exist" error when you try to drop.
             CREATE OR REPLACE FUNCTION %s(
                 bm25_query text,
-                embedding_query text,
-                embedding_limit_n integer DEFAULT 100,
+                similarity_query text,
+                similarity_limit_n integer DEFAULT 100,
                 bm25_limit_n integer DEFAULT 100,
-                embedding_weight real DEFAULT 0.5,
+                similarity_weight real DEFAULT 0.5,
                 bm25_weight real DEFAULT 0.5
             ) RETURNS %s AS $func$
             DECLARE
@@ -289,11 +289,11 @@ BEGIN
                     )
                 );
 
-                query := replace(%L, '__embedding_query__', embedding_query);
+                query := replace(%L, '__similarity_query__', similarity_query);
                 query := replace(query, '__key_field__', __paradedb_search_config__ ->>'key_field');
 
                 RETURN QUERY EXECUTE query
-                USING __paradedb_search_config__, embedding_limit_n, embedding_weight, bm25_weight;
+                USING __paradedb_search_config__, similarity_limit_n, similarity_weight, bm25_weight;
             END;
             $func$ LANGUAGE plpgsql;
         $f$, function_name, return_type, index_json, __function_body__);

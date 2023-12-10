@@ -167,10 +167,32 @@ BEGIN
         index_json => index_json
     );
 
-    EXECUTE paradedb.format_bm25_function(
-        function_name => format('%I.rank_minmax', index_name),
-        return_type => format('TABLE(%s bigint, minmax_bm25 real)', key_field),
-        function_body => 'RETURN QUERY SELECT * FROM paradedb.minmax_bm25(__paradedb_search_config__);',
+    EXECUTE paradedb.format_hybrid_function(
+        function_name => format('%I.rank_hybrid', index_name),
+        return_type => format('TABLE(%s bigint, rank_hybrid real)', key_field),
+        function_body => '
+            WITH similarity AS (
+                SELECT
+                    __key_field__ as key_field,
+                    1 - ((__embedding_query__) - MIN(__embedding_query__) OVER ()) / 
+                    (MAX(__embedding_query__) OVER () - MIN(__embedding_query__) OVER ()) AS score
+                FROM %I
+                ORDER BY __embedding_query__
+                LIMIT $2
+            ),
+            bm25 AS (
+                SELECT 
+                    __key_field__ as key_field, 
+                    rank_bm25 as score 
+                FROM paradedb.minmax_bm25($1)
+            )
+            SELECT
+                COALESCE(similarity.key_field, bm25.key_field) AS __key_field__,
+                (COALESCE(similarity.score, 0.0) * $3 + COALESCE(bm25.score, 0.0) * $4)::real AS score_hybrid
+            FROM similarity
+            FULL OUTER JOIN bm25 ON similarity.key_field = bm25.key_field
+            ORDER BY score_hybrid DESC;
+        ',
         index_json => index_json
     );
    END;
@@ -223,6 +245,59 @@ BEGIN
         END;
         $func$ LANGUAGE plpgsql;
     $f$, function_name, return_type, index_json, function_body);
+END;
+$outerfunc$ LANGUAGE plpgsql;
+
+-- A helper function to format a hybrid search query
+CREATE OR REPLACE FUNCTION paradedb.format_hybrid_function(
+    function_name text,
+    return_type text,
+    function_body text,
+    index_json jsonb
+) RETURNS text AS $outerfunc$
+BEGIN
+    DECLARE
+        __table_name__ text;
+        __function_body__ text;
+    BEGIN
+        __table_name__ := index_json->>'table_name';
+        __function_body__ := format(
+            function_body,
+            __table_name__
+        );
+
+        RETURN format($f$
+            -- If you add parameters to the function here, you must also add them to the `drop_bm25`
+            -- function, or you'll get a runtime "function does not exist" error when you try to drop.
+            CREATE OR REPLACE FUNCTION %s(
+                bm25_query text,
+                embedding_query text,
+                embedding_limit_n integer DEFAULT 100,
+                bm25_limit_n integer DEFAULT 100,
+                embedding_weight real DEFAULT 0.5,
+                bm25_weight real DEFAULT 0.5
+            ) RETURNS %s AS $func$
+            DECLARE
+                __paradedb_search_config__ JSONB;
+                query text;
+            BEGIN
+            -- Merge the outer 'index_json' object into the parameters passed to the dynamic function.
+                __paradedb_search_config__ := jsonb_strip_nulls(
+                    '%s'::jsonb || jsonb_build_object(
+                        'query', bm25_query,
+                        'limit_rows', bm25_limit_n
+                    )
+                );
+
+                query := replace(%L, '__embedding_query__', embedding_query);
+                query := replace(query, '__key_field__', __paradedb_search_config__ ->>'key_field');
+
+                RETURN QUERY EXECUTE query
+                USING __paradedb_search_config__, embedding_limit_n, embedding_weight, bm25_weight;
+            END;
+            $func$ LANGUAGE plpgsql;
+        $f$, function_name, return_type, index_json, __function_body__);
+    END;
 END;
 $outerfunc$ LANGUAGE plpgsql;
 

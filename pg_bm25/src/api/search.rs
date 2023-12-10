@@ -107,7 +107,7 @@ pub fn minmax_bm25(
         });
     let score_range = max_score - min_score;
     let mut field_rows = Vec::new();
-    
+
     for (score, doc_address) in top_docs.into_iter() {
         let document = scan_state
             .doc(doc_address)

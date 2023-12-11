@@ -56,19 +56,18 @@ Each `_fields` input to `create_bm25()` accepts a [JSON5](https://json5.org)-for
 
 <ParamField body="index_name" required>
   The name of the index. The index name can be anything, as long as doesn't
-  conflict with an existing index.
+  conflict with an existing index or schema. A new schema with associated query functions will be created with this name.
 </ParamField>
 <ParamField body="table_name" required>
   The name of the table being indexed.
 </ParamField>
-<ParamField body="schema_name">
-  The name of the schema, or namespace, of the table. The schema name only needs
-  to be provided if the table is not in the `public` schema.
-</ParamField>
-<ParamField body="key_field">
+<ParamField body="key_field" required>
   The name of a column in the table that represents a unique identifier for each record. Usually, this
   is the same column that is the primary key of table. Currently, only integer IDs are supported, so
   if necessary you may consider creating a dedicated column to use e.g: `ALTER TABLE mock_items ADD COLUMN bm25_id SERIAL`.
+</ParamField>
+<ParamField body="schema_name" default="CURRENT SCHEMA">
+  The name of the schema, or namespace, of the table.
 </ParamField>
 <ParamField body="text_fields">
   A JSON5 string which specifies which text columns should be indexed and how they should be indexed.

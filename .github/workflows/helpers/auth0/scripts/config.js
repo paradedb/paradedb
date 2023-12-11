@@ -9,7 +9,7 @@
 // These don't need to be secrets, they're public values.
 const clientIDs = {
   dev: "BpqK7BouXcLWCocOJAZGJjtArh750M1Q",
-  prod: "TODO",
+  prod: "vQ5EPopoZA5tKaYROMRrq2u1zBuWcLrM",
 };
 
 const priceIDs = {

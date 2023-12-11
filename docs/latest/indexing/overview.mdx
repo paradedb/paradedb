@@ -9,10 +9,6 @@ imagine a Postgres table as a book, then an index is like the table of contents.
 through every page to find a chapter, the table of contents stores additional information that enables
 readers to locate a chapter much faster.
 
-By default, Postgres comes with several index types that are used to index different types of
-data. For instance, numeric data types might be indexed using a B-tree (Balanced Tree) index, whereas
-arrays might be indexed using a GIN (Generalized Inverted Index) index.
-
 ## ParadeDB Indexes
 
 ParadeDB relies on three new index types to power its search capabilities: the BM25 index for full text search,

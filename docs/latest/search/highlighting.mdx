@@ -21,8 +21,8 @@ SELECT * FROM <index_name>.highlight('<query>', highlight_field => '<field_name>
 
 ```sql
 SELECT s.*, r.highlight_bm25
-FROM mock_items.search('description:keyboard OR category:electronics', fuzzy_fields => 'description, category') as s
-LEFT JOIN mock_items.highlight('description:keyboard OR category:electronics', highlight_field => 'description', fuzzy_fields => 'description, category') as r ON s.id = r.id;
+FROM search_idx.search('description:keyboard OR category:electronics') as s
+LEFT JOIN search_idx.highlight('description:keyboard OR category:electronics', highlight_field => 'description') as r ON s.id = r.id;
 ```
 
 </Accordion>

@@ -1,10 +1,9 @@
 #!/bin/bash
 
 # This script installs the pgvector extension (from a specified tag) and the pg_bm25
-# extension (from the current commit) within your pgrx environment, since these
-# are required for developing the pg_search extension. Note that you need to run this
+# extension (from the current commit) within your pgrx environment. Note that you need to run this
 # script every time you make changes to the pg_bm25 extension or pgvector releases a
-# new version which you'd like reflected while developing the pg_search extension.
+# new version.
 
 # Exit on subcommand errors
 set -Eeuo pipefail
@@ -84,7 +83,7 @@ done
 echo ""
 echo "Installing pg_sparse..."
 echo ""
-cd "$CONFIGDIR/../../pg_sparse"
+cd "../pg_sparse"
 
 # Build and install pg_sparse into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do
@@ -114,7 +113,7 @@ done
 
 echo ""
 echo "Installing pg_bm25..."
-cd "$CONFIGDIR/../pg_bm25"
+cd "../pg_bm25"
 
 # Build and install pg_bm25 into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do
@@ -162,4 +161,4 @@ if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
   esac
 fi
 
-echo "Done! You can now develop pg_search by running 'cargo pgrx run'!"
+echo "Done! You can now do 'cargo pgrx run'!"

@@ -27,10 +27,6 @@ flags:
     paths:
       - pg_bm25/*
     carryforward: true
-  pg_search:
-    paths:
-      - pg_search/*
-    carryforward: true
   pg_sparse:
     paths:
       - pg_sparse/*

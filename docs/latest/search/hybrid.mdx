@@ -23,8 +23,7 @@ this function does the following:
 3. Calculates the weighted mean of the normalized scores
 
 ```sql
-SELECT *
-FROM <index_name>.rank_hybrid(
+SELECT * FROM <index_name>.rank_hybrid(
   bm25_query => '<bm25_query>',
   similarity_query => '<similarity_query>',
   bm25_weight => <bm25_weight>,

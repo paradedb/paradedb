@@ -11,5 +11,3 @@
 /docs/v0.4/search/fuzzy.mdx
 /docs/latest/search/autocomplete.mdx
 /docs/latest/search/fuzzy.mdx
-/pg_search/pgvector/
-/pg_search/test/pgvector/

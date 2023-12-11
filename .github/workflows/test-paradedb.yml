@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-pg_search:
+  test-paradedb:
     name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
     strategy:

@@ -12,10 +12,12 @@ use pgrx::prelude::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 
-use crate::to_substrait::transform_seqscan_to_substrait;
-use crate::to_substrait::transform_modify_to_substrait;
+// use crate::to_substrait::transform_seqscan_to_substrait;
+// use crate::to_substrait::transform_modify_to_substrait;
 
-mod to_substrait;
+// mod to_substrait;
+mod to_datafusion;
+use crate::to_datafusion::transform_seqscan_to_datafusion;
 use datafusion::common::cast::as_primitive_array;
 use datafusion_substrait::substrait::proto::RelRoot;
 use datafusion_substrait::substrait::proto::Rel;
@@ -119,10 +121,10 @@ async unsafe extern "C" fn columnar_executor_run_internal(
     let rtable = (*ps).rtable;
 
     // Create default Substrait plan
-    let mut splan = datafusion_substrait::substrait::proto::Plan::default();
-    // TODO: fill out the plan
-    let mut sget = datafusion_substrait::substrait::proto::ReadRel::default();
-    let mut sput = datafusion_substrait::substrait::proto::WriteRel::default();
+    // let mut splan = datafusion_substrait::substrait::proto::Plan::default();
+    // // TODO: fill out the plan
+    // let mut sget = datafusion_substrait::substrait::proto::ReadRel::default();
+    // let mut sput = datafusion_substrait::substrait::proto::WriteRel::default();
 
     let planstate = (*query_desc).planstate;
 
@@ -132,7 +134,7 @@ async unsafe extern "C" fn columnar_executor_run_internal(
         NodeTag::T_SeqScan => {
             info!("match T_SeqScan");
             // Check if the table is using our table AM before running our custom logic
-            let rte = unsafe { rt_fetch(((*ps).planTree as SeqScan).scan.scanrelid, rtable) };
+            let rte = unsafe { rt_fetch((*(plan as *mut SeqScan)).scan.scanrelid, rtable) };
             let relation = unsafe { RelationIdGetRelation((*rte).relid) };
             let am_handler = (*relation).rd_amhandler;
 
@@ -150,158 +152,231 @@ async unsafe extern "C" fn columnar_executor_run_internal(
                 return;
             }
 
-            if let Err(e) = transform_seqscan_to_substrait(ps, &mut sget) {
-                error!("Error transforming SeqScan to Substrait: {}", e);
+            if let Ok(df_plan) = transform_seqscan_to_datafusion(ps).await {
+                // info!("{:?}", df_plan);
+                if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(df_plan).await {
+                    let recordbatchvec_result = dataframe.collect().await;
+                    match recordbatchvec_result {
+                        Ok(recordbatchvec) => {
+                            let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT ||
+                                  (*(*query_desc).plannedstmt).hasReturning);
+
+                            if (sendTuples) {
+                                info!("send tuples");
+                                info!("{:?}", recordbatchvec);
+                                info!("get dest");
+                                let dest = (*query_desc).dest;
+                                info!("get rstartup");
+                                let rStartup = (*dest).rStartup;
+                                info!("running rstartup");
+                                match rStartup {
+                                    Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
+                                    None => panic!("no rstartup"),
+                                };
+                                info!("rstartup complete");
+                                let tuple_desc = PgTupleDesc::from_pg((*query_desc).tupDesc);
+
+                                let receiveSlot = (*dest).receiveSlot;
+                                match receiveSlot {
+                                    Some(f) => for recordbatch in recordbatchvec.iter() {
+                                        for row_index in 0..recordbatch.num_rows() {
+                                            let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsVirtual);
+                                            let mut col_index = 0;
+                                            for attr in tuple_desc.iter() {
+                                                let column = recordbatch.column(col_index);
+                                                let dt = column.data_type();
+                                                let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
+                                                match dt {
+                                                    DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
+                                                    DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
+                                                    DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
+                                                    DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
+                                                    DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
+                                                    DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
+                                                    // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
+                                                    DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
+                                                    DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
+                                                    DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
+                                                    _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
+                                                };
+                                                col_index += 1;
+                                            }
+                                            f(tuple_table_slot, dest);
+                                        }
+                                    },
+                                    None => panic!("no receiveslot"),
+                                }
+
+                                let rShutdown = (*dest).rShutdown;
+                                match rShutdown {
+                                    Some(f) => f(dest),
+                                    None => panic!("no rshutdown"),
+                                }
+                            } else {
+                                info!("no sendTuples");
+                            }
+                        },
+                        Err(e) => info!("dataframe collect failed: {}", e),
+                    }
+                } else {
+                    info!("failed executing logical plan");
+                }
+            }  else {
+                info!("failed to transform seqscan to datafusion await");
             }
+
+            // if let Err(e) = transform_seqscan_to_substrait(ps, &mut sget) {
+            //     error!("Error transforming SeqScan to Substrait: {}", e);
+            // }
 
             // splan.relations = Some(RelType::Root(RelRoot { input: Some(sget), names: $(names of output fields) }
             // splan.extensions and extension_uris should be filled in while we're transforming
             // TODO: print out the plan so we can confirm it
             // TODO: get the names
-            splan.relations = vec![PlanRel{ rel_type: Some(Root(RelRoot { input: Some(Rel{ rel_type: Some(Read(Box::new(sget))) }), names: vec![]}))}];
+            // splan.relations = vec![PlanRel{ rel_type: Some(Root(RelRoot { input: Some(Rel{ rel_type: Some(Read(Box::new(sget))) }), names: vec![]}))}];
 
-            info!("start if nest");
-            if let Ok(logical_plan) = from_substrait_plan(&col_datafusion::CONTEXT, &splan).await {
-                info!("if 2");
-                if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await {
-                    info!("if 3");
-                    if let Ok(recordbatchvec) = dataframe.collect().await {
-                        let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT ||
-                                  (*(*query_desc).plannedstmt).hasReturning);
+            // info!("start if nest");
+            // if let Ok(logical_plan) = from_substrait_plan(&col_datafusion::CONTEXT, &splan).await {
+            //     info!("if 2");
+            //     if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await {
+            //         info!("if 3");
+            //         if let Ok(recordbatchvec) = dataframe.collect().await {
+            //             let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT ||
+            //                       (*(*query_desc).plannedstmt).hasReturning);
 
-                        if (sendTuples) {
-                            info!("send tuples");
-                            info!("{:?}", recordbatchvec);
-                            info!("get dest");
-                            let dest = (*query_desc).dest;
-                            info!("get rstartup");
-                            let rStartup = (*dest).rStartup;
-                            info!("running rstartup");
-                            match rStartup {
-                                Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
-                                None => panic!("no rstartup"),
-                            };
-                            info!("rstartup complete");
-                            let tuple_desc = PgTupleDesc::from_pg((*query_desc).tupDesc);
+            //             if (sendTuples) {
+            //                 info!("send tuples");
+            //                 info!("{:?}", recordbatchvec);
+            //                 info!("get dest");
+            //                 let dest = (*query_desc).dest;
+            //                 info!("get rstartup");
+            //                 let rStartup = (*dest).rStartup;
+            //                 info!("running rstartup");
+            //                 match rStartup {
+            //                     Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
+            //                     None => panic!("no rstartup"),
+            //                 };
+            //                 info!("rstartup complete");
+            //                 let tuple_desc = PgTupleDesc::from_pg((*query_desc).tupDesc);
 
-                            let receiveSlot = (*dest).receiveSlot;
-                            match receiveSlot {
-                                Some(f) => for recordbatch in recordbatchvec.iter() {
-                                    for row_index in 0..recordbatch.num_rows() {
-                                        let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsVirtual);
-                                        let mut col_index = 0;
-                                        for attr in tuple_desc.iter() {
-                                            let column = recordbatch.column(col_index);
-                                            let dt = column.data_type();
-                                            let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
-                                            match dt {
-                                                DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
-                                                DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
-                                                DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
-                                                DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
-                                                DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
-                                                DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
-                                                // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
-                                                DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
-                                                DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
-                                                DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
-                                                _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
-                                            };
-                                            col_index += 1;
-                                        }
-                                        f(tuple_table_slot, dest);
-                                    }
-                                },
-                                None => panic!("no receiveslot"),
-                            }
+            //                 let receiveSlot = (*dest).receiveSlot;
+            //                 match receiveSlot {
+            //                     Some(f) => for recordbatch in recordbatchvec.iter() {
+            //                         for row_index in 0..recordbatch.num_rows() {
+            //                             let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsVirtual);
+            //                             let mut col_index = 0;
+            //                             for attr in tuple_desc.iter() {
+            //                                 let column = recordbatch.column(col_index);
+            //                                 let dt = column.data_type();
+            //                                 let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
+            //                                 match dt {
+            //                                     DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
+            //                                     DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
+            //                                     DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
+            //                                     DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
+            //                                     DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
+            //                                     DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
+            //                                     // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
+            //                                     DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
+            //                                     DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
+            //                                     DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
+            //                                     _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
+            //                                 };
+            //                                 col_index += 1;
+            //                             }
+            //                             f(tuple_table_slot, dest);
+            //                         }
+            //                     },
+            //                     None => panic!("no receiveslot"),
+            //                 }
 
-                            let rShutdown = (*dest).rShutdown;
-                            match rShutdown {
-                                Some(f) => f(dest),
-                                None => panic!("no rshutdown"),
-                            }
-                        } else {
-                            info!("no sendTuples");
-                        }
-                    } else {
-                        info!("dataframe collect failed");
-                    }
-                } else {
-                    info!("failed executing logical plan");
-                }
-            } else {
-                info!("failed to create dataframe");
-            }
+            //                 let rShutdown = (*dest).rShutdown;
+            //                 match rShutdown {
+            //                     Some(f) => f(dest),
+            //                     None => panic!("no rshutdown"),
+            //                 }
+            //             } else {
+            //                 info!("no sendTuples");
+            //             }
+            //         } else {
+            //             info!("dataframe collect failed");
+            //         }
+            //     } else {
+            //         info!("failed executing logical plan");
+            //     }
+            // } else {
+            //     info!("failed to create dataframe");
+            // }
 
             return;
         }
 
-        NodeTag::T_ModifyTable => {
-            info!("match T_ModifyTable");
-            // Check if the table is using our table AM before running our custom logic
-            let rte = unsafe { rt_fetch(((*ps).planTree as ModifyTable).nominalRelation, rtable) };
-            let relation = unsafe { RelationIdGetRelation((*rte).relid) };
-            let am_handler = (*relation).rd_amhandler;
+        // NodeTag::T_ModifyTable => {
+        //     info!("match T_ModifyTable");
+        //     // Check if the table is using our table AM before running our custom logic
+        //     let rte = unsafe { rt_fetch(((*ps).planTree as ModifyTable).nominalRelation, rtable) };
+        //     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
+        //     let am_handler = (*relation).rd_amhandler;
 
-            let handlername_cstr = CString::new("mem").unwrap();
-            let handlername_ptr = handlername_cstr.as_ptr() as *mut i8;
-            let memam_oid = get_am_oid(handlername_ptr, true);
-            let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(memam_oid));
-            let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
-            let memhandler_oid = (*amForm).amhandler;
-            ReleaseSysCache(amTup);
-            info!("{:?} ? {:?}", am_handler, memhandler_oid);
-            if am_handler != memhandler_oid {
-                standard_ExecutorRun(query_desc, direction, count, execute_once);
-                info!("Standard ExecutorRun called");
-                return;
-            }
+        //     let handlername_cstr = CString::new("mem").unwrap();
+        //     let handlername_ptr = handlername_cstr.as_ptr() as *mut i8;
+        //     let memam_oid = get_am_oid(handlername_ptr, true);
+        //     let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(memam_oid));
+        //     let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
+        //     let memhandler_oid = (*amForm).amhandler;
+        //     ReleaseSysCache(amTup);
+        //     info!("{:?} ? {:?}", am_handler, memhandler_oid);
+        //     if am_handler != memhandler_oid {
+        //         standard_ExecutorRun(query_desc, direction, count, execute_once);
+        //         info!("Standard ExecutorRun called");
+        //         return;
+        //     }
 
-            // TODO: this is super sus but we need to do something like this to get through the tree 
-            //       and pass the appropriate logical plans back up to their parent nodes
+        //     // TODO: this is super sus but we need to do something like this to get through the tree 
+        //     //       and pass the appropriate logical plans back up to their parent nodes
             
-            let input: LogicalPlan = if !(*tree).lefttree.is_null() && (*((*tree).lefttree as *mut Node)).type_ == NodeTag::T_Result {
-                transform_result_to_datafusion((*tree).lefttree, rtable)
-            } else if !(*tree).righttree.is_null() && (*((*tree).righttree as *mut Node)).type_ == NodeTag::T_Result {
-                transform_result_to_datafusion((*tree).righttree, rtable)
-            } else {
-                LogicalPlanBuilder::scan(
-                    object_name_to_string(&table_name),
-                    table_source,
-                    None,
-                )?
-                .build()?
-            }
+        //     let input: LogicalPlan = if !(*tree).lefttree.is_null() && (*((*tree).lefttree as *mut Node)).type_ == NodeTag::T_Result {
+        //         transform_result_to_datafusion((*tree).lefttree, rtable)
+        //     } else if !(*tree).righttree.is_null() && (*((*tree).righttree as *mut Node)).type_ == NodeTag::T_Result {
+        //         transform_result_to_datafusion((*tree).righttree, rtable)
+        //     } else {
+        //         LogicalPlanBuilder::scan(
+        //             object_name_to_string(&table_name),
+        //             table_source,
+        //             None,
+        //         )?
+        //         .build()?
+        //     }
 
-            if let Err(e) = transform_modify_to_substrait(ps, &mut sput) {
-                error!("Error transforming ModifyTable to Substrait: {}", e);
-            }
+        //     if let Err(e) = transform_modify_to_substrait(ps, &mut sput) {
+        //         error!("Error transforming ModifyTable to Substrait: {}", e);
+        //     }
 
-            // splan.relations = Some(RelType::Root(RelRoot { input: Some(sput), names: $(names of output fields) }
-            // splan.extensions and extension_uris should be filled in while we're transforming
-            // TODO: print out the plan so we can confirm it
-            // TODO: get the names
-            splan.relations = vec![PlanRel{ rel_type: Some(Root(RelRoot { input: Some(Rel{ rel_type: Some(Write(Box::new(sput))) }), names: vec![]}))}];
+        //     // splan.relations = Some(RelType::Root(RelRoot { input: Some(sput), names: $(names of output fields) }
+        //     // splan.extensions and extension_uris should be filled in while we're transforming
+        //     // TODO: print out the plan so we can confirm it
+        //     // TODO: get the names
+        //     splan.relations = vec![PlanRel{ rel_type: Some(Root(RelRoot { input: Some(Rel{ rel_type: Some(Write(Box::new(sput))) }), names: vec![]}))}];
 
-            info!("start if nest");
-            if let Ok(logical_plan) = from_substrait_plan(&col_datafusion::CONTEXT, &splan).await {
-                info!("if 2");
-                if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await {
-                    info!("if 3");
-                    if let Ok(recordbatchvec) = dataframe.collect().await {
-                        // TODO: implement sendTuples to support returning tuples
-                    } else {
-                        info!("dataframe collect failed");
-                    }
-                } else {
-                    info!("failed executing logical plan");
-                }
-            } else {
-                info!("failed to create dataframe");
-            }
+        //     info!("start if nest");
+        //     if let Ok(logical_plan) = from_substrait_plan(&col_datafusion::CONTEXT, &splan).await {
+        //         info!("if 2");
+        //         if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await {
+        //             info!("if 3");
+        //             if let Ok(recordbatchvec) = dataframe.collect().await {
+        //                 // TODO: implement sendTuples to support returning tuples
+        //             } else {
+        //                 info!("dataframe collect failed");
+        //             }
+        //         } else {
+        //             info!("failed executing logical plan");
+        //         }
+        //     } else {
+        //         info!("failed to create dataframe");
+        //     }
 
-            return;
-        }
+        //     return;
+        // }
         _ => {
             // TODO: Add missing types
         }

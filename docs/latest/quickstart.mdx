@@ -2,6 +2,12 @@
 title: Quickstart
 ---
 
+<Note>
+This quickstart covers the latest version of ParadeDB, which is a sigificant API refactor compared to versions of
+ParadeDB under v0.4. We strongly recommend upgrading to the latest version but have preserved [documentation for the deprecated API](/v0.4/quickstart)
+for existing users.
+</Note>
+
 This guide will walk you through the following steps to get started with ParadeDB:
 
 1. Create a ParadeDB instance
@@ -90,7 +96,7 @@ Currently, only integer IDs are supported in the `key_field` column, so if your 
 or a string, just add another column with serial IDs to your table and use that as your `key_field`.
 
 ```sql
-ALTER TABLE paradedb.search_test_table
+ALTER TABLE mock_items
 ADD COLUMN bm25_id SERIAL;
 ````
 </Note>
@@ -257,8 +263,7 @@ SELECT * FROM search_idx.rank_hybrid(
     similarity_query => '''[1,2,3]'' <-> embedding',
     bm25_weight => 0.9,
     similarity_weight => 0.1
-)
-LIMIT 5;
+) LIMIT 5;
 ```
 
 <Accordion title="Expected Response">

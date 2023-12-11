@@ -175,13 +175,13 @@ Each `_fields` input to `create_bm25()` accepts a [JSON5](https://json5.org)-for
 The following command deletes a BM25 index, as well as its associated schema and query functions:
 
 ```sql
-paradedb.drop_bm25('<index_name>');
+CALL paradedb.drop_bm25('<index_name>');
 ```
 
 <Accordion title="Example Usage">
 
 ```sql
-paradedb.drop_bm25('mock_items');
+CALL paradedb.drop_bm25('mock_items');
 ```
 
 </Accordion>
@@ -201,8 +201,7 @@ a new one using the commands provided above.
 The `paradedb.schema_bm25` function returns a table with information about the index schema.
 
 ```sql
-SELECT *
-FROM paradedb.schema_bm25('<index_name>');
+SELECT * FROM paradedb.schema_bm25('<index_name>');
 ```
 
 <ParamField body="index_name" required>

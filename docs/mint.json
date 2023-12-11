@@ -50,7 +50,8 @@
           "pages": [
             "latest/indexing/overview",
             "latest/indexing/bm25",
-            "latest/indexing/hnsw"
+            "latest/indexing/hnsw",
+            "latest/indexing/sparse"
           ]
         },
         {
@@ -65,7 +66,7 @@
         },
         {
           "group": "Similarity Search",
-          "pages": ["latest/search/hnsw"]
+          "pages": ["latest/search/hnsw", "latest/search/sparse"]
         },
         {
           "group": "Hybrid Search",

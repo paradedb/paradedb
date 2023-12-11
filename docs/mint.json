@@ -69,15 +69,7 @@
         },
         {
           "group": "Hybrid Search",
-          "pages": ["v0.4/search/hybrid"]
-        },
-        {
-          "group": "Aggregations",
-          "pages": [
-            "v0.4/aggregations/overview",
-            "v0.4/aggregations/bucket",
-            "v0.4/aggregations/metrics"
-          ]
+          "pages": ["latest/search/hybrid"]
         },
         {
           "group": "Deployment",

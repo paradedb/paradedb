@@ -4,27 +4,25 @@ title: Basic Full Text Search
 
 <Note>
   **Prerequisite** Before performing full text search over a table, it must
-  first be [indexed](/indexing/bm25).
+  first be [indexed](/latest/indexing/bm25).
 </Note>
 
 ## Overview
 
-Full text search uses the [BM25 index](/indexing/bm25) to find rows in a table that match a query.
+Full text search uses the [BM25 index](/latest/indexing/bm25) to find rows in a table that match a query.
 This type of search is especially useful for matching keywords inside documents.
 
 ## Basic Usage
 
-The custom `@@@` operator signifies a full text search. The left-hand side of the `@@@` accepts the
-name of the table, and the right-hand side accepts the query.
+The `search` function returns rows of a table that match a search query. By default, rows are sorted by relevance.
 
 ```sql
 SELECT *
-FROM <table_name>
-WHERE <table_name> @@@ ('index_name', '<query>')
+FROM <index_name>.search('<query>')
 ```
 
-<ParamField body="table_name" required>
-  The name of the table.
+<ParamField body="index_name" required>
+  The name of the index.
 </ParamField>
 <ParamField body="query" required>
   The query string. See the query options below for how to construct this
@@ -52,6 +50,21 @@ Phrases containing spaces should be wrapped in double quotes.
 'description:"plastic keyboard"'
 ```
 
+### Slop Operator
+
+The `~` slop operator is used to match phrases separated by words in between. For instance, let's say
+there exists a row with `description` set to "ergonomic metal keyboard." Because words "ergonomic" and "keyboard"
+are separated by one word, the following query would find this row.
+
+```sql
+'"ergonomic keyboard"~1'
+```
+
+<Note>
+  The slop operator is distinct from [fuzzy search](/search/fuzzy), which is
+  used for typo tolerance.
+</Note>
+
 ### JSON Fields
 
 Use `.` to search over text values nested inside JSON. For instance, the following query would search
@@ -61,8 +74,10 @@ over a field with values like `{"metadata": {"color": "white"}}`.
 'metadata.color:white'
 ```
 
-Note that JSON search only works over `json` and `jsonb` Postgres columns that have been indexed as
-[`json_fields`](/indexing/bm25#creating-a-bm25-index).
+<Note>
+  JSON search only works over `json` and `jsonb` Postgres columns that have been
+  indexed as [`json_fields`](/indexing/bm25#creating-a-bm25-index).
+</Note>
 
 ### Boosting
 
@@ -78,7 +93,7 @@ the relevance scores of results.
 `AND`, `OR`, and `NOT` can be used to combine and filter multiple terms.
 
 ```sql
-'description:keyboard OR toy NOT metal'
+'description:keyboard OR category:toy'
 ```
 
 Use parentheses to group terms and control the order of operations.
@@ -95,57 +110,35 @@ The set operator is a more CPU-efficient way of combining multiple `OR`s.
 'description:IN [keyboard, toy]'
 ```
 
-### Slop Operator
-
-The `~` slop operator is used to match phrases separated by words in between. For instance, let's say
-there exists a row with `description` set to "ergonomic metal keyboard." Because words "ergonomic" and "keyboard"
-are separated by one word, the following query would find this row.
-
-```sql
-'"ergonomic keyboard"~1'
-```
-
-Note that the slop operator is distinct from [fuzzy search](/search/fuzzy).
-
 ### Special Characters
 
-The special characters `+` , `^`, ```, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `~`, `!`, `\\`, `\*`, and `SPACE`
-must be escaped by a \ inside the query term.
+The special characters `+` , `^`, ```, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `~`, `!`, `\\`, `\*`, and `SPACE`must be escaped by a`\` inside the query term.
 
-## Configuration Options
-
-A trailing `:::` at the end of a query string marks the beginning of a config string, which uses standard
-URL param syntax. Individual options are separated by `&` and set with `=`.
-
-### Limit and Offset
+## Limit and Offset
 
 Specifying a limit and offset is a more efficient way of iterating through search results compared to
-SQL's `LIMIT` and `OFFSET` options.
+SQL's `LIMIT` and `OFFSET` options, which applies the filters after search instead of during search.
 
 ```sql
 SELECT *
-FROM mock_items
-WHERE mock_items @@@ 'description:keyboard:::limit=100&offset=50'
+FROM <index_name>.search(
+  '<query>',
+  limit_rows => <limit_rows>,
+  offset_rows => <offset_rows>
+)
 ```
+
+<ParamField body="index_name" required>
+  The name of the index.
+</ParamField>
+<ParamField body="query" required>
+  The query string.
+</ParamField>
+<ParamField body="limit_rows">The maximum number of rows to return.</ParamField>
+<ParamField body="offset_rows">
+  The number of rows to skip before starting to return rows.
+</ParamField>
 
 ## Filtering
 
-The standard SQL `WHERE` clause is used perform range and filter queries:
-
-### Numeric
-
-```sql
-SELECT *
-FROM mock_items
-WHERE mock_items @@@ 'description:keyboard'
-AND rating>=3;
-```
-
-### Timestamp
-
-```sql
-SELECT *
-FROM your_table
-WHERE mock_items @@@ 'description:keyboard'
-WHERE purchase_date > '2023-01-01 12:00:00-05';
-```
+TBD

@@ -136,15 +136,13 @@ LIMIT 5;
 </Accordion>
 
 Note that phrases must be wrapped in double quotes. Also note our use of the `~1` slop operator,
-which tells the search engine to return matches even if they are separated by `1` word.
+which tells ParadeDB to return matches even if they are separated by `1` word.
 
 Next, let's match against a partial word like `blue`. To
-do this, we'll drop our old index and create a new one that uses the `ngrams` tokenizer,
+do this, we'll create a new index that uses the `ngrams` tokenizer,
 which splits text into chunks of size `n`.
 
 ```sql
-CALL paradedb.drop_bm25('search_idx');
-
 CALL paradedb.create_bm25(
         index_name => 'ngrams_idx',
         schema_name => 'public',
@@ -183,7 +181,7 @@ LEFT JOIN ngrams_idx.rank('description:blue') as r ON s.id = r.id;
 ```
 </Accordion>
 
-Additionally, ParadeDB supports a variety of advanced full text search features like [fuzzy search](/latest/search/fuzzy),
+ParadeDB supports a variety of additional full text search features like [fuzzy search](/latest/search/fuzzy),
 [autocomplete](/latest/search/autocomplete),and [multi-language tokenizers](/latest/indexing/bm25#tokenizers).
 
 ## Similarity Search
@@ -250,8 +248,8 @@ Finally, let's implement hybrid search, which combines BM25-based full text scor
 similarity scores. Hybrid search is especially useful in scenarios where you want to match by both
 exact keywords and semantic meaning.
 
-The `rank_hybrid` function accepts a BM25 query and a similarity query. It normalizes the BM25 and similarity scores
-and combines them using a weighted average.
+The `rank_hybrid` function accepts a BM25 query and a similarity query. It applies minmax normalization to the BM25 and
+similarity scores and combines them using a weighted average.
 
 ```sql
 SELECT * FROM search_idx.rank_hybrid(
@@ -276,7 +274,7 @@ LIMIT 5;
 ```
 </Accordion>
 
-Let's join this table with our `mock_items` table to see the results of our hybrid search:
+Let's join this result with our `mock_items` table to see the full results of our hybrid search:
 
 ```sql
 SELECT mock_items.description, mock_items.category, mock_items.embedding, search.rank_hybrid
@@ -307,6 +305,10 @@ LIMIT 5;
 
 As we can see, results with the word `keyboard` scored higher than results with an embedding of
 `[1,2,3]` because we placed a weight of `0.9` on the BM25 scores.
+
+<Note>
+Minmax normalization transforms the lowest and highest scores in a dataset to `0` and `1`, respectively. Because of this, the lowest-ranking BM25 or similarity score may be overlooked, as it is transformed to `0`.
+</Note>
 
 ## Congratulations!
 

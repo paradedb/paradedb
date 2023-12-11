@@ -2,46 +2,53 @@ import classNames from "classnames";
 import React from "react";
 import { Button } from "@tremor/react";
 
-const DEFAULT_BUTTON =
-  "border bg-opacity-20 rounded-sm hover:bg-opacity-30 duration-500";
-const PRIMARY_BUTTON = classNames(
-  DEFAULT_BUTTON,
-  "text-emerald-400 bg-emerald-400 border-emerald-400 hover:bg-emerald-400 hover:border-emerald-400",
-);
-const SECONDARY_BUTTON = classNames(
-  DEFAULT_BUTTON,
-  "text-neutral-400 bg-neutral-400 border-neutral-400 hover:bg-neutral-400 hover:border-neutral-400",
-);
+const DEFAULT_BUTTON = "rounded-sm duration-500";
+const BUTTON_TYPES = {
+  success:
+    "text-emerald-400 bg-emerald-400 border-emerald-400 hover:bg-emerald-400 hover:border-emerald-400 bg-opacity-20 hover:bg-opacity-30",
+  warning:
+    "text-red-400 border-0 bg-red-400 bg-opacity-20 hover:bg-opacity-30 hover:text-red-400 hover:bg-red-400 bg-opacity-20 hover:bg-opacity-30",
+  primary:
+    "bg-neutral-100 text-neutral-800 border-0 hover:bg-neutral-100 hover:text-neutral-800 hover:border-0",
+};
+
+const BaseButton = ({
+  children,
+  buttonType,
+  ...props
+}: React.ComponentProps<typeof Button> & {
+  buttonType: keyof typeof BUTTON_TYPES;
+}) => {
+  return (
+    <Button
+      className={classNames(DEFAULT_BUTTON, BUTTON_TYPES[buttonType])}
+      {...props}
+    >
+      {children}
+    </Button>
+  );
+};
 
 const PrimaryButton = ({
   children,
   ...props
-}: React.ComponentProps<typeof Button>) => {
-  return (
-    <Button
-      className={classNames(PRIMARY_BUTTON, props.className ?? "")}
-      {...props}
-    >
-      {children}
-    </Button>
-  );
-};
+}: React.ComponentProps<typeof Button>) =>
+  BaseButton({ children, buttonType: "primary", ...props });
 
-const SecondaryButton = ({
+const WarningButton = ({
   children,
   ...props
-}: React.ComponentProps<typeof Button>) => {
-  return (
-    <Button
-      className={classNames(SECONDARY_BUTTON, props.className ?? "")}
-      {...props}
-    >
-      {children}
-    </Button>
-  );
-};
+}: React.ComponentProps<typeof Button>) =>
+  BaseButton({ children, buttonType: "warning", ...props });
+
+const SuccessButton = ({
+  children,
+  ...props
+}: React.ComponentProps<typeof Button>) =>
+  BaseButton({ children, buttonType: "success", ...props });
 
 PrimaryButton.displayName = "PrimaryButton";
-SecondaryButton.displayName = "SecondaryButton";
+WarningButton.displayName = "WarningButton";
+SuccessButton.displayName = "SuccessButton";
 
-export { PrimaryButton, SecondaryButton };
+export { PrimaryButton, WarningButton, SuccessButton };

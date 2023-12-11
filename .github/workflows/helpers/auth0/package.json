@@ -1,0 +1,19 @@
+{
+  "name": "paradedb-auth0",
+  "version": "1.0.0",
+  "description": "ParadeDB Auth0 configuration and rules",
+  "repository": "https://github.com/paradedb/paradedb/tree/main/.github/workflows/helpers/auth0",
+  "license": "AGPL-3.0",
+  "private": true,
+  "scripts": {
+    "dump:dev": "node ./scripts/dump.js dev",
+    "dump:prod": "node ./scripts/dump.js prod",
+    "deploy:dev": "node ./scripts/deploy.js dev",
+    "deploy:prod": "node ./scripts/deploy.js prod"
+  },
+  "devDependencies": {
+    "auth0-deploy-cli": "^7.2.0",
+    "lodash": "^4.17.21",
+    "yaml": "^2.0.0"
+  }
+}

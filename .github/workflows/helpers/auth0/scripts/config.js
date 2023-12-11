@@ -14,7 +14,7 @@ const clientIDs = {
 
 const priceIDs = {
   dev: "price_1ODBnKFLdqcXYNJa8VWQPkw8",
-  prod: "TODO",
+  prod: "price_1OMBaBFLdqcXYNJaOoodnpi7",
 };
 
 const getConfig = (env) => {

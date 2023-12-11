@@ -20,5 +20,17 @@ The following example returns rows sorted by L2 distance with respect to the que
 SELECT * FROM mock_items ORDER BY embedding <-> '[1,2,3]';
 ```
 
-Under the hood, ParadeDB uses `pgvector` for similarity search. Please refer to the
-[`pgvector` documentation](https://github.com/pgvector/pgvector) for more detailed documentation.
+Cosine distance:
+
+```sql
+SELECT * FROM mock_items ORDER BY embedding <=> '[1,2,3]';
+```
+
+Inner product:
+
+```sql
+SELECT * FROM mock_items ORDER BY embedding <#> '[1,2,3]';
+```
+
+Under the hood, ParadeDB uses `pg_sparse` for sparse vector search, which is ParadeDB's fork of `pgveector`.
+Please refer to the [`pg_sparse` documentation](https://github.com/paradedb/paradedb/tree/dev/pg_sparse) for more details.

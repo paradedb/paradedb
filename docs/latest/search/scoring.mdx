@@ -8,18 +8,31 @@ BM25 scores measure how relevant a score is for a given query. Higher scores ind
 
 ## Basic Usage
 
-The `paradedb.rank_bm25` function creates a column that contains each row's BM25 score. It accepts a key
-column as an argument, which usually is the primary key column of your table.
+After calling `create_bm25` to create a BM25 index and associated schema, you can use the new schema's `rank` function
+to return a table of scores for a given query.
 
 ```sql
-SELECT *, paradedb.rank_bm25(<key_field>)
-FROM <table_name>
-WHERE <table_name> @@@ ('<index_name>', '<query>')
+SELECT * FROM <index_name>.rank('<query>');
 ```
 
-<ParamField body="table_name" required>
-  The name of the table.
-</ParamField>
-<ParamField body="query" required>
-  The query string.
-</ParamField>
+The `rank_bm25` column contains each row’s BM25 score. Use a `LEFT JOIN` on a `search` query to join the scores with search results,
+matching the rows on the `key_field` column passed to `create_bm25`.
+
+```sql
+SELECT s.*, r.rank_bm25
+FROM <index_name>.search('<query>') as s
+LEFT JOIN <index_name>.rank('<query>') as r ON s.id = r.id;
+```
+
+<Accordion title="Example Usage">
+
+```sql
+SELECT s.*, r.rank_bm25
+FROM mock_items.search('description:keyboard OR category:electronics', fuzzy_fields => 'description, category') as s
+LEFT JOIN mock_items.rank('description:keyboard OR category:electronics', fuzzy_fields => 'description, category') as r ON s.id = r.id;
+```
+
+</Accordion>
+
+All parameters to the `search` function are applicable here. The `rank` function should receive identical
+arguments to the `search` function.

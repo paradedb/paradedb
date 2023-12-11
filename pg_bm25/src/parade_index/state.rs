@@ -56,7 +56,10 @@ impl TantivyScanState {
 
     pub fn search(&mut self) -> Vec<(f32, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
-        let limit = self.config.limit_rows.unwrap_or({
+        let limit = self.config.limit_rows.unwrap_or_else(|| {
+            // We use unwrap_or_else here so this block doesn't run unless
+            // we actually need the default value. This is important, because there can
+            // be some cost to Tantivy API calls.
             let num_docs = self.searcher.num_docs() as usize;
             if num_docs > 0 {
                 num_docs // The collector will panic if it's passed a limit of 0.

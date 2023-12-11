@@ -244,7 +244,7 @@ impl Default for ParadeNumericOptions {
     fn default() -> Self {
         Self {
             indexed: true,
-            fast: true,
+            fast: false,
             stored: true,
         }
     }
@@ -282,7 +282,7 @@ impl Default for ParadeBooleanOptions {
     fn default() -> Self {
         Self {
             indexed: true,
-            fast: true,
+            fast: false,
             stored: true,
         }
     }

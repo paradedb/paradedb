@@ -38,7 +38,7 @@ CALL paradedb.create_bm25(
   table_name => 'mock_items',
   key_field => 'id',
   text_fields => '{
-    description: {tokenizer: {type: "en_stem"}}, category: {fast: true}
+    description: {tokenizer: {type: "en_stem"}}, category: {}
   }'
 );
 ```
@@ -46,7 +46,7 @@ CALL paradedb.create_bm25(
 After executing the example above, a new schema called `mock_items` will be created. You can search the `mock_items`
 table with the BM25 index with the associated `search` function:
 
-```
+```sql
 SELECT * FROM mock_items.search('description:shoes');
 ```
 

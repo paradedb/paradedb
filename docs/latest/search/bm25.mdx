@@ -65,6 +65,33 @@ are separated by one word, the following query would find this row.
   used for typo tolerance.
 </Note>
 
+### Efficient Filtering
+
+Filters can be applied over numeric fields, which improves query times compared to standard SQL `WHERE` clauses.
+
+```sql
+-- Equality
+'description:keyboard AND rating:4'
+
+-- Simple range
+'description:keyboard AND rating:>4'
+
+-- Inclusive range
+'description:keyboard AND rating:[2 TO 5]'
+
+-- Exclusive range
+'description:keyboard AND rating:{2 TO 5}'
+
+-- Boolean
+'description:keyboard AND is_available:false'
+```
+
+<Note>
+  Filters only work over Postgres columns that have been indexed as
+  [`numeric_fields`](/indexing/bm25#creating-a-bm25-index) or
+  [`boolean_fields`](/indexing/bm25#creating-a-bm25-index).
+</Note>
+
 ### JSON Fields
 
 Use `.` to search over text values nested inside JSON. For instance, the following query would search
@@ -138,7 +165,3 @@ FROM <index_name>.search(
 <ParamField body="offset_rows">
   The number of rows to skip before starting to return rows.
 </ParamField>
-
-## Filtering
-
-TBD

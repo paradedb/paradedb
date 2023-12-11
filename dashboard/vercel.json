@@ -2,7 +2,7 @@
   "version": 2,
   "builds": [
     {
-      "src": "dashboard/package.json",
+      "src": "package.json",
       "use": "@vercel/next",
       "config": {
         "outputDirectory": ".next"

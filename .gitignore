@@ -21,3 +21,4 @@ target/
 
 # Ruff
 .ruff_cache/
+.vercel

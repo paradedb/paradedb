@@ -20,7 +20,8 @@ pub fn schema_bm25(
     name!(record, Option<String>),
     name!(normalizer, Option<String>),
 )> {
-    let parade_index = get_parade_index(index_name);
+    let bm25_index_name = format!("{}_bm25_index", index_name);
+    let parade_index = get_parade_index(&bm25_index_name);
     let schema = parade_index.schema();
 
     let mut field_rows = Vec::new();

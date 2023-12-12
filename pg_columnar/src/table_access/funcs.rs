@@ -555,6 +555,12 @@ pub unsafe extern "C" fn memam_relation_estimate_size(
     allvisfrac: *mut f64,
 ) {
     info!("Calling memam_relation_estimate_size");
+    // let heapam = GetHeapamTableAmRoutine();
+    // let relestopt = (*heapam).relation_estimate_size;
+    // match relestopt {
+    //     Some(relest) => relest(rel, attr_widths, pages, tuples, allvisfrac),
+    //     None => info!("no heapam rel est size"),
+    // };
 }
 
 pub unsafe extern "C" fn memam_scan_bitmap_next_block(

@@ -20,8 +20,6 @@ CALL paradedb.create_bm25(
         message: {tokenizer: {type: "korean_lindera"}, record: "position"}
     }'
 );
-NOTICE:  schema "korean" does not exist, skipping
-NOTICE:  index "korean_bm25_index" does not exist, skipping
 SELECT * FROM korean.search('author:김민준');
  id | author |       title        |                                            message                                            
 ----+--------+--------------------+-----------------------------------------------------------------------------------------------
@@ -62,8 +60,6 @@ CALL paradedb.create_bm25(
         message: {tokenizer: {type: "chinese_lindera"}, record: "position"}
     }'
 );
-NOTICE:  schema "chinese" does not exist, skipping
-NOTICE:  index "chinese_bm25_index" does not exist, skipping
 SELECT * FROM chinese.search('author:华');
  id | author |    title     |                            message                             
 ----+--------+--------------+----------------------------------------------------------------
@@ -104,8 +100,6 @@ CALL paradedb.create_bm25(
         message: {tokenizer: {type: "japanese_lindera"}, record: "position"}
     }'
 );
-NOTICE:  schema "japanese" does not exist, skipping
-NOTICE:  index "japanese_bm25_index" does not exist, skipping
 SELECT * FROM japanese.search('author:佐藤');
  id | author |       title        |                                            message                                             
 ----+--------+--------------------+------------------------------------------------------------------------------------------------

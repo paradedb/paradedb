@@ -13,8 +13,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	text_fields => '{text_array: {}, varchar_array: {}}'
 );
-NOTICE:  schema "example_table" does not exist, skipping
-NOTICE:  index "example_table_bm25_index" does not exist, skipping
 SELECT * FROM example_table.search('text_array:text1');
  id |     text_array      |  varchar_array  
 ----+---------------------+-----------------

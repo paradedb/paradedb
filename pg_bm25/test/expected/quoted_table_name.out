@@ -14,8 +14,6 @@ CALL paradedb.create_bm25(
 	key_field => 'key',
 	text_fields => '{"name": {}}'
 );
-NOTICE:  schema "activity" does not exist, skipping
-NOTICE:  index "activity_bm25_index" does not exist, skipping
 SELECT * FROM activity.search('name:alice');
  key | name  | age 
 -----+-------+-----

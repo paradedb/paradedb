@@ -4,14 +4,14 @@ CALL paradedb.create_bm25(
 	table_name => 'index_config'
 );
 ERROR:  no key_field parameter given for bm25 index "index_config"
-CONTEXT:  PL/pgSQL function create_bm25(text,text,text,text,text,text,text,text) line 14 at RAISE
+CONTEXT:  PL/pgSQL function create_bm25(text,text,text,text,text,text,text,text) line 18 at RAISE
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
 	table_name => 'index_config',
 	key_field => 'id'
 );
 ERROR:  no text_fields, numeric_fields, boolean_fields, or json_fields were specified for index index_config
-CONTEXT:  PL/pgSQL function create_bm25(text,text,text,text,text,text,text,text) line 18 at RAISE
+CONTEXT:  PL/pgSQL function create_bm25(text,text,text,text,text,text,text,text) line 22 at RAISE
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
 	table_name => 'index_config',
@@ -30,11 +30,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	text_fields => '{"description": {}}'
 );
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
@@ -45,11 +40,6 @@ SELECT * from paradedb.schema_bm25('index_config');
 (4 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 -- Text field with options
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -58,8 +48,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	text_fields => '{"description": {"fast": true, "tokenizer": { "type": "en_stem" }, "record": "freq", "normalizer": "raw"}}'
 );
-NOTICE:  schema "index_config" does not exist, skipping
-NOTICE:  index "index_config_bm25_index" does not exist, skipping
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
@@ -70,11 +58,6 @@ SELECT * from paradedb.schema_bm25('index_config');
 (4 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 -- Multiple text fields
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -83,8 +66,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	text_fields => '{"description": {fast: true, tokenizer: { type: "en_stem" }, record: "freq", normalizer: "raw"}, category: {}}'
 );
-NOTICE:  schema "index_config" does not exist, skipping
-NOTICE:  index "index_config_bm25_index" does not exist, skipping
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
@@ -96,11 +77,6 @@ SELECT * from paradedb.schema_bm25('index_config');
 (5 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 -- Default numeric field
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -109,8 +85,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	numeric_fields => '{"rating": {}}'
 );
-NOTICE:  schema "index_config" does not exist, skipping
-NOTICE:  index "index_config_bm25_index" does not exist, skipping
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
@@ -121,11 +95,6 @@ SELECT * from paradedb.schema_bm25('index_config');
 (4 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 -- Numeric field with options
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -134,8 +103,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	numeric_fields => '{"rating": {"fast": false}}'
 );
-NOTICE:  schema "index_config" does not exist, skipping
-NOTICE:  index "index_config_bm25_index" does not exist, skipping
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
@@ -146,11 +113,6 @@ SELECT * from paradedb.schema_bm25('index_config');
 (4 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 -- Default boolean field
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -159,8 +121,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	boolean_fields => '{"in_stock": {}}'
 );
-NOTICE:  schema "index_config" does not exist, skipping
-NOTICE:  index "index_config_bm25_index" does not exist, skipping
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
@@ -171,11 +131,6 @@ SELECT * from paradedb.schema_bm25('index_config');
 (4 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 -- Boolean field with options
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -184,8 +139,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	boolean_fields => '{"in_stock": {"fast": false}}'
 );
-NOTICE:  schema "index_config" does not exist, skipping
-NOTICE:  index "index_config_bm25_index" does not exist, skipping
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
@@ -196,11 +149,6 @@ SELECT * from paradedb.schema_bm25('index_config');
 (4 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 -- Default Json field
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -209,8 +157,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	json_fields => '{"metadata": {}}'
 );
-NOTICE:  schema "index_config" does not exist, skipping
-NOTICE:  index "index_config_bm25_index" does not exist, skipping
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
@@ -221,11 +167,6 @@ SELECT * from paradedb.schema_bm25('index_config');
 (4 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 -- Json field with options
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -234,8 +175,6 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	json_fields => '{metadata: {fast: true, expand_dots: false, tokenizer: { type: "raw" }, normalizer: "raw"}}'
 );
-NOTICE:  schema "index_config" does not exist, skipping
-NOTICE:  index "index_config_bm25_index" does not exist, skipping
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
@@ -246,11 +185,6 @@ SELECT * from paradedb.schema_bm25('index_config');
 (4 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)
 -- Multiple fields
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -262,8 +196,6 @@ CALL paradedb.create_bm25(
 	boolean_fields => '{in_stock: {}}',
 	json_fields => '{metadata: {}}'
 );
-NOTICE:  schema "index_config" does not exist, skipping
-NOTICE:  index "index_config_bm25_index" does not exist, skipping
 SELECT * from paradedb.schema_bm25('index_config');
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
@@ -278,8 +210,3 @@ SELECT * from paradedb.schema_bm25('index_config');
 (8 rows)
 
 CALL paradedb.drop_bm25('index_config');
-NOTICE:  drop cascades to 4 other objects
-DETAIL:  drop cascades to function index_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
-drop cascades to function index_config.rank_hybrid(text,text,integer,integer,real,real)

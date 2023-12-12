@@ -161,4 +161,4 @@ if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
   esac
 fi
 
-echo "Done! You can now do 'cargo pgrx run'!"
+echo "Done! pg_bm25, pgvector, and pg_sparse are all available when you do 'cargo pgrx run'!"

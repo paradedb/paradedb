@@ -153,8 +153,7 @@ impl DedupeResults {
         let map = HashMap::new();
         let mut new_self = Self { map };
 
-        let mut index = 0;
-        for (score, doc_address) in top_docs.into_iter() {
+        for (index, (score, doc_address)) in top_docs.into_iter().enumerate() {
             let document = scan_state.doc(doc_address).unwrap_or_else(|err| {
                 panic!("error retrieving document for highlighting: {err:?}")
             });
@@ -171,8 +170,6 @@ impl DedupeResults {
                     document,
                 },
             );
-
-            index += 1;
         }
 
         new_self

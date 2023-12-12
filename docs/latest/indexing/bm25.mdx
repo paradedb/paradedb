@@ -34,7 +34,7 @@ of an "object.method" syntax, with methods like `search`, `rank`, and `highlight
 
 ```sql
 CALL paradedb.create_bm25(
-  index_name => 'mock_items',
+  index_name => 'search_idx',
   table_name => 'mock_items',
   key_field => 'id',
   text_fields => '{
@@ -47,7 +47,7 @@ After executing the example above, a new schema called `mock_items` will be crea
 table with the BM25 index with the associated `search` function:
 
 ```sql
-SELECT * FROM mock_items.search('description:shoes');
+SELECT * FROM search_idx.search('description:shoes');
 ```
 
 </Accordion>
@@ -89,8 +89,9 @@ Each `_fields` input to `create_bm25()` accepts a [JSON5](https://json5.org)-for
       Fieldnorms store information about the length of the text field. Must be `true` to calculate
       the BM25 score.
     </ParamField>
-    <ParamField body="tokenizer" default="default">
-      The name of the tokenizer. See [tokenizers](bm25#tokenizers) for a list of available tokenizers.
+    <ParamField body="tokenizer">
+      A JSON5 string which specifies the tokenizer and tokenizer configuration options.
+      See [tokenizers](bm25#tokenizers) for a list of available tokenizers.
     </ParamField>
     <ParamField body="record" default="basic">
       Describes the amount of information indexed. See [records](bm25#records) for a list of available
@@ -100,6 +101,7 @@ Each `_fields` input to `create_bm25()` accepts a [JSON5](https://json5.org)-for
       The name of the tokenizer used for fast fields. This field is ignored unless `fast=true`. See
       [normalizers](bm25#normalizers) for a list of available normalizers.
     </ParamField>
+
   </Expandable>
 </ParamField>
 <ParamField body="numeric_fields">

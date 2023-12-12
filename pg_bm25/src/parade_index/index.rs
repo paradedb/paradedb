@@ -249,8 +249,8 @@ impl ParadeIndex {
         });
 
         match value {
-            tantivy::schema::Value::U64(val) => val.clone() as i64,
-            tantivy::schema::Value::I64(val) => val.clone(),
+            tantivy::schema::Value::U64(val) => *val as i64,
+            tantivy::schema::Value::I64(val) => *val,
             _ => panic!("invalid type for timestamp in document"),
         }
     }

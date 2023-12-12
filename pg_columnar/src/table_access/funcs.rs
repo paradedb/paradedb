@@ -317,6 +317,7 @@ pub unsafe extern "C" fn memam_tuple_insert(
     options: c_int,
     bistate: *mut BulkInsertStateData,
 ) {
+    info!("Calling memam_tuple_insert");
     unsafe {
         PgMemoryContexts::TopTransactionContext.switch_to(|context| {
             let mut temp_context = PgMemoryContexts::new("Insert context");

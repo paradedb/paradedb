@@ -29,6 +29,7 @@ impl DFTable {
 
     pub fn create_from_pg(pgrel: &PgRelation, persistence: u8) {
         let schema = Self::schema_from_pg(&pgrel);
+        info!("schema {:?}", schema);
         if persistence == RELPERSISTENCE_PERMANENT {
             panic!("Persisted tables are not yet implemented. For now, try CREATE TEMP TABLE.");
         }
@@ -39,6 +40,7 @@ impl DFTable {
 
         match MemTable::try_new(schema, vec![Vec::<RecordBatch>::new()]).ok() {
             Some(mem_table) => {
+                info!("registering table {}", pgrel.oid());
                 CONTEXT.register_table(format!("{}", pgrel.oid()), Arc::new(mem_table));
             }
             None => panic!("An unexpected error occured creating the table"),

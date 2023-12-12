@@ -31,6 +31,7 @@ use datafusion::common::arrow::array::types::{Int8Type, Int16Type, Int32Type, In
 use datafusion::arrow::datatypes::{DataType, TimeUnit};
 use datafusion::arrow::array::AsArray;
 use datafusion::logical_expr::LogicalPlanBuilder;
+use datafusion::logical_expr::LogicalPlan;
 
 use std::ffi::CString;
 use pgrx::pg_sys::ScanState;
@@ -51,7 +52,9 @@ use pgrx::pg_sys::TTSOpsVirtual;
 use pgrx::pg_sys::ModifyTable;
 use pgrx::pg_sys::rt_fetch;
 use pgrx::pg_sys::RelationIdGetRelation;
-use datafusion::logical_expr::LogicalPlan;
+use pgrx::pg_sys::ExecShutdownNode;
+use pgrx::pg_sys::RelationClose;
+use pgrx::pg_sys::MemoryContextSwitchTo;
 
 use futures::executor;
 
@@ -79,6 +82,8 @@ extern "C" fn columnar_planner(
     if !query_string.is_null() {
         let query_str = unsafe { std::ffi::CStr::from_ptr(query_string) }.to_string_lossy();
         info!("Query string: {}", query_str);
+    } else {
+        info!("Query string is null");
     }
 
     unsafe {
@@ -168,14 +173,18 @@ async unsafe extern "C" fn columnar_executor_run_internal(
             let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
             let memhandler_oid = (*amForm).amhandler;
             ReleaseSysCache(amTup);
+            RelationClose(relation); // We don't wrap with a from_pg_owned, so we have to manually close the relation
             if am_handler != memhandler_oid {
                 standard_ExecutorRun(query_desc, direction, count, execute_once);
                 info!("Standard ExecutorRun called");
                 return;
             }
 
+            let oldcontext = MemoryContextSwitchTo((*(*query_desc).estate).es_query_cxt);
+
             if let Ok(df_plan) = transform_seqscan_to_datafusion(ps).await {
                 if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(df_plan).await {
+                    info!("dataframe {:?}", dataframe);
                     let recordbatchvec_result = dataframe.collect().await;
                     match recordbatchvec_result {
                         Ok(recordbatchvec) => {
@@ -239,7 +248,7 @@ async unsafe extern "C" fn columnar_executor_run_internal(
             }  else {
                 info!("failed to transform seqscan to datafusion await");
             }
-
+            MemoryContextSwitchTo(oldcontext);
             return;
         }
 
@@ -257,6 +266,7 @@ async unsafe extern "C" fn columnar_executor_run_internal(
             let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
             let memhandler_oid = (*amForm).amhandler;
             ReleaseSysCache(amTup);
+            RelationClose(relation); // We don't wrap with a from_pg_owned, so we have to manually close the relation
             info!("{:?} ? {:?}", am_handler, memhandler_oid);
             if am_handler != memhandler_oid {
                 standard_ExecutorRun(query_desc, direction, count, execute_once);
@@ -287,14 +297,20 @@ async unsafe extern "C" fn columnar_executor_run_internal(
 
             info!("start if nest");
             if let Ok(logical_plan) = transform_modify_to_datafusion(ps) {
-                info!("if 2");
+                info!("if 2 logical_plan {:?}", logical_plan);
                 if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await {
-                    info!("if 3");
-                    if let Ok(recordbatchvec) = dataframe.collect().await {
-                        // TODO: implement sendTuples to support returning tuples
-                    } else {
-                        info!("dataframe collect failed");
-                    }
+                    info!("if 3 dataframe {:?}", dataframe);
+                    // let recordbatchvec_result = dataframe.collect().await;
+                    // info!("finished collect");
+                    // match recordbatchvec_result {
+                    //     Ok(recordbatchvec) => info!("successful collect"),
+                    //     Err(e) => info!("failed collect {}", e)
+                    // }
+                    // if let Ok(recordbatchvec) = dataframe.collect().await {
+                    //     // TODO: implement sendTuples to support returning tuples
+                    // } else {
+                    //     info!("dataframe collect failed");
+                    // }
                 } else {
                     info!("failed to create dataframe");
                 }
@@ -324,7 +340,9 @@ unsafe extern "C" fn columnar_executor_run(
     count: u64,
     execute_once: bool,
 ) {
+    info!("running columnar_executor_run");
     executor::block_on(columnar_executor_run_internal(query_desc, direction, count, execute_once));
+    info!("finished running columnar_executor_run");
 }
 
 // initializes telemetry

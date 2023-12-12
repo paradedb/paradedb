@@ -77,7 +77,7 @@ pub async fn transform_seqscan_to_datafusion(
     let rte = unsafe { rt_fetch((*scan).scan.scanrelid, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
     // let relname = unsafe { &mut (*(*relation).rd_rel).relname as *mut NameData };
-    let pg_relation = unsafe { PgRelation::from_pg(relation) };
+    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
 
     // let's enumerate all the fields in Plan, especially qual and initPlan
     unsafe {
@@ -136,7 +136,6 @@ pub async fn transform_seqscan_to_datafusion(
     //     names: table_names,
     //     advanced_extension: None,
     // });
-    // // TODO: fix << WARNING:  relcache reference leak: relation "test_table" not closed >>
 
     // // following duckdb, create a new schema and fill it with column names
     // let mut base_schema = proto::NamedStruct::default();
@@ -287,6 +286,7 @@ pub fn transform_valuesscan_to_datafusion(
             info!("enumerating through values lists");
             let values_lists_elements = (*values_lists).elements;
             for i in 0..(*values_lists).length {
+                info!("i {}", i);
                 let values_list =
                     (*values_lists_elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::List;
 
@@ -294,7 +294,10 @@ pub fn transform_valuesscan_to_datafusion(
                 
                 let values_list_elements = (*values_list).elements;
                 for j in 0..(*values_list).length {
-                    let value_expr = (*values_lists_elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+                    info!("j {}", j);
+                    let value_expr = (*values_list_elements.offset(j as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+
+                    info!("value_expr type {:?}", (*value_expr).type_);
 
                     match (*value_expr).type_ {
                         NodeTag::T_Const => {
@@ -304,8 +307,10 @@ pub fn transform_valuesscan_to_datafusion(
                             let value_datum = (*const_expr).constvalue; // Datum
                             let value_isnull = (*const_expr).constisnull; // bool
 
-                            // TODO: actually get the type here - for now just defaulting to int
-                            values_row.push(Expr::Literal(ScalarValue::Int64(Some(value_datum.value() as i64))));
+                            info!("value {}", value_datum.value());
+
+                            // TODO: actually get the type here - for now just defaulting to Int32
+                            values_row.push(Expr::Literal(ScalarValue::Int32(Some(value_datum.value() as i32))));
                         }
                         // TODO: deal with all other types
                         _ => (),
@@ -314,16 +319,16 @@ pub fn transform_valuesscan_to_datafusion(
                 values.push(values_row);
             }
         } else {
-            info!("(*plan).targetlist was null");
+            info!("values_lists is null");
         }
     }
 
     let schema = DFSchema::empty();
-    let arc_schema: Arc<DFSchema> = schema.into()l
+    let arc_schema: Arc<DFSchema> = schema.into();
     Ok((LogicalPlan::Values(Values {
-        schema: arc_schema,
+        schema: arc_schema.clone(),
         values: values
-    }), arc_schema)
+    }), arc_schema))
 }
 
 pub fn transform_modify_to_datafusion(
@@ -341,7 +346,7 @@ pub fn transform_modify_to_datafusion(
     // scanrelid is index into the range table
     let rte = unsafe { rt_fetch((*modify).nominalRelation, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
-    let pg_relation = unsafe { PgRelation::from_pg(relation) };
+    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
 
     // let's enumerate all the fields in Plan, especially qual and initPlan
     unsafe {
@@ -368,7 +373,7 @@ pub fn transform_modify_to_datafusion(
         }
     }
 
-    if let Ok((input, vs_schema)) = transform_valuesscan_to_datafusion((*plan).lefttree) {
+    if let Ok((input, vs_schema)) = unsafe { transform_valuesscan_to_datafusion((*plan).lefttree) } {
         let tablename = format!("{}", pg_relation.oid());
         let table_reference = TableReference::from(tablename);
         let mut cols: Vec<Field> = vec![];
@@ -479,7 +484,7 @@ pub fn transform_modify_to_datafusion(
         info!("finished creating plan");
         return Ok(LogicalPlan::Dml(DmlStatement {
             table_name: table_reference,
-            table_schema: df_schema.into(),
+            table_schema: arc_schema,
             op: unsafe { match (*modify).operation {
                 // TODO: WriteOp::InsertOverwrite also exists - handle that properly
                 CmdType_CMD_INSERT => datafusion::logical_expr::WriteOp::InsertInto,
@@ -487,7 +492,7 @@ pub fn transform_modify_to_datafusion(
                 CmdType_CMD_DELETE => datafusion::logical_expr::WriteOp::Delete,
                 _ => panic!("unsupported modify operation"),
             } },
-            input: input_plan
+            input: input.into()
         }));
     } else {
         panic!("valuescan transformation failed");

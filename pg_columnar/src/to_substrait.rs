@@ -194,7 +194,7 @@ pub fn transform_seqscan_to_substrait(
     let rte = unsafe { rt_fetch((*scan).scan.scanrelid, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
     // let relname = unsafe { &mut (*(*relation).rd_rel).relname as *mut NameData };
-    let pg_relation = unsafe { PgRelation::from_pg(relation) };
+    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
 
     // let's enumerate all the fields in Plan, especially qual and initPlan
     unsafe {
@@ -395,7 +395,7 @@ pub fn transform_modify_to_substrait(
     // scanrelid is index into the range table
     let rte = unsafe { rt_fetch((*modify).nominalRelation, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
-    let pg_relation = unsafe { PgRelation::from_pg(relation) };
+    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
 
     // let's enumerate all the fields in Plan, especially qual and initPlan
     unsafe {

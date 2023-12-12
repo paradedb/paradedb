@@ -4,7 +4,6 @@
 /.github/                                                      @philippemnoel
 /benchmarks/                                                   @philippemnoel @sardination
 /conf/                                                         @philippemnoel
-/dashboard/                                                    @rebasedming
 /docker/                                                       @philippemnoel
 /docs/                                                         @rebasedming
 /pg_bm25/                                                      @rebasedming @neilyio

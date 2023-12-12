@@ -149,7 +149,7 @@ BEGIN
     EXECUTE paradedb.format_bm25_function(
         function_name => format('%I.search', index_name),        	
         return_type => format('SETOF %I.%I', schema_name, table_name),
-        function_body => format('RETURN QUERY SELECT * FROM %I.%I WHERE (%I.%I.ctid) @@@ __paradedb_search_config__;', schema_name, table_name, schema_name, table_name),
+        function_body => format('RETURN QUERY SELECT * FROM %I.%I WHERE (%I.%I.%I) @@@ __paradedb_search_config__;', schema_name, table_name, schema_name, table_name, key_field),
         index_json => index_json
     );
 

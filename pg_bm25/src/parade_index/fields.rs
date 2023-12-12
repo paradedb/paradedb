@@ -459,7 +459,7 @@ mod tests {
             "indexed": true,
             "stored": true,
             "fieldnorms": false,
-            "fast": true
+            "fast": false
         }"#;
         let expected: NumericOptions = serde_json::from_str(json).unwrap();
         let int_options = NumericOptions::from(ParadeNumericOptions::default());
@@ -473,7 +473,7 @@ mod tests {
             "indexed": true,
             "stored": true,
             "fieldnorms": false,
-            "fast": true
+            "fast": false
         }"#;
         let expected: NumericOptions = serde_json::from_str(json).unwrap();
         let int_options = NumericOptions::from(ParadeBooleanOptions::default());

@@ -19,6 +19,7 @@ pg_test = []
 telemetry = ["shared/telemetry"]
 
 [dependencies]
+chrono = "0.4.31"
 csv = "1.2.2"
 indexmap = "2.1.0"
 json5 = "0.4.1"

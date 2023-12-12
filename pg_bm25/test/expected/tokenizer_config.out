@@ -14,10 +14,11 @@ SELECT * FROM tokenizer_config.search('description:earbud');
 (0 rows)
 
 CALL paradedb.drop_bm25('tokenizer_config');
-NOTICE:  drop cascades to 3 other objects
+NOTICE:  drop cascades to 4 other objects
 DETAIL:  drop cascades to function tokenizer_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
 drop cascades to function tokenizer_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
 drop cascades to function tokenizer_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
+drop cascades to function tokenizer_config.rank_hybrid(text,text,integer,integer,real,real)
 -- en_stem
 CALL paradedb.create_bm25(
 	index_name => 'tokenizer_config',
@@ -35,10 +36,11 @@ SELECT * FROM tokenizer_config.search('description:earbud');
 (1 row)
 
 CALL paradedb.drop_bm25('tokenizer_config');
-NOTICE:  drop cascades to 3 other objects
+NOTICE:  drop cascades to 4 other objects
 DETAIL:  drop cascades to function tokenizer_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
 drop cascades to function tokenizer_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
 drop cascades to function tokenizer_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
+drop cascades to function tokenizer_config.rank_hybrid(text,text,integer,integer,real,real)
 -- ngram
 CALL paradedb.create_bm25(
 	index_name => 'tokenizer_config',
@@ -58,10 +60,11 @@ SELECT * FROM tokenizer_config.search('description:boa');
 (3 rows)
 
 CALL paradedb.drop_bm25('tokenizer_config');
-NOTICE:  drop cascades to 3 other objects
+NOTICE:  drop cascades to 4 other objects
 DETAIL:  drop cascades to function tokenizer_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
 drop cascades to function tokenizer_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
 drop cascades to function tokenizer_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
+drop cascades to function tokenizer_config.rank_hybrid(text,text,integer,integer,real,real)
 -- chinese_compatible
 CALL paradedb.create_bm25(
 	index_name => 'tokenizer_config',
@@ -80,7 +83,8 @@ SELECT * FROM tokenizer_config.search('description:电脑');
 (1 row)
 
 CALL paradedb.drop_bm25('tokenizer_config');
-NOTICE:  drop cascades to 3 other objects
+NOTICE:  drop cascades to 4 other objects
 DETAIL:  drop cascades to function tokenizer_config.search(text,integer,integer,text,integer,boolean,text,text,integer,text)
 drop cascades to function tokenizer_config.highlight(text,integer,integer,text,integer,boolean,text,text,integer,text)
 drop cascades to function tokenizer_config.rank(text,integer,integer,text,integer,boolean,text,text,integer,text)
+drop cascades to function tokenizer_config.rank_hybrid(text,text,integer,integer,real,real)

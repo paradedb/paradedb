@@ -1,3 +1,4 @@
+use chrono::Utc;
 use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use pgrx::*;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -40,6 +41,7 @@ const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
 /// this cache, tied to its own lifecycle.
 static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
 
+#[derive(PartialEq, Eq, Hash)]
 pub enum ParadeIndexKey {
     Number(i64),
 }
@@ -71,6 +73,8 @@ pub struct ParadeIndex {
     underlying_index: Index,
     #[serde(skip_serializing)]
     key_field: Field,
+    #[serde(skip_serializing)]
+    timestamp_field: Field,
 }
 
 impl ParadeIndex {
@@ -109,6 +113,10 @@ impl ParadeIndex {
 
         let key_field = schema.get_field(&key_field_name).unwrap_or_else(|_| {
             panic!("error creating index: key_field '{key_field_name}' does not exist in schema",)
+        });
+
+        let timestamp_field = schema.get_field("__timestamp").unwrap_or_else(|_| {
+            panic!("error creating index: timestamp field '__timestamp' does not exist in schema",)
         });
 
         // Save the json_fields used to configure the index to disk.
@@ -153,6 +161,7 @@ impl ParadeIndex {
             underlying_index,
             key_field_name,
             key_field,
+            timestamp_field,
         };
 
         // Serialize ParadeIndex to disk so it can be initialized by other connections.
@@ -233,6 +242,19 @@ impl ParadeIndex {
         }
     }
 
+    pub fn get_timestamp_value(&self, document: &Document) -> i64 {
+        let timestamp_field_name = "__timestamp";
+        let value = document.get_first(self.timestamp_field).unwrap_or_else(|| {
+            panic!("cannot find key field '{timestamp_field_name}' on retrieved document")
+        });
+
+        match value {
+            tantivy::schema::Value::U64(val) => val.clone() as i64,
+            tantivy::schema::Value::I64(val) => val.clone(),
+            _ => panic!("invalid type for timestamp in document"),
+        }
+    }
+
     pub fn insert_with_writer(
         &mut self,
         writer: &mut SingleSegmentIndexWriter,
@@ -250,8 +272,12 @@ impl ParadeIndex {
             }
         }
 
-        let field_option = self.fields.get("ctid");
-        doc.add_u64(*field_option.unwrap(), item_pointer_to_u64(ctid));
+        let timestamp = Utc::now().timestamp();
+        let timestamp_field_option = self.fields.get("__timestamp");
+        doc.add_i64(*timestamp_field_option.unwrap(), timestamp);
+
+        let ctid_field_option = self.fields.get("ctid");
+        doc.add_u64(*ctid_field_option.unwrap(), item_pointer_to_u64(ctid));
         writer.add_document(doc).expect("failed to add document");
     }
 
@@ -538,6 +564,11 @@ impl ParadeIndex {
         let ctid_field = schema_builder.add_u64_field("ctid", INDEXED | STORED);
         fields.insert("ctid".to_string(), ctid_field);
 
+        // Until we have a global index writer working, we need to add a timestamp to each
+        // field so we can deduplicate query results.
+        let timestamp_field = schema_builder.add_i64_field("__timestamp", INDEXED | STORED);
+        fields.insert("__timestamp".to_string(), timestamp_field);
+
         Ok((schema_builder.build(), fields))
     }
 }
@@ -580,6 +611,12 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             )
         });
 
+        let timestamp_field = schema.get_field("__timestamp").unwrap_or_else(|_| {
+            panic!(
+                "error deserializing index: timestamp_field '__timestamp' does not exist in schema",
+            )
+        });
+
         // Construct the ParadeIndex
         Ok(ParadeIndex {
             name,
@@ -589,6 +626,7 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             underlying_index,
             key_field_name,
             key_field,
+            timestamp_field,
         })
     }
 }
@@ -638,6 +676,6 @@ mod tests {
         let index_name = "one_republic_songs_bm25_index";
         let index = ParadeIndex::from_index_name(index_name);
         let fields = index.fields;
-        assert_eq!(fields.len(), 8);
+        assert_eq!(fields.len(), 9);
     }
 }

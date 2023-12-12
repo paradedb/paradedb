@@ -56,7 +56,11 @@ impl TryFrom<&JsonBuilderValue> for ParadeIndexKey {
             JsonBuilderValue::i64(v) => Ok(ParadeIndexKey::Number(*v)),
             JsonBuilderValue::u32(v) => Ok(ParadeIndexKey::Number(*v as i64)),
             JsonBuilderValue::u64(v) => Ok(ParadeIndexKey::Number(*v as i64)),
-            _ => Err(format!("Unsupported conversion: {:#?}", value).into()),
+            _ => Err(format!(
+                "BM25 index key field must be an integer, received: {:#?}",
+                value
+            )
+            .into()),
         }
     }
 }

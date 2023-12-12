@@ -6,8 +6,11 @@ AS $$
 DECLARE
     full_table_name TEXT := schema_name || '.' || table_name;
     data_to_insert RECORD;
+    original_client_min_messages TEXT;
 BEGIN
+    SELECT INTO original_client_min_messages current_setting('client_min_messages');
     SET client_min_messages TO WARNING;
+
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables WHERE schemaname = schema_name AND tablename = table_name) THEN
         EXECUTE 'CREATE TABLE ' || full_table_name || ' (
             id SERIAL PRIMARY KEY,
@@ -73,7 +76,8 @@ BEGIN
     ELSE
         RAISE WARNING 'The table % already exists, skipping.', full_table_name;
     END IF;
-    SET client_min_messages TO WARNING;
+
+    EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
 END $$;
 
 -- This create_bm25 function to dynamically create index and query functions.
@@ -108,7 +112,9 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
 LANGUAGE plpgsql AS $$
 DECLARE
     index_json JSONB;
+    original_client_min_messages TEXT;
 BEGIN
+    SELECT INTO original_client_min_messages current_setting('client_min_messages');
     SET client_min_messages TO WARNING;
     
     IF index_name IS NULL OR index_name = '' THEN
@@ -200,7 +206,7 @@ BEGIN
         index_json => index_json
     );
 
-    SET client_min_messages TO NOTICE;
+    EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
    END;
 $$;
 
@@ -311,12 +317,15 @@ CREATE OR REPLACE PROCEDURE paradedb.drop_bm25(
     index_name text
 )
 LANGUAGE plpgsql AS $$
+DECLARE 
+    original_client_min_messages TEXT;
 BEGIN
+    SELECT INTO original_client_min_messages current_setting('client_min_messages');
     SET client_min_messages TO WARNING;
 
     EXECUTE format('DROP SCHEMA IF EXISTS %s CASCADE', index_name);
     EXECUTE format('DROP INDEX IF EXISTS %s_bm25_index', index_name); 
 
-    SET client_min_messages TO NOTICE;
+    EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
   END;
 $$;

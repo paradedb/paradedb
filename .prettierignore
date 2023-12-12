@@ -1,7 +1,6 @@
 /benchmarks/out/
 /benchmarks/*_ts.json
 /benchmarks/wiki-articles.json
-/dashboard/yarn.lock
 /docker/.docker_cache_dev/
 /docs/quickstart.mdx
 /docs/blog/introducing_bm25.mdx

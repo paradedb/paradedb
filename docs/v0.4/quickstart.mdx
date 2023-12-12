@@ -8,24 +8,6 @@ This guide will walk you through the following steps to get started with ParadeD
 2. Connect to ParadeDB
 3. Execute full text, similarity, and hybrid search with SQL
 
-## Create a ParadeDB Instance
-
-The fastest way to create an instance is through the [ParadeDB Cloud dashboard](https://dashboard.paradedb.com).
-Alternatively, you can also pull the ParadeDB docker image and run it locally.
-
-```bash
-docker run \
-  -e POSTGRES_USER=<user> \
-  -e POSTGRES_PASSWORD=<password> \
-  -e POSTGRES_DB=<dbname> \
-  -p 5432:5432 \
-  -d \
-  paradedb/paradedb:latest
-```
-
-You may set `user`, `password`, and `dbname` to whatever values you want — these will be your database
-connection credentials. By default, this will start a ParadeDB instance at `http://localhost:5432`.
-
 ## Connect to ParadeDB
 
 <Note>

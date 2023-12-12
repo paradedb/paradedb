@@ -36,19 +36,23 @@ impl TantivyScanState {
         }
     }
 
-    pub fn ctid(&mut self, doc_address: DocAddress) -> u64 {
+    pub fn key_field_value(&mut self, doc_address: DocAddress) -> i64 {
         let retrieved_doc = self.searcher.doc(doc_address).expect("could not find doc");
 
-        let ctid_field = self
+        let key_field = self
             .schema
-            .get_field("ctid")
-            .expect("field 'ctid' not found in schema");
+            .get_field(&self.key_field_name)
+            .expect("field '{key_field_name}' not found in schema");
 
-        if let tantivy::schema::Value::U64(ctid_value) = retrieved_doc
-            .get_first(ctid_field)
-            .expect("ctid field not found in doc")
+        if let tantivy::schema::Value::I64(key_field_value) =
+            retrieved_doc.get_first(key_field).unwrap_or_else(|| {
+                panic!(
+                    "value for key_field '{}' not found in doc",
+                    &self.key_field_name,
+                )
+            })
         {
-            *ctid_value
+            *key_field_value
         } else {
             panic!("error unwrapping ctid value")
         }

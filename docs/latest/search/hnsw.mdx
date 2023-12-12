@@ -1,0 +1,46 @@
+---
+title: Dense Vector Search
+---
+
+<Note>
+  Creating an [HNSW index](/latest/indexing/hnsw) over a table can significantly
+  improve query times.
+</Note>
+
+## Overview
+
+Similarity search uses the HNSW algorithm to find rows in a table that match a given vector.
+This type of search is especially useful for semantic search. Most models — for instance, OpenAI embedding
+models — produce dense vectors.
+
+## Basic Usage
+
+The following example returns rows sorted by L2 distance with respect to the query vector.
+
+```sql
+SELECT * FROM mock_items ORDER BY embedding <-> '[1,2,3]';
+```
+
+Cosine distance:
+
+```sql
+SELECT * FROM mock_items ORDER BY embedding <=> '[1,2,3]';
+```
+
+Inner product:
+
+```sql
+SELECT * FROM mock_items ORDER BY embedding <#> '[1,2,3]';
+```
+
+Under the hood, ParadeDB uses `pgvector` for similarity search. Please refer to the
+[`pgvector` documentation](https://github.com/pgvector/pgvector) for more details.
+
+## Casting
+
+In cases where Postgres is unable to infer whether a vector is sparse or dense, you can explicitly cast dense vectors
+to the `vector` data type.
+
+```sql
+SELECT '[1,2,3]'::vector <-> '[2,3,4]'::vector;
+```

@@ -1,0 +1,35 @@
+---
+title: Highlighting
+---
+
+## Overview
+
+Highlighting refers to the practice of visually emphasizing the portions of a document that match a user's
+search query, which aids users in quickly identifying the relevance of the search results to
+their inquiry. In ParadeDB, highlighted snippets of text are wrapped in `<b></b>` tags.
+
+## Basic Usage
+
+After calling `create_bm25` to create a BM25 index and associated schema, you can use the new schema's `highlight` function
+to return a table of highlighted fragments of text that match your query. This function only works over text fields.
+
+```sql
+SELECT * FROM <index_name>.highlight('<query>', highlight_field => '<field_name>');
+```
+
+<Accordion title="Example Usage">
+
+```sql
+SELECT s.*, r.highlight_bm25
+FROM search_idx.search('description:keyboard OR category:electronics') as s
+LEFT JOIN search_idx.highlight('description:keyboard OR category:electronics', highlight_field => 'description') as r ON s.id = r.id;
+```
+
+</Accordion>
+
+All parameters to the `search` function are applicable here. The `highlight` function should receive identical
+arguments to the `search` function, along with an additional required `highlight_field` parameter.
+
+<ParamField body="highlight_field" required>
+  The name of the indexed field to be highlighted in the returned fragment.
+</ParamField>

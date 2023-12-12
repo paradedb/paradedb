@@ -19,29 +19,22 @@ fn search_tantivy(
         let mut hs = FxHashSet::default();
 
         for (_, doc_address) in top_docs {
-            let ctid_value = scan_state.ctid(doc_address);
-            hs.insert(ctid_value);
+            let key_field_value = scan_state.key_field_value(doc_address);
+            hs.insert(key_field_value);
         }
 
         hs
     };
 
-    let hash_set = unsafe { pg_func_extra(fcinfo, default_hash_set) };
+    // Only i64 values (bigint in Postgres) are currently supported for the key_field.
+    // We'll panic below if what's passed is anything other than an i64.
 
-    let tid = if element.oid() == pg_sys::TIDOID {
-        item_pointer_to_u64(
-            unsafe { pg_sys::ItemPointerData::from_datum(element.datum(), false) }
-                .expect("could not create item pointer from tuple"),
-        )
-    } else {
-        let JsonB(search_config_json) = &config_json;
-        let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
-            .expect("could not parse search config");
-        let index_name = search_config.index_name;
-        panic!("the index {index_name} doesn't exist. call create_bm25 first.");
+    let hash_set = unsafe { pg_func_extra(fcinfo, default_hash_set) };
+    let key_value = unsafe {
+        i64::from_datum(element.datum(), false).expect("could not parse i64 from element")
     };
 
-    hash_set.contains(&tid)
+    hash_set.contains(&key_value)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

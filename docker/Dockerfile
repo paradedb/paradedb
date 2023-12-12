@@ -10,7 +10,6 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm as base
 # environment variables for use in build and runtime
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
-ARG PG_SEARCH_VERSION
 ARG PG_SPARSE_VERSION
 ARG PGVECTOR_VERSION
 ARG PG_CRON_VERSION
@@ -50,7 +49,6 @@ ARG BUILD_DATE
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
-    PG_SEARCH_VERSION=${PG_SEARCH_VERSION} \
     PG_SPARSE_VERSION=${PG_SPARSE_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
     PG_CRON_VERSION=${PG_CRON_VERSION} \
@@ -163,21 +161,6 @@ COPY shared/ /tmp/shared
 RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/;}" Cargo.toml && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
-######################
-# pg_search
-######################
-
-FROM builder as builder-pg_search
-
-WORKDIR /tmp/pg_search
-
-COPY pg_search/ /tmp/pg_search
-COPY shared/ /tmp/shared
-
-# Use the build argument to update the version in Cargo.toml
-RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_SEARCH_VERSION}\"/;}" Cargo.toml && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
 ###############################################
 # Third Stage: PostgreSQL
 ###############################################
@@ -254,8 +237,6 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
 
 # Copy the ParadeDB pgrx extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
-COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 

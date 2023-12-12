@@ -7,6 +7,7 @@ DECLARE
     full_table_name TEXT := schema_name || '.' || table_name;
     data_to_insert RECORD;
 BEGIN
+    SET client_min_messages TO WARNING;
     IF NOT EXISTS (SELECT FROM pg_catalog.pg_tables WHERE schemaname = schema_name AND tablename = table_name) THEN
         EXECUTE 'CREATE TABLE ' || full_table_name || ' (
             id SERIAL PRIMARY KEY,
@@ -72,6 +73,7 @@ BEGIN
     ELSE
         RAISE WARNING 'The table % already exists, skipping.', full_table_name;
     END IF;
+    SET client_min_messages TO WARNING;
 END $$;
 
 -- This create_bm25 function to dynamically create index and query functions.
@@ -107,6 +109,8 @@ LANGUAGE plpgsql AS $$
 DECLARE
     index_json JSONB;
 BEGIN
+    SET client_min_messages TO WARNING;
+    
     IF index_name IS NULL OR index_name = '' THEN
         RAISE EXCEPTION 'no index_name parameter given for bm25 index';
     END IF;
@@ -195,6 +199,8 @@ BEGIN
         ',
         index_json => index_json
     );
+
+    SET client_min_messages TO NOTICE;
    END;
 $$;
 
@@ -306,7 +312,11 @@ CREATE OR REPLACE PROCEDURE paradedb.drop_bm25(
 )
 LANGUAGE plpgsql AS $$
 BEGIN
+    SET client_min_messages TO WARNING;
+
     EXECUTE format('DROP SCHEMA IF EXISTS %s CASCADE', index_name);
     EXECUTE format('DROP INDEX IF EXISTS %s_bm25_index', index_name); 
+
+    SET client_min_messages TO NOTICE;
   END;
 $$;

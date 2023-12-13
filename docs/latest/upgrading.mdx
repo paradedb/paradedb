@@ -1,0 +1,68 @@
+---
+title: Updating ParadeDB
+---
+
+## Overview
+
+ParadeDB ships all of its functionality through its Postgres extensions. All updates to ParadeDB can be
+received by updating one or more of the following extensions:
+
+1. `pg_bm25` for full text search
+2. `pgvector` for dense vector search
+3. `pg_sparse` for sparse vector search
+
+## Getting the Current Version
+
+To inspect the current version of an extension, run the following command.
+
+```sql
+SELECT extversion FROM pg_extension WHERE extname = '<extension_name>';
+```
+
+<Accordion title="Example Usage">
+  ```sql SELECT extversion FROM pg_extension WHERE extname = 'pg_bm25'; ```
+</Accordion>
+
+## Updating to a New Version
+
+If a new version of `pg_bm25` or `pg_sparse` is available, it will be listed in the [changelog]().
+Here, you can view the changes made and decide if you want to upgrade. Note that some updates may alter an
+extension's API interface.
+
+The latest `pg_bm25` and `pg_sparse` will always be pegged to the same version. `pgvector`, on the other hand, is
+created and maintained outside of ParadeDB, so it maintains its own version. Users should refer to the `pgvector`
+[README](https://github.com/pgvector/pgvector) for documentation on its latest changes.
+
+### From ParadeDB Cloud
+
+Run the following command to upgrade to a specific version of an extension.
+
+```sql
+ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
+```
+
+<Accordion title="Example Usage">
+  ```sql ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1'; ```
+</Accordion>
+
+### From ParadeDB Docker Image
+
+Run the following command to pull a specific version of the Docker Image. You can set the version number
+to `latest` to pull the latest Docker image.
+
+```bash
+docker pull paradedb/paradedb:<version_number>
+```
+
+## From Self-Managed Postgres
+
+First, download and install the extension you wish to upgrade in the same way that it was initially
+installed. Then, run
+
+```sql
+ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
+```
+
+<Accordion title="Example Usage">
+  ```sql ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1'; ```
+</Accordion>

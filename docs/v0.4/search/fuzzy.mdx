@@ -13,7 +13,7 @@ providing relevant results even when the query is not spelled exactly.
 ```sql
 SELECT *
 FROM <table_name>
-WHERE <table_name> @@@ '<query>:::<fuzzy_field_options>'
+WHERE <table_name> @@@ ('<index_name>', '<query>:::<fuzzy_field_options>')
 ```
 
 <Accordion title="Example Usage">

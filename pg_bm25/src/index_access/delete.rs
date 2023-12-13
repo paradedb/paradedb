@@ -15,6 +15,7 @@ pub extern "C" fn ambulkdelete(
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
     let index_name = index_relation.name();
     let parade_index = get_parade_index(index_name);
+    let mut parade_writer = parade_index.parade_writer();
 
     if stats.is_null() {
         stats = unsafe {
@@ -24,7 +25,10 @@ pub extern "C" fn ambulkdelete(
         };
     }
 
-    stats = parade_index.bulk_delete(stats, callback, callback_state);
+    if let Some(actual_callback) = callback {
+        parade_writer.bulk_delete(|ctid| unsafe { actual_callback(ctid, callback_state) });
+    }
+
     stats.into_pg()
 }
 

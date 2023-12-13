@@ -60,11 +60,11 @@ pub fn create_parade_index(
     index_name: String,
     heap_relation: &PgRelation,
     options: PgBox<ParadeOptions>,
-) -> Result<ParadeIndex, Box<dyn Error>> {
+) -> Result<&mut ParadeIndex, Box<dyn Error>> {
     ParadeIndex::new(index_name, heap_relation, options)
 }
 
-pub fn get_parade_index(index_name: &str) -> ParadeIndex {
+pub fn get_parade_index(index_name: &str) -> &'static mut ParadeIndex {
     ParadeIndex::from_index_name(index_name)
 }
 

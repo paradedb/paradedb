@@ -19,7 +19,8 @@ db_query () {
 # Helper function to download the benchmarking dataset
 download_data () {
   if [ ! -f "$WIKI_ARTICLES_FILE" ]; then
-    if wget -nv https://www.dropbox.com/s/wwnfnu441w1ec9p/$WIKI_ARTICLES_FILE.bz2 -O $WIKI_ARTICLES_FILE.bz2; then
+    # We maintain our own copy of the dataset on S3 to avoid Dropbox rate limits
+    if wget -nv https://paradedb-benchmarks.s3.amazonaws.com/wiki-articles.json.bz2 -O $WIKI_ARTICLES_FILE.bz2; then
       echo "-- Unzipping $WIKI_ARTICLES_FILE..."
       bunzip2 $WIKI_ARTICLES_FILE.bz2
     else

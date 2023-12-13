@@ -2,10 +2,11 @@
 /benchmarks/*_ts.json
 /benchmarks/wiki-articles.json
 /docker/.docker_cache_dev/
-/docs/quickstart.mdx
+/docs/v0.4/quickstart.mdx
+/docs/latest/quickstart.mdx
 /docs/blog/introducing_bm25.mdx
 /docs/blog/introducing_sparse.mdx
-/docs/search/autocomplete.mdx
-/docs/search/fuzzy.mdx
-/pg_search/pgvector/
-/pg_search/test/pgvector/
+/docs/v0.4/search/autocomplete.mdx
+/docs/v0.4/search/fuzzy.mdx
+/docs/latest/search/autocomplete.mdx
+/docs/latest/search/fuzzy.mdx

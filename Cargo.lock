@@ -56,6 +56,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0942ffc6dcaadf03badf6e6a2d0228460359d5e34b57ccdc720b7382dfbd5ec5"
 
 [[package]]
+name = "android-tzdata"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e999941b234f3131b00bc13c22d06e8c5ff726d1b6318ac7eb276997bbb4fef0"
+
+[[package]]
+name = "android_system_properties"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "819e7219dbd41043ac279b19830f2efc897156490d7fd6ea916720117ee66311"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "anstyle"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -301,6 +316,20 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "chrono"
+version = "0.4.31"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f2c685bad3eb3d45a01354cedb7d5faa66194d1d58ba6e267a8de788f79db38"
+dependencies = [
+ "android-tzdata",
+ "iana-time-zone",
+ "js-sys",
+ "num-traits",
+ "wasm-bindgen",
+ "windows-targets",
+]
 
 [[package]]
 name = "cipher"
@@ -1090,6 +1119,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "iana-time-zone"
+version = "0.1.58"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8326b86b6cff230b97d0d312a6c40a60726df3332e721f72a1b035f451663b20"
+dependencies = [
+ "android_system_properties",
+ "core-foundation-sys",
+ "iana-time-zone-haiku",
+ "js-sys",
+ "wasm-bindgen",
+ "windows-core",
+]
+
+[[package]]
+name = "iana-time-zone-haiku"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31827a206f56af32e590ba56d5d2d085f558508192593743f16b2306495269f"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "idna"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1767,7 +1819,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "ownedbytes"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=227ddda1#227ddda1d2a34b0981ecf1b01aa0d40c4ba00bc1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -1781,7 +1833,7 @@ checksum = "c1b04fb49957986fdce4d6ee7a65027d55d4b6d2265e5848bbb507b58ccfdb6f"
 [[package]]
 name = "paradedb-tantivy"
 version = "0.21.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=227ddda1#227ddda1d2a34b0981ecf1b01aa0d40c4ba00bc1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
 dependencies = [
  "aho-corasick",
  "arc-swap",
@@ -1956,6 +2008,7 @@ dependencies = [
 name = "pg_bm25"
 version = "0.0.0"
 dependencies = [
+ "chrono",
  "csv",
  "indexmap 2.1.0",
  "json5",
@@ -1970,20 +2023,9 @@ dependencies = [
  "rustc-hash",
  "serde",
  "serde_json",
- "serde_qs",
+ "serde_path_to_error",
  "shared",
  "utoipa",
-]
-
-[[package]]
-name = "pg_search"
-version = "0.0.0"
-dependencies = [
- "pgrx",
- "pgrx-tests",
- "serde",
- "serde_json",
- "shared",
 ]
 
 [[package]]
@@ -2662,14 +2704,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_qs"
-version = "0.12.0"
+name = "serde_path_to_error"
+version = "0.1.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0431a35568651e363364210c91983c1da5eb29404d9f0928b67d4ebcfa7d330c"
+checksum = "4beec8bce849d58d06238cb50db2e1c417cfeafa4c63f692b15c82b7c80f8335"
 dependencies = [
- "percent-encoding",
+ "itoa",
  "serde",
- "thiserror",
 ]
 
 [[package]]
@@ -2892,7 +2933,7 @@ dependencies = [
 [[package]]
 name = "tantivy-bitpacker"
 version = "0.5.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=227ddda1#227ddda1d2a34b0981ecf1b01aa0d40c4ba00bc1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
 dependencies = [
  "bitpacking",
 ]
@@ -2900,7 +2941,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.2.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=227ddda1#227ddda1d2a34b0981ecf1b01aa0d40c4ba00bc1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
 dependencies = [
  "fastdivide",
  "fnv",
@@ -2915,7 +2956,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=227ddda1#227ddda1d2a34b0981ecf1b01aa0d40c4ba00bc1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -2938,7 +2979,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.21.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=227ddda1#227ddda1d2a34b0981ecf1b01aa0d40c4ba00bc1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
 dependencies = [
  "nom",
 ]
@@ -2946,7 +2987,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.2.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=227ddda1#227ddda1d2a34b0981ecf1b01aa0d40c4ba00bc1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
 dependencies = [
  "tantivy-common",
  "tantivy-fst",
@@ -2956,7 +2997,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.2.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=227ddda1#227ddda1d2a34b0981ecf1b01aa0d40c4ba00bc1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
 dependencies = [
  "murmurhash32",
  "tantivy-common",
@@ -2965,7 +3006,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.2.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=227ddda1#227ddda1d2a34b0981ecf1b01aa0d40c4ba00bc1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
 dependencies = [
  "serde",
 ]
@@ -3532,6 +3573,15 @@ name = "windows"
 version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e686886bc078bc1b0b600cac0147aadb815089b6e4da64016cbd754b6342700f"
+dependencies = [
+ "windows-targets",
+]
+
+[[package]]
+name = "windows-core"
+version = "0.51.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1f8cf84f35d2db49a46868f947758c7a1138116f7fac3bc844f43ade1292e64"
 dependencies = [
  "windows-targets",
 ]

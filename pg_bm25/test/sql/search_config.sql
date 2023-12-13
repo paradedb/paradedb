@@ -1,26 +1,20 @@
 -- Basic seach query
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics';
--- With trailing delimiter
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::';
+SELECT id, description, rating, category FROM search_config.search('category:electronics');
 -- With limit
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2';
--- With limit and trailing &
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&';
+SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2);
 -- With limit and offset
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&offset=1';
+SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2, offset_rows => 1);
 -- With fuzzy field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics:::fuzzy_fields=category';
+SELECT id, description, rating, category FROM search_config.search('category:electornics', fuzzy_fields => 'category');
 -- Without fuzzy field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics';
+SELECT id, description, rating, category FROM search_config.search('category:electornics');
 -- With fuzzy field and transpose_cost_one=false and distance=1
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:keybaord:::fuzzy_fields=description&transpose_cost_one=false&distance=1';
+SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => false, distance => 1);
 -- With fuzzy field and transpose_cost_one=true and distance=1
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:keybaord:::fuzzy_fields=description&transpose_cost_one=true&distance=1';
--- With fuzzy and regex field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:com:::regex_fields=description&fuzzy_fields=description';
+SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => true, distance => 1);
 -- With regex field 
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description';
+SELECT id, description, rating, category FROM search_config.search('com', regex_fields => 'description');
 -- Default highlighting without max_num_chars
-SELECT description, rating, category, paradedb.highlight_bm25(search_config.id, 'idxsearchconfig', 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics' ORDER BY paradedb.rank_bm25(search_config.id) DESC LIMIT 5;
+SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics') as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description') as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics') as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;
 -- max_num_chars is set to 14 
-SELECT description, rating, category, paradedb.highlight_bm25(search_config.id, 'idxsearchconfig', 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics:::max_num_chars=14' ORDER BY paradedb.rank_bm25(search_config.id) DESC LIMIT 5;
+SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics', max_num_chars => 14) as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description', max_num_chars => 14) as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics', max_num_chars => 14) as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;

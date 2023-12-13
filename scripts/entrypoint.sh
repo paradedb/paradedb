@@ -9,7 +9,6 @@ set -Eeuo pipefail
 # https://paradedb.notion.site/PostgreSQL-Extensions-Supported-on-ParadeDB-0aefcad16b6846ca9b3c7099cfc9e4f1?pvs=4
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
-  [pg_search]=${PG_SEARCH_VERSION:-}
   [svector]=${PG_SPARSE_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
   [pg_ivm]=${PG_IVM_VERSION:-}

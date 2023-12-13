@@ -1,16 +1,5 @@
 -- Basic seach query
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics';
- id |         description         | rating |  category   
-----+-----------------------------+--------+-------------
-  1 | Ergonomic metal keyboard    |      4 | Electronics
-  2 | Plastic Keyboard            |      4 | Electronics
- 12 | Innovative wireless earbuds |      5 | Electronics
- 22 | Fast charging power bank    |      4 | Electronics
- 32 | Bluetooth-enabled speaker   |      3 | Electronics
-(5 rows)
-
--- With trailing delimiter
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::';
+SELECT id, description, rating, category FROM search_config.search('category:electronics');
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics
@@ -21,15 +10,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (5 rows)
 
 -- With limit
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2';
- id |       description        | rating |  category   
-----+--------------------------+--------+-------------
-  1 | Ergonomic metal keyboard |      4 | Electronics
-  2 | Plastic Keyboard         |      4 | Electronics
-(2 rows)
-
--- With limit and trailing &
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&';
+SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2);
  id |       description        | rating |  category   
 ----+--------------------------+--------+-------------
   1 | Ergonomic metal keyboard |      4 | Electronics
@@ -37,7 +18,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (2 rows)
 
 -- With limit and offset
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electronics:::limit=2&offset=1';
+SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2, offset_rows => 1);
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   2 | Plastic Keyboard            |      4 | Electronics
@@ -45,7 +26,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (2 rows)
 
 -- With fuzzy field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics:::fuzzy_fields=category';
+SELECT id, description, rating, category FROM search_config.search('category:electornics', fuzzy_fields => 'category');
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
   1 | Ergonomic metal keyboard    |      4 | Electronics
@@ -56,30 +37,27 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (5 rows)
 
 -- Without fuzzy field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'category:electornics';
+SELECT id, description, rating, category FROM search_config.search('category:electornics');
  id | description | rating | category 
 ----+-------------+--------+----------
 (0 rows)
 
 -- With fuzzy field and transpose_cost_one=false and distance=1
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:keybaord:::fuzzy_fields=description&transpose_cost_one=false&distance=1';
+SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => false, distance => 1);
  id | description | rating | category 
 ----+-------------+--------+----------
 (0 rows)
 
 -- With fuzzy field and transpose_cost_one=true and distance=1
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:keybaord:::fuzzy_fields=description&transpose_cost_one=true&distance=1';
+SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => true, distance => 1);
  id |       description        | rating |  category   
 ----+--------------------------+--------+-------------
   1 | Ergonomic metal keyboard |      4 | Electronics
   2 | Plastic Keyboard         |      4 | Electronics
 (2 rows)
 
--- With fuzzy and regex field
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'description:com:::regex_fields=description&fuzzy_fields=description';
-ERROR:  cannot search with both regex_fields and fuzzy_fields
 -- With regex field 
-SELECT id, description, rating, category FROM search_config WHERE search_config @@@ 'com:::regex_fields=description';
+SELECT id, description, rating, category FROM search_config.search('com', regex_fields => 'description');
  id |      description       | rating |  category   
 ----+------------------------+--------+-------------
   6 | Compact digital camera |      5 | Photography
@@ -87,7 +65,7 @@ SELECT id, description, rating, category FROM search_config WHERE search_config 
 (2 rows)
 
 -- Default highlighting without max_num_chars
-SELECT description, rating, category, paradedb.highlight_bm25(search_config.id, 'idxsearchconfig', 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics' ORDER BY paradedb.rank_bm25(search_config.id) DESC LIMIT 5;
+SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics') as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description') as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics') as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;
          description         | rating |  category   |         highlight_bm25          
 -----------------------------+--------+-------------+---------------------------------
  Plastic Keyboard            |      4 | Electronics | Plastic <b>Keyboard</b>
@@ -98,7 +76,7 @@ SELECT description, rating, category, paradedb.highlight_bm25(search_config.id, 
 (5 rows)
 
 -- max_num_chars is set to 14 
-SELECT description, rating, category, paradedb.highlight_bm25(search_config.id, 'idxsearchconfig', 'description') FROM search_config WHERE search_config @@@ 'description:keyboard OR category:electronics:::max_num_chars=14' ORDER BY paradedb.rank_bm25(search_config.id) DESC LIMIT 5;
+SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics', max_num_chars => 14) as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description', max_num_chars => 14) as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics', max_num_chars => 14) as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;
          description         | rating |  category   |    highlight_bm25     
 -----------------------------+--------+-------------+-----------------------
  Plastic Keyboard            |      4 | Electronics | <b>Keyboard</b>

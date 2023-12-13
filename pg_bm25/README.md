@@ -67,7 +67,7 @@ Note: If you are using a managed Postgres service like Amazon RDS, you will not 
 
 #### Windows
 
-Windows is not supported. This restriction is [inherited from pgrx not supporting Windows](https://github.com/pgcentralfoundation/pgrx?tab=readme-ov-file#caveats--known-issues).
+At this time, Windows is only supported via WSL. This restriction is [inherited from pgrx not supporting Windows](https://github.com/pgcentralfoundation/pgrx?tab=readme-ov-file#caveats--known-issues).
 
 ## Usage
 

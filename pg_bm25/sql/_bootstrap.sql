@@ -177,6 +177,12 @@ BEGIN
         index_json => index_json
     );
 
+    EXECUTE paradedb.format_empty_function(
+        function_name => format('%I.schema', index_name),
+        return_type => 'TABLE(name text, field_type text, stored bool, indexed bool, fast bool, fieldnorms bool, expand_dots bool, tokenizer text, record text, normalizer text)',
+        function_body => format('RETURN QUERY SELECT * FROM paradedb.schema_bm25(''%s'');', index_name)
+    );
+
     EXECUTE paradedb.format_hybrid_function(
         function_name => format('%I.rank_hybrid', index_name),
         return_type => format('TABLE(%s bigint, rank_hybrid real)', key_field),
@@ -310,6 +316,24 @@ BEGIN
             $func$ LANGUAGE plpgsql;
         $f$, function_name, return_type, index_json, __function_body__);
     END;
+END;
+$outerfunc$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION paradedb.format_empty_function(
+    function_name text,
+    return_type text,
+    function_body text
+) RETURNS text AS $outerfunc$
+BEGIN
+     RETURN format($f$
+        -- If you add parameters to the function here, you must also add them to the `drop_bm25`
+        -- function, or you'll get a runtime "function does not exist" error when you try to drop.
+        CREATE OR REPLACE FUNCTION %s() RETURNS %s AS $func$
+        BEGIN
+            %s
+        END;
+        $func$ LANGUAGE plpgsql;
+    $f$, function_name, return_type, function_body);
 END;
 $outerfunc$ LANGUAGE plpgsql;
 

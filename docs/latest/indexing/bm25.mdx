@@ -200,11 +200,19 @@ a new one using the commands provided above.
 
 ## Getting Info on a BM25 Index
 
-The `paradedb.schema_bm25` function returns a table with information about the index schema.
+The `schema` function returns a table with information about the index schema.
 
 ```sql
-SELECT * FROM paradedb.schema_bm25('<index_name>');
+SELECT * FROM <index_name>.schema();
 ```
+
+<Accordion title="Example Usage">
+
+```sql
+SELECT * FROM search_idx.schema();
+```
+
+</Accordion>
 
 <ParamField body="index_name" required>
   The name of the index.

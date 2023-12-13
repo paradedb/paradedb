@@ -30,7 +30,7 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	text_fields => '{"description": {}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id          | I64        | t      | t       | f    | t          |             |           |          | 
@@ -48,7 +48,7 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	text_fields => '{"description": {"fast": true, "tokenizer": { "type": "en_stem" }, "record": "freq", "normalizer": "raw"}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id          | I64        | t      | t       | f    | t          |             |           |        | 
@@ -66,7 +66,7 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	text_fields => '{"description": {fast: true, tokenizer: { type: "en_stem" }, record: "freq", normalizer: "raw"}, category: {}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id          | I64        | t      | t       | f    | t          |             |           |          | 
@@ -85,7 +85,7 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	numeric_fields => '{"rating": {}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id          | I64        | t      | t       | f    | t          |             |           |        | 
@@ -103,7 +103,7 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	numeric_fields => '{"rating": {"fast": false}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id          | I64        | t      | t       | f    | t          |             |           |        | 
@@ -121,7 +121,7 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	boolean_fields => '{"in_stock": {}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id          | I64        | t      | t       | f    | t          |             |           |        | 
@@ -139,7 +139,7 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	boolean_fields => '{"in_stock": {"fast": false}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
  id          | I64        | t      | t       | f    | t          |             |           |        | 
@@ -157,7 +157,7 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	json_fields => '{"metadata": {}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id          | I64        | t      | t       | f    | t          |             |           |          | 
@@ -175,7 +175,7 @@ CALL paradedb.create_bm25(
 	key_field => 'id',
 	json_fields => '{metadata: {fast: true, expand_dots: false, tokenizer: { type: "raw" }, normalizer: "raw"}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id          | I64        | t      | t       | f    | t          |             |           |          | 
@@ -196,7 +196,7 @@ CALL paradedb.create_bm25(
 	boolean_fields => '{in_stock: {}}',
 	json_fields => '{metadata: {}}'
 );
-SELECT * from paradedb.schema_bm25('index_config');
+SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
  id          | I64        | t      | t       | f    | t          |             |           |          | 

@@ -1,15 +1,11 @@
-use std::collections::HashMap;
-
-use pgrx::{prelude::TableIterator, *};
-use tantivy::{schema::FieldType, DocAddress, Document, SnippetGenerator};
-
+use crate::parade_index::index::ParadeIndexKey;
 use crate::{
     index_access::utils::{get_parade_index, SearchConfig},
-    parade_index::{
-        index::{ParadeIndex, ParadeIndexKey},
-        state::TantivyScanState,
-    },
+    parade_index::{index::ParadeIndex, state::TantivyScanState},
 };
+use pgrx::{prelude::TableIterator, *};
+use std::collections::HashMap;
+use tantivy::{schema::FieldType, DocAddress, Document, SnippetGenerator};
 
 #[pg_extern]
 pub fn rank_bm25(

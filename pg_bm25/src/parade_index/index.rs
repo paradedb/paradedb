@@ -1,5 +1,3 @@
-use chrono::Utc;
-use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use pgrx::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
@@ -10,18 +8,18 @@ use std::ffi::{CStr, CString};
 use std::fs::{self, create_dir_all, remove_dir_all, File};
 use std::io::Write;
 use std::path::Path;
-use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher, Term};
-use tantivy::{IndexReader, IndexWriter, SingleSegmentIndexWriter, TantivyError};
+use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher};
+use tantivy::{IndexReader, IndexWriter, TantivyError};
 
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::SearchConfig;
-use crate::json::builder::{JsonBuilder, JsonBuilderValue};
+use crate::json::builder::JsonBuilderValue;
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 use super::state::TantivyScanState;
+use super::writer::ParadeWriter;
 
-const CACHE_NUM_BLOCKS: usize = 10;
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
@@ -65,14 +63,14 @@ impl TryFrom<&JsonBuilderValue> for ParadeIndexKey {
     }
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Serialize)]
 pub struct ParadeIndex {
     pub name: String,
     pub fields: HashMap<String, Field>,
     pub field_configs: ParadeOptionMap,
     pub key_field_name: String,
-    #[serde(skip_serializing, deserialize_with = "ParadeIndex::deserialize_reader")]
-    reader: IndexReader,
+    #[serde(skip_serializing)]
+    pub reader: IndexReader,
     #[serde(skip_serializing)]
     underlying_index: Index,
     #[serde(skip_serializing)]
@@ -86,7 +84,7 @@ impl ParadeIndex {
         name: String,
         heap_relation: &PgRelation,
         options: PgBox<ParadeOptions>,
-    ) -> Result<Self, Box<dyn Error>> {
+    ) -> Result<&mut Self, Box<dyn Error>> {
         let dir = Self::get_data_directory(&name);
         let path = Path::new(&dir);
 
@@ -176,7 +174,9 @@ impl ParadeIndex {
             new_self.to_cached_index();
         }
 
-        Ok(new_self)
+        // We need to return the Self that is borrowed from the cache.
+        let new_self_ref = Self::from_index_name(&name.to_string().as_ref());
+        Ok(new_self_ref)
     }
 
     fn setup_tokenizers(underlying_index: &mut Index, field_configs: &ParadeOptionMap) {
@@ -191,7 +191,7 @@ impl ParadeIndex {
             .try_into()
     }
 
-    unsafe fn from_cached_index(name: &str) -> Option<Self> {
+    unsafe fn from_cached_index(name: String) -> Option<&'static mut Self> {
         // This function needs to be unsafe because it accesses
         // data from a static mut variable.
         // If the cache has not been initialized for this process,
@@ -201,10 +201,10 @@ impl ParadeIndex {
             return None;
         }
 
-        PARADE_INDEX_MEMORY.as_ref()?.get(name).cloned()
+        PARADE_INDEX_MEMORY.as_mut()?.get_mut(&name)
     }
 
-    unsafe fn to_cached_index(&self) {
+    unsafe fn to_cached_index(self) {
         if PARADE_INDEX_MEMORY.is_none() {
             PARADE_INDEX_MEMORY = Some(HashMap::new());
         }
@@ -212,14 +212,14 @@ impl ParadeIndex {
         PARADE_INDEX_MEMORY
             .as_mut()
             .unwrap()
-            .insert(self.name.clone(), self.clone());
+            .insert(self.name.clone(), self);
     }
 
-    pub fn from_index_name(name: &str) -> Self {
+    pub fn from_index_name<'a>(name: &str) -> &'a mut Self {
         unsafe {
-            // First check cache to see if we can retrieve the index from memory.
-            if let Some(new_self) = Self::from_cached_index(name) {
-                return new_self;
+            let cached_self = Self::from_cached_index(name.into());
+            if cached_self.is_some() {
+                return cached_self.unwrap();
             }
         }
 
@@ -230,7 +230,7 @@ impl ParadeIndex {
             new_self.to_cached_index();
         }
 
-        new_self
+        Self::from_index_name(name)
     }
 
     pub fn get_key_value(&self, document: &Document) -> ParadeIndexKey {
@@ -259,98 +259,6 @@ impl ParadeIndex {
         }
     }
 
-    pub fn insert_with_writer(
-        &mut self,
-        writer: &mut SingleSegmentIndexWriter,
-        ctid: ItemPointerData,
-        builder: JsonBuilder,
-    ) {
-        // This method is both an implemenation for `self.insert`, and used publicly
-        // during index build, where we want to make sure that the same writer is used
-        // for the entire build.
-        let mut doc: Document = Document::new();
-        for (col_name, value) in builder.values.iter() {
-            let field_option = self.fields.get(col_name.trim_matches('"'));
-            if let Some(field) = field_option {
-                value.add_to_tantivy_doc(&mut doc, field);
-            }
-        }
-
-        let timestamp = Utc::now().timestamp();
-        let timestamp_field_option = self.fields.get("__timestamp");
-        doc.add_i64(*timestamp_field_option.unwrap(), timestamp);
-
-        let ctid_field_option = self.fields.get("ctid");
-        doc.add_u64(*ctid_field_option.unwrap(), item_pointer_to_u64(ctid));
-        writer.add_document(doc).expect("failed to add document");
-    }
-
-    pub fn insert(&mut self, ctid: ItemPointerData, builder: JsonBuilder) {
-        // We expect this method to be called during regular inserts (after index creation).
-        // We need to create a new writer each time to avoid race conditions, and make sure
-        // to reload the reader afterwards.
-        let mut writer = self
-            .single_segment_writer()
-            .expect("Could not retrieve single segment writer for insert");
-        self.insert_with_writer(&mut writer, ctid, builder);
-        writer.commit().unwrap();
-        self.reload();
-    }
-
-    pub fn bulk_delete(
-        &self,
-        mut stats_binding: PgBox<IndexBulkDeleteResult, AllocatedByPostgres>,
-        callback: IndexBulkDeleteCallback,
-        callback_state: *mut ::std::os::raw::c_void,
-    ) -> PgBox<IndexBulkDeleteResult, AllocatedByPostgres> {
-        let mut index_writer = self
-            .underlying_index
-            .writer(INDEX_TANTIVY_MEMORY_BUDGET)
-            .unwrap(); // Adjust the size as
-                       // necessary
-
-        let schema = self.underlying_index.schema();
-        let ctid_field = schema
-            .get_field("ctid")
-            .expect("Field 'ctid' not found in schema");
-
-        let searcher = self.searcher();
-
-        for segment_reader in searcher.segment_readers() {
-            let store_reader = segment_reader
-                .get_store_reader(CACHE_NUM_BLOCKS)
-                .expect("Failed to get store reader");
-
-            for doc_id in 0..segment_reader.num_docs() {
-                if let Ok(stored_fields) = store_reader.get(doc_id) {
-                    if let Some(Value::U64(ctid_val)) = stored_fields.get_first(ctid_field) {
-                        if let Some(actual_callback) = callback {
-                            let mut ctid = pg_sys::ItemPointerData::default();
-                            u64_to_item_pointer(*ctid_val, &mut ctid);
-
-                            let should_delete =
-                                unsafe { actual_callback(&mut ctid, callback_state) };
-
-                            if should_delete {
-                                let term_to_delete = Term::from_field_u64(ctid_field, *ctid_val);
-                                index_writer.delete_term(term_to_delete);
-                                stats_binding.pages_deleted += 1;
-                            } else {
-                                stats_binding.num_pages += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        index_writer
-            .prepare_commit()
-            .expect("could not prepare_commit");
-        index_writer.commit().unwrap();
-        stats_binding
-    }
-
     pub fn query_parser(&self) -> QueryParser {
         QueryParser::for_index(
             &self.underlying_index,
@@ -362,7 +270,6 @@ impl ParadeIndex {
     }
 
     pub fn scan_state(&self, config: &SearchConfig) -> TantivyScanState {
-        self.reload();
         TantivyScanState::new(self, config)
     }
 
@@ -374,16 +281,12 @@ impl ParadeIndex {
         self.reader.searcher()
     }
 
-    pub fn single_segment_writer(&self) -> Result<SingleSegmentIndexWriter, TantivyError> {
-        SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_TANTIVY_MEMORY_BUDGET)
-    }
-
     pub fn writer(&self) -> Result<IndexWriter, TantivyError> {
         self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET)
     }
 
-    pub fn reload(&self) {
-        self.reader.reload().unwrap();
+    pub fn parade_writer(&self) -> ParadeWriter {
+        ParadeWriter::new(self)
     }
 
     pub fn garbage_collect_files(&self) {
@@ -397,7 +300,7 @@ impl ParadeIndex {
             .expect("Could not collect garbage");
     }
 
-    fn get_data_directory(name: &str) -> String {
+    pub fn get_data_directory(name: &str) -> String {
         unsafe {
             let option_name_cstr =
                 CString::new("data_directory").expect("failed to create CString");
@@ -616,9 +519,7 @@ impl<'de> Deserialize<'de> for ParadeIndex {
         });
 
         let timestamp_field = schema.get_field("__timestamp").unwrap_or_else(|_| {
-            panic!(
-                "error deserializing index: timestamp_field '__timestamp' does not exist in schema",
-            )
+            panic!("error creating index: timestamp field '__timestamp' does not exist in schema",)
         });
 
         // Construct the ParadeIndex
@@ -679,7 +580,7 @@ mod tests {
         Spi::run(SETUP_SQL).expect("failed to create index");
         let index_name = "one_republic_songs_bm25_index";
         let index = ParadeIndex::from_index_name(index_name);
-        let fields = index.fields;
-        assert_eq!(fields.len(), 9);
+        let fields = &index.fields;
+        assert_eq!(fields.len(), 8);
     }
 }

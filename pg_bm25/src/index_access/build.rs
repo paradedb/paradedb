@@ -2,34 +2,22 @@ use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{
     categorize_tupdesc, create_parade_index, lookup_index_tupdesc, row_to_json,
 };
-use crate::parade_index::index::ParadeIndex;
+use crate::parade_index::writer::ParadeWriter;
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
-use tantivy::SingleSegmentIndexWriter;
 
 // For now just pass the count and parade
 // index on the build callback state
 struct BuildState<'a> {
     count: usize,
-    parade_index: &'a mut ParadeIndex,
-    index_writer: SingleSegmentIndexWriter,
+    parade_writer: ParadeWriter<'a>,
     memcxt: PgMemoryContexts,
 }
 
 impl<'a> BuildState<'a> {
-    fn new(parade_index: &'a mut ParadeIndex) -> Self {
-        let index_name = &parade_index.name;
-        let index_writer = {
-            // We create a new copy of the index in this block so that we can
-            // get an owned instance of a single segment writer.
-            let parade_index = ParadeIndex::from_index_name(index_name);
-            parade_index
-                .single_segment_writer()
-                .expect("could not create writer for index build")
-        };
+    fn new(parade_writer: ParadeWriter<'a>) -> Self {
         BuildState {
-            parade_index,
-            index_writer,
+            parade_writer,
             count: 0,
             memcxt: PgMemoryContexts::new("ParadeDB build context"),
         }
@@ -56,20 +44,15 @@ pub extern "C" fn ambuild(
     };
 
     // Create ParadeDB Index
-    let mut parade_index = create_parade_index(index_name.clone(), &heap_relation, rdopts).unwrap();
+    let parade_index = create_parade_index(index_name.clone(), &heap_relation, rdopts).unwrap();
+    let parade_writer = parade_index.parade_writer();
 
-    let state = do_heap_scan(
-        index_info,
-        &heap_relation,
-        &index_relation,
-        &mut parade_index,
-    );
+    let state = do_heap_scan(index_info, &heap_relation, &index_relation, parade_writer);
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = state.count as f64;
     result.index_tuples = state.count as f64;
 
-    state.index_writer.commit().unwrap();
     result.into_pg()
 }
 
@@ -80,9 +63,9 @@ fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
-    parade_index: &'a mut ParadeIndex,
+    parade_writer: ParadeWriter<'a>,
 ) -> BuildState<'a> {
-    let mut state = BuildState::new(parade_index);
+    let mut state = BuildState::new(parade_writer);
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -146,15 +129,10 @@ unsafe extern "C" fn build_callback_internal(
     let values = std::slice::from_raw_parts(values, 1);
     let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
 
-    // Validate the index key field
-    let _bm25_index_id = builder.get_index_id(&state.parade_index.key_field_name);
-
-    // Keys are quoted in the json_map.
+    let parade_writer = &mut state.parade_writer;
 
     // Insert row to parade index
-    state
-        .parade_index
-        .insert_with_writer(&mut state.index_writer, ctid, builder);
+    parade_writer.insert(ctid, builder);
 
     old_context.set_as_current();
     state.memcxt.reset();

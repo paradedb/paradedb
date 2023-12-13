@@ -14,6 +14,7 @@ on:
       - dev
     paths:
       - "docker/**"
+      - "scripts/entrypoint.sh"
       - ".github/workflows/test-paradedb.yml"
   workflow_dispatch:
 

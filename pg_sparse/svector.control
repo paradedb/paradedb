@@ -1,5 +1,5 @@
 comment = 'pg_sparse: Sparse vector data type and sparse HNSW access methods'
-default_version = '0.0.0'
+default_version = '0.4.1'
 module_pathname = '$libdir/svector'
 relocatable = true
 superuser = true

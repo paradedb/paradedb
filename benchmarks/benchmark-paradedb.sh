@@ -154,7 +154,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Time indexing
   echo "-- Timing indexing..."
-  start_time=$( { time db_query "paradedb.create_bm25(index_name => '$INDEX_NAME', table_name => '$TABLE_NAME' key_field => 'id', text_fields => '{\"url\": {}, \"title\": {}, \"body\": {}}');" > query_output.log 2> query_error.log ; } 2>&1 )
+  start_time=$( { time db_query "CALL paradedb.create_bm25(index_name => '$INDEX_NAME', table_name => '$TABLE_NAME' key_field => 'id', text_fields => '{\"url\": {}, \"title\": {}, \"body\": {}}');" > query_output.log 2> query_error.log ; } 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
@@ -171,7 +171,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Cleanup: drop temporary table and index
   echo "-- Cleaning up..."
-  db_query "paradedb.drop_bm25('$INDEX_NAME')"
+  db_query "CALL paradedb.drop_bm25('$INDEX_NAME');"
   db_query "DROP TABLE $TABLE_NAME;"
   echo "Done!"
 done

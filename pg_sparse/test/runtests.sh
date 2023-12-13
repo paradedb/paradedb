@@ -83,7 +83,6 @@ cleanup() {
   echo "Cleaning up..."
 
   # Clean up the test database and temporary files
-  "$PG_BIN_PATH/pg_ctl" stop -m i > /dev/null
   rm -rf "$PWFILE"
   rm -rf "$TMPDIR"
   rm -rf "$BASEDIR/test/test_logs.log"

@@ -3,14 +3,14 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# List of extensions to possibly install (if a version variable is set)
+# List of extensions to possibly pre-install (if a version variable is set). Note that
+# this is not an exhaustive list of extensions that can be installed, only the ones that
+# we pre-install. For the full list of extensions available, see:
+# https://paradedb.notion.site/PostgreSQL-Extensions-Supported-on-ParadeDB-0aefcad16b6846ca9b3c7099cfc9e4f1?pvs=4
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
-  [pg_search]=${PG_SEARCH_VERSION:-}
-  [pg_sparse]=${PG_SPARSE_VERSION:-}
+  [svector]=${PG_SPARSE_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
-  [pg_cron]=${PG_CRON_VERSION:-}
-  [pg_net]=${PG_NET_VERSION:-}
   [pg_ivm]=${PG_IVM_VERSION:-}
   [pg_graphql]=${PG_GRAPHQL_VERSION:-}
   [pg_hashids]=${PG_HASHIDS_VERSION:-}
@@ -20,21 +20,44 @@ declare -A extensions=(
   [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
   [pgfaceting]=${PGFACETING_VERSION:-}
   [pgtap]=${PGTAP_VERSION:-}
-  [pgaudit]=${PGAUDIT_VERSION:-}
   [postgis]=${POSTGIS_VERSION:-}
   [pgrouting]=${PGROUTING_VERSION:-}
   [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
   [http]=${PGSQL_HTTP_VERSION:-}
-  [hypopg]=${HYPOPG_VERSION:-}
-  [rum]=${RUM_VERSION:-}
   [age]=${AGE_VERSION:-}
+  [pg_cron]=${PG_CRON_VERSION:-}
+  [pg_show_plans]=${PG_SHOW_PLANS_VERSION:-}
+  # These are commented out since we don't install them by default on ParadeDB. If you
+  # would like to install them, uncomment the line(s) below and uncomment the corresponding
+  # lines in preload_names, if any
+  # the extensions list above
+  # [pg_net]=${PG_NET_VERSION:-}
+  # [pgaudit]=${PGAUDIT_VERSION:-}
+  # [citus]=${CITUS_VERSION:-}
+  # [pg_partman]=${PG_PARTMAN_VERSION:-}
+  # [pgautofailover]=${PG_AUTO_FAILOVER_VERSION:-}
+  # [sqlite_fdw]=${SQLITE_FDW_VERSION:-}
+  # [ddlx]=${PGDDL_VERSION:-}
+  # [mysql_fdw]=${MYSQL_FDW_VERSION:-}
+  # [hypopg]=${HYPOPG_VERSION:-}
+  # [rum]=${RUM_VERSION:-}
+  # [pgfincore]=${PGFINCORE_VERSION:-}
+  # [pg_jobmon]=${PG_JOBMON_VERSION:-}
 )
 
 # List of extensions that must be added to shared_preload_libraries
 declare -A preload_names=(
   [pg_cron]=pg_cron
-  [pg_net]=pg_net
-  [pgaudit]=pgaudit
+  # These are commented out since we don't install them by default on ParadeDB. If you
+  # would like to install them, uncomment the line(s) below and uncomment the corresponding lines
+  # in extensions, if any
+  # the extensions list above
+  # [pg_net]=pg_net
+  # [pgaudit]=pgaudit
+  # [citus]=citus
+  # [pgsodium]=pgsodium
+  # [pgautofailover]=pgautofailover
+  # [pg_partman]=pg_partman_bgw
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed

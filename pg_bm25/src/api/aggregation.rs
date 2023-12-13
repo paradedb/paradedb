@@ -48,7 +48,7 @@ mod tests {
             }
         "#;
 
-        let res = aggregation("idx_one_republic", query);
+        let res = aggregation("one_republic_songs_bm25_index", query);
         let res = res.0.as_object().unwrap();
         let aggs = res["aggs"].as_object().unwrap();
         let buckets = aggs["buckets"].as_array().unwrap();
@@ -69,7 +69,7 @@ mod tests {
             }
         "#;
 
-        let res = aggregation("idx_one_republic", query);
+        let res = aggregation("one_republic_songs_bm25_index", query);
         let res = res.0.as_object().unwrap();
         let aggs = res["aggs"].as_object().unwrap();
         let buckets = aggs["buckets"].as_array().unwrap();
@@ -89,7 +89,7 @@ mod tests {
         }
         "#;
 
-        let res = aggregation("idx_one_republic", query);
+        let res = aggregation("one_republic_songs_bm25_index", query);
         let res = res.0.as_object().unwrap();
         let aggs = res["aggs"].as_object().unwrap();
         let value = &aggs["value"];

@@ -22,20 +22,18 @@ VALUES
         'Im holding on your rope, got me ten feet off the ground,And Im hearing what you say but I just cant make a sound,You tell me that you need me, then you go and cut me down.'
     );
 
-
-CREATE INDEX idx_one_republic
-ON one_republic_songs
-USING bm25 ((one_republic_songs.*))
-WITH (
-    key_field='song_id',
-    text_fields='{
+CALL paradedb.create_bm25(
+    index_name => 'one_republic_songs',
+    table_name => 'one_republic_songs',
+    key_field => 'song_id',
+    text_fields => '{
         title: {},
         album: {},
         genre: {},
         description: {},
         lyrics: {}
     }',
-    numeric_fields='{
+    numeric_fields => '{
         release_year: {},
     }'
-);
+)

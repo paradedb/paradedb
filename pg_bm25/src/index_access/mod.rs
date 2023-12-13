@@ -38,7 +38,14 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     amroutine.ambeginscan = Some(scan::ambeginscan);
     amroutine.amrescan = Some(scan::amrescan);
     amroutine.amgettuple = Some(scan::amgettuple);
-    amroutine.amgetbitmap = Some(scan::ambitmapscan);
+    // Disabling bitmap scans for the following reasons:
+    // 1. Bitmap scans are less optimal for our use case, where the AM API's capabilities are focused on supporting
+    //    what our index can reasonably support. Our extension leverages the efficiency of the index to the fullest,
+    //    without the need for intermediary bitmap scans.
+    // 2. Supporting bitmap scans would require transformation of queries into actual bitmaps, which introduces complexity
+    //    without significant performance gain. This complexity is unnecessary as our operator does not require bitmap scans
+    //    for optimal functioning.
+    amroutine.amgetbitmap = None;
     amroutine.amendscan = Some(scan::amendscan);
 
     amroutine.into_pg_boxed()

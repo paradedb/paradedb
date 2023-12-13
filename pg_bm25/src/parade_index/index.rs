@@ -1,3 +1,4 @@
+use chrono::Utc;
 use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
 use pgrx::*;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -9,17 +10,16 @@ use std::ffi::{CStr, CString};
 use std::fs::{self, create_dir_all, remove_dir_all, File};
 use std::io::Write;
 use std::path::Path;
-use tantivy::{
-    query::{Query, QueryParser},
-    schema::*,
-    DocAddress, Document, Index, IndexSettings, Score, Searcher, Term,
-};
+use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher, Term};
 use tantivy::{IndexReader, IndexWriter, SingleSegmentIndexWriter, TantivyError};
 
 use crate::index_access::options::ParadeOptions;
+use crate::index_access::utils::SearchConfig;
 use crate::json::builder::{JsonBuilder, JsonBuilderValue};
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
+
+use super::state::TantivyScanState;
 
 const CACHE_NUM_BLOCKS: usize = 10;
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
@@ -41,32 +41,28 @@ const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
 /// this cache, tied to its own lifecycle.
 static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
 
-pub enum ParadeIndexId {
+#[derive(PartialEq, Eq, Hash)]
+pub enum ParadeIndexKey {
     Number(i64),
 }
 
-impl TryFrom<&JsonBuilderValue> for ParadeIndexId {
+impl TryFrom<&JsonBuilderValue> for ParadeIndexKey {
     type Error = Box<dyn Error>;
 
     fn try_from(value: &JsonBuilderValue) -> Result<Self, Self::Error> {
         match value {
-            JsonBuilderValue::i16(v) => Ok(ParadeIndexId::Number(*v as i64)),
-            JsonBuilderValue::i32(v) => Ok(ParadeIndexId::Number(*v as i64)),
-            JsonBuilderValue::i64(v) => Ok(ParadeIndexId::Number(*v)),
-            JsonBuilderValue::u32(v) => Ok(ParadeIndexId::Number(*v as i64)),
-            JsonBuilderValue::u64(v) => Ok(ParadeIndexId::Number(*v as i64)),
-            _ => Err(format!("Unsupported conversion: {:#?}", value).into()),
+            JsonBuilderValue::i16(v) => Ok(ParadeIndexKey::Number(*v as i64)),
+            JsonBuilderValue::i32(v) => Ok(ParadeIndexKey::Number(*v as i64)),
+            JsonBuilderValue::i64(v) => Ok(ParadeIndexKey::Number(*v)),
+            JsonBuilderValue::u32(v) => Ok(ParadeIndexKey::Number(*v as i64)),
+            JsonBuilderValue::u64(v) => Ok(ParadeIndexKey::Number(*v as i64)),
+            _ => Err(format!(
+                "BM25 index key field must be an integer, received: {:#?}",
+                value
+            )
+            .into()),
         }
     }
-}
-
-pub struct TantivyScanState {
-    pub schema: Schema,
-    pub query: Box<dyn Query>,
-    pub query_parser: QueryParser,
-    pub searcher: Searcher,
-    pub iterator: *mut std::vec::IntoIter<(Score, DocAddress)>,
-    pub key_field_name: String,
 }
 
 #[derive(Clone, Serialize)]
@@ -79,6 +75,10 @@ pub struct ParadeIndex {
     reader: IndexReader,
     #[serde(skip_serializing)]
     underlying_index: Index,
+    #[serde(skip_serializing)]
+    key_field: Field,
+    #[serde(skip_serializing)]
+    timestamp_field: Field,
 }
 
 impl ParadeIndex {
@@ -114,6 +114,14 @@ impl ParadeIndex {
             .settings(settings.clone())
             .create_in_dir(dir)
             .expect("failed to create index");
+
+        let key_field = schema.get_field(&key_field_name).unwrap_or_else(|_| {
+            panic!("error creating index: key_field '{key_field_name}' does not exist in schema",)
+        });
+
+        let timestamp_field = schema.get_field("__timestamp").unwrap_or_else(|_| {
+            panic!("error creating index: timestamp field '__timestamp' does not exist in schema",)
+        });
 
         // Save the json_fields used to configure the index to disk.
         // We'll need to retrieve these along with the index.
@@ -156,6 +164,8 @@ impl ParadeIndex {
             reader,
             underlying_index,
             key_field_name,
+            key_field,
+            timestamp_field,
         };
 
         // Serialize ParadeIndex to disk so it can be initialized by other connections.
@@ -223,6 +233,32 @@ impl ParadeIndex {
         new_self
     }
 
+    pub fn get_key_value(&self, document: &Document) -> ParadeIndexKey {
+        let key_field_name = &self.key_field_name;
+        let value = document.get_first(self.key_field).unwrap_or_else(|| {
+            panic!("cannot find key field '{key_field_name}' on retrieved document")
+        });
+
+        match value {
+            tantivy::schema::Value::U64(val) => ParadeIndexKey::Number(*val as i64),
+            tantivy::schema::Value::I64(val) => ParadeIndexKey::Number(*val),
+            _ => panic!("invalid type for parade index key in document"),
+        }
+    }
+
+    pub fn get_timestamp_value(&self, document: &Document) -> i64 {
+        let timestamp_field_name = "__timestamp";
+        let value = document.get_first(self.timestamp_field).unwrap_or_else(|| {
+            panic!("cannot find key field '{timestamp_field_name}' on retrieved document")
+        });
+
+        match value {
+            tantivy::schema::Value::U64(val) => *val as i64,
+            tantivy::schema::Value::I64(val) => *val,
+            _ => panic!("invalid type for timestamp in document"),
+        }
+    }
+
     pub fn insert_with_writer(
         &mut self,
         writer: &mut SingleSegmentIndexWriter,
@@ -240,8 +276,12 @@ impl ParadeIndex {
             }
         }
 
-        let field_option = self.fields.get("ctid");
-        doc.add_u64(*field_option.unwrap(), item_pointer_to_u64(ctid));
+        let timestamp = Utc::now().timestamp();
+        let timestamp_field_option = self.fields.get("__timestamp");
+        doc.add_i64(*timestamp_field_option.unwrap(), timestamp);
+
+        let ctid_field_option = self.fields.get("ctid");
+        doc.add_u64(*ctid_field_option.unwrap(), item_pointer_to_u64(ctid));
         writer.add_document(doc).expect("failed to add document");
     }
 
@@ -311,28 +351,19 @@ impl ParadeIndex {
         stats_binding
     }
 
-    pub fn scan(&self) -> TantivyScanState {
-        self.reload();
-        let schema = self.underlying_index.schema();
-
-        let searcher = self.searcher();
-
-        let query_parser = QueryParser::for_index(
+    pub fn query_parser(&self) -> QueryParser {
+        QueryParser::for_index(
             &self.underlying_index,
-            schema.fields().map(|(field, _)| field).collect::<Vec<_>>(),
-        );
-        let empty_query = query_parser.parse_query("").unwrap();
+            self.schema()
+                .fields()
+                .map(|(field, _)| field)
+                .collect::<Vec<_>>(),
+        )
+    }
 
-        let key_field_name = self.key_field_name.to_string();
-
-        TantivyScanState {
-            schema,
-            query: empty_query,
-            query_parser,
-            searcher,
-            iterator: std::ptr::null_mut(),
-            key_field_name,
-        }
+    pub fn scan_state(&self, config: &SearchConfig) -> TantivyScanState {
+        self.reload();
+        TantivyScanState::new(self, config)
     }
 
     pub fn schema(&self) -> Schema {
@@ -537,6 +568,11 @@ impl ParadeIndex {
         let ctid_field = schema_builder.add_u64_field("ctid", INDEXED | STORED);
         fields.insert("ctid".to_string(), ctid_field);
 
+        // Until we have a global index writer working, we need to add a timestamp to each
+        // field so we can deduplicate query results.
+        let timestamp_field = schema_builder.add_i64_field("__timestamp", INDEXED | STORED);
+        fields.insert("__timestamp".to_string(), timestamp_field);
+
         Ok((schema_builder.build(), fields))
     }
 }
@@ -568,8 +604,21 @@ impl<'de> Deserialize<'de> for ParadeIndex {
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
+        let schema = underlying_index.schema();
         let reader = Self::reader(&underlying_index).unwrap_or_else(|_| {
             panic!("failed to create index reader while retrieving index: {name}")
+        });
+
+        let key_field = schema.get_field(&key_field_name).unwrap_or_else(|_| {
+            panic!(
+                "error deserializing index: key_field '{key_field_name}' does not exist in schema",
+            )
+        });
+
+        let timestamp_field = schema.get_field("__timestamp").unwrap_or_else(|_| {
+            panic!(
+                "error deserializing index: timestamp_field '__timestamp' does not exist in schema",
+            )
         });
 
         // Construct the ParadeIndex
@@ -580,6 +629,8 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             reader,
             underlying_index,
             key_field_name,
+            key_field,
+            timestamp_field,
         })
     }
 }
@@ -626,9 +677,9 @@ mod tests {
     #[pg_test]
     fn test_from_index_name() {
         Spi::run(SETUP_SQL).expect("failed to create index");
-        let index_name = "idx_one_republic";
+        let index_name = "one_republic_songs_bm25_index";
         let index = ParadeIndex::from_index_name(index_name);
         let fields = index.fields;
-        assert_eq!(fields.len(), 8);
+        assert_eq!(fields.len(), 9);
     }
 }

@@ -21,3 +21,7 @@ target/
 
 # Ruff
 .ruff_cache/
+.vercel
+
+# pgvector
+pgvector/

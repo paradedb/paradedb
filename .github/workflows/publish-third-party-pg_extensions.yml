@@ -48,20 +48,24 @@ jobs:
           wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null
           sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
 
+          # Create any necessary directories
+          sudo mkdir -p /usr/share/postgresql/${{ matrix.pg_version }}/pgfincore/
+
           # Update permissions for PostgreSQL directories for extensions installation
           sudo chown -R $(whoami) \
-            /usr/share/postgresql/${{ matrix.pg_version }}/extension/ \
             /usr/lib/postgresql/${{ matrix.pg_version }}/bin/ \
             /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ \
             /usr/include/postgresql/${{ matrix.pg_version }}/server/ \
             /usr/share/postgresql/${{ matrix.pg_version }}/contrib/ \
+            /usr/share/postgresql/${{ matrix.pg_version }}/extension/ \
+            /usr/share/postgresql/${{ matrix.pg_version }}/pgfincore/ \
+            /usr/share/doc/ \
             /usr/local/share/man/ \
-            /usr/share/doc/
 
           # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      # Install requirements for: rum, pgaudit, postgis, pg_repack, AGE
+      # Install requirements for: rum, pgaudit, postgis, pg_repack, AGE, pg_auto_failover, pgsodium
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -83,7 +87,10 @@ jobs:
             zlib1g-dev \
             bison \
             flex \
-            libreadline-dev
+            libreadline-dev \
+            libxslt-dev \
+            libpam0g-dev \
+            libsodium-dev
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases

@@ -13,19 +13,6 @@ updates:
         patterns:
           - "*"
 
-  # TODO: Reenable Dependabot if/when we feel it provides value
-  # - package-ecosystem: "npm"
-  #   directory: "/dashboard"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     dashboard-dependencies:
-  #       patterns:
-  #         - "*"
-
   # - package-ecosystem: "docker"
   #   directory: "/docker"
   #   schedule:
@@ -47,18 +34,6 @@ updates:
   #       update-types: ["version-update:semver-patch"]
   #   groups:
   #     pg_bm25-dependencies:
-  #       patterns:
-  #         - "*"
-
-  # - package-ecosystem: "cargo"
-  #   directory: "/pg_search"
-  #   schedule:
-  #     interval: "monthly"
-  #   ignore:
-  #     - dependency-name: "*"
-  #       update-types: ["version-update:semver-patch"]
-  #   groups:
-  #     pg_search-dependencies:
   #       patterns:
   #         - "*"
 

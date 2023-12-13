@@ -20,7 +20,8 @@ pub fn schema_bm25(
     name!(record, Option<String>),
     name!(normalizer, Option<String>),
 )> {
-    let parade_index = get_parade_index(index_name);
+    let bm25_index_name = format!("{}_bm25_index", index_name);
+    let parade_index = get_parade_index(&bm25_index_name);
     let schema = parade_index.schema();
 
     let mut field_rows = Vec::new();
@@ -92,13 +93,13 @@ mod tests {
     #[pg_test]
     fn test_schema_bm25() {
         Spi::run(SETUP_SQL).expect("failed to setup index");
-        let schemas = schema_bm25("idx_one_republic").collect::<Vec<_>>();
+        let schemas = schema_bm25("one_republic_songs").collect::<Vec<_>>();
         let names = schemas
             .iter()
             .map(|schema| schema.0.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(schemas.len(), 8);
+        assert_eq!(schemas.len(), 9);
         assert_eq!(
             names,
             vec![
@@ -109,7 +110,8 @@ mod tests {
                 "genre",
                 "description",
                 "lyrics",
-                "ctid"
+                "ctid",
+                "__timestamp"
             ]
         );
     }

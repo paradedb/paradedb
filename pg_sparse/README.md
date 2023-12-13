@@ -319,7 +319,13 @@ CREATE EXTENSION svector;
 
 Now, you have access to all the extension functions.
 
-Note: If you'd like to develop `pg_sparse` via `cargo pgrx run`, please refer to the `pg_search` [README](../pg_search/README.md), as `pg_sparse` gets installed as a dependency of `pg_search`.
+Note: If you'd like to develop `pg_sparse` via `cargo pgrx run`, run
+
+```bash
+./scripts/configure.sh
+```
+
+This will install `pg_sparse`, along with `pg_bm25` and `pgvector`, into your PGRX environment.
 
 ### Modifying the Extension
 

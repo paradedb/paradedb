@@ -10,7 +10,6 @@ use crate::tokenizers::icu::ICUTokenizer;
 use crate::tokenizers::lindera::{
     LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer,
 };
-
 use serde_json::json;
 use shared::plog;
 use tantivy::tokenizer::{
@@ -94,7 +93,7 @@ pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManage
             _ => None,
         };
 
-        if let Some(tokenizer) = tokenizer_option {
+        if let Some(text_analyzer) = tokenizer_option {
             plog!(
                 "registering tokenizer",
                 json!({
@@ -102,7 +101,7 @@ pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManage
                     "tokenizer_name": &parade_tokenizer.name()
                 })
             );
-            tokenizer_manager.register(&parade_tokenizer.name(), tokenizer);
+            tokenizer_manager.register(&parade_tokenizer.name(), text_analyzer);
         }
     }
 

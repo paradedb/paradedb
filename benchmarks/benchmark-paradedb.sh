@@ -48,6 +48,7 @@ cleanup() {
   if [ -s query_error.log ]; then
     echo "!!! Benchmark cleanup triggered !!!"
     cat query_error.log
+    rm -rf query_error.log
   fi
   echo ""
   echo "Cleaning up benchmark environment..."
@@ -55,6 +56,7 @@ cleanup() {
     docker kill paradedb > /dev/null 2>&1
   fi
   docker rm paradedb > /dev/null 2>&1
+  rm -rf query_output.log
   echo "Done, goodbye!"
 }
 
@@ -71,32 +73,40 @@ echo ""
 if [ "$FLAG_TAG" == "local" ]; then
   echo "Building ParadeDB From Source..."
   docker build -t paradedb/paradedb:"$FLAG_TAG" \
-    --no-cache \
     -f "../docker/Dockerfile" \
     --build-arg PG_VERSION_MAJOR="15" \
     --build-arg PG_BM25_VERSION="0.0.0" \
-    --build-arg PG_SEARCH_VERSION="0.0.0" \
     --build-arg PG_SPARSE_VERSION="0.0.0" \
     --build-arg PG_GRAPHQL_VERSION="1.3.0" \
     --build-arg PG_JSONSCHEMA_VERSION="0.1.4" \
     --build-arg PGSQL_HTTP_VERSION="1.6.0" \
     --build-arg PG_NET_VERSION="0.7.2" \
     --build-arg PGVECTOR_VERSION="0.5.1" \
-    --build-arg PG_CRON_VERSION="1.6.0" \
-    --build-arg PG_IVM_VERSION="1.5.1" \
+    --build-arg PG_CRON_VERSION="1.6.2" \
+    --build-arg PG_IVM_VERSION="1.7" \
     --build-arg PG_HASHIDS_VERSION="1.2.1" \
-    --build-arg PG_REPACK_VERSION="1.4.8" \
-    --build-arg PG_STAT_MONITOR_VERSION="2.0.1" \
-    --build-arg PG_HINT_PLAN_VERSION="1.5.0" \
+    --build-arg PG_REPACK_VERSION="1.5.0" \
+    --build-arg PG_STAT_MONITOR_VERSION="2.0.3" \
+    --build-arg PG_HINT_PLAN_VERSION="1.5.1" \
     --build-arg PG_ROARINGBITMAP_VERSION="0.5.4" \
     --build-arg PGFACETING_VERSION="0.1.0" \
-    --build-arg PGTAP_VERSION="1.3.0" \
+    --build-arg PGTAP_VERSION="1.3.1" \
     --build-arg PGAUDIT_VERSION="1.7.0" \
-    --build-arg POSTGIS_VERSION="3.4.0" \
-    --build-arg PGROUTING_VERSION="3.5.0" \
+    --build-arg POSTGIS_VERSION="3.4.1" \
+    --build-arg PGROUTING_VERSION="3.6.1" \
     --build-arg HYPOPG_VERSION="1.4.0" \
     --build-arg RUM_VERSION="1.3.13" \
     --build-arg AGE_VERSION="1.4.0" \
+    --build-arg CITUS_VERSION="12.1.1" \
+    --build-arg PGSODIUM_VERSION="3.1.9" \
+    --build-arg PGFINCORE_VERSION="1.3.1" \
+    --build-arg PG_PARTMAN_VERSION="5.0.0" \
+    --build-arg PG_JOBMON_VERSION="1.4.1" \
+    --build-arg PG_AUTO_FAILOVER_VERSION="2.1" \
+    --build-arg PG_SHOW_PLANS_VERSION="2.0.2" \
+    --build-arg SQLITE_FDW_VERSION="2.4.0" \
+    --build-arg PGDDL_VERSION="0.27" \
+    --build-arg MYSQL_FDW_VERSION="2.9.1" \
     "../"
   echo ""
 fi
@@ -144,12 +154,12 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Time indexing
   echo "-- Timing indexing..."
-  start_time=$( { time db_query "CREATE INDEX $INDEX_NAME ON $TABLE_NAME USING bm25 (($TABLE_NAME.*)) WITH (key_field='id', text_fields='{\"url\": {}, \"title\": {}, \"body\": {}}');" > query_output.log 2> query_error.log ; } 2>&1 )
+  start_time=$( { time db_query "CALL paradedb.create_bm25(index_name => '$INDEX_NAME', table_name => '$TABLE_NAME', key_field => 'id', text_fields => '{\"url\": {}, \"title\": {}, \"body\": {}}');" > query_output.log 2> query_error.log ; } 2>&1 )
   index_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Time search
   echo "-- Timing search..."
-  start_time=$( { time db_query "SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'body:Canada' LIMIT 10" > query_output.log 2> query_error.log ; } 2>&1 )
+  start_time=$( { time db_query "SELECT * FROM $INDEX_NAME.search('body:Canada') LIMIT 10;" > query_output.log 2> query_error.log ; } 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Record times to CSV
@@ -157,11 +167,11 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Print query plan
   echo "-- Printing query plan..."
-  db_query "EXPLAIN SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'body:Canada' LIMIT 10"
+  db_query "EXPLAIN SELECT * FROM $INDEX_NAME.search('body:Canada') LIMIT 10;"
 
   # Cleanup: drop temporary table and index
   echo "-- Cleaning up..."
-  db_query "DROP INDEX IF EXISTS $INDEX_NAME;"
+  db_query "CALL paradedb.drop_bm25('$INDEX_NAME');"
   db_query "DROP TABLE $TABLE_NAME;"
   echo "Done!"
 done

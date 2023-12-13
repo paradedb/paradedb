@@ -159,7 +159,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Time search
   echo "-- Timing search..."
-  start_time=$( { time db_query "" > query_output.log 2> query_error.log ; } 2>&1 )
+  start_time=$( { time db_query "EXPLAIN SELECT * FROM $INDEX_NAME.search('body:Canada') LIMIT 10;" > query_output.log 2> query_error.log ; } 2>&1 )
   search_time=$(echo "$start_time" | grep real | awk '{ split($2, array, "m|s"); print array[1]*60000 + array[2]*1000 }')
 
   # Record times to CSV
@@ -167,7 +167,7 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Print query plan
   echo "-- Printing query plan..."
-  db_query "EXPLAIN SELECT * FROM $TABLE_NAME WHERE $TABLE_NAME @@@ 'body:Canada' LIMIT 10"
+  db_query "EXPLAIN SELECT * FROM $INDEX_NAME.search('body:Canada') LIMIT 10;"
 
   # Cleanup: drop temporary table and index
   echo "-- Cleaning up..."

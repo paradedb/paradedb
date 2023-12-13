@@ -27,9 +27,15 @@ LEFT JOIN search_idx.highlight('description:keyboard OR category:electronics', h
 
 </Accordion>
 
-All parameters to the `search` function are applicable here. The `highlight` function should receive identical
-arguments to the `search` function, along with an additional required `highlight_field` parameter.
-
-<ParamField body="highlight_field" required>
+<ParamField body="index_name" required>
+  The name of the index.
+</ParamField>
+<ParamField body="query" required>
+  The query string.
+</ParamField>
+<ParamField body="field_name" required>
   The name of the indexed field to be highlighted in the returned fragment.
 </ParamField>
+
+All parameters to the `search` function are applicable here. The `highlight` function should receive identical
+arguments to the `search` function, along with an additional required `highlight_field` parameter.

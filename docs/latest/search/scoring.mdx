@@ -34,5 +34,12 @@ LEFT JOIN search_idx.rank('description:keyboard OR category:electronics', fuzzy_
 
 </Accordion>
 
+<ParamField body="index_name" required>
+  The name of the index.
+</ParamField>
+<ParamField body="query" required>
+  The query string.
+</ParamField>
+
 All parameters to the `search` function are applicable here. The `rank` function should receive identical
 arguments to the `search` function.

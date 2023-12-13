@@ -27,13 +27,15 @@ use datafusion_substrait::substrait::proto::rel::RelType::Read;
 use datafusion_substrait::substrait::proto::plan_rel::RelType::Root;
 use datafusion_substrait::substrait::proto::PlanRel;
 use datafusion_substrait::logical_plan::consumer::from_substrait_plan;
-use datafusion::common::arrow::array::types::{Int8Type, Int16Type, Int32Type, Int64Type, UInt32Type, Float32Type, GenericStringType, Time32SecondType, TimestampSecondType, Date32Type};
+use datafusion::common::arrow::array::types::{Int8Type, Int16Type, Int32Type, Int64Type, UInt32Type, Float32Type, GenericStringType, Time32SecondType, TimestampSecondType, Date32Type, UInt64Type};
 use datafusion::arrow::datatypes::{DataType, TimeUnit};
 use datafusion::arrow::array::AsArray;
 use datafusion::logical_expr::LogicalPlanBuilder;
 use datafusion::logical_expr::LogicalPlan;
+use datafusion::common::arrow::array::PrimitiveArray;
 
 use std::ffi::CString;
+use std::ptr;
 use pgrx::pg_sys::ScanState;
 use pgrx::pg_sys::get_am_name;
 use pgrx::pg_sys::get_am_oid;
@@ -48,13 +50,16 @@ use pgrx::PgRelation;
 use pgrx::PgTupleDesc;
 use pgrx::pg_sys::CmdType_CMD_SELECT;
 use pgrx::pg_sys::MakeTupleTableSlot;
-use pgrx::pg_sys::TTSOpsVirtual;
+use pgrx::pg_sys::TTSOpsHeapTuple;
 use pgrx::pg_sys::ModifyTable;
 use pgrx::pg_sys::rt_fetch;
 use pgrx::pg_sys::RelationIdGetRelation;
 use pgrx::pg_sys::ExecShutdownNode;
 use pgrx::pg_sys::RelationClose;
 use pgrx::pg_sys::MemoryContextSwitchTo;
+use pgrx::pg_sys::table_slot_create;
+use pgrx::pg_sys::ExecStoreVirtualTuple;
+use pgrx::pg_sys::ExecDropSingleTupleTableSlot;
 
 use futures::executor;
 
@@ -76,14 +81,14 @@ extern "C" fn columnar_planner(
     bound_params: *mut ParamListInfoData,
 ) -> *mut PlannedStmt {
     // Log the entry into the custom planner
-    info!("Entering columnar_planner");
+    // info!("Entering columnar_planner");
 
     // Log details about the query, if needed
     if !query_string.is_null() {
         let query_str = unsafe { std::ffi::CStr::from_ptr(query_string) }.to_string_lossy();
-        info!("Query string: {}", query_str);
+        // info!("Query string: {}", query_str);
     } else {
-        info!("Query string is null");
+        // info!("Query string is null");
     }
 
     unsafe {
@@ -143,12 +148,12 @@ async unsafe extern "C" fn columnar_executor_run_internal(
     execute_once: bool,
 ) {
     // Log the entry into the custom planner
-    info!("Entering columnar_executor_run");
+    // info!("Entering columnar_executor_run");
 
     // Imitate ExplainNode for recursive plan scanning behavior
     let ps = (*query_desc).plannedstmt;
     let plan: *mut pg_sys::Plan = (*ps).planTree;
-    describe_nodes(plan, ps);
+    // describe_nodes(plan, ps);
 
     let node = plan as *mut Node;
     let node_tag = (*node).type_;
@@ -156,14 +161,15 @@ async unsafe extern "C" fn columnar_executor_run_internal(
 
     let planstate = (*query_desc).planstate;
 
-    info!("{:?}", node_tag);
+    // info!("{:?}", node_tag);
 
     match node_tag {
         NodeTag::T_SeqScan => {
-            info!("match T_SeqScan");
+            // info!("match T_SeqScan");
             // Check if the table is using our table AM before running our custom logic
             let rte = unsafe { rt_fetch((*(plan as *mut SeqScan)).scan.scanrelid, rtable) };
             let relation = unsafe { RelationIdGetRelation((*rte).relid) };
+            let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
             let am_handler = (*relation).rd_amhandler;
 
             let handlername_cstr = CString::new("mem").unwrap();
@@ -173,7 +179,7 @@ async unsafe extern "C" fn columnar_executor_run_internal(
             let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
             let memhandler_oid = (*amForm).amhandler;
             ReleaseSysCache(amTup);
-            RelationClose(relation); // We don't wrap with a from_pg_owned, so we have to manually close the relation
+            // RelationClose(relation); // We don't wrap with a from_pg_owned, so we have to manually close the relation
             if am_handler != memhandler_oid {
                 standard_ExecutorRun(query_desc, direction, count, execute_once);
                 info!("Standard ExecutorRun called");
@@ -184,7 +190,6 @@ async unsafe extern "C" fn columnar_executor_run_internal(
 
             if let Ok(df_plan) = transform_seqscan_to_datafusion(ps).await {
                 if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(df_plan).await {
-                    info!("dataframe {:?}", dataframe);
                     let recordbatchvec_result = dataframe.collect().await;
                     match recordbatchvec_result {
                         Ok(recordbatchvec) => {
@@ -198,13 +203,15 @@ async unsafe extern "C" fn columnar_executor_run_internal(
                                     Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
                                     None => panic!("no rstartup"),
                                 };
-                                let tuple_desc = PgTupleDesc::from_pg((*query_desc).tupDesc);
+                                let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
 
                                 let receiveSlot = (*dest).receiveSlot;
                                 match receiveSlot {
                                     Some(f) => for recordbatch in recordbatchvec.iter() {
                                         for row_index in 0..recordbatch.num_rows() {
-                                            let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsVirtual);
+                                            // let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsHeapTuple);
+                                            let tuple_table_slot = table_slot_create(relation, ptr::null_mut());
+                                            ExecStoreVirtualTuple(tuple_table_slot);
                                             let mut col_index = 0;
                                             for attr in tuple_desc.iter() {
                                                 let column = recordbatch.column(col_index);
@@ -226,7 +233,10 @@ async unsafe extern "C" fn columnar_executor_run_internal(
                                                 col_index += 1;
                                             }
                                             f(tuple_table_slot, dest);
+                                            ExecDropSingleTupleTableSlot(tuple_table_slot);
                                         }
+                                        // TODO: figure out why it returns multiple RecordBatches - until then, just break after the first one
+                                        // break;
                                     },
                                     None => panic!("no receiveslot"),
                                 }
@@ -253,7 +263,7 @@ async unsafe extern "C" fn columnar_executor_run_internal(
         }
 
         NodeTag::T_ModifyTable => {
-            info!("match T_ModifyTable");
+            // info!("match T_ModifyTable");
             // Check if the table is using our table AM before running our custom logic
             let rte = unsafe { rt_fetch((*((*ps).planTree as *mut ModifyTable)).nominalRelation, rtable) };
             let relation = unsafe { RelationIdGetRelation((*rte).relid) };
@@ -267,7 +277,6 @@ async unsafe extern "C" fn columnar_executor_run_internal(
             let memhandler_oid = (*amForm).amhandler;
             ReleaseSysCache(amTup);
             RelationClose(relation); // We don't wrap with a from_pg_owned, so we have to manually close the relation
-            info!("{:?} ? {:?}", am_handler, memhandler_oid);
             if am_handler != memhandler_oid {
                 standard_ExecutorRun(query_desc, direction, count, execute_once);
                 info!("Standard ExecutorRun called");
@@ -295,22 +304,22 @@ async unsafe extern "C" fn columnar_executor_run_internal(
             //     .build()?
             // };
 
-            info!("start if nest");
             if let Ok(logical_plan) = transform_modify_to_datafusion(ps) {
-                info!("if 2 logical_plan {:?}", logical_plan);
                 if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await {
-                    info!("if 3 dataframe {:?}", dataframe);
-                    // let recordbatchvec_result = dataframe.collect().await;
-                    // info!("finished collect");
-                    // match recordbatchvec_result {
-                    //     Ok(recordbatchvec) => info!("successful collect"),
-                    //     Err(e) => info!("failed collect {}", e)
-                    // }
-                    // if let Ok(recordbatchvec) = dataframe.collect().await {
-                    //     // TODO: implement sendTuples to support returning tuples
-                    // } else {
-                    //     info!("dataframe collect failed");
-                    // }
+                    let recordbatchvec_result = dataframe.clone().collect().await;
+                    match recordbatchvec_result {
+                        Ok(recordbatchvec) => {
+                            // Set es_processed
+                            let num_updated = recordbatchvec[0].column(0).as_primitive::<UInt64Type>().value(0);
+                            (*(*query_desc).estate).es_processed = num_updated;
+                        },
+                        Err(e) => info!("failed collect {}", e)
+                    }
+                    if let Ok(recordbatchvec) = dataframe.collect().await {
+                        // TODO: implement sendTuples to support returning tuples
+                    } else {
+                        info!("dataframe collect failed");
+                    }
                 } else {
                     info!("failed to create dataframe");
                 }
@@ -340,9 +349,7 @@ unsafe extern "C" fn columnar_executor_run(
     count: u64,
     execute_once: bool,
 ) {
-    info!("running columnar_executor_run");
     executor::block_on(columnar_executor_run_internal(query_desc, direction, count, execute_once));
-    info!("finished running columnar_executor_run");
 }
 
 // initializes telemetry
@@ -354,7 +361,7 @@ pub extern "C" fn _PG_init() {
     telemetry::posthog::init("pg_columnar deployment");
     PARADE_LOGS_GLOBAL.init();
     unsafe {
-        planner_hook = Some(columnar_planner as _); // Corrected cast
+        // planner_hook = Some(columnar_planner as _); // Corrected cast
         ExecutorRun_hook = Some(columnar_executor_run as _);
     }
 }

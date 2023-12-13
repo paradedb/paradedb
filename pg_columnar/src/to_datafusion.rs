@@ -13,6 +13,8 @@ use pgrx::pg_sys::ModifyTable;
 use std::ffi::CStr;
 use pgrx::pg_sys::Plan;
 use pgrx::pg_sys::ValuesScan;
+use pgrx::pg_sys::RelationClose;
+use pgrx::pg_sys::exprType;
 
 use datafusion::sql::TableReference;
 use datafusion::logical_expr::{LogicalPlan, TableScan};
@@ -29,6 +31,7 @@ use datafusion::common::ScalarValue;
 use datafusion::logical_expr::Values;
 
 unsafe fn get_attr(table: *mut RelationData, index: isize) -> *const FormData_pg_attribute {
+    // info!("{:?}", table);
     let tupdesc = (*table).rd_att;
     let natts = (*tupdesc).natts;
     if natts > 0 && (index as i32) <= natts {
@@ -83,12 +86,12 @@ pub async fn transform_seqscan_to_datafusion(
     unsafe {
         let list = (*plan).qual;
         if !list.is_null() {
-            info!("enumerating through qual");
+            // info!("enumerating through qual");
             let elements = (*list).elements;
             for i in 0..(*list).length {
                 let list_cell_node =
                     (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-                info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+                // info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
                 // match (*list_cell_node).type_ {
                 //     NodeTag::T_Var => {
                 //         let var = list_cell_node as *mut pgrx::pg_sys::Var;
@@ -158,12 +161,12 @@ pub async fn transform_seqscan_to_datafusion(
     unsafe {
         let list = (*plan).targetlist;
         if !list.is_null() {
-            info!("enumerating through target list");
+            // info!("enumerating through target list");
             let elements = (*list).elements;
             for i in 0..(*list).length {
                 let list_cell_node =
                     (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-                info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+                // info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
                 match (*list_cell_node).type_ {
                     NodeTag::T_TargetEntry => {
                         // the name of the column is resname
@@ -174,7 +177,7 @@ pub async fn transform_seqscan_to_datafusion(
                         if !col_name.is_null() {
                             let col_name_str =
                                 CStr::from_ptr(col_name).to_string_lossy().into_owned();
-                            info!("column name {:?}", col_name_str);
+                            // info!("column name {:?}", col_name_str);
                             // type of column
                             // get the tupel descr data
                             // sanity check?
@@ -190,19 +193,19 @@ pub async fn transform_seqscan_to_datafusion(
                                     if let Ok(datafusion_type) =
                                         postgres_to_datafusion_type(built_in_oid)
                                     {
-                                        info!(
-                                            "found attribute {:?} with type {:?}",
-                                            col_name_str, datafusion_type
-                                        );
+                                        // info!(
+                                        //     "found attribute {:?} with type {:?}",
+                                        //     col_name_str, datafusion_type
+                                        // );
                                         // col_names.push(col_name_str);
                                         // // TODO: no unwrap, handle error
                                         // col_types.types.push(substrait_type);
                                         cols.push(Field::new(col_name_str, datafusion_type, !att_not_null));
                                     } else {
-                                        info!(
-                                            "OID {:?} isn't convertable to datafusion type yet",
-                                            (*pg_att).atttypid
-                                        );
+                                        // info!(
+                                        //     "OID {:?} isn't convertable to datafusion type yet",
+                                        //     (*pg_att).atttypid
+                                        // );
                                     }
                                 }
                             }
@@ -240,7 +243,7 @@ pub async fn transform_seqscan_to_datafusion(
                 }
             }
         } else {
-            info!("(*plan).targetlist was null");
+            // info!("(*plan).targetlist was null");
         }
     }
 
@@ -249,7 +252,7 @@ pub async fn transform_seqscan_to_datafusion(
 
     if let Ok(table_provider) = CONTEXT.table_provider(&table_reference).await {
         let table_source = DefaultTableSource::new(table_provider);
-        info!("finished creating plan");
+        // info!("finished creating plan");
         return Ok(LogicalPlan::TableScan(TableScan {
             table_name: table_reference,
             source: Arc::new(table_source),
@@ -273,20 +276,138 @@ pub async fn transform_seqscan_to_datafusion(
 
 pub fn transform_valuesscan_to_datafusion(
     plan: *mut Plan,
+    ps: *mut PlannedStmt,
     // schema: Arc<DFSchema>
 ) -> Result<(LogicalPlan, Arc<DFSchema>), Error> {
     let valuesscan = plan as *mut ValuesScan;
 
-    let mut values: Vec<Vec<Expr>> = vec![];
+    // let rtable = unsafe { (*ps).rtable };
 
+    // // find the table we're supposed to be scanning by querying the range table
+    // // RangeTblEntry
+    // // scanrelid is index into the range table
+    // let rte = unsafe { rt_fetch((*valuesscan).scan.scanrelid, rtable) };
+    // unsafe { info!("length {} relid {}", (*rtable).length, (*rte).relid) };
+    // let relation = unsafe { RelationIdGetRelation((*rte).relid) };
+    // // let relname = unsafe { &mut (*(*relation).rd_rel).relname as *mut NameData };
+    // let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
+
+    let mut cols: Vec<Field> = vec![];
+    unsafe {
+        // let result_node = (*valuesscan).scan.plan.lefttree as *mut pgrx::pg_sys::Result;
+        // let target_list = (*(*result_node).plan).targetlist as *mut pgrx::pg_sys::List;
+        let target_list = (*plan).targetlist;
+
+        if !target_list.is_null() {
+            // info!("enumerating through target list");
+            let elements = (*target_list).elements;
+            for i in 0..(*target_list).length {
+                let list_cell_node =
+                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+                // info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+                match (*list_cell_node).type_ {
+                    NodeTag::T_TargetEntry => {
+                        // the name of the column is resname
+                        // the oid of the source table is resorigtbl
+                        // the column's number in source table is resorigcol
+                        let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
+                        let col_name = (*target_entry).resname;
+                        if !col_name.is_null() {
+                            let col_name_str =
+                                CStr::from_ptr(col_name).to_string_lossy().into_owned();
+                            // info!("column name {:?}", col_name_str);
+                            // type of column
+                            // get the tupel descr data
+                            // sanity check?
+                            // let tupdesc = (*relation).rd_att;
+                            // resorigcol: column's original number in source table
+                            // info!("resorigtbl {} resorigcol {} resno {}", (*target_entry).resorigtbl, (*target_entry).resorigcol, (*target_entry).resno);
+                            // let col_num = (*target_entry).resorigcol;
+                            // TODO: I did these type conversions just to silence the compiler
+                            // let relation = unsafe { RelationIdGetRelation((*target_entry).resorigtbl) };
+                            // info!("get_attr");
+                            // let pg_att = get_attr(relation, col_num as isize);
+                            // info!("got attr");
+                            // if !pg_att.is_null() {
+                            //     let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
+                            //     let p_type_id = BuiltinOid::try_from((*pg_att).atttypid);
+                            //     if let Ok(built_in_oid) = p_type_id {
+                            //         if let Ok(datafusion_type) =
+                            //             postgres_to_datafusion_type(built_in_oid)
+                            //             // postgres_to_substrait_type(built_in_oid, att_not_null)
+                            //         {
+                            //             info!(
+                            //                 "found attribute {:?} with type {:?}",
+                            //                 col_name_str, datafusion_type
+                            //             );
+                            //             // col_names.push(col_name_str);
+                            //             // // TODO: no unwrap, handle error
+                            //             // col_types.types.push(substrait_type);
+                            //             cols.push(Field::new(col_name_str, datafusion_type, !att_not_null));
+                            //         } else {
+                            //             info!(
+                            //                 "OID {:?} isn't convertable to substrait type yet",
+                            //                 (*pg_att).atttypid
+                            //             );
+                            //         }
+                            //     }
+                            // }
+                            // RelationClose(relation);
+                            let col_type = exprType((*target_entry).expr as *mut pgrx::pg_sys::Node);
+                            if let Ok(res_p_type) = BuiltinOid::try_from(col_type) {
+                                if let Ok(datafusion_type) = postgres_to_datafusion_type(res_p_type) {
+                                    cols.push(Field::new(col_name_str, datafusion_type, true)); // TODO: actually get nullability
+                                } else {
+                                    info!("OID {:?} isn't convertable to datafusion type yet", col_type);
+                                }
+                            } else {
+                                info!("not a builtin OID");
+                            }
+                        }
+                    }
+                    /*
+                    NodeTag::T_Var => {
+                        // the varno and varattno identify the "semantic referent", which is a base-relation column
+                        // unless the reference is to a join ...
+                        // target list var no = scanrelid
+                        let var = list_cell_node as *mut pgrx::pg_sys::Var;
+                        // varno is the index of var's relation in the range table
+                        let var_rte = rt_fetch((*var).varno as u32, rtable);
+                        let var_relid = (*var_rte).relid;
+                        // varattno is the attribute number, or 0 for all attributes
+                        let att_name = get_attname(var_relid, (*var).varattno, false);
+                        let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
+                        // vartype is the pg_type OID for the type of this var
+                        let att_type = PostgresType::from_oid((*var).vartype);
+                        if let Some(pg_type) = att_type {
+                            info!("found attribute {:?} with type {:?}", att_name_str, pg_type);
+                            col_names.push(att_name_str);
+                            // TODO: fill out nullability
+                            // TODO: no unwrap, handle error
+                            col_types
+                                .types
+                                .push(postgres_to_substrait_type(pg_type, false)?);
+                        } else {
+                            // TODO: return error?
+                            info!("Oid {} is not supported", (*var).vartype);
+                        }
+                    }
+                    */
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    let mut values: Vec<Vec<Expr>> = vec![];
     unsafe {
         // TODO: macro out the list iteration
         let values_lists = (*valuesscan).values_lists;
         if !values_lists.is_null() {
-            info!("enumerating through values lists");
+            // info!("enumerating through values lists");
             let values_lists_elements = (*values_lists).elements;
             for i in 0..(*values_lists).length {
-                info!("i {}", i);
+                // info!("i {}", i);
                 let values_list =
                     (*values_lists_elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::List;
 
@@ -294,10 +415,10 @@ pub fn transform_valuesscan_to_datafusion(
                 
                 let values_list_elements = (*values_list).elements;
                 for j in 0..(*values_list).length {
-                    info!("j {}", j);
+                    // info!("j {}", j);
                     let value_expr = (*values_list_elements.offset(j as isize)).ptr_value as *mut pgrx::pg_sys::Node;
 
-                    info!("value_expr type {:?}", (*value_expr).type_);
+                    // info!("value_expr type {:?}", (*value_expr).type_);
 
                     match (*value_expr).type_ {
                         NodeTag::T_Const => {
@@ -307,7 +428,7 @@ pub fn transform_valuesscan_to_datafusion(
                             let value_datum = (*const_expr).constvalue; // Datum
                             let value_isnull = (*const_expr).constisnull; // bool
 
-                            info!("value {}", value_datum.value());
+                            // info!("value {}", value_datum.value());
 
                             // TODO: actually get the type here - for now just defaulting to Int32
                             values_row.push(Expr::Literal(ScalarValue::Int32(Some(value_datum.value() as i32))));
@@ -323,12 +444,16 @@ pub fn transform_valuesscan_to_datafusion(
         }
     }
 
-    let schema = DFSchema::empty();
-    let arc_schema: Arc<DFSchema> = schema.into();
+    // info!("values: {:?}", values);
+
+    // let arrow_schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    let arrow_schema = Schema::new(cols);
+    let df_schema = DFSchema::try_from(arrow_schema).unwrap();
+
     Ok((LogicalPlan::Values(Values {
-        schema: arc_schema.clone(),
+        schema: df_schema.clone().into(),
         values: values
-    }), arc_schema))
+    }), df_schema.clone().into()))
 }
 
 pub fn transform_modify_to_datafusion(
@@ -348,32 +473,51 @@ pub fn transform_modify_to_datafusion(
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
 
-    // let's enumerate all the fields in Plan, especially qual and initPlan
-    unsafe {
-        let list = (*plan).qual;
-        if !list.is_null() {
-            info!("enumerating through qual");
-            let elements = (*list).elements;
-            for i in 0..(*list).length {
-                let list_cell_node =
-                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-                info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
-                // match (*list_cell_node).type_ {
-                //     NodeTag::T_Var => {
-                //         let var = list_cell_node as *mut pgrx::pg_sys::Var;
-                //         transform_var(var, rtable);
-                //     }
-                //     NodeTag::T_OpExpr => {
-                //         let op_expr = list_cell_node as *mut OpExpr;
-                //         transform_opexpr(op_expr, rtable);
-                //     }
-                //     _ => (),
-                // }
-            }
-        }
-    }
+    // // Test premade:
+    // let arrow_schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    // let df_schema = DFSchema::try_from(arrow_schema).unwrap();
 
-    if let Ok((input, vs_schema)) = unsafe { transform_valuesscan_to_datafusion((*plan).lefttree) } {
+    // let input_plan = LogicalPlan::Values(Values {
+    //     schema: df_schema.clone().into(),
+    //     values: vec![vec![Expr::Literal(ScalarValue::Int32(Some(7)))]]
+    // });
+
+    // let tablename = format!("{}", pg_relation.oid());
+    // let table_reference = TableReference::from(tablename);
+
+    // return Ok(LogicalPlan::Dml(DmlStatement {
+    //     table_name: table_reference,
+    //     table_schema: df_schema.clone().into(),
+    //     op: datafusion::logical_expr::WriteOp::InsertInto,
+    //     input: input_plan.into()
+    // }));
+
+    // // let's enumerate all the fields in Plan, especially qual and initPlan
+    // unsafe {
+    //     let list = (*plan).qual;
+    //     if !list.is_null() {
+    //         info!("enumerating through qual");
+    //         let elements = (*list).elements;
+    //         for i in 0..(*list).length {
+    //             let list_cell_node =
+    //                 (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+    //             info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+    //             // match (*list_cell_node).type_ {
+    //             //     NodeTag::T_Var => {
+    //             //         let var = list_cell_node as *mut pgrx::pg_sys::Var;
+    //             //         transform_var(var, rtable);
+    //             //     }
+    //             //     NodeTag::T_OpExpr => {
+    //             //         let op_expr = list_cell_node as *mut OpExpr;
+    //             //         transform_opexpr(op_expr, rtable);
+    //             //     }
+    //             //     _ => (),
+    //             // }
+    //         }
+    //     }
+    // }
+
+    if let Ok((input, vs_schema)) = unsafe { transform_valuesscan_to_datafusion((*plan).lefttree, ps) } {
         let tablename = format!("{}", pg_relation.oid());
         let table_reference = TableReference::from(tablename);
         let mut cols: Vec<Field> = vec![];
@@ -385,12 +529,12 @@ pub fn transform_modify_to_datafusion(
         unsafe {
             let list = (*plan).targetlist;
             if !list.is_null() {
-                info!("enumerating through target list");
+                // info!("enumerating through target list");
                 let elements = (*list).elements;
                 for i in 0..(*list).length {
                     let list_cell_node =
                         (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-                    info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+                    // info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
                     match (*list_cell_node).type_ {
                         NodeTag::T_TargetEntry => {
                             // the name of the column is resname
@@ -401,7 +545,7 @@ pub fn transform_modify_to_datafusion(
                             if !col_name.is_null() {
                                 let col_name_str =
                                     CStr::from_ptr(col_name).to_string_lossy().into_owned();
-                                info!("column name {:?}", col_name_str);
+                                // info!("column name {:?}", col_name_str);
                                 // type of column
                                 // get the tupel descr data
                                 // sanity check?
@@ -418,19 +562,19 @@ pub fn transform_modify_to_datafusion(
                                             postgres_to_datafusion_type(built_in_oid)
                                             // postgres_to_substrait_type(built_in_oid, att_not_null)
                                         {
-                                            info!(
-                                                "found attribute {:?} with type {:?}",
-                                                col_name_str, datafusion_type
-                                            );
+                                            // info!(
+                                            //     "found attribute {:?} with type {:?}",
+                                            //     col_name_str, datafusion_type
+                                            // );
                                             // col_names.push(col_name_str);
                                             // // TODO: no unwrap, handle error
                                             // col_types.types.push(substrait_type);
                                             cols.push(Field::new(col_name_str, datafusion_type, !att_not_null));
                                         } else {
-                                            info!(
-                                                "OID {:?} isn't convertable to substrait type yet",
-                                                (*pg_att).atttypid
-                                            );
+                                            // info!(
+                                            //     "OID {:?} isn't convertable to substrait type yet",
+                                            //     (*pg_att).atttypid
+                                            // );
                                         }
                                     }
                                 }
@@ -472,7 +616,7 @@ pub fn transform_modify_to_datafusion(
                 let df_schema = DFSchema::try_from(arrow_schema).unwrap();
                 arc_schema = df_schema.into();
             } else {
-                info!("(*plan).targetlist was null");
+                // info!("modify (*plan).targetlist was null");
                 arc_schema = vs_schema;
             }
         }
@@ -481,7 +625,7 @@ pub fn transform_modify_to_datafusion(
 
 
 
-        info!("finished creating plan");
+        // info!("finished creating plan");
         return Ok(LogicalPlan::Dml(DmlStatement {
             table_name: table_reference,
             table_schema: arc_schema,

@@ -20,6 +20,7 @@ use datafusion_substrait::substrait::proto::r#type;
 
 // TODO: return type: option or just a pointer?
 unsafe fn get_attr(table: *mut RelationData, index: isize) -> *const FormData_pg_attribute {
+    info!("{:p}", table);
     let tupdesc = (*table).rd_att;
     let natts = (*tupdesc).natts;
     if natts > 0 && (index as i32) <= natts {

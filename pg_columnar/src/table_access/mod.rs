@@ -74,10 +74,5 @@ COMMENT ON ACCESS METHOD mem IS 'mem table access method';
 extern "C" fn mem_tableam_handler(
     _fcinfo: pg_sys::FunctionCallInfo,
 ) -> *mut pg_sys::TableAmRoutine {
-    info!("mem_tableam_handler");
-    // let mut amroutine =
-    //     unsafe { PgBox::<pg_sys::TableAmRoutine>::alloc_node(pg_sys::NodeTag::T_TableAmRoutine) };
-
-    
     return unsafe { &mut MEM_TABLE_AM_ROUTINE as *mut pg_sys::TableAmRoutine };
 }

@@ -1,6 +1,0 @@
-2023-12-06 11:54:25.990 EST [41316] LOG:  starting PostgreSQL 16.1 (Homebrew) on aarch64-apple-darwin23.0.0, compiled by Apple clang version 15.0.0 (clang-1500.0.40.1), 64-bit
-2023-12-06 11:54:25.990 EST [41316] LOG:  listening on Unix socket "/var/folders/ch/hr172n993v94pr_24zwkxpf00000gn/T/tmp.AgDu29gBuu/.s.PGSQL.5432"
-2023-12-06 11:54:25.993 EST [41320] LOG:  database system was shut down at 2023-12-06 11:54:25 EST
-2023-12-06 11:54:25.995 EST [41316] LOG:  database system is ready to accept connections
-2023-12-06 11:54:34.289 EST [41316] LOG:  received immediate shutdown request
-2023-12-06 11:54:34.290 EST [41316] LOG:  database system is shut down

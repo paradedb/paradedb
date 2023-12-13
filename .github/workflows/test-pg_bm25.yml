@@ -103,7 +103,7 @@ jobs:
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_bm25 Integration Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_bm25/
+        working-directory: pg_bm25/test/
         run: |
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
             # Retrieve the version to test upgrading to
@@ -116,9 +116,9 @@ jobs:
               NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
               echo "$NEW_VERSION"
             fi
-            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION"
+            ./runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION"
           else
-            ./test/runtests.sh -p sequential -v "${{ matrix.pg_version }}"
+            ./runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi
 
       - name: Run pg_bm25 Unit Tests

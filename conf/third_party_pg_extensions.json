@@ -2,7 +2,7 @@
   "extensions": {
     "age": {
       "version": "1.4.0-rc0",
-      "url": "https://github.com/apache/age/archive/refs/tags/PG16/v1.4.0-rc0.tar.gz"
+      "url": "https://github.com/apache/age/archive/refs/tags/PG15/v1.4.0-rc0.tar.gz"
     },
     "citus": {
       "version": "12.1.1",

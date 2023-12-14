@@ -66,14 +66,12 @@ pub fn postgres_to_datafusion_type(
     })
 }
 
-pub async fn transform_seqscan_to_datafusion(
-    ps: *mut PlannedStmt,
+pub async unsafe fn transform_seqscan_to_datafusion(
+    plan: *mut Plan,
+    rtable: *mut List
 ) -> Result<LogicalPlan, Error> {
     // Plan variables
-    let plan = unsafe { (*ps).planTree };
     let scan = plan as *mut SeqScan;
-    // range table
-    let rtable = unsafe { (*ps).rtable };
 
     // find the table we're supposed to be scanning by querying the range table
     // RangeTblEntry
@@ -84,27 +82,25 @@ pub async fn transform_seqscan_to_datafusion(
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
 
     // let's enumerate all the fields in Plan, especially qual and initPlan
-    unsafe {
-        let list = (*plan).qual;
-        if !list.is_null() {
-            // info!("enumerating through qual");
-            let elements = (*list).elements;
-            for i in 0..(*list).length {
-                let list_cell_node =
-                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-                // info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
-                // match (*list_cell_node).type_ {
-                //     NodeTag::T_Var => {
-                //         let var = list_cell_node as *mut pgrx::pg_sys::Var;
-                //         transform_var(var, rtable);
-                //     }
-                //     NodeTag::T_OpExpr => {
-                //         let op_expr = list_cell_node as *mut OpExpr;
-                //         transform_opexpr(op_expr, rtable);
-                //     }
-                //     _ => (),
-                // }
-            }
+    let list = (*plan).qual;
+    if !list.is_null() {
+        // info!("enumerating through qual");
+        let elements = (*list).elements;
+        for i in 0..(*list).length {
+            let list_cell_node =
+                (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+            // info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+            // match (*list_cell_node).type_ {
+            //     NodeTag::T_Var => {
+            //         let var = list_cell_node as *mut pgrx::pg_sys::Var;
+            //         transform_var(var, rtable);
+            //     }
+            //     NodeTag::T_OpExpr => {
+            //         let op_expr = list_cell_node as *mut OpExpr;
+            //         transform_opexpr(op_expr, rtable);
+            //     }
+            //     _ => (),
+            // }
         }
     }
     /*
@@ -275,10 +271,9 @@ pub async fn transform_seqscan_to_datafusion(
 //     let result_state = 
 // }
 
-pub fn transform_valuesscan_to_datafusion(
+pub unsafe fn transform_valuesscan_to_datafusion(
     plan: *mut Plan,
-    ps: *mut PlannedStmt,
-    // schema: Arc<DFSchema>
+    rtable: *mut List
 ) -> Result<(LogicalPlan, Arc<DFSchema>), Error> {
     let valuesscan = plan as *mut ValuesScan;
 
@@ -458,14 +453,11 @@ pub fn transform_valuesscan_to_datafusion(
 }
 
 pub fn transform_modify_to_datafusion(
-    ps: *mut PlannedStmt,
-    // input_plan: Arc<LogicalPlan>
+    plan: *mut Plan,
+    rtable: *mut List
 ) -> Result<LogicalPlan, Error> {
     // Plan variables
-    let plan = unsafe { (*ps).planTree };
     let modify = plan as *mut ModifyTable;
-    // range table
-    let rtable = unsafe { (*ps).rtable };
 
     // find the table we're supposed to be modifying by querying the range table
     // RangeTblEntry
@@ -473,25 +465,6 @@ pub fn transform_modify_to_datafusion(
     let rte = unsafe { rt_fetch((*modify).nominalRelation, rtable) };
     let relation = unsafe { RelationIdGetRelation((*rte).relid) };
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
-
-    // // Test premade:
-    // let arrow_schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
-    // let df_schema = DFSchema::try_from(arrow_schema).unwrap();
-
-    // let input_plan = LogicalPlan::Values(Values {
-    //     schema: df_schema.clone().into(),
-    //     values: vec![vec![Expr::Literal(ScalarValue::Int32(Some(7)))]]
-    // });
-
-    // let tablename = format!("{}", pg_relation.oid());
-    // let table_reference = TableReference::from(tablename);
-
-    // return Ok(LogicalPlan::Dml(DmlStatement {
-    //     table_name: table_reference,
-    //     table_schema: df_schema.clone().into(),
-    //     op: datafusion::logical_expr::WriteOp::InsertInto,
-    //     input: input_plan.into()
-    // }));
 
     // // let's enumerate all the fields in Plan, especially qual and initPlan
     // unsafe {
@@ -518,7 +491,7 @@ pub fn transform_modify_to_datafusion(
     //     }
     // }
 
-    let (input, vs_schema) = unsafe { transform_valuesscan_to_datafusion((*plan).lefttree, ps).expect("valuesscan transformation failed") };
+    let (input, vs_schema) = unsafe { transform_valuesscan_to_datafusion((*plan).lefttree, rtable).expect("valuesscan transformation failed") };
     let tablename = format!("{}", pg_relation.oid());
     let table_reference = TableReference::from(tablename);
     let mut cols: Vec<Field> = vec![];

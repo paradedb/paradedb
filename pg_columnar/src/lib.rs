@@ -158,6 +158,7 @@ unsafe fn send_tuples_if_necessary(
         (*(*query_desc).plannedstmt).hasReturning);
 
     if (sendTuples) {
+        info!("sending tuples");
         let dest = (*query_desc).dest;
         let rStartup = (*dest).rStartup;
         match rStartup {
@@ -229,6 +230,7 @@ async unsafe extern "C" fn columnar_executor_run_internal(
 
     let node = plan as *mut Node;
     let node_tag = (*node).type_;
+    let rtable = (*ps).rtable;
 
     let mut recordbatchvec: Vec<RecordBatch> = vec![];
 
@@ -236,15 +238,15 @@ async unsafe extern "C" fn columnar_executor_run_internal(
     //       so the abstraction isn't clear yet.
     match node_tag {
         NodeTag::T_SeqScan => {
-            let logical_plan = transform_seqscan_to_datafusion(ps).await.unwrap();
+            let logical_plan = transform_seqscan_to_datafusion(plan, rtable).await.unwrap();
             let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
-            let recordbatchvec = dataframe.collect().await.unwrap();
+            recordbatchvec = dataframe.collect().await.unwrap();
         }
 
         NodeTag::T_ModifyTable => {
-            let logical_plan = transform_modify_to_datafusion(ps).unwrap();
+            let logical_plan = transform_modify_to_datafusion(plan, rtable).unwrap();
             let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
-            let recordbatchvec = dataframe.clone().collect().await.unwrap();
+            recordbatchvec = dataframe.clone().collect().await.unwrap();
             let num_updated = recordbatchvec[0].column(0).as_primitive::<UInt64Type>().value(0);
             (*(*query_desc).estate).es_processed = num_updated;
         }

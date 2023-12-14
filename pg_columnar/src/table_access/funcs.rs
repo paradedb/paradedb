@@ -175,9 +175,9 @@ pub unsafe extern "C" fn memam_scan_getnextslot(
     slot: *mut TupleTableSlot,
 ) -> bool {
     info!("Calling memam_relation_scan_getnextslot");
-    static mut done: bool = false;
+    static mut DONE: bool = false;
 
-    if done {
+    if DONE {
         return false;
     }
 
@@ -197,7 +197,7 @@ pub unsafe extern "C" fn memam_scan_getnextslot(
     copy_nonoverlapping::<bool>(&value_isnull, (*slot).tts_isnull.offset(0), 1);
     ExecStoreVirtualTuple(slot);
 
-    done = true;
+    DONE = true;
 
     return true;
     */

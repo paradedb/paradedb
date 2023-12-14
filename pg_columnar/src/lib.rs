@@ -33,6 +33,7 @@ use datafusion::arrow::array::AsArray;
 use datafusion::logical_expr::LogicalPlanBuilder;
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::common::arrow::array::PrimitiveArray;
+use datafusion::common::arrow::array::RecordBatch;
 
 use std::ffi::CString;
 use std::ptr;
@@ -74,62 +75,11 @@ extension_sql_file!("../sql/_bootstrap.sql");
 // You need to initialize this in every extension that uses `plog!`.
 static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_columnar");
 
-extern "C" fn columnar_planner(
-    parse: *mut Query,
-    query_string: *const i8,
-    cursor_options: i32,
-    bound_params: *mut ParamListInfoData,
-) -> *mut PlannedStmt {
-    // Log the entry into the custom planner
-    // info!("Entering columnar_planner");
-
-    // Log details about the query, if needed
-    if !query_string.is_null() {
-        let query_str = unsafe { std::ffi::CStr::from_ptr(query_string) }.to_string_lossy();
-        // info!("Query string: {}", query_str);
-    } else {
-        // info!("Query string is null");
-    }
-
-    unsafe {
-        let result = standard_planner(parse, query_string, cursor_options, bound_params);
-        // Log the fact that standard planner was called
-        info!("Standard planner called");
-
-        // TODO: iterate through result and convert to substrait plan - first iterate through plan when UDFs are involved and determine if behavior is correct
-        result
-    }
-}
-
 unsafe fn describe_nodes(tree: *mut pg_sys::Plan, ps: *mut pg_sys::PlannedStmt) {
     info!("Describing plan");
     // Imitate ExplainNode for recursive plan scanning behavior
     let node_tag = (*tree).type_;
     info!("Node tag {:?}", node_tag);
-    // let targetlist = (*tree).targetlist;
-    // info!("here 1");
-    // if !targetlist.is_null() {
-    //     info!("targetlist {:p}", targetlist);
-    //     for i in 0..(*targetlist).length {
-    //         info!("targetlist {}", i);
-    //         let tle =
-    //             (*(*targetlist).elements.offset(i as isize)).ptr_value as *mut pg_sys::TargetEntry;
-    //     }
-    // }
-
-    // let initplan = (*tree).initPlan;
-    // info!("here 2");
-    // if !initplan.is_null() {
-    //     for i in 0..(*initplan).length {
-    //         info!("initplan {}", i);
-    //         let sp =
-    //             (*(*initplan).elements.offset(i as isize)).ptr_value as *mut pg_sys::SubPlan;
-
-    //         let plan = (*(*(*ps).subplans).elements.offset((*sp).plan_id as isize - 1)).ptr_value as *mut pg_sys::Plan;
-    //         info!("plan {:p}", plan);
-    //         describe_nodes(plan, ps);
-    //     }
-    // }
 
     if !(*tree).lefttree.is_null() {
         info!("Left tree");
@@ -141,177 +91,170 @@ unsafe fn describe_nodes(tree: *mut pg_sys::Plan, ps: *mut pg_sys::PlannedStmt) 
     }
 }
 
+unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
+    info!("plannedstmt_using_columnar");
+    let rtable = (*ps).rtable;
+    if rtable.is_null() {
+        return false;
+    }
+
+    // Get mem table AM handler OID
+    let handlername_cstr = CString::new("mem").unwrap();
+    let handlername_ptr = handlername_cstr.as_ptr() as *mut i8;
+    let memam_oid = get_am_oid(handlername_ptr, true);
+    if memam_oid == pg_sys::InvalidOid {
+        return false;
+    }
+    let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(memam_oid));
+    let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
+    let memhandler_oid = (*amForm).amhandler;
+    ReleaseSysCache(amTup);
+
+    let elements = (*rtable).elements;
+    for i in 0..(*rtable).length {
+        let rte = (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::RangeTblEntry;
+        if (*rte).rtekind != pgrx::pg_sys::RTEKind_RTE_RELATION {
+            continue;
+        }
+        let relation = RelationIdGetRelation((*rte).relid);
+        let pg_relation = PgRelation::from_pg_owned(relation);
+        if !pg_relation.is_table() {
+            continue;
+        }
+
+        let am_handler = (*relation).rd_amhandler;
+
+        // If any table uses the Table AM handler, then return true.
+        // TODO: if we support more operations, this will be more complex.
+        //       for example, if to support joins, some of the nodes will use
+        //       table AM for the nodes while others won't. In this case,
+        //       we'll have to process in postgres plan for part of it and 
+        //       datafusion for the other part. For now, we'll simply
+        //       fail if we encounter an unsupported node, so this won't happen. 
+        if am_handler == memhandler_oid {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// Note: getting the relation through get_relation uses from_pg_owned, so no need to manually close later on
+unsafe fn get_relation(ps: *mut PlannedStmt) -> PgRelation {
+    let rtable = (*ps).rtable;
+    let plan = (*ps).planTree as *mut pgrx::pg_sys::Node;
+    let rte = unsafe { rt_fetch((*(plan as *mut SeqScan)).scan.scanrelid, rtable) };
+    let relation = unsafe { RelationIdGetRelation((*rte).relid) };
+    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
+
+    return pg_relation;
+}
+
+unsafe fn send_tuples_if_necessary(
+    query_desc: *mut QueryDesc,
+    recordbatchvec: Vec<RecordBatch>
+) {
+    let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT ||
+        (*(*query_desc).plannedstmt).hasReturning);
+
+    if (sendTuples) {
+        let dest = (*query_desc).dest;
+        let rStartup = (*dest).rStartup;
+        match rStartup {
+            Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
+            None => panic!("no rstartup"),
+        };
+        let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
+
+        let relation = get_relation((*query_desc).plannedstmt);
+
+        let receiveSlot = (*dest).receiveSlot;
+        match receiveSlot {
+            Some(f) => for recordbatch in recordbatchvec.iter() {
+                for row_index in 0..recordbatch.num_rows() {
+                    // let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsHeapTuple);
+                    let tuple_table_slot = table_slot_create(relation.as_ptr(), ptr::null_mut());
+                    ExecStoreVirtualTuple(tuple_table_slot);
+                    let mut col_index = 0;
+                    for attr in tuple_desc.iter() {
+                        let column = recordbatch.column(col_index);
+                        let dt = column.data_type();
+                        let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
+                        match dt {
+                            DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
+                            DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
+                            DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
+                            DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
+                            DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
+                            DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
+                            // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
+                            DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
+                            DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
+                            DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
+                            _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
+                        };
+                        col_index += 1;
+                    }
+                    f(tuple_table_slot, dest);
+                    ExecDropSingleTupleTableSlot(tuple_table_slot);
+                }
+            },
+            None => panic!("no receiveslot"),
+        }
+
+        let rShutdown = (*dest).rShutdown;
+        match rShutdown {
+            Some(f) => f(dest),
+            None => panic!("no rshutdown"),
+        }
+    }
+}
+
 async unsafe extern "C" fn columnar_executor_run_internal(
     query_desc: *mut QueryDesc,
     direction: i32,
     count: u64,
     execute_once: bool,
 ) {
-    // Log the entry into the custom planner
-    // info!("Entering columnar_executor_run");
-
     // Imitate ExplainNode for recursive plan scanning behavior
     let ps = (*query_desc).plannedstmt;
+
+    if !plannedstmt_using_columnar(ps) {
+        info!("standard_ExecutorRun");
+        standard_ExecutorRun(query_desc, direction, count, execute_once);
+        return;
+    }
+
     let plan: *mut pg_sys::Plan = (*ps).planTree;
-    // describe_nodes(plan, ps);
 
     let node = plan as *mut Node;
     let node_tag = (*node).type_;
-    let rtable = (*ps).rtable;
 
-    let planstate = (*query_desc).planstate;
+    let mut recordbatchvec: Vec<RecordBatch> = vec![];
 
-    // info!("{:?}", node_tag);
-
+    // Note: this could potentially be abstracted even more, but different node types need to update different things in estate,
+    //       so the abstraction isn't clear yet.
     match node_tag {
         NodeTag::T_SeqScan => {
-            // info!("match T_SeqScan");
-            // Check if the table is using our table AM before running our custom logic
-            let rte = unsafe { rt_fetch((*(plan as *mut SeqScan)).scan.scanrelid, rtable) };
-            let relation = unsafe { RelationIdGetRelation((*rte).relid) };
-            let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
-            let am_handler = (*relation).rd_amhandler;
-
-            let handlername_cstr = CString::new("mem").unwrap();
-            let handlername_ptr = handlername_cstr.as_ptr() as *mut i8;
-            let memam_oid = get_am_oid(handlername_ptr, true);
-            let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(memam_oid));
-            let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
-            let memhandler_oid = (*amForm).amhandler;
-            ReleaseSysCache(amTup);
-            // RelationClose(relation); // We don't wrap with a from_pg_owned, so we have to manually close the relation
-            if am_handler != memhandler_oid {
-                standard_ExecutorRun(query_desc, direction, count, execute_once);
-                info!("Standard ExecutorRun called");
-                return;
-            }
-
-            let oldcontext = MemoryContextSwitchTo((*(*query_desc).estate).es_query_cxt);
-
-            let df_plan = transform_seqscan_to_datafusion(ps).await.unwrap();
-            let dataframe = col_datafusion::CONTEXT.execute_logical_plan(df_plan).await.unwrap();
+            let logical_plan = transform_seqscan_to_datafusion(ps).await.unwrap();
+            let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
             let recordbatchvec = dataframe.collect().await.unwrap();
-            let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT ||
-                  (*(*query_desc).plannedstmt).hasReturning);
-
-            if (sendTuples) {
-                let dest = (*query_desc).dest;
-                let rStartup = (*dest).rStartup;
-                match rStartup {
-                    Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
-                    None => panic!("no rstartup"),
-                };
-                let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
-
-                let receiveSlot = (*dest).receiveSlot;
-                match receiveSlot {
-                    Some(f) => for recordbatch in recordbatchvec.iter() {
-                        for row_index in 0..recordbatch.num_rows() {
-                            // let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsHeapTuple);
-                            let tuple_table_slot = table_slot_create(relation, ptr::null_mut());
-                            ExecStoreVirtualTuple(tuple_table_slot);
-                            let mut col_index = 0;
-                            for attr in tuple_desc.iter() {
-                                let column = recordbatch.column(col_index);
-                                let dt = column.data_type();
-                                let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
-                                match dt {
-                                    DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
-                                    DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
-                                    DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
-                                    DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
-                                    DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
-                                    DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
-                                    // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
-                                    DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
-                                    DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
-                                    DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
-                                    _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
-                                };
-                                col_index += 1;
-                            }
-                            f(tuple_table_slot, dest);
-                            ExecDropSingleTupleTableSlot(tuple_table_slot);
-                        }
-                    },
-                    None => panic!("no receiveslot"),
-                }
-
-                let rShutdown = (*dest).rShutdown;
-                match rShutdown {
-                    Some(f) => f(dest),
-                    None => panic!("no rshutdown"),
-                }
-            } else {
-                info!("no sendTuples");
-            }
-            MemoryContextSwitchTo(oldcontext);
-            return;
         }
 
         NodeTag::T_ModifyTable => {
-            // info!("match T_ModifyTable");
-            // Check if the table is using our table AM before running our custom logic
-            let rte = unsafe { rt_fetch((*((*ps).planTree as *mut ModifyTable)).nominalRelation, rtable) };
-            let relation = unsafe { RelationIdGetRelation((*rte).relid) };
-            let am_handler = (*relation).rd_amhandler;
-
-            let handlername_cstr = CString::new("mem").unwrap();
-            let handlername_ptr = handlername_cstr.as_ptr() as *mut i8;
-            let memam_oid = get_am_oid(handlername_ptr, true);
-            let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(memam_oid));
-            let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
-            let memhandler_oid = (*amForm).amhandler;
-            ReleaseSysCache(amTup);
-            RelationClose(relation); // We don't wrap with a from_pg_owned, so we have to manually close the relation
-            if am_handler != memhandler_oid {
-                standard_ExecutorRun(query_desc, direction, count, execute_once);
-                info!("Standard ExecutorRun called");
-                return;
-            }
-
-            // TODO: this is super sus but we need to do something like this to get through the tree 
-            //       and pass the appropriate logical plans back up to their parent nodes
-            // lefttree is the outer plan
-            // let input: LogicalPlan = if !(*plan).lefttree.is_null() && (*((*plan).lefttree as *mut Node)).type_ == NodeTag::T_ValuesScan {
-            //     transform_valuesscan_to_datafusion((*plan).lefttree)
-            // // } else if !(*plan).righttree.is_null() && (*((*plan).righttree as *mut Node)).type_ == NodeTag::T_ValuesScan {
-            // } else {
-            //     // TODO: the above condition should be here, but just trying to get through a simple query for now
-            //     transform_valuesscan_to_datafusion((*plan).righttree)
-            // };
-            // let input: LogicalPlan = transform_valuesscan_to_datafusion((*plan).lefttree);
-
-            // else {
-            //     LogicalPlanBuilder::scan(
-            //         object_name_to_string(&table_name),
-            //         table_source,
-            //         None,
-            //     )?
-            //     .build()?
-            // };
-
             let logical_plan = transform_modify_to_datafusion(ps).unwrap();
             let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
             let recordbatchvec = dataframe.clone().collect().await.unwrap();
             let num_updated = recordbatchvec[0].column(0).as_primitive::<UInt64Type>().value(0);
             (*(*query_desc).estate).es_processed = num_updated;
-            // TODO: implement sendTuples to support returning tuples
-
-            return;
         }
         _ => {
             // TODO: Add missing types
+            panic!("Node type {:?} translation not implemented", node_tag);
         }
     }
 
-    unsafe {
-        info!("calling standard_ExecutorRun");
-        standard_ExecutorRun(query_desc, direction, count, execute_once);
-
-        // Log the fact that standard planner was called
-        info!("Standard ExecutorRun called");
-    }
+    send_tuples_if_necessary(query_desc, recordbatchvec);
 }
 
 unsafe extern "C" fn columnar_executor_run(
@@ -332,7 +275,6 @@ pub extern "C" fn _PG_init() {
     telemetry::posthog::init("pg_columnar deployment");
     PARADE_LOGS_GLOBAL.init();
     unsafe {
-        // planner_hook = Some(columnar_planner as _); // Corrected cast
         ExecutorRun_hook = Some(columnar_executor_run as _);
     }
 }

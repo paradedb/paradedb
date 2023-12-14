@@ -19,10 +19,10 @@ SELECT id, description, rating, category FROM search_config.search('category:ele
 
 -- With limit and offset
 SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2, offset_rows => 1);
- id |         description         | rating |  category   
-----+-----------------------------+--------+-------------
-  2 | Plastic Keyboard            |      4 | Electronics
- 12 | Innovative wireless earbuds |      5 | Electronics
+ id |       description        | rating |  category
+----+--------------------------+--------+-------------
+  2 | Plastic Keyboard         |      4 | Electronics
+ 22 | Fast charging power bank |      4 | Electronics
 (2 rows)
 
 -- With fuzzy field

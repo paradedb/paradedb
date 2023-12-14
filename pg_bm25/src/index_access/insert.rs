@@ -14,9 +14,9 @@ pub unsafe extern "C" fn aminsert(
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck,
     _index_unchanged: bool,
-    index_info: *mut pg_sys::IndexInfo,
+    _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    aminsert_internal(index_relation, values, heap_tid, index_info)
+    aminsert_internal(index_relation, values, heap_tid)
 }
 
 #[cfg(any(feature = "pg12", feature = "pg13"))]
@@ -30,7 +30,7 @@ pub unsafe extern "C" fn aminsert(
     _check_unique: pg_sys::IndexUniqueCheck,
     index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    aminsert_internal(index_relation, values, heap_tid, index_info)
+    aminsert_internal(index_relation, values, heap_tid)
 }
 
 #[inline(always)]
@@ -38,7 +38,6 @@ unsafe fn aminsert_internal(
     index_relation: pg_sys::Relation,
     values: *mut pg_sys::Datum,
     ctid: pg_sys::ItemPointer,
-    _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);

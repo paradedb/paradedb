@@ -3,4 +3,3 @@ default_version = '0.4.1'
 module_pathname = '$libdir/svector'
 relocatable = true
 superuser = false
-schema = paradedb

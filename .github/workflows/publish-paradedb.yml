@@ -12,6 +12,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to set for the ParadeDB release. This publishes the latest commit of the chosen branch tagged with the provided version, to the correspoding GitHub Release"
+        required: true
+        default: ""
 
 concurrency:
   group: publish-paradedb-${{ github.head_ref || github.ref }}

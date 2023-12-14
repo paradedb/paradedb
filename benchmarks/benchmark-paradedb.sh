@@ -149,7 +149,6 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   # Create temporary table with limit
   echo "-- Creating temporary table with $SIZE rows..."
   db_query "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
-
   db_query "ALTER TABLE $TABLE_NAME ADD COLUMN id SERIAL"
 
   # Time indexing

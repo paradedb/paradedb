@@ -75,6 +75,11 @@
         {
           "group": "Deployment",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
+        },
+        "latest/upgrading",
+        {
+          "group": "Changelog",
+          "pages": ["latest/changelog/0.4.1", "latest/changelog/deprecated"]
         }
       ],
       "version": "Latest"

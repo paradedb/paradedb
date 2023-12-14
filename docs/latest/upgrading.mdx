@@ -4,7 +4,7 @@ title: Updating ParadeDB
 
 ## Overview
 
-ParadeDB ships all of its functionality through its Postgres extensions. All updates to ParadeDB can be
+ParadeDB ships all of its functionality via Postgres extensions. All updates to ParadeDB can be
 received by updating one or more of the following extensions:
 
 1. `pg_bm25` for full text search
@@ -20,7 +20,9 @@ SELECT extversion FROM pg_extension WHERE extname = '<extension_name>';
 ```
 
 <Accordion title="Example Usage">
-  ```sql SELECT extversion FROM pg_extension WHERE extname = 'pg_bm25'; ```
+  ```sql
+  SELECT extversion FROM pg_extension WHERE extname = 'pg_bm25';
+  ```
 </Accordion>
 
 ## Updating to a New Version
@@ -42,7 +44,9 @@ ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
 ```
 
 <Accordion title="Example Usage">
-  ```sql ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1'; ```
+  ```sql
+  ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1';
+  ```
 </Accordion>
 
 ### From ParadeDB Docker Image
@@ -54,7 +58,7 @@ to `latest` to pull the latest Docker image.
 docker pull paradedb/paradedb:<version_number>
 ```
 
-## From Self-Managed Postgres
+### From Self-Managed Postgres
 
 First, download and install the extension you wish to upgrade in the same way that it was initially
 installed. Then, run
@@ -64,5 +68,7 @@ ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
 ```
 
 <Accordion title="Example Usage">
-  ```sql ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1'; ```
+  ```sql
+  ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1';
+  ```
 </Accordion>

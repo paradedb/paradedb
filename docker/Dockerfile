@@ -246,9 +246,9 @@ WORKDIR /tmp/pg_sparse
 COPY pg_sparse/ /tmp/pg_sparse
 RUN sed -i "s/default_version = .*/default_version = '${PG_SPARSE_VERSION}'/" svector.control && \
     sed -i "s/^EXTVERSION = .*/EXTVERSION = ${PG_SPARSE_VERSION}/" Makefile && \
-    OPTFLAGS="" make clean && \
-    OPTFLAGS="" make && \
-    OPTFLAGS="" make install && \
+    make clean && \
+    make USE_PGXS=1 OPTFLAGS="" && \
+    make install && \
     rm -rf /tmp/pg_sparse
 WORKDIR /
 

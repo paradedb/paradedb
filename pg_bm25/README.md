@@ -17,13 +17,18 @@ Check out the `pg_bm25` benchmarks [here](../benchmarks/README.md).
 
 - [x] BM25 scoring
 - [x] Highlighting
-- [x] Boosted queries
 - [x] Filtering
 - [x] Autocomplete
+- [x] Boosted queries
 - [x] Fuzzy search
-- [x] Custom tokenizers
+- [x] Custom tokenizers (Chinese, Japanese, Korean, Arabc, Ngram)
 - [x] JSON field search
+- [x] Hybrid search
 - [ ] Datetime fields
+- [ ] Faceted search
+- [ ] Generative search
+- [ ] Multimodal search
+- [ ] Distributed search
 
 ## Installation
 

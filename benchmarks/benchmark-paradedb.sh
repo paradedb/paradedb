@@ -74,7 +74,7 @@ if [ "$FLAG_TAG" == "local" ]; then
   echo "Building ParadeDB From Source..."
   docker build -t paradedb/paradedb:"$FLAG_TAG" \
     -f "../docker/Dockerfile" \
-    --build-arg PG_VERSION_MAJOR="15" \
+    --build-arg PG_MAJOR_VERSION="16" \
     --build-arg PG_BM25_VERSION="0.0.0" \
     --build-arg PG_SPARSE_VERSION="0.0.0" \
     --build-arg PG_GRAPHQL_VERSION="1.3.0" \

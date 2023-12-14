@@ -54,7 +54,7 @@ If you are self-hosting Postgres and would like to use the extension within your
 
 #### Debian/Ubuntu
 
-We provide pre-built binaries for Debian-based Linux for PostgreSQL 15 (more versions coming soon). You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide pre-built binaries for Debian-based Linux for PostgreSQL 16 (more versions coming soon). You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 

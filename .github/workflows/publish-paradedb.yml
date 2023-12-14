@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [15]
+        pg_version: [16]
 
     steps:
       - name: Checkout Git Repository
@@ -135,7 +135,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [15]
+        pg_version: [16]
 
     steps:
       - name: Retrieve GitHub Release Version

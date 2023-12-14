@@ -28,7 +28,7 @@ jobs:
     runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
     strategy:
       matrix:
-        pg_version: [15]
+        pg_version: [16]
 
     steps:
       - name: Checkout Git Repository

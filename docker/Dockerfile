@@ -1,14 +1,14 @@
-ARG PG_VERSION_MAJOR
+ARG PG_MAJOR_VERSION
 
 ###############################################
 # First Stage: Base
 ###############################################
 
-FROM postgres:${PG_VERSION_MAJOR}-bookworm as base
+FROM postgres:${PG_MAJOR_VERSION}-bookworm as base
 
 # Declare all the build arguments and set them to
 # environment variables for use in build and runtime
-ARG PG_VERSION_MAJOR
+ARG PG_MAJOR_VERSION
 ARG PG_BM25_VERSION
 ARG PG_SPARSE_VERSION
 ARG PGVECTOR_VERSION
@@ -47,7 +47,7 @@ ARG COMMIT_SHA
 ARG TELEMETRY
 ARG BUILD_DATE
 
-ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
+ENV PG_MAJOR_VERSION=${PG_MAJOR_VERSION} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
     PG_SPARSE_VERSION=${PG_SPARSE_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
@@ -115,7 +115,7 @@ RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
 
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
-    postgresql-server-dev-${PG_VERSION_MAJOR} \
+    postgresql-server-dev-${PG_MAJOR_VERSION} \
     && rm -rf /var/lib/apt/lists/*
 
 ###############################################
@@ -141,10 +141,10 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     && /root/.cargo/bin/rustup default 1.73.0
 
 ENV PATH="/root/.cargo/bin:$PATH" \
-    PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
+    PGX_HOME=/usr/lib/postgresql/${PG_MAJOR_VERSION}
 
 RUN cargo install --locked cargo-pgrx --version 0.11.1 && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+    cargo pgrx init "--pg${PG_MAJOR_VERSION}=/usr/lib/postgresql/${PG_MAJOR_VERSION}/bin/pg_config"
 
 ######################
 # pg_bm25
@@ -159,7 +159,7 @@ COPY shared/ /tmp/shared
 
 # Use the build argument to update the version in Cargo.toml
 RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/;}" Cargo.toml && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_MAJOR_VERSION}/bin/pg_config"
 
 ###############################################
 # Third Stage: PostgreSQL
@@ -202,43 +202,43 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     fi
 
 # Download & install the non-ParadeDB extensions from their builder stage
-RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/age-v${AGE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/age-v${AGE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/age.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/citus-v${CITUS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/citus-v${CITUS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/citus.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/hypopg-v${HYPOPG_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/hypopg-v${HYPOPG_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/hypopg.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/mysql_fdw-v${MYSQL_FDW_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/mysql_fdw-v${MYSQL_FDW_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/mysql_fdw.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_auto_failover-v${PG_AUTO_FAILOVER_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_auto_failover-v${PG_AUTO_FAILOVER_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_auto_failover.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_cron-v${PG_CRON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_cron-v${PG_CRON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_cron.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_hashids-v${PG_HASHIDS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_hashids-v${PG_HASHIDS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_hashids.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_hint_plan-v${PG_HINT_PLAN_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_hint_plan-v${PG_HINT_PLAN_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_hint_plan.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_ivm-v${PG_IVM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_ivm-v${PG_IVM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_ivm.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_jobmon-v${PG_JOBMON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_jobmon-v${PG_JOBMON_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_jobmon.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_partman-v${PG_PARTMAN_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_partman-v${PG_PARTMAN_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_partman.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_repack-v${PG_REPACK_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_repack-v${PG_REPACK_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_repack.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_roaringbitmap-v${PG_ROARINGBITMAP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_roaringbitmap-v${PG_ROARINGBITMAP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_roaringbitmap.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_show_plans-v${PG_SHOW_PLANS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_show_plans-v${PG_SHOW_PLANS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_show_plans.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_stat_monitor-v${PG_STAT_MONITOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pg_stat_monitor-v${PG_STAT_MONITOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_stat_monitor.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgaudit-v${PGAUDIT_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pgaudit-v${PGAUDIT_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgaudit.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgddl-v${PGDDL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pgddl-v${PGDDL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgddl.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgfaceting-v${PGFACETING_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pgfaceting-v${PGFACETING_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgfaceting.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgfincore-v${PGFINCORE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pgfincore-v${PGFINCORE_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgfincore.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgrouting-v${PGROUTING_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pgrouting-v${PGROUTING_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgrouting.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgsodium-v${PGSODIUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pgsodium-v${PGSODIUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgsodium.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgsql-http-v${PGSQL_HTTP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pgsql-http-v${PGSQL_HTTP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgsql-http.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgtap-v${PGTAP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pgtap-v${PGTAP_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgtap.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/pgvector-v${PGVECTOR_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgvector.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/postgis-v${POSTGIS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/postgis-v${POSTGIS_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/postgis.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/rum-v${RUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/rum-v${RUM_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/rum.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/sqlite_fdw-v${SQLITE_FDW_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204/sqlite_fdw-v${SQLITE_FDW_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-ubuntu2204.deb" -o /tmp/sqlite_fdw.deb && \
-    curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \
-    curl -L "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_graphql.deb && \
-    curl -L "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_VERSION_MAJOR}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_jsonschema.deb && \
+RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/age-v${AGE_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/age-v${AGE_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/age.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/citus-v${CITUS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/citus-v${CITUS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/citus.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/hypopg-v${HYPOPG_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/hypopg-v${HYPOPG_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/hypopg.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/mysql_fdw-v${MYSQL_FDW_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/mysql_fdw-v${MYSQL_FDW_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/mysql_fdw.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_auto_failover-v${PG_AUTO_FAILOVER_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_auto_failover-v${PG_AUTO_FAILOVER_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_auto_failover.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_cron-v${PG_CRON_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_cron-v${PG_CRON_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_cron.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_hashids-v${PG_HASHIDS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_hashids-v${PG_HASHIDS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_hashids.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_hint_plan-v${PG_HINT_PLAN_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_hint_plan-v${PG_HINT_PLAN_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_hint_plan.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_ivm-v${PG_IVM_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_ivm-v${PG_IVM_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_ivm.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_jobmon-v${PG_JOBMON_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_jobmon-v${PG_JOBMON_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_jobmon.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_partman-v${PG_PARTMAN_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_partman-v${PG_PARTMAN_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_partman.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_repack-v${PG_REPACK_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_repack-v${PG_REPACK_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_repack.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_roaringbitmap-v${PG_ROARINGBITMAP_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_roaringbitmap-v${PG_ROARINGBITMAP_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_roaringbitmap.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_show_plans-v${PG_SHOW_PLANS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_show_plans-v${PG_SHOW_PLANS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_show_plans.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_stat_monitor-v${PG_STAT_MONITOR_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_stat_monitor-v${PG_STAT_MONITOR_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_stat_monitor.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgaudit-v${PGAUDIT_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pgaudit-v${PGAUDIT_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgaudit.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgddl-v${PGDDL_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pgddl-v${PGDDL_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgddl.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgfaceting-v${PGFACETING_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pgfaceting-v${PGFACETING_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgfaceting.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgfincore-v${PGFINCORE_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pgfincore-v${PGFINCORE_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgfincore.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgrouting-v${PGROUTING_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pgrouting-v${PGROUTING_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgrouting.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgsodium-v${PGSODIUM_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pgsodium-v${PGSODIUM_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgsodium.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgsql-http-v${PGSQL_HTTP_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pgsql-http-v${PGSQL_HTTP_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgsql-http.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgtap-v${PGTAP_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pgtap-v${PGTAP_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgtap.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pgvector-v${PGVECTOR_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pgvector-v${PGVECTOR_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pgvector.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/postgis-v${POSTGIS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/postgis-v${POSTGIS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/postgis.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/rum-v${RUM_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/rum-v${RUM_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/rum.deb && \
+    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/sqlite_fdw-v${SQLITE_FDW_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/sqlite_fdw-v${SQLITE_FDW_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/sqlite_fdw.deb && \
+    curl -L "https://github.com/supabase/pg_net/releases/download/v${PG_NET_VERSION}/pg_net-v${PG_NET_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_net.deb && \
+    curl -L "https://github.com/supabase/pg_graphql/releases/download/v${PG_GRAPHQL_VERSION}/pg_graphql-v${PG_GRAPHQL_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_graphql.deb && \
+    curl -L "https://github.com/supabase/pg_jsonschema/releases/download/v${PG_JSONSCHEMA_VERSION}/pg_jsonschema-v${PG_JSONSCHEMA_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-linux-gnu.deb" -o /tmp/pg_jsonschema.deb && \
     apt-fast update && apt-fast install -y --no-install-recommends /tmp/*.deb \
     && rm -rf /var/lib/apt/lists/* /tmp/*
 
 # Copy the ParadeDB pgrx extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_MAJOR_VERSION}/usr/share/postgresql/${PG_MAJOR_VERSION}/extension/* /usr/share/postgresql/${PG_MAJOR_VERSION}/extension/
+COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_MAJOR_VERSION}/usr/lib/postgresql/${PG_MAJOR_VERSION}/lib/* /usr/lib/postgresql/${PG_MAJOR_VERSION}/lib/
 
 # Install the ParadeDB pg_sparse extension directly, since it's not as modular as pgrx extensions
 # We set OPTFLAGS="" to disable the -march=native flag, which isn't supported on macOS ARM

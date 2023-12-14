@@ -12,7 +12,7 @@ services:
       context: ..
       dockerfile: ./docker/Dockerfile
       args:
-        PG_VERSION_MAJOR: 15
+        PG_MAJOR_VERSION: 16
         PG_BM25_VERSION: 0.0.0
         PG_SPARSE_VERSION: 0.0.0
         PGVECTOR_VERSION: 0.5.1

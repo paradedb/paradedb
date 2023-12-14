@@ -2,22 +2,20 @@ use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{
     categorize_tupdesc, create_parade_index, lookup_index_tupdesc, row_to_json,
 };
-use crate::parade_index::writer::ParadeWriter;
+use crate::parade_index::writer::PARADE_WRITER_CACHE;
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 
 // For now just pass the count and parade
 // index on the build callback state
-struct BuildState<'a> {
+struct BuildState {
     count: usize,
-    parade_writer: ParadeWriter<'a>,
     memcxt: PgMemoryContexts,
 }
 
-impl<'a> BuildState<'a> {
-    fn new(parade_writer: ParadeWriter<'a>) -> Self {
+impl BuildState {
+    fn new() -> Self {
         BuildState {
-            parade_writer,
             count: 0,
             memcxt: PgMemoryContexts::new("ParadeDB build context"),
         }
@@ -43,11 +41,9 @@ pub extern "C" fn ambuild(
         ops.into_pg_boxed()
     };
 
-    // Create ParadeDB Index
-    let parade_index = create_parade_index(index_name.clone(), &heap_relation, rdopts).unwrap();
-    let parade_writer = parade_index.parade_writer();
+    create_parade_index(index_name.clone(), &heap_relation, rdopts).unwrap();
 
-    let state = do_heap_scan(index_info, &heap_relation, &index_relation, parade_writer);
+    let state = do_heap_scan(index_info, &heap_relation, &index_relation);
 
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = state.count as f64;
@@ -63,9 +59,8 @@ fn do_heap_scan<'a>(
     index_info: *mut pg_sys::IndexInfo,
     heap_relation: &'a PgRelation,
     index_relation: &'a PgRelation,
-    parade_writer: ParadeWriter<'a>,
-) -> BuildState<'a> {
-    let mut state = BuildState::new(parade_writer);
+) -> BuildState {
+    let mut state = BuildState::new();
     let _ = panic::catch_unwind(AssertUnwindSafe(|| unsafe {
         pg_sys::IndexBuildHeapScan(
             heap_relation.as_ptr(),
@@ -129,7 +124,7 @@ unsafe extern "C" fn build_callback_internal(
     let values = std::slice::from_raw_parts(values, 1);
     let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
 
-    let parade_writer = &mut state.parade_writer;
+    let parade_writer = PARADE_WRITER_CACHE.get_cached(index_relation_ref.name());
 
     // Insert row to parade index
     parade_writer.insert(ctid, builder);

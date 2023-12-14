@@ -1,11 +1,7 @@
-use crate::parade_index::index::ParadeIndexKey;
-use crate::{
-    index_access::utils::{get_parade_index, SearchConfig},
-    parade_index::{index::ParadeIndex, state::TantivyScanState},
-};
+use crate::index_access::utils::{get_parade_index, SearchConfig};
+use crate::parade_index::index::ParadeIndexKeyValue;
 use pgrx::{prelude::TableIterator, *};
-use std::collections::HashMap;
-use tantivy::{schema::FieldType, DocAddress, Document, SnippetGenerator};
+use tantivy::{schema::FieldType, SnippetGenerator};
 
 #[pg_extern]
 pub fn rank_bm25(
@@ -18,17 +14,14 @@ pub fn rank_bm25(
 
     let mut scan_state = parade_index.scan_state(&search_config);
     let top_docs = scan_state.search();
-    let dedupe = DedupeResults::new(&scan_state, &parade_index, top_docs);
 
     let mut field_rows = Vec::new();
-    for DedupedDoc {
-        document, score, ..
-    } in dedupe.into_iter()
-    {
-        #[allow(unreachable_patterns)]
+    for (score, doc_address) in top_docs.into_iter() {
+        let document = scan_state
+            .doc(doc_address)
+            .unwrap_or_else(|err| panic!("error retrieving document for rank: {err:?}"));
         let key = match parade_index.get_key_value(&document) {
-            ParadeIndexKey::Number(k) => k,
-            _ => unimplemented!("non-integer index keys are not yet implemented"),
+            ParadeIndexKeyValue::Number(k) => k,
         };
         field_rows.push((key, score));
     }
@@ -69,16 +62,15 @@ pub fn highlight_bm25(
         snippet_generator.set_max_num_chars(max_num_chars);
     }
 
-    let dedupe = DedupeResults::new(&scan_state, &parade_index, top_docs);
     let mut field_rows = Vec::new();
-    for DedupedDoc { document, .. } in dedupe.into_iter() {
+    for (_score, doc_address) in top_docs.into_iter() {
+        let document = scan_state
+            .doc(doc_address)
+            .unwrap_or_else(|err| panic!("error retrieving document for highlight: {err:?}"));
         let snippet = snippet_generator.snippet_from_doc(&document);
         let html = snippet.to_html();
-
-        #[allow(unreachable_patterns)]
         let key = match parade_index.get_key_value(&document) {
-            ParadeIndexKey::Number(k) => k,
-            _ => unimplemented!("non-integer index keys are not yet implemented"),
+            ParadeIndexKeyValue::Number(k) => k,
         };
         field_rows.push((key, html));
     }
@@ -107,15 +99,12 @@ pub fn minmax_bm25(
     let score_range = max_score - min_score;
     let mut field_rows = Vec::new();
 
-    let dedupe = DedupeResults::new(&scan_state, &parade_index, top_docs);
-    for DedupedDoc {
-        score, document, ..
-    } in dedupe.into_iter()
-    {
-        #[allow(unreachable_patterns)]
+    for (score, doc_address) in top_docs.into_iter() {
+        let document = scan_state
+            .doc(doc_address)
+            .unwrap_or_else(|err| panic!("error retrieving document for rank_hybrid: {err:?}"));
         let key = match parade_index.get_key_value(&document) {
-            ParadeIndexKey::Number(k) => k,
-            _ => unimplemented!("non-integer index keys are not yet implemented"),
+            ParadeIndexKeyValue::Number(k) => k,
         };
 
         let normalized_score = if score_range == 0.0 {
@@ -127,86 +116,6 @@ pub fn minmax_bm25(
         field_rows.push((key, normalized_score));
     }
     TableIterator::new(field_rows)
-}
-
-struct DedupedDoc {
-    timestamp: i64,
-    index: usize,
-    score: f32,
-    document: Document,
-}
-
-struct DedupeResults {
-    map: HashMap<ParadeIndexKey, DedupedDoc>,
-}
-
-impl DedupeResults {
-    pub fn new(
-        scan_state: &TantivyScanState,
-        parade_index: &ParadeIndex,
-        top_docs: Vec<(f32, DocAddress)>,
-    ) -> Self {
-        let map = HashMap::new();
-        let mut new_self = Self { map };
-
-        for (index, (score, doc_address)) in top_docs.into_iter().enumerate() {
-            let document = scan_state.doc(doc_address).unwrap_or_else(|err| {
-                panic!("error retrieving document for highlighting: {err:?}")
-            });
-
-            let key = parade_index.get_key_value(&document);
-
-            let timestamp = parade_index.get_timestamp_value(&document);
-            new_self.insert(
-                key,
-                DedupedDoc {
-                    timestamp,
-                    index,
-                    score,
-                    document,
-                },
-            );
-        }
-
-        new_self
-    }
-
-    fn insert(&mut self, key: ParadeIndexKey, doc: DedupedDoc) {
-        if let Some(existing) = self.map.get(&key) {
-            if doc.timestamp > existing.timestamp {
-                self.map.insert(key, doc);
-            }
-        } else {
-            self.map.insert(key, doc);
-        }
-    }
-}
-
-// Custom iterator that will iterate over DedupedDocs
-struct DedupeResultsIterator {
-    inner: Vec<DedupedDoc>,
-}
-
-// Implement IntoIterator for DedupeResults
-impl IntoIterator for DedupeResults {
-    type Item = DedupedDoc;
-    type IntoIter = DedupeResultsIterator;
-
-    fn into_iter(self) -> Self::IntoIter {
-        let mut docs: Vec<DedupedDoc> = self.map.into_values().collect();
-        // Sort the documents by index
-        docs.sort_by_key(|doc| doc.index);
-        DedupeResultsIterator { inner: docs }
-    }
-}
-
-// Implement Iterator for DedupeResultsIterator
-impl Iterator for DedupeResultsIterator {
-    type Item = DedupedDoc;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.inner.pop()
-    }
 }
 
 #[cfg(any(test, feature = "pg_test"))]

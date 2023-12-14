@@ -1,9 +1,7 @@
-use crate::index_access::utils::{
-    categorize_tupdesc, get_parade_index, lookup_index_tupdesc, row_to_json,
-};
-use crate::parade_index::writer::ParadeWriter;
+use crate::index_access::utils::{categorize_tupdesc, lookup_index_tupdesc, row_to_json};
+use crate::parade_index::index::ParadeIndexKey;
+use crate::parade_index::writer::PARADE_WRITER_CACHE;
 use pgrx::*;
-use std::ffi::c_void;
 
 #[allow(clippy::too_many_arguments)]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
@@ -40,30 +38,9 @@ unsafe fn aminsert_internal(
     index_relation: pg_sys::Relation,
     values: *mut pg_sys::Datum,
     ctid: pg_sys::ItemPointer,
-    index_info: *mut pg_sys::IndexInfo,
+    _index_info: *mut pg_sys::IndexInfo,
 ) -> bool {
-    let index_info_ref = &mut *index_info;
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
-
-    if index_info_ref.ii_AmCache.is_null() {
-        // Allocate cache data
-        let index_name = index_relation_ref.name();
-        let parade_index = get_parade_index(index_name);
-        let parade_writer = parade_index.parade_writer();
-
-        // Allocate memory in ii_Context and store the pointer in ii_AmCache
-        let cache_data = Box::new(parade_writer);
-        let cache_ptr = Box::into_raw(cache_data) as *mut c_void;
-        index_info_ref.ii_AmCache = cache_ptr;
-
-        // Run cleanup
-        register_xact_callback(PgXactCallbackEvent::Commit, move || {
-            insert_cleanup(cache_ptr);
-        });
-    }
-
-    let parade_writer = &mut *(index_info_ref.ii_AmCache as *mut ParadeWriter);
-
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);
     let attributes = categorize_tupdesc(&tupdesc);
     let natts = tupdesc.natts as usize;
@@ -73,11 +50,13 @@ unsafe fn aminsert_internal(
     let values = std::slice::from_raw_parts(values, 1);
     let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
 
+    let parade_writer = PARADE_WRITER_CACHE.get_cached(index_relation_ref.name());
+    let parade_index_key =
+        ParadeIndexKey::from_json_builder(&parade_writer.key_field_name, &builder).unwrap();
+
+    // First delete any existing entires with the same key.
+    parade_writer.delete_by_key(&parade_index_key);
     parade_writer.insert(*ctid, builder);
 
     true
-}
-
-fn insert_cleanup(_am_cache: *mut c_void) {
-    info!("WE ARE CLEANING UP THE TRANSACTION");
 }

@@ -111,7 +111,6 @@ mod tests {
                 "description",
                 "lyrics",
                 "ctid",
-                "__timestamp"
             ]
         );
     }

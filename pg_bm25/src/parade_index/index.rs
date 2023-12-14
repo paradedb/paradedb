@@ -13,7 +13,7 @@ use tantivy::{IndexReader, IndexWriter, TantivyError};
 
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::SearchConfig;
-use crate::json::builder::JsonBuilderValue;
+use crate::json::builder::{JsonBuilder, JsonBuilderValue};
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
@@ -40,20 +40,20 @@ const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
 static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
 
 #[derive(PartialEq, Eq, Hash)]
-pub enum ParadeIndexKey {
+pub enum ParadeIndexKeyValue {
     Number(i64),
 }
 
-impl TryFrom<&JsonBuilderValue> for ParadeIndexKey {
+impl TryFrom<&JsonBuilderValue> for ParadeIndexKeyValue {
     type Error = Box<dyn Error>;
 
     fn try_from(value: &JsonBuilderValue) -> Result<Self, Self::Error> {
         match value {
-            JsonBuilderValue::i16(v) => Ok(ParadeIndexKey::Number(*v as i64)),
-            JsonBuilderValue::i32(v) => Ok(ParadeIndexKey::Number(*v as i64)),
-            JsonBuilderValue::i64(v) => Ok(ParadeIndexKey::Number(*v)),
-            JsonBuilderValue::u32(v) => Ok(ParadeIndexKey::Number(*v as i64)),
-            JsonBuilderValue::u64(v) => Ok(ParadeIndexKey::Number(*v as i64)),
+            JsonBuilderValue::i16(v) => Ok(ParadeIndexKeyValue::Number(*v as i64)),
+            JsonBuilderValue::i32(v) => Ok(ParadeIndexKeyValue::Number(*v as i64)),
+            JsonBuilderValue::i64(v) => Ok(ParadeIndexKeyValue::Number(*v)),
+            JsonBuilderValue::u32(v) => Ok(ParadeIndexKeyValue::Number(*v as i64)),
+            JsonBuilderValue::u64(v) => Ok(ParadeIndexKeyValue::Number(*v as i64)),
             _ => Err(format!(
                 "BM25 index key field must be an integer, received: {:#?}",
                 value
@@ -63,7 +63,28 @@ impl TryFrom<&JsonBuilderValue> for ParadeIndexKey {
     }
 }
 
-#[derive(Serialize)]
+pub struct ParadeIndexKey {
+    pub name: String,
+    pub value: ParadeIndexKeyValue,
+}
+
+impl ParadeIndexKey {
+    pub fn from_json_builder(name: &str, builder: &JsonBuilder) -> Result<Self, Box<dyn Error>> {
+        match builder
+            .values
+            .get(&format!("\"{name}\"")) // Keys are double-quoted in the json builder
+            .map(|v| v.try_into())
+        {
+            Some(Ok(value)) => Ok(Self {
+                name: name.to_string(),
+                value,
+            }),
+            _ => Err(format!("could not parse key_field '{name}' from row").into()),
+        }
+    }
+}
+
+#[derive(Serialize, Clone)]
 pub struct ParadeIndex {
     pub name: String,
     pub fields: HashMap<String, Field>,
@@ -72,11 +93,11 @@ pub struct ParadeIndex {
     #[serde(skip_serializing)]
     pub reader: IndexReader,
     #[serde(skip_serializing)]
+    pub key_field: Field,
+    #[serde(skip_serializing)]
+    pub ctid_field: Field,
+    #[serde(skip_serializing)]
     underlying_index: Index,
-    #[serde(skip_serializing)]
-    key_field: Field,
-    #[serde(skip_serializing)]
-    timestamp_field: Field,
 }
 
 impl ParadeIndex {
@@ -117,8 +138,8 @@ impl ParadeIndex {
             panic!("error creating index: key_field '{key_field_name}' does not exist in schema",)
         });
 
-        let timestamp_field = schema.get_field("__timestamp").unwrap_or_else(|_| {
-            panic!("error creating index: timestamp field '__timestamp' does not exist in schema",)
+        let ctid_field = schema.get_field("ctid").unwrap_or_else(|_| {
+            panic!("error deserializing index: ctid field does not exist in schema",)
         });
 
         // Save the json_fields used to configure the index to disk.
@@ -163,7 +184,7 @@ impl ParadeIndex {
             underlying_index,
             key_field_name,
             key_field,
-            timestamp_field,
+            ctid_field,
         };
 
         // Serialize ParadeIndex to disk so it can be initialized by other connections.
@@ -233,29 +254,16 @@ impl ParadeIndex {
         Self::from_index_name(name)
     }
 
-    pub fn get_key_value(&self, document: &Document) -> ParadeIndexKey {
+    pub fn get_key_value(&self, document: &Document) -> ParadeIndexKeyValue {
         let key_field_name = &self.key_field_name;
         let value = document.get_first(self.key_field).unwrap_or_else(|| {
             panic!("cannot find key field '{key_field_name}' on retrieved document")
         });
 
         match value {
-            tantivy::schema::Value::U64(val) => ParadeIndexKey::Number(*val as i64),
-            tantivy::schema::Value::I64(val) => ParadeIndexKey::Number(*val),
+            tantivy::schema::Value::U64(val) => ParadeIndexKeyValue::Number(*val as i64),
+            tantivy::schema::Value::I64(val) => ParadeIndexKeyValue::Number(*val),
             _ => panic!("invalid type for parade index key in document"),
-        }
-    }
-
-    pub fn get_timestamp_value(&self, document: &Document) -> i64 {
-        let timestamp_field_name = "__timestamp";
-        let value = document.get_first(self.timestamp_field).unwrap_or_else(|| {
-            panic!("cannot find key field '{timestamp_field_name}' on retrieved document")
-        });
-
-        match value {
-            tantivy::schema::Value::U64(val) => *val as i64,
-            tantivy::schema::Value::I64(val) => *val,
-            _ => panic!("invalid type for timestamp in document"),
         }
     }
 
@@ -471,11 +479,6 @@ impl ParadeIndex {
         let ctid_field = schema_builder.add_u64_field("ctid", INDEXED | STORED);
         fields.insert("ctid".to_string(), ctid_field);
 
-        // Until we have a global index writer working, we need to add a timestamp to each
-        // field so we can deduplicate query results.
-        let timestamp_field = schema_builder.add_i64_field("__timestamp", INDEXED | STORED);
-        fields.insert("__timestamp".to_string(), timestamp_field);
-
         Ok((schema_builder.build(), fields))
     }
 }
@@ -514,12 +517,12 @@ impl<'de> Deserialize<'de> for ParadeIndex {
 
         let key_field = schema.get_field(&key_field_name).unwrap_or_else(|_| {
             panic!(
-                "error deserializing index: key_field '{key_field_name}' does not exist in schema",
+                "error deserializing index: key field '{key_field_name}' does not exist in schema",
             )
         });
 
-        let timestamp_field = schema.get_field("__timestamp").unwrap_or_else(|_| {
-            panic!("error creating index: timestamp field '__timestamp' does not exist in schema",)
+        let ctid_field = schema.get_field("ctid").unwrap_or_else(|_| {
+            panic!("error deserializing index: ctid field does not exist in schema",)
         });
 
         // Construct the ParadeIndex
@@ -531,7 +534,7 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             underlying_index,
             key_field_name,
             key_field,
-            timestamp_field,
+            ctid_field,
         })
     }
 }

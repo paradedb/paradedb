@@ -29,6 +29,7 @@ use datafusion::logical_expr::TableSource;
 use datafusion::logical_expr::Expr;
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::Values;
+use datafusion::datasource::provider_as_source;
 
 unsafe fn get_attr(table: *mut RelationData, index: isize) -> *const FormData_pg_attribute {
     // info!("{:?}", table);
@@ -130,7 +131,7 @@ pub async fn transform_seqscan_to_datafusion(
     // let table_names = vec![tablename_str]; // Create a Vec<String> with the table name
     // // TODO: in Table AM, we create tables using the OID instead, so we should probably pass that instead?
     let tablename = format!("{}", pg_relation.oid());
-    let table_reference = TableReference::from(tablename);
+    let table_reference = TableReference::from(tablename.clone());
     let mut cols: Vec<Field> = vec![];
 
     // TODO: I only passed in a single table name, but this seems to be for arbitrary many tables that the SeqScan is over, probably
@@ -247,22 +248,22 @@ pub async fn transform_seqscan_to_datafusion(
         }
     }
 
-    let arrow_schema = Schema::new(cols);
-    let df_schema = DFSchema::try_from_qualified_schema(&table_reference, &arrow_schema).unwrap();
+    // let arrow_schema = Schema::new(cols);
+    // info!("arrow_schema: {:?}", arrow_schema);
+    // let df_schema = DFSchema::try_from_qualified_schema(&table_reference, &arrow_schema).unwrap();
 
-    if let Ok(table_provider) = CONTEXT.table_provider(&table_reference).await {
-        let table_source = DefaultTableSource::new(table_provider);
-        // info!("finished creating plan");
-        return Ok(LogicalPlan::TableScan(TableScan {
-            table_name: table_reference,
-            source: Arc::new(table_source),
-            projected_schema: df_schema.into(),
-            filters: vec![],
-            fetch: None,
-            projection: None
-        }));
-    }
-    panic!("failed to get table provider");
+    // let arrow_schema = Schema::new(vec![Field::new("a", DataType::Int32, true)]);
+    // let df_schema = DFSchema::try_from_qualified_schema(&table_reference, &arrow_schema).unwrap();
+
+    let table_provider = CONTEXT.table_provider(&table_reference).await.expect("failed to get table provider");
+    let table_source = provider_as_source(table_provider);
+    return Ok(LogicalPlan::TableScan(TableScan::try_new(
+        tablename,
+        table_source,
+        None,
+        vec![],
+        None).expect("failed to create table scan")
+    ));
 }
 
 // pub fn transform_result_to_df_logicalplan(
@@ -517,128 +518,125 @@ pub fn transform_modify_to_datafusion(
     //     }
     // }
 
-    if let Ok((input, vs_schema)) = unsafe { transform_valuesscan_to_datafusion((*plan).lefttree, ps) } {
-        let tablename = format!("{}", pg_relation.oid());
-        let table_reference = TableReference::from(tablename);
-        let mut cols: Vec<Field> = vec![];
+    let (input, vs_schema) = unsafe { transform_valuesscan_to_datafusion((*plan).lefttree, ps).expect("valuesscan transformation failed") };
+    let tablename = format!("{}", pg_relation.oid());
+    let table_reference = TableReference::from(tablename);
+    let mut cols: Vec<Field> = vec![];
 
-        let arc_schema: Arc<DFSchema>;
+    let arc_schema: Arc<DFSchema>;
 
-        // Iterate through the targetlist, which kinda looks like the columns the `SELECT` pulls
-        // The nodes are T_TargetEntry
-        unsafe {
-            let list = (*plan).targetlist;
-            if !list.is_null() {
-                // info!("enumerating through target list");
-                let elements = (*list).elements;
-                for i in 0..(*list).length {
-                    let list_cell_node =
-                        (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-                    // info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
-                    match (*list_cell_node).type_ {
-                        NodeTag::T_TargetEntry => {
-                            // the name of the column is resname
-                            // the oid of the source table is resorigtbl
-                            // the column's number in source table is resorigcol
-                            let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
-                            let col_name = (*target_entry).resname;
-                            if !col_name.is_null() {
-                                let col_name_str =
-                                    CStr::from_ptr(col_name).to_string_lossy().into_owned();
-                                // info!("column name {:?}", col_name_str);
-                                // type of column
-                                // get the tupel descr data
-                                // sanity check?
-                                // let tupdesc = (*relation).rd_att;
-                                // resorigcol: column's original number in source table
-                                let col_num = (*target_entry).resorigcol;
-                                // TODO: I did these type conversions just to silence the compiler
-                                let pg_att = get_attr(relation, col_num as isize);
-                                if !pg_att.is_null() {
-                                    let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
-                                    let p_type_id = BuiltinOid::try_from((*pg_att).atttypid);
-                                    if let Ok(built_in_oid) = p_type_id {
-                                        if let Ok(datafusion_type) =
-                                            postgres_to_datafusion_type(built_in_oid)
-                                            // postgres_to_substrait_type(built_in_oid, att_not_null)
-                                        {
-                                            // info!(
-                                            //     "found attribute {:?} with type {:?}",
-                                            //     col_name_str, datafusion_type
-                                            // );
-                                            // col_names.push(col_name_str);
-                                            // // TODO: no unwrap, handle error
-                                            // col_types.types.push(substrait_type);
-                                            cols.push(Field::new(col_name_str, datafusion_type, !att_not_null));
-                                        } else {
-                                            // info!(
-                                            //     "OID {:?} isn't convertable to substrait type yet",
-                                            //     (*pg_att).atttypid
-                                            // );
-                                        }
+    // Iterate through the targetlist, which kinda looks like the columns the `SELECT` pulls
+    // The nodes are T_TargetEntry
+    unsafe {
+        let list = (*plan).targetlist;
+        if !list.is_null() {
+            // info!("enumerating through target list");
+            let elements = (*list).elements;
+            for i in 0..(*list).length {
+                let list_cell_node =
+                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+                // info!("node {:?} has type {:?}", i, (*list_cell_node).type_);
+                match (*list_cell_node).type_ {
+                    NodeTag::T_TargetEntry => {
+                        // the name of the column is resname
+                        // the oid of the source table is resorigtbl
+                        // the column's number in source table is resorigcol
+                        let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
+                        let col_name = (*target_entry).resname;
+                        if !col_name.is_null() {
+                            let col_name_str =
+                                CStr::from_ptr(col_name).to_string_lossy().into_owned();
+                            // info!("column name {:?}", col_name_str);
+                            // type of column
+                            // get the tupel descr data
+                            // sanity check?
+                            // let tupdesc = (*relation).rd_att;
+                            // resorigcol: column's original number in source table
+                            let col_num = (*target_entry).resorigcol;
+                            // TODO: I did these type conversions just to silence the compiler
+                            let pg_att = get_attr(relation, col_num as isize);
+                            if !pg_att.is_null() {
+                                let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
+                                let p_type_id = BuiltinOid::try_from((*pg_att).atttypid);
+                                if let Ok(built_in_oid) = p_type_id {
+                                    if let Ok(datafusion_type) =
+                                        postgres_to_datafusion_type(built_in_oid)
+                                        // postgres_to_substrait_type(built_in_oid, att_not_null)
+                                    {
+                                        // info!(
+                                        //     "found attribute {:?} with type {:?}",
+                                        //     col_name_str, datafusion_type
+                                        // );
+                                        // col_names.push(col_name_str);
+                                        // // TODO: no unwrap, handle error
+                                        // col_types.types.push(substrait_type);
+                                        cols.push(Field::new(col_name_str, datafusion_type, !att_not_null));
+                                    } else {
+                                        // info!(
+                                        //     "OID {:?} isn't convertable to substrait type yet",
+                                        //     (*pg_att).atttypid
+                                        // );
                                     }
                                 }
                             }
                         }
-                        /*
-                        NodeTag::T_Var => {
-                            // the varno and varattno identify the "semantic referent", which is a base-relation column
-                            // unless the reference is to a join ...
-                            // target list var no = scanrelid
-                            let var = list_cell_node as *mut pgrx::pg_sys::Var;
-                            // varno is the index of var's relation in the range table
-                            let var_rte = rt_fetch((*var).varno as u32, rtable);
-                            let var_relid = (*var_rte).relid;
-                            // varattno is the attribute number, or 0 for all attributes
-                            let att_name = get_attname(var_relid, (*var).varattno, false);
-                            let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
-                            // vartype is the pg_type OID for the type of this var
-                            let att_type = PostgresType::from_oid((*var).vartype);
-                            if let Some(pg_type) = att_type {
-                                info!("found attribute {:?} with type {:?}", att_name_str, pg_type);
-                                col_names.push(att_name_str);
-                                // TODO: fill out nullability
-                                // TODO: no unwrap, handle error
-                                col_types
-                                    .types
-                                    .push(postgres_to_substrait_type(pg_type, false)?);
-                            } else {
-                                // TODO: return error?
-                                info!("Oid {} is not supported", (*var).vartype);
-                            }
-                        }
-                        */
-                        _ => {}
                     }
+                    /*
+                    NodeTag::T_Var => {
+                        // the varno and varattno identify the "semantic referent", which is a base-relation column
+                        // unless the reference is to a join ...
+                        // target list var no = scanrelid
+                        let var = list_cell_node as *mut pgrx::pg_sys::Var;
+                        // varno is the index of var's relation in the range table
+                        let var_rte = rt_fetch((*var).varno as u32, rtable);
+                        let var_relid = (*var_rte).relid;
+                        // varattno is the attribute number, or 0 for all attributes
+                        let att_name = get_attname(var_relid, (*var).varattno, false);
+                        let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
+                        // vartype is the pg_type OID for the type of this var
+                        let att_type = PostgresType::from_oid((*var).vartype);
+                        if let Some(pg_type) = att_type {
+                            info!("found attribute {:?} with type {:?}", att_name_str, pg_type);
+                            col_names.push(att_name_str);
+                            // TODO: fill out nullability
+                            // TODO: no unwrap, handle error
+                            col_types
+                                .types
+                                .push(postgres_to_substrait_type(pg_type, false)?);
+                        } else {
+                            // TODO: return error?
+                            info!("Oid {} is not supported", (*var).vartype);
+                        }
+                    }
+                    */
+                    _ => {}
                 }
-
-                let arrow_schema = Schema::new(cols);
-                let df_schema = DFSchema::try_from(arrow_schema).unwrap();
-                arc_schema = df_schema.into();
-            } else {
-                // info!("modify (*plan).targetlist was null");
-                arc_schema = vs_schema;
             }
+
+            let arrow_schema = Schema::new(cols);
+            let df_schema = DFSchema::try_from(arrow_schema).unwrap();
+            arc_schema = df_schema.into();
+        } else {
+            // info!("modify (*plan).targetlist was null");
+            arc_schema = vs_schema;
         }
-        // let arrow_schema = Schema::new(cols);
-        // let df_schema = DFSchema::try_from(arrow_schema).unwrap();
-
-
-
-        // info!("finished creating plan");
-        return Ok(LogicalPlan::Dml(DmlStatement {
-            table_name: table_reference,
-            table_schema: arc_schema,
-            op: unsafe { match (*modify).operation {
-                // TODO: WriteOp::InsertOverwrite also exists - handle that properly
-                CmdType_CMD_INSERT => datafusion::logical_expr::WriteOp::InsertInto,
-                CmdType_CMD_UPDATE => datafusion::logical_expr::WriteOp::Update,
-                CmdType_CMD_DELETE => datafusion::logical_expr::WriteOp::Delete,
-                _ => panic!("unsupported modify operation"),
-            } },
-            input: input.into()
-        }));
-    } else {
-        panic!("valuescan transformation failed");
     }
+    // let arrow_schema = Schema::new(cols);
+    // let df_schema = DFSchema::try_from(arrow_schema).unwrap();
+
+
+
+    // info!("finished creating plan");
+    return Ok(LogicalPlan::Dml(DmlStatement {
+        table_name: table_reference,
+        table_schema: arc_schema,
+        op: unsafe { match (*modify).operation {
+            // TODO: WriteOp::InsertOverwrite also exists - handle that properly
+            CmdType_CMD_INSERT => datafusion::logical_expr::WriteOp::InsertInto,
+            CmdType_CMD_UPDATE => datafusion::logical_expr::WriteOp::Update,
+            CmdType_CMD_DELETE => datafusion::logical_expr::WriteOp::Delete,
+            _ => panic!("unsupported modify operation"),
+        } },
+        input: input.into()
+    }));
 }

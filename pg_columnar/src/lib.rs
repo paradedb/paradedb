@@ -188,75 +188,62 @@ async unsafe extern "C" fn columnar_executor_run_internal(
 
             let oldcontext = MemoryContextSwitchTo((*(*query_desc).estate).es_query_cxt);
 
-            if let Ok(df_plan) = transform_seqscan_to_datafusion(ps).await {
-                if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(df_plan).await {
-                    let recordbatchvec_result = dataframe.collect().await;
-                    match recordbatchvec_result {
-                        Ok(recordbatchvec) => {
-                            let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT ||
-                                  (*(*query_desc).plannedstmt).hasReturning);
+            let df_plan = transform_seqscan_to_datafusion(ps).await.unwrap();
+            let dataframe = col_datafusion::CONTEXT.execute_logical_plan(df_plan).await.unwrap();
+            let recordbatchvec = dataframe.collect().await.unwrap();
+            let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT ||
+                  (*(*query_desc).plannedstmt).hasReturning);
 
-                            if (sendTuples) {
-                                let dest = (*query_desc).dest;
-                                let rStartup = (*dest).rStartup;
-                                match rStartup {
-                                    Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
-                                    None => panic!("no rstartup"),
+            if (sendTuples) {
+                let dest = (*query_desc).dest;
+                let rStartup = (*dest).rStartup;
+                match rStartup {
+                    Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
+                    None => panic!("no rstartup"),
+                };
+                let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
+
+                let receiveSlot = (*dest).receiveSlot;
+                match receiveSlot {
+                    Some(f) => for recordbatch in recordbatchvec.iter() {
+                        for row_index in 0..recordbatch.num_rows() {
+                            // let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsHeapTuple);
+                            let tuple_table_slot = table_slot_create(relation, ptr::null_mut());
+                            ExecStoreVirtualTuple(tuple_table_slot);
+                            let mut col_index = 0;
+                            for attr in tuple_desc.iter() {
+                                let column = recordbatch.column(col_index);
+                                let dt = column.data_type();
+                                let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
+                                match dt {
+                                    DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
+                                    DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
+                                    DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
+                                    DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
+                                    DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
+                                    DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
+                                    // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
+                                    DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
+                                    DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
+                                    DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
+                                    _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
                                 };
-                                let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
-
-                                let receiveSlot = (*dest).receiveSlot;
-                                match receiveSlot {
-                                    Some(f) => for recordbatch in recordbatchvec.iter() {
-                                        for row_index in 0..recordbatch.num_rows() {
-                                            // let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsHeapTuple);
-                                            let tuple_table_slot = table_slot_create(relation, ptr::null_mut());
-                                            ExecStoreVirtualTuple(tuple_table_slot);
-                                            let mut col_index = 0;
-                                            for attr in tuple_desc.iter() {
-                                                let column = recordbatch.column(col_index);
-                                                let dt = column.data_type();
-                                                let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
-                                                match dt {
-                                                    DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
-                                                    DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
-                                                    DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
-                                                    DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
-                                                    DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
-                                                    DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
-                                                    // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
-                                                    DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
-                                                    DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
-                                                    DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
-                                                    _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
-                                                };
-                                                col_index += 1;
-                                            }
-                                            f(tuple_table_slot, dest);
-                                            ExecDropSingleTupleTableSlot(tuple_table_slot);
-                                        }
-                                        // TODO: figure out why it returns multiple RecordBatches - until then, just break after the first one
-                                        // break;
-                                    },
-                                    None => panic!("no receiveslot"),
-                                }
-
-                                let rShutdown = (*dest).rShutdown;
-                                match rShutdown {
-                                    Some(f) => f(dest),
-                                    None => panic!("no rshutdown"),
-                                }
-                            } else {
-                                info!("no sendTuples");
+                                col_index += 1;
                             }
-                        },
-                        Err(e) => info!("dataframe collect failed: {}", e),
-                    }
-                } else {
-                    info!("failed executing logical plan");
+                            f(tuple_table_slot, dest);
+                            ExecDropSingleTupleTableSlot(tuple_table_slot);
+                        }
+                    },
+                    None => panic!("no receiveslot"),
                 }
-            }  else {
-                info!("failed to transform seqscan to datafusion await");
+
+                let rShutdown = (*dest).rShutdown;
+                match rShutdown {
+                    Some(f) => f(dest),
+                    None => panic!("no rshutdown"),
+                }
+            } else {
+                info!("no sendTuples");
             }
             MemoryContextSwitchTo(oldcontext);
             return;
@@ -304,28 +291,12 @@ async unsafe extern "C" fn columnar_executor_run_internal(
             //     .build()?
             // };
 
-            if let Ok(logical_plan) = transform_modify_to_datafusion(ps) {
-                if let Ok(dataframe) = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await {
-                    let recordbatchvec_result = dataframe.clone().collect().await;
-                    match recordbatchvec_result {
-                        Ok(recordbatchvec) => {
-                            // Set es_processed
-                            let num_updated = recordbatchvec[0].column(0).as_primitive::<UInt64Type>().value(0);
-                            (*(*query_desc).estate).es_processed = num_updated;
-                        },
-                        Err(e) => info!("failed collect {}", e)
-                    }
-                    if let Ok(recordbatchvec) = dataframe.collect().await {
-                        // TODO: implement sendTuples to support returning tuples
-                    } else {
-                        info!("dataframe collect failed");
-                    }
-                } else {
-                    info!("failed to create dataframe");
-                }
-            } else {
-                info!("failed executing logical plan");
-            }
+            let logical_plan = transform_modify_to_datafusion(ps).unwrap();
+            let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
+            let recordbatchvec = dataframe.clone().collect().await.unwrap();
+            let num_updated = recordbatchvec[0].column(0).as_primitive::<UInt64Type>().value(0);
+            (*(*query_desc).estate).es_processed = num_updated;
+            // TODO: implement sendTuples to support returning tuples
 
             return;
         }

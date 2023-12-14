@@ -9,6 +9,7 @@ use tantivy::{
 };
 
 use super::index::ParadeIndex;
+use super::writer::PARADE_WRITER_CACHE;
 
 pub struct TantivyScanState {
     pub schema: Schema,
@@ -22,6 +23,13 @@ pub struct TantivyScanState {
 
 impl TantivyScanState {
     pub fn new(parade_index: &ParadeIndex, config: &SearchConfig) -> Self {
+        // If we're about to begin a search, then we should check that the ParadeWriter
+        // cache is clear, which will ensure that any inserts that happend in the same
+        // transaction as this search will be committed.
+        unsafe {
+            PARADE_WRITER_CACHE.clear_cache();
+        }
+
         let schema = parade_index.schema();
         let mut parser = parade_index.query_parser();
         let query = Self::query(config, &schema, &mut parser);

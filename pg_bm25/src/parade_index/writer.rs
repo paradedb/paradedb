@@ -162,7 +162,7 @@ impl ParadeWriterCache {
             // registered on the next transaction.
             PARADE_WRITER_CACHE.will_clear = false;
             // It's important that the cache be reset to None, so the ParadeWriter
-            // instances that it holds are dropped. If this does not happend, the locks
+            // instances that it holds are dropped. If this does not happen, the locks
             // held by ParadeWriter will not be released.
             PARADE_WRITER_CACHE.cache = None;
         }

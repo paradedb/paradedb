@@ -8,20 +8,25 @@
 </p>
 
 <h3 align="center">
-  <a href="https://paradedb.com">Cloud</a> &bull;
   <a href="https://paradedb.com">Website</a> &bull;
-  <a href="https://docs.paradedb.com">Documentation</a> &bull;
-  <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ">Community</a>
+  <a href="https://docs.paradedb.com">Docs</a> &bull;
+  <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ">Community</a> &bull;
+  <a href="https://docs.paradedb.com/blog/">Blog</a> &bull;
+  <a href="https://docs.paradedb.com/changelog/">Changelog</a>
 </h3>
 
 ---
 
-[![Benchmark ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/benchmark-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/benchmark-paradedb.yml)
 [![Publish ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml)
 [![codecov](https://codecov.io/gh/paradedb/paradedb/graph/badge.svg?token=PI3TWD558R)](https://codecov.io/gh/paradedb/paradedb)
+[![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
 
 [ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on Postgres. We're building the features of ElasticSearch's product suite, starting with search.
+
+## Status
+
+ParadeDB is currently in public beta. Star and watch this repository to get notified of updates.
 
 ### Roadmap
 

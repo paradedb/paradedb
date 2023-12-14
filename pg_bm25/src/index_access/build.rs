@@ -127,11 +127,6 @@ unsafe extern "C" fn build_callback_internal(
     let values = std::slice::from_raw_parts(values, 1);
     let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
 
-    // Acquire  a writer, which may involve waiting for a lock to be acquired.
-    // If the lock has been acquired in this transaction, the writer will be cached
-    // so no further waiting is required. We'll also register some callbacks to
-    // release the locks and clear the cache when the transaction ends.
-    PARADE_WRITER_CACHE.clear_cache_on_transaction_end();
     let parade_writer = PARADE_WRITER_CACHE.get_cached(index_relation_ref.name());
 
     // Insert row to parade index

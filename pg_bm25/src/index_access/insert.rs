@@ -57,5 +57,11 @@ unsafe fn aminsert_internal(
     parade_writer.delete_by_key(&parade_index_key);
     parade_writer.insert(*ctid, builder);
 
+    // Acquire  a writer, which may involve waiting for a lock to be acquired.
+    // If the lock has been acquired in this transaction, the writer will be cached
+    // so no further waiting is required. We'll also register some callbacks to
+    // release the locks and clear the cache when the transaction ends.
+    PARADE_WRITER_CACHE.clear_cache_on_transaction_end();
+
     true
 }

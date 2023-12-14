@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_sparse release. This publishes the current commit tagged with the provided version, to the correspoding GitHub Release"
+        description: "The version to set for the pg_sparse release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
         default: ""
 

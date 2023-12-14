@@ -111,6 +111,8 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
     ReleaseSysCache(amTup);
 
     let elements = (*rtable).elements;
+    let mut using_noncol: bool = false;
+    let mut using_col: bool = false;
     for i in 0..(*rtable).length {
         let rte = (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::RangeTblEntry;
         if (*rte).rtekind != pgrx::pg_sys::RTEKind_RTE_RELATION {
@@ -132,11 +134,19 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
         //       datafusion for the other part. For now, we'll simply
         //       fail if we encounter an unsupported node, so this won't happen. 
         if am_handler == memhandler_oid {
-            return true;
+            using_col = true;
+        } else {
+            using_noncol = true;
         }
     }
 
-    return false;
+    // TODO: this panic doesn't seem to cancel the query...
+    // Log message: <fatal runtime error: failed to initiate panic, error 5>
+    if using_col && using_noncol {
+        panic!("Mixing table types in a single query is not supported yet");
+    }
+
+    return using_col;
 }
 
 // Note: getting the relation through get_relation uses from_pg_owned, so no need to manually close later on

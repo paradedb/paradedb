@@ -29,7 +29,6 @@ impl DFTable {
 
     pub fn create_from_pg(pgrel: &PgRelation, persistence: u8) {
         let schema = Self::schema_from_pg(&pgrel);
-        info!("schema {:?}", schema);
         if persistence == RELPERSISTENCE_PERMANENT {
             panic!("Persisted tables are not yet implemented. For now, try CREATE TEMP TABLE.");
         }

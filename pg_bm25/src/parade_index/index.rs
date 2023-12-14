@@ -19,7 +19,7 @@ use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 use super::state::TantivyScanState;
 
-const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
+const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.

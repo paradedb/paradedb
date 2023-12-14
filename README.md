@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-    <b>PostgreSQL for Search</b> <br />
+  <b>PostgreSQL for Search</b> <br />
 </p>
 
 <h3 align="center">

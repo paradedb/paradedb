@@ -1,7 +1,5 @@
-use indexmap::IndexMap;
-
 use crate::json::json_string::JsonString;
-use crate::parade_index::index::ParadeIndexKey;
+use indexmap::IndexMap;
 use pgrx::*;
 use tantivy::schema::Field;
 use tantivy::Document;
@@ -36,16 +34,6 @@ impl JsonBuilder {
         JsonBuilder {
             values: IndexMap::with_capacity(num_fields + 5),
         }
-    }
-
-    pub fn get_index_id(&self, index_id_column_name: &str) -> ParadeIndexKey {
-        self.values
-            .get(&format!("\"{index_id_column_name}\""))
-            .unwrap_or_else(|| panic!("jsonbuilder found no column named {index_id_column_name}"))
-            .try_into()
-            .unwrap_or_else(|err| {
-                panic!("could not parse ParadeIndexId for {index_id_column_name}: {err}")
-            })
     }
 
     #[inline]

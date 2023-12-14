@@ -127,8 +127,7 @@ Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy sear
 
 ### Prerequisites
 
-Before developing the extension, ensure that you have Rust installed
-(version >1.70), ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
+Before developing the extension, ensure that you have Rust v1.73.0 installed, ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
 
 If you are on macOS and using Postgres.app, you'll first need to add the `pg_config` binary to your path:
 

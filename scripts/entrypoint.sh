@@ -9,7 +9,6 @@ set -Eeuo pipefail
 # https://paradedb.notion.site/PostgreSQL-Extensions-Supported-on-ParadeDB-0aefcad16b6846ca9b3c7099cfc9e4f1?pvs=4
 #
 # The following extensions can be uncommented and added to the list below to pre-install:
-
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
   [svector]=${PG_SPARSE_VERSION:-}

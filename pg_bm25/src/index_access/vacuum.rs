@@ -1,4 +1,4 @@
-use crate::index_access::utils::get_parade_index;
+use crate::parade_index::writer::PARADE_WRITER_CACHE;
 use pgrx::*;
 
 #[pg_guard]
@@ -21,10 +21,13 @@ pub extern "C" fn amvacuumcleanup(
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
     let index_name = index_relation.name();
-    let parade_index = get_parade_index(index_name);
 
-    // Cleanup the garbage
-    parade_index.garbage_collect_files();
+    // Garbage collect the index and clear the writer cache to free up locks.
+    let parade_writer = unsafe { PARADE_WRITER_CACHE.get_cached(index_name) };
+    parade_writer.garbage_collect();
+    unsafe {
+        PARADE_WRITER_CACHE.clear_cache();
+    }
 
     stats
 }

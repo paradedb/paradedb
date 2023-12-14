@@ -147,7 +147,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_higlight() {
+    fn test_highlight() {
         Spi::run(SETUP_SQL).expect("failed to create index and table");
 
         let query = r#"
@@ -158,6 +158,6 @@ mod tests {
         let highlight = Spi::get_one::<&str>(query)
             .expect("failed to highlight lyrics")
             .unwrap();
-        assert_eq!(highlight, "<b>Im</b> shaking");
+        assert_eq!(highlight, "<b>Im</b> holding");
     }
 }

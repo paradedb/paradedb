@@ -1,7 +1,7 @@
 use super::index::{ParadeIndex, ParadeIndexKey, ParadeIndexKeyValue};
 use crate::{index_access::utils::get_parade_index, json::builder::JsonBuilder};
 use pgrx::{
-    info, item_pointer_to_u64, pg_sys::ItemPointerData, register_xact_callback, PgXactCallbackEvent,
+    item_pointer_to_u64, pg_sys::ItemPointerData, register_xact_callback, PgXactCallbackEvent,
 };
 use std::collections::HashMap;
 use tantivy::{
@@ -16,7 +16,10 @@ const CACHE_NUM_BLOCKS: usize = 10;
 /// this cache during index build + insert transactions, and the cache is active for the life of
 /// the transaction. The ParadeWriterCache registers a callback to clear this cache at the
 /// end of the transaction.
-pub static mut PARADE_WRITER_CACHE: ParadeWriterCache = ParadeWriterCache { cache: None };
+pub static mut PARADE_WRITER_CACHE: ParadeWriterCache = ParadeWriterCache {
+    cache: None,
+    will_clear: false,
+};
 
 pub struct ParadeWriter {
     ctid_field: Field,
@@ -24,18 +27,19 @@ pub struct ParadeWriter {
     fields: HashMap<String, Field>,
     searcher: Searcher,
     writer: IndexWriter,
+    pub index_name: String,
     pub key_field_name: String,
 }
 
 impl ParadeWriter {
     pub fn new(parade_index: &ParadeIndex) -> Self {
-        info!("NEW WRITER ON: {}", parade_index.name);
         Self {
             fields: parade_index.fields.clone(),
             ctid_field: parade_index.ctid_field,
             key_field: parade_index.key_field,
             searcher: parade_index.searcher(),
             writer: parade_index.writer().unwrap(),
+            index_name: parade_index.name.clone(),
             key_field_name: parade_index.key_field_name.clone(),
         }
     }
@@ -106,42 +110,29 @@ impl ParadeWriter {
     pub fn commit(mut self) {
         self.writer.commit().unwrap();
     }
+
+    pub fn garbage_collect(&self) {
+        self.writer
+            .garbage_collect_files()
+            .wait()
+            .expect("Could not collect garbage");
+    }
 }
 
 #[derive(Default)]
 pub struct ParadeWriterCache {
     cache: Option<HashMap<String, ParadeWriter>>,
+    will_clear: bool,
 }
 
 impl ParadeWriterCache {
+    /// Get a cached ParadeWriter, or acquire one and cache it.
     pub fn get_cached(&mut self, index_name: &str) -> &mut ParadeWriter {
         // Initialize the cache if it doesn't exist
         if self.cache.is_none() {
-            // If we're here, we are assuming that this is the first invocation for
-            // the current transaction, so we'll setup some cleanup functions.
-
+            // If we're here, this is the first invocation for the transaction.
             // The cache is presumably None at this point, so we'll initialize it.
             self.cache = Some(HashMap::new());
-
-            // The index_name argument needs to be cloned to be moved into the closure.
-            let index_name_cloned = index_name.to_string();
-            let callback = move || unsafe {
-                let parade_index = get_parade_index(index_name_cloned.as_str());
-                PARADE_WRITER_CACHE
-                    .cache
-                    .take() // take "clears" the cache by setting it to None
-                    .unwrap_or_default()
-                    .into_iter()
-                    .for_each(|(_, writer)| writer.commit());
-                // All the writers must be committed before the reader reloads, or else
-                // there will be stale data in the index on the next query.
-                parade_index.reader.reload().unwrap();
-            };
-
-            // We need to make sure the callback fires both in case of abort and commit,
-            // so we'll register identical functions for each event.
-            register_xact_callback(PgXactCallbackEvent::Commit, callback.clone());
-            register_xact_callback(PgXactCallbackEvent::Abort, callback.clone());
         }
 
         // Insert the writer if it does not exist.
@@ -150,5 +141,55 @@ impl ParadeWriterCache {
             .unwrap()
             .entry(index_name.to_string())
             .or_insert_with(|| ParadeWriter::from_index_name(index_name))
+    }
+
+    /// Internal implementation of cache clearing.
+    fn clear() {
+        unsafe {
+            for (_, writer) in PARADE_WRITER_CACHE
+                .cache
+                .take() // take "clears" the cache by setting it to None
+                .unwrap_or_default()
+            {
+                let parade_index = get_parade_index(&writer.index_name);
+                writer.commit();
+                // The must be committed before the corresponding reader reloads, or else
+                // there will be stale data in the index on the next query.
+                parade_index.reader.reload().unwrap();
+            }
+
+            // Make sure the will_clear flag is set back to false, so callbacks can be
+            // registered on the next transaction.
+            PARADE_WRITER_CACHE.will_clear = false;
+            // It's important that the cache be reset to None, so the ParadeWriter
+            // instances that it holds are dropped. If this does not happend, the locks
+            // held by ParadeWriter will not be released.
+            PARADE_WRITER_CACHE.cache = None;
+        }
+    }
+
+    /// Manually clear the ParadeWriterCache.
+    pub fn clear_cache(&self) {
+        // We have this calling out to an internal static method, because in a separate
+        // method where we register callbacks, the callbacks cannot contain references to
+        // `self`. This method is for convenience, so it can be called off the singleton
+        // PARADE_WRITER_CACHE instance.
+        Self::clear();
+    }
+
+    /// Register callbacks to clear the ParadeWriterCache on transaction end.
+    /// This must be manually called, because some index access methods like ambuild
+    /// and amvacuumcleanup need to be able to clear the cache manually, without waiting
+    /// for the end of the transaction.
+    pub fn clear_cache_on_transaction_end(&mut self) {
+        // We check this flag to make sure this function is idempotent.
+        // A caller like aminsert can safely call this over and over.
+        if !self.will_clear {
+            // We need to make sure the callback fires both in case of abort and commit,
+            // so we'll register identical functions for each event.
+            register_xact_callback(PgXactCallbackEvent::Commit, Self::clear);
+            register_xact_callback(PgXactCallbackEvent::Abort, Self::clear);
+            self.will_clear = true;
+        }
     }
 }

@@ -1,6 +1,6 @@
 use pgrx::*;
 
-use crate::index_access::utils::get_parade_index;
+use crate::parade_index::writer::PARADE_WRITER_CACHE;
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -14,8 +14,7 @@ pub extern "C" fn ambulkdelete(
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
     let index_name = index_relation.name();
-    let parade_index = get_parade_index(index_name);
-    let mut parade_writer = parade_index.parade_writer();
+    let parade_writer = unsafe { PARADE_WRITER_CACHE.get_cached(index_name) };
 
     if stats.is_null() {
         stats = unsafe {

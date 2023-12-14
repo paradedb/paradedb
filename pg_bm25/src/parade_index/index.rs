@@ -18,7 +18,6 @@ use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 use super::state::TantivyScanState;
-use super::writer::ParadeWriter;
 
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
 
@@ -291,21 +290,6 @@ impl ParadeIndex {
 
     pub fn writer(&self) -> Result<IndexWriter, TantivyError> {
         self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET)
-    }
-
-    pub fn parade_writer(&self) -> ParadeWriter {
-        ParadeWriter::new(self)
-    }
-
-    pub fn garbage_collect_files(&self) {
-        let index_writer = self
-            .writer()
-            .expect("Could not create writer to garbage collect files");
-
-        index_writer
-            .garbage_collect_files()
-            .wait()
-            .expect("Could not collect garbage");
     }
 
     pub fn get_data_directory(name: &str) -> String {

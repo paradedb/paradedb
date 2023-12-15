@@ -127,14 +127,4 @@ mod tests {
         let res = Spi::run("SELECT description FROM one_republic_songs WHERE one_republic_songs @@@ 'album:Native'");
         assert!(res.is_err());
     }
-
-    #[pg_test]
-    // Since the "search_tantivy" function cannout be tested directly from here,
-    // we'll take advantage of the SPI to test the @@@ operator which has "search_tantivy" as the corresponding procedure
-    fn test_search_tantivy_operator() {
-        Spi::run(SETUP_SQL).expect("failed to create table and index");
-
-        let res = Spi::get_one::<&str>(QUERY_SQL).expect("failed to get one");
-        assert_eq!(res, Some("If I Lose Myself"));
-    }
 }

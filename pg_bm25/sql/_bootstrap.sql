@@ -148,8 +148,8 @@ BEGIN
 
     -- Create a new BM25 index on the specified table.
     -- The index is created dynamically based on the function parameters.
-    EXECUTE format('CREATE INDEX %s_bm25_index ON %I.%I USING bm25 ((%I.%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
-                   index_name, schema_name, table_name, schema_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields);
+    EXECUTE format('CREATE INDEX %s_bm25_index ON %I.%I USING bm25 ((%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
+                   index_name, schema_name, table_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields);
 
     -- Dynamically create a new function for performing searches on the indexed table.
     -- The variable '__paradedb_search_config__' is available to the function_body parameter.
@@ -159,7 +159,7 @@ BEGIN
     EXECUTE paradedb.format_bm25_function(
         function_name => format('%I.search', index_name),        	
         return_type => format('SETOF %I.%I', schema_name, table_name),
-        function_body => format('RETURN QUERY SELECT * FROM %I.%I WHERE (%I.%I.%I) @@@ __paradedb_search_config__;', schema_name, table_name, schema_name, table_name, key_field),
+        function_body => format('RETURN QUERY SELECT * FROM %I.%I WHERE %I @@@ __paradedb_search_config__;', schema_name, table_name, table_name),
         index_json => index_json
     );
 

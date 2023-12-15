@@ -12,6 +12,7 @@ pub unsafe extern "C" fn amcostestimate(
     index_correlation: *mut f64,
     index_pages: *mut f64,
 ) {
+    info!("Cost estimate");
     let path = path.as_ref().expect("path argument is NULL");
     let indexinfo = path.indexinfo.as_ref().expect("indexinfo in path is NULL");
     let index_relation = unsafe {

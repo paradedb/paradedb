@@ -1,68 +1,33 @@
 #![allow(unused)]
 #![allow(non_snake_case)]
 
+use pgrx::prelude::*;
 use pg_sys::{
     self, planner_hook, standard_ExecutorRun, standard_planner, ExecutorRun_hook, Node, NodeTag,
-    ParamListInfoData, PlannedStmt, Query, QueryDesc, SeqScan,
+    ParamListInfoData, PlannedStmt, Query, QueryDesc, SeqScan, get_am_oid, ReleaseSysCache, FormData_pg_am, 
+    heap_tuple_get_struct, Datum, SysCacheIdentifier_AMOID, SearchSysCache1, CmdType_CMD_SELECT,
+    RelationIdGetRelation, table_slot_create, ExecStoreVirtualTuple, ExecDropSingleTupleTableSlot
 };
-
+use pgrx::pg_sys::rt_fetch;
 use lazy_static::lazy_static;
 use pgrx::once_cell::sync::Lazy;
-use pgrx::prelude::*;
+use pgrx::{PgRelation, PgTupleDesc};
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 
-// use crate::to_substrait::transform_seqscan_to_substrait;
-// use crate::to_substrait::transform_modify_to_substrait;
-
-// mod to_substrait;
 mod to_datafusion;
-use crate::to_datafusion::transform_seqscan_to_datafusion;
-use crate::to_datafusion::transform_valuesscan_to_datafusion;
-use crate::to_datafusion::transform_modify_to_datafusion;
-use datafusion::common::cast::as_primitive_array;
-use datafusion_substrait::substrait::proto::RelRoot;
-use datafusion_substrait::substrait::proto::Rel;
-use datafusion_substrait::substrait::proto::rel::RelType::Read;
-use datafusion_substrait::substrait::proto::plan_rel::RelType::Root;
-use datafusion_substrait::substrait::proto::PlanRel;
-use datafusion_substrait::logical_plan::consumer::from_substrait_plan;
+use crate::to_datafusion::transform_plan_to_datafusion;
+
+use datafusion_substrait::substrait::proto::{RelRoot, Rel, PlanRel};
 use datafusion::common::arrow::array::types::{Int8Type, Int16Type, Int32Type, Int64Type, UInt32Type, Float32Type, GenericStringType, Time32SecondType, TimestampSecondType, Date32Type, UInt64Type};
 use datafusion::arrow::datatypes::{DataType, TimeUnit};
-use datafusion::arrow::array::AsArray;
-use datafusion::logical_expr::LogicalPlanBuilder;
-use datafusion::logical_expr::LogicalPlan;
-use datafusion::common::arrow::array::PrimitiveArray;
 use datafusion::common::arrow::array::RecordBatch;
+use datafusion::arrow::array::AsArray;
 
 use std::ffi::CString;
 use std::ptr;
-use pgrx::pg_sys::ScanState;
-use pgrx::pg_sys::get_am_name;
-use pgrx::pg_sys::get_am_oid;
-use pgrx::pg_sys::GetTableAmRoutine;
-use pgrx::pg_sys::ReleaseSysCache;
-use pgrx::pg_sys::FormData_pg_am;
-use pgrx::pg_sys::heap_tuple_get_struct;
-use pgrx::pg_sys::Datum;
-use pgrx::pg_sys::SysCacheIdentifier_AMOID;
-use pgrx::pg_sys::SearchSysCache1;
-use pgrx::PgRelation;
-use pgrx::PgTupleDesc;
-use pgrx::pg_sys::CmdType_CMD_SELECT;
-use pgrx::pg_sys::MakeTupleTableSlot;
-use pgrx::pg_sys::TTSOpsHeapTuple;
-use pgrx::pg_sys::ModifyTable;
-use pgrx::pg_sys::rt_fetch;
-use pgrx::pg_sys::RelationIdGetRelation;
-use pgrx::pg_sys::ExecShutdownNode;
-use pgrx::pg_sys::RelationClose;
-use pgrx::pg_sys::MemoryContextSwitchTo;
-use pgrx::pg_sys::table_slot_create;
-use pgrx::pg_sys::ExecStoreVirtualTuple;
-use pgrx::pg_sys::ExecDropSingleTupleTableSlot;
 
-use futures::executor;
+use async_std::task;
 
 mod col_datafusion;
 mod table_access;
@@ -93,7 +58,6 @@ unsafe fn describe_nodes(tree: *mut pg_sys::Plan, ps: *mut pg_sys::PlannedStmt) 
 
 #[pg_guard]
 unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
-    info!("plannedstmt_using_columnar");
     let rtable = (*ps).rtable;
     if rtable.is_null() {
         return false;
@@ -167,7 +131,6 @@ unsafe fn send_tuples_if_necessary(
         (*(*query_desc).plannedstmt).hasReturning);
 
     if (sendTuples) {
-        info!("sending tuples");
         let dest = (*query_desc).dest;
         let rStartup = (*dest).rStartup;
         match rStartup {
@@ -182,7 +145,6 @@ unsafe fn send_tuples_if_necessary(
         match receiveSlot {
             Some(f) => for recordbatch in recordbatchvec.iter() {
                 for row_index in 0..recordbatch.num_rows() {
-                    // let tuple_table_slot = MakeTupleTableSlot((*query_desc).tupDesc, &TTSOpsHeapTuple);
                     let tuple_table_slot = table_slot_create(relation.as_ptr(), ptr::null_mut());
                     ExecStoreVirtualTuple(tuple_table_slot);
                     let mut col_index = 0;
@@ -241,28 +203,17 @@ async unsafe extern "C" fn columnar_executor_run_internal(
     let node_tag = (*node).type_;
     let rtable = (*ps).rtable;
 
-    let mut recordbatchvec: Vec<RecordBatch> = vec![];
+    let logical_plan = transform_plan_to_datafusion(plan.into(), rtable.into()).unwrap();
+    let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
+    let recordbatchvec: Vec<RecordBatch> = dataframe.collect().await.unwrap();
 
-    // Note: this could potentially be abstracted even more, but different node types need to update different things in estate,
-    //       so the abstraction isn't clear yet.
+    // This is for any node types that need to do additional processing on estate
     match node_tag {
-        NodeTag::T_SeqScan => {
-            let logical_plan = transform_seqscan_to_datafusion(plan, rtable).await.unwrap();
-            let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
-            recordbatchvec = dataframe.collect().await.unwrap();
-        }
-
         NodeTag::T_ModifyTable => {
-            let logical_plan = transform_modify_to_datafusion(plan, rtable).unwrap();
-            let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
-            recordbatchvec = dataframe.clone().collect().await.unwrap();
             let num_updated = recordbatchvec[0].column(0).as_primitive::<UInt64Type>().value(0);
             (*(*query_desc).estate).es_processed = num_updated;
         }
-        _ => {
-            // TODO: Add missing types
-            panic!("Node type {:?} translation not implemented", node_tag);
-        }
+        _ => ()
     }
 
     send_tuples_if_necessary(query_desc, recordbatchvec);
@@ -275,7 +226,7 @@ unsafe extern "C" fn columnar_executor_run(
     execute_once: bool,
 ) {
     // Setting pg_guard on this causes failure
-    executor::block_on(columnar_executor_run_internal(query_desc, direction, count, execute_once));
+    task::block_on(columnar_executor_run_internal(query_desc, direction, count, execute_once));
 }
 
 // initializes telemetry

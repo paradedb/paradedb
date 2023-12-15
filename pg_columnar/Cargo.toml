@@ -28,7 +28,6 @@ lazy_static = "1.4.0"
 datafusion = "33.0.0"
 async-std = "1.12.0"
 datafusion-substrait = "33.0.0"
-futures = "0.3.29"
 
 [dev-dependencies]
 pgrx-tests = "=0.11.1"

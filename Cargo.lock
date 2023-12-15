@@ -3273,7 +3273,6 @@ dependencies = [
  "async-std",
  "datafusion",
  "datafusion-substrait",
- "futures",
  "lazy_static",
  "pgrx",
  "pgrx-tests",

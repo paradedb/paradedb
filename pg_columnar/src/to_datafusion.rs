@@ -25,6 +25,8 @@ use datafusion::common::{DFSchema, ScalarValue};
 use datafusion::common::arrow::datatypes::{Field, DataType};
 use datafusion::logical_expr::{TableSource, Expr, Values};
 
+// OVERALL TODO: change panic!s to Err because we can't use pg_guard on functions that have these return values
+
 unsafe fn get_attr(table: *mut RelationData, index: isize) -> *const FormData_pg_attribute {
     let tupdesc = (*table).rd_att;
     let natts = (*tupdesc).natts;
@@ -59,16 +61,16 @@ pub fn postgres_to_datafusion_type(
     })
 }
 
+// Call this function on the root plan node
 pub unsafe fn transform_plan_to_datafusion(
     plan: *mut Plan,
     rtable: *mut List
 ) -> Result<LogicalPlan, Error> {
     let node = plan as *mut Node;
     let node_tag = (*node).type_;
-    // let rtable = (*ps).rtable;
 
     // lefttree is the outer plan - this is what is fed INTO the current plan level
-    // righttree is the inner plan - this is only ever set for JOIN operations, so we'll ignore it for now
+    // TODO: righttree is the inner plan - this is only ever set for JOIN operations, so we'll ignore it for now
     // more info: https://www.pgmustard.com/blog/2019/9/17/postgres-execution-plans-field-glossary
     let mut outer_plan = None;
     let lefttree = (*plan).lefttree;
@@ -76,13 +78,17 @@ pub unsafe fn transform_plan_to_datafusion(
         outer_plan = Some(transform_plan_to_datafusion(lefttree, rtable).unwrap());
     }
 
+    info!("{:?}", node_tag);
     match node_tag {
         NodeTag::T_SeqScan => transform_seqscan_to_datafusion(plan, rtable, outer_plan),
         NodeTag::T_ModifyTable => transform_modify_to_datafusion(plan, rtable, outer_plan),
         NodeTag::T_ValuesScan => transform_valuesscan_to_datafusion(plan, rtable, outer_plan),
+        NodeTag::T_Result => transform_result_to_datafusion(plan, rtable, outer_plan),
         _ => panic!("node type {:?} not supported yet", node_tag)
     }
 }
+
+// ---- Every specific node transformation function should have the same signature (*mut Plan, *mut List, Option<LogicalPlan>) -> Result<LogicalPlan, Error>
 
 pub unsafe fn transform_seqscan_to_datafusion(
     plan: *mut Plan,
@@ -145,6 +151,16 @@ pub unsafe fn transform_seqscan_to_datafusion(
         vec![],
         None).expect("failed to create table scan")
     ));
+}
+
+pub unsafe fn transform_result_to_datafusion(
+    plan: *mut Plan,
+    rtable: *mut List,
+    outer_plan: Option<LogicalPlan>
+) -> Result<LogicalPlan, Error> {
+    let result = plan as *mut pgrx::pg_sys::Result;
+
+    todo!();
 }
 
 pub unsafe fn transform_valuesscan_to_datafusion(

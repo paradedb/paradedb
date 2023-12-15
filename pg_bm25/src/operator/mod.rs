@@ -35,7 +35,7 @@ fn search_tantivy(
 
     // Only i64 values (bigint in Postgres) are currently supported for the key_field.
     // We'll panic below if what's passed is anything other than an i64.
-    let key_field_value: i64 = match heap_tuple.get_by_name(key_field_name) {
+    let key_field_value: i64 = match heap_tuple.get_by_name(&key_field_name) {
         Err(TryFromDatumError::NoSuchAttributeName(_))
         | Err(TryFromDatumError::NoSuchAttributeNumber(_)) => {
             panic!("no key_field '{key_field_name}' found on tuple");

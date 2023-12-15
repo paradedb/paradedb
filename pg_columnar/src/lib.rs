@@ -91,6 +91,7 @@ unsafe fn describe_nodes(tree: *mut pg_sys::Plan, ps: *mut pg_sys::PlannedStmt) 
     }
 }
 
+#[pg_guard]
 unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
     info!("plannedstmt_using_columnar");
     let rtable = (*ps).rtable;
@@ -140,8 +141,6 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
         }
     }
 
-    // TODO: this panic doesn't seem to cancel the query...
-    // Log message: <fatal runtime error: failed to initiate panic, error 5>
     if using_col && using_noncol {
         panic!("Mixing table types in a single query is not supported yet");
     }
@@ -275,6 +274,7 @@ unsafe extern "C" fn columnar_executor_run(
     count: u64,
     execute_once: bool,
 ) {
+    // Setting pg_guard on this causes failure
     executor::block_on(columnar_executor_run_internal(query_desc, direction, count, execute_once));
 }
 

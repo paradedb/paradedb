@@ -141,7 +141,7 @@ BEGIN
     );
 
     -- Drop any existing index and function with the same name to avoid conflicts.
-    CALL paradedb.drop_bm25(index_name);
+    CALL paradedb.drop_bm25(index_name, schema_name => schema_name);
 
     -- Create the new, empty schema.
     EXECUTE format('CREATE SCHEMA %s', index_name);

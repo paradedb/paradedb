@@ -25,9 +25,9 @@ LEFT JOIN bm25_search.rank('category:electronics OR description:keyboard') as r 
 SELECT * FROM bm25_search.search('metadata.color:white');
  id |     description      | rating | category | in_stock |                    metadata                     
 ----+----------------------+--------+----------+----------+-------------------------------------------------
-  4 | White jogging shoes  |      3 | Footwear | f        | {"color": "White", "location": "United States"}
  15 | Refreshing face wash |      2 | Beauty   | f        | {"color": "White", "location": "China"}
  25 | Anti-aging serum     |      4 | Beauty   | t        | {"color": "White", "location": "United States"}
+  4 | White jogging shoes  |      3 | Footwear | f        | {"color": "White", "location": "United States"}
 (3 rows)
 
 -- Test real-time search

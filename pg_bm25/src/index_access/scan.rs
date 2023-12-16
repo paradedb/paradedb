@@ -3,7 +3,6 @@ use crate::{
     parade_index::state::TantivyScanState,
 };
 use pgrx::*;
-use std::str::FromStr;
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -39,13 +38,14 @@ pub extern "C" fn amrescan(
     let nkeys = nkeys as usize;
     let keys = unsafe { std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys) };
 
-    // Convert the first scan key argument into a string. This is assumed to be the query string.
-    let config_json: String = unsafe {
-        String::from_datum(keys[0].sk_argument, false)
+    // Convert the first scan key argument into a byte array. This is assumed to be the `::jsonb` search config.
+    let config_jsonb = unsafe {
+        JsonB::from_datum(keys[0].sk_argument, false)
             .expect("failed to convert query to tuple of strings")
     };
 
-    let query_config = SearchConfig::from_str(&config_json).expect("could not parse search config");
+    let query_config =
+        SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");
     let index_name = &query_config.index_name;
 
     // Create the index and scan state

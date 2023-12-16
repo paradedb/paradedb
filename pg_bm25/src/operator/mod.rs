@@ -23,18 +23,33 @@ fn search_tantivy(
             hs.insert(key_field_value);
         }
 
-        hs
+        (search_config, hs)
     };
+
+    let cached = unsafe { pg_func_extra(fcinfo, default_hash_set) };
+    let search_config = &cached.0;
+    let hash_set = &cached.1;
+
+    let heap_tuple = unsafe { PgHeapTuple::from_composite_datum(element.datum()) };
+    let key_field_name = &search_config.key_field;
 
     // Only i64 values (bigint in Postgres) are currently supported for the key_field.
     // We'll panic below if what's passed is anything other than an i64.
-
-    let hash_set = unsafe { pg_func_extra(fcinfo, default_hash_set) };
-    let key_value = unsafe {
-        i64::from_datum(element.datum(), false).expect("could not parse i64 from element")
+    let key_field_value: i64 = match heap_tuple.get_by_name(&key_field_name) {
+        Err(TryFromDatumError::NoSuchAttributeName(_))
+        | Err(TryFromDatumError::NoSuchAttributeNumber(_)) => {
+            panic!("no key_field '{key_field_name}' found on tuple");
+        }
+        Err(TryFromDatumError::IncompatibleTypes { .. }) => {
+            panic!("could not parse key_field {key_field_name} from tuple, incorrect type");
+        }
+        Ok(None) => {
+            panic!("no value present in key_field {key_field_name} in tuple")
+        }
+        Ok(Some(value)) => value,
     };
 
-    hash_set.contains(&key_value)
+    hash_set.contains(&key_field_value)
 }
 
 #[cfg(any(test, feature = "pg_test"))]

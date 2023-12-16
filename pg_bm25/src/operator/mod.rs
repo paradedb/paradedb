@@ -1,5 +1,5 @@
 use crate::index_access::utils::{get_parade_index, SearchConfig};
-use pgrx::*;
+use pgrx::{prelude::PgHeapTuple, *};
 use rustc_hash::FxHashSet;
 
 #[pg_extern]

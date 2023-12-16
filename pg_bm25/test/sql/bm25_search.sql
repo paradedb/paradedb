@@ -20,7 +20,7 @@ SELECT * FROM bm25_search.search('description:earbud');
 -- Test sequential scan syntax
 SELECT * FROM paradedb.bm25_test_table
 WHERE paradedb.search_tantivy(
-    paradedb.bm25_test_table.id,
+    paradedb.bm25_test_table.*,
     jsonb_build_object(
         'index_name', 'bm25_search_bm25_index',
         'table_name', 'bm25_test_table',

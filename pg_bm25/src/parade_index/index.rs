@@ -109,7 +109,9 @@ impl ParadeIndex {
         let path = Path::new(&dir);
 
         if path.exists() {
-            remove_dir_all(path).expect("failed to remove paradedb directory");
+            remove_dir_all(path).unwrap_or_else(|err| {
+                panic!("failed to remove paradedb directory at {path:?}: {err:?}")
+            });
         }
 
         create_dir_all(path).expect("failed to create paradedb directory");

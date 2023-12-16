@@ -38,7 +38,7 @@ SELECT * from index_config.schema();
  ctid        | U64        | t      | t       | f    | t          |             |           |          | 
 (3 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 -- Text field with options
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -55,7 +55,7 @@ SELECT * from index_config.schema();
  ctid        | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 -- Multiple text fields
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -73,7 +73,7 @@ SELECT * from index_config.schema();
  ctid        | U64        | t      | t       | f    | t          |             |           |          | 
 (4 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 -- Default numeric field
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -90,7 +90,7 @@ SELECT * from index_config.schema();
  ctid   | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 -- Numeric field with options
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -107,7 +107,7 @@ SELECT * from index_config.schema();
  ctid   | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 -- Default boolean field
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -124,7 +124,7 @@ SELECT * from index_config.schema();
  ctid     | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 -- Boolean field with options
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -141,7 +141,7 @@ SELECT * from index_config.schema();
  ctid     | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 -- Default Json field
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -158,7 +158,7 @@ SELECT * from index_config.schema();
  ctid     | U64        | t      | t       | f    | t          |             |           |          | 
 (3 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 -- Json field with options
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -175,7 +175,7 @@ SELECT * from index_config.schema();
  ctid     | U64        | t      | t       | f    | t          |             |           |          | 
 (3 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 -- Multiple fields
 CALL paradedb.create_bm25(
 	index_name => 'index_config',
@@ -199,4 +199,4 @@ SELECT * from index_config.schema();
  ctid        | U64        | t      | t       | f    | t          |             |           |          | 
 (7 rows)
 
-CALL paradedb.drop_bm25('index_config');
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');

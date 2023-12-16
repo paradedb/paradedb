@@ -3,13 +3,12 @@ use crate::{index_access::utils::get_parade_index, json::builder::JsonBuilder};
 use pgrx::{
     item_pointer_to_u64, pg_sys::ItemPointerData, register_xact_callback, PgXactCallbackEvent,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, fs, io};
 use tantivy::{
     schema::{Field, Value},
     Document, IndexWriter, Searcher, Term,
 };
 
-// The
 const CACHE_NUM_BLOCKS: usize = 10;
 
 /// This is a transaction-scoped cache. The ParadeWriterCache is a singleton that intializes
@@ -27,6 +26,7 @@ pub struct ParadeWriter {
     fields: HashMap<String, Field>,
     searcher: Searcher,
     writer: IndexWriter,
+    pub lockfile_path: String,
     pub index_name: String,
     pub key_field_name: String,
 }
@@ -41,6 +41,10 @@ impl ParadeWriter {
             writer: parade_index.writer().unwrap(),
             index_name: parade_index.name.clone(),
             key_field_name: parade_index.key_field_name.clone(),
+            lockfile_path: format!(
+                "{}/.tantivy-writer.lock",
+                ParadeIndex::get_data_directory(&parade_index.name)
+            ),
         }
     }
 
@@ -151,16 +155,28 @@ impl ParadeWriterCache {
                 .take() // take "clears" the cache by setting it to None
                 .unwrap_or_default()
             {
+                let lockfile_path = writer.lockfile_path.clone();
                 let parade_index = get_parade_index(&writer.index_name);
                 writer.commit();
+
                 // The must be committed before the corresponding reader reloads, or else
                 // there will be stale data in the index on the next query.
                 parade_index.reader.reload().unwrap();
+
+                // Make sure the lockfile on the writer is deleted. This should be done automatically
+                // after the Tantivy writers are dropped, but in practice the file can stick around.
+                match fs::remove_file(&lockfile_path) {
+                    Ok(()) => Ok(()),
+                    Err(ref e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+                    Err(e) => Err(e),
+                }
+                .expect("could not remove tantivy lockfile");
             }
 
             // Make sure the will_clear flag is set back to false, so callbacks can be
             // registered on the next transaction.
             PARADE_WRITER_CACHE.will_clear = false;
+
             // It's important that the cache be reset to None, so the ParadeWriter
             // instances that it holds are dropped. If this does not happen, the locks
             // held by ParadeWriter will not be released.

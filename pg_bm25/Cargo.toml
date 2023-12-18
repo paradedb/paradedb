@@ -19,8 +19,10 @@ pg_test = []
 telemetry = ["shared/telemetry"]
 
 [dependencies]
+bincode = "1.3.3"
 chrono = "0.4.31"
 csv = "1.2.2"
+http = "1.0.0"
 indexmap = "2.1.0"
 json5 = "0.4.1"
 lindera-core = "0.27.1"
@@ -36,12 +38,14 @@ lindera-tokenizer = { version = "0.27.1", features = [
 memoffset = "0.9.0"
 once_cell = "1.18.0"
 pgrx = "=0.11.1"
+reqwest = "0.11.22"
 rustc-hash = "1.1.0"
 serde = "1.0.188"
 serde_json = "1.0.105"
 serde_path_to_error = "0.1.14"
 shared = { version = "0.1.0", path = "../shared" }
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "paradedb-tantivy", rev = "f4972d3a" }
+tiny_http = "0.12.0"
 utoipa = "3.5.0"
 
 [dev-dependencies]

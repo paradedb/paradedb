@@ -20,7 +20,7 @@ pub static mut PARADE_WRITER_CACHE: ParadeWriterCache = ParadeWriterCache {
     will_clear: false,
 };
 
-pub struct ParadeWriter {
+pub struct ParadeWriterOld {
     ctid_field: Field,
     key_field: Field,
     fields: HashMap<String, Field>,
@@ -31,7 +31,7 @@ pub struct ParadeWriter {
     pub key_field_name: String,
 }
 
-impl ParadeWriter {
+impl ParadeWriterOld {
     pub fn new(parade_index: &ParadeIndex) -> Self {
         Self {
             fields: parade_index.fields.clone(),
@@ -125,13 +125,13 @@ impl ParadeWriter {
 
 #[derive(Default)]
 pub struct ParadeWriterCache {
-    cache: Option<HashMap<String, ParadeWriter>>,
+    cache: Option<HashMap<String, ParadeWriterOld>>,
     will_clear: bool,
 }
 
 impl ParadeWriterCache {
     /// Get a cached ParadeWriter, or acquire one and cache it.
-    pub fn get_cached(&mut self, index_name: &str) -> &mut ParadeWriter {
+    pub fn get_cached(&mut self, index_name: &str) -> &mut ParadeWriterOld {
         // Initialize the cache if it doesn't exist
         if self.cache.is_none() {
             // If we're here, this is the first invocation for the transaction.
@@ -144,7 +144,7 @@ impl ParadeWriterCache {
             .as_mut()
             .unwrap()
             .entry(index_name.to_string())
-            .or_insert_with(|| ParadeWriter::from_index_name(index_name))
+            .or_insert_with(|| ParadeWriterOld::from_index_name(index_name))
     }
 
     /// Internal implementation of cache clearing.

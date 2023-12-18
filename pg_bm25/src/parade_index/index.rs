@@ -38,7 +38,7 @@ const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 /// this cache, tied to its own lifecycle.
 static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
 
-#[derive(PartialEq, Eq, Hash)]
+#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
 pub enum ParadeIndexKeyValue {
     Number(i64),
 }
@@ -62,6 +62,7 @@ impl TryFrom<&JsonBuilderValue> for ParadeIndexKeyValue {
     }
 }
 
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ParadeIndexKey {
     pub name: String,
     pub value: ParadeIndexKeyValue,

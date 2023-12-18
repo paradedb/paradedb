@@ -1,4 +1,5 @@
 use crate::tokenizers::code::CodeTokenizer;
+use crate::tokenizers::icu::ICUTokenizer;
 use crate::tokenizers::lindera::{LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
 use crate::tokenizers::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer};
 use serde::*;
@@ -122,6 +123,12 @@ impl From<ParadeTokenizer> for TextAnalyzer {
             }
             ParadeTokenizer::KoreanLindera => {
                 TextAnalyzer::builder(LinderaKoreanTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build()
+            }
+             ParadeTokenizer::ICUTokenizer => {
+                TextAnalyzer::builder(ICUTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
                     .build()

@@ -1,7 +1,7 @@
-mod cjk;
-mod code;
-mod icu;
-mod lindera;
+pub(crate) mod cjk;
+pub(crate) mod code;
+pub(crate) mod icu;
+pub(crate) mod lindera;
 
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap, ParadeTokenizer};
 use crate::tokenizers::cjk::ChineseTokenizer;

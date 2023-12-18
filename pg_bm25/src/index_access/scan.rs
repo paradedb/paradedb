@@ -105,14 +105,6 @@ pub extern "C" fn amgettuple(
                 .get_first(ctid_field)
                 .unwrap_or_else(|| panic!("cannot find {ctid_name} field on retrieved document"));
 
-            let key_field_name = &state.key_field_name;
-            let key_field = schema
-                .get_field(key_field_name)
-                .unwrap_or_else(|_| panic!("field '{key_field_name}' not found in schema"));
-            let _key_field_value = retrieved_doc.get_first(key_field).unwrap_or_else(|| {
-                panic!("cannot find id field '{key_field_name}' on retrieved document")
-            });
-
             match ctid_field_value {
                 tantivy::schema::Value::U64(val) => {
                     u64_to_item_pointer(*val, tid);

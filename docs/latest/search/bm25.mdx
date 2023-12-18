@@ -18,7 +18,7 @@ The `search` function returns rows of a table that match a search query. By defa
 
 ```sql
 SELECT *
-FROM <index_name>.search('<query>')
+FROM <index_name>.search('<query>');
 ```
 
 <ParamField body="index_name" required>
@@ -144,7 +144,8 @@ The special characters `+` , `^`, ```, `:`, `{`, `}`, `"`, `[`, `]`, `(`, `)`, `
 ## Limit and Offset
 
 Specifying a limit and offset is a more efficient way of iterating through search results compared to
-SQL's `LIMIT` and `OFFSET` options, which applies the filters after search instead of during search.
+SQL's `LIMIT` and `OFFSET` options. For optimal query performance, we recommend using the `limit_rows` and
+`offset_rows` options instead of `LIMIT` and `OFFSET`.
 
 ```sql
 SELECT *

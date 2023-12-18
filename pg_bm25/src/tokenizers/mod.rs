@@ -1,12 +1,10 @@
-pub(crate) mod cjk;
-pub(crate) mod code;
-pub(crate) mod icu;
-pub(crate) mod lindera;
+pub mod cjk;
+pub mod code;
+pub mod lindera;
 
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap, ParadeTokenizer};
 use crate::tokenizers::cjk::ChineseTokenizer;
 use crate::tokenizers::code::CodeTokenizer;
-use crate::tokenizers::icu::ICUTokenizer;
 use crate::tokenizers::lindera::{
     LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer,
 };
@@ -83,13 +81,6 @@ pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManage
                     .filter(LowerCaser)
                     .build(),
             ),
-            ParadeTokenizer::ICUTokenizer => Some(
-                TextAnalyzer::builder(ICUTokenizer)
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build(),
-            ),
-
             _ => None,
         };
 

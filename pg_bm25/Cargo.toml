@@ -43,7 +43,6 @@ serde_path_to_error = "0.1.14"
 shared = { version = "0.1.0", path = "../shared" }
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "paradedb-tantivy", rev = "f4972d3a" }
 utoipa = "3.5.0"
-rust_icu_ubrk = "4.2.3"
 
 [dev-dependencies]
 pgrx-tests = "=0.11.1"

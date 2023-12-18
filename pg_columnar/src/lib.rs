@@ -16,7 +16,7 @@ use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 
 mod to_datafusion;
-use crate::to_datafusion::transform_plan_to_datafusion;
+use crate::to_datafusion::transform_pg_plan_to_df_plan;
 
 use datafusion_substrait::substrait::proto::{RelRoot, Rel, PlanRel};
 use datafusion::common::arrow::array::types::{Int8Type, Int16Type, Int32Type, Int64Type, UInt32Type, Float32Type, GenericStringType, Time32SecondType, TimestampSecondType, Date32Type, UInt64Type};
@@ -203,7 +203,7 @@ async unsafe extern "C" fn columnar_executor_run_internal(
     let node_tag = (*node).type_;
     let rtable = (*ps).rtable;
 
-    let logical_plan = transform_plan_to_datafusion(plan.into(), rtable.into()).unwrap();
+    let logical_plan = transform_pg_plan_to_df_plan(plan.into(), rtable.into()).unwrap();
     let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
     let recordbatchvec: Vec<RecordBatch> = dataframe.collect().await.unwrap();
 

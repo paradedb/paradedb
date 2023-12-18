@@ -62,7 +62,7 @@ pub fn postgres_to_datafusion_type(
 }
 
 // Call this function on the root plan node
-pub unsafe fn transform_plan_to_datafusion(
+pub unsafe fn transform_pg_plan_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List
 ) -> Result<LogicalPlan, Error> {
@@ -75,22 +75,56 @@ pub unsafe fn transform_plan_to_datafusion(
     let mut outer_plan = None;
     let lefttree = (*plan).lefttree;
     if !lefttree.is_null() {
-        outer_plan = Some(transform_plan_to_datafusion(lefttree, rtable).unwrap());
+        outer_plan = Some(transform_pg_plan_to_df_plan(lefttree, rtable).unwrap());
     }
 
     info!("{:?}", node_tag);
     match node_tag {
-        NodeTag::T_SeqScan => transform_seqscan_to_datafusion(plan, rtable, outer_plan),
-        NodeTag::T_ModifyTable => transform_modify_to_datafusion(plan, rtable, outer_plan),
-        NodeTag::T_ValuesScan => transform_valuesscan_to_datafusion(plan, rtable, outer_plan),
-        NodeTag::T_Result => transform_result_to_datafusion(plan, rtable, outer_plan),
+        NodeTag::T_SeqScan => transform_seqscan_to_df_plan(plan, rtable, outer_plan),
+        NodeTag::T_ModifyTable => transform_modify_to_df_plan(plan, rtable, outer_plan),
+        NodeTag::T_ValuesScan => transform_valuesscan_to_df_plan(plan, rtable, outer_plan),
+        NodeTag::T_Result => transform_result_to_df_plan(plan, rtable, outer_plan),
         _ => panic!("node type {:?} not supported yet", node_tag)
     }
 }
 
 // ---- Every specific node transformation function should have the same signature (*mut Plan, *mut List, Option<LogicalPlan>) -> Result<LogicalPlan, Error>
 
-pub unsafe fn transform_seqscan_to_datafusion(
+pub unsafe fn transform_targetentry_to_df_field(
+    node: *mut Node,
+    pg_relation: Option<&PgRelation> // TODO: this shouldn't ever be None, so fix wherever we're passing in None
+) -> Result<Field, Error> {
+    let target_entry = node as *mut pgrx::pg_sys::TargetEntry;
+    let col_name = (*target_entry).resname;
+    if !col_name.is_null() {
+        let col_name_str =
+            CStr::from_ptr(col_name).to_string_lossy().into_owned();
+        let col_type = exprType((*target_entry).expr as *mut pgrx::pg_sys::Node);
+
+        let mut nullable = true;
+        match pg_relation {
+            Some(pg_relation) => {
+                let col_num = (*target_entry).resorigcol;
+                let pg_att = get_attr(pg_relation.as_ptr(), col_num as isize);
+                if !pg_att.is_null() {
+                    nullable = !(*pg_att).attnotnull; // !!!!! nullability
+                }
+            },
+            None => nullable = true,
+        };
+            
+        if let Ok(built_in_oid) = BuiltinOid::try_from(col_type) {
+            let datafusion_type = postgres_to_datafusion_type(built_in_oid).unwrap();
+            return Ok(Field::new(col_name_str, datafusion_type, nullable));
+        } else {
+            panic!("Invalid BuiltinOid");
+        }
+    } else {
+        panic!("Column name is null");
+    }
+}
+
+pub unsafe fn transform_seqscan_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>
@@ -116,26 +150,7 @@ pub unsafe fn transform_seqscan_to_datafusion(
                 let list_cell_node =
                     (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
                 match (*list_cell_node).type_ {
-                    NodeTag::T_TargetEntry => {
-                        let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
-                        let col_name = (*target_entry).resname;
-                        if !col_name.is_null() {
-                            let col_name_str =
-                                CStr::from_ptr(col_name).to_string_lossy().into_owned();
-
-                            let col_num = (*target_entry).resorigcol;
-                            let pg_att = get_attr(relation, col_num as isize);
-                            if !pg_att.is_null() {
-                                let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
-                                if let Ok(built_in_oid) = BuiltinOid::try_from((*pg_att).atttypid) {
-                                    let datafusion_type = postgres_to_datafusion_type(built_in_oid).unwrap();
-                                    cols.push(Field::new(col_name_str, datafusion_type, !att_not_null));
-                                } else {
-                                    panic!("Invalid BuiltinOid");
-                                }
-                            }
-                        }
-                    },
+                    NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node, Some(&pg_relation)).unwrap()),
                     _ => panic!("target type {:?} not handled for seqscan yet", (*list_cell_node).type_),
                 }
             }
@@ -153,7 +168,7 @@ pub unsafe fn transform_seqscan_to_datafusion(
     ));
 }
 
-pub unsafe fn transform_result_to_datafusion(
+pub unsafe fn transform_result_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>
@@ -163,7 +178,7 @@ pub unsafe fn transform_result_to_datafusion(
     todo!();
 }
 
-pub unsafe fn transform_valuesscan_to_datafusion(
+pub unsafe fn transform_valuesscan_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>
@@ -179,21 +194,7 @@ pub unsafe fn transform_valuesscan_to_datafusion(
                 let list_cell_node =
                     (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
                 match (*list_cell_node).type_ {
-                    NodeTag::T_TargetEntry => {
-                        let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
-                        let col_name = (*target_entry).resname;
-                        if !col_name.is_null() {
-                            let col_name_str =
-                                CStr::from_ptr(col_name).to_string_lossy().into_owned();
-                            let col_type = exprType((*target_entry).expr as *mut pgrx::pg_sys::Node);
-                            if let Ok(built_in_oid) = BuiltinOid::try_from(col_type) {
-                                let datafusion_type = postgres_to_datafusion_type(built_in_oid).unwrap();
-                                cols.push(Field::new(col_name_str, datafusion_type, true)); // TODO: actually get nullability - need relation
-                            } else {
-                                panic!("Invalid BuiltinOid");
-                            }
-                        }
-                    },
+                    NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node, None).unwrap()),
                     _ => panic!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_),
                 }
             }
@@ -246,7 +247,7 @@ pub unsafe fn transform_valuesscan_to_datafusion(
     }))
 }
 
-pub fn transform_modify_to_datafusion(
+pub fn transform_modify_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>

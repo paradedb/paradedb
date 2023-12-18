@@ -142,7 +142,12 @@
     },
     {
       "group": "Changelog",
-      "pages": ["changelog/0.4.2", "changelog/0.4.1", "changelog/deprecated"]
+      "pages": [
+        "changelog/0.4.3",
+        "changelog/0.4.2",
+        "changelog/0.4.1",
+        "changelog/deprecated"
+      ]
     }
   ],
   "footerSocials": {

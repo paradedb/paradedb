@@ -52,18 +52,16 @@ do
   esac
 done
 
+# Determine the base directory of the script
+BASEDIR=$(dirname "$0")
+cd "$BASEDIR/../"
+BASEDIR=$(pwd)
+
+# Vars
 OS_NAME=$(uname)
 export PGUSER=postgres
 export PGDATABASE=postgres
 export PGPASSWORD=password
-
-# Set the directory to output PostgreSQL logs to
-CURRENT_DIR_NAME=$(basename "$(pwd)")
-if [[ $CURRENT_DIR_NAME != *test* ]]; then
-  LOG_DIR="$(pwd)/test"
-else
-  LOG_DIR="$(pwd)"
-fi
 
 # All pgrx-supported PostgreSQL versions to configure for
 OS_NAME=$(uname)
@@ -73,6 +71,29 @@ if [ "$FLAG_PG_VER" = false ]; then
 else
   IFS=',' read -ra PG_VERSIONS <<< "$FLAG_PG_VER"  # Split the argument by comma into an array
 fi
+
+
+# Cleanup function
+cleanup() {
+  # Check if regression.diffs exists and print if present
+  if [ -f "$BASEDIR/regression.diffs" ]; then
+    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
+    cat "$BASEDIR/regression.diffs"
+  fi
+  echo "Cleaning up..."
+
+  # Clean up the test database and temporary files
+  rm -rf "$PWFILE"
+  rm -rf "$TMPDIR"
+  rm -rf "$BASEDIR/test/test_logs.log"
+  rm -rf "$BASEDIR/regression.diffs"
+  rm -rf "$BASEDIR/regression.out"
+  echo "Done, goodbye!"
+}
+
+# Register the cleanup function to run when the script exits
+trap cleanup EXIT
+
 
 function run_tests() {
   TMPDIR="$(mktemp -d)"
@@ -84,11 +105,6 @@ function run_tests() {
   echo "$PGPASSWORD" > "$PWFILE"
 
   # Ensure a clean environment
-  trap 'pg_ctl stop -m i; rm -f "$PWFILE"' sigint sigterm exit  # <-- Also remove the password file on exit
-  rm -rf "$TMPDIR"
-  rm -rf "$LOG_DIR/test_logs.log"
-  rm -rf "$LOG_DIR/../regression.diffs"
-  rm -rf "$LOG_DIR/../regression.out"
   unset TESTS
 
   # Initialize the test database
@@ -100,7 +116,7 @@ function run_tests() {
   # Set PostgreSQL logging configuration
   echo "Setting test database logging configuration..."
   psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET logging_collector TO 'on';" -d test_db > /dev/null
-  psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$LOG_DIR';" -d test_db > /dev/null
+  psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$BASEDIR/test/';" -d test_db > /dev/null
   psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db > /dev/null
 
   # Configure search_path to include the paradedb schema
@@ -138,15 +154,6 @@ function run_tests() {
   # We always test on the upcoming version, which means that this test also acts as an extension upgrade test
   echo "Running tests..."
   make installcheck
-  if [ -f "$LOG_DIR/../regression.diffs" ]; then
-    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
-    cat "$LOG_DIR/../regression.diffs"
-  fi
-
-  # Uncomment this to display test ERROR logs if you need to debug. Note that many of these errors are
-  # expected, since we are testing error handling/invalid cases in our regression tests.
-  # echo "Displaying PostgreSQL ERROR logs from tests..."
-  # grep "ERROR" "$LOG_DIR/test_logs.log"
 }
 
 # Loop over PostgreSQL versions

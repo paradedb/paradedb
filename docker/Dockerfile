@@ -241,12 +241,13 @@ COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_M
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 
 # Install the ParadeDB pg_sparse extension directly, since it's not as modular as pgrx extensions
+# We set OPTFLAGS="" to disable the -march=native flag, which isn't supported on macOS ARM
 WORKDIR /tmp/pg_sparse
 COPY pg_sparse/ /tmp/pg_sparse
 RUN sed -i "s/default_version = .*/default_version = '${PG_SPARSE_VERSION}'/" svector.control && \
     sed -i "s/^EXTVERSION = .*/EXTVERSION = ${PG_SPARSE_VERSION}/" Makefile && \
     make clean && \
-    make && \
+    make USE_PGXS=1 OPTFLAGS="" && \
     make install && \
     rm -rf /tmp/pg_sparse
 WORKDIR /

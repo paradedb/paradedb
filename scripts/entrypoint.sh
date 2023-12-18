@@ -3,61 +3,31 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# List of extensions to possibly pre-install (if a version variable is set). Note that
-# this is not an exhaustive list of extensions that can be installed, only the ones that
-# we pre-install. For the full list of extensions available, see:
+# List of extensions to pre-install (if a version variable is set when building the Dockerfile).
+# Note that this is not an exhaustive list of extensions that can be installed, only the ones that
+# we pre-install. For the full list of extensions available on ParadeDB, see:
 # https://paradedb.notion.site/PostgreSQL-Extensions-Supported-on-ParadeDB-0aefcad16b6846ca9b3c7099cfc9e4f1?pvs=4
+#
+# The following extensions can be uncommented and added to the list below to pre-install:
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
   [svector]=${PG_SPARSE_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
-  [pg_ivm]=${PG_IVM_VERSION:-}
-  [pg_graphql]=${PG_GRAPHQL_VERSION:-}
-  [pg_hashids]=${PG_HASHIDS_VERSION:-}
-  [pg_jsonschema]=${PG_JSONSCHEMA_VERSION:-}
-  [pg_repack]=${PG_REPACK_VERSION:-}
-  [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
-  [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
-  [pgfaceting]=${PGFACETING_VERSION:-}
-  [pgtap]=${PGTAP_VERSION:-}
-  [postgis]=${POSTGIS_VERSION:-}
-  [pgrouting]=${PGROUTING_VERSION:-}
-  [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
-  [http]=${PGSQL_HTTP_VERSION:-}
-  [age]=${AGE_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
-  [pg_show_plans]=${PG_SHOW_PLANS_VERSION:-}
-  # These are commented out since we don't install them by default on ParadeDB. If you
-  # would like to install them, uncomment the line(s) below and uncomment the corresponding
-  # lines in preload_names, if any
-  # the extensions list above
-  # [pg_net]=${PG_NET_VERSION:-}
-  # [pgaudit]=${PGAUDIT_VERSION:-}
-  # [citus]=${CITUS_VERSION:-}
-  # [pg_partman]=${PG_PARTMAN_VERSION:-}
-  # [pgautofailover]=${PG_AUTO_FAILOVER_VERSION:-}
-  # [sqlite_fdw]=${SQLITE_FDW_VERSION:-}
-  # [ddlx]=${PGDDL_VERSION:-}
-  # [mysql_fdw]=${MYSQL_FDW_VERSION:-}
-  # [hypopg]=${HYPOPG_VERSION:-}
-  # [rum]=${RUM_VERSION:-}
-  # [pgfincore]=${PGFINCORE_VERSION:-}
-  # [pg_jobmon]=${PG_JOBMON_VERSION:-}
 )
 
-# List of extensions that must be added to shared_preload_libraries
+# List of extensions that must be added to shared_preload_libraries to be installed. Extensions that
+# get added to shared_preload_libraries must also be listed in `extensions` above in order to get installed.
+#
+# The following extensions can be uncommented and added to the list below to pre-install:
+# [pg_net]=pg_net
+# [pgaudit]=pgaudit
+# [citus]=citus
+# [pgsodium]=pgsodium
+# [pgautofailover]=pgautofailover
+# [pg_partman]=pg_partman_bgw
 declare -A preload_names=(
   [pg_cron]=pg_cron
-  # These are commented out since we don't install them by default on ParadeDB. If you
-  # would like to install them, uncomment the line(s) below and uncomment the corresponding lines
-  # in extensions, if any
-  # the extensions list above
-  # [pg_net]=pg_net
-  # [pgaudit]=pgaudit
-  # [citus]=citus
-  # [pgsodium]=pgsodium
-  # [pgautofailover]=pgautofailover
-  # [pg_partman]=pg_partman_bgw
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed
@@ -105,7 +75,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "template1" <<-EOSQ
 EOSQL
 
 # We need to restart the server for the changes above to be reflected
-pg_ctl restart
+pg_ctl restart 2> /dev/null
 
 # We collect basic, anonymous telemetry to help us understand how many people are using
 # the project. We only do this if TELEMETRY is set to "true", and only do it once per deployment
@@ -131,6 +101,7 @@ echo "PostgreSQL is up - installing extensions..."
 for extension in "${!extensions[@]}"; do
   version=${extensions[$extension]}
   if [ -n "$version" ]; then
-    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
+    PGPASSWORD=$POSTGRES_PASSWORD psql -c "DROP EXTENSION IF EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" 2> /dev/null
+    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done

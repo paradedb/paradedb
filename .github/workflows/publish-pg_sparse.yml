@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_sparse release. This publishes the current commit tagged with the provided version, to the correspoding GitHub Release"
+        description: "The version to set for the pg_sparse release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
         default: ""
 
@@ -67,13 +67,6 @@ jobs:
 
           # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-
-      - name: Update Version in svector.control
-        working-directory: pg_sparse/
-        run: |
-          sed -i "s/^default_version = .*/default_version = '${{ steps.version.outputs.version }}'/" svector.control
-          sed -i "s/^EXTVERSION = .*/EXTVERSION = ${{ steps.version.outputs.version }}/" Makefile
-          cat svector.control
 
       - name: Build & Package pg_sparse as a .deb
         env:

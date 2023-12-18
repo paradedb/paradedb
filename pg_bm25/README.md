@@ -17,13 +17,18 @@ Check out the `pg_bm25` benchmarks [here](../benchmarks/README.md).
 
 - [x] BM25 scoring
 - [x] Highlighting
-- [x] Boosted queries
 - [x] Filtering
 - [x] Autocomplete
+- [x] Boosted queries
 - [x] Fuzzy search
-- [x] Custom tokenizers
+- [x] Custom tokenizers (Chinese, Japanese, Korean, Arabc, Ngram)
 - [x] JSON field search
+- [x] Hybrid search
 - [ ] Datetime fields
+- [ ] Faceted search
+- [ ] Generative search
+- [ ] Multimodal search
+- [ ] Distributed search
 
 ## Installation
 
@@ -53,9 +58,9 @@ We provide pre-built binaries for Debian-based Linux for PostgreSQL 15 (more ver
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
-#### macOS and Windows
+#### macOS
 
-We don't suggest running production workloads on macOS or Windows. As a result, we don't provide prebuilt binaries for these platforms. If you are running Postgres on macOS or Windows and want to install `pg_bm25`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
+We don't suggest running production workloads on macOS. As a result, we don't provide prebuilt binaries for macOS. If you are running Postgres on macOS and want to install `pg_bm25`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
 
 You can then create the extension in your database by running:
 
@@ -64,6 +69,10 @@ CREATE EXTENSION pg_bm25;
 ```
 
 Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
+
+#### Windows
+
+Windows is not supported. This restriction is [inherited from pgrx not supporting Windows](https://github.com/pgcentralfoundation/pgrx?tab=readme-ov-file#caveats--known-issues).
 
 ## Usage
 
@@ -123,8 +132,7 @@ Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy sear
 
 ### Prerequisites
 
-Before developing the extension, ensure that you have Rust installed
-(version >1.70), ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
+Before developing the extension, ensure that you have Rust v1.73.0 installed, ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
 
 If you are on macOS and using Postgres.app, you'll first need to add the `pg_config` binary to your path:
 
@@ -186,7 +194,7 @@ This will run all unit tests defined in `/src`. To add a new unit test, simply a
 To run the integration test suite, simply run:
 
 ```bash
-./test/runtests.sh -p threaded
+./test/runtests.sh -p sequential
 ```
 
 This will create a temporary database, initialize it with the SQL commands defined in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test, simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to `/test/expected` for the expected output, and it will automatically get picked up by the test suite.

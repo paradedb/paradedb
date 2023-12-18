@@ -12,6 +12,11 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "The version to set for the ParadeDB release. This publishes the latest commit of the chosen branch and tags it with the provided version."
+        required: true
+        default: ""
 
 concurrency:
   group: publish-paradedb-${{ github.head_ref || github.ref }}
@@ -32,8 +37,14 @@ jobs:
       - name: Retrieve GitHub Release Version
         id: version
         run: |
-          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          # If no workflow_dispatch version is provided, we use workflow tag trigger version
+          if [ -z "${{ github.event.inputs.version }}" ]; then
+            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+            echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          fi
           echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Retrieve Current Date

@@ -35,6 +35,11 @@
       "name": "Blog",
       "icon": "rss",
       "url": "blog"
+    },
+    {
+      "name": "Changelog",
+      "icon": "clock",
+      "url": "changelog"
     }
   ],
   "versions": ["Latest", "<v0.4"],
@@ -75,7 +80,8 @@
         {
           "group": "Deployment",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
-        }
+        },
+        "latest/upgrading"
       ],
       "version": "Latest"
     },
@@ -130,10 +136,13 @@
       "group": "Blog",
       "pages": [
         "blog/introducing_sparse",
-        "blog/introducing_paradedb_cloud",
         "blog/introducing_bm25",
         "blog/introducing_paradedb"
       ]
+    },
+    {
+      "group": "Changelog",
+      "pages": ["changelog/0.4.2", "changelog/0.4.1", "changelog/deprecated"]
     }
   ],
   "footerSocials": {

@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_bm25 release. This publishes the current commit tagged with the provided version, to the correspoding GitHub Release"
+        description: "The version to set for the pg_bm25 release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
         default: ""
 
@@ -66,10 +66,6 @@ jobs:
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_bm25/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
-
-      - name: Update Version in Cargo.toml
-        working-directory: pg_bm25/
-        run: sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${{ steps.version.outputs.version }}\"/;}" Cargo.toml
 
       - name: Package pg_bm25 Extension with pgrx
         working-directory: pg_bm25/

@@ -43,7 +43,7 @@ impl<'a> From<&'a str> for ICUBreakingWord<'a> {
         ICUBreakingWord {
             text: text.chars(),
             default_breaking_iterator: UBreakIterator::try_new_rules(DEFAULT_RULES, text)
-                .expect("Can't read default rules."),
+                .expect("can't read default ICU rules."),
         }
     }
 }

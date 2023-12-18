@@ -2,8 +2,8 @@
 SELECT * FROM bm25_search.search('description:keyboard OR category:electronics');
  id |         description         | rating |  category   | in_stock |                     metadata                     
 ----+-----------------------------+--------+-------------+----------+--------------------------------------------------
-  1 | Ergonomic metal keyboard    |      4 | Electronics | t        | {"color": "Silver", "location": "United States"}
   2 | Plastic Keyboard            |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}
+  1 | Ergonomic metal keyboard    |      4 | Electronics | t        | {"color": "Silver", "location": "United States"}
  12 | Innovative wireless earbuds |      5 | Electronics | t        | {"color": "Black", "location": "China"}
  22 | Fast charging power bank    |      4 | Electronics | t        | {"color": "Black", "location": "United States"}
  32 | Bluetooth-enabled speaker   |      3 | Electronics | t        | {"color": "Black", "location": "Canada"}
@@ -37,11 +37,11 @@ UPDATE bm25_search SET description = 'PVC Keyboard' WHERE id = 2;
 SELECT * FROM bm25_search.search('description:keyboard OR category:electronics');
  id |         description         | rating |  category   | in_stock |                    metadata                     
 ----+-----------------------------+--------+-------------+----------+-------------------------------------------------
+ 42 | New keyboard                |      5 | Electronics |          | 
+  2 | PVC Keyboard                |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}
  12 | Innovative wireless earbuds |      5 | Electronics | t        | {"color": "Black", "location": "China"}
  22 | Fast charging power bank    |      4 | Electronics | t        | {"color": "Black", "location": "United States"}
  32 | Bluetooth-enabled speaker   |      3 | Electronics | t        | {"color": "Black", "location": "Canada"}
- 42 | New keyboard                |      5 | Electronics |          | 
-  2 | PVC Keyboard                |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}
 (5 rows)
 
 -- Test search with default tokenizer: no results
@@ -53,7 +53,7 @@ SELECT * FROM bm25_search.search('description:earbud');
 -- Test sequential scan syntax
 SELECT * FROM paradedb.bm25_test_table
 WHERE paradedb.search_tantivy(
-    paradedb.bm25_test_table.id,
+    paradedb.bm25_test_table.*,
     jsonb_build_object(
         'index_name', 'bm25_search_bm25_index',
         'table_name', 'bm25_test_table',

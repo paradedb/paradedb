@@ -38,9 +38,9 @@ CALL paradedb.create_bm25(
 SELECT * FROM tokenizer_config.search('description:boa');
  id |       description        | rating |  category   | in_stock |                     metadata                     
 ----+--------------------------+--------+-------------+----------+--------------------------------------------------
-  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"}
   2 | Plastic Keyboard         |      4 | Electronics | f        | {"color": "Black", "location": "Canada"}
  20 | Interactive board game   |      3 | Toys        | t        | {"color": "Multicolor", "location": "Canada"}
+  1 | Ergonomic metal keyboard |      4 | Electronics | t        | {"color": "Silver", "location": "United States"}
 (3 rows)
 
 CALL paradedb.drop_bm25('tokenizer_config');

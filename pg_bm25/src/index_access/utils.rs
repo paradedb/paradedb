@@ -41,6 +41,12 @@ pub struct SearchConfig {
     pub highlight_field: Option<String>,
 }
 
+impl SearchConfig {
+    pub fn from_jsonb(JsonB(config_json_value): JsonB) -> Result<Self, serde_json::Error> {
+        serde_json::from_value(config_json_value)
+    }
+}
+
 impl FromStr for SearchConfig {
     type Err = serde_path_to_error::Error<json5::Error>;
 

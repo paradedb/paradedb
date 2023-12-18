@@ -84,6 +84,12 @@ pub unsafe fn transform_pg_plan_to_df_plan(
         NodeTag::T_SeqScan => transform_seqscan_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_ModifyTable => transform_modify_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_ValuesScan => transform_valuesscan_to_df_plan(plan, rtable, outer_plan),
+        NodeTag::T_Result => todo!(),
+        NodeTag::T_Sort => todo!(),
+        NodeTag::T_Group => todo!(),
+        NodeTag::T_Agg => todo!(),
+        NodeTag::T_Limit => todo!(),
+        NodeTag::T_Invalid => todo!(),
         _ => panic!("node type {:?} not supported yet", node_tag)
     }
 }

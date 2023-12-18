@@ -85,7 +85,7 @@ pub unsafe fn transform_pg_plan_to_df_plan(
         NodeTag::T_SeqScan => transform_seqscan_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_ModifyTable => transform_modify_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_ValuesScan => transform_valuesscan_to_df_plan(plan, rtable, outer_plan),
-        NodeTag::T_Result => todo!(),
+        NodeTag::T_Result => transform_result_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_Sort => todo!(),
         NodeTag::T_Group => todo!(),
         NodeTag::T_Agg => todo!(),
@@ -174,6 +174,43 @@ pub unsafe fn transform_seqscan_to_df_plan(
         TableScan::try_new(tablename, table_source, None, vec![], None)
             .map_err(datafusion_err_to_string("failed to create table scan"))?,
     ));
+}
+
+pub unsafe fn transform_result_to_df_plan(
+    plan: *mut Plan,
+    rtable: *mut List,
+    outer_plan: Option<LogicalPlan>
+) -> Result<LogicalPlan, Error> {
+    /*
+     * Taken from postgres source:
+     *   Result node -
+     *      If no outer plan, evaluate a variable-free targetlist.
+     *      If outer plan, return tuples from outer plan (after a level of
+     *      projection as shown by targetlist).
+     * See nodeResult.c for more details about a child plan (outer plan).
+     *     If no outer plan, then equivalent to a Values plan.
+    */
+
+    let result = plan as *mut pgrx::pg_sys::Result;
+
+    let mut cols: Vec<Field> = vec![];
+    unsafe {
+        let target_list = (*plan).targetlist;
+        if !target_list.is_null() {
+            let elements = (*target_list).elements;
+            for i in 0..(*target_list).length {
+                let list_cell_node =
+                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+                match (*list_cell_node).type_ {
+                    NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node).unwrap()),
+                    _ => panic!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_),
+                }
+            }
+        }
+    }
+    info!("cols: {:?}", cols);
+
+    todo!();
 }
 
 pub unsafe fn transform_valuesscan_to_df_plan(

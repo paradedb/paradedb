@@ -127,12 +127,10 @@ impl From<ParadeTokenizer> for TextAnalyzer {
                     .filter(LowerCaser)
                     .build()
             }
-             ParadeTokenizer::ICUTokenizer => {
-                TextAnalyzer::builder(ICUTokenizer::default())
-                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
-                    .filter(LowerCaser)
-                    .build()
-            }
+            ParadeTokenizer::ICUTokenizer => TextAnalyzer::builder(ICUTokenizer)
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                .filter(LowerCaser)
+                .build(),
         }
     }
 }

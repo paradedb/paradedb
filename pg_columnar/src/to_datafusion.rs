@@ -68,6 +68,7 @@ pub unsafe fn transform_pg_plan_to_df_plan(
 ) -> Result<LogicalPlan, Error> {
     let node = plan as *mut Node;
     let node_tag = (*node).type_;
+    info!("parent: {:?}", node_tag);
 
     // lefttree is the outer plan - this is what is fed INTO the current plan level
     // TODO: righttree is the inner plan - this is only ever set for JOIN operations, so we'll ignore it for now
@@ -83,7 +84,6 @@ pub unsafe fn transform_pg_plan_to_df_plan(
         NodeTag::T_SeqScan => transform_seqscan_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_ModifyTable => transform_modify_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_ValuesScan => transform_valuesscan_to_df_plan(plan, rtable, outer_plan),
-        NodeTag::T_Result => transform_result_to_df_plan(plan, rtable, outer_plan),
         _ => panic!("node type {:?} not supported yet", node_tag)
     }
 }
@@ -91,8 +91,7 @@ pub unsafe fn transform_pg_plan_to_df_plan(
 // ---- Every specific node transformation function should have the same signature (*mut Plan, *mut List, Option<LogicalPlan>) -> Result<LogicalPlan, Error>
 
 pub unsafe fn transform_targetentry_to_df_field(
-    node: *mut Node,
-    pg_relation: Option<&PgRelation> // TODO: this shouldn't ever be None, so fix wherever we're passing in None
+    node: *mut Node
 ) -> Result<Field, Error> {
     let target_entry = node as *mut pgrx::pg_sys::TargetEntry;
     let col_name = (*target_entry).resname;
@@ -100,18 +99,19 @@ pub unsafe fn transform_targetentry_to_df_field(
         let col_name_str =
             CStr::from_ptr(col_name).to_string_lossy().into_owned();
         let col_type = exprType((*target_entry).expr as *mut pgrx::pg_sys::Node);
+        // TODO: it's possible that col_type could be things other than column types? perhaps T_Var or T_Const?
+
+        let pg_relation = PgRelation::from_pg_owned(RelationIdGetRelation((*target_entry).resorigtbl));
+        // TODO: how to get nullability of pg_relation is null?
 
         let mut nullable = true;
-        match pg_relation {
-            Some(pg_relation) => {
-                let col_num = (*target_entry).resorigcol;
-                let pg_att = get_attr(pg_relation.as_ptr(), col_num as isize);
-                if !pg_att.is_null() {
-                    nullable = !(*pg_att).attnotnull; // !!!!! nullability
-                }
-            },
-            None => nullable = true,
-        };
+        if !pg_relation.is_null() {
+            let col_num = (*target_entry).resorigcol;
+            let pg_att = get_attr(pg_relation.as_ptr(), col_num as isize);
+            if !pg_att.is_null() {
+                nullable = !(*pg_att).attnotnull; // !!!!! nullability
+            }
+        }
             
         if let Ok(built_in_oid) = BuiltinOid::try_from(col_type) {
             let datafusion_type = postgres_to_datafusion_type(built_in_oid).unwrap();
@@ -150,7 +150,7 @@ pub unsafe fn transform_seqscan_to_df_plan(
                 let list_cell_node =
                     (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
                 match (*list_cell_node).type_ {
-                    NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node, Some(&pg_relation)).unwrap()),
+                    NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node).unwrap()),
                     _ => panic!("target type {:?} not handled for seqscan yet", (*list_cell_node).type_),
                 }
             }
@@ -168,16 +168,6 @@ pub unsafe fn transform_seqscan_to_df_plan(
     ));
 }
 
-pub unsafe fn transform_result_to_df_plan(
-    plan: *mut Plan,
-    rtable: *mut List,
-    outer_plan: Option<LogicalPlan>
-) -> Result<LogicalPlan, Error> {
-    let result = plan as *mut pgrx::pg_sys::Result;
-
-    todo!();
-}
-
 pub unsafe fn transform_valuesscan_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
@@ -186,54 +176,50 @@ pub unsafe fn transform_valuesscan_to_df_plan(
     let valuesscan = plan as *mut ValuesScan;
 
     let mut cols: Vec<Field> = vec![];
-    unsafe {
-        let target_list = (*plan).targetlist;
-        if !target_list.is_null() {
-            let elements = (*target_list).elements;
-            for i in 0..(*target_list).length {
-                let list_cell_node =
-                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-                match (*list_cell_node).type_ {
-                    NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node, None).unwrap()),
-                    _ => panic!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_),
-                }
+    let target_list = (*plan).targetlist;
+    if !target_list.is_null() {
+        let elements = (*target_list).elements;
+        for i in 0..(*target_list).length {
+            let list_cell_node =
+                (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+            match (*list_cell_node).type_ {
+                NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node).unwrap()),
+                _ => panic!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_),
             }
         }
     }
 
     let mut values: Vec<Vec<Expr>> = vec![];
-    unsafe {
-        // TODO: macro out the list iteration
-        let values_lists = (*valuesscan).values_lists;
-        if !values_lists.is_null() {
-            let values_lists_elements = (*values_lists).elements;
-            for i in 0..(*values_lists).length {
-                let values_list =
-                    (*values_lists_elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::List;
+    // TODO: macro out the list iteration
+    let values_lists = (*valuesscan).values_lists;
+    if !values_lists.is_null() {
+        let values_lists_elements = (*values_lists).elements;
+        for i in 0..(*values_lists).length {
+            let values_list =
+                (*values_lists_elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::List;
 
-                let mut values_row: Vec<Expr> = vec![];
-                
-                let values_list_elements = (*values_list).elements;
-                for j in 0..(*values_list).length {
-                    let value_expr = (*values_list_elements.offset(j as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+            let mut values_row: Vec<Expr> = vec![];
+            
+            let values_list_elements = (*values_list).elements;
+            for j in 0..(*values_list).length {
+                let value_expr = (*values_list_elements.offset(j as isize)).ptr_value as *mut pgrx::pg_sys::Node;
 
-                    match (*value_expr).type_ {
-                        NodeTag::T_Const => {
-                            let const_expr = value_expr as *mut pgrx::pg_sys::Const;
+                match (*value_expr).type_ {
+                    NodeTag::T_Const => {
+                        let const_expr = value_expr as *mut pgrx::pg_sys::Const;
 
-                            let value_type = (*const_expr).consttype; // Oid
-                            let value_datum = (*const_expr).constvalue; // Datum
-                            let value_isnull = (*const_expr).constisnull; // bool
+                        let value_type = (*const_expr).consttype; // Oid
+                        let value_datum = (*const_expr).constvalue; // Datum
+                        let value_isnull = (*const_expr).constisnull; // bool
 
-                            // TODO: actually get the type here - for now just defaulting to Int32
-                            values_row.push(Expr::Literal(ScalarValue::Int32(Some(value_datum.value() as i32))));
-                        }
-                        // TODO: deal with all other types
-                        _ => panic!("value_expr type {:?} not handled", (*value_expr).type_),
+                        // TODO: actually get the type here - for now just defaulting to Int32
+                        values_row.push(Expr::Literal(ScalarValue::Int32(Some(value_datum.value() as i32))));
                     }
+                    // TODO: deal with all other types
+                    _ => panic!("value_expr type {:?} not handled", (*value_expr).type_),
                 }
-                values.push(values_row);
             }
+            values.push(values_row);
         }
     }
 
@@ -247,7 +233,7 @@ pub unsafe fn transform_valuesscan_to_df_plan(
     }))
 }
 
-pub fn transform_modify_to_df_plan(
+pub unsafe fn transform_modify_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>
@@ -260,9 +246,9 @@ pub fn transform_modify_to_df_plan(
     // Plan variables
     let modify = plan as *mut ModifyTable;
 
-    let rte = unsafe { rt_fetch((*modify).nominalRelation, rtable) };
-    let relation = unsafe { RelationIdGetRelation((*rte).relid) };
-    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
+    let rte = rt_fetch((*modify).nominalRelation, rtable);
+    let relation = RelationIdGetRelation((*rte).relid);
+    let pg_relation = PgRelation::from_pg_owned(relation);
 
     // let (input, vs_schema) = unsafe { transform_valuesscan_to_datafusion((*plan).lefttree, rtable).expect("valuesscan transformation failed") };
     let tablename = format!("{}", pg_relation.oid());
@@ -273,45 +259,43 @@ pub fn transform_modify_to_df_plan(
 
     // Iterate through the targetlist, which kinda looks like the columns the `SELECT` pulls
     // The nodes are T_TargetEntry
-    unsafe {
-        let list = (*plan).targetlist;
-        if !list.is_null() {
-            let elements = (*list).elements;
-            for i in 0..(*list).length {
-                let list_cell_node =
-                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-                match (*list_cell_node).type_ {
-                    NodeTag::T_TargetEntry => {
-                        let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
-                        let col_name = (*target_entry).resname;
-                        if !col_name.is_null() {
-                            let col_name_str =
-                                CStr::from_ptr(col_name).to_string_lossy().into_owned();
-                            let col_num = (*target_entry).resorigcol;
-                            let pg_att = get_attr(relation, col_num as isize);
-                            if !pg_att.is_null() {
-                                let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
-                                if let Ok(built_in_oid) = BuiltinOid::try_from((*pg_att).atttypid) {
-                                    let datafusion_type = postgres_to_datafusion_type(built_in_oid).unwrap();
-                                    cols.push(Field::new(col_name_str, datafusion_type, !att_not_null));
-                                } else {
-                                    panic!("Invalid BuiltinOid");
-                                }
+    let list = (*plan).targetlist;
+    if !list.is_null() {
+        let elements = (*list).elements;
+        for i in 0..(*list).length {
+            let list_cell_node =
+                (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+            match (*list_cell_node).type_ {
+                NodeTag::T_TargetEntry => {
+                    let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
+                    let col_name = (*target_entry).resname;
+                    if !col_name.is_null() {
+                        let col_name_str =
+                            CStr::from_ptr(col_name).to_string_lossy().into_owned();
+                        let col_num = (*target_entry).resorigcol;
+                        let pg_att = get_attr(relation, col_num as isize);
+                        if !pg_att.is_null() {
+                            let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
+                            if let Ok(built_in_oid) = BuiltinOid::try_from((*pg_att).atttypid) {
+                                let datafusion_type = postgres_to_datafusion_type(built_in_oid).unwrap();
+                                cols.push(Field::new(col_name_str, datafusion_type, !att_not_null));
+                            } else {
+                                panic!("Invalid BuiltinOid");
                             }
                         }
-                    },
-                    _ => panic!("targetlist type {:?} not handled yet for modifytable", (*list_cell_node).type_),
-                }
+                    }
+                },
+                _ => panic!("targetlist type {:?} not handled yet for modifytable", (*list_cell_node).type_),
             }
+        }
 
-            let arrow_schema = Schema::new(cols);
-            table_schema = Some(DFSchema::try_from(arrow_schema).unwrap().into());
-        } else {
-            // If the schema isn't part of the ModifyTable plan, we have to pull it from outer_plan
-            match outer_plan.as_ref().unwrap() {
-                datafusion::logical_expr::LogicalPlan::Values(values) => table_schema = Some(values.schema.clone()),
-                _ => info!("Outer plan type not implemented for ModifyTable"),
-            }
+        let arrow_schema = Schema::new(cols);
+        table_schema = Some(DFSchema::try_from(arrow_schema).unwrap().into());
+    } else {
+        // If the schema isn't part of the ModifyTable plan, we have to pull it from outer_plan
+        match outer_plan.as_ref().unwrap() {
+            datafusion::logical_expr::LogicalPlan::Values(values) => table_schema = Some(values.schema.clone()),
+            _ => info!("Outer plan type not implemented for ModifyTable"),
         }
     }
 
@@ -322,13 +306,13 @@ pub fn transform_modify_to_df_plan(
     return Ok(LogicalPlan::Dml(DmlStatement {
         table_name: table_reference,
         table_schema: table_schema.unwrap().into(),
-        op: unsafe { match (*modify).operation {
+        op: match (*modify).operation {
             // TODO: WriteOp::InsertOverwrite also exists - handle that properly
             CmdType_CMD_INSERT => datafusion::logical_expr::WriteOp::InsertInto,
             CmdType_CMD_UPDATE => datafusion::logical_expr::WriteOp::Update,
             CmdType_CMD_DELETE => datafusion::logical_expr::WriteOp::Delete,
             _ => panic!("unsupported modify operation"),
-        } },
+        },
         input: outer_plan.unwrap().into()
     }));
 }

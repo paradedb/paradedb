@@ -252,17 +252,16 @@ pub unsafe fn transform_limit_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>,
-) -> Result<LogicalPlan, Error> {
+) -> Result<LogicalPlan, String> {
     let outer_plan = outer_plan
-        .ok_or_else(|| panic!("Limit does not have an outer plan"))
-        .unwrap();
+        .ok_or("Limit does not have an outer plan")?;
 
     let limit_node = plan as *mut pg_sys::Limit;
     let skip_node = (*limit_node).limitOffset;
     let fetch_node = (*limit_node).limitCount;
-    
-    let fetch = const_node_value(fetch_node).unwrap_or(0);
-    let skip = const_node_value(skip_node).unwrap_or(0);
+
+    let fetch = const_node_value(fetch_node)?.unwrap_or(0);
+    let skip = const_node_value(skip_node)?.unwrap_or(0);
 
     info!("OFFSET: {}, LIMIT: {}", skip, fetch);
 
@@ -274,21 +273,21 @@ pub unsafe fn transform_limit_to_df_plan(
 }
 
 #[inline]
-unsafe fn const_node_value(node: *mut pg_sys::Node) -> Option<usize> {
+unsafe fn const_node_value(node: *mut pg_sys::Node) -> Result<Option<usize>, String> {
     if node.is_null() {
-        return None
+        return Ok(None)
     }
 
     if (*node).type_ != NodeTag::T_Const {
-        panic!("Expected a Const Node, got {:?}", (*node).type_);
+        return Err(format!("Expected a Const Node, got {:?}", (*node).type_));
     }
 
     let const_node =&*(node as *const pg_sys::Const);
-    
+
     if const_node.constisnull {
-        None
+        Ok(None)
     } else {
-        Some(const_node.constvalue.value() as usize)
+        Ok(Some(const_node.constvalue.value() as usize))
     }
 }
 

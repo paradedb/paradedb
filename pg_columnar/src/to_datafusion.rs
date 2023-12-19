@@ -248,6 +248,22 @@ pub unsafe fn transform_valuesscan_to_df_plan(
     }))
 }
 
+pub unsafe fn transform_limit_to_df_plan(
+    plan: *mut Plan,
+    rtable: *mut List,
+    outer_plan: Option<LogicalPlan>
+) -> Result<LogicalPlan, Error> {
+    let limit_node = plan as *mut Limit;
+    let offset = (*limit_node).limitOffset;
+    let limit = (*limit_node).limitCount;
+
+    Ok(LogicalPlan::Limit {
+        n: limit,
+        offset: offset,
+        input: outer_plan.unwrap().into()
+    })
+}
+
 pub unsafe fn transform_modify_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,

@@ -95,8 +95,6 @@ pub unsafe fn transform_pg_plan_to_df_plan(
     }
 }
 
-// ---- Every specific node transformation function should have the same signature (*mut Plan, *mut List, Option<LogicalPlan>) -> Result<LogicalPlan, Error>
-
 pub unsafe fn transform_targetentry_to_df_field(node: *mut Node) -> Result<Field, String> {
     let target_entry = node as *mut pgrx::pg_sys::TargetEntry;
     let col_name = (*target_entry).resname;
@@ -128,6 +126,8 @@ pub unsafe fn transform_targetentry_to_df_field(node: *mut Node) -> Result<Field
         return Err(format!("Column name is null"));
     }
 }
+
+// ---- Every specific node transformation function should have the same signature (*mut Plan, *mut List, Option<LogicalPlan>) -> Result<LogicalPlan, String>
 
 pub unsafe fn transform_seqscan_to_df_plan(
     plan: *mut Plan,

@@ -20,7 +20,7 @@ use crate::col_datafusion::CONTEXT;
 use datafusion::common::arrow::datatypes::{DataType, Field};
 use datafusion::common::{DFSchema, ScalarValue, DataFusionError};
 use datafusion::datasource::{provider_as_source, DefaultTableSource};
-use datafusion::logical_expr::{DmlStatement, LogicalPlan, TableScan};
+use datafusion::logical_expr::{DmlStatement, Limit, LogicalPlan, TableScan};
 use datafusion::logical_expr::{Expr, TableSource, Values};
 use datafusion::sql::TableReference;
 
@@ -89,7 +89,7 @@ pub unsafe fn transform_pg_plan_to_df_plan(
         NodeTag::T_Sort => todo!(),
         NodeTag::T_Group => todo!(),
         NodeTag::T_Agg => todo!(),
-        NodeTag::T_Limit => todo!(),
+        NodeTag::T_Limit => transform_limit_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_Invalid => todo!(),
         _ => Err(format!("node type {:?} not supported yet", node_tag)),
     }
@@ -251,17 +251,46 @@ pub unsafe fn transform_valuesscan_to_df_plan(
 pub unsafe fn transform_limit_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
-    outer_plan: Option<LogicalPlan>
+    outer_plan: Option<LogicalPlan>,
 ) -> Result<LogicalPlan, Error> {
-    let limit_node = plan as *mut Limit;
-    let offset = (*limit_node).limitOffset;
-    let limit = (*limit_node).limitCount;
+    if outer_plan.is_none() {
+        panic!("Limit does not have outer plan");
+    }
 
-    Ok(LogicalPlan::Limit {
-        n: limit,
-        offset: offset,
-        input: outer_plan.unwrap().into()
-    })
+    let limit_node = plan as *mut pg_sys::Limit;
+
+    let skip_node = (*limit_node).limitOffset as *const pg_sys::Const;
+    let fetch_node = (*limit_node).limitCount as *const pg_sys::Const;
+
+    let fetch = if fetch_node.is_null() {
+        None
+    } else {
+        let fetch_datum = (*fetch_node).constvalue;
+        let fetch_isnull = (*fetch_node).constisnull;
+        if fetch_isnull {
+            None
+        } else {
+            Some(fetch_datum.value() as usize)
+        }
+    };
+
+    let skip = if skip_node.is_null() {
+        0
+    } else {
+        let skip_datum = (*skip_node).constvalue;
+        let skip_isnull = (*skip_node).constisnull;
+        if skip_isnull {
+            0
+        } else {
+            skip_datum.value() as usize
+        }
+    };
+
+    Ok(LogicalPlan::Limit(Limit {
+        skip,
+        fetch,
+        input: outer_plan.unwrap().into(),
+    }))
 }
 
 pub unsafe fn transform_modify_to_df_plan(

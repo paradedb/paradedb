@@ -1,16 +1,17 @@
 #![allow(unused)]
 #![allow(non_snake_case)]
 
-use pgrx::prelude::*;
-use pg_sys::{
-    self, planner_hook, standard_ExecutorRun, standard_planner, ExecutorRun_hook, Node, NodeTag,
-    ParamListInfoData, PlannedStmt, Query, QueryDesc, SeqScan, get_am_oid, ReleaseSysCache, FormData_pg_am, 
-    heap_tuple_get_struct, Datum, SysCacheIdentifier_AMOID, SearchSysCache1, CmdType_CMD_SELECT,
-    RelationIdGetRelation, table_slot_create, ExecStoreVirtualTuple, ExecDropSingleTupleTableSlot
-};
-use pgrx::pg_sys::rt_fetch;
 use lazy_static::lazy_static;
+use pg_sys::{
+    self, get_am_oid, heap_tuple_get_struct, planner_hook, standard_ExecutorRun, standard_planner,
+    table_slot_create, CmdType_CMD_SELECT, Datum, ExecDropSingleTupleTableSlot,
+    ExecStoreVirtualTuple, ExecutorRun_hook, FormData_pg_am, Node, NodeTag, ParamListInfoData,
+    PlannedStmt, Query, QueryDesc, RelationIdGetRelation, ReleaseSysCache, SearchSysCache1,
+    SeqScan, SysCacheIdentifier_AMOID,
+};
 use pgrx::once_cell::sync::Lazy;
+use pgrx::pg_sys::rt_fetch;
+use pgrx::prelude::*;
 use pgrx::{PgRelation, PgTupleDesc};
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
@@ -18,11 +19,14 @@ use shared::telemetry;
 mod to_datafusion;
 use crate::to_datafusion::transform_pg_plan_to_df_plan;
 
-use datafusion_substrait::substrait::proto::{RelRoot, Rel, PlanRel};
-use datafusion::common::arrow::array::types::{Int8Type, Int16Type, Int32Type, Int64Type, UInt32Type, Float32Type, GenericStringType, Time32SecondType, TimestampSecondType, Date32Type, UInt64Type};
-use datafusion::arrow::datatypes::{DataType, TimeUnit};
-use datafusion::common::arrow::array::RecordBatch;
 use datafusion::arrow::array::AsArray;
+use datafusion::arrow::datatypes::{DataType, TimeUnit};
+use datafusion::common::arrow::array::types::{
+    Date32Type, Float32Type, GenericStringType, Int16Type, Int32Type, Int64Type, Int8Type,
+    Time32SecondType, TimestampSecondType, UInt32Type, UInt64Type,
+};
+use datafusion::common::arrow::array::RecordBatch;
+use datafusion_substrait::substrait::proto::{PlanRel, Rel, RelRoot};
 
 use std::ffi::CString;
 use std::ptr;
@@ -70,7 +74,10 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
     if memam_oid == pg_sys::InvalidOid {
         return false;
     }
-    let amTup = SearchSysCache1(SysCacheIdentifier_AMOID.try_into().unwrap(), Datum::from(memam_oid));
+    let amTup = SearchSysCache1(
+        SysCacheIdentifier_AMOID.try_into().unwrap(),
+        Datum::from(memam_oid),
+    );
     let amForm = heap_tuple_get_struct::<FormData_pg_am>(amTup);
     let memhandler_oid = (*amForm).amhandler;
     ReleaseSysCache(amTup);
@@ -95,9 +102,9 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
         // TODO: if we support more operations, this will be more complex.
         //       for example, if to support joins, some of the nodes will use
         //       table AM for the nodes while others won't. In this case,
-        //       we'll have to process in postgres plan for part of it and 
+        //       we'll have to process in postgres plan for part of it and
         //       datafusion for the other part. For now, we'll simply
-        //       fail if we encounter an unsupported node, so this won't happen. 
+        //       fail if we encounter an unsupported node, so this won't happen.
         if am_handler == memhandler_oid {
             using_col = true;
         } else {
@@ -123,18 +130,19 @@ unsafe fn get_relation(ps: *mut PlannedStmt) -> PgRelation {
     return pg_relation;
 }
 
-unsafe fn send_tuples_if_necessary(
-    query_desc: *mut QueryDesc,
-    recordbatchvec: Vec<RecordBatch>
-) {
-    let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT ||
-        (*(*query_desc).plannedstmt).hasReturning);
+unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: Vec<RecordBatch>) {
+    let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT
+        || (*(*query_desc).plannedstmt).hasReturning);
 
     if (sendTuples) {
         let dest = (*query_desc).dest;
         let rStartup = (*dest).rStartup;
         match rStartup {
-            Some(f) => f(dest, (*query_desc).operation.try_into().unwrap(), (*query_desc).tupDesc),
+            Some(f) => f(
+                dest,
+                (*query_desc).operation.try_into().unwrap(),
+                (*query_desc).tupDesc,
+            ),
             None => panic!("no rstartup"),
         };
         let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
@@ -143,34 +151,96 @@ unsafe fn send_tuples_if_necessary(
 
         let receiveSlot = (*dest).receiveSlot;
         match receiveSlot {
-            Some(f) => for recordbatch in recordbatchvec.iter() {
-                for row_index in 0..recordbatch.num_rows() {
-                    let tuple_table_slot = table_slot_create(relation.as_ptr(), ptr::null_mut());
-                    ExecStoreVirtualTuple(tuple_table_slot);
-                    let mut col_index = 0;
-                    for attr in tuple_desc.iter() {
-                        let column = recordbatch.column(col_index);
-                        let dt = column.data_type();
-                        let tts_value = (*tuple_table_slot).tts_values.offset(col_index.try_into().unwrap());
-                        match dt {
-                            DataType::Boolean => *tts_value = column.as_primitive::<Int8Type>().value(row_index).into_datum().unwrap(),
-                            DataType::Int16 => *tts_value = column.as_primitive::<Int16Type>().value(row_index).into_datum().unwrap(),
-                            DataType::Int32 => *tts_value = column.as_primitive::<Int32Type>().value(row_index).into_datum().unwrap(),
-                            DataType::Int64 => *tts_value = column.as_primitive::<Int64Type>().value(row_index).into_datum().unwrap(),
-                            DataType::UInt32 => *tts_value = column.as_primitive::<UInt32Type>().value(row_index).into_datum().unwrap(),
-                            DataType::Float32 => *tts_value = column.as_primitive::<Float32Type>().value(row_index).into_datum().unwrap(),
-                            // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
-                            DataType::Time32(TimeUnit::Second) => *tts_value = column.as_primitive::<Time32SecondType>().value(row_index).into_datum().unwrap(),
-                            DataType::Timestamp(TimeUnit::Second, None) => *tts_value = column.as_primitive::<TimestampSecondType>().value(row_index).into_datum().unwrap(),
-                            DataType::Date32 => *tts_value = column.as_primitive::<Date32Type>().value(row_index).into_datum().unwrap(),
-                            _ => panic!("Unsupported PostgreSQL type: {:?}", dt),
-                        };
-                        col_index += 1;
+            Some(f) => {
+                for recordbatch in recordbatchvec.iter() {
+                    for row_index in 0..recordbatch.num_rows() {
+                        let tuple_table_slot =
+                            table_slot_create(relation.as_ptr(), ptr::null_mut());
+                        ExecStoreVirtualTuple(tuple_table_slot);
+                        let mut col_index = 0;
+                        for attr in tuple_desc.iter() {
+                            let column = recordbatch.column(col_index);
+                            let dt = column.data_type();
+                            let tts_value = (*tuple_table_slot)
+                                .tts_values
+                                .offset(col_index.try_into().unwrap());
+                            match dt {
+                                DataType::Boolean => {
+                                    *tts_value = column
+                                        .as_primitive::<Int8Type>()
+                                        .value(row_index)
+                                        .into_datum()
+                                        .unwrap()
+                                }
+                                DataType::Int16 => {
+                                    *tts_value = column
+                                        .as_primitive::<Int16Type>()
+                                        .value(row_index)
+                                        .into_datum()
+                                        .unwrap()
+                                }
+                                DataType::Int32 => {
+                                    *tts_value = column
+                                        .as_primitive::<Int32Type>()
+                                        .value(row_index)
+                                        .into_datum()
+                                        .unwrap()
+                                }
+                                DataType::Int64 => {
+                                    *tts_value = column
+                                        .as_primitive::<Int64Type>()
+                                        .value(row_index)
+                                        .into_datum()
+                                        .unwrap()
+                                }
+                                DataType::UInt32 => {
+                                    *tts_value = column
+                                        .as_primitive::<UInt32Type>()
+                                        .value(row_index)
+                                        .into_datum()
+                                        .unwrap()
+                                }
+                                DataType::Float32 => {
+                                    *tts_value = column
+                                        .as_primitive::<Float32Type>()
+                                        .value(row_index)
+                                        .into_datum()
+                                        .unwrap()
+                                }
+                                // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
+                                DataType::Time32(TimeUnit::Second) => {
+                                    *tts_value = column
+                                        .as_primitive::<Time32SecondType>()
+                                        .value(row_index)
+                                        .into_datum()
+                                        .unwrap()
+                                }
+                                DataType::Timestamp(TimeUnit::Second, None) => {
+                                    *tts_value = column
+                                        .as_primitive::<TimestampSecondType>()
+                                        .value(row_index)
+                                        .into_datum()
+                                        .unwrap()
+                                }
+                                DataType::Date32 => {
+                                    *tts_value = column
+                                        .as_primitive::<Date32Type>()
+                                        .value(row_index)
+                                        .into_datum()
+                                        .unwrap()
+                                }
+                                _ => panic!(
+                                    "send_tuples_if_necessary: Unsupported PostgreSQL type: {:?}",
+                                    dt
+                                ),
+                            };
+                            col_index += 1;
+                        }
+                        f(tuple_table_slot, dest);
+                        ExecDropSingleTupleTableSlot(tuple_table_slot);
                     }
-                    f(tuple_table_slot, dest);
-                    ExecDropSingleTupleTableSlot(tuple_table_slot);
                 }
-            },
+            }
             None => panic!("no receiveslot"),
         }
 
@@ -204,16 +274,22 @@ async unsafe extern "C" fn columnar_executor_run_internal(
     let rtable = (*ps).rtable;
 
     let logical_plan = transform_pg_plan_to_df_plan(plan.into(), rtable.into()).unwrap();
-    let dataframe = col_datafusion::CONTEXT.execute_logical_plan(logical_plan).await.unwrap();
+    let dataframe = col_datafusion::CONTEXT
+        .execute_logical_plan(logical_plan)
+        .await
+        .unwrap();
     let recordbatchvec: Vec<RecordBatch> = dataframe.collect().await.unwrap();
 
     // This is for any node types that need to do additional processing on estate
     match node_tag {
         NodeTag::T_ModifyTable => {
-            let num_updated = recordbatchvec[0].column(0).as_primitive::<UInt64Type>().value(0);
+            let num_updated = recordbatchvec[0]
+                .column(0)
+                .as_primitive::<UInt64Type>()
+                .value(0);
             (*(*query_desc).estate).es_processed = num_updated;
         }
-        _ => ()
+        _ => (),
     }
 
     send_tuples_if_necessary(query_desc, recordbatchvec);
@@ -226,7 +302,12 @@ unsafe extern "C" fn columnar_executor_run(
     execute_once: bool,
 ) {
     // Setting pg_guard on this causes failure
-    task::block_on(columnar_executor_run_internal(query_desc, direction, count, execute_once));
+    task::block_on(columnar_executor_run_internal(
+        query_desc,
+        direction,
+        count,
+        execute_once,
+    ));
 }
 
 // initializes telemetry

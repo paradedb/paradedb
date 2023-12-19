@@ -1,12 +1,17 @@
 use async_std::task;
 use core::ffi::c_char;
-use datafusion::common::arrow::array::types::{BooleanType, Int16Type, Int32Type, Int64Type, UInt32Type, Float32Type, GenericStringType, Time32SecondType, TimestampSecondType, Date32Type};
-use datafusion::arrow::datatypes::{ArrowPrimitiveType, DataType, Field, Schema, SchemaRef, TimeUnit};
+use datafusion::arrow::datatypes::{
+    ArrowPrimitiveType, DataType, Field, Schema, SchemaRef, TimeUnit,
+};
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::arrow::array::types::{
+    BooleanType, Date32Type, Float32Type, GenericStringType, Int16Type, Int32Type, Int64Type,
+    Time32SecondType, TimestampSecondType, UInt32Type,
+};
+use datafusion::common::cast::as_primitive_array;
 use datafusion::datasource::{MemTable, TableProvider};
 use datafusion::prelude::SessionContext;
 use datafusion::sql::TableReference;
-use datafusion::common::cast::as_primitive_array;
 use lazy_static::lazy_static;
 use pgrx::pg_sys::*;
 use pgrx::*;
@@ -101,11 +106,14 @@ impl DFTable {
                         PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
                             panic!("JSON data type not supported")
                         }
-                        _ => panic!("Unsupported PostgreSQL type: {:?}", builtin),
+                        _ => panic!("schema_from_pg: Unsupported PostgreSQL type: {:?}", builtin),
                     },
                     PgOid::Custom(_custom) => panic!("Custom data types are not supported"),
                     PgOid::Invalid => panic!("{} has a type oid of InvalidOid", attname),
-                    _ => panic!("Unsupported PostgreSQL type oid: {}", base_oid.value()),
+                    _ => panic!(
+                        "schema_from_pg: Unsupported PostgreSQL type oid: {}",
+                        base_oid.value()
+                    ),
                 }
             };
 

@@ -3,20 +3,20 @@
  * into a Substrait query plan.
  * */
 
+use datafusion_substrait::substrait::proto;
+use datafusion_substrait::substrait::proto::expression::literal::LiteralType;
+use datafusion_substrait::substrait::proto::r#type;
 use pg_sys::{
     namestrcpy, pgrx_list_nth, BuiltinOid, Const, Datum, FormData_pg_attribute,
     FormData_pg_operator, List, NameData, Node, OpExpr, PlannedStmt, RangeTblEntry, RelationData,
     RelationIdGetRelation, SearchSysCache1, SeqScan, SysCacheIdentifier_OPEROID, Var, GETSTRUCT,
 };
+use pgrx::pg_sys::ModifyTable;
 use pgrx::pg_sys::{get_attname, rt_fetch, NodeTag, Oid};
 use pgrx::prelude::*;
 use pgrx::spi::Error;
 use pgrx::PgRelation;
-use pgrx::pg_sys::ModifyTable;
 use std::ffi::CStr;
-use datafusion_substrait::substrait::proto;
-use datafusion_substrait::substrait::proto::expression::literal::LiteralType;
-use datafusion_substrait::substrait::proto::r#type;
 
 // TODO: return type: option or just a pointer?
 unsafe fn get_attr(table: *mut RelationData, index: isize) -> *const FormData_pg_attribute {
@@ -181,7 +181,7 @@ unsafe fn transform_opexpr(op_expr: *mut OpExpr, rtable: *mut List) {
 pub fn transform_seqscan_to_substrait(
     ps: *mut PlannedStmt,
     sget: *mut proto::ReadRel,
-// ) -> Result<proto::ReadRel, Error> {
+    // ) -> Result<proto::ReadRel, Error> {
 ) -> Result<(), Error> {
     // Plan variables
     let plan = unsafe { (*ps).planTree };
@@ -383,7 +383,7 @@ pub fn transform_seqscan_to_substrait(
 pub fn transform_modify_to_substrait(
     ps: *mut PlannedStmt,
     sput: *mut proto::WriteRel,
-// ) -> Result<proto::WriteRel, Error> {
+    // ) -> Result<proto::WriteRel, Error> {
 ) -> Result<(), Error> {
     // Plan variables
     let plan = unsafe { (*ps).planTree };

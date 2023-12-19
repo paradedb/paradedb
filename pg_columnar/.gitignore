@@ -4,3 +4,5 @@
 *.iml
 **/*.rs.bk
 Cargo.lock
+hits_v1.tsv
+hits.tsv.gz

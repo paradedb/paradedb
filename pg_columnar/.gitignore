@@ -7,3 +7,4 @@ Cargo.lock
 hits_v1.tsv
 hits.tsv.gz
 log.txt
+benchmarks/clickbench/hits_v1.tsv

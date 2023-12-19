@@ -20,3 +20,9 @@ export FQDN=ec2-127-0-0-1.compute-1.amazonaws.com
 scp -i ~/.ssh/aws.pem *.sh *.sql ubuntu@$FQDN:~
 ssh -i ~/.ssh/aws.pem ubuntu@$FQDN ./benchmark.sh
 ```
+
+
+List of things we can do to tune, based on postgresql-tuned and datafusion:
+
+- Check the datafusion one, and do the same ones onc we have them
+- Check the postgresql-tuned, and do the same one

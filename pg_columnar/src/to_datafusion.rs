@@ -259,8 +259,8 @@ pub unsafe fn transform_limit_to_df_plan(
 
     let limit_node = plan as *mut pg_sys::Limit;
 
-    let skip_node = (*limit_node).limitOffset as *const pg_sys::Const;
-    let fetch_node = (*limit_node).limitCount as *const pg_sys::Const;
+    let skip_node = (*limit_node).limitOffset;
+    let fetch_node = (*limit_node).limitCount;
 
     let fetch = const_node_value(fetch_node).unwrap_or(0);
     let skip = const_node_value(skip_node).unwrap_or(0);
@@ -275,16 +275,21 @@ pub unsafe fn transform_limit_to_df_plan(
 }
 
 #[inline]
-fn const_node_value(node: *const pg_sys::Const) -> Option<usize> {
+unsafe fn const_node_value(node: *mut pg_sys::Node) -> Option<usize> {
     if node.is_null() {
+        return None
+    }
+
+    if (*node).type_ != NodeTag::T_Const {
+        panic!("Expected a Const Node, got {:?}", (*node).type_);
+    }
+
+    let const_node =&*(node as *const pg_sys::Const);
+    
+    if const_node.constisnull {
         None
     } else {
-        let const_node = unsafe { &*node };
-        if const_node.constisnull {
-            None
-        } else {
-            Some(const_node.constvalue.value() as usize)
-        }
+        Some(const_node.constvalue.value() as usize)
     }
 }
 

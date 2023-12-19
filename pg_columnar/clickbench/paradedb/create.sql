@@ -1,4 +1,3 @@
-DROP EXTENSION IF EXISTS pg_columnar CASCADE;
 CREATE EXTENSION pg_columnar;
 CREATE TEMP TABLE hits
 (
@@ -65,7 +64,9 @@ CREATE TEMP TABLE hits
     IsParameter SMALLINT NOT NULL,
     DontCountHits SMALLINT NOT NULL,
     WithHash SMALLINT NOT NULL,
-    HitColor CHAR NOT NULL,
+    -- TODO: Implement support for BPCHAR so we can replace VARCHAR(1) with CHAR as expected by ClickBench
+    -- HitColor CHAR NOT NULL,
+    HitColor VARCHAR(1) NOT NULL,
     LocalEventTime TIMESTAMP NOT NULL,
     Age SMALLINT NOT NULL,
     Sex SMALLINT NOT NULL,

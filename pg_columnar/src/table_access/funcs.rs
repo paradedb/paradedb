@@ -160,7 +160,13 @@ async unsafe fn memam_scan_getnextslot_impl(
                         1,
                     );
                 }
-                _ => (),
+                DataType::Utf8 => {
+                    info!("BPCHAROID not yet implemented in TableAM: {:?}", col.data_type());
+                    // let prim: &PrimitiveArray<StringType> = col.as_primitive();
+                    // let value_datum: Datum = prim.value(0).into_datum().unwrap();
+                    // info!("found value {:?} in col {}", value_datum, col_index);
+                }
+                _ => panic!("OID {:?} isn't implemented in our TableAM yet", col.data_type()),
             }
             col_index += 1;
         }

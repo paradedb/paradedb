@@ -62,10 +62,12 @@ unsafe fn describe_nodes(tree: *mut pg_sys::Plan, ps: *mut pg_sys::PlannedStmt) 
 
 #[pg_guard]
 unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
+    info!("plannedstmt_using_columnar -- 1");
     let rtable = (*ps).rtable;
     if rtable.is_null() {
         return false;
     }
+    info!("plannedstmt_using_columnar -- 2");
 
     // Get mem table AM handler OID
     let handlername_cstr = CString::new("mem").unwrap();
@@ -74,6 +76,8 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
     if memam_oid == pg_sys::InvalidOid {
         return false;
     }
+    info!("plannedstmt_using_columnar -- 3");
+
     let amTup = SearchSysCache1(
         SysCacheIdentifier_AMOID.try_into().unwrap(),
         Datum::from(memam_oid),
@@ -107,14 +111,18 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
         //       fail if we encounter an unsupported node, so this won't happen.
         if am_handler == memhandler_oid {
             using_col = true;
+            info!("plannedstmt_using_columnar -- 3");
         } else {
             using_noncol = true;
+            info!("plannedstmt_using_columnar -- 4");
         }
     }
 
     if using_col && using_noncol {
         panic!("Mixing table types in a single query is not supported yet");
     }
+
+    info!("plannedstmt_using_columnar -- 5");
 
     return using_col;
 }
@@ -260,10 +268,11 @@ async unsafe extern "C" fn columnar_executor_run_internal(
 ) {
     // Imitate ExplainNode for recursive plan scanning behavior
     let ps = (*query_desc).plannedstmt;
-
+    info!("entering columnar_executor_run_internal");
     if !plannedstmt_using_columnar(ps) {
         info!("standard_ExecutorRun");
         standard_ExecutorRun(query_desc, direction, count, execute_once);
+        info!("standard_ExecutorRun done");
         return;
     }
 
@@ -302,6 +311,7 @@ unsafe extern "C" fn columnar_executor_run(
     execute_once: bool,
 ) {
     // Setting pg_guard on this causes failure
+    info!("entering columnar_executor_run");
     task::block_on(columnar_executor_run_internal(
         query_desc,
         direction,

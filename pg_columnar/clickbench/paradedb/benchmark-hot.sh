@@ -39,7 +39,6 @@ fi
 # cd "$BASEDIR/../"
 # BASEDIR=$(pwd)
 
-
 # Build pg_columnar and start its Postgres instance
 cargo build
 cargo pgrx start
@@ -49,44 +48,19 @@ cargo pgrx start
 # sudo -h localhost -p 28815 psql pg_columnar -t -c '\timing' -c "\\COPY hits FROM 'hits_v1.tsv' WITH freeze"
 # sudo -h localhost -p 28815 psql pg_columnar -t -c 'VACUUM ANALYZE hits'
 
-echo "0 - creating pg_columnar"
-psql -h localhost -p 28815 -d pg_columnar -t -c "CREATE EXTENSION pg_columnar;"
+TRIES=3
 
-# TODO: Since we only support TEMP tables currently, I have merged all of these steps inside the create.sql command, so it
-# is in the same session. Once we implement persistence, we can separate them again.
-# echo "1 - creating table"
-# psql -h localhost -p 28815 -d pg_columnar -t < clickbench/paradedb/create.sql
-# echo "2 - COPYing hits"
-# psql -h localhost -p 28815 -d pg_columnar -t -c '\timing' -c "COPY hits FROM 'hits_v1.tsv' WITH freeze"
-# echo "3 - vacuuming"
-# psql -h localhost -p 28815 -d pg_columnar -t -c 'VACUUM ANALYZE hits'
-# echo "4 - done"
 
-# Connect to the PostgreSQL database and execute multiple commands
+# Connect to the PostgreSQL database and execute all commands in the same session
 psql -h localhost -p 28815 -d pg_columnar -t <<EOF
 \echo "1 - creating table"
 \i clickbench/paradedb/create.sql
 \echo "2 - COPYing hits"
 \timing
 COPY hits FROM 'hits_v1.tsv' WITH freeze
-\echo "Committing transaction"
-COMMIT;
-\echo "3 - vacuuming"
-VACUUM ANALYZE hits;
+\echo "3 - running queries"
+\timing
+\timing
+\i clickbench/paradedb/queries.sql
 \echo "4 - done"
 EOF
-
-# COPY 99997497
-# Time:
-
-# run test
-./clickbench/paradedb/run.sh 2>&1 | tee log.txt
-
-# disk usage
-# sudo du -bcs /var/lib/postgresql/15/main/
-
-
-# 18979994590
-
-# parse results for json file
-./parse.sh < log.txt

@@ -253,44 +253,39 @@ pub unsafe fn transform_limit_to_df_plan(
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>,
 ) -> Result<LogicalPlan, Error> {
-    if outer_plan.is_none() {
-        panic!("Limit does not have outer plan");
-    }
+    let outer_plan = outer_plan
+        .ok_or_else(|| panic!("Limit does not have an outer plan"))
+        .unwrap();
 
     let limit_node = plan as *mut pg_sys::Limit;
 
     let skip_node = (*limit_node).limitOffset as *const pg_sys::Const;
     let fetch_node = (*limit_node).limitCount as *const pg_sys::Const;
 
-    let fetch = if fetch_node.is_null() {
-        None
-    } else {
-        let fetch_datum = (*fetch_node).constvalue;
-        let fetch_isnull = (*fetch_node).constisnull;
-        if fetch_isnull {
-            None
-        } else {
-            Some(fetch_datum.value() as usize)
-        }
-    };
+    let fetch = get_const_value(fetch_node).unwrap_or(0);
+    let skip = get_const_value(skip_node).unwrap_or(0);
 
-    let skip = if skip_node.is_null() {
-        0
-    } else {
-        let skip_datum = (*skip_node).constvalue;
-        let skip_isnull = (*skip_node).constisnull;
-        if skip_isnull {
-            0
-        } else {
-            skip_datum.value() as usize
-        }
-    };
+    info!("OFFSET: {}, LIMIT: {}", skip, fetch);
 
     Ok(LogicalPlan::Limit(Limit {
         skip,
-        fetch,
-        input: outer_plan.unwrap().into(),
+        fetch: Some(fetch),
+        input: Box::new(outer_plan).into(),
     }))
+}
+
+#[inline]
+fn get_const_value(node: *const pg_sys::Const) -> Option<usize> {
+    if node.is_null() {
+        None
+    } else {
+        let const_node = unsafe { &*node };
+        if const_node.constisnull {
+            None
+        } else {
+            Some(const_node.constvalue.value() as usize)
+        }
+    }
 }
 
 pub unsafe fn transform_modify_to_df_plan(

@@ -8,7 +8,6 @@ use pg_sys::{
 use pgrx::nodes::is_a;
 use pgrx::pg_sys::rt_fetch;
 use pgrx::prelude::*;
-use pgrx::spi::Error;
 use pgrx::PgRelation;
 
 use std::ffi::CStr;
@@ -187,7 +186,7 @@ pub unsafe fn transform_result_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>
-) -> Result<LogicalPlan, Error> {
+) -> Result<LogicalPlan, String> {
     /*
      * Taken from postgres source:
      *   Result node -
@@ -210,7 +209,7 @@ pub unsafe fn transform_result_to_df_plan(
                     (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
                 match (*list_cell_node).type_ {
                     NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node).unwrap()),
-                    _ => panic!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_),
+                    _ => return Err(format!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_)),
                 }
             }
         }

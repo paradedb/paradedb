@@ -3,17 +3,29 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-HOST=localhost
-PORT=5431
-DATABASE=mydatabase
-USER=myuser
-PASSWORD=mypassword
+# Set default values
+DEFAULT_HOST=localhost
+DEFAULT_PORT=5431
+DEFAULT_DATABASE=mydatabase
+DEFAULT_USER=myuser
+DEFAULT_PASSWORD=mypassword
+
+# Use environment variables if they are set, otherwise use defaults
+HOST=${HOST:-$DEFAULT_HOST}
+PORT=${PORT:-$DEFAULT_PORT}
+DATABASE=${DATABASE:-$DEFAULT_DATABASE}
+USER=${USER:-$DEFAULT_USER}
+PASSWORD=${PASSWORD:-$DEFAULT_PASSWORD}
 WIKI_ARTICLES_FILE=wiki-articles.json
 
 # Helper function to run a query on the benchmarking database
 db_query () {
   local QUERY=$1
-  PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -c "$QUERY"
+  if $USING_PGRX; then
+    psql -h "$HOST" -p "$PORT" -d "$DATABASE" -c "$QUERY"
+  else
+    PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -c "$QUERY"
+  fi
 }
 
 # Helper function to download the benchmarking dataset
@@ -42,10 +54,22 @@ load_data () {
   echo "-- Creating table for JSON entries and loading entries from file into table (this may take a few minutes)..."
   db_query "DROP TABLE IF EXISTS temp_json;"
   db_query "CREATE TABLE temp_json ( j JSONB );"
-  db_query "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';" < "$WIKI_ARTICLES_FILE"
+  # db_query "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';" < "$WIKI_ARTICLES_FILE"
+
+
+  head -n 100000 "$WIKI_ARTICLES_FILE" | db_query "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';"
+
 
   echo "-- Loading JSON data into the wikipedia_articles table..."
-  PGPASSWORD=$PASSWORD psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -f helpers/load_data.sql
+  if $USING_PGRX; then
+    # When using pgrx, we only load 100,000 rows
+    # sed "s/{{LIMIT}}/100000/g" load_data.sql > load_data.sql
+    psql -h "$HOST" -p "$PORT" -d "$DATABASE" -f helpers/load_data.sql
+  else
+    # When using Docker, we load the full dataset of 5M rows
+    # sed "s/{{LIMIT}}/5000000/g" load_data.sql > load_data.sql
+    PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -f helpers/load_data.sql
+  fi
 }
 
 export -f load_data

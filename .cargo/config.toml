@@ -5,3 +5,7 @@ rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
 # Enable code coverage on Linux only, for CI builds
 [target.'cfg(target_os="linux")']
 rustflags = ["-Cinstrument-coverage"]
+
+# Enable performance benchmarking directly in Cargo
+[alias]
+benchmark_bm25 = "run --bin benchmark_bm25"

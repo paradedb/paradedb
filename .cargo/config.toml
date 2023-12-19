@@ -5,3 +5,8 @@ rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
 # Enable code coverage on Linux only, for CI builds
 [target.'cfg(target_os="linux")']
 rustflags = ["-Cinstrument-coverage"]
+
+# Run ClickBench benchmarks
+[alias]
+bench_columnar_hot = "run --bin bench_columnar_hot"
+bench_columnar_cold = "run --bin bench_columnar_cold"

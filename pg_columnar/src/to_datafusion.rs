@@ -262,8 +262,8 @@ pub unsafe fn transform_limit_to_df_plan(
     let skip_node = (*limit_node).limitOffset as *const pg_sys::Const;
     let fetch_node = (*limit_node).limitCount as *const pg_sys::Const;
 
-    let fetch = get_const_value(fetch_node).unwrap_or(0);
-    let skip = get_const_value(skip_node).unwrap_or(0);
+    let fetch = const_node_value(fetch_node).unwrap_or(0);
+    let skip = const_node_value(skip_node).unwrap_or(0);
 
     info!("OFFSET: {}, LIMIT: {}", skip, fetch);
 
@@ -275,7 +275,7 @@ pub unsafe fn transform_limit_to_df_plan(
 }
 
 #[inline]
-fn get_const_value(node: *const pg_sys::Const) -> Option<usize> {
+fn const_node_value(node: *const pg_sys::Const) -> Option<usize> {
     if node.is_null() {
         None
     } else {

@@ -258,10 +258,9 @@ pub unsafe fn transform_limit_to_df_plan(
         .unwrap();
 
     let limit_node = plan as *mut pg_sys::Limit;
-
     let skip_node = (*limit_node).limitOffset;
     let fetch_node = (*limit_node).limitCount;
-
+    
     let fetch = const_node_value(fetch_node).unwrap_or(0);
     let skip = const_node_value(skip_node).unwrap_or(0);
 

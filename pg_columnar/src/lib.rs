@@ -62,12 +62,10 @@ unsafe fn describe_nodes(tree: *mut pg_sys::Plan, ps: *mut pg_sys::PlannedStmt) 
 
 #[pg_guard]
 unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
-    info!("plannedstmt_using_columnar -- 1");
     let rtable = (*ps).rtable;
     if rtable.is_null() {
         return false;
     }
-    info!("plannedstmt_using_columnar -- 2");
 
     // Get mem table AM handler OID
     let handlername_cstr = CString::new("mem").unwrap();
@@ -76,7 +74,6 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
     if memam_oid == pg_sys::InvalidOid {
         return false;
     }
-    info!("plannedstmt_using_columnar -- 3");
 
     let amTup = SearchSysCache1(
         SysCacheIdentifier_AMOID.try_into().unwrap(),
@@ -111,18 +108,15 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
         //       fail if we encounter an unsupported node, so this won't happen.
         if am_handler == memhandler_oid {
             using_col = true;
-            info!("plannedstmt_using_columnar -- 3");
         } else {
             using_noncol = true;
-            info!("plannedstmt_using_columnar -- 4");
         }
     }
 
     if using_col && using_noncol {
+        // panic! is okay here because we are protected by pg_guard
         panic!("Mixing table types in a single query is not supported yet");
     }
-
-    info!("plannedstmt_using_columnar -- 5");
 
     return using_col;
 }
@@ -131,14 +125,14 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
 unsafe fn get_relation(ps: *mut PlannedStmt) -> PgRelation {
     let rtable = (*ps).rtable;
     let plan = (*ps).planTree as *mut pgrx::pg_sys::Node;
-    let rte = unsafe { rt_fetch((*(plan as *mut SeqScan)).scan.scanrelid, rtable) };
-    let relation = unsafe { RelationIdGetRelation((*rte).relid) };
-    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
+    let rte = rt_fetch((*(plan as *mut SeqScan)).scan.scanrelid, rtable);
+    let relation = RelationIdGetRelation((*rte).relid);
+    let pg_relation = PgRelation::from_pg_owned(relation);
 
     return pg_relation;
 }
 
-unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: Vec<RecordBatch>) {
+unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: Vec<RecordBatch>) -> Result<(), String> {
     let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT
         || (*(*query_desc).plannedstmt).hasReturning);
 
@@ -151,7 +145,7 @@ unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: V
                 (*query_desc).operation.try_into().unwrap(),
                 (*query_desc).tupDesc,
             ),
-            None => panic!("no rstartup"),
+            None => return Err(format!("no rstartup")),
         };
         let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
 
@@ -237,10 +231,10 @@ unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: V
                                         .into_datum()
                                         .unwrap()
                                 }
-                                _ => panic!(
+                                _ => return Err(format!(
                                     "send_tuples_if_necessary: Unsupported PostgreSQL type: {:?}",
                                     dt
-                                ),
+                                )),
                             };
                             col_index += 1;
                         }
@@ -249,18 +243,23 @@ unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: V
                     }
                 }
             }
-            None => panic!("no receiveslot"),
+            None => return Err(format!("no receiveslot")),
         }
 
         let rShutdown = (*dest).rShutdown;
         match rShutdown {
             Some(f) => f(dest),
-            None => panic!("no rshutdown"),
+            None => return Err(format!("no rshutdown")),
         }
     }
+    Ok(())
 }
 
-async unsafe extern "C" fn columnar_executor_run_internal(
+#[pg_guard]
+// Note: only use unwrap or panic! in THIS function. This is the only function protected with
+//       pg_guard and can therefore translate Rust panics into Postgres panics. All other
+//       functions should bubble up errors as String.
+unsafe extern "C" fn columnar_executor_run(
     query_desc: *mut QueryDesc,
     direction: i32,
     count: u64,
@@ -268,11 +267,9 @@ async unsafe extern "C" fn columnar_executor_run_internal(
 ) {
     // Imitate ExplainNode for recursive plan scanning behavior
     let ps = (*query_desc).plannedstmt;
-    info!("entering columnar_executor_run_internal");
     if !plannedstmt_using_columnar(ps) {
         info!("standard_ExecutorRun");
         standard_ExecutorRun(query_desc, direction, count, execute_once);
-        info!("standard_ExecutorRun done");
         return;
     }
 
@@ -283,11 +280,10 @@ async unsafe extern "C" fn columnar_executor_run_internal(
     let rtable = (*ps).rtable;
 
     let logical_plan = transform_pg_plan_to_df_plan(plan.into(), rtable.into()).unwrap();
-    let dataframe = col_datafusion::CONTEXT
-        .execute_logical_plan(logical_plan)
-        .await
+    let dataframe = task::block_on(col_datafusion::CONTEXT
+        .execute_logical_plan(logical_plan))
         .unwrap();
-    let recordbatchvec: Vec<RecordBatch> = dataframe.collect().await.unwrap();
+    let recordbatchvec: Vec<RecordBatch> = task::block_on(dataframe.collect()).unwrap();
 
     // This is for any node types that need to do additional processing on estate
     match node_tag {
@@ -302,22 +298,6 @@ async unsafe extern "C" fn columnar_executor_run_internal(
     }
 
     send_tuples_if_necessary(query_desc, recordbatchvec);
-}
-
-unsafe extern "C" fn columnar_executor_run(
-    query_desc: *mut QueryDesc,
-    direction: i32,
-    count: u64,
-    execute_once: bool,
-) {
-    // Setting pg_guard on this causes failure
-    info!("entering columnar_executor_run");
-    task::block_on(columnar_executor_run_internal(
-        query_desc,
-        direction,
-        count,
-        execute_once,
-    ));
 }
 
 // initializes telemetry

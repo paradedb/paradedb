@@ -77,7 +77,7 @@ pub unsafe fn transform_pg_plan_to_df_plan(
     let mut outer_plan = None;
     let lefttree = (*plan).lefttree;
     if !lefttree.is_null() {
-        outer_plan = Some(transform_pg_plan_to_df_plan(lefttree, rtable).unwrap());
+        outer_plan = Some(transform_pg_plan_to_df_plan(lefttree, rtable)?);
     }
 
     info!("{:?}", node_tag);
@@ -117,7 +117,7 @@ pub unsafe fn transform_targetentry_to_df_field(node: *mut Node) -> Result<Field
         }
 
         if let Ok(built_in_oid) = BuiltinOid::try_from(col_type) {
-            let datafusion_type = postgres_to_datafusion_type(built_in_oid).unwrap();
+            let datafusion_type = postgres_to_datafusion_type(built_in_oid)?;
             return Ok(Field::new(col_name_str, datafusion_type, nullable));
         } else {
             return Err(format!("Invalid BuiltinOid"));
@@ -156,7 +156,7 @@ pub unsafe fn transform_seqscan_to_df_plan(
                     (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
                 match (*list_cell_node).type_ {
                     NodeTag::T_TargetEntry => {
-                        cols.push(transform_targetentry_to_df_field(list_cell_node).unwrap())
+                        cols.push(transform_targetentry_to_df_field(list_cell_node)?)
                     }
                     _ => return Err(format!(
                         "target type {:?} not handled for seqscan yet",
@@ -192,7 +192,7 @@ pub unsafe fn transform_valuesscan_to_df_plan(
                 (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
             match (*list_cell_node).type_ {
                 NodeTag::T_TargetEntry => {
-                    cols.push(transform_targetentry_to_df_field(list_cell_node).unwrap())
+                    cols.push(transform_targetentry_to_df_field(list_cell_node)?)
                 }
                 _ => return Err(format!(
                     "target type {:?} not handled yet for valuesscan",

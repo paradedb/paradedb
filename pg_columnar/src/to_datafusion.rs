@@ -165,9 +165,9 @@ pub unsafe fn transform_seqscan_to_df_plan(
         let elements = (*list).elements;
         for i in 0..(*list).length {
             let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
-
             let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
             let var = (*target_entry).expr as *mut pgrx::pg_sys::Var;
+            
             let col_idx = (*var).varattno as usize;
             projections.push(col_idx - 1);
         }

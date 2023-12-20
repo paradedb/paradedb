@@ -29,8 +29,8 @@ use datafusion::common::arrow::array::RecordBatch;
 use datafusion_substrait::substrait::proto::{PlanRel, Rel, RelRoot};
 
 use std::ffi::CString;
-use std::ptr;
 use std::num::TryFromIntError;
+use std::ptr;
 
 use async_std::task;
 
@@ -147,7 +147,10 @@ unsafe fn send_tuples_if_necessary(
         match rStartup {
             Some(f) => f(
                 dest,
-                (*query_desc).operation.try_into().map_err(|e: TryFromIntError| e.to_string())?,
+                (*query_desc)
+                    .operation
+                    .try_into()
+                    .map_err(|e: TryFromIntError| e.to_string())?,
                 (*query_desc).tupDesc,
             ),
             None => return Err(format!("no rstartup")),
@@ -168,9 +171,11 @@ unsafe fn send_tuples_if_necessary(
                         for attr in tuple_desc.iter() {
                             let column = recordbatch.column(col_index);
                             let dt = column.data_type();
-                            let tts_value = (*tuple_table_slot)
-                                .tts_values
-                                .offset(col_index.try_into().map_err(|e: TryFromIntError| e.to_string())?);
+                            let tts_value = (*tuple_table_slot).tts_values.offset(
+                                col_index
+                                    .try_into()
+                                    .map_err(|e: TryFromIntError| e.to_string())?,
+                            );
                             match dt {
                                 DataType::Boolean => {
                                     *tts_value = column

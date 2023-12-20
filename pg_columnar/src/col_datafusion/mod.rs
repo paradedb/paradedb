@@ -107,7 +107,10 @@ impl DFTable {
                         PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
                             panic!("JSON data type not supported")
                         }
-                        _ => panic!("schema_from_pg: Unsupported built-in Postgres type: {:?}", builtin),
+                        _ => panic!(
+                            "schema_from_pg: Unsupported built-in Postgres type: {:?}",
+                            builtin
+                        ),
                     },
                     PgOid::Custom(_custom) => panic!("Custom data types are not supported"),
                     PgOid::Invalid => panic!("{} has a type oid of InvalidOid", attname),

@@ -183,10 +183,11 @@ pub unsafe fn transform_seqscan_to_df_plan(
 
     let tablename = format!("{}", pg_relation.oid());
     let table_reference = TableReference::from(tablename.clone());
-    let mut projections: Vec<usize> = vec![];
 
     // Read projections (i.e. which columns to read)
+    let mut projections: Vec<usize> = vec![];
     let targets = (*plan).targetlist;
+
     if !targets.is_null() {
         let elements = (*targets).elements;
         for i in 0..(*targets).length {
@@ -200,7 +201,9 @@ pub unsafe fn transform_seqscan_to_df_plan(
     }
 
     // Read filters (i.e. WHERE clause)
+    let mut filters: Vec<Expr> = vec![];
     let quals = (*plan).qual;
+
     if !quals.is_null() {
         let elements = (*quals).elements;
         for i in 0..(*quals).length {
@@ -215,11 +218,23 @@ pub unsafe fn transform_seqscan_to_df_plan(
                 .to_string_lossy()
                 .into_owned();
 
-            let lhs = pg_sys::pgrx_list_nth((*operator_expr).args, 0);
-            let rhs = pg_sys::pgrx_list_nth((*operator_expr).args, 1);
+            let lhs = pg_sys::pgrx_list_nth((*operator_expr).args, 0) as *mut pg_sys::Node;
+            let rhs = pg_sys::pgrx_list_nth((*operator_expr).args, 1) as *mut pg_sys::Node;
 
-            info!("lhs: {:?}", lhs);
-            info!("rhs: {:?}", rhs);
+            let lhs_is_const = is_a(lhs, NodeTag::T_Const) && is_a(rhs, NodeTag::T_Var);
+            let rhs_is_const = is_a(rhs, NodeTag::T_Const) && is_a(lhs, NodeTag::T_Var);
+
+            if !(lhs_is_const || rhs_is_const) {
+                return Err(format!("WHERE clause requires Var {} Const or Const {} Var", operator_name, operator_name));
+            }
+
+            if lhs_is_const {
+                let scalar_value = transform_const_to_df_expr(lhs)?;
+                let expr = 
+            }
+            if rhs_is_const {
+                let scalar_value = transform_const_to_df_expr(rhs)?;
+            }
 
             pg_sys::ReleaseSysCache(operator_tuple);
         }
@@ -470,6 +485,18 @@ pub unsafe fn transform_agg_to_df_plan(
         Aggregate::try_new(Box::new(outer_plan).into(), vec![], agg_expr)
             .expect("failed to create aggregate"),
     ))
+}
+
+#[inline]
+unsafe fn transform_var_to_df_expr(node: *mut Node) -> Result<Expr, String> {
+    let var = node as *mut Var;
+
+    let var_rte = rt_fetch((*var).varno, (*var).varlevelsup as *mut List);
+    let var_relid = (*var_rte).relid;
+    let att_name = get_attname(var_relid, (*var).varattno, false);
+    let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
+
+    Ok(Expr::Column(att_name_str.into()))
 }
 
 #[inline]

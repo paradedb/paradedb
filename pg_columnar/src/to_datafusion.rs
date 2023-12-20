@@ -1,6 +1,4 @@
 use datafusion::arrow::datatypes::Schema;
-use datafusion::logical_expr::col;
-use datafusion::logical_expr::Sort;
 use pg_sys::{
     exprType, get_attname, namestrcpy, pgrx_list_nth, Aggref, BuiltinOid, Const, Datum,
     FormData_pg_attribute, FormData_pg_operator, List, ModifyTable, NameData, Node, NodeTag, Oid,

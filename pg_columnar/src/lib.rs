@@ -30,6 +30,7 @@ use datafusion_substrait::substrait::proto::{PlanRel, Rel, RelRoot};
 
 use std::ffi::CString;
 use std::ptr;
+use std::num::TryFromIntError;
 
 use async_std::task;
 
@@ -61,6 +62,7 @@ unsafe fn describe_nodes(tree: *mut pg_sys::Plan, ps: *mut pg_sys::PlannedStmt) 
 }
 
 #[pg_guard]
+// panic! and unwrap are okay here because we are protected by pg_guard
 unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
     let rtable = (*ps).rtable;
     if rtable.is_null() {
@@ -114,7 +116,6 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
     }
 
     if using_col && using_noncol {
-        // panic! is okay here because we are protected by pg_guard
         panic!("Mixing table types in a single query is not supported yet");
     }
 
@@ -142,7 +143,7 @@ unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: V
         match rStartup {
             Some(f) => f(
                 dest,
-                (*query_desc).operation.try_into().unwrap(),
+                (*query_desc).operation.try_into().map_err(|e: TryFromIntError| e.to_string())?,
                 (*query_desc).tupDesc,
             ),
             None => return Err(format!("no rstartup")),
@@ -165,49 +166,49 @@ unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: V
                             let dt = column.data_type();
                             let tts_value = (*tuple_table_slot)
                                 .tts_values
-                                .offset(col_index.try_into().unwrap());
+                                .offset(col_index.try_into().map_err(|e: TryFromIntError| e.to_string())?);
                             match dt {
                                 DataType::Boolean => {
                                     *tts_value = column
                                         .as_primitive::<Int8Type>()
                                         .value(row_index)
                                         .into_datum()
-                                        .unwrap()
+                                        .ok_or("Could not convert Boolean into datum")?
                                 }
                                 DataType::Int16 => {
                                     *tts_value = column
                                         .as_primitive::<Int16Type>()
                                         .value(row_index)
                                         .into_datum()
-                                        .unwrap()
+                                        .ok_or("Could not convert Int16 into datum")?
                                 }
                                 DataType::Int32 => {
                                     *tts_value = column
                                         .as_primitive::<Int32Type>()
                                         .value(row_index)
                                         .into_datum()
-                                        .unwrap()
+                                        .ok_or("Could not convert Int32 into datum")?
                                 }
                                 DataType::Int64 => {
                                     *tts_value = column
                                         .as_primitive::<Int64Type>()
                                         .value(row_index)
                                         .into_datum()
-                                        .unwrap()
+                                        .ok_or("Could not convert Int64 into datum")?
                                 }
                                 DataType::UInt32 => {
                                     *tts_value = column
                                         .as_primitive::<UInt32Type>()
                                         .value(row_index)
                                         .into_datum()
-                                        .unwrap()
+                                        .ok_or("Could not convert UInt32 into datum")?
                                 }
                                 DataType::Float32 => {
                                     *tts_value = column
                                         .as_primitive::<Float32Type>()
                                         .value(row_index)
                                         .into_datum()
-                                        .unwrap()
+                                        .ok_or("Could not convert Float32 into datum")?
                                 }
                                 // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
                                 DataType::Time32(TimeUnit::Second) => {
@@ -215,21 +216,21 @@ unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: V
                                         .as_primitive::<Time32SecondType>()
                                         .value(row_index)
                                         .into_datum()
-                                        .unwrap()
+                                        .ok_or("Could not convert Time32 into datum")?
                                 }
                                 DataType::Timestamp(TimeUnit::Second, None) => {
                                     *tts_value = column
                                         .as_primitive::<TimestampSecondType>()
                                         .value(row_index)
                                         .into_datum()
-                                        .unwrap()
+                                        .ok_or("Could not convert Timestamp into datum")?
                                 }
                                 DataType::Date32 => {
                                     *tts_value = column
                                         .as_primitive::<Date32Type>()
                                         .value(row_index)
                                         .into_datum()
-                                        .unwrap()
+                                        .ok_or("Could not convert Date32 into datum")?
                                 }
                                 _ => return Err(format!(
                                     "send_tuples_if_necessary: Unsupported PostgreSQL type: {:?}",

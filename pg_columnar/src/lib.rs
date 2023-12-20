@@ -12,7 +12,7 @@ use pg_sys::{
 use pgrx::once_cell::sync::Lazy;
 use pgrx::pg_sys::rt_fetch;
 use pgrx::prelude::*;
-use pgrx::{PgRelation, PgTupleDesc};
+use pgrx::{u64_to_item_pointer, PgRelation, PgTupleDesc};
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 
@@ -122,19 +122,6 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
     return using_col;
 }
 
-// Note: getting the relation through get_relation uses from_pg_owned, so no need to manually close later on
-unsafe fn get_relation(ps: *mut PlannedStmt) -> PgRelation {
-    let rtable = (*ps).rtable;
-    let plan = (*ps).planTree as *mut pgrx::pg_sys::Node;
-
-    // TODO: Replace hard-coded 1
-    let rte = rt_fetch(1, rtable);
-    let relation = RelationIdGetRelation((*rte).relid);
-    let pg_relation = PgRelation::from_pg_owned(relation);
-
-    return pg_relation;
-}
-
 unsafe fn send_tuples_if_necessary(
     query_desc: *mut QueryDesc,
     recordbatchvec: Vec<RecordBatch>,
@@ -156,18 +143,29 @@ unsafe fn send_tuples_if_necessary(
             ),
             None => return Err(format!("no rstartup")),
         };
+
         let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
-
-        let relation = get_relation((*query_desc).plannedstmt);
-
         let receiveSlot = (*dest).receiveSlot;
+        let mut row_number = 0;
+
         match receiveSlot {
             Some(f) => {
                 for recordbatch in recordbatchvec.iter() {
                     for row_index in 0..recordbatch.num_rows() {
-                        let tuple_table_slot =
-                            table_slot_create(relation.as_ptr(), ptr::null_mut());
+                        let tuple_table_slot = pg_sys::MakeTupleTableSlot(
+                            (*query_desc).tupDesc,
+                            &pg_sys::TTSOpsVirtual,
+                        );
+
                         ExecStoreVirtualTuple(tuple_table_slot);
+
+                        let mut tid = pg_sys::ItemPointerData::default();
+
+                        // TODO: Is this the correct way to assign tts_tid?
+                        u64_to_item_pointer(row_number as u64, &mut tid);
+                        (*tuple_table_slot).tts_tid = tid;
+                        row_number += 1;
+
                         let mut col_index = 0;
                         for attr in tuple_desc.iter() {
                             let column = recordbatch.column(col_index);
@@ -177,6 +175,7 @@ unsafe fn send_tuples_if_necessary(
                                     .try_into()
                                     .map_err(|e: TryFromIntError| e.to_string())?,
                             );
+
                             match dt {
                                 DataType::Boolean => {
                                     *tts_value = column

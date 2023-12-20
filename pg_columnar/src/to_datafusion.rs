@@ -364,6 +364,11 @@ pub unsafe fn transform_agg_to_df_plan(
         // Check if the aggregate is distinct
         let distinct = !(*agg_ref).aggdistinct.is_null();
 
+        // Check if * is used, ie COUNT(*)
+        if (*agg_ref).aggstar {
+            args_expr = vec![Expr::Wildcard { qualifier: None }];
+        }
+
         // TODO: For now we're ignoring filters and order bys
         // These are only relevant for more complex aggregates which we don't support
         // Don't get this confused with the outer plan's filters and order bys

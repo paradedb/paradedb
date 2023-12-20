@@ -5,6 +5,7 @@ use crate::{
 };
 use pgrx::{log, PGRXSharedMemory};
 use std::{error::Error, net::SocketAddr};
+use tantivy::schema::Field;
 
 #[derive(Copy, Clone, Default)]
 pub struct ParadeWriterClient {
@@ -79,6 +80,34 @@ impl ParadeWriterClient {
                 json_builder,
             ))
             .expect("error while sending insert request}");
+
+        match response {
+            ParadeWriterResponse::Ok => {}
+            error => panic!("unexpected error while inserting: {error:?}"),
+        };
+    }
+
+    pub fn delete(&self, index_name: &str, ctid_field: Field, ctid_values: Vec<u64>) {
+        let response = self
+            .send_request(ParadeWriterRequest::Delete(
+                Self::get_data_directory(&index_name),
+                ctid_field,
+                ctid_values,
+            ))
+            .expect("error while sending delete request}");
+
+        match response {
+            ParadeWriterResponse::Ok => {}
+            error => panic!("unexpected error while inserting: {error:?}"),
+        };
+    }
+
+    pub fn commit(&self, index_name: &str) {
+        let response = self
+            .send_request(ParadeWriterRequest::Commit(Self::get_data_directory(
+                &index_name,
+            )))
+            .expect("error while sending commit request}");
 
         match response {
             ParadeWriterResponse::Ok => {}

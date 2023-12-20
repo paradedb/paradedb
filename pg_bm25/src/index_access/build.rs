@@ -109,4 +109,5 @@ unsafe extern "C" fn build_callback_internal(
     let builder = parade_index.json_builder(ctid, &tupdesc, values);
 
     parade_index.insert(builder);
+    parade_index.commit();
 }

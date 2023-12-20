@@ -416,7 +416,7 @@ mod tests {
         let field = Field::from_field_id(0);
         fields.insert(attname.to_string(), field);
 
-        let mut builder = JsonBuilder::new(fields);
+        let mut builder = JsonBuilder::new(field, fields);
         // new OR track :)
         let datum = "Mirage".into_datum().expect("failed to convert to datum");
         (func)(
@@ -443,7 +443,7 @@ mod tests {
         let field = Field::from_field_id(0);
         fields.insert(attname.to_string(), field);
 
-        let mut builder = JsonBuilder::new(fields);
+        let mut builder = JsonBuilder::new(field, fields);
         // 2023 OR singles :)
         let singles = vec!["Counting Stars", "Mirage", "Ranaway"];
         let datum = singles

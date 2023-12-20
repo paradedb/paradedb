@@ -1,17 +1,20 @@
 use pgrx::*;
 
+use crate::parade_index::index::ParadeIndex;
+
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
     info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
-    _callback: pg_sys::IndexBulkDeleteCallback,
-    _callback_state: *mut ::std::os::raw::c_void,
+    callback: pg_sys::IndexBulkDeleteCallback,
+    callback_state: *mut ::std::os::raw::c_void,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let info = unsafe { PgBox::from_pg(info) };
     let mut stats = unsafe { PgBox::from_pg(stats) };
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
-    let _index_name = index_relation.name();
+    let index_name = index_relation.name();
+    let parade_index = ParadeIndex::from_index_name(&index_name);
 
     if stats.is_null() {
         stats = unsafe {
@@ -21,9 +24,13 @@ pub extern "C" fn ambulkdelete(
         };
     }
 
-    // if let Some(actual_callback) = callback {
-    //     parade_writer.bulk_delete(|ctid| unsafe { actual_callback(ctid, callback_state) });
-    // }
+    if let Some(actual_callback) = callback {
+        let (deleted, not_deleted) =
+            parade_index.delete(|ctid| unsafe { actual_callback(ctid, callback_state) });
+        parade_index.commit();
+        stats.pages_deleted += deleted;
+        stats.num_pages += not_deleted;
+    }
 
     stats.into_pg()
 }

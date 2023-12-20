@@ -1,10 +1,11 @@
 use datafusion::arrow::datatypes::Schema;
 use pg_sys::{
-    exprType, get_attname, namestrcpy, pgrx_list_nth, BuiltinOid, Const, Datum,
+    exprType, get_attname, namestrcpy, pgrx_list_nth, Aggref, BuiltinOid, Const, Datum,
     FormData_pg_attribute, FormData_pg_operator, List, ModifyTable, NameData, Node, NodeTag, Oid,
     OpExpr, Plan, PlannedStmt, RangeTblEntry, RelationClose, RelationData, RelationIdGetRelation,
     SearchSysCache1, SeqScan, SysCacheIdentifier_OPEROID, ValuesScan, Var, GETSTRUCT,
 };
+use pgrx::nodes::is_a;
 use pgrx::pg_sys::rt_fetch;
 use pgrx::prelude::*;
 use pgrx::spi::Error;
@@ -20,8 +21,11 @@ use crate::col_datafusion::CONTEXT;
 use datafusion::common::arrow::datatypes::{DataType, Field};
 use datafusion::common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion::datasource::{provider_as_source, DefaultTableSource};
-use datafusion::logical_expr::{DmlStatement, Limit, LogicalPlan, TableScan};
-use datafusion::logical_expr::{Expr, TableSource, Values};
+use datafusion::logical_expr::expr::AggregateFunction;
+use datafusion::logical_expr::{
+    Aggregate, AggregateFunction as BuiltInAgg, DmlStatement, Expr, Limit, LogicalPlan, TableScan,
+    TableSource, Values,
+};
 use datafusion::sql::TableReference;
 
 fn datafusion_err_to_string(msg: &'static str) -> impl Fn(DataFusionError) -> String {
@@ -91,7 +95,7 @@ pub unsafe fn transform_pg_plan_to_df_plan(
         NodeTag::T_Result => todo!(),
         NodeTag::T_Sort => todo!(),
         NodeTag::T_Group => todo!(),
-        NodeTag::T_Agg => todo!(),
+        NodeTag::T_Agg => transform_agg_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_Limit => transform_limit_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_Invalid => todo!(),
         _ => Err(format!("node type {:?} not supported yet", node_tag)),
@@ -100,33 +104,39 @@ pub unsafe fn transform_pg_plan_to_df_plan(
 
 pub unsafe fn transform_targetentry_to_df_field(node: *mut Node) -> Result<Field, String> {
     let target_entry = node as *mut pgrx::pg_sys::TargetEntry;
+
     let col_name = (*target_entry).resname;
-    if !col_name.is_null() {
-        let col_name_str = CStr::from_ptr(col_name).to_string_lossy().into_owned();
-        let col_type = exprType((*target_entry).expr as *mut pgrx::pg_sys::Node);
-        // TODO: it's possible that col_type could be things other than column types? perhaps T_Var or T_Const?
-
-        let pg_relation =
-            PgRelation::from_pg_owned(RelationIdGetRelation((*target_entry).resorigtbl));
-        // TODO: how to get nullability of pg_relation is null?
-
-        let mut nullable = true;
-        if !pg_relation.is_null() {
-            let col_num = (*target_entry).resorigcol;
-            let pg_att = get_attr(pg_relation.as_ptr(), col_num as isize);
-            if !pg_att.is_null() {
-                nullable = !(*pg_att).attnotnull; // !!!!! nullability
-            }
-        }
-
-        if let Ok(built_in_oid) = BuiltinOid::try_from(col_type) {
-            let datafusion_type = postgres_to_datafusion_type(built_in_oid)?;
-            return Ok(Field::new(col_name_str, datafusion_type, nullable));
-        } else {
-            return Err(format!("Invalid BuiltinOid"));
-        }
+    // If the column is an aggregate function it won't have a name, so we
+    // give it a hard-coded random name
+    // TODO: Is this the right thing to do?
+    let col_name_str = if col_name.is_null() {
+        CStr::from_bytes_with_nul_unchecked(b"temp\0")
+            .to_string_lossy()
+            .into_owned()
     } else {
-        return Err(format!("Column name is null"));
+        CStr::from_ptr(col_name).to_string_lossy().into_owned()
+    };
+
+    let col_type = exprType((*target_entry).expr as *mut pgrx::pg_sys::Node);
+    // TODO: it's possible that col_type could be things other than column types? perhaps T_Var or T_Const?
+
+    let pg_relation = PgRelation::from_pg_owned(RelationIdGetRelation((*target_entry).resorigtbl));
+    // TODO: how to get nullability of pg_relation is null?
+
+    let mut nullable = true;
+    if !pg_relation.is_null() {
+        let col_num = (*target_entry).resorigcol;
+        let pg_att = get_attr(pg_relation.as_ptr(), col_num as isize);
+        if !pg_att.is_null() {
+            nullable = !(*pg_att).attnotnull; // !!!!! nullability
+        }
+    }
+
+    if let Ok(built_in_oid) = BuiltinOid::try_from(col_type) {
+        let datafusion_type = postgres_to_datafusion_type(built_in_oid).unwrap();
+        return Ok(Field::new(col_name_str, datafusion_type, nullable));
+    } else {
+        return Err(format!("Invalid BuiltinOid"));
     }
 }
 
@@ -152,11 +162,13 @@ pub unsafe fn transform_seqscan_to_df_plan(
     // TODO: this shouldn't be creating columns, it should just be indices for the projection
     unsafe {
         let list = (*plan).targetlist;
+
         if !list.is_null() {
             let elements = (*list).elements;
             for i in 0..(*list).length {
                 let list_cell_node =
                     (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+
                 match (*list_cell_node).type_ {
                     NodeTag::T_TargetEntry => {
                         cols.push(transform_targetentry_to_df_field(list_cell_node)?)
@@ -175,6 +187,7 @@ pub unsafe fn transform_seqscan_to_df_plan(
     let table_provider =
         task::block_on(CONTEXT.table_provider(table_reference)).expect("Could not get table");
     let table_source = provider_as_source(table_provider);
+
     return Ok(LogicalPlan::TableScan(
         TableScan::try_new(tablename, table_source, None, vec![], None)
             .map_err(datafusion_err_to_string("failed to create table scan"))?,
@@ -298,6 +311,96 @@ unsafe fn const_node_value(node: *mut pg_sys::Node) -> Result<Option<usize>, Str
         Ok(None)
     } else {
         Ok(Some(const_node.constvalue.value() as usize))
+    }
+}
+
+pub unsafe fn transform_agg_to_df_plan(
+    plan: *mut Plan,
+    rtable: *mut List,
+    outer_plan: Option<LogicalPlan>,
+) -> Result<LogicalPlan, String> {
+    let outer_plan = outer_plan
+        .ok_or_else(|| panic!("Limit does not have an outer plan"))
+        .unwrap();
+
+    let list = (*plan).targetlist;
+
+    if list.is_null() {
+        panic!("Agg targetlist is null");
+    }
+
+    let elements = (*list).elements;
+    let mut agg_expr: Vec<Expr> = vec![];
+
+    // Iterate through the list of aggregates
+    for i in 0..(*list).length {
+        let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+
+        assert!(is_a(list_cell_node, NodeTag::T_TargetEntry));
+
+        let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
+        let expr = (*target_entry).expr;
+
+        assert!(is_a(expr as *mut Node, NodeTag::T_Aggref));
+
+        // Map the Postgres aggregate function to a DataFusion aggregate function
+        let agg_ref = expr as *mut Aggref;
+        let df_agg = transform_pg_agg_to_df_agg((*agg_ref).aggfnoid);
+
+        // Read function arguments
+        let args = (*agg_ref).args;
+        let mut args_expr: Vec<Expr> = vec![];
+
+        if !args.is_null() {
+            let elements = (*args).elements;
+            for i in 0..(*args).length {
+                let arg_node = (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+
+                assert!(is_a(arg_node, NodeTag::T_TargetEntry));
+
+                let target_entry = arg_node as *mut pgrx::pg_sys::TargetEntry;
+                let var = (*target_entry).expr as *mut pgrx::pg_sys::Var;
+
+                // For now we'll assume we're using the first entry in the range table
+                // TODO: Figure out how to get the correct range table entry
+                let var_rte = rt_fetch(1, rtable);
+                let var_relid = (*var_rte).relid;
+                let att_name = get_attname(var_relid, (*var).varattno, false);
+                let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
+
+                args_expr.push(Expr::Column(att_name_str.into()));
+            }
+        }
+
+        // Check if the aggregate is distinct
+        let distinct = !(*agg_ref).aggdistinct.is_null();
+
+        // TODO: For now we're ignoring filters and order bys
+        // These are only relevant for more complex aggregates which we don't support
+        // Don't get this confused with the outer plan's filters and order bys
+        agg_expr.push(Expr::AggregateFunction(AggregateFunction::new(
+            df_agg, args_expr, distinct, None, None,
+        )));
+    }
+
+    Ok(LogicalPlan::Aggregate(
+        Aggregate::try_new(Box::new(outer_plan).into(), vec![], agg_expr)
+            .expect("failed to create aggregate"),
+    ))
+}
+
+#[inline]
+unsafe fn transform_pg_agg_to_df_agg(func_oid: pg_sys::Oid) -> BuiltInAgg {
+    let func_name = pg_sys::get_func_name(func_oid);
+    let func_name_str = CStr::from_ptr(func_name).to_string_lossy().into_owned();
+
+    match func_name_str.as_str() {
+        "sum" => BuiltInAgg::Sum,
+        "avg" => BuiltInAgg::Avg,
+        "count" => BuiltInAgg::Count,
+        "max" => BuiltInAgg::Max,
+        "min" => BuiltInAgg::Min,
+        _ => todo!(),
     }
 }
 

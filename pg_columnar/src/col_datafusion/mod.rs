@@ -77,6 +77,7 @@ impl DFTable {
                 match &base_oid {
                     PgOid::BuiltIn(builtin) => match builtin {
                         PgBuiltInOids::BOOLOID => Field::new(attname, DataType::Boolean, true),
+                        PgBuiltInOids::BPCHAROID => Field::new(attname, DataType::Utf8, true),
                         PgBuiltInOids::INT2OID => Field::new(attname, DataType::Int16, true),
                         PgBuiltInOids::INT4OID => Field::new(attname, DataType::Int32, true),
                         PgBuiltInOids::INT8OID => Field::new(attname, DataType::Int64, true),
@@ -106,7 +107,7 @@ impl DFTable {
                         PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
                             panic!("JSON data type not supported")
                         }
-                        _ => panic!("schema_from_pg: Unsupported PostgreSQL type: {:?}", builtin),
+                        _ => panic!("schema_from_pg: Unsupported built-in Postgres type: {:?}", builtin),
                     },
                     PgOid::Custom(_custom) => panic!("Custom data types are not supported"),
                     PgOid::Invalid => panic!("{} has a type oid of InvalidOid", attname),

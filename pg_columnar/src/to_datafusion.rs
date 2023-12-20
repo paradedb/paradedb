@@ -177,9 +177,9 @@ pub unsafe fn transform_seqscan_to_df_plan(
     let scan = plan as *mut SeqScan;
 
     // Find the table we're supposed to be scanning by querying the range table
-    let rte = unsafe { rt_fetch((*scan).scan.scanrelid, rtable) };
-    let relation = unsafe { RelationIdGetRelation((*rte).relid) };
-    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
+    let rte = rt_fetch((*scan).scan.scanrelid, rtable);
+    let relation = RelationIdGetRelation((*rte).relid);
+    let pg_relation = PgRelation::from_pg_owned(relation);
 
     let tablename = format!("{}", pg_relation.oid());
     let table_reference = TableReference::from(tablename.clone());
@@ -478,7 +478,6 @@ pub unsafe fn transform_modify_to_df_plan(
     let relation = RelationIdGetRelation((*rte).relid);
     let pg_relation = PgRelation::from_pg_owned(relation);
 
-    // let (input, vs_schema) = unsafe { transform_valuesscan_to_datafusion((*plan).lefttree, rtable).expect("valuesscan transformation failed") };
     let tablename = format!("{}", pg_relation.oid());
     let table_reference = TableReference::from(tablename);
     let mut cols: Vec<Field> = vec![];

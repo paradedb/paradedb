@@ -126,6 +126,8 @@ unsafe fn send_tuples_if_necessary(
     query_desc: *mut QueryDesc,
     recordbatchvec: Vec<RecordBatch>,
 ) -> Result<(), String> {
+    info!("sending tuples");
+
     let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT
         || (*(*query_desc).plannedstmt).hasReturning);
 
@@ -248,6 +250,7 @@ unsafe fn send_tuples_if_necessary(
                                 ))
                                 }
                             };
+                            info!("2");
                             col_index += 1;
                         }
                         f(tuple_table_slot, dest);

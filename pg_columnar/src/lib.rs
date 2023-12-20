@@ -125,14 +125,18 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
 unsafe fn get_relation(ps: *mut PlannedStmt) -> PgRelation {
     let rtable = (*ps).rtable;
     let plan = (*ps).planTree as *mut pgrx::pg_sys::Node;
-    let rte = rt_fetch((*(plan as *mut SeqScan)).scan.scanrelid, rtable);
+    // TODO: Replace hard-coded 1
+    let rte = rt_fetch(1, rtable);
     let relation = RelationIdGetRelation((*rte).relid);
     let pg_relation = PgRelation::from_pg_owned(relation);
 
     return pg_relation;
 }
 
-unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: Vec<RecordBatch>) -> Result<(), String> {
+unsafe fn send_tuples_if_necessary(
+    query_desc: *mut QueryDesc,
+    recordbatchvec: Vec<RecordBatch>,
+) -> Result<(), String> {
     let sendTuples = ((*query_desc).operation == CmdType_CMD_SELECT
         || (*(*query_desc).plannedstmt).hasReturning);
 
@@ -231,10 +235,12 @@ unsafe fn send_tuples_if_necessary(query_desc: *mut QueryDesc, recordbatchvec: V
                                         .into_datum()
                                         .unwrap()
                                 }
-                                _ => return Err(format!(
+                                _ => {
+                                    return Err(format!(
                                     "send_tuples_if_necessary: Unsupported PostgreSQL type: {:?}",
                                     dt
-                                )),
+                                ))
+                                }
                             };
                             col_index += 1;
                         }
@@ -280,9 +286,8 @@ unsafe extern "C" fn columnar_executor_run(
     let rtable = (*ps).rtable;
 
     let logical_plan = transform_pg_plan_to_df_plan(plan.into(), rtable.into()).unwrap();
-    let dataframe = task::block_on(col_datafusion::CONTEXT
-        .execute_logical_plan(logical_plan))
-        .unwrap();
+    let dataframe =
+        task::block_on(col_datafusion::CONTEXT.execute_logical_plan(logical_plan)).unwrap();
     let recordbatchvec: Vec<RecordBatch> = task::block_on(dataframe.collect()).unwrap();
 
     // This is for any node types that need to do additional processing on estate

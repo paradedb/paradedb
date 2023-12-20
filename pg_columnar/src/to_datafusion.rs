@@ -18,7 +18,7 @@ use async_std::task;
 use crate::col_datafusion::CONTEXT;
 
 use datafusion::common::arrow::datatypes::{DataType, Field};
-use datafusion::common::{DFSchema, ScalarValue, DataFusionError};
+use datafusion::common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion::datasource::{provider_as_source, DefaultTableSource};
 use datafusion::logical_expr::{DmlStatement, Limit, LogicalPlan, TableScan};
 use datafusion::logical_expr::{Expr, TableSource, Values};
@@ -58,8 +58,11 @@ pub fn postgres_to_datafusion_type(p_type: PgBuiltInOids) -> Result<DataType, St
         // TODO: Utf8 is variable length
         PgBuiltInOids::CHAROID => Ok(DataType::Utf8),
         // TODO: Implement the rest of the types
-        _ => Err(format!("OID {:?} isn't convertable to datafusion type yet", p_type)),
-    }
+        _ => Err(format!(
+            "OID {:?} isn't convertable to datafusion type yet",
+            p_type
+        )),
+    };
 }
 
 // Call this function on the root plan node
@@ -158,10 +161,12 @@ pub unsafe fn transform_seqscan_to_df_plan(
                     NodeTag::T_TargetEntry => {
                         cols.push(transform_targetentry_to_df_field(list_cell_node).unwrap())
                     }
-                    _ => return Err(format!(
-                        "target type {:?} not handled for seqscan yet",
-                        (*list_cell_node).type_
-                    )),
+                    _ => {
+                        return Err(format!(
+                            "target type {:?} not handled for seqscan yet",
+                            (*list_cell_node).type_
+                        ))
+                    }
                 }
             }
         }
@@ -194,10 +199,12 @@ pub unsafe fn transform_valuesscan_to_df_plan(
                 NodeTag::T_TargetEntry => {
                     cols.push(transform_targetentry_to_df_field(list_cell_node).unwrap())
                 }
-                _ => return Err(format!(
-                    "target type {:?} not handled yet for valuesscan",
-                    (*list_cell_node).type_
-                )),
+                _ => {
+                    return Err(format!(
+                        "target type {:?} not handled yet for valuesscan",
+                        (*list_cell_node).type_
+                    ))
+                }
             }
         }
     }
@@ -232,7 +239,12 @@ pub unsafe fn transform_valuesscan_to_df_plan(
                         ))));
                     }
                     // TODO: deal with all other types
-                    _ => return Err(format!("value_expr type {:?} not handled", (*value_expr).type_)),
+                    _ => {
+                        return Err(format!(
+                            "value_expr type {:?} not handled",
+                            (*value_expr).type_
+                        ))
+                    }
                 }
             }
             values.push(values_row);
@@ -240,7 +252,8 @@ pub unsafe fn transform_valuesscan_to_df_plan(
     }
 
     let arrow_schema = Schema::new(cols);
-    let df_schema = DFSchema::try_from(arrow_schema).map_err(datafusion_err_to_string("valuesscan DFSchema failed"))?;
+    let df_schema = DFSchema::try_from(arrow_schema)
+        .map_err(datafusion_err_to_string("valuesscan DFSchema failed"))?;
 
     Ok(LogicalPlan::Values(Values {
         schema: df_schema.clone().into(),
@@ -253,8 +266,7 @@ pub unsafe fn transform_limit_to_df_plan(
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>,
 ) -> Result<LogicalPlan, String> {
-    let outer_plan = outer_plan
-        .ok_or("Limit does not have an outer plan")?;
+    let outer_plan = outer_plan.ok_or("Limit does not have an outer plan")?;
 
     let limit_node = plan as *mut pg_sys::Limit;
     let skip_node = (*limit_node).limitOffset;
@@ -262,8 +274,6 @@ pub unsafe fn transform_limit_to_df_plan(
 
     let fetch = const_node_value(fetch_node)?.unwrap_or(0);
     let skip = const_node_value(skip_node)?.unwrap_or(0);
-
-    info!("OFFSET: {}, LIMIT: {}", skip, fetch);
 
     Ok(LogicalPlan::Limit(Limit {
         skip,
@@ -275,14 +285,14 @@ pub unsafe fn transform_limit_to_df_plan(
 #[inline]
 unsafe fn const_node_value(node: *mut pg_sys::Node) -> Result<Option<usize>, String> {
     if node.is_null() {
-        return Ok(None)
+        return Ok(None);
     }
 
     if (*node).type_ != NodeTag::T_Const {
         return Err(format!("Expected a Const Node, got {:?}", (*node).type_));
     }
 
-    let const_node =&*(node as *const pg_sys::Const);
+    let const_node = &*(node as *const pg_sys::Const);
 
     if const_node.constisnull {
         Ok(None)
@@ -334,8 +344,7 @@ pub unsafe fn transform_modify_to_df_plan(
                         if !pg_att.is_null() {
                             let att_not_null = (*pg_att).attnotnull; // !!!!! nullability
                             if let Ok(built_in_oid) = BuiltinOid::try_from((*pg_att).atttypid) {
-                                let datafusion_type =
-                                    postgres_to_datafusion_type(built_in_oid)?;
+                                let datafusion_type = postgres_to_datafusion_type(built_in_oid)?;
                                 cols.push(Field::new(col_name_str, datafusion_type, !att_not_null));
                             } else {
                                 return Err(format!("Invalid BuiltinOid"));
@@ -343,18 +352,27 @@ pub unsafe fn transform_modify_to_df_plan(
                         }
                     }
                 }
-                _ => return Err(format!(
-                    "targetlist type {:?} not handled yet for modifytable",
-                    (*list_cell_node).type_
-                )),
+                _ => {
+                    return Err(format!(
+                        "targetlist type {:?} not handled yet for modifytable",
+                        (*list_cell_node).type_
+                    ))
+                }
             }
         }
 
         let arrow_schema = Schema::new(cols);
-        table_schema = Some(DFSchema::try_from(arrow_schema).map_err(datafusion_err_to_string("modify DFSchema failed"))?.into());
+        table_schema = Some(
+            DFSchema::try_from(arrow_schema)
+                .map_err(datafusion_err_to_string("modify DFSchema failed"))?
+                .into(),
+        );
     } else {
         // If the schema isn't part of the ModifyTable plan, we have to pull it from outer_plan
-        match outer_plan.as_ref().ok_or("ModifyTable has no schema or outer_plan")? {
+        match outer_plan
+            .as_ref()
+            .ok_or("ModifyTable has no schema or outer_plan")?
+        {
             datafusion::logical_expr::LogicalPlan::Values(values) => {
                 table_schema = Some(values.schema.clone())
             }

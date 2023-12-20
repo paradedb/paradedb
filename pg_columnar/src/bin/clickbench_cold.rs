@@ -25,8 +25,8 @@ fn main() {
     }
 
     // Find the pg_columnar directory from the current directory
-    let pg_columnar_dir = find_pg_columnar_dir(&current_dir)
-        .expect("Failed to find pg_columnar directory");
+    let pg_columnar_dir =
+        find_pg_columnar_dir(&current_dir).expect("Failed to find pg_columnar directory");
 
     // Construct the path to the script
     let script_path = pg_columnar_dir.join("benchmarks/clickbench/benchmark.sh");

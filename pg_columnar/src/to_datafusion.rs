@@ -177,12 +177,9 @@ pub unsafe fn transform_targetentry_to_df_expr(node: *mut Node) -> Result<Expr, 
     info!("got target entry: {:?}", (*target_entry));
 
     let col_name = (*target_entry).resname;
-    info!("col name is: {:?}", col_name);
 
     if !col_name.is_null() {
         let col_name = CStr::from_ptr(col_name).to_string_lossy().into_owned();
-        info!("col name is: {}", col_name);
-
         let expr = col(col_name);
 
         Ok(expr)
@@ -458,31 +455,60 @@ pub unsafe fn transform_sort_to_df_plan(
 ) -> Result<LogicalPlan, String> {
     let outer_plan = outer_plan.ok_or("Sort does not have an outer plan")?;
 
-    let sort_node = plan as *mut pg_sys::SortBy;
+    let sortby_node = plan as *mut pg_sys::SortBy;
+    let sort_node = plan as *mut pg_sys::Sort;
+
     let mut sort_expr_vec: Vec<Expr> = Vec::new();
 
-    info!("sort_node: {:?}", (*sort_node));
+    // Get sort by operator
+    let sortby_dir = (*sortby_node).sortby_dir as pg_sys::SortByDir;
+    info!("sortby_dir: {}", sortby_dir);
 
-    // Get sort operator
-    let asc = (*sort_node).sortby_dir == pgrx::pg_sys::SortByDir_SORTBY_ASC;
+    match sortby_dir {
+        pg_sys::SortByDir_SORTBY_ASC => info!("Matched ASC"),
+        pg_sys::SortByDir_SORTBY_DESC => info!("Matched DESC"),
+        pg_sys::SortByDir_SORTBY_USING => info!("Matched USING"),
+        pg_sys::SortByDir_SORTBY_DEFAULT => info!("Matched DEFAULT"),
+        _ => info!("Sortby dir did not match anything"),
+    }
 
     // Get nulls first
-    let nulls_first = if (*sort_node).sortby_nulls == pgrx::pg_sys::SortByNulls_SORTBY_NULLS_FIRST {
-        true
-    } else {
-        false
+    let nulls_first_ptr = (*sort_node).nullsFirst;
+    let nulls_first = unsafe {
+        if nulls_first_ptr.is_null() {
+            None
+        } else {
+            Some(*nulls_first_ptr)
+        }
     };
+    let nulls_first = nulls_first.ok_or("Sort does not have nulls first")?;
 
-    info!("asc: {}", asc);
-    info!("nulls_first: {}", nulls_first);
+    let target_list = (*sort_node).plan.targetlist;
+    if !target_list.is_null() {
+        let elements = (*target_list).elements;
 
-    let node = (*sort_node).node;
+        // Index of the column to sort
+        let col_idx_ptr = (*sort_node).sortColIdx;
+        if !col_idx_ptr.is_null() {
+            let col_idx = (*col_idx_ptr) - 1;
 
-    info!("node: {:?}", node);
-
-    // let expr = transform_targetentry_to_df_expr(node)?;
-    // let sort_expr = expr.sort(asc, nulls_first);
-    // sort_expr_vec.push(sort_expr);
+            let list_cell_node =
+                (*elements.offset(col_idx as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+            match (*list_cell_node).type_ {
+                NodeTag::T_TargetEntry => {
+                    let expr = transform_targetentry_to_df_expr(list_cell_node)?;
+                    let sort_expr = expr.sort(false, nulls_first);
+                    sort_expr_vec.push(sort_expr);
+                }
+                _ => {
+                    return Err(format!(
+                        "target type {:?} not handled yet for sort",
+                        (*list_cell_node).type_
+                    ))
+                }
+            }
+        }
+    }
 
     Ok(LogicalPlan::Sort(Sort {
         expr: sort_expr_vec,

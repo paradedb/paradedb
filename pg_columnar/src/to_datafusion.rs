@@ -8,7 +8,6 @@ use pg_sys::{
 use pgrx::nodes::is_a;
 use pgrx::pg_sys::rt_fetch;
 use pgrx::prelude::*;
-use pgrx::spi::Error;
 use pgrx::PgRelation;
 
 use std::ffi::CStr;
@@ -92,7 +91,7 @@ pub unsafe fn transform_pg_plan_to_df_plan(
         NodeTag::T_SeqScan => transform_seqscan_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_ModifyTable => transform_modify_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_ValuesScan => transform_valuesscan_to_df_plan(plan, rtable, outer_plan),
-        NodeTag::T_Result => todo!(),
+        NodeTag::T_Result => transform_result_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_Sort => todo!(),
         NodeTag::T_Group => todo!(),
         NodeTag::T_Agg => transform_agg_to_df_plan(plan, rtable, outer_plan),
@@ -100,6 +99,21 @@ pub unsafe fn transform_pg_plan_to_df_plan(
         NodeTag::T_Invalid => todo!(),
         _ => Err(format!("node type {:?} not supported yet", node_tag)),
     }
+}
+
+// Transform helpers
+
+pub unsafe fn transform_const_to_df_expr(node: *mut Node) -> Result<Expr, String> {
+    let constant = node as *mut pgrx::pg_sys::Const;
+
+    let const_type = (*constant).consttype; // Oid
+    let const_datum = (*constant).constvalue; // Datum
+    let const_isnull = (*constant).constisnull; // bool
+
+    // TODO: actually get the type here - for now just defaulting to Int32
+    Ok(Expr::Literal(ScalarValue::Int32(Some(
+        const_datum.value() as i32,
+    ))))
 }
 
 pub unsafe fn transform_targetentry_to_df_field(node: *mut Node) -> Result<Field, String> {
@@ -137,6 +151,18 @@ pub unsafe fn transform_targetentry_to_df_field(node: *mut Node) -> Result<Field
         return Ok(Field::new(col_name_str, datafusion_type, nullable));
     } else {
         return Err(format!("Invalid BuiltinOid"));
+    }
+}
+
+pub unsafe fn transform_targetentry_to_expr(node: *mut Node) -> Result<Expr, String> {
+    let target_entry = node as *mut pgrx::pg_sys::TargetEntry;
+    let te_expr_node = (*target_entry).expr as *mut pgrx::pg_sys::Node;
+    let node_tag = (*te_expr_node).type_;
+
+    match node_tag {
+        NodeTag::T_Const => transform_const_to_df_expr(te_expr_node),
+        // TODO: handle other types (T_Var, etc.)
+        _ => Err(format!("transform_targetentry_to_expr does not handle node_tag {:?}", node_tag))
     }
 }
 
@@ -181,6 +207,51 @@ pub unsafe fn transform_seqscan_to_df_plan(
         TableScan::try_new(tablename, table_source, Some(projections), vec![], None)
             .map_err(datafusion_err_to_string("failed to create table scan"))?,
     ));
+}
+
+pub unsafe fn transform_result_to_df_plan(
+    plan: *mut Plan,
+    rtable: *mut List,
+    outer_plan: Option<LogicalPlan>
+) -> Result<LogicalPlan, String> {
+    /*
+     * Taken from postgres source:
+     *   Result node -
+     *      If no outer plan, evaluate a variable-free targetlist.
+     *      If outer plan, return tuples from outer plan (after a level of
+     *      projection as shown by targetlist).
+     * See nodeResult.c for more details about a child plan (outer plan).
+     *     If no outer plan, then equivalent to a Values plan.
+    */
+
+    let result = plan as *mut pgrx::pg_sys::Result;
+
+    let mut cols: Vec<Field> = vec![];
+    let mut values: Vec<Vec<Expr>> = vec![vec![]];
+
+    let target_list = (*plan).targetlist;
+    if !target_list.is_null() {
+        let elements = (*target_list).elements;
+        for i in 0..(*target_list).length {
+            let list_cell_node =
+                (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+            match (*list_cell_node).type_ {
+                NodeTag::T_TargetEntry => {
+                    cols.push(transform_targetentry_to_df_field(list_cell_node)?);
+                    values[0].push(transform_targetentry_to_expr(list_cell_node)?);
+                },
+                _ => return Err(format!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_)),
+            }
+        }
+    }
+    
+    let arrow_schema = Schema::new(cols);
+    let df_schema = DFSchema::try_from(arrow_schema).map_err(datafusion_err_to_string("result DFSchema failed"))?;
+
+    Ok(LogicalPlan::Values(Values {
+        schema: df_schema.clone().into(),
+        values: values,
+    }))
 }
 
 pub unsafe fn transform_valuesscan_to_df_plan(
@@ -229,16 +300,8 @@ pub unsafe fn transform_valuesscan_to_df_plan(
 
                 match (*value_expr).type_ {
                     NodeTag::T_Const => {
-                        let const_expr = value_expr as *mut pgrx::pg_sys::Const;
-
-                        let value_type = (*const_expr).consttype; // Oid
-                        let value_datum = (*const_expr).constvalue; // Datum
-                        let value_isnull = (*const_expr).constisnull; // bool
-
                         // TODO: actually get the type here - for now just defaulting to Int32
-                        values_row.push(Expr::Literal(ScalarValue::Int32(Some(
-                            value_datum.value() as i32,
-                        ))));
+                        values_row.push(transform_const_to_df_expr(value_expr)?);
                     }
                     // TODO: deal with all other types
                     _ => {

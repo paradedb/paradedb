@@ -1,4 +1,5 @@
 use datafusion::arrow::datatypes::Schema;
+use datafusion::logical_expr::col;
 use datafusion::logical_expr::Sort;
 use pg_sys::{
     exprType, get_attname, namestrcpy, pgrx_list_nth, Aggref, BuiltinOid, Const, Datum,
@@ -167,6 +168,21 @@ pub unsafe fn transform_targetentry_to_expr(node: *mut Node) -> Result<Expr, Str
             "transform_targetentry_to_expr does not handle node_tag {:?}",
             node_tag
         )),
+    }
+}
+
+pub unsafe fn transform_targetentry_to_df_expr(node: *mut Node) -> Result<Expr, String> {
+    let target_entry = node as *mut pgrx::pg_sys::TargetEntry;
+    let col_name = (*target_entry).resname;
+
+    // TODO: handle more complex expressions
+    if !col_name.is_null() {
+        let col_name = CStr::from_ptr(col_name).to_string_lossy().into_owned();
+        let expr = col(col_name);
+
+        Ok(expr)
+    } else {
+        return Err(format!("Column name is null"));
     }
 }
 
@@ -435,17 +451,40 @@ pub unsafe fn transform_sort_to_df_plan(
     rtable: *mut List,
     outer_plan: Option<LogicalPlan>,
 ) -> Result<LogicalPlan, String> {
-    info!("Ran into a Sort!");
     let outer_plan = outer_plan.ok_or("Limit does not have an outer plan")?;
 
     let scan_node = plan as *mut pg_sys::Scan;
-
     info!("{}", (*scan_node).plan.to_string());
 
-    let expr: Vec<Expr> = Vec::new();
+    let mut sort_expr_vec: Vec<Expr> = Vec::new();
+
+    let target_list = (*scan_node).plan.targetlist;
+    if !target_list.is_null() {
+        let elements = (*target_list).elements;
+        for i in 0..(*target_list).length {
+            let list_cell_node =
+                (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+            match (*list_cell_node).type_ {
+                NodeTag::T_TargetEntry => {
+                    let expr = transform_targetentry_to_df_expr(list_cell_node)?;
+                    let sort_expr = expr.sort(false, true);
+                    sort_expr_vec.push(sort_expr);
+                }
+                _ => {
+                    return Err(format!(
+                        "target type {:?} not handled yet for valuesscan",
+                        (*list_cell_node).type_
+                    ))
+                }
+            }
+        }
+    }
+
+    // TODO: get nulls_first and sort operator
+    let allParam = (*scan_node).plan.allParam;
 
     Ok(LogicalPlan::Sort(Sort {
-        expr,
+        expr: sort_expr_vec,
         input: Box::new(outer_plan).into(),
         fetch: None,
     }))

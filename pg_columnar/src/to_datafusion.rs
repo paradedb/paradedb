@@ -193,17 +193,15 @@ pub unsafe fn transform_result_to_df_plan(
     let result = plan as *mut pgrx::pg_sys::Result;
 
     let mut cols: Vec<Field> = vec![];
-    unsafe {
-        let target_list = (*plan).targetlist;
-        if !target_list.is_null() {
-            let elements = (*target_list).elements;
-            for i in 0..(*target_list).length {
-                let list_cell_node =
-                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-                match (*list_cell_node).type_ {
-                    NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node).unwrap()),
-                    _ => return Err(format!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_)),
-                }
+    let target_list = (*plan).targetlist;
+    if !target_list.is_null() {
+        let elements = (*target_list).elements;
+        for i in 0..(*target_list).length {
+            let list_cell_node =
+                (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+            match (*list_cell_node).type_ {
+                NodeTag::T_TargetEntry => cols.push(transform_targetentry_to_df_field(list_cell_node)?),
+                _ => return Err(format!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_)),
             }
         }
     }

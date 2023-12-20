@@ -6,7 +6,6 @@ rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
 [target.'cfg(target_os="linux")']
 rustflags = ["-Cinstrument-coverage"]
 
-# Run ClickBench benchmarks
+# Enable Cargo-based benchmarks
 [alias]
-clickbench = "run --bin clickbench_hot"
-clickbench_cold = "run --bin clickbench_cold"
+clickbench = "run --bin clickbench --"

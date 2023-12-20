@@ -126,6 +126,7 @@ unsafe fn plannedstmt_using_columnar(ps: *mut PlannedStmt) -> bool {
 unsafe fn get_relation(ps: *mut PlannedStmt) -> PgRelation {
     let rtable = (*ps).rtable;
     let plan = (*ps).planTree as *mut pgrx::pg_sys::Node;
+
     // TODO: Replace hard-coded 1
     let rte = rt_fetch(1, rtable);
     let relation = RelationIdGetRelation((*rte).relid);

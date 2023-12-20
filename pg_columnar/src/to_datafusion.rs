@@ -157,30 +157,19 @@ pub unsafe fn transform_seqscan_to_df_plan(
 
     let tablename = format!("{}", pg_relation.oid());
     let table_reference = TableReference::from(tablename.clone());
-    let mut cols: Vec<Field> = vec![];
+    let mut projections: Vec<usize> = vec![];
 
-    // TODO: this shouldn't be creating columns, it should just be indices for the projection
-    unsafe {
-        let list = (*plan).targetlist;
+    let list = (*plan).targetlist;
 
-        if !list.is_null() {
-            let elements = (*list).elements;
-            for i in 0..(*list).length {
-                let list_cell_node =
-                    (*elements.offset(i as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-
-                match (*list_cell_node).type_ {
-                    NodeTag::T_TargetEntry => {
-                        cols.push(transform_targetentry_to_df_field(list_cell_node)?)
-                    }
-                    _ => {
-                        return Err(format!(
-                            "target type {:?} not handled for seqscan yet",
-                            (*list_cell_node).type_
-                        ))
-                    }
-                }
-            }
+    if !list.is_null() {
+        let elements = (*list).elements;
+        for i in 0..(*list).length {
+            let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
+            let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
+            let var = (*target_entry).expr as *mut pgrx::pg_sys::Var;
+            
+            let col_idx = (*var).varattno as usize;
+            projections.push(col_idx - 1);
         }
     }
 
@@ -189,7 +178,7 @@ pub unsafe fn transform_seqscan_to_df_plan(
     let table_source = provider_as_source(table_provider);
 
     return Ok(LogicalPlan::TableScan(
-        TableScan::try_new(tablename, table_source, None, vec![], None)
+        TableScan::try_new(tablename, table_source, Some(projections), vec![], None)
             .map_err(datafusion_err_to_string("failed to create table scan"))?,
     ));
 }

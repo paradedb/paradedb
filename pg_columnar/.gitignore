@@ -1,10 +1,17 @@
+# macOS
 .DS_Store
-.idea/
-/target
-*.iml
-**/*.rs.bk
+
+# Cargo
 Cargo.lock
-hits_v1.tsv
-hits.tsv.gz
+target/
+
+# Logs
 log.txt
-benchmarks/clickbench/hits_v1.tsv
+
+# Benchmarks
+benchmarks/clickbench/hits.tsv
+benchmarks/clickbench/hits.tsv.gz
+benchmarks/clickbench/hits005.tsv
+benchmarks/clickbench/hits005.tsv.gz
+benchmarks/clickbench/hits010.tsv
+benchmarks/clickbench/hits010.tsv.gz

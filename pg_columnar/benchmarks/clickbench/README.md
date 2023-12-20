@@ -26,3 +26,4 @@ List of things we can do to tune, based on postgresql-tuned and datafusion:
 
 - Check the datafusion one, and do the same ones onc we have them
 - Check the postgresql-tuned, and do the same one
+- Check the clickbench full README

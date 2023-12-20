@@ -1,92 +1,190 @@
 #!/bin/bash
 
-# This script runs the ClickBench benchmarks. It is designed to run on both Ubuntu and macOS, for
-# local development as well. The local development version only runs a small subset of the dataset. It
-# currently runs for pg15.
+# This script benchmarks the performance of pg_columnar using the ClickBench benchmkark
+# suite. It is supported on both Ubuntu and macOS, for local development via `cargo` as
+# well as in CI testing via Docker.
+#
+#
+# The local development version runs a smaller subset of the hits dataset, hits005.tsv, 
+# which is a randomly sampled 5% of the full ClickBench dataset, hits.tsv. It is roughly
+# 5M rows (~3.75GB). The local development version is intended for quick iteration and is 
+# designed to be run via `cargo clickbench`, instead of running this script directly.
+# 
+# The CI version runs the full ClickBench dataset, hits.tsv, which is roughly 100M rows
+# (~75GB). The CI version is intended for use in CI and official benchmarking, and is 
+# designed to be run directly via `./benchmark.sh`.
 
 # Exit on subcommand errors
 set -Eeuo pipefail
-IFS=$'\n\t'
+
+# Handle params
+usage() {
+  echo "Usage: $0 [OPTIONS]"
+  echo "Options:"
+  echo " -h (optional),  Display this help message"
+  echo " -t (optional),  Version tag to benchmark:"
+  echo "                  - 'x.y.z'  Runs the full ClickBench benchmark against a specific ParadeDB Docker image (e.g. 0.3.1)"
+  echo "                  - 'latest' Runs the full ClickBench benchmark the latest ParadeDB Docker image"
+  echo "                  - 'local'  Runs the full ClickBench benchmark the current commit inside a local ParadeDB Docker build"
+  echo "                  - 'pgrx'   Runs a minified ClickBench benchmark against the current commit inside the pg_columnar pgrx PostgreSQL instance"
+  echo " -s (optional),  Type of storage layout to benchmark:"
+  echo "                  - 'hot'                 Runs with in-memory storage using PostgreSQL's CREATE TEMP TABLE"
+  echo "                  - 'parquet-single'      Runs with on-disk storage using PostgreSQL's CREATE TABLE using a single Parquet file"
+  echo "                  - 'parquet-partitioned' Runs with on-disk storage using PostgreSQL's CREATE TABLE using partitioned Parquet files" 
+  exit 1
+}
+
+# Instantiate vars
+FLAG_TAG="pgrx"
+FLAG_STORAGE="hot"
+TRIES=3
+
+# Assign flags to vars and check
+while getopts "ht:s:" flag
+do
+  case $flag in
+    h)
+      usage
+      ;;
+    t)
+      FLAG_TAG=$OPTARG
+      ;;
+    s)
+      FLAG_STORAGE=$OPTARG
+      ;;
+    *)
+      usage
+      ;;
+  esac
+done
+
+# Determine the base directory of the script
+BASEDIR=$(dirname "$0")
+cd "$BASEDIR/"
 
 # Cleanup function to reset the environment
 cleanup() {
+  echo ""
   echo "Cleaning up benchmark environment..."
-  psql -h localhost -p 28815 -d pg_columnar -t -c 'DROP EXTENSION pg_columnar CASCADE;'
-  cargo pgrx stop
+  if [ "$FLAG_TAG" == "pgrx" ]; then
+    psql -h localhost -p 28815 -d pg_columnar -t -c 'DROP EXTENSION pg_columnar CASCADE;'
+    cargo pgrx stop
+  else
+    if docker ps -q --filter "name=paradedb" | grep -q .; then
+      docker kill paradedb > /dev/null 2>&1
+    fi
+    docker rm paradedb > /dev/null 2>&1
+  fi
   echo "Done, goodbye!"
 }
 
 # Register the cleanup function to run when the script exits
 trap cleanup EXIT
 
+echo ""
+echo "*****************************************************************"
+echo "* Benchmarking pg_columnar version '$FLAG_TAG' against ClickBench"
+echo "*****************************************************************"
+echo ""
 
-# # Download hits.tsv if we don't already have it
-# if [ ! -e hits.tsv ]; then
-#     wget --no-verbose --continue 'https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz'
-#     gzip -d hits.tsv.gz
-#    # Handle permissions
-#    chmod 777 ~ hits.tsv
-# fi
+if [ "$FLAG_TAG" == "pgrx" ]; then
+  # For local benchmarking via pgrx, we download hits005.tsv, which is ~5M rows (~3.75GB)
+  if [ ! -e hits005.tsv ]; then
+    echo "Downloading hits005.tsv dataset..."
+    wget --no-verbose --continue https://paradedb-benchmarks.s3.amazonaws.com/hits005.tsv.gz
+    gzip -d hits005.tsv.gz
+    chmod 666 hits005.tsv
+  else
+    echo "Dataset already exists, skipping download..."
+  fi
 
-# For local development, we download hits_v1.tsv, which is ~7.5GB
-if [ ! -e hits_v1.tsv ]; then
-  curl https://datasets.clickhouse.com/hits/tsv/hits_v1.tsv.xz | unxz --threads=`nproc` > hits_v1.tsv
-  chmod 777 ~ hits_v1.tsv
-fi
+  # Build pg_columnar and start its pgrx PostgreSQL instance
+  echo ""
+  echo "Building pg_columnar..."
+  cargo build
+  cargo pgrx start
 
-# # Determine the base directory of the script
-# BASEDIR=$(dirname "$0")
-# cd "$BASEDIR/../"
-# BASEDIR=$(pwd)
+  # Run the benchmarking
+  if [ "$FLAG_STORAGE" = "hot" ]; then
 
-
-# Build pg_columnar and start its Postgres instance
-cargo build
-cargo pgrx start
-
-# Load data into pgrx-managed database
-# sudo -h localhost -p 28815 psql pg_columnar -t < clickbench/paradedb/create.sql
-# sudo -h localhost -p 28815 psql pg_columnar -t -c '\timing' -c "\\COPY hits FROM 'hits_v1.tsv' WITH freeze"
-# sudo -h localhost -p 28815 psql pg_columnar -t -c 'VACUUM ANALYZE hits'
-
-echo "0 - creating pg_columnar"
-psql -h localhost -p 28815 -d pg_columnar -t -c "CREATE EXTENSION pg_columnar;"
-
-# TODO: Since we only support TEMP tables currently, I have merged all of these steps inside the create.sql command, so it
-# is in the same session. Once we implement persistence, we can separate them again.
-# echo "1 - creating table"
-# psql -h localhost -p 28815 -d pg_columnar -t < clickbench/paradedb/create.sql
-# echo "2 - COPYing hits"
-# psql -h localhost -p 28815 -d pg_columnar -t -c '\timing' -c "COPY hits FROM 'hits_v1.tsv' WITH freeze"
-# echo "3 - vacuuming"
-# psql -h localhost -p 28815 -d pg_columnar -t -c 'VACUUM ANALYZE hits'
-# echo "4 - done"
-
-# Connect to the PostgreSQL database and execute multiple commands
-psql -h localhost -p 28815 -d pg_columnar -t <<EOF
-\echo "1 - creating table"
-\i clickbench/paradedb/create.sql
-\echo "2 - COPYing hits"
-\timing
-COPY hits FROM 'hits_v1.tsv' WITH freeze
-\echo "Committing transaction"
-COMMIT;
-\echo "3 - vacuuming"
-VACUUM ANALYZE hits;
-\echo "4 - done"
+  # Connect to the PostgreSQL database and execute all commands in the same session
+  psql -h localhost -p 28815 -d pg_columnar <<EOF
+  \echo
+  \echo Creating pg_columnar
+  \i create.sql
+  \echo
+  \echo Loading data...
+  \timing on
+  \copy hits from 'hits005.tsv'
+  \echo
+  \echo Running queries...
+  \timing on
+  \i queries.sql
 EOF
 
-# COPY 99997497
-# Time:
-
-# run test
-./clickbench/paradedb/run.sh 2>&1 | tee log.txt
-
-# disk usage
-# sudo du -bcs /var/lib/postgresql/15/main/
 
 
-# 18979994590
+  elif [ "$FLAG_STORAGE" = "parquet-single" ]; then
+    echo "TODO: Implement pgrx + Parquet single storage benchmarking"
+  elif [ "$FLAG_STORAGE" = "parquet-partitioned" ]; then
+    echo "TODO: Implement pgrx + Parquet partitioned storage benchmarking"
+  else
+    echo "Invalid storage type: $FLAG_STORAGE"
+    usage
+  fi
+else
+  # For CI/official benchmarking via Docker, we download the full hits.tsv dataset, which is ~100M rows (~75GB)
+  if [ ! -e hits.tsv ]; then
+    echo "Downloading hits005.tsv dataset..."
+    wget --no-verbose --continue 'https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz'
+    gzip -d hits.tsv.gz
+    chmod 666 hits.tsv
+  else
+    echo "Dataset already exists, skipping download..."
+  fi
 
-# parse results for json file
-./parse.sh < log.txt
+  # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
+  if [ "$FLAG_TAG" == "local" ]; then
+    echo "Building ParadeDB Docker image from source..."
+    docker build -t paradedb/paradedb:"$FLAG_TAG" \
+      -f "../../../docker/Dockerfile" \
+      --build-arg PG_VERSION_MAJOR="15" \
+      --build-arg PG_BM25_VERSION="0.0.0" \
+      --build-arg PG_SPARSE_VERSION="0.0.0" \
+      --build-arg PG_COLUMNAR_VERSION="0.0.0" \
+      --build-arg PGVECTOR_VERSION="0.5.1" \
+      "../../../"
+    echo ""
+  fi
+
+  # Install and run Docker container for ParadeDB in detached mode
+  echo "Spinning up ParadeDB $FLAG_TAG Docker image..."
+  docker run \
+    -d \
+    --name paradedb \
+    -e POSTGRES_USER=myuser \
+    -e POSTGRES_PASSWORD=mypassword \
+    -e POSTGRES_DB=mydatabase \
+    -p $PORT:5432 \
+    paradedb/paradedb:"$FLAG_TAG"
+
+  # Wait for Docker container to spin up
+  echo ""
+  echo "Waiting for ParadeDB Docker image to spin up..."
+  sleep 5
+  echo "Done!"
+
+  # Run the benchmarking
+  if [ "$FLAG_STORAGE" = "hot" ]; then
+    echo "TODO: Implement Docker + hot storage benchmarking"
+  elif [ "$FLAG_STORAGE" = "parquet-single" ]; then
+    echo "TODO: Implement Docker + Parquet single storage benchmarking"
+  elif [ "$FLAG_STORAGE" = "parquet-partitioned" ]; then
+    echo "TODO: Implement Docker + Parquet partitioned storage benchmarking"
+  else
+    echo "Invalid storage type: $FLAG_STORAGE"
+    usage
+  fi
+fi
+
+echo "Benchmark complete!"

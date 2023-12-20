@@ -1,8 +1,5 @@
 use crate::index_access::options::ParadeOptions;
-use crate::index_access::utils::{
-    categorize_tupdesc, create_parade_index, lookup_index_tupdesc, row_to_json,
-};
-use crate::parade_index::writer::PARADE_WRITER_CACHE;
+use crate::index_access::utils::{create_parade_index, get_parade_index, lookup_index_tupdesc};
 use pgrx::*;
 use std::panic::{self, AssertUnwindSafe};
 
@@ -10,15 +7,11 @@ use std::panic::{self, AssertUnwindSafe};
 // index on the build callback state
 struct BuildState {
     count: usize,
-    memcxt: PgMemoryContexts,
 }
 
 impl BuildState {
     fn new() -> Self {
-        BuildState {
-            count: 0,
-            memcxt: PgMemoryContexts::new("ParadeDB build context"),
-        }
+        BuildState { count: 0 }
     }
 }
 
@@ -48,9 +41,6 @@ pub extern "C" fn ambuild(
     let mut result = unsafe { PgBox::<pg_sys::IndexBuildResult>::alloc0() };
     result.heap_tuples = state.count as f64;
     result.index_tuples = state.count as f64;
-
-    // Clear the writer cache to commit the changes and release the lock on the writer.
-    unsafe { PARADE_WRITER_CACHE.clear_cache() };
 
     result.into_pg()
 }
@@ -108,30 +98,15 @@ unsafe extern "C" fn build_callback(
 unsafe extern "C" fn build_callback_internal(
     ctid: pg_sys::ItemPointerData,
     values: *mut pg_sys::Datum,
-    state: *mut std::os::raw::c_void,
+    _state: *mut std::os::raw::c_void,
     index: pg_sys::Relation,
 ) {
     check_for_interrupts!();
 
-    let index_relation_ref = unsafe { PgRelation::from_pg(index) };
+    let index_relation_ref: PgRelation = PgRelation::from_pg(index);
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);
-    let attributes = categorize_tupdesc(&tupdesc);
-    let natts = tupdesc.natts as usize;
-    let dropped = (0..tupdesc.natts as usize)
-        .map(|i| tupdesc.get(i).unwrap().is_dropped())
-        .collect::<Vec<bool>>();
+    let parade_index = get_parade_index(index_relation_ref.name());
+    let builder = parade_index.json_builder(ctid, &tupdesc, values);
 
-    let state = (state as *mut BuildState).as_mut().unwrap();
-    let mut old_context = state.memcxt.set_as_current();
-
-    let values = std::slice::from_raw_parts(values, 1);
-    let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
-
-    let parade_writer = PARADE_WRITER_CACHE.get_cached(index_relation_ref.name());
-
-    // Insert row to parade index
-    parade_writer.insert(ctid, builder);
-
-    old_context.set_as_current();
-    state.memcxt.reset();
+    parade_index.insert(builder);
 }

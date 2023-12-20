@@ -1,27 +1,13 @@
-#![allow(unused_imports, unused_variables, dead_code, unreachable_code)]
-use core::fmt;
-use std::error::Error;
-use std::io::{self, Read, Write};
-use std::net::{SocketAddr, TcpStream};
-use std::str::Utf8Error;
-use std::time::Duration;
-use std::{default, thread};
-
-use http::{Method, Request};
-use parade_index::index::ParadeIndexKey;
-use parade_writer::ParadeWriter;
-use pgrx::bgworkers::{
-    BackgroundWorker, BackgroundWorkerBuilder, BackgroundWorkerStatus, SignalWakeFlags,
-};
+use crate::parade_writer::ParadeWriterServer;
+use crate::parade_writer::WriterInitError;
+use crate::parade_writer::{ParadeWriterRequest, ParadeWriterResponse};
+use parade_writer::ParadeWriterClient;
+use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
-use reqwest::blocking::Client;
-use serde::{Deserialize, Serialize};
 use shared::logs::ParadeLogsGlobal;
-use shared::{plog, telemetry};
+use shared::telemetry;
+use std::time::Duration;
 use tiny_http::{Response, Server};
-
-use crate::parade_writer::error::WriterError;
-use crate::parade_writer::io::{ParadeWriterRequest, ParadeWriterResponse};
 
 mod api;
 mod index_access;
@@ -36,7 +22,7 @@ mod tokenizers;
 static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_bm25");
 
 // This is global shared state for the writer background worker.
-static WRITER: PgLwLock<ParadeWriter> = PgLwLock::new();
+static WRITER: PgLwLock<ParadeWriterClient> = PgLwLock::new();
 
 pgrx::pg_module_magic!();
 
@@ -95,31 +81,40 @@ pub unsafe extern "C" fn _PG_init() {
 #[no_mangle]
 pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
     // Bind to port 0 to let the OS choose a free port.
-    let server_result = Server::http("0.0.0.0:0");
     // Check if there was an error starting the server, and return early if so.
-    if let Err(server_error) = &server_result {
-        log!("error starting pg_bm25 server: {server_error:?}");
-        WRITER.exclusive().set_error(WriterError::ServerBindError);
-        return;
-    }
-
-    // We've checked above that there's no error, so it's safe to unwrap.
-    let server = server_result.unwrap();
-
-    // Retrieve the assigned port and assign to global state.
-    match server.server_addr() {
+    let server = {
         // Note that we do not derefence the WRITER to mutate it, due to PGRX shared struct rules.
-        tiny_http::ListenAddr::IP(addr) => {
-            WRITER.exclusive().set_addr(addr);
-        }
-        tiny_http::ListenAddr::Unix(_) => {
-            WRITER
-                .exclusive()
-                .set_error(WriterError::ServerUnixPortError);
-            log!("paradedb bm25 writer started server with a unix port, which is not supported");
-            return;
+        // We also acquire its lock with `.exclusive` inside an enclosing block to ensure that
+        // it is dropped after we are done with it.
+        let mut writer_client = WRITER.exclusive();
+        match Server::http("0.0.0.0:0") {
+            Err(error) => {
+                log!("error starting pg_bm25 server: {error:?}");
+                writer_client.set_error(WriterInitError::ServerBindError);
+                return;
+            }
+            Ok(server) => {
+                match server.server_addr() {
+                    // We want to set the socket address on the addr field of the writer client,
+                    // so that connection processes that share it know where to send their requests.
+                    tiny_http::ListenAddr::IP(addr) => {
+                        writer_client.set_addr(addr);
+                    }
+                    // It's not clear when tiny_http would choose to use a Unix socket address,
+                    // but we have to handle the enum variant, so we'll consider this outcome
+                    // an irrecovereable error, although its not expected to happen.
+                    tiny_http::ListenAddr::Unix(_) => {
+                        writer_client.set_error(WriterInitError::ServerUnixPortError);
+                        log!("paradedb bm25 writer started server with a unix port, which is not supported");
+                        return;
+                    }
+                };
+                server
+            }
         }
     };
+
+    // Retrieve the assigned port and assign to global state.
 
     // Handle an edge case where Postgres has been shut down very quickly. In this case, the
     // shutdown worker will have already sent the shutdown message, but we haven't started the
@@ -130,27 +125,24 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
         return;
     }
 
-    // We'll set a should_exit flag instead of just returing early so that we can
-    // send an acknowledgement to the client.
-    let mut should_exit = false;
+    // We initialized the tiny_http server above, which is the actual HTTP server that reads
+    // requests. The ParadeWriterServer is more like the "server implementation", and actually
+    // handles the requests and produces responses.
+    let mut writer_server = ParadeWriterServer::new();
+
     for mut request in server.incoming_requests() {
         let response = match ParadeWriterRequest::try_from(&mut request) {
-            Err(e) => ParadeWriterResponse::RequestParseError(e),
-            Ok(ParadeWriterRequest::Shutdown) => {
-                should_exit = true;
-                ParadeWriterResponse::ShutdownOk
+            Err(e) => {
+                ParadeWriterResponse::Error(format!("error parsing parade writer request: {e:?}"))
             }
-            Ok(t) => {
-                log!("server received unimplemented type: {t:?}");
-                unimplemented!("");
-            }
+            Ok(req) => writer_server.handle(req),
         };
 
         request
             .respond(Response::from_data(response))
-            .unwrap_or_else(|e| log!("unexpected error responding to client: {e:?}"));
+            .unwrap_or_else(|e| log!("parade index writer encountered an unexpected error responding to client: {e:?}"));
 
-        if should_exit {
+        if writer_server.should_exit() {
             log!("pg_bm25 server received shutdown request, shutting down.");
             return;
         }
@@ -160,11 +152,11 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn pg_bm25_shutdown_worker(_arg: pg_sys::Datum) {
-    log!("started shutdown background worker");
     // These are the signals we want to receive.  If we don't attach the SIGTERM handler, then
     // we'll never be able to exit via an external notification.
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGTERM);
 
+    log!("started shutdown background worker");
     // Check every second to see if we've received SIGTERM.
     while BackgroundWorker::wait_latch(Some(Duration::from_secs(1))) {}
 

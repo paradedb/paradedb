@@ -214,7 +214,13 @@ pub unsafe fn transform_seqscan_to_df_plan(
             let operator_name = CStr::from_ptr((*operator_form).oprname.data.as_ptr())
                 .to_string_lossy()
                 .into_owned();
-            info!("operator name {:?}", operator_name);
+
+            let lhs = pg_sys::pgrx_list_nth((*operator_expr).args, 0);
+            let rhs = pg_sys::pgrx_list_nth((*operator_expr).args, 1);
+
+            info!("lhs: {:?}", lhs);
+            info!("rhs: {:?}", rhs);
+
             pg_sys::ReleaseSysCache(operator_tuple);
         }
     }

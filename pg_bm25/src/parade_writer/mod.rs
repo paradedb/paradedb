@@ -1,73 +1,79 @@
-use std::{error::Error, net::SocketAddr};
+pub mod client;
+pub mod server;
 
-use pgrx::{log, PGRXSharedMemory};
+use crate::{json::builder::JsonBuilder, parade_index::index::ParadeIndexKey};
+pub use client::ParadeWriterClient;
+use pgrx::PGRXSharedMemory;
+use serde::{Deserialize, Serialize};
+pub use server::ParadeWriterServer;
 
-use crate::parade_writer::io::ParadeWriterResponse;
-
-use self::{
-    error::{ParadeWriterRequestError, WriterError},
-    io::ParadeWriterRequest,
-};
-
-pub mod error;
-pub mod io;
-
-#[allow(unused_variables)]
-#[derive(Copy, Clone, Default)]
-pub struct ParadeWriter {
-    addr: Option<SocketAddr>,
-    error: Option<WriterError>,
+/// Possible actions to request of the ParadeWriterServer.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ParadeWriterRequest {
+    /// index_directory_path, json_builder.
+    Insert(String, JsonBuilder),
+    /// index_directory_path, index_key.
+    Delete(String, ParadeIndexKey),
+    /// index_directory_path, json_builder.
+    DropIndex(String),
+    /// should only be called by shutdown bgworker.
+    Shutdown,
 }
 
-impl ParadeWriter {
-    pub fn set_addr(&mut self, addr: SocketAddr) {
-        self.addr = Some(addr);
-    }
+/// Possible responses for the ParadeWriterServer.
+/// The ParadeWriterServer must not every panic, because it doesn't have
+/// a reliable way to recover, and observability into it is very difficult.
+/// If it does need to error, it should return one of these error types to the client.
+/// To ease debugging, we should tr
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ParadeWriterResponse {
+    Ok,
+    Error(String),
+}
 
-    pub fn set_error(&mut self, err: WriterError) {
-        self.error = Some(err);
-    }
+// We're using the From/TryFrom traits to handle serialization/deserialization.
+// These should call out to serde-based serialization functions.
 
-    fn send_request(
-        &self,
-        request: ParadeWriterRequest,
-    ) -> Result<ParadeWriterResponse, Box<dyn Error>> {
-        let addr = if self.addr.is_none() {
-            match request {
-                ParadeWriterRequest::Shutdown => {
-                    // The insert worker hasn't started its server yet.
-                    // We won't send the shutdown request,but it is up to the insert worker
-                    // to handle this case by checking for SIGTERM right before starting its server.
-                    log!("pg_bm25 shutdown worker skipped sending signal to insert worker");
-                    return Ok(ParadeWriterResponse::ShutdownOk);
-                }
-                req => {
-                    return Err(Box::new(ParadeWriterRequestError::WriterNotInitialized(
-                        format!(
-                            "pg_bm25 writer not yet initialized, but received request: {req:?}"
-                        ),
-                    )))
-                }
-            }
-        } else {
-            self.addr.unwrap()
-        };
-
-        let uri = &request.uri();
-        let bytes: Vec<u8> = request.into();
-        let client = reqwest::blocking::Client::new();
-        let response = client
-            .post(&format!("http://{addr}{uri}"))
-            .body(bytes)
-            .send()?;
-        let response_body = response.bytes()?;
-        ParadeWriterResponse::try_from(response_body.to_vec().as_slice()).map_err(|e| e.into())
-    }
-
-    pub fn shutdown(&self) -> Result<(), Box<dyn Error>> {
-        self.send_request(ParadeWriterRequest::Shutdown)?;
-        Ok(())
+impl From<ParadeWriterRequest> for Vec<u8> {
+    fn from(parade_writer_request: ParadeWriterRequest) -> Self {
+        pgrx::log!(
+            "REQUEST LOG: {:#?}",
+            serde_json::to_string(&parade_writer_request)
+        );
+        serde_json::to_vec(&parade_writer_request).unwrap()
     }
 }
 
-unsafe impl PGRXSharedMemory for ParadeWriter {}
+impl TryFrom<&mut tiny_http::Request> for ParadeWriterRequest {
+    type Error = String;
+
+    fn try_from(request: &mut tiny_http::Request) -> Result<Self, Self::Error> {
+        let reader = request.as_reader();
+        serde_json::from_reader(reader).map_err(|e| e.to_string())
+    }
+}
+
+impl From<ParadeWriterResponse> for Vec<u8> {
+    fn from(value: ParadeWriterResponse) -> Self {
+        serde_json::to_vec(&value).unwrap()
+    }
+}
+
+impl TryFrom<&[u8]> for ParadeWriterResponse {
+    type Error = String;
+
+    fn try_from(value: &[u8]) -> Result<Self, String> {
+        serde_json::from_slice(value).map_err(|e| e.to_string())
+    }
+}
+
+/// We specifically define a WriterInitError for errors that can occur before
+/// we've started the server. Any of these will leave  pg_bm25 in a completely
+/// broken state, so we should do our best to abort Postgres startup in that case.
+#[derive(Copy, Clone, Debug)]
+pub enum WriterInitError {
+    ServerUnixPortError,
+    ServerBindError,
+}
+
+unsafe impl PGRXSharedMemory for WriterInitError {}

@@ -1,10 +1,11 @@
 use crate::json::json_string::JsonString;
-use indexmap::IndexMap;
 use pgrx::*;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tantivy::schema::Field;
 use tantivy::Document;
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub enum JsonBuilderValue {
     bool(bool),
@@ -16,122 +17,108 @@ pub enum JsonBuilderValue {
     f32(f32),
     f64(f64),
     string(String),
-    json_string(pgrx::JsonString),
-    jsonb(JsonB),
+    json_string(String),
+    jsonb(serde_json::Value),
     json_value(serde_json::Value),
     string_array(Vec<Option<String>>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct JsonBuilder {
     // Using IndexMap to maintain insertion order.
-    pub values: IndexMap<String, JsonBuilderValue>,
+    pub values: HashMap<Field, JsonBuilderValue>,
+    // The field_map is only used as a lookup for adding values.
+    // It's not requited on the deserialization side.
+    #[serde(skip_serializing)]
+    field_map: Option<HashMap<String, Field>>,
 }
 
-#[allow(dead_code)]
 impl JsonBuilder {
-    pub fn new(num_fields: usize) -> Self {
+    pub fn new(fields: HashMap<String, Field>) -> Self {
+        let field_map = Some(fields.clone());
+        // We will check for existing field_name keys in the `add` methods below.
+        // Fields will only be inserted into the JSON builder if they we passed
+        // to this `new` method.
         JsonBuilder {
-            values: IndexMap::with_capacity(num_fields + 5),
+            values: HashMap::new(),
+            field_map,
+        }
+    }
+
+    fn insert(&mut self, attname: String, value: JsonBuilderValue) {
+        let field_map = &self
+            .field_map
+            .as_ref()
+            .expect("JsonBuilder field_map has not been initialized");
+
+        if let Some(field) = field_map.get(&attname) {
+            self.values.insert(field.clone(), value);
         }
     }
 
     #[inline]
     pub fn add_bool(&mut self, attname: String, value: bool) {
-        self.values.insert(attname, JsonBuilderValue::bool(value));
+        self.insert(attname, JsonBuilderValue::bool(value));
     }
 
     #[inline]
     pub fn add_i16(&mut self, attname: String, value: i16) {
-        self.values.insert(attname, JsonBuilderValue::i16(value));
+        self.insert(attname, JsonBuilderValue::i16(value));
     }
 
     #[inline]
     pub fn add_i32(&mut self, attname: String, value: i32) {
-        self.values.insert(attname, JsonBuilderValue::i32(value));
+        self.insert(attname, JsonBuilderValue::i32(value));
     }
 
     #[inline]
     pub fn add_i64(&mut self, attname: String, value: i64) {
-        self.values.insert(attname, JsonBuilderValue::i64(value));
+        self.insert(attname, JsonBuilderValue::i64(value));
     }
 
     #[inline]
     pub fn add_u32(&mut self, attname: String, value: u32) {
-        self.values.insert(attname, JsonBuilderValue::u32(value));
+        self.insert(attname, JsonBuilderValue::u32(value));
     }
 
     #[inline]
     pub fn add_u64(&mut self, attname: String, value: u64) {
-        self.values.insert(attname, JsonBuilderValue::u64(value));
+        self.insert(attname, JsonBuilderValue::u64(value));
     }
 
     #[inline]
     pub fn add_f32(&mut self, attname: String, value: f32) {
-        self.values.insert(attname, JsonBuilderValue::f32(value));
+        self.insert(attname, JsonBuilderValue::f32(value));
     }
 
     #[inline]
     pub fn add_f64(&mut self, attname: String, value: f64) {
-        self.values.insert(attname, JsonBuilderValue::f64(value));
+        self.insert(attname, JsonBuilderValue::f64(value));
     }
 
     #[inline]
     pub fn add_string(&mut self, attname: String, value: String) {
-        self.values.insert(attname, JsonBuilderValue::string(value));
+        self.insert(attname, JsonBuilderValue::string(value));
     }
 
     #[inline]
-    pub fn add_json_string(&mut self, attname: String, value: pgrx::JsonString) {
-        self.values
-            .insert(attname, JsonBuilderValue::json_string(value));
+    pub fn add_json_string(&mut self, attname: String, pgrx::JsonString(value): pgrx::JsonString) {
+        self.insert(attname, JsonBuilderValue::json_string(value));
     }
 
     #[inline]
-    pub fn add_jsonb(&mut self, attname: String, value: JsonB) {
-        self.values.insert(attname, JsonBuilderValue::jsonb(value));
+    pub fn add_jsonb(&mut self, attname: String, JsonB(value): JsonB) {
+        self.insert(attname, JsonBuilderValue::jsonb(value));
     }
 
     #[inline]
     pub fn add_json_value(&mut self, attname: String, value: serde_json::Value) {
-        self.values
-            .insert(attname, JsonBuilderValue::json_value(value));
+        self.insert(attname, JsonBuilderValue::json_value(value));
     }
 
     #[inline]
     pub fn add_string_array(&mut self, attname: String, value: Vec<Option<String>>) {
-        self.values
-            .insert(attname, JsonBuilderValue::string_array(value));
-    }
-
-    pub fn build(&self, json: &mut Vec<u8>) {
-        json.push(b'{');
-        for (idx, (key, value)) in self.values.iter().enumerate() {
-            if idx > 0 {
-                json.push(b',');
-            }
-
-            // key was pre-quoted during categorize_tupdesc
-            json.extend_from_slice(key.as_bytes());
-            json.push(b':');
-
-            match value {
-                JsonBuilderValue::bool(v) => v.push_json(json),
-                JsonBuilderValue::i16(v) => v.push_json(json),
-                JsonBuilderValue::i32(v) => v.push_json(json),
-                JsonBuilderValue::i64(v) => v.push_json(json),
-                JsonBuilderValue::u32(v) => v.push_json(json),
-                JsonBuilderValue::u64(v) => v.push_json(json),
-                JsonBuilderValue::f32(v) => v.push_json(json),
-                JsonBuilderValue::f64(v) => v.push_json(json),
-                JsonBuilderValue::string(v) => v.push_json(json),
-                JsonBuilderValue::json_string(v) => v.push_json(json),
-                JsonBuilderValue::jsonb(v) => v.push_json(json),
-                JsonBuilderValue::json_value(v) => v.push_json(json),
-                JsonBuilderValue::string_array(v) => v.push_json(json),
-            }
-        }
-        json.push(b'}');
+        self.insert(attname, JsonBuilderValue::string_array(value));
     }
 }
 
@@ -156,7 +143,7 @@ impl JsonBuilderValue {
                     }
                 }
             }
-            JsonBuilderValue::jsonb(JsonB(serde_json::Value::Object(map))) => {
+            JsonBuilderValue::jsonb(serde_json::Value::Object(map)) => {
                 doc.add_json_object(*field, map.clone());
             }
             JsonBuilderValue::json_value(serde_json::Value::Object(map)) => {
@@ -181,7 +168,7 @@ mod tests {
 
     #[pg_test]
     fn test_new_builder() {
-        let builder = JsonBuilder::new(0);
+        let builder = JsonBuilder::new(std::collections::HashMap::new());
         assert_eq!(builder.values.len(), 0);
     }
 }

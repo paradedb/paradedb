@@ -1,7 +1,7 @@
-use crate::index_access::utils::{categorize_tupdesc, lookup_index_tupdesc, row_to_json};
-use crate::parade_index::index::ParadeIndexKey;
-use crate::parade_index::writer::PARADE_WRITER_CACHE;
+use crate::index_access::utils::lookup_index_tupdesc;
 use pgrx::*;
+
+use super::utils::get_parade_index;
 
 #[allow(clippy::too_many_arguments)]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
@@ -41,27 +41,24 @@ unsafe fn aminsert_internal(
 ) -> bool {
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);
-    let attributes = categorize_tupdesc(&tupdesc);
-    let natts = tupdesc.natts as usize;
-    let dropped = (0..tupdesc.natts as usize)
-        .map(|i| tupdesc.get(i).unwrap().is_dropped())
-        .collect::<Vec<bool>>();
-    let values = std::slice::from_raw_parts(values, 1);
-    let builder = row_to_json(values[0], &tupdesc, natts, &dropped, &attributes);
+    let parade_index = get_parade_index(index_relation_ref.name());
+    let builder = parade_index.json_builder(*ctid, &tupdesc, values);
 
-    let parade_writer = PARADE_WRITER_CACHE.get_cached(index_relation_ref.name());
-    let parade_index_key =
-        ParadeIndexKey::from_json_builder(&parade_writer.key_field_name, &builder).unwrap();
+    parade_index.insert(builder);
 
-    // First delete any existing entires with the same key.
-    parade_writer.delete_by_key(&parade_index_key);
-    parade_writer.insert(*ctid, builder);
+    // let parade_writer = PARADE_WRITER_CACHE.get_cached(index_relation_ref.name());
+    // let parade_index_key =
+    //     ParadeIndexKey::from_json_builder(&parade_writer.key_field_name, &builder).unwrap();
+
+    // // First delete any existing entires with the same key.
+    // parade_writer.delete_by_key(&parade_index_key);
+    // parade_writer.insert(*ctid, builder);
 
     // Acquire  a writer, which may involve waiting for a lock to be acquired.
     // If the lock has been acquired in this transaction, the writer will be cached
     // so no further waiting is required. We'll also register some callbacks to
     // release the locks and clear the cache when the transaction ends.
-    PARADE_WRITER_CACHE.clear_cache_on_transaction_end();
+    // PARADE_WRITER_CACHE.clear_cache_on_transaction_end();
 
     true
 }

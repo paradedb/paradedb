@@ -1,20 +1,17 @@
 use pgrx::*;
 
-use crate::parade_index::writer::PARADE_WRITER_CACHE;
-
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
     info: *mut pg_sys::IndexVacuumInfo,
     stats: *mut pg_sys::IndexBulkDeleteResult,
-    callback: pg_sys::IndexBulkDeleteCallback,
-    callback_state: *mut ::std::os::raw::c_void,
+    _callback: pg_sys::IndexBulkDeleteCallback,
+    _callback_state: *mut ::std::os::raw::c_void,
 ) -> *mut pg_sys::IndexBulkDeleteResult {
     let info = unsafe { PgBox::from_pg(info) };
     let mut stats = unsafe { PgBox::from_pg(stats) };
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
-    let index_name = index_relation.name();
-    let parade_writer = unsafe { PARADE_WRITER_CACHE.get_cached(index_name) };
+    let _index_name = index_relation.name();
 
     if stats.is_null() {
         stats = unsafe {
@@ -24,9 +21,9 @@ pub extern "C" fn ambulkdelete(
         };
     }
 
-    if let Some(actual_callback) = callback {
-        parade_writer.bulk_delete(|ctid| unsafe { actual_callback(ctid, callback_state) });
-    }
+    // if let Some(actual_callback) = callback {
+    //     parade_writer.bulk_delete(|ctid| unsafe { actual_callback(ctid, callback_state) });
+    // }
 
     stats.into_pg()
 }

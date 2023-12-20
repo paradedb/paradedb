@@ -83,29 +83,29 @@
 //         &mut self,
 //         should_delete_callback: impl Fn(*mut ItemPointerData) -> bool,
 //     ) -> (u32, u32) {
-//         let mut deleted: u32 = 0;
-//         let mut not_deleted: u32 = 0;
+// let mut deleted: u32 = 0;
+// let mut not_deleted: u32 = 0;
 
-//         for segment_reader in self.searcher.segment_readers() {
-//             let store_reader = segment_reader
-//                 .get_store_reader(CACHE_NUM_BLOCKS)
-//                 .expect("Failed to get store reader");
+// for segment_reader in self.searcher.segment_readers() {
+//     let store_reader = segment_reader
+//         .get_store_reader(CACHE_NUM_BLOCKS)
+//         .expect("Failed to get store reader");
 
-//             for doc_id in 0..segment_reader.num_docs() {
-//                 if let Ok(stored_fields) = store_reader.get(doc_id) {
-//                     if let Some(Value::U64(ctid_val)) = stored_fields.get_first(self.ctid_field) {
-//                         let mut ctid = ItemPointerData::default();
-//                         let should_delete = should_delete_callback(&mut ctid);
-//                         if should_delete {
-//                             let term_to_delete = Term::from_field_u64(self.ctid_field, *ctid_val);
-//                             self.writer.delete_term(term_to_delete);
-//                             deleted += 1;
-//                         } else {
-//                             not_deleted += 1;
-//                         }
-//                     }
+//     for doc_id in 0..segment_reader.num_docs() {
+//         if let Ok(stored_fields) = store_reader.get(doc_id) {
+//             if let Some(Value::U64(ctid_val)) = stored_fields.get_first(self.ctid_field) {
+//                 let mut ctid = ItemPointerData::default();
+//                 let should_delete = should_delete_callback(&mut ctid);
+//                 if should_delete {
+//                     let term_to_delete = Term::from_field_u64(self.ctid_field, *ctid_val);
+//                     self.writer.delete_term(term_to_delete);
+//                     deleted += 1;
+//                 } else {
+//                     not_deleted += 1;
 //                 }
 //             }
+//         }
+//     }
 //         }
 
 //         (deleted, not_deleted)

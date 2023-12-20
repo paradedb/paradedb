@@ -27,20 +27,23 @@ pub enum JsonBuilderValue {
 pub struct JsonBuilder {
     // Using IndexMap to maintain insertion order.
     pub values: HashMap<Field, JsonBuilderValue>,
+    // The key field, which will be used to overwrite existing entries.
+    pub key: Field,
     // The field_map is only used as a lookup for adding values.
-    // It's not requited on the deserialization side.
+    // It's not required on the deserialization side.
     #[serde(skip_serializing)]
     field_map: Option<HashMap<String, Field>>,
 }
 
 impl JsonBuilder {
-    pub fn new(fields: HashMap<String, Field>) -> Self {
+    pub fn new(key: Field, fields: HashMap<String, Field>) -> Self {
         let field_map = Some(fields.clone());
         // We will check for existing field_name keys in the `add` methods below.
         // Fields will only be inserted into the JSON builder if they we passed
         // to this `new` method.
         JsonBuilder {
             values: HashMap::new(),
+            key,
             field_map,
         }
     }
@@ -165,10 +168,12 @@ mod tests {
     use pgrx::*;
 
     use super::JsonBuilder;
+    use tantivy::schema::Field;
 
     #[pg_test]
     fn test_new_builder() {
-        let builder = JsonBuilder::new(std::collections::HashMap::new());
+        let field = Field::from_field_id(0);
+        let builder = JsonBuilder::new(field, std::collections::HashMap::new());
         assert_eq!(builder.values.len(), 0);
     }
 }

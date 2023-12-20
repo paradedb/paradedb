@@ -1,3 +1,4 @@
+use pgrx::pg_sys::ItemPointerData;
 use pgrx::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
@@ -20,6 +21,7 @@ use crate::WRITER;
 use super::state::TantivyScanState;
 
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
+const CACHE_NUM_BLOCKS: usize = 10;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
@@ -351,9 +353,56 @@ impl ParadeIndex {
         })
     }
 
+    pub fn commit(&self) {
+        WRITER.share().commit(&self.name);
+    }
+
     pub fn insert(&self, builder: JsonBuilder) {
+        // Send the insert requests to the writer server.
+        // Note that these will not be flused to disk until commit() is separately called.
         WRITER.share().insert(&self.name, builder);
         self.reader.reload().unwrap();
+    }
+
+    pub fn delete(&mut self, should_delete: impl Fn(*mut ItemPointerData) -> bool) -> (u32, u32) {
+        let mut deleted: u32 = 0;
+        let mut not_deleted: u32 = 0;
+        let mut ctids_to_delete: Vec<u64> = vec![];
+
+        for segment_reader in self.searcher().segment_readers() {
+            let store_reader = segment_reader
+                .get_store_reader(CACHE_NUM_BLOCKS)
+                .expect("Failed to get store reader");
+
+            for (delete, ctid) in (0..segment_reader.num_docs())
+                .filter_map(|id| store_reader.get(id).ok())
+                .filter_map(|doc| doc.get_first(self.ctid_field).cloned())
+                .filter_map(|value| match value {
+                    Value::U64(ctid_val) => Some(ctid_val),
+                    _ => None,
+                })
+                .map(|ctid_val| {
+                    let mut ctid = ItemPointerData::default();
+                    u64_to_item_pointer(ctid_val, &mut ctid);
+                    (should_delete(&mut ctid), ctid_val)
+                })
+            {
+                if delete {
+                    ctids_to_delete.push(ctid);
+                    deleted += 1
+                } else {
+                    not_deleted += 1
+                }
+            }
+        }
+
+        // Send the delete requests to the writer server.
+        // Note that these will not be flused to disk until commit() is separately called.
+        WRITER
+            .share()
+            .delete(&self.name, self.ctid_field.clone(), ctids_to_delete);
+
+        (deleted, not_deleted)
     }
 
     pub fn json_builder(
@@ -368,7 +417,7 @@ impl ParadeIndex {
             .map(|i| tupdesc.get(i).unwrap().is_dropped())
             .collect::<Vec<bool>>();
         let values = unsafe { std::slice::from_raw_parts(values, 1) };
-        let mut builder = JsonBuilder::new(self.fields.clone());
+        let mut builder = JsonBuilder::new(self.key_field, self.fields.clone());
         // Insert the fields from the row
         unsafe {
             row_to_json(

@@ -172,10 +172,7 @@ pub unsafe fn transform_targetentry_to_expr(node: *mut Node) -> Result<Expr, Str
 }
 
 pub unsafe fn transform_targetentry_to_df_expr(node: *mut Node) -> Result<Expr, String> {
-    info!("inside");
     let target_entry = node as *mut pgrx::pg_sys::TargetEntry;
-    info!("got target entry: {:?}", (*target_entry));
-
     let col_name = (*target_entry).resname;
 
     if !col_name.is_null() {

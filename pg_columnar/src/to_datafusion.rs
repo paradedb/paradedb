@@ -185,17 +185,37 @@ pub unsafe fn transform_seqscan_to_df_plan(
     let table_reference = TableReference::from(tablename.clone());
     let mut projections: Vec<usize> = vec![];
 
-    let list = (*plan).targetlist;
-
-    if !list.is_null() {
-        let elements = (*list).elements;
-        for i in 0..(*list).length {
+    // Read projections (i.e. which columns to read)
+    let targets = (*plan).targetlist;
+    if !targets.is_null() {
+        let elements = (*targets).elements;
+        for i in 0..(*targets).length {
             let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
             let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
             let var = (*target_entry).expr as *mut pgrx::pg_sys::Var;
 
             let col_idx = (*var).varattno as usize;
             projections.push(col_idx - 1);
+        }
+    }
+
+    // Read filters (i.e. WHERE clause)
+    let quals = (*plan).qual;
+    if !quals.is_null() {
+        let elements = (*quals).elements;
+        for i in 0..(*quals).length {
+            let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
+            let operator_expr = list_cell_node as *mut pg_sys::OpExpr;
+            let operator_tuple = pg_sys::SearchSysCache1(
+                pg_sys::SysCacheIdentifier_OPEROID as i32,
+                pg_sys::Datum::from((*operator_expr).opno),
+            );
+            let operator_form = GETSTRUCT(operator_tuple) as *mut FormData_pg_operator;
+            let operator_name = CStr::from_ptr((*operator_form).oprname.data.as_ptr())
+                .to_string_lossy()
+                .into_owned();
+            info!("operator name {:?}", operator_name);
+            pg_sys::ReleaseSysCache(operator_tuple);
         }
     }
 

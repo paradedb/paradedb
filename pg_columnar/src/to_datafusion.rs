@@ -1,4 +1,5 @@
 use datafusion::arrow::datatypes::Schema;
+use datafusion::logical_expr::Sort;
 use pg_sys::{
     exprType, get_attname, namestrcpy, pgrx_list_nth, Aggref, BuiltinOid, Const, Datum,
     FormData_pg_attribute, FormData_pg_operator, List, ModifyTable, NameData, Node, NodeTag, Oid,
@@ -92,7 +93,7 @@ pub unsafe fn transform_pg_plan_to_df_plan(
         NodeTag::T_ModifyTable => transform_modify_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_ValuesScan => transform_valuesscan_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_Result => transform_result_to_df_plan(plan, rtable, outer_plan),
-        NodeTag::T_Sort => todo!(),
+        NodeTag::T_Sort => transform_sort_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_Group => todo!(),
         NodeTag::T_Agg => transform_agg_to_df_plan(plan, rtable, outer_plan),
         NodeTag::T_Limit => transform_limit_to_df_plan(plan, rtable, outer_plan),
@@ -426,6 +427,27 @@ pub unsafe fn transform_limit_to_df_plan(
         skip,
         fetch: Some(fetch),
         input: Box::new(outer_plan).into(),
+    }))
+}
+
+pub unsafe fn transform_sort_to_df_plan(
+    plan: *mut Plan,
+    rtable: *mut List,
+    outer_plan: Option<LogicalPlan>,
+) -> Result<LogicalPlan, String> {
+    info!("Ran into a Sort!");
+    let outer_plan = outer_plan.ok_or("Limit does not have an outer plan")?;
+
+    let scan_node = plan as *mut pg_sys::Scan;
+
+    info!("{}", (*scan_node).plan.to_string());
+
+    let expr: Vec<Expr> = Vec::new();
+
+    Ok(LogicalPlan::Sort(Sort {
+        expr,
+        input: Box::new(outer_plan).into(),
+        fetch: None,
     }))
 }
 

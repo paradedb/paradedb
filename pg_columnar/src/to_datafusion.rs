@@ -22,8 +22,8 @@ use datafusion::common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion::datasource::{provider_as_source, DefaultTableSource};
 use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::{
-    Aggregate, AggregateFunction as BuiltInAgg, BinaryExpr, DmlStatement, Expr, Limit, LogicalPlan,
-    Operator, TableScan, TableSource, Values,
+    col, lit, Aggregate, AggregateFunction as BuiltInAgg, BinaryExpr, DmlStatement, Expr, Limit,
+    LogicalPlan, LogicalPlanBuilder, Operator, TableScan, TableSource, Values,
 };
 use datafusion::sql::TableReference;
 
@@ -266,10 +266,18 @@ pub unsafe fn transform_seqscan_to_df_plan(
         task::block_on(CONTEXT.table_provider(table_reference)).expect("Could not get table");
     let table_source = provider_as_source(table_provider);
 
-    return Ok(LogicalPlan::TableScan(
-        TableScan::try_new(tablename, table_source, Some(projections), filters, None)
-            .map_err(datafusion_err_to_string("failed to create table scan"))?,
-    ));
+    let mut builder = LogicalPlanBuilder::scan(tablename, table_source, None)
+        .map_err(datafusion_err_to_string("Could not create TableScan"))?;
+
+    for filter in filters {
+        builder = builder
+            .filter(filter)
+            .map_err(datafusion_err_to_string("Could not create TableScan"))?;
+    }
+
+    Ok(builder
+        .build()
+        .map_err(datafusion_err_to_string("Could not build TableScan plan"))?)
 }
 
 pub unsafe fn transform_result_to_df_plan(

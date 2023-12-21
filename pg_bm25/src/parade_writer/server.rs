@@ -1,7 +1,6 @@
 use crate::json::builder::JsonBuilderValue;
 use crate::parade_writer::{ParadeWriterRequest, ParadeWriterResponse};
 use crate::{json::builder::JsonBuilder, parade_index::index::ParadeIndex};
-use pgrx::log;
 use std::collections::{hash_map::Entry::Vacant, HashMap};
 use tantivy::schema::Field;
 use tantivy::{Document, IndexWriter, Term};
@@ -37,9 +36,8 @@ impl ParadeWriterServer {
             ParadeWriterRequest::Delete(index_directory_path, ctid_field, ctid_values) => {
                 self.delete(index_directory_path, ctid_field, ctid_values)
             }
-            t => {
-                log!("server received unimplemented type: {t:?}");
-                unimplemented!("server received unimplemented type: {t:?}");
+            ParadeWriterRequest::DropIndex(index_directory_path) => {
+                self.drop_index(&index_directory_path)
             }
         }
     }
@@ -138,6 +136,15 @@ impl ParadeWriterServer {
 
                 ParadeWriterResponse::Ok
             }
+        }
+    }
+
+    fn drop_index(&mut self, index_directory_path: &str) -> ParadeWriterResponse {
+        if let Err(e) = ParadeIndex::delete_index_directory(index_directory_path) {
+            ParadeWriterResponse::Error(e.to_string())
+        } else {
+            self.writers.remove(index_directory_path);
+            ParadeWriterResponse::Ok
         }
     }
 

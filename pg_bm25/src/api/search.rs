@@ -1,5 +1,5 @@
 use crate::index_access::utils::{get_parade_index, SearchConfig};
-use crate::parade_index::index::ParadeIndexKeyValue;
+use crate::parade_index::index::{ParadeIndex, ParadeIndexKeyValue};
 use pgrx::{prelude::TableIterator, *};
 use tantivy::{schema::FieldType, SnippetGenerator};
 
@@ -116,6 +116,24 @@ pub fn minmax_bm25(
         field_rows.push((key, normalized_score));
     }
     TableIterator::new(field_rows)
+}
+
+#[pg_extern]
+fn drop_bm25_internal(index_name: &str, schema_name: &str) {
+    // Drop the Tantivy data directory first.
+    let parade_index = ParadeIndex::from_index_name(index_name);
+    parade_index.drop_index();
+
+    // Drop the Postgres index on the table.
+    Spi::run(&format!(
+        "DROP INDEX IF EXISTS {schema_name}.{index_name}_bm25_index"
+    ))
+    .unwrap();
+
+    // Drop the schema that we've dynamically created.
+    // This is a little confusing. We've named the dynamic schema after the index.
+    // The schema_name argument above refers to the schema that the indexed table lives in.
+    Spi::run(&format!("DROP SCHEMA IF EXISTS {index_name}")).unwrap();
 }
 
 #[cfg(any(test, feature = "pg_test"))]

@@ -39,10 +39,6 @@ pub enum ParadeWriterResponse {
 
 impl From<ParadeWriterRequest> for Vec<u8> {
     fn from(parade_writer_request: ParadeWriterRequest) -> Self {
-        pgrx::log!(
-            "REQUEST LOG: {:#?}",
-            serde_json::to_string(&parade_writer_request)
-        );
         serde_json::to_vec(&parade_writer_request).unwrap()
     }
 }

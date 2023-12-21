@@ -19,6 +19,8 @@ pub enum ParadeWriterRequest {
     DropIndex(String),
     /// index_directory_path.
     Commit(String),
+    /// index_directory_path.
+    Vacuum(String),
     /// should only be called by shutdown bgworker.
     Shutdown,
 }

@@ -408,6 +408,10 @@ impl ParadeIndex {
         WRITER.share().drop_index(index_name);
     }
 
+    pub fn vacuum(&self) {
+        WRITER.share().vacuum(&self.name);
+    }
+
     pub fn json_builder(
         &self,
         ctid: pg_sys::ItemPointerData,

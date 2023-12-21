@@ -115,6 +115,19 @@ impl ParadeWriterClient {
         };
     }
 
+    pub fn vacuum(&self, index_name: &str) {
+        let response = self
+            .send_request(ParadeWriterRequest::Vacuum(Self::get_data_directory(
+                &index_name,
+            )))
+            .expect("error while sending commit request}");
+
+        match response {
+            ParadeWriterResponse::Ok => {}
+            error => panic!("unexpected error while vacuuming: {error:?}"),
+        };
+    }
+
     pub fn drop_index(&self, index_name: &str) {
         let response = self
             .send_request(ParadeWriterRequest::DropIndex(Self::get_data_directory(

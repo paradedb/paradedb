@@ -15,8 +15,8 @@ pub enum ParadeWriterRequest {
     Insert(String, JsonBuilder),
     /// index_directory_path, vector of ctid values.
     Delete(String, Field, Vec<u64>),
-    /// index_directory_path, json_builder.
-    DropIndex(String),
+    /// index_directory_path, vector of paths
+    DropIndex(String, Vec<String>),
     /// index_directory_path.
     Commit(String),
     /// index_directory_path.

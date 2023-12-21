@@ -70,9 +70,10 @@ impl ParadeIndex {
         options: PgBox<ParadeOptions>,
     ) -> Result<&mut Self, Box<dyn Error>> {
         let data_directory = Self::data_directory(&name);
-        Self::delete_index_directory(&data_directory).unwrap_or_else(|err| {
-            panic!("failed to remove paradedb directory at {data_directory:?}: {err:?}")
-        });
+
+        // This will fail if the index directory already exists.
+        // This should have been cleaned up correctly by the writer server, so we won't
+        // attempt to delete the index directory here.
         Self::create_index_directory(&data_directory).expect("failed to create paradedb directory");
 
         let key_field_name = options.get_key_field();
@@ -210,7 +211,8 @@ impl ParadeIndex {
         }
 
         let index_directory_path = Self::data_directory(name);
-        let new_self = Self::from_disk(&index_directory_path);
+        let new_self =
+            Self::from_disk(&index_directory_path).expect("could not retrieve index from disk");
 
         // Since we've re-fetched the index, save it to the cache.
         unsafe {
@@ -259,15 +261,15 @@ impl ParadeIndex {
     /// Retrieve an owned writer for a given index. This is a static method, as
     /// we expect to be called from the writer process. The return type needs to
     /// be entirely owned by the new process, with no references.
-    pub fn writer(index_directory_path: &str) -> Result<IndexWriter, TantivyError> {
-        let parade_index = Self::from_disk(index_directory_path);
-        log!("GOT PARADE_INDEX at {index_directory_path}");
+    pub fn writer(index_directory_path: &str) -> Result<IndexWriter, String> {
+        let parade_index = Self::from_disk(index_directory_path).map_err(|e| e.to_string())?;
         parade_index
             .underlying_index
             .writer(INDEX_TANTIVY_MEMORY_BUDGET)
+            .map_err(|e| e.to_string())
     }
 
-    fn get_field_configs_path(index_directory_path: &str) -> String {
+    pub fn get_field_configs_path(index_directory_path: &str) -> String {
         format!("{}_parade_field_configs.json", index_directory_path)
     }
 
@@ -292,15 +294,17 @@ impl ParadeIndex {
         file.flush().unwrap();
     }
 
-    fn from_disk(index_directory_path: &str) -> Self {
+    /// This function must not panic, because it use used by the ParadeServer, which cannot
+    /// handle panics.
+    fn from_disk(index_directory_path: &str) -> Result<Self, String> {
         let config_path = &Self::get_field_configs_path(index_directory_path);
-        let serialized_data = fs::read_to_string(config_path).unwrap_or_else(|err| {
-            panic!("could not read index config for {index_directory_path} from {config_path}: {err:?}")
-        });
-        serde_json::from_str(&serialized_data).unwrap_or_else(|err| {
-            panic!(
+        let serialized_data = fs::read_to_string(config_path).map_err(|err| {
+            format!("could not read index config for {index_directory_path} from {config_path}: {err:?}")
+        })?;
+        serde_json::from_str(&serialized_data).map_err(|err| {
+            format!(
                 "could not deserialize config from disk for index {index_directory_path}: {err:?}"
-            );
+            )
         })
     }
 
@@ -564,21 +568,6 @@ impl ParadeIndex {
     fn create_index_directory(data_directory: &str) -> Result<(), std::io::Error> {
         let path = Path::new(&data_directory);
         fs::create_dir_all(path)
-    }
-
-    pub fn delete_index_directory(data_directory: &str) -> Result<(), std::io::Error> {
-        // Remove the Tantivy index directory.
-        let index_path = Path::new(&data_directory);
-        if index_path.exists() {
-            fs::remove_dir_all(index_path)?
-        }
-        // Remove the field configuration (ParadeOptionMap) file.
-        let index_config_path_string = Self::get_field_configs_path(data_directory);
-        let index_config_path = Path::new(&index_config_path_string);
-        if index_config_path.exists() {
-            fs::remove_file(index_config_path)?
-        }
-        Ok(())
     }
 }
 

@@ -47,7 +47,8 @@ impl ParadeWriterServer {
     /// then retrieve the ParadeIndex and use it to create a new IndexWriter, caching it.
     fn writer(&mut self, index_directory_path: &str) -> Result<&mut IndexWriter, String> {
         if let Vacant(entry) = self.writers.entry(index_directory_path.to_string()) {
-            if let Err(e) = ParadeIndex::writer(index_directory_path).map(|writer| entry.insert(writer))
+            if let Err(e) =
+                ParadeIndex::writer(index_directory_path).map(|writer| entry.insert(writer))
             {
                 return Err(e.to_string());
             }

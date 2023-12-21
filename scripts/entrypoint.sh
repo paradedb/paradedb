@@ -28,6 +28,7 @@ declare -A extensions=(
 # [pg_partman]=pg_partman_bgw
 declare -A preload_names=(
   [pg_cron]=pg_cron
+  [pg_bm25]=pg_bm25.so
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed

@@ -5,7 +5,7 @@ use serde_json::json;
 use shared::plog;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::fs::{self, create_dir_all, remove_dir_all, File};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
 use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher};
@@ -13,7 +13,7 @@ use tantivy::{IndexReader, IndexWriter, TantivyError};
 
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{self, categorize_tupdesc, row_to_json, SearchConfig};
-use crate::json::builder::{JsonBuilder, JsonBuilderValue};
+use crate::json::builder::JsonBuilder;
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use crate::WRITER;
@@ -45,53 +45,6 @@ static mut WILL_COMMIT_SET: Option<HashSet<String>> = None;
 /// processes. Each PostgreSQL backend process will have its own separate instance of
 /// this cache, tied to its own lifecycle.
 static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
-
-#[derive(PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
-pub enum ParadeIndexKeyValue {
-    Number(i64),
-}
-
-impl TryFrom<&JsonBuilderValue> for ParadeIndexKeyValue {
-    type Error = Box<dyn Error>;
-
-    fn try_from(value: &JsonBuilderValue) -> Result<Self, Self::Error> {
-        match value {
-            JsonBuilderValue::i16(v) => Ok(ParadeIndexKeyValue::Number(*v as i64)),
-            JsonBuilderValue::i32(v) => Ok(ParadeIndexKeyValue::Number(*v as i64)),
-            JsonBuilderValue::i64(v) => Ok(ParadeIndexKeyValue::Number(*v)),
-            JsonBuilderValue::u32(v) => Ok(ParadeIndexKeyValue::Number(*v as i64)),
-            JsonBuilderValue::u64(v) => Ok(ParadeIndexKeyValue::Number(*v as i64)),
-            _ => Err(format!(
-                "BM25 index key field must be an integer, received: {:#?}",
-                value
-            )
-            .into()),
-        }
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ParadeIndexKey {
-    pub name: String,
-    pub value: ParadeIndexKeyValue,
-}
-
-// impl ParadeIndexKey {
-//     pub fn from_json_builder(name: &str, builder: &JsonBuilder) -> Result<Self, Box<dyn Error>> {
-//         for (field_name, value) in &builder.values {
-//             if field_name == &format!("\"{name}\"") {
-//                 if let Ok(key_value) = ParadeIndexKeyValue::try_from(value) {
-//                     return Ok(Self {
-//                         name: field_name.into(),
-//                         value: key_value,
-//                     });
-//                 }
-//             }
-//         }
-
-//         Err(format!("could not parse key_field '{name}' from row").into())
-//     }
-// }
 
 #[derive(Serialize, Clone)]
 pub struct ParadeIndex {
@@ -267,15 +220,15 @@ impl ParadeIndex {
         Self::from_index_name(name)
     }
 
-    pub fn get_key_value(&self, document: &Document) -> ParadeIndexKeyValue {
+    pub fn get_key_value(&self, document: &Document) -> i64 {
         let key_field_name = &self.key_field_name;
         let value = document.get_first(self.key_field).unwrap_or_else(|| {
             panic!("cannot find key field '{key_field_name}' on retrieved document")
         });
 
         match value {
-            tantivy::schema::Value::U64(val) => ParadeIndexKeyValue::Number(*val as i64),
-            tantivy::schema::Value::I64(val) => ParadeIndexKeyValue::Number(*val),
+            tantivy::schema::Value::U64(val) => val.clone() as i64,
+            tantivy::schema::Value::I64(val) => val.clone(),
             _ => panic!("invalid type for parade index key in document"),
         }
     }
@@ -451,8 +404,8 @@ impl ParadeIndex {
         (deleted, not_deleted)
     }
 
-    pub fn drop_index(&self) {
-        WRITER.share().drop_index(&self.name);
+    pub fn drop_index(index_name: &str) {
+        WRITER.share().drop_index(index_name);
     }
 
     pub fn json_builder(
@@ -606,16 +559,22 @@ impl ParadeIndex {
 
     fn create_index_directory(data_directory: &str) -> Result<(), std::io::Error> {
         let path = Path::new(&data_directory);
-        create_dir_all(path)
+        fs::create_dir_all(path)
     }
 
     pub fn delete_index_directory(data_directory: &str) -> Result<(), std::io::Error> {
-        let path = Path::new(&data_directory);
-        if path.exists() {
-            remove_dir_all(path)
-        } else {
-            Ok(())
+        // Remove the Tantivy index directory.
+        let index_path = Path::new(&data_directory);
+        if index_path.exists() {
+            fs::remove_dir_all(index_path)?
         }
+        // Remove the field configuration (ParadeOptionMap) file.
+        let index_config_path_string = Self::get_field_configs_path(data_directory);
+        let index_config_path = Path::new(&index_config_path_string);
+        if index_config_path.exists() {
+            fs::remove_file(index_config_path)?
+        }
+        Ok(())
     }
 }
 

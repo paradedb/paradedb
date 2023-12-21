@@ -143,6 +143,7 @@ impl ParadeWriterServer {
         if let Err(e) = ParadeIndex::delete_index_directory(index_directory_path) {
             ParadeWriterResponse::Error(e.to_string())
         } else {
+            // Remove the write from the cache so that it is dropped.
             self.writers.remove(index_directory_path);
             ParadeWriterResponse::Ok
         }

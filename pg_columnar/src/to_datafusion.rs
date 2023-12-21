@@ -170,7 +170,6 @@ pub unsafe fn transform_targetentry_to_expr(node: *mut Node) -> Result<Expr, Str
 }
 
 // ---- Every specific node transformation function should have the same signature (*mut Plan, *mut List, Option<LogicalPlan>) -> Result<LogicalPlan, String>
-
 pub unsafe fn transform_seqscan_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
@@ -249,6 +248,7 @@ pub unsafe fn transform_seqscan_to_df_plan(
 
             filters.push(Expr::BinaryExpr(BinaryExpr {
                 left: Box::new(left_expr),
+                right: Box::new(right_expr),
                 op: match operator_name.as_str() {
                     "=" => Operator::Eq,
                     "<>" => Operator::NotEq,
@@ -258,7 +258,6 @@ pub unsafe fn transform_seqscan_to_df_plan(
                     ">=" => Operator::GtEq,
                     _ => return Err(format!("operator {} not supported yet", operator_name)),
                 },
-                right: Box::new(right_expr),
             }));
         }
     }

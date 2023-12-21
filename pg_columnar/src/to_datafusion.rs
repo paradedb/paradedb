@@ -103,6 +103,19 @@ pub unsafe fn transform_pg_plan_to_df_plan(
 
 // Transform helpers
 
+pub unsafe fn transform_var_to_df_expr(node: *mut Node, rtable: *mut List) -> Result<Expr, String> {
+    let var = node as *mut pgrx::pg_sys::Var;
+
+    // For now we'll assume we're using the first entry in the range table
+    // TODO: Figure out how to get the correct range table entry
+    let var_rte = rt_fetch(1, rtable);
+    let var_relid = (*var_rte).relid;
+    let att_name = get_attname(var_relid, (*var).varattno, false);
+    let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
+
+    Ok(Expr::Column(att_name_str.into()))
+}
+
 pub unsafe fn transform_const_to_df_expr(node: *mut Node) -> Result<Expr, String> {
     let constant = node as *mut pgrx::pg_sys::Const;
 
@@ -166,20 +179,6 @@ pub unsafe fn transform_targetentry_to_expr(node: *mut Node) -> Result<Expr, Str
             "transform_targetentry_to_expr does not handle node_tag {:?}",
             node_tag
         )),
-    }
-}
-
-pub unsafe fn transform_targetentry_to_df_expr(node: *mut Node) -> Result<Expr, String> {
-    let target_entry = node as *mut pgrx::pg_sys::TargetEntry;
-    let col_name = (*target_entry).resname;
-
-    if !col_name.is_null() {
-        let col_name = CStr::from_ptr(col_name).to_string_lossy().into_owned();
-        let expr = col(col_name);
-
-        Ok(expr)
-    } else {
-        return Err(format!("Column name is null"));
     }
 }
 
@@ -502,9 +501,10 @@ pub unsafe fn transform_sort_to_df_plan(
                 (*elements.offset(col_idx as isize)).ptr_value as *mut pgrx::pg_sys::Node;
             match (*list_cell_node).type_ {
                 NodeTag::T_TargetEntry => {
-                    let expr = transform_targetentry_to_df_expr(list_cell_node)?;
-                    let sort_expr = expr.sort(asc, nulls_first);
-                    sort_expr_vec.push(sort_expr);
+                    let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
+                    let te_expr_node = (*target_entry).expr as *mut pgrx::pg_sys::Node;
+                    let expr = transform_var_to_df_expr(te_expr_node, rtable)?;
+                    sort_expr_vec.push(expr.sort(asc, nulls_first));
                 }
                 _ => {
                     return Err(format!(
@@ -587,16 +587,9 @@ pub unsafe fn transform_agg_to_df_plan(
                 assert!(is_a(arg_node, NodeTag::T_TargetEntry));
 
                 let target_entry = arg_node as *mut pgrx::pg_sys::TargetEntry;
-                let var = (*target_entry).expr as *mut pgrx::pg_sys::Var;
+                let te_expr_node = (*target_entry).expr as *mut pgrx::pg_sys::Node;
 
-                // For now we'll assume we're using the first entry in the range table
-                // TODO: Figure out how to get the correct range table entry
-                let var_rte = rt_fetch(1, rtable);
-                let var_relid = (*var_rte).relid;
-                let att_name = get_attname(var_relid, (*var).varattno, false);
-                let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
-
-                args_expr.push(Expr::Column(att_name_str.into()));
+                args_expr.push(transform_var_to_df_expr(te_expr_node, rtable)?);
             }
         }
 

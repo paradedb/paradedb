@@ -449,23 +449,34 @@ pub unsafe fn transform_sort_to_df_plan(
     outer_plan: Option<LogicalPlan>,
 ) -> Result<LogicalPlan, String> {
     let outer_plan = outer_plan.ok_or("Sort does not have an outer plan")?;
-
-    let sortby_node = plan as *mut pg_sys::SortBy;
     let sort_node = plan as *mut pg_sys::Sort;
 
     let mut sort_expr_vec: Vec<Expr> = Vec::new();
 
     // Get sort by operator
-    let sortby_dir = (*sortby_node).sortby_dir as pg_sys::SortByDir;
-    info!("sortby_dir: {}", sortby_dir);
+    let sort_operators_ptr = (*sort_node).sortOperators;
+    let sort_operators = unsafe {
+        if sort_operators_ptr.is_null() {
+            None
+        } else {
+            Some(*sort_operators_ptr)
+        }
+    };
+    let sort_operators_oid = sort_operators.ok_or("Failed to get Sort operator oid")?;
 
-    match sortby_dir {
-        pg_sys::SortByDir_SORTBY_ASC => info!("Matched ASC"),
-        pg_sys::SortByDir_SORTBY_DESC => info!("Matched DESC"),
-        pg_sys::SortByDir_SORTBY_USING => info!("Matched USING"),
-        pg_sys::SortByDir_SORTBY_DEFAULT => info!("Matched DEFAULT"),
-        _ => info!("Sortby dir did not match anything"),
-    }
+    let operator_tuple = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier_OPEROID as i32,
+        pg_sys::Datum::from(sort_operators_oid),
+    );
+    let operator_form = GETSTRUCT(operator_tuple) as *mut FormData_pg_operator;
+    let operator_name = CStr::from_ptr((*operator_form).oprname.data.as_ptr())
+        .to_string_lossy()
+        .into_owned();
+
+    let asc = operator_name.as_str() == "<";
+
+    // Release to avoid cache reference leaks
+    pg_sys::ReleaseSysCache(operator_tuple);
 
     // Get nulls first
     let nulls_first_ptr = (*sort_node).nullsFirst;
@@ -492,7 +503,7 @@ pub unsafe fn transform_sort_to_df_plan(
             match (*list_cell_node).type_ {
                 NodeTag::T_TargetEntry => {
                     let expr = transform_targetentry_to_df_expr(list_cell_node)?;
-                    let sort_expr = expr.sort(false, nulls_first);
+                    let sort_expr = expr.sort(asc, nulls_first);
                     sort_expr_vec.push(sort_expr);
                 }
                 _ => {

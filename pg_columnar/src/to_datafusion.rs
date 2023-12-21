@@ -222,6 +222,8 @@ pub unsafe fn transform_seqscan_to_df_plan(
 
             pg_sys::ReleaseSysCache(operator_tuple);
 
+            // TODO: This logic won't work for statements like
+            // SELECT * FROM t WHERE (a + b) > 0;
             let lhs = pg_sys::pgrx_list_nth((*operator_expr).args, 0) as *mut pg_sys::Node;
             let rhs = pg_sys::pgrx_list_nth((*operator_expr).args, 1) as *mut pg_sys::Node;
 

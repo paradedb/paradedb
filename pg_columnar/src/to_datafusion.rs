@@ -23,7 +23,7 @@ use datafusion::datasource::{provider_as_source, DefaultTableSource};
 use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::{
     Aggregate, AggregateFunction as BuiltInAgg, DmlStatement, Expr, Limit, LogicalPlan, TableScan,
-    TableSource, Values,
+    TableSource, Values, Operator, BinaryExpr
 };
 use datafusion::sql::TableReference;
 
@@ -218,6 +218,8 @@ pub unsafe fn transform_seqscan_to_df_plan(
                 .to_string_lossy()
                 .into_owned();
 
+            pg_sys::ReleaseSysCache(operator_tuple);
+
             let lhs = pg_sys::pgrx_list_nth((*operator_expr).args, 0) as *mut pg_sys::Node;
             let rhs = pg_sys::pgrx_list_nth((*operator_expr).args, 1) as *mut pg_sys::Node;
 
@@ -228,24 +230,54 @@ pub unsafe fn transform_seqscan_to_df_plan(
                 return Err(format!("WHERE clause requires Var {} Const or Const {} Var", operator_name, operator_name));
             }
 
-            if lhs_is_const {
-                let scalar_value = transform_const_to_df_expr(lhs)?;
-                let expr = 
-            }
-            if rhs_is_const {
-                let scalar_value = transform_const_to_df_expr(rhs)?;
-            }
+            let scalar_value = if lhs_is_const {
+                transform_const_to_df_expr(lhs)?
+            } else {
+                transform_const_to_df_expr(rhs)?
+            };
 
-            pg_sys::ReleaseSysCache(operator_tuple);
+            let var = if lhs_is_const {
+                transform_var_to_df_expr(rhs, rtable)?
+            } else {
+                transform_var_to_df_expr(lhs, rtable)?
+            };
+
+            let left_expr = if lhs_is_const {
+                scalar_value.clone()
+            } else {
+                var.clone()
+            };
+
+            let right_expr = if lhs_is_const {
+                var.clone()
+            } else {
+                scalar_value.clone()
+            };
+
+            filters.push(Expr::BinaryExpr(BinaryExpr {
+                left: Box::new(left_expr),
+                op: match operator_name.as_str() {
+                    "=" => Operator::Eq,
+                    "<>" => Operator::NotEq,
+                    "<" => Operator::Lt,
+                    ">" => Operator::Gt,
+                    "<=" => Operator::LtEq,
+                    ">=" => Operator::GtEq,
+                    _ => return Err(format!("operator {} not supported yet", operator_name)),
+                },
+                right: Box::new(right_expr),
+            }));
         }
     }
+
+    info!("filters: {:?}", filters);
 
     let table_provider =
         task::block_on(CONTEXT.table_provider(table_reference)).expect("Could not get table");
     let table_source = provider_as_source(table_provider);
 
     return Ok(LogicalPlan::TableScan(
-        TableScan::try_new(tablename, table_source, Some(projections), vec![], None)
+        TableScan::try_new(tablename, table_source, Some(projections), filters, None)
             .map_err(datafusion_err_to_string("failed to create table scan"))?,
     ));
 }
@@ -488,11 +520,10 @@ pub unsafe fn transform_agg_to_df_plan(
 }
 
 #[inline]
-unsafe fn transform_var_to_df_expr(node: *mut Node) -> Result<Expr, String> {
+unsafe fn transform_var_to_df_expr(node: *mut Node, rtable: *mut List) -> Result<Expr, String> {
     let var = node as *mut Var;
-
-    let var_rte = rt_fetch((*var).varno, (*var).varlevelsup as *mut List);
-    let var_relid = (*var_rte).relid;
+    let rte = pg_sys::pgrx_list_nth(rtable, ((*var).varno - 1) as i32) as *mut pg_sys::RangeTblEntry;
+    let var_relid = (*rte).relid;
     let att_name = get_attname(var_relid, (*var).varattno, false);
     let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
 

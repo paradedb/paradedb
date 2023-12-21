@@ -39,6 +39,7 @@ impl ParadeWriterServer {
             ParadeWriterRequest::DropIndex(index_directory_path) => {
                 self.drop_index(&index_directory_path)
             }
+            ParadeWriterRequest::Vacuum(index_directory_path) => self.vacuum(&index_directory_path),
         }
     }
 
@@ -131,6 +132,20 @@ impl ParadeWriterServer {
 
                 if let Err(e) = writer.commit() {
                     let msg = format!("error committing to index: {e:?}");
+                    return ParadeWriterResponse::Error(msg);
+                }
+
+                ParadeWriterResponse::Ok
+            }
+        }
+    }
+
+    fn vacuum(&mut self, index_directory_path: &str) -> ParadeWriterResponse {
+        match self.writer(&index_directory_path) {
+            Err(e) => ParadeWriterResponse::Error(e.to_string()),
+            Ok(writer) => {
+                if let Err(e) = writer.garbage_collect_files().wait() {
+                    let msg = format!("error vacuuming index: {e:?}");
                     return ParadeWriterResponse::Error(msg);
                 }
 

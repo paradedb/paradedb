@@ -182,6 +182,7 @@ mod tests {
     use super::*;
     use pgrx::*;
     use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
+    use shared::testing::SETUP_SQL;
 
     fn test_helper<T: Tokenizer>(tokenizer: &mut T, text: &str) -> Vec<Token> {
         let mut token_stream = tokenizer.token_stream(text);
@@ -211,7 +212,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_japanese_tokenizer() {
+    fn test_lindera_japanese_tokenizer() {
         let mut tokenizer = LinderaJapaneseTokenizer::default();
         {
             let tokens = test_helper(&mut tokenizer, "すもももももももものうち");
@@ -228,7 +229,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_korean_tokenizer() {
+    fn test_lindera_korean_tokenizer() {
         let mut tokenizer = LinderaKoreanTokenizer::default();
         {
             let tokens = test_helper(&mut tokenizer, "일본입니다. 매우 멋진 단어입니다.");
@@ -258,7 +259,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_japanese_tokenizer_with_empty_string() {
+    fn test_lindera_japanese_tokenizer_with_empty_string() {
         let mut tokenizer = LinderaJapaneseTokenizer::default();
         {
             let tokens = test_helper(&mut tokenizer, "");
@@ -271,7 +272,7 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_korean_tokenizer_with_empty_string() {
+    fn test_lindera_korean_tokenizer_with_empty_string() {
         let mut tokenizer = LinderaKoreanTokenizer::default();
         {
             let tokens = test_helper(&mut tokenizer, "");
@@ -281,5 +282,47 @@ mod tests {
             let tokens = test_helper(&mut tokenizer, "    ");
             assert_eq!(tokens.len(), 0);
         }
+    }
+
+    #[pg_test]
+    fn test_lindera_chinese_tokenizer_with_sql() {
+        SPI::run(SETUP_SQL).expert("failed to setup index");
+
+        let query1 = Spi::run("SELECT title FROM chinese.search('author:华'");
+        assert_eq!(query1, Some("北京的新餐馆"));
+
+        let query2 = Spi::run("SELECT message FROM chinese.search('title:北京'");
+        assert_eq!(query2, Some("北京市中心新开了一家餐馆，以其现代设计和独特的菜肴选择而闻名。"));
+
+        let query3 = Spi::run("SELECT author FROM chinese.search('message:文化节'");
+        assert_eq!(query3, Some("王芳"));
+    }
+
+    #[pg_test]
+    fn test_lindera_japanese_tokenizer_with_sql() {
+        SPI::run(SETUP_SQL).expert("failed to setup index");
+
+        let query1 = Spi::run("SELECT title FROM japanese.search('author:佐藤'");
+        assert_eq!(query1, Some("東京の新しいカフェ"));
+
+        let query2 = Spi::run("SELECT message FROM japanese.search('title:サッカー'");
+        assert_eq!(query2, Some("昨日のサッカー試合では素晴らしいゴールが見られました。終了間際のドラマチックな展開がハイライトでした。"));
+
+        let query3 = Spi::run("SELECT author FROM japanese.search('message:祭り'");
+        assert_eq!(query3, Some("高橋花子"));
+    }
+
+    #[pg_test]
+    fn test_lindera_korean_tokenizer_with_sql() {
+        SPI::run(SETUP_SQL).expert("failed to setup index");
+
+        let query1 = Spi::run("SELECT title FROM korean.search('author:김민준'");
+        assert_eq!(query1, Some("서울의 새로운 카페"));
+
+        let query2 = Spi::run("SELECT message FROM korean.search('title:경기'");
+        assert_eq!(query2, Some("어제 열린 축구 경기에서 화려한 골이 터졌습니다. 마지막 순간의 반전이 경기의 하이라이트였습니다."));
+
+        let query3 = Spi::run("SELECT author FROM korean.search('message:지역 축제'");
+        assert_eq!(query3, Some("박지후"));
     }
 }

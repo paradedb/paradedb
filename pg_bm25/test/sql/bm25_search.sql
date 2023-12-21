@@ -1,21 +1,22 @@
 -- Basic search query
-SELECT * FROM bm25_search.search('description:keyboard OR category:electronics');
+SELECT * FROM bm25_search.search('description:keyboard OR category:electronics') ORDER BY id;
 
 -- With BM25 scoring
 SELECT r.rank_bm25, s.* FROM bm25_search.search('category:electronics OR description:keyboard') as s
-LEFT JOIN bm25_search.rank('category:electronics OR description:keyboard') as r ON s.id = r.id;
+LEFT JOIN bm25_search.rank('category:electronics OR description:keyboard') as r ON s.id = r.id
+ORDER BY s.id;
 
 -- Test JSON search 
-SELECT * FROM bm25_search.search('metadata.color:white');
+SELECT * FROM bm25_search.search('metadata.color:white') ORDER BY id;
 
 -- Test real-time search
 INSERT INTO bm25_search (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
 DELETE FROM bm25_search WHERE id = 1;
 UPDATE bm25_search SET description = 'PVC Keyboard' WHERE id = 2;
-SELECT * FROM bm25_search.search('description:keyboard OR category:electronics');
+SELECT * FROM bm25_search.search('description:keyboard OR category:electronics') ORDER BY id;
 
 -- Test search with default tokenizer: no results
-SELECT * FROM bm25_search.search('description:earbud');
+SELECT * FROM bm25_search.search('description:earbud') ORDER BY id;
 
 -- Test sequential scan syntax
 SELECT * FROM paradedb.bm25_test_table
@@ -28,4 +29,4 @@ WHERE paradedb.search_tantivy(
         'key_field', 'id',
         'query', 'category:electronics'
     )
-);
+) ORDER BY id;

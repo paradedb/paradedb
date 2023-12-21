@@ -1,3 +1,4 @@
+use crate::parade_index::index::ParadeIndex;
 use crate::WriterInitError;
 use crate::{
     json::builder::JsonBuilder,
@@ -74,23 +75,27 @@ impl ParadeWriterClient {
     }
 
     pub fn insert(&self, index_name: &str, json_builder: JsonBuilder) {
+        let data_directory = Self::get_data_directory(index_name);
         let response = self
             .send_request(ParadeWriterRequest::Insert(
-                Self::get_data_directory(index_name),
+                data_directory.clone(),
                 json_builder,
             ))
             .expect("error while sending insert request}");
 
         match response {
             ParadeWriterResponse::Ok => {}
-            error => panic!("unexpected error while inserting: {error:?}"),
+            error => {
+                panic!("unexpected error while inserting into index at {data_directory}: {error:?}")
+            }
         };
     }
 
     pub fn delete(&self, index_name: &str, ctid_field: Field, ctid_values: Vec<u64>) {
+        let data_directory = Self::get_data_directory(index_name);
         let response = self
             .send_request(ParadeWriterRequest::Delete(
-                Self::get_data_directory(index_name),
+                data_directory.clone(),
                 ctid_field,
                 ctid_values,
             ))
@@ -98,46 +103,69 @@ impl ParadeWriterClient {
 
         match response {
             ParadeWriterResponse::Ok => {}
-            error => panic!("unexpected error while deleting: {error:?}"),
+            error => {
+                panic!("unexpected error while deleting from index at {data_directory}: {error:?}")
+            }
         };
     }
 
     pub fn commit(&self, index_name: &str) {
+        let data_directory = Self::get_data_directory(index_name);
         let response = self
-            .send_request(ParadeWriterRequest::Commit(Self::get_data_directory(
-                index_name,
-            )))
+            .send_request(ParadeWriterRequest::Commit(data_directory.clone()))
             .expect("error while sending commit request}");
 
         match response {
             ParadeWriterResponse::Ok => {}
-            error => panic!("unexpected error while committing: {error:?}"),
+            error => {
+                panic!("unexpected error while committing to index at {data_directory}: {error:?}")
+            }
         };
     }
 
     pub fn vacuum(&self, index_name: &str) {
+        let data_directory = Self::get_data_directory(index_name);
         let response = self
-            .send_request(ParadeWriterRequest::Vacuum(Self::get_data_directory(
-                index_name,
-            )))
+            .send_request(ParadeWriterRequest::Vacuum(data_directory.clone()))
             .expect("error while sending commit request}");
 
         match response {
             ParadeWriterResponse::Ok => {}
-            error => panic!("unexpected error while vacuuming: {error:?}"),
+            error => {
+                panic!("unexpected error while vacuuming index at {data_directory}: {error:?}")
+            }
         };
     }
 
     pub fn drop_index(&self, index_name: &str) {
+        // The background worker will delete any file path we give it as part of its cleanup.
+        // Here we define the paths we need gone.
+
+        let mut paths_to_delete = Vec::new();
+        let data_directory = Self::get_data_directory(index_name);
+        let field_configs_file = ParadeIndex::get_field_configs_path(&data_directory);
+        let tantivy_writer_lock = format!("{data_directory}/.tantivy-writer.lock");
+        let tantivy_meta_lock = format!("{data_directory}/.tantivy-meta.lock");
+
+        // The background worker will correctly order paths for safe deletion, so order
+        // here doesn't matter.
+        paths_to_delete.push(tantivy_writer_lock);
+        paths_to_delete.push(tantivy_meta_lock);
+        paths_to_delete.push(field_configs_file);
+        paths_to_delete.push(data_directory.clone());
+
         let response = self
-            .send_request(ParadeWriterRequest::DropIndex(Self::get_data_directory(
-                index_name,
-            )))
+            .send_request(ParadeWriterRequest::DropIndex(
+                data_directory.clone(),
+                paths_to_delete,
+            ))
             .expect("error while sending drop index request}");
 
         match response {
             ParadeWriterResponse::Ok => {}
-            error => panic!("unexpected error while dropping index: {error:?}"),
+            error => {
+                panic!("unexpected error while dropping index at {data_directory}: {error:?}")
+            }
         };
     }
 

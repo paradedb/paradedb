@@ -153,11 +153,11 @@ impl ParadeIndex {
 
         // Save a reference to this ParadeIndex so it can be re-used by this connection.
         unsafe {
-            new_self.to_cached_index();
+            new_self.into_cached_index();
         }
 
         // We need to return the Self that is borrowed from the cache.
-        let new_self_ref = Self::from_index_name(&name.to_string().as_ref());
+        let new_self_ref = Self::from_index_name(name.to_string().as_ref());
         Ok(new_self_ref)
     }
 
@@ -190,7 +190,7 @@ impl ParadeIndex {
         PARADE_INDEX_MEMORY.as_mut()?.get_mut(&name)
     }
 
-    unsafe fn to_cached_index(self) {
+    unsafe fn into_cached_index(self) {
         if PARADE_INDEX_MEMORY.is_none() {
             PARADE_INDEX_MEMORY = Some(HashMap::new());
         }
@@ -204,17 +204,17 @@ impl ParadeIndex {
     pub fn from_index_name<'a>(name: &str) -> &'a mut Self {
         unsafe {
             let cached_self = Self::from_cached_index(name.into());
-            if cached_self.is_some() {
-                return cached_self.unwrap();
+            if let Some(new_self) = cached_self {
+                return new_self;
             }
         }
 
-        let index_directory_path = Self::data_directory(&name);
+        let index_directory_path = Self::data_directory(name);
         let new_self = Self::from_disk(&index_directory_path);
 
         // Since we've re-fetched the index, save it to the cache.
         unsafe {
-            new_self.to_cached_index();
+            new_self.into_cached_index();
         }
 
         Self::from_index_name(name)
@@ -227,8 +227,8 @@ impl ParadeIndex {
         });
 
         match value {
-            tantivy::schema::Value::U64(val) => val.clone() as i64,
-            tantivy::schema::Value::I64(val) => val.clone(),
+            tantivy::schema::Value::U64(val) => *val as i64,
+            tantivy::schema::Value::I64(val) => *val,
             _ => panic!("invalid type for parade index key in document"),
         }
     }
@@ -260,7 +260,7 @@ impl ParadeIndex {
     /// we expect to be called from the writer process. The return type needs to
     /// be entirely owned by the new process, with no references.
     pub fn writer(index_directory_path: &str) -> Result<IndexWriter, TantivyError> {
-        let parade_index = Self::from_disk(&index_directory_path);
+        let parade_index = Self::from_disk(index_directory_path);
         log!("GOT PARADE_INDEX at {index_directory_path}");
         parade_index
             .underlying_index
@@ -338,12 +338,12 @@ impl ParadeIndex {
                             WILL_COMMIT_SET = None;
                         }
                     };
-                    register_xact_callback(PgXactCallbackEvent::Commit, callback.clone());
+                    register_xact_callback(PgXactCallbackEvent::Commit, callback);
                     // TODO. Not clear on whether Abort should be handled differently from commit.
                     // It's possible that we should not actually be committing if/when abort is called.
                     // It may be more appropriate to have a server action that clears the pending
                     // inserts.
-                    register_xact_callback(PgXactCallbackEvent::Abort, callback.clone());
+                    register_xact_callback(PgXactCallbackEvent::Abort, callback);
                     WILL_COMMIT_SET.as_mut().unwrap()
                 }
                 Some(set) => set,
@@ -398,7 +398,7 @@ impl ParadeIndex {
         // Note that these will not be flused to disk until commit() is separately called.
         WRITER
             .share()
-            .delete(&self.name, self.ctid_field.clone(), ctids_to_delete);
+            .delete(&self.name, self.ctid_field, ctids_to_delete);
 
         self.commit();
         (deleted, not_deleted)
@@ -418,7 +418,7 @@ impl ParadeIndex {
         tupdesc: &PgTupleDesc,
         values: *mut pg_sys::Datum,
     ) -> JsonBuilder {
-        let attributes = categorize_tupdesc(&tupdesc);
+        let attributes = categorize_tupdesc(tupdesc);
         let natts = tupdesc.natts as usize;
         let dropped = (0..tupdesc.natts as usize)
             .map(|i| tupdesc.get(i).unwrap().is_dropped())
@@ -429,7 +429,7 @@ impl ParadeIndex {
         unsafe {
             row_to_json(
                 values[0],
-                &tupdesc,
+                tupdesc,
                 natts,
                 &dropped,
                 &attributes,

@@ -55,7 +55,7 @@ impl JsonBuilder {
             .expect("JsonBuilder field_map has not been initialized");
 
         if let Some(field) = field_map.get(&attname) {
-            self.values.insert(field.clone(), value);
+            self.values.insert(*field, value);
         }
     }
 

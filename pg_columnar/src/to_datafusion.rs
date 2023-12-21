@@ -1,4 +1,5 @@
 use datafusion::arrow::datatypes::Schema;
+use datafusion::logical_expr::Sort;
 use pg_sys::{
     exprType, get_attname, namestrcpy, pgrx_list_nth, Aggref, BuiltinOid, Const, Datum,
     FormData_pg_attribute, FormData_pg_operator, List, ModifyTable, NameData, Node, NodeTag, Oid,
@@ -102,19 +103,6 @@ pub unsafe fn transform_pg_plan_to_df_plan(
 }
 
 // Transform helpers
-
-pub unsafe fn transform_var_to_df_expr(node: *mut Node, rtable: *mut List) -> Result<Expr, String> {
-    let var = node as *mut pgrx::pg_sys::Var;
-
-    // For now we'll assume we're using the first entry in the range table
-    // TODO: Figure out how to get the correct range table entry
-    let var_rte = rt_fetch(1, rtable);
-    let var_relid = (*var_rte).relid;
-    let att_name = get_attname(var_relid, (*var).varattno, false);
-    let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
-
-    Ok(Expr::Column(att_name_str.into()))
-}
 
 pub unsafe fn transform_const_to_df_expr(node: *mut Node) -> Result<Expr, String> {
     let constant = node as *mut pgrx::pg_sys::Const;
@@ -450,8 +438,6 @@ pub unsafe fn transform_sort_to_df_plan(
     let outer_plan = outer_plan.ok_or("Sort does not have an outer plan")?;
     let sort_node = plan as *mut pg_sys::Sort;
 
-    let mut sort_expr_vec: Vec<Expr> = Vec::new();
-
     // Get sort by operator
     let sort_operators_ptr = (*sort_node).sortOperators;
     let sort_operators = unsafe {
@@ -488,33 +474,32 @@ pub unsafe fn transform_sort_to_df_plan(
     };
     let nulls_first = nulls_first.ok_or("Sort does not have nulls first")?;
 
-    let target_list = (*sort_node).plan.targetlist;
-    if !target_list.is_null() {
-        let elements = (*target_list).elements;
+    let list = (*sort_node).plan.targetlist;
 
-        // Index of the column to sort
-        let col_idx_ptr = (*sort_node).sortColIdx;
-        if !col_idx_ptr.is_null() {
-            let col_idx = (*col_idx_ptr) - 1;
-
-            let list_cell_node =
-                (*elements.offset(col_idx as isize)).ptr_value as *mut pgrx::pg_sys::Node;
-            match (*list_cell_node).type_ {
-                NodeTag::T_TargetEntry => {
-                    let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
-                    let te_expr_node = (*target_entry).expr as *mut pgrx::pg_sys::Node;
-                    let expr = transform_var_to_df_expr(te_expr_node, rtable)?;
-                    sort_expr_vec.push(expr.sort(asc, nulls_first));
-                }
-                _ => {
-                    return Err(format!(
-                        "target type {:?} not handled yet for sort",
-                        (*list_cell_node).type_
-                    ))
-                }
-            }
-        }
+    if list.is_null() {
+        return Err("Sort targetlist is null".to_string());
     }
+
+    let elements = (*list).elements;
+    let mut sort_expr_vec: Vec<Expr> = vec![];
+
+    // Get index of the column to sort
+    let col_idx_ptr = (*sort_node).sortColIdx;
+    if col_idx_ptr.is_null() {
+        return Err("Sort column index is null".to_string());
+    }
+    let col_idx = (*col_idx_ptr) - 1;
+
+    let list_cell_node = (*elements.offset(col_idx as isize)).ptr_value as *mut pgrx::pg_sys::Node;
+    assert!(is_a(list_cell_node, NodeTag::T_TargetEntry));
+    let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
+
+    assert!(is_a(list_cell_node, NodeTag::T_TargetEntry));
+
+    let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
+    let te_expr_node = (*target_entry).expr as *mut pgrx::pg_sys::Node;
+    let expr = transform_var_to_df_expr(te_expr_node, rtable)?;
+    sort_expr_vec.push(expr.sort(asc, nulls_first));
 
     Ok(LogicalPlan::Sort(Sort {
         expr: sort_expr_vec,
@@ -618,12 +603,16 @@ pub unsafe fn transform_agg_to_df_plan(
 #[inline]
 unsafe fn transform_var_to_df_expr(node: *mut Node, rtable: *mut List) -> Result<Expr, String> {
     let var = node as *mut pg_sys::Var;
-    let rte =
-        pg_sys::pgrx_list_nth(rtable, ((*var).varno - 1) as i32) as *mut pg_sys::RangeTblEntry;
+    // TODO: workaround since Sort nodes return a negative
+    // varno. If used with `pgrx_list_nth` the program crashes.
+    let rte = if (*var).varno < 0 {
+        rt_fetch(1, rtable)
+    } else {
+        pg_sys::pgrx_list_nth(rtable, ((*var).varno - 1) as i32) as *mut pg_sys::RangeTblEntry
+    };
     let var_relid = (*rte).relid;
     let att_name = get_attname(var_relid, (*var).varattno, false);
     let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
-
     Ok(Expr::Column(att_name_str.into()))
 }
 

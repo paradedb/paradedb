@@ -28,8 +28,6 @@ pub enum ParadeWriterRequest {
 /// Possible responses for the ParadeWriterServer.
 /// The ParadeWriterServer must not every panic, because it doesn't have
 /// a reliable way to recover, and observability into it is very difficult.
-/// If it does need to error, it should return one of these error types to the client.
-/// To ease debugging, we should tr
 #[derive(Serialize, Deserialize, Debug)]
 pub enum ParadeWriterResponse {
     Ok,

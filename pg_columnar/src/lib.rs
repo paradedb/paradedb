@@ -292,9 +292,6 @@ unsafe extern "C" fn columnar_executor_run(
     let rtable = (*ps).rtable;
 
     let logical_plan = transform_pg_plan_to_df_plan(plan.into(), rtable.into()).unwrap();
-
-    info!("logical plan {:?}", logical_plan);
-
     let dataframe =
         task::block_on(col_datafusion::CONTEXT.execute_logical_plan(logical_plan)).unwrap();
     let recordbatchvec: Vec<RecordBatch> = task::block_on(dataframe.collect()).unwrap();

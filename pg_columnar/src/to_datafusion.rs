@@ -22,8 +22,8 @@ use datafusion::common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion::datasource::{provider_as_source, DefaultTableSource};
 use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::{
-    col, lit, Aggregate, AggregateFunction as BuiltInAgg, BinaryExpr, DmlStatement, Expr, Limit,
-    LogicalPlan, LogicalPlanBuilder, Operator, TableScan, TableSource, Values,
+    Aggregate, AggregateFunction as BuiltInAgg, BinaryExpr, DmlStatement, Expr, Limit, LogicalPlan,
+    LogicalPlanBuilder, Operator, TableScan, TableSource, Values,
 };
 use datafusion::sql::TableReference;
 

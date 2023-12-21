@@ -22,8 +22,8 @@ use datafusion::common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion::datasource::{provider_as_source, DefaultTableSource};
 use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::{
-    Aggregate, AggregateFunction as BuiltInAgg, DmlStatement, Expr, Limit, LogicalPlan, TableScan,
-    TableSource, Values,
+    Aggregate, AggregateFunction as BuiltInAgg, BinaryExpr, DmlStatement, Expr, Limit, LogicalPlan,
+    LogicalPlanBuilder, Operator, TableScan, TableSource, Values,
 };
 use datafusion::sql::TableReference;
 
@@ -112,7 +112,7 @@ pub unsafe fn transform_const_to_df_expr(node: *mut Node) -> Result<Expr, String
 
     // TODO: actually get the type here - for now just defaulting to Int32
     Ok(Expr::Literal(ScalarValue::Int32(Some(
-        const_datum.value() as i32,
+        const_datum.value() as i32
     ))))
 }
 
@@ -162,12 +162,14 @@ pub unsafe fn transform_targetentry_to_expr(node: *mut Node) -> Result<Expr, Str
     match node_tag {
         NodeTag::T_Const => transform_const_to_df_expr(te_expr_node),
         // TODO: handle other types (T_Var, etc.)
-        _ => Err(format!("transform_targetentry_to_expr does not handle node_tag {:?}", node_tag))
+        _ => Err(format!(
+            "transform_targetentry_to_expr does not handle node_tag {:?}",
+            node_tag
+        )),
     }
 }
 
 // ---- Every specific node transformation function should have the same signature (*mut Plan, *mut List, Option<LogicalPlan>) -> Result<LogicalPlan, String>
-
 pub unsafe fn transform_seqscan_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
@@ -183,13 +185,14 @@ pub unsafe fn transform_seqscan_to_df_plan(
 
     let tablename = format!("{}", pg_relation.oid());
     let table_reference = TableReference::from(tablename.clone());
+
+    // Read projections (i.e. which columns to read)
     let mut projections: Vec<usize> = vec![];
+    let targets = (*plan).targetlist;
 
-    let list = (*plan).targetlist;
-
-    if !list.is_null() {
-        let elements = (*list).elements;
-        for i in 0..(*list).length {
+    if !targets.is_null() {
+        let elements = (*targets).elements;
+        for i in 0..(*targets).length {
             let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
             let target_entry = list_cell_node as *mut pgrx::pg_sys::TargetEntry;
             let var = (*target_entry).expr as *mut pgrx::pg_sys::Var;
@@ -199,20 +202,93 @@ pub unsafe fn transform_seqscan_to_df_plan(
         }
     }
 
+    // Read filters (i.e. WHERE clause)
+    let mut filters: Vec<Expr> = vec![];
+    let quals = (*plan).qual;
+
+    if !quals.is_null() {
+        let elements = (*quals).elements;
+        for i in 0..(*quals).length {
+            let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
+            let operator_expr = list_cell_node as *mut pg_sys::OpExpr;
+            let operator_tuple = pg_sys::SearchSysCache1(
+                pg_sys::SysCacheIdentifier_OPEROID as i32,
+                pg_sys::Datum::from((*operator_expr).opno),
+            );
+            let operator_form = GETSTRUCT(operator_tuple) as *mut FormData_pg_operator;
+            let operator_name = CStr::from_ptr((*operator_form).oprname.data.as_ptr())
+                .to_string_lossy()
+                .into_owned();
+
+            pg_sys::ReleaseSysCache(operator_tuple);
+
+            // TODO: This logic won't work for statements like
+            // SELECT * FROM t WHERE (a + b) > 0;
+            let lhs = pg_sys::pgrx_list_nth((*operator_expr).args, 0) as *mut pg_sys::Node;
+            let rhs = pg_sys::pgrx_list_nth((*operator_expr).args, 1) as *mut pg_sys::Node;
+
+            let lhs_is_const = is_a(lhs, NodeTag::T_Const) && is_a(rhs, NodeTag::T_Var);
+            let rhs_is_const = is_a(rhs, NodeTag::T_Const) && is_a(lhs, NodeTag::T_Var);
+
+            if !(lhs_is_const || rhs_is_const) {
+                return Err(format!(
+                    "WHERE clause requires Var {} Const or Const {} Var",
+                    operator_name, operator_name
+                ));
+            }
+
+            let (left_expr, right_expr) = match lhs_is_const {
+                true => (
+                    transform_const_to_df_expr(lhs)?,
+                    transform_var_to_df_expr(rhs, rtable)?,
+                ),
+                false => (
+                    transform_var_to_df_expr(lhs, rtable)?,
+                    transform_const_to_df_expr(rhs)?,
+                ),
+            };
+
+            filters.push(Expr::BinaryExpr(BinaryExpr {
+                left: Box::new(left_expr),
+                right: Box::new(right_expr),
+                op: match operator_name.as_str() {
+                    "=" => Operator::Eq,
+                    "<>" => Operator::NotEq,
+                    "<" => Operator::Lt,
+                    ">" => Operator::Gt,
+                    "<=" => Operator::LtEq,
+                    ">=" => Operator::GtEq,
+                    _ => return Err(format!("operator {} not supported yet", operator_name)),
+                },
+            }));
+        }
+    }
+
     let table_provider =
         task::block_on(CONTEXT.table_provider(table_reference)).expect("Could not get table");
     let table_source = provider_as_source(table_provider);
 
-    return Ok(LogicalPlan::TableScan(
-        TableScan::try_new(tablename, table_source, Some(projections), vec![], None)
-            .map_err(datafusion_err_to_string("failed to create table scan"))?,
-    ));
+    // We use a LogicalPlanBuilder to pass in filters
+    // LogicalPlan::TableScan takes in filters but they are filter pushdowns,
+    // which are not supported by our existing TableProvider
+    let mut builder = LogicalPlanBuilder::scan(tablename, table_source, None)
+        .map_err(datafusion_err_to_string("Could not create TableScan"))?;
+
+    for filter in filters {
+        builder = builder
+            .filter(filter)
+            .map_err(datafusion_err_to_string("Could not create TableScan"))?;
+    }
+
+    Ok(builder
+        .build()
+        .map_err(datafusion_err_to_string("Could not build TableScan plan"))?)
 }
 
 pub unsafe fn transform_result_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
-    outer_plan: Option<LogicalPlan>
+    outer_plan: Option<LogicalPlan>,
 ) -> Result<LogicalPlan, String> {
     /*
      * Taken from postgres source:
@@ -222,7 +298,7 @@ pub unsafe fn transform_result_to_df_plan(
      *      projection as shown by targetlist).
      * See nodeResult.c for more details about a child plan (outer plan).
      *     If no outer plan, then equivalent to a Values plan.
-    */
+     */
 
     let result = plan as *mut pgrx::pg_sys::Result;
 
@@ -239,14 +315,20 @@ pub unsafe fn transform_result_to_df_plan(
                 NodeTag::T_TargetEntry => {
                     cols.push(transform_targetentry_to_df_field(list_cell_node)?);
                     values[0].push(transform_targetentry_to_expr(list_cell_node)?);
-                },
-                _ => return Err(format!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_)),
+                }
+                _ => {
+                    return Err(format!(
+                        "target type {:?} not handled yet for valuesscan",
+                        (*list_cell_node).type_
+                    ))
+                }
             }
         }
     }
-    
+
     let arrow_schema = Schema::new(cols);
-    let df_schema = DFSchema::try_from(arrow_schema).map_err(datafusion_err_to_string("result DFSchema failed"))?;
+    let df_schema = DFSchema::try_from(arrow_schema)
+        .map_err(datafusion_err_to_string("result DFSchema failed"))?;
 
     Ok(LogicalPlan::Values(Values {
         schema: df_schema.clone().into(),
@@ -444,6 +526,18 @@ pub unsafe fn transform_agg_to_df_plan(
         Aggregate::try_new(Box::new(outer_plan).into(), vec![], agg_expr)
             .expect("failed to create aggregate"),
     ))
+}
+
+#[inline]
+unsafe fn transform_var_to_df_expr(node: *mut Node, rtable: *mut List) -> Result<Expr, String> {
+    let var = node as *mut pg_sys::Var;
+    let rte =
+        pg_sys::pgrx_list_nth(rtable, ((*var).varno - 1) as i32) as *mut pg_sys::RangeTblEntry;
+    let var_relid = (*rte).relid;
+    let att_name = get_attname(var_relid, (*var).varattno, false);
+    let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();
+
+    Ok(Expr::Column(att_name_str.into()))
 }
 
 #[inline]

@@ -28,8 +28,8 @@ fn main() {
         }
     }
 
-    let pg_columnar_dir = find_pg_columnar_dir(&current_dir)
-        .expect("Failed to find pg_columnar directory");
+    let pg_columnar_dir =
+        find_pg_columnar_dir(&current_dir).expect("Failed to find pg_columnar directory");
 
     let script_path = pg_columnar_dir.join("benchmarks/clickbench/benchmark.sh");
 

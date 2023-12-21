@@ -22,8 +22,8 @@ use datafusion::common::{DFSchema, DataFusionError, ScalarValue};
 use datafusion::datasource::{provider_as_source, DefaultTableSource};
 use datafusion::logical_expr::expr::AggregateFunction;
 use datafusion::logical_expr::{
-    Aggregate, AggregateFunction as BuiltInAgg, DmlStatement, Expr, Limit, LogicalPlan, TableScan,
-    TableSource, Values, Operator, BinaryExpr
+    Aggregate, AggregateFunction as BuiltInAgg, BinaryExpr, DmlStatement, Expr, Limit, LogicalPlan,
+    Operator, TableScan, TableSource, Values,
 };
 use datafusion::sql::TableReference;
 
@@ -112,7 +112,7 @@ pub unsafe fn transform_const_to_df_expr(node: *mut Node) -> Result<Expr, String
 
     // TODO: actually get the type here - for now just defaulting to Int32
     Ok(Expr::Literal(ScalarValue::Int32(Some(
-        const_datum.value() as i32,
+        const_datum.value() as i32
     ))))
 }
 
@@ -162,7 +162,10 @@ pub unsafe fn transform_targetentry_to_expr(node: *mut Node) -> Result<Expr, Str
     match node_tag {
         NodeTag::T_Const => transform_const_to_df_expr(te_expr_node),
         // TODO: handle other types (T_Var, etc.)
-        _ => Err(format!("transform_targetentry_to_expr does not handle node_tag {:?}", node_tag))
+        _ => Err(format!(
+            "transform_targetentry_to_expr does not handle node_tag {:?}",
+            node_tag
+        )),
     }
 }
 
@@ -227,31 +230,21 @@ pub unsafe fn transform_seqscan_to_df_plan(
             let rhs_is_const = is_a(rhs, NodeTag::T_Const) && is_a(lhs, NodeTag::T_Var);
 
             if !(lhs_is_const || rhs_is_const) {
-                return Err(format!("WHERE clause requires Var {} Const or Const {} Var", operator_name, operator_name));
+                return Err(format!(
+                    "WHERE clause requires Var {} Const or Const {} Var",
+                    operator_name, operator_name
+                ));
             }
 
-            let scalar_value = if lhs_is_const {
-                transform_const_to_df_expr(lhs)?
-            } else {
-                transform_const_to_df_expr(rhs)?
-            };
-
-            let var = if lhs_is_const {
-                transform_var_to_df_expr(rhs, rtable)?
-            } else {
-                transform_var_to_df_expr(lhs, rtable)?
-            };
-
-            let left_expr = if lhs_is_const {
-                scalar_value.clone()
-            } else {
-                var.clone()
-            };
-
-            let right_expr = if lhs_is_const {
-                var.clone()
-            } else {
-                scalar_value.clone()
+            let (left_expr, right_expr) = match lhs_is_const {
+                true => (
+                    transform_const_to_df_expr(lhs)?,
+                    transform_var_to_df_expr(rhs, rtable)?,
+                ),
+                false => (
+                    transform_var_to_df_expr(lhs, rtable)?,
+                    transform_const_to_df_expr(rhs)?,
+                ),
             };
 
             filters.push(Expr::BinaryExpr(BinaryExpr {
@@ -270,8 +263,6 @@ pub unsafe fn transform_seqscan_to_df_plan(
         }
     }
 
-    info!("filters: {:?}", filters);
-
     let table_provider =
         task::block_on(CONTEXT.table_provider(table_reference)).expect("Could not get table");
     let table_source = provider_as_source(table_provider);
@@ -285,7 +276,7 @@ pub unsafe fn transform_seqscan_to_df_plan(
 pub unsafe fn transform_result_to_df_plan(
     plan: *mut Plan,
     rtable: *mut List,
-    outer_plan: Option<LogicalPlan>
+    outer_plan: Option<LogicalPlan>,
 ) -> Result<LogicalPlan, String> {
     /*
      * Taken from postgres source:
@@ -295,7 +286,7 @@ pub unsafe fn transform_result_to_df_plan(
      *      projection as shown by targetlist).
      * See nodeResult.c for more details about a child plan (outer plan).
      *     If no outer plan, then equivalent to a Values plan.
-    */
+     */
 
     let result = plan as *mut pgrx::pg_sys::Result;
 
@@ -312,14 +303,20 @@ pub unsafe fn transform_result_to_df_plan(
                 NodeTag::T_TargetEntry => {
                     cols.push(transform_targetentry_to_df_field(list_cell_node)?);
                     values[0].push(transform_targetentry_to_expr(list_cell_node)?);
-                },
-                _ => return Err(format!("target type {:?} not handled yet for valuesscan", (*list_cell_node).type_)),
+                }
+                _ => {
+                    return Err(format!(
+                        "target type {:?} not handled yet for valuesscan",
+                        (*list_cell_node).type_
+                    ))
+                }
             }
         }
     }
-    
+
     let arrow_schema = Schema::new(cols);
-    let df_schema = DFSchema::try_from(arrow_schema).map_err(datafusion_err_to_string("result DFSchema failed"))?;
+    let df_schema = DFSchema::try_from(arrow_schema)
+        .map_err(datafusion_err_to_string("result DFSchema failed"))?;
 
     Ok(LogicalPlan::Values(Values {
         schema: df_schema.clone().into(),
@@ -521,8 +518,9 @@ pub unsafe fn transform_agg_to_df_plan(
 
 #[inline]
 unsafe fn transform_var_to_df_expr(node: *mut Node, rtable: *mut List) -> Result<Expr, String> {
-    let var = node as *mut Var;
-    let rte = pg_sys::pgrx_list_nth(rtable, ((*var).varno - 1) as i32) as *mut pg_sys::RangeTblEntry;
+    let var = node as *mut pg_sys::Var;
+    let rte =
+        pg_sys::pgrx_list_nth(rtable, ((*var).varno - 1) as i32) as *mut pg_sys::RangeTblEntry;
     let var_relid = (*rte).relid;
     let att_name = get_attname(var_relid, (*var).varattno, false);
     let att_name_str = CStr::from_ptr(att_name).to_string_lossy().into_owned();

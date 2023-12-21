@@ -2020,7 +2020,6 @@ dependencies = [
 name = "pg_bm25"
 version = "0.4.3"
 dependencies = [
- "bincode",
  "chrono",
  "csv",
  "indexmap 2.1.0",

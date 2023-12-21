@@ -19,7 +19,6 @@ pg_test = []
 telemetry = ["shared/telemetry"]
 
 [dependencies]
-bincode = "1.3.3"
 chrono = "0.4.31"
 csv = "1.2.2"
 indexmap = "2.1.0"

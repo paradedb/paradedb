@@ -46,19 +46,5 @@ unsafe fn aminsert_internal(
 
     parade_index.insert(builder);
 
-    // let parade_writer = PARADE_WRITER_CACHE.get_cached(index_relation_ref.name());
-    // let parade_index_key =
-    //     ParadeIndexKey::from_json_builder(&parade_writer.key_field_name, &builder).unwrap();
-
-    // // First delete any existing entires with the same key.
-    // parade_writer.delete_by_key(&parade_index_key);
-    // parade_writer.insert(*ctid, builder);
-
-    // Acquire  a writer, which may involve waiting for a lock to be acquired.
-    // If the lock has been acquired in this transaction, the writer will be cached
-    // so no further waiting is required. We'll also register some callbacks to
-    // release the locks and clear the cache when the transaction ends.
-    // PARADE_WRITER_CACHE.clear_cache_on_transaction_end();
-
     true
 }

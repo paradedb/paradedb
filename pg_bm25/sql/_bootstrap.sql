@@ -347,9 +347,8 @@ DECLARE
 BEGIN
     SELECT INTO original_client_min_messages current_setting('client_min_messages');
     SET client_min_messages TO WARNING;
-
-    EXECUTE format('DROP INDEX IF EXISTS %s.%s_bm25_index', schema_name, index_name); 
-    EXECUTE format('DROP SCHEMA IF EXISTS %s CASCADE', index_name);
+    
+    PERFORM paradedb.drop_bm25_internal(format('%s_bm25_index', index_name), schema_name);
 
     EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
   END;

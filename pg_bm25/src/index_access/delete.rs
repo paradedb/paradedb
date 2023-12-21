@@ -27,7 +27,6 @@ pub extern "C" fn ambulkdelete(
     if let Some(actual_callback) = callback {
         let (deleted, not_deleted) =
             parade_index.delete(|ctid| unsafe { actual_callback(ctid, callback_state) });
-        parade_index.commit();
         stats.pages_deleted += deleted;
         stats.num_pages += not_deleted;
     }

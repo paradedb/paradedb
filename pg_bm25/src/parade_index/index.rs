@@ -3,7 +3,7 @@ use pgrx::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use shared::plog;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fs::{self, create_dir_all, remove_dir_all, File};
 use std::io::Write;
@@ -22,6 +22,12 @@ use super::state::TantivyScanState;
 
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 const CACHE_NUM_BLOCKS: usize = 10;
+
+// A collection of index names that will be committed at the end of a given transaction.
+// If an insert to an indedx occurs, that index name will be added to this set.
+// At the end of the transaction, `commit()` will be called for all the indices in this set.
+// The set will be cleared, so it will be empty on the next transaction.
+static mut WILL_COMMIT_SET: Option<HashSet<String>> = None;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
@@ -111,15 +117,10 @@ impl ParadeIndex {
         options: PgBox<ParadeOptions>,
     ) -> Result<&mut Self, Box<dyn Error>> {
         let data_directory = Self::data_directory(&name);
-        let path = Path::new(&data_directory);
-
-        if path.exists() {
-            remove_dir_all(path).unwrap_or_else(|err| {
-                panic!("failed to remove paradedb directory at {path:?}: {err:?}")
-            });
-        }
-
-        create_dir_all(path).expect("failed to create paradedb directory");
+        Self::delete_index_directory(&data_directory).unwrap_or_else(|err| {
+            panic!("failed to remove paradedb directory at {data_directory:?}: {err:?}")
+        });
+        Self::create_index_directory(&data_directory).expect("failed to create paradedb directory");
 
         let key_field_name = options.get_key_field();
         let result = Self::build_index_schema(heap_relation, &key_field_name, &options);
@@ -339,13 +340,10 @@ impl ParadeIndex {
     }
 
     fn from_disk(index_directory_path: &str) -> Self {
-        pgrx::log!("IN FROM DISK");
         let config_path = &Self::get_field_configs_path(index_directory_path);
-        pgrx::log!("GOT CONFIG PATH");
         let serialized_data = fs::read_to_string(config_path).unwrap_or_else(|err| {
             panic!("could not read index config for {index_directory_path} from {config_path}: {err:?}")
         });
-        pgrx::log!("GOT SERIALIZED DATA");
         serde_json::from_str(&serialized_data).unwrap_or_else(|err| {
             panic!(
                 "could not deserialize config from disk for index {index_directory_path}: {err:?}"
@@ -353,8 +351,54 @@ impl ParadeIndex {
         })
     }
 
-    pub fn commit(&self) {
-        WRITER.share().commit(&self.name);
+    // commit needs a static method variant so it can be passed into a callback.
+    fn commit_static(index_name: &str) {
+        WRITER.share().commit(index_name);
+    }
+
+    fn commit(&self) {
+        Self::commit_static(&self.name);
+    }
+
+    /// Register this index to be committed at the end of this transaction.
+    fn register_commit_callbacks(&self) {
+        let will_commit_set = unsafe {
+            match &mut WILL_COMMIT_SET {
+                // It's important to remember that each Postgres connection is its own process,
+                // so each `static` variable is local to each process.
+                None => {
+                    // This is the first time this method has been called for this transaction.
+                    // We need to initialize the set here so we can use it as a cache.
+                    // It will be set back to `None` in the callback that we register.
+                    WILL_COMMIT_SET = Some(HashSet::new());
+                    // This callback will be fired at the end of the transaction. We only
+                    // register it inside this None case, which tells us that this is the first
+                    // time this method is being called for the current transaction. This lets
+                    // us avoid registering it over and over.
+                    let callback = || {
+                        // In case this transaction involves inserst into multiple indices, we
+                        // maintain a set of names, and commit them all once the transaction is
+                        // complete.
+                        for index_name in WILL_COMMIT_SET.as_ref().unwrap() {
+                            ParadeIndex::commit_static(index_name);
+                            // Clear the cache set so its empty fo rthe next
+                            WILL_COMMIT_SET = None;
+                        }
+                    };
+                    register_xact_callback(PgXactCallbackEvent::Commit, callback.clone());
+                    // TODO. Not clear on whether Abort should be handled differently from commit.
+                    // It's possible that we should not actually be committing if/when abort is called.
+                    // It may be more appropriate to have a server action that clears the pending
+                    // inserts.
+                    register_xact_callback(PgXactCallbackEvent::Abort, callback.clone());
+                    WILL_COMMIT_SET.as_mut().unwrap()
+                }
+                Some(set) => set,
+            }
+        };
+
+        // Ensure this index is in the set that will be committed at the ned of the transaction.
+        will_commit_set.insert(self.name.clone());
     }
 
     pub fn insert(&self, builder: JsonBuilder) {
@@ -362,6 +406,7 @@ impl ParadeIndex {
         // Note that these will not be flused to disk until commit() is separately called.
         WRITER.share().insert(&self.name, builder);
         self.reader.reload().unwrap();
+        self.register_commit_callbacks();
     }
 
     pub fn delete(&mut self, should_delete: impl Fn(*mut ItemPointerData) -> bool) -> (u32, u32) {
@@ -402,7 +447,12 @@ impl ParadeIndex {
             .share()
             .delete(&self.name, self.ctid_field.clone(), ctids_to_delete);
 
+        self.commit();
         (deleted, not_deleted)
+    }
+
+    pub fn drop_index(&self) {
+        WRITER.share().drop_index(&self.name);
     }
 
     pub fn json_builder(
@@ -553,6 +603,20 @@ impl ParadeIndex {
 
         Ok((schema_builder.build(), fields))
     }
+
+    fn create_index_directory(data_directory: &str) -> Result<(), std::io::Error> {
+        let path = Path::new(&data_directory);
+        create_dir_all(path)
+    }
+
+    pub fn delete_index_directory(data_directory: &str) -> Result<(), std::io::Error> {
+        let path = Path::new(&data_directory);
+        if path.exists() {
+            remove_dir_all(path)
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl<'de> Deserialize<'de> for ParadeIndex {
@@ -599,7 +663,7 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             panic!("error deserializing index: ctid field does not exist in schema",)
         });
 
-        // Construct the ParadeIndex
+        // Construct the ParadeIndex.
         Ok(ParadeIndex {
             name,
             fields,

@@ -98,7 +98,7 @@ impl ParadeWriterClient {
 
         match response {
             ParadeWriterResponse::Ok => {}
-            error => panic!("unexpected error while inserting: {error:?}"),
+            error => panic!("unexpected error while deleting: {error:?}"),
         };
     }
 
@@ -111,7 +111,20 @@ impl ParadeWriterClient {
 
         match response {
             ParadeWriterResponse::Ok => {}
-            error => panic!("unexpected error while inserting: {error:?}"),
+            error => panic!("unexpected error while committing: {error:?}"),
+        };
+    }
+
+    pub fn drop_index(&self, index_name: &str) {
+        let response = self
+            .send_request(ParadeWriterRequest::DropIndex(Self::get_data_directory(
+                &index_name,
+            )))
+            .expect("error while sending drop index request}");
+
+        match response {
+            ParadeWriterResponse::Ok => {}
+            error => panic!("unexpected error while dropping index: {error:?}"),
         };
     }
 

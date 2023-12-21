@@ -266,6 +266,9 @@ pub unsafe fn transform_seqscan_to_df_plan(
         task::block_on(CONTEXT.table_provider(table_reference)).expect("Could not get table");
     let table_source = provider_as_source(table_provider);
 
+    // We use a LogicalPlanBuilder to pass in filters
+    // LogicalPlan::TableScan takes in filters but they are filter pushdowns,
+    // which are not supported by our existing TableProvider
     let mut builder = LogicalPlanBuilder::scan(tablename, table_source, None)
         .map_err(datafusion_err_to_string("Could not create TableScan"))?;
 

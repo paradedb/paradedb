@@ -1,5 +1,5 @@
 use crate::index_access::utils::{get_parade_index, SearchConfig};
-use crate::parade_index::index::{ParadeIndex, ParadeIndexKeyValue};
+use crate::parade_index::index::ParadeIndex;
 use pgrx::{prelude::TableIterator, *};
 use tantivy::{schema::FieldType, SnippetGenerator};
 
@@ -20,9 +20,7 @@ pub fn rank_bm25(
         let document = scan_state
             .doc(doc_address)
             .unwrap_or_else(|err| panic!("error retrieving document for rank: {err:?}"));
-        let key = match parade_index.get_key_value(&document) {
-            ParadeIndexKeyValue::Number(k) => k,
-        };
+        let key = parade_index.get_key_value(&document);
         field_rows.push((key, score));
     }
     TableIterator::new(field_rows)
@@ -69,9 +67,7 @@ pub fn highlight_bm25(
             .unwrap_or_else(|err| panic!("error retrieving document for highlight: {err:?}"));
         let snippet = snippet_generator.snippet_from_doc(&document);
         let html = snippet.to_html();
-        let key = match parade_index.get_key_value(&document) {
-            ParadeIndexKeyValue::Number(k) => k,
-        };
+        let key = parade_index.get_key_value(&document);
         field_rows.push((key, html));
     }
 
@@ -103,9 +99,7 @@ pub fn minmax_bm25(
         let document = scan_state
             .doc(doc_address)
             .unwrap_or_else(|err| panic!("error retrieving document for rank_hybrid: {err:?}"));
-        let key = match parade_index.get_key_value(&document) {
-            ParadeIndexKeyValue::Number(k) => k,
-        };
+        let key = parade_index.get_key_value(&document);
 
         let normalized_score = if score_range == 0.0 {
             1.0
@@ -119,21 +113,9 @@ pub fn minmax_bm25(
 }
 
 #[pg_extern]
-fn drop_bm25_internal(index_name: &str, schema_name: &str) {
-    // Drop the Tantivy data directory first.
-    let parade_index = ParadeIndex::from_index_name(index_name);
-    parade_index.drop_index();
-
-    // Drop the Postgres index on the table.
-    Spi::run(&format!(
-        "DROP INDEX IF EXISTS {schema_name}.{index_name}_bm25_index"
-    ))
-    .unwrap();
-
-    // Drop the schema that we've dynamically created.
-    // This is a little confusing. We've named the dynamic schema after the index.
-    // The schema_name argument above refers to the schema that the indexed table lives in.
-    Spi::run(&format!("DROP SCHEMA IF EXISTS {index_name}")).unwrap();
+fn drop_bm25_internal(index_name: &str) {
+    // Drop the Tantivy data directory.
+    ParadeIndex::drop_index(index_name);
 }
 
 #[cfg(any(test, feature = "pg_test"))]

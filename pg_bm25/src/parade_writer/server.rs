@@ -47,8 +47,7 @@ impl ParadeWriterServer {
     /// then retrieve the ParadeIndex and use it to create a new IndexWriter, caching it.
     fn writer(&mut self, index_directory_path: &str) -> Result<&mut IndexWriter, String> {
         if let Vacant(entry) = self.writers.entry(index_directory_path.to_string()) {
-            if let Err(e) = ParadeIndex::writer(&index_directory_path)
-                .and_then(|writer| Ok(entry.insert(writer)))
+            if let Err(e) = ParadeIndex::writer(index_directory_path).map(|writer| entry.insert(writer))
             {
                 return Err(e.to_string());
             }
@@ -66,11 +65,11 @@ impl ParadeWriterServer {
     ) -> ParadeWriterResponse {
         let key_field = json_builder.key;
         let key_value: i64 = match json_builder.values.get(&key_field) {
-            Some(JsonBuilderValue::i16(value)) => value.clone() as i64,
-            Some(JsonBuilderValue::i32(value)) => value.clone() as i64,
-            Some(JsonBuilderValue::i64(value)) => value.clone() as i64,
-            Some(JsonBuilderValue::u32(value)) => value.clone() as i64,
-            Some(JsonBuilderValue::u64(value)) => value.clone() as i64,
+            Some(JsonBuilderValue::i16(value)) => *value as i64,
+            Some(JsonBuilderValue::i32(value)) => *value as i64,
+            Some(JsonBuilderValue::i64(value)) => *value,
+            Some(JsonBuilderValue::u32(value)) => *value as i64,
+            Some(JsonBuilderValue::u64(value)) => *value as i64,
             _ => {
                 return ParadeWriterResponse::Error(format!(
                     "only integer types are supported for the key field, received: {:?}",
@@ -89,7 +88,7 @@ impl ParadeWriterServer {
                 }
 
                 // Delete any exiting documents with the same key.
-                let key_term = Term::from_field_i64(key_field, key_value.clone());
+                let key_term = Term::from_field_i64(key_field, key_value);
                 writer.delete_term(key_term);
 
                 // Add the Tantivy document to the index.
@@ -141,7 +140,7 @@ impl ParadeWriterServer {
     }
 
     fn vacuum(&mut self, index_directory_path: &str) -> ParadeWriterResponse {
-        match self.writer(&index_directory_path) {
+        match self.writer(index_directory_path) {
             Err(e) => ParadeWriterResponse::Error(e.to_string()),
             Ok(writer) => {
                 if let Err(e) = writer.garbage_collect_files().wait() {

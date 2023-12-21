@@ -49,7 +49,7 @@ impl ParadeWriterClient {
 
         let bytes: Vec<u8> = request.into();
         let client = reqwest::blocking::Client::new();
-        let response = client.post(&format!("http://{addr}")).body(bytes).send()?;
+        let response = client.post(format!("http://{addr}")).body(bytes).send()?;
         let response_body = response.bytes()?;
         ParadeWriterResponse::try_from(response_body.to_vec().as_slice()).map_err(|e| e.into())
     }
@@ -76,7 +76,7 @@ impl ParadeWriterClient {
     pub fn insert(&self, index_name: &str, json_builder: JsonBuilder) {
         let response = self
             .send_request(ParadeWriterRequest::Insert(
-                Self::get_data_directory(&index_name),
+                Self::get_data_directory(index_name),
                 json_builder,
             ))
             .expect("error while sending insert request}");
@@ -90,7 +90,7 @@ impl ParadeWriterClient {
     pub fn delete(&self, index_name: &str, ctid_field: Field, ctid_values: Vec<u64>) {
         let response = self
             .send_request(ParadeWriterRequest::Delete(
-                Self::get_data_directory(&index_name),
+                Self::get_data_directory(index_name),
                 ctid_field,
                 ctid_values,
             ))
@@ -105,7 +105,7 @@ impl ParadeWriterClient {
     pub fn commit(&self, index_name: &str) {
         let response = self
             .send_request(ParadeWriterRequest::Commit(Self::get_data_directory(
-                &index_name,
+                index_name,
             )))
             .expect("error while sending commit request}");
 
@@ -118,7 +118,7 @@ impl ParadeWriterClient {
     pub fn vacuum(&self, index_name: &str) {
         let response = self
             .send_request(ParadeWriterRequest::Vacuum(Self::get_data_directory(
-                &index_name,
+                index_name,
             )))
             .expect("error while sending commit request}");
 
@@ -131,7 +131,7 @@ impl ParadeWriterClient {
     pub fn drop_index(&self, index_name: &str) {
         let response = self
             .send_request(ParadeWriterRequest::DropIndex(Self::get_data_directory(
-                &index_name,
+                index_name,
             )))
             .expect("error while sending drop index request}");
 

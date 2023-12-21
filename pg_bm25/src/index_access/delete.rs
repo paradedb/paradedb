@@ -14,7 +14,7 @@ pub extern "C" fn ambulkdelete(
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
     let index_name = index_relation.name();
-    let parade_index = ParadeIndex::from_index_name(&index_name);
+    let parade_index = ParadeIndex::from_index_name(index_name);
 
     if stats.is_null() {
         stats = unsafe {

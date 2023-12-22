@@ -286,43 +286,43 @@ mod tests {
 
     #[pg_test]
     fn test_lindera_chinese_tokenizer_with_sql() {
-        SPI::run(SETUP_SQL).expert("failed to setup index");
+        Spi::run(SETUP_SQL).expect("failed to setup index");
 
-        let query1 = Spi::run("SELECT title FROM chinese.search('author:华'");
-        assert_eq!(query1, Some("北京的新餐馆"));
+        let query1: &str = Spi::get_one("SELECT title FROM chinese.search('author:华')").expect("failed to query").unwrap();
+        assert_eq!(query1, "北京的新餐馆");
 
-        let query2 = Spi::run("SELECT message FROM chinese.search('title:北京'");
-        assert_eq!(query2, Some("北京市中心新开了一家餐馆，以其现代设计和独特的菜肴选择而闻名。"));
+        let query2: &str = Spi::get_one("SELECT message FROM chinese.search('title:北京')").expect("failed to query").unwrap();
+        assert_eq!(query2, "北京市中心新开了一家餐馆，以其现代设计和独特的菜肴选择而闻名。");
 
-        let query3 = Spi::run("SELECT author FROM chinese.search('message:文化节'");
-        assert_eq!(query3, Some("王芳"));
+        let query3: &str = Spi::get_one("SELECT author FROM chinese.search('message:文化节')").expect("failed to query").unwrap();
+        assert_eq!(query3, "王芳");
     }
 
     #[pg_test]
     fn test_lindera_japanese_tokenizer_with_sql() {
-        SPI::run(SETUP_SQL).expert("failed to setup index");
+        Spi::run(SETUP_SQL).expect("failed to setup index");
 
-        let query1 = Spi::run("SELECT title FROM japanese.search('author:佐藤'");
-        assert_eq!(query1, Some("東京の新しいカフェ"));
+        let query1: &str = Spi::get_one("SELECT title FROM japanese.search('author:佐藤')").expect("failed to query").unwrap();
+        assert_eq!(query1, "東京の新しいカフェ");
 
-        let query2 = Spi::run("SELECT message FROM japanese.search('title:サッカー'");
-        assert_eq!(query2, Some("昨日のサッカー試合では素晴らしいゴールが見られました。終了間際のドラマチックな展開がハイライトでした。"));
+        let query2: &str = Spi::get_one("SELECT message FROM japanese.search('title:サッカー')").expect("failed to query").unwrap();
+        assert_eq!(query2, "昨日のサッカー試合では素晴らしいゴールが見られました。終了間際のドラマチックな展開がハイライトでした。");
 
-        let query3 = Spi::run("SELECT author FROM japanese.search('message:祭り'");
-        assert_eq!(query3, Some("高橋花子"));
+        let query3: &str = Spi::get_one("SELECT author FROM japanese.search('message:祭り')").expect("failed to query").unwrap();
+        assert_eq!(query3, "高橋花子");
     }
 
     #[pg_test]
     fn test_lindera_korean_tokenizer_with_sql() {
-        SPI::run(SETUP_SQL).expert("failed to setup index");
+        Spi::run(SETUP_SQL).expect("failed to setup index");
 
-        let query1 = Spi::run("SELECT title FROM korean.search('author:김민준'");
-        assert_eq!(query1, Some("서울의 새로운 카페"));
+        let query1: &str = Spi::get_one("SELECT title FROM korean.search('author:김민준')").expect("failed to query").unwrap();
+        assert_eq!(query1, "서울의 새로운 카페");
 
-        let query2 = Spi::run("SELECT message FROM korean.search('title:경기'");
-        assert_eq!(query2, Some("어제 열린 축구 경기에서 화려한 골이 터졌습니다. 마지막 순간의 반전이 경기의 하이라이트였습니다."));
+        let query2: &str = Spi::get_one("SELECT message FROM korean.search('title:경기')").expect("failed to query").unwrap();
+        assert_eq!(query2, "어제 열린 축구 경기에서 화려한 골이 터졌습니다. 마지막 순간의 반전이 경기의 하이라이트였습니다.");
 
-        let query3 = Spi::run("SELECT author FROM korean.search('message:지역 축제'");
-        assert_eq!(query3, Some("박지후"));
+        let query3: &str = Spi::get_one("SELECT author FROM korean.search('message:지역 축제')").expect("failed to query").unwrap();
+        assert_eq!(query3, "박지후");
     }
 }

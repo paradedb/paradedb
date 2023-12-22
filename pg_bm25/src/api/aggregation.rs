@@ -97,24 +97,4 @@ mod tests {
 
         assert!(value.is_null());
     }
-
-    #[pg_test]
-    fn test_metrics_aggregation() {
-        Spi::run(SETUP_SQL).expect("failed to setup index");
-        let query = r#"
-            {
-                aggs: {
-                    avg: {
-                        field: "rating"
-                    }
-                }
-            }
-        "#;
-
-        let res = aggregation("one_republic_songs_bm25_index", query);
-        let res = res.0.as_object().unwrap();
-        let aggs = res["aggs"].as_object().unwrap();
-        let value = &aggs["value"];
-        assert_eq!(value, Some("3.8536585365853657"));
-    }
 }

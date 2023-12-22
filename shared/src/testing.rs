@@ -1,5 +1,5 @@
-use pgrx::{Spi, JsonB};
 use pgrx::spi::SpiTupleTable;
+use pgrx::{JsonB, Spi};
 use serde_json::Value as JsonValue;
 
 pub const SETUP_SQL: &str = include_str!("sql/index_setup.sql");
@@ -63,15 +63,10 @@ pub fn dblink(query: &str) -> String {
     format!("dblink('{connection_string}', '{escaped_query_string}')")
 }
 
-
-
-
+/// Compares the output of Spi::connect() query on our bm25_test_table to the expected output.
 ///
-/// 
-/// 
-/// 
-/// 
-
+/// NOTE: This function assume that the query is executed against the bm25_search schema created
+/// by the index_setup.sql script.
 pub fn test_table(mut table: SpiTupleTable, expect: Vec<(i32, &str, i32, &str, bool, JsonValue)>) {
     let mut i = 0;
     while let Some(_) = table.next() {
@@ -90,4 +85,3 @@ pub fn test_table(mut table: SpiTupleTable, expect: Vec<(i32, &str, i32, &str, b
     }
     assert_eq!(expect.len(), i);
 }
-

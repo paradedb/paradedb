@@ -10,15 +10,6 @@ LEFT JOIN bm25_search.rank('category:electronics OR description:keyboard') as r 
  2.1096356 | 32 | Bluetooth-enabled speaker   |      3 | Electronics | t        | {"color": "Black", "location": "Canada"}
 (5 rows)
 
--- Test JSON search 
-SELECT * FROM bm25_search.search('metadata.color:white');
- id |     description      | rating | category | in_stock |                    metadata                     
-----+----------------------+--------+----------+----------+-------------------------------------------------
-  4 | White jogging shoes  |      3 | Footwear | f        | {"color": "White", "location": "United States"}
- 15 | Refreshing face wash |      2 | Beauty   | f        | {"color": "White", "location": "China"}
- 25 | Anti-aging serum     |      4 | Beauty   | t        | {"color": "White", "location": "United States"}
-(3 rows)
-
 -- Test real-time search
 INSERT INTO bm25_search (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
 DELETE FROM bm25_search WHERE id = 1;
@@ -32,12 +23,6 @@ SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')
  22 | Fast charging power bank    |      4 | Electronics | t        | {"color": "Black", "location": "United States"}
  32 | Bluetooth-enabled speaker   |      3 | Electronics | t        | {"color": "Black", "location": "Canada"}
 (5 rows)
-
--- Test search with default tokenizer: no results
-SELECT * FROM bm25_search.search('description:earbud');
- id | description | rating | category | in_stock | metadata 
-----+-------------+--------+----------+----------+----------
-(0 rows)
 
 -- Test sequential scan syntax
 SELECT * FROM paradedb.bm25_test_table

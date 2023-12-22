@@ -164,6 +164,7 @@ mod tests {
                     category: Some("Electronics"),
                     in_stock: Some(false),
                     metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+                    ..Default::default() // Other fields default to None
                 },
                 ExpectedRow {
                     id: Some(1),
@@ -174,6 +175,7 @@ mod tests {
                     metadata: Some(
                         serde_json::json!({"color": "Silver", "location": "United States"}),
                     ),
+                    ..Default::default() // Other fields default to None
                 },
                 ExpectedRow {
                     id: Some(12),
@@ -182,6 +184,7 @@ mod tests {
                     category: Some("Electronics"),
                     in_stock: Some(true),
                     metadata: Some(serde_json::json!({"color": "Black", "location": "China"})),
+                    ..Default::default() // Other fields default to None
                 },
                 ExpectedRow {
                     id: Some(22),
@@ -192,6 +195,7 @@ mod tests {
                     metadata: Some(
                         serde_json::json!({"color": "Black", "location": "United States"}),
                     ),
+                    ..Default::default() // Other fields default to None
                 },
                 ExpectedRow {
                     id: Some(32),
@@ -200,6 +204,7 @@ mod tests {
                     category: Some("Electronics"),
                     in_stock: Some(true),
                     metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+                    ..Default::default() // Other fields default to None
                 },
             ];
 
@@ -225,16 +230,172 @@ mod tests {
                     description: Some("Ergonomic metal keyboard"),
                     rating: Some(4),
                     category: Some("Electronics"),
-                    in_stock: None,
-                    metadata: None,
+                    ..Default::default() // Other fields default to None
                 },
                 ExpectedRow {
                     id: Some(2),
                     description: Some("Plastic Keyboard"),
                     rating: Some(4),
                     category: Some("Electronics"),
-                    in_stock: None,
-                    metadata: None,
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn test_basic_search_with_fuzzy_field_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('category:electornics', fuzzy_fields => 'category');",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(1),
+                    description: Some("Ergonomic metal keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(2),
+                    description: Some("Plastic Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(12),
+                    description: Some("Innovative wireless earbuds"),
+                    rating: Some(5),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(22),
+                    description: Some("Fast charging power bank"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(32),
+                    description: Some("Bluetooth-enabled speaker"),
+                    rating: Some(3),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn test_basic_search_without_fuzzy_field_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('category:electornics');",
+                None,
+                None,
+            )?;
+
+            // Test search with without fuzzy field and with typo: no results
+            let expect = vec![];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn search_fuzzy_field_transpose_cost_false_distance_one_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => false, distance => 1);",
+                None,
+                None,
+            )?;
+
+            // Test search with without fuzzy field and with typo: no results
+            let expect = vec![];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn search_fuzzy_field_transpose_cost_true_distance_one_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => true, distance => 1);",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(1),
+                    description: Some("Ergonomic metal keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(2),
+                    description: Some("Plastic Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn search_regex_field() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('com', regex_fields => 'description');",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(6),
+                    description: Some("Compact digital camera"),
+                    rating: Some(5),
+                    category: Some("Photography"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(23),
+                    description: Some("Comfortable slippers"),
+                    rating: Some(3),
+                    category: Some("Footwear"),
+                    ..Default::default() // Other fields default to None
                 },
             ];
 
@@ -264,6 +425,7 @@ mod tests {
                     metadata: Some(
                         serde_json::json!({"color": "White", "location": "United States"}),
                     ),
+                    ..Default::default() // Other fields default to None
                 },
                 ExpectedRow {
                     id: Some(15),
@@ -272,6 +434,7 @@ mod tests {
                     category: Some("Beauty"),
                     in_stock: Some(false),
                     metadata: Some(serde_json::json!({"color": "White", "location": "China"})),
+                    ..Default::default() // Other fields default to None
                 },
                 ExpectedRow {
                     id: Some(25),
@@ -282,6 +445,7 @@ mod tests {
                     metadata: Some(
                         serde_json::json!({"color": "White", "location": "United States"}),
                     ),
+                    ..Default::default() // Other fields default to None
                 },
             ];
 

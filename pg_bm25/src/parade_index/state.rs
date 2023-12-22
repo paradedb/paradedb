@@ -139,3 +139,25 @@ impl TantivyScanState {
         tantivy_query
     }
 }
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::*;
+    use shared::testing::SETUP_SQL;
+
+    #[pg_test]
+    fn test_quoted_table_name_search() {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+
+        // Execute the query and retrieve the result
+        let (key, name, age) =
+            Spi::get_three::<i32, String, i32>("SELECT * FROM activity.search('name:alice')")
+                .expect("failed to query");
+
+        // Assert that the retrieved values match the expected output
+        assert_eq!(key, Some(1));
+        assert_eq!(name, Some("Alice".to_string()));
+        assert_eq!(age, Some(29));
+    }
+}

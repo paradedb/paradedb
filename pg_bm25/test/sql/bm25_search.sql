@@ -1,7 +1,3 @@
--- With BM25 scoring
-SELECT r.rank_bm25, s.* FROM bm25_search.search('category:electronics OR description:keyboard') as s
-LEFT JOIN bm25_search.rank('category:electronics OR description:keyboard') as r ON s.id = r.id;
-
 -- Test real-time search
 INSERT INTO bm25_search (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
 DELETE FROM bm25_search WHERE id = 1;

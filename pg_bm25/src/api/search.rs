@@ -217,7 +217,8 @@ impl Iterator for DedupeResultsIterator {
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::*;
-    use shared::testing::{test_table, ExpectedRow, SETUP_SQL};
+    use shared::testing::SETUP_SQL;
+    // use shared::testing::{test_table, ExpectedRow, SETUP_SQL};
 
     #[pg_test]
     fn test_rank_bm25() {

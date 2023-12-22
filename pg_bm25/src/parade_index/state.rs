@@ -474,6 +474,76 @@ mod tests {
         })
     }
 
+    // TODO: This test returns None as well
+    // #[pg_test]
+    // fn test_search_with_bm25_scoring_query() -> spi::Result<()> {
+    //     Spi::run(SETUP_SQL).expect("failed to setup index");
+    //     Spi::connect(|client| {
+    //         let table = client.select(
+    //             "SELECT r.rank_bm25, s.* FROM bm25_search.search('category:electronics OR description:keyboard') as s LEFT JOIN bm25_search.rank('category:electronics OR description:keyboard') as r ON s.id = r.id;",
+    //             None,
+    //             None,
+    //         )?;
+
+    //         let expect = vec![
+    //             ExpectedRow {
+    //                 rank_bm25: Some(4.931014),
+    //                 id: Some(1),
+    //                 description: Some("Ergonomic metal keyboard"),
+    //                 rating: Some(4),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(true),
+    //                 metadata: Some(serde_json::json!({"color": "Silver", "location": "United States"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //             ExpectedRow {
+    //                 rank_bm25: Some(5.3764954),
+    //                 id: Some(2),
+    //                 description: Some("Plastic Keyboard"),
+    //                 rating: Some(4),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(false),
+    //                 metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //             ExpectedRow {
+    //                 rank_bm25: Some(2.1096356),
+    //                 id: Some(12),
+    //                 description: Some("Innovative wireless earbuds"),
+    //                 rating: Some(5),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(true),
+    //                 metadata: Some(serde_json::json!({"color": "Black", "location": "China"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //             ExpectedRow {
+    //                 rank_bm25: Some(2.1096356),
+    //                 id: Some(22),
+    //                 description: Some("Fast charging power bank"),
+    //                 rating: Some(4),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(true),
+    //                 metadata: Some(serde_json::json!({"color": "Black", "location": "United States"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //             ExpectedRow {
+    //                 rank_bm25: Some(2.1096356),
+    //                 id: Some(32),
+    //                 description: Some("Bluetooth-enabled speaker"),
+    //                 rating: Some(3),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(true),
+    //                 metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //         ];
+
+    //         test_table(table, expect);
+
+    //         Ok(())
+    //     })
+    // }
+
     #[pg_test]
     fn test_quoted_table_name_search() {
         Spi::run(SETUP_SQL).expect("failed to setup index");

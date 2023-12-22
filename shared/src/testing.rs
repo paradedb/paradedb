@@ -1,4 +1,6 @@
-use pgrx::Spi;
+use pgrx::{Spi, JsonB};
+use pgrx::spi::SpiTupleTable;
+use serde_json::Value as JsonValue;
 
 pub const SETUP_SQL: &str = include_str!("sql/index_setup.sql");
 pub const QUERY_SQL: &str = include_str!("sql/search_query.sql");
@@ -60,3 +62,32 @@ pub fn dblink(query: &str) -> String {
     // This function call is what can be executed within a PostgreSQL environment.
     format!("dblink('{connection_string}', '{escaped_query_string}')")
 }
+
+
+
+
+///
+/// 
+/// 
+/// 
+/// 
+
+pub fn test_table(mut table: SpiTupleTable, expect: Vec<(i32, &str, i32, &str, bool, JsonValue)>) {
+    let mut i = 0;
+    while let Some(_) = table.next() {
+        let id = table.get::<i32>(1).expect("SPI failed").unwrap();
+        let description = table.get::<&str>(2).expect("SPI failed").unwrap();
+        let rating = table.get::<i32>(3).expect("SPI failed").unwrap();
+        let category = table.get::<&str>(4).expect("SPI failed").unwrap();
+        let in_stock = table.get::<bool>(5).expect("SPI failed").unwrap();
+        let metadata: JsonB = table.get::<JsonB>(6).expect("SPI failed").unwrap();
+
+        let row_tuple = (id, description, rating, category, in_stock, metadata.0);
+
+        assert_eq!(expect[i], row_tuple);
+
+        i += 1;
+    }
+    assert_eq!(expect.len(), i);
+}
+

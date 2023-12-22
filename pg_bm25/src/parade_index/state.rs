@@ -144,7 +144,65 @@ impl TantivyScanState {
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::*;
-    use shared::testing::SETUP_SQL;
+    use shared::testing::{SETUP_SQL, test_table};
+
+    #[pg_test]
+    fn test_basic_search_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics');",
+                None,
+                None,
+            )?;
+
+
+
+
+
+            // Test setup
+            let expect = vec![
+                (2, "Plastic Keyboard", 4, "Electronics", false, serde_json::json!({"color": "Black", "location": "Canada"})),
+                (1, "Ergonomic metal keyboard", 4, "Electronics", true, serde_json::json!({"color": "Silver", "location": "United States"})),
+                (12, "Innovative wireless earbuds", 5, "Electronics", true, serde_json::json!({"color": "Black", "location": "China"})),
+                (22, "Fast charging power bank", 4, "Electronics", true, serde_json::json!({"color": "Black", "location": "United States"})),
+                (32, "Bluetooth-enabled speaker", 3, "Electronics", true, serde_json::json!({"color": "Black", "location": "Canada"}))
+            ];
+                        
+            test_table(table, expect);
+            
+            Ok(())
+        })
+    }
+
+    // #[pg_test]
+    // fn test_bm25_scoring_search_query() {
+    //     Spi::run(SETUP_SQL).expect("failed to setup index");
+    // }
+
+    // #[pg_test]
+    // fn test_json_search_query() {
+    //     Spi::run(SETUP_SQL).expect("failed to setup index");
+    // }
+
+    // #[pg_test]
+    // fn test_realtime_search_query() {
+    //     Spi::run(SETUP_SQL).expect("failed to setup index");
+    // }
+
+    // #[pg_test]
+    // fn test_default_tokenizer_no_results_search_query() {
+    //     Spi::run(SETUP_SQL).expect("failed to setup index");
+    // }
+
+    // #[pg_test]
+    // fn test_seqscan_search_query() {
+    //     Spi::run(SETUP_SQL).expect("failed to setup index");
+    // }
+
+
+
+
 
     #[pg_test]
     fn test_quoted_table_name_search() {

@@ -1,6 +1,3 @@
--- Basic search query
-SELECT * FROM bm25_search.search('description:keyboard OR category:electronics');
-
 -- With BM25 scoring
 SELECT r.rank_bm25, s.* FROM bm25_search.search('category:electronics OR description:keyboard') as s
 LEFT JOIN bm25_search.rank('category:electronics OR description:keyboard') as r ON s.id = r.id;

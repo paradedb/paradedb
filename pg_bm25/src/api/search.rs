@@ -126,6 +126,7 @@ mod tests {
 
     #[pg_test]
     fn test_rank_bm25() {
+        crate::setup_background_workers();
         Spi::run(SETUP_SQL).expect("failed to create index and table");
         let ctid = Spi::get_one::<pg_sys::ItemPointerData>(
             "SELECT ctid FROM one_republic_songs WHERE title = 'If I Lose Myself'",
@@ -148,6 +149,7 @@ mod tests {
 
     #[pg_test]
     fn test_highlight() {
+        crate::setup_background_workers();
         Spi::run(SETUP_SQL).expect("failed to create index and table");
 
         let query = r#"

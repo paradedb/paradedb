@@ -92,6 +92,7 @@ mod tests {
 
     #[pg_test]
     fn test_schema_bm25() {
+        crate::setup_background_workers();
         Spi::run(SETUP_SQL).expect("failed to setup index");
         let schemas = schema_bm25("one_republic_songs").collect::<Vec<_>>();
         let names = schemas

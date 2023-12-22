@@ -6,6 +6,7 @@ use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags
 use pgrx::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
+use std::thread;
 use std::time::Duration;
 use tiny_http::{Response, Server};
 
@@ -38,10 +39,15 @@ pub unsafe extern "C" fn _PG_init() {
     PARADE_LOGS_GLOBAL.init();
 
     // Set up the writer bgworker shared satate.
-    // pg_shmem_init!(WRITER_SERVER_ADDRESS);
-    // pg_shmem_init!(WRITER_INIT_ERROR);
     pg_shmem_init!(WRITER);
 
+    // We call this in a helper function to the bgworker initialization
+    // can be used in test suites.
+    setup_background_workers();
+}
+
+#[pg_guard]
+pub fn setup_background_workers() {
     // A background worker to perform the insert work for the Tantivy index.
     BackgroundWorkerBuilder::new("pg_bm25_insert_worker")
         // Must be the name of a function in this file.
@@ -75,6 +81,10 @@ pub unsafe extern "C" fn _PG_init() {
         // Also, it doesn't seem like bgworkers will start without this.
         .enable_spi_access()
         .load();
+
+    // Add a short delay to allow the HTTP server to start. This is a temporary
+    // fix for the sake of the test suite. We should add a specific lock for this.
+    thread::sleep(Duration::from_millis(1000));
 }
 
 #[pg_guard]

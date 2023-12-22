@@ -391,12 +391,14 @@ mod tests {
 
     #[pg_test]
     fn test_lookup_index_tupdesc() {
+        crate::setup_background_workers();
         let tuple = make_tuple();
         assert_eq!(tuple.len(), tuple.natts as usize);
     }
 
     #[pg_test]
     fn test_categorize_tupdesc() {
+        crate::setup_background_workers();
         let tuple = make_tuple();
         let categories = categorize_tupdesc(&tuple);
 

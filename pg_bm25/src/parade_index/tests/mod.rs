@@ -9,6 +9,8 @@ mod tests {
 
     #[pgrx::pg_test]
     fn test_chinese_compatible_tokenizer() {
+        crate::setup_background_workers();
+
         // In this test, the index is created and the tokenizer is used in the same transaction.
 
         Spi::run(SETUP_SQL).expect("error running setup query");
@@ -25,6 +27,8 @@ mod tests {
 
     #[pgrx::pg_test]
     fn test_chinese_compatible_tokenizer_in_new_connection() {
+        crate::setup_background_workers();
+
         // In this test, the index is created and the tokenizer is used in separate connections.
         // Because we retrieve the index from disk for new connections, we want to make
         // sure that the tokenizers are set up properly. We're going to make use of a

@@ -46,6 +46,7 @@ mod tests {
 
     #[pg_test]
     fn test_ambulkdelete() {
+        crate::setup_background_workers();
         Spi::run(SETUP_SQL).expect("failed to create index and table");
         let oid = get_index_oid("one_republic_songs_bm25_index", "bm25")
             .expect("could not find oid for one_republic")

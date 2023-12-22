@@ -638,39 +638,28 @@ mod tests {
     use pgrx::*;
     use shared::testing::SETUP_SQL;
 
-    // #[pg_test]
-    // fn test_get_data_directory() {
-    //     let dir_name = "thescore";
-    //     let current_execution_dir = std::env::current_dir().unwrap();
-    //     let expected = format!(
-    //         "{}/paradedb/{dir_name}",
-    //         current_execution_dir.to_str().unwrap()
-    //     );
-    //     let result = ParadeIndex::get_data_directory(dir_name);
-    //     assert_eq!(result, expected);
-    // }
+    #[pg_test]
+    fn test_get_field_configs_path() {
+        let name = "thescore";
+        let current_execution_dir = std::env::current_dir().unwrap();
+        let expected = format!(
+            "{}/paradedb/{name}_parade_field_configs.json",
+            current_execution_dir.to_str().unwrap()
+        );
+        let result = ParadeIndex::get_field_configs_path(name);
+        assert_eq!(result, expected);
+    }
 
-    // #[pg_test]
-    // fn test_get_field_configs_path() {
-    //     let name = "thescore";
-    //     let current_execution_dir = std::env::current_dir().unwrap();
-    //     let expected = format!(
-    //         "{}/paradedb/{name}_parade_field_configs.json",
-    //         current_execution_dir.to_str().unwrap()
-    //     );
-    //     let result = ParadeIndex::get_field_configs_path(name);
-    //     assert_eq!(result, expected);
-    // }
-
-    // #[pg_test]
-    // #[should_panic]
-    // fn test_index_from_disk_panics() {
-    //     let index_name = "tomwalker";
-    //     ParadeIndex::from_disk(index_name);
-    // }
+    #[pg_test]
+    #[should_panic]
+    fn test_index_from_disk_panics() {
+        let index_name = "tomwalker";
+        ParadeIndex::from_disk(index_name).unwrap();
+    }
 
     #[pg_test]
     fn test_from_index_name() {
+        crate::setup_background_workers();
         Spi::run(SETUP_SQL).expect("failed to create index");
         let index_name = "one_republic_songs_bm25_index";
         let index = ParadeIndex::from_index_name(index_name);

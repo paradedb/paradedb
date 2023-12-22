@@ -66,22 +66,22 @@ SELECT id, description, rating, category FROM search_config.search('com', regex_
 
 -- Default highlighting without max_num_chars
 SELECT s.id, description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics') as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description') as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics') as r ON s.id = r.id ORDER BY s.id DESC LIMIT 5;
- id |         description         | rating |  category   |         highlight_bm25
+ id |         description         | rating |  category   |         highlight_bm25          
 ----+-----------------------------+--------+-------------+---------------------------------
-+ 32 | Bluetooth-enabled speaker   |      3 | Electronics |
-+ 22 | Fast charging power bank    |      4 | Electronics |
-+ 12 | Innovative wireless earbuds |      5 | Electronics |
-   2 | Plastic Keyboard            |      4 | Electronics | Plastic <b>Keyboard</b>
-   1 | Ergonomic metal keyboard    |      4 | Electronics | Ergonomic metal <b>keyboard</b>
- (5 rows)
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | 
+ 22 | Fast charging power bank    |      4 | Electronics | 
+ 12 | Innovative wireless earbuds |      5 | Electronics | 
+  2 | Plastic Keyboard            |      4 | Electronics | Plastic <b>Keyboard</b>
+  1 | Ergonomic metal keyboard    |      4 | Electronics | Ergonomic metal <b>keyboard</b>
+(5 rows)
 
 -- max_num_chars is set to 14 
 SELECT s.id, description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics', max_num_chars => 14) as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description', max_num_chars => 14) as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics', max_num_chars => 14) as r ON s.id = r.id ORDER BY s.id DESC LIMIT 5;
- id |         description         | rating |  category   |    highlight_bm25
+ id |         description         | rating |  category   |    highlight_bm25     
 ----+-----------------------------+--------+-------------+-----------------------
- 32 | Bluetooth-enabled speaker   |      3 | Electronics |
- 22 | Fast charging power bank    |      4 | Electronics |
- 12 | Innovative wireless earbuds |      5 | Electronics |
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics | 
+ 22 | Fast charging power bank    |      4 | Electronics | 
+ 12 | Innovative wireless earbuds |      5 | Electronics | 
   2 | Plastic Keyboard            |      4 | Electronics | <b>Keyboard</b>
   1 | Ergonomic metal keyboard    |      4 | Electronics | metal <b>keyboard</b>
 (5 rows)

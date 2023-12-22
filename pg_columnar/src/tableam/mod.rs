@@ -1,13 +1,11 @@
 mod build;
-mod funcs;
-mod utils;
+mod ignored;
+pub mod utils;
 
 use pgrx::*;
 
-use crate::table_access::build::*;
-use crate::table_access::funcs::*;
-
-use lazy_static::lazy_static;
+use crate::tableam::build::*;
+use crate::tableam::ignored::*;
 
 pub static mut MEM_TABLE_AM_ROUTINE: pg_sys::TableAmRoutine = pg_sys::TableAmRoutine {
     type_: pg_sys::NodeTag::T_TableAmRoutine,
@@ -74,5 +72,5 @@ COMMENT ON ACCESS METHOD mem IS 'mem table access method';
 extern "C" fn mem_tableam_handler(
     _fcinfo: pg_sys::FunctionCallInfo,
 ) -> *mut pg_sys::TableAmRoutine {
-    return unsafe { &mut MEM_TABLE_AM_ROUTINE as *mut pg_sys::TableAmRoutine };
+    unsafe { &mut MEM_TABLE_AM_ROUTINE as *mut pg_sys::TableAmRoutine }
 }

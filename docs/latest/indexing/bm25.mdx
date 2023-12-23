@@ -93,7 +93,7 @@ Each `_fields` input to `create_bm25()` accepts a [JSON5](https://json5.org)-for
       A JSON5 string which specifies the tokenizer and tokenizer configuration options.
       See [tokenizers](bm25#tokenizers) for a list of available tokenizers.
     </ParamField>
-    <ParamField body="record" default="basic">
+    <ParamField body="record" default="position">
       Describes the amount of information indexed. See [records](bm25#records) for a list of available
       record types.
     </ParamField>
@@ -161,7 +161,7 @@ Each `_fields` input to `create_bm25()` accepts a [JSON5](https://json5.org)-for
     <ParamField body="tokenizer" default="default">
       The name of the tokenizer. See [tokenizers](bm25#tokenizers) for a list of available tokenizers.
     </ParamField>
-    <ParamField body="record" default="basic">
+    <ParamField body="record" default="position">
       Describes the amount of information indexed. See [records](bm25#records) for a list of available
       record types.
     </ParamField>
@@ -256,6 +256,10 @@ SELECT * FROM search_idx.schema();
 </ParamField>
 <ParamField body="japanese_lindera">
   Tokenizes text using the Lindera tokenizer, which uses the IPADIC dictionary to segment and tokenize text.
+</ParamField>
+<ParamField body="icu">
+  Tokenizes text using the ICU tokenizer, which uses Unicode Text Segmentation and is suitable for tokenizing most
+  languages.
 </ParamField>
 
 ## Normalizers

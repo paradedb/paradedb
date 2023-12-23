@@ -55,10 +55,7 @@ load_data () {
   db_query "DROP TABLE IF EXISTS temp_json;"
   db_query "CREATE TABLE temp_json ( j JSONB );"
   # db_query "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';" < "$WIKI_ARTICLES_FILE"
-
-
   head -n 100000 "$WIKI_ARTICLES_FILE" | db_query "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';"
-
 
   echo "-- Loading JSON data into the wikipedia_articles table..."
   if $USING_PGRX; then

@@ -1,16 +1,15 @@
-use async_std::task;
-use datafusion::datasource::provider_as_source;
 use datafusion::logical_expr::{BinaryExpr, Expr, LogicalPlan, LogicalPlanBuilder, Operator};
-use datafusion::sql::TableReference;
+
 use pgrx::*;
 use std::ffi::CStr;
 
 use crate::nodes::t_const::ConstNode;
 use crate::nodes::t_var::VarNode;
-use crate::nodes::utils::datafusion_err_to_string;
 use crate::nodes::utils::DatafusionExprTranslator;
 use crate::nodes::utils::DatafusionPlanTranslator;
-use crate::tableam::utils::CONTEXT;
+use crate::nodes::utils::{
+    datafusion_err_to_string, datafusion_table_from_name, table_name_from_rte,
+};
 
 pub struct SeqScanNode;
 impl DatafusionPlanTranslator for SeqScanNode {
@@ -20,14 +19,6 @@ impl DatafusionPlanTranslator for SeqScanNode {
         _outer_plan: Option<LogicalPlan>,
     ) -> Result<LogicalPlan, String> {
         let scan = plan as *mut pg_sys::SeqScan;
-
-        // Find the table we're supposed to be scanning by querying the range table
-        let rte = pg_sys::rt_fetch((*scan).scan.scanrelid, rtable);
-        let relation = pg_sys::RelationIdGetRelation((*rte).relid);
-        let pg_relation = PgRelation::from_pg_owned(relation);
-
-        let tablename = format!("{}", pg_relation.oid());
-        let table_reference = TableReference::from(tablename.clone());
 
         // Read projections (i.e. which columns to read)
         let mut projections: Vec<usize> = vec![];
@@ -110,14 +101,15 @@ impl DatafusionPlanTranslator for SeqScanNode {
             }
         }
 
-        let table_provider =
-            task::block_on(CONTEXT.table_provider(table_reference)).expect("Could not get table");
-        let table_source = provider_as_source(table_provider);
-
         // We use a LogicalPlanBuilder to pass in filters
         // LogicalPlan::TableScan takes in filters but they are filter pushdowns,
         // which are not supported by our existing TableProvider
-        let mut builder = LogicalPlanBuilder::scan(tablename, table_source, None)
+        // Find the table we're supposed to be scanning by querying the range table
+        let rte = pg_sys::rt_fetch((*scan).scan.scanrelid, rtable);
+        let table_name = table_name_from_rte(rte)?;
+        let table_source = datafusion_table_from_name(&table_name)?;
+
+        let mut builder = LogicalPlanBuilder::scan(table_name, table_source, None)
             .map_err(datafusion_err_to_string("Could not create TableScan"))?;
 
         for filter in filters {

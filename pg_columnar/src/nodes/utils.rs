@@ -1,13 +1,16 @@
 use async_std::task;
-use datafusion::common::DataFusionError;
+use datafusion::arrow::datatypes::Schema;
+use datafusion::common::arrow::datatypes::Field;
+use datafusion::common::{DFSchema, DataFusionError};
 use datafusion::datasource::provider_as_source;
 use datafusion::logical_expr::{Expr, LogicalPlan, TableSource};
+use datafusion::prelude::ParquetReadOptions;
 use datafusion::sql::TableReference;
 use pgrx::*;
 use std::ffi::CString;
 use std::sync::Arc;
 
-use crate::tableam::utils::CONTEXT;
+use crate::tableam::utils::{get_parquet_directory, name_from_pg, CONTEXT};
 
 pub trait DatafusionPlanTranslator {
     unsafe fn datafusion_plan(
@@ -28,18 +31,45 @@ pub fn datafusion_err_to_string(msg: &'static str) -> impl Fn(DataFusionError) -
     move |dfe: DataFusionError| -> String { format!("{}: {}", msg, dfe) }
 }
 
-pub unsafe fn datafusion_table_from_rte(
-    rte: *mut pg_sys::RangeTblEntry,
-) -> Result<Arc<dyn TableSource>, String> {
-    let relation = pg_sys::RelationIdGetRelation((*rte).relid);
-    let pg_relation = PgRelation::from_pg_owned(relation);
+pub fn datafusion_schema_from_table(
+    table_source: Arc<dyn TableSource>,
+) -> Result<DFSchema, String> {
+    let datafusion_schema = DFSchema::try_from(Schema::new(
+        table_source
+            .schema()
+            .fields()
+            .iter()
+            .map(|f| Field::new(f.name(), f.data_type().clone(), f.is_nullable()))
+            .collect::<Vec<_>>(),
+    ))
+    .map_err(datafusion_err_to_string("Result DFSchema failed"))?;
 
-    let tablename = format!("{}", pg_relation.oid());
-    let table_reference = TableReference::from(tablename.clone());
+    Ok(datafusion_schema)
+}
+
+pub unsafe fn datafusion_table_from_name(table_name: &str) -> Result<Arc<dyn TableSource>, String> {
+    let table_reference = TableReference::from(table_name);
+
+    if !CONTEXT.table_exist(table_reference.clone()).unwrap() {
+        task::block_on(CONTEXT.register_parquet(
+            table_name,
+            get_parquet_directory(table_name).as_str(),
+            ParquetReadOptions::default(),
+        ))
+        .expect("Could not register Parquet");
+    }
+
     let table_provider =
         task::block_on(CONTEXT.table_provider(table_reference)).expect("Could not get table");
 
     Ok(provider_as_source(table_provider))
+}
+
+pub unsafe fn table_name_from_rte(rte: *mut pg_sys::RangeTblEntry) -> Result<String, String> {
+    let relation = pg_sys::RelationIdGetRelation((*rte).relid);
+    let pg_relation = PgRelation::from_pg_owned(relation);
+    let name = name_from_pg(&pg_relation);
+    Ok(name)
 }
 
 #[pg_guard]

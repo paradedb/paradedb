@@ -1,6 +1,3 @@
-use datafusion::arrow::datatypes::Schema;
-use datafusion::common::arrow::datatypes::Field;
-use datafusion::common::DFSchema;
 use datafusion::logical_expr::{Expr, LogicalPlan, Values};
 use pgrx::nodes::is_a;
 use pgrx::*;
@@ -8,7 +5,9 @@ use pgrx::*;
 use crate::nodes::t_const::ConstNode;
 use crate::nodes::utils::DatafusionExprTranslator;
 use crate::nodes::utils::DatafusionPlanTranslator;
-use crate::nodes::utils::{datafusion_err_to_string, datafusion_table_from_rte};
+use crate::nodes::utils::{
+    datafusion_schema_from_table, datafusion_table_from_name, table_name_from_rte,
+};
 
 pub struct ResultNode;
 impl DatafusionPlanTranslator for ResultNode {
@@ -18,18 +17,10 @@ impl DatafusionPlanTranslator for ResultNode {
         _outer_plan: Option<LogicalPlan>,
     ) -> Result<LogicalPlan, String> {
         let rte = pg_sys::rt_fetch(1, rtable);
-        let table = datafusion_table_from_rte(rte)?;
-        let schema = DFSchema::try_from(Schema::new(
-            table
-                .schema()
-                .fields()
-                .iter()
-                .map(|f| Field::new(f.name(), f.data_type().clone(), f.is_nullable()))
-                .collect::<Vec<_>>(),
-        ))
-        .map_err(datafusion_err_to_string("Result DFSchema failed"))?;
+        let table_name = table_name_from_rte(rte)?;
+        let table_source = datafusion_table_from_name(&table_name)?;
+        let schema = datafusion_schema_from_table(table_source)?;
 
-        let _fields: Vec<Field> = vec![];
         let mut values: Vec<Vec<Expr>> = vec![vec![]];
         let row = (*plan).targetlist;
 

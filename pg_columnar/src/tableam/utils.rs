@@ -1,12 +1,14 @@
-use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef, TimeUnit};
+use async_std::task;
+use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
 
+use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::datasource::MemTable;
-use datafusion::prelude::SessionContext;
 
+use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use lazy_static::lazy_static;
 use pgrx::*;
-
+use std::ffi::{CStr, CString};
 use std::sync::Arc;
 
 // Let's try adding the session context globally for now so we can retain info about our tables
@@ -14,29 +16,64 @@ lazy_static! {
     pub static ref CONTEXT: SessionContext = SessionContext::new();
 }
 
-pub fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), String> {
+pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), String> {
+    let table_name = name_from_pg(pgrel);
     let fields = fields_from_pg(pgrel)?;
-    let schema = SchemaRef::new(Schema::new(fields));
+    let schema = Schema::new(fields);
 
-    if persistence == pg_sys::RELPERSISTENCE_PERMANENT {
-        return Err(
-            "Persisted tables are not yet implemented. For now, try CREATE TEMP TABLE.".to_string(),
-        );
-    }
-
-    if persistence == pg_sys::RELPERSISTENCE_UNLOGGED {
-        return Err(
-            "Unlogged tables are not yet implemented. For now, try CREATE TEMP TABLE.".to_string(),
-        );
-    }
-
-    match MemTable::try_new(schema, vec![Vec::<RecordBatch>::new()]).ok() {
-        Some(mem_table) => {
-            let _ = CONTEXT.register_table(format!("{}", pgrel.oid()), Arc::new(mem_table));
-            Ok(())
+    match persistence {
+        pg_sys::RELPERSISTENCE_UNLOGGED => {
+            return Err("Unlogged tables are not yet supported".to_string());
         }
-        None => Err("An unexpected error occured creating the table".to_string()),
-    }
+        pg_sys::RELPERSISTENCE_TEMP => {
+            match MemTable::try_new(schema.clone().into(), vec![Vec::<RecordBatch>::new()]).ok() {
+                Some(mem_table) => {
+                    let _ = CONTEXT.register_table(table_name.clone(), Arc::new(mem_table));
+                }
+                None => return Err("An unexpected error occured creating the table".to_string()),
+            };
+        }
+        pg_sys::RELPERSISTENCE_PERMANENT => {
+            let batch = RecordBatch::new_empty(Arc::new(schema.clone()));
+            let df = CONTEXT
+                .read_batch(batch)
+                .expect("Could not create dataframe");
+
+            let _ = task::block_on(df.write_parquet(
+                get_parquet_directory(&table_name).as_str(),
+                DataFrameWriteOptions::new(),
+                None,
+            ));
+
+            let _ = task::block_on(CONTEXT.register_parquet(
+                &table_name.clone(),
+                get_parquet_directory(&table_name).as_str(),
+                ParquetReadOptions::default(),
+            ));
+        }
+        _ => return Err("Unsupported persistence type".to_string()),
+    };
+
+    Ok(())
+}
+
+pub fn name_from_pg(pgrel: &PgRelation) -> String {
+    format!("{}", pgrel.oid()).replace("oid=#", "")
+}
+
+pub unsafe fn get_parquet_directory(table_name: &str) -> String {
+    let option_name_cstr = CString::new("data_directory").expect("failed to create CString");
+    let data_dir_str = String::from_utf8(
+        CStr::from_ptr(pg_sys::GetConfigOptionByName(
+            option_name_cstr.as_ptr(),
+            std::ptr::null_mut(),
+            true,
+        ))
+        .to_bytes()
+        .to_vec(),
+    )
+    .expect("Failed to convert C string to Rust string");
+    format!("{}/{}/{}", data_dir_str, "paradedb", table_name)
 }
 
 fn fields_from_pg(pgrel: &PgRelation) -> Result<Vec<Field>, String> {

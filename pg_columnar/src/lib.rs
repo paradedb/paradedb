@@ -30,7 +30,6 @@ pub extern "C" fn _PG_init() {
 
 #[no_mangle]
 extern "C" fn pg_finfo_mem_tableam_handler() -> &'static pg_sys::Pg_finfo_record {
-    // TODO: Should we put the SessionContext here?
     const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
     &V1_API
 }

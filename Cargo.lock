@@ -400,6 +400,7 @@ dependencies = [
  "blocking",
  "futures-lite 2.1.0",
  "once_cell",
+ "tokio",
 ]
 
 [[package]]

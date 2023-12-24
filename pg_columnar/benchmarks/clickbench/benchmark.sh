@@ -67,7 +67,16 @@ cleanup() {
   echo ""
   echo "Cleaning up benchmark environment..."
   if [ "$FLAG_TAG" == "pgrx" ]; then
-    psql -h localhost -p 28815 -d pg_columnar -t -c 'DROP EXTENSION pg_columnar CASCADE;'
+    # Check if PostgreSQL is in recovery mode. This can happen if one of the quer caused a crash. If
+    # so, we need to wait for recovery to finish before we can drop the extension.
+    for attempt in {1..5}; do
+      psql -h localhost -p 28815 -d pg_columnar -t -c 'DROP EXTENSION IF EXISTS pg_columnar CASCADE;' &> /dev/null && break
+      echo "PostgreSQL is in recovery mode (likely due to a crash), waiting for recovery to finish..."
+      sleep 5
+    done
+    if [ $attempt -eq 5 ]; then
+      echo "Failed to drop pg_columnar extension after several attempts. PostgreSQL is likely still in recovery mode."
+    fi
     cargo pgrx stop
   else
     if docker ps -q --filter "name=paradedb" | grep -q .; then
@@ -101,7 +110,8 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   # Build pg_columnar and start its pgrx PostgreSQL instance
   echo ""
   echo "Building pg_columnar..."
-  cargo build
+  cargo pgrx stop
+  cargo pgrx install
   cargo pgrx start
 
   # Run the benchmarking

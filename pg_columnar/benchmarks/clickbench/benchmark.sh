@@ -5,13 +5,13 @@
 # well as in CI testing via Docker.
 #
 #
-# The local development version runs a smaller subset of the hits dataset, hits005.tsv, 
+# The local development version runs a smaller subset of the hits dataset, hits005.tsv,
 # which is a randomly sampled 5% of the full ClickBench dataset, hits.tsv. It is roughly
-# 5M rows (~3.75GB). The local development version is intended for quick iteration and is 
+# 5M rows (~3.75GB). The local development version is intended for quick iteration and is
 # designed to be run via `cargo clickbench`, instead of running this script directly.
-# 
+#
 # The CI version runs the full ClickBench dataset, hits.tsv, which is roughly 100M rows
-# (~75GB). The CI version is intended for use in CI and official benchmarking, and is 
+# (~75GB). The CI version is intended for use in CI and official benchmarking, and is
 # designed to be run directly via `./benchmark.sh`.
 
 # Exit on subcommand errors
@@ -29,8 +29,9 @@ usage() {
   echo "                  - 'pgrx'   Runs a minified ClickBench benchmark against the current commit inside the pg_columnar pgrx PostgreSQL instance"
   echo " -s (optional),  Type of storage layout to benchmark:"
   echo "                  - 'hot'                 Runs with in-memory storage using PostgreSQL's CREATE TEMP TABLE"
-  echo "                  - 'parquet-single'      Runs with on-disk storage using PostgreSQL's CREATE TABLE using a single Parquet file"
-  echo "                  - 'parquet-partitioned' Runs with on-disk storage using PostgreSQL's CREATE TABLE using partitioned Parquet files" 
+  echo "                  - 'cold'                Runs with on-disk storage using PostgreSQL's CREATE TABLE"
+  echo "                  - 'parquet-single'      Runs with on-disk storage using PostgreSQL's CREATE EXTERNAL TABLE using a single Parquet file"
+  echo "                  - 'parquet-partitioned' Runs with on-disk storage using PostgreSQL's CREATE EXTERNAL TABLE using partitioned Parquet files"
   exit 1
 }
 
@@ -91,9 +92,9 @@ cleanup() {
 trap cleanup EXIT
 
 echo ""
-echo "*****************************************************************"
-echo "* Benchmarking pg_columnar version '$FLAG_TAG' against ClickBench"
-echo "*****************************************************************"
+echo "*********************************************************************************"
+echo "* Benchmarking pg_columnar version '$FLAG_TAG' against ClickBench on '$FLAG_STORAGE' storage..."
+echo "*********************************************************************************"
 echo ""
 
 if [ "$FLAG_TAG" == "pgrx" ]; then
@@ -116,24 +117,18 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
 
   # Run the benchmarking
   if [ "$FLAG_STORAGE" = "hot" ]; then
-
-  # Connect to the PostgreSQL database and execute all commands in the same session
-  psql -h localhost -p 28815 -d pg_columnar <<EOF
-  \echo
-  \echo Creating pg_columnar
-  \i create.sql
-  \echo
-  \echo Loading data...
-  \timing on
-  \copy hits from 'hits005.tsv'
-  \echo
-  \echo Running queries...
-  \timing on
-  \i queries.sql
-EOF
-
-
-
+    # For hot storage, we create a temporary table, load all the data in it, and run the queries
+    # within the same session. Queries are run directly from the `copy_hot.sql` file
+    psql -h localhost -p 28815 -d pg_columnar -t < copy_hot.sql
+  elif [ "$FLAG_STORAGE" = "cold" ]; then
+    # For cold storage, we create a permanent table, load all the data in it, and run the queries
+    # once, printing the output of each query to the terminal
+    echo "Creating pg_columnar..."
+    psql -h localhost -p 28815 -d pg_columnar -t < create_cold.sql
+    echo "Loading data..."
+    psql -h localhost -p 28815 -d pg_columnar -t < copy_cold.sql
+    echo "Running queries..."
+    psql -h localhost -p 28815 -d pg_columnar -t < queries.sql
   elif [ "$FLAG_STORAGE" = "parquet-single" ]; then
     echo "TODO: Implement pgrx + Parquet single storage benchmarking"
   elif [ "$FLAG_STORAGE" = "parquet-partitioned" ]; then
@@ -142,10 +137,12 @@ EOF
     echo "Invalid storage type: $FLAG_STORAGE"
     usage
   fi
+  # For local benchmarking via pgrx, we don't print the disk usage or parse the results into
+  # the format expected by the ClickBench dashboard
 else
   # For CI/official benchmarking via Docker, we download the full hits.tsv dataset, which is ~100M rows (~75GB)
   if [ ! -e hits.tsv ]; then
-    echo "Downloading hits005.tsv dataset..."
+    echo "Downloading hits.tsv dataset..."
     wget --no-verbose --continue 'https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz'
     gzip -d hits.tsv.gz
     chmod 666 hits.tsv
@@ -187,6 +184,8 @@ else
   # Run the benchmarking
   if [ "$FLAG_STORAGE" = "hot" ]; then
     echo "TODO: Implement Docker + hot storage benchmarking"
+  elif [ "$FLAG_STORAGE" = "cold" ]; then
+    echo "TODO: Implement Docker + cold storage benchmarking"
   elif [ "$FLAG_STORAGE" = "parquet-single" ]; then
     echo "TODO: Implement Docker + Parquet single storage benchmarking"
   elif [ "$FLAG_STORAGE" = "parquet-partitioned" ]; then

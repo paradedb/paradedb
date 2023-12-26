@@ -9,9 +9,5 @@ target/
 log.txt
 
 # Benchmarks
-benchmarks/clickbench/hits.tsv
-benchmarks/clickbench/hits.tsv.gz
-benchmarks/clickbench/hits005.tsv
-benchmarks/clickbench/hits005.tsv.gz
-benchmarks/clickbench/hits010.tsv
-benchmarks/clickbench/hits010.tsv.gz
+*.tsv
+*.tsv.gz

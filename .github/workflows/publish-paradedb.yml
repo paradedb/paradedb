@@ -98,7 +98,6 @@ jobs:
             POSTGIS_VERSION=3.4.1
             PGROUTING_VERSION=3.6.1
             PGSQL_HTTP_VERSION=1.6.0
-            HYPOPG_VERSION=1.4.0
             RUM_VERSION=1.3.13
             PGSODIUM_VERSION=3.1.9
             PGFINCORE_VERSION=1.3.1

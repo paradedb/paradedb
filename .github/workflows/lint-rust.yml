@@ -20,6 +20,9 @@ jobs:
   lint-rust:
     name: Lint Rust Files
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [16]
 
     steps:
       - name: Checkout Git Repository
@@ -35,7 +38,7 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-15 postgresql-server-dev-15
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
 
       - name: Install pgrx
         run: cargo install --locked cargo-pgrx --version 0.11.1

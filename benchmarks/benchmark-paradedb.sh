@@ -87,7 +87,7 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg PG_HASHIDS_VERSION="1.2.1" \
     --build-arg PG_REPACK_VERSION="1.5.0" \
     --build-arg PG_STAT_MONITOR_VERSION="2.0.3" \
-    --build-arg PG_HINT_PLAN_VERSION="1.5.1" \
+    --build-arg PG_HINT_PLAN_VERSION="1.6.0" \
     --build-arg PG_ROARINGBITMAP_VERSION="0.5.4" \
     --build-arg PGFACETING_VERSION="0.1.0" \
     --build-arg PGTAP_VERSION="1.3.1" \
@@ -96,7 +96,6 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg PGROUTING_VERSION="3.6.1" \
     --build-arg HYPOPG_VERSION="1.4.0" \
     --build-arg RUM_VERSION="1.3.13" \
-    --build-arg AGE_VERSION="1.4.0" \
     --build-arg CITUS_VERSION="12.1.1" \
     --build-arg PGSODIUM_VERSION="3.1.9" \
     --build-arg PGFINCORE_VERSION="1.3.1" \

@@ -1,9 +1,5 @@
 {
   "extensions": {
-    "age": {
-      "version": "1.4.0-rc0",
-      "url": "https://github.com/apache/age/archive/refs/tags/PG15/v1.4.0-rc0.tar.gz"
-    },
     "citus": {
       "version": "12.1.1",
       "url": "https://github.com/citusdata/citus/archive/refs/tags/v12.1.1.tar.gz"
@@ -29,8 +25,8 @@
       "url": "https://github.com/iCyberon/pg_hashids/archive/refs/tags/v1.2.1.tar.gz"
     },
     "pg_hint_plan": {
-      "version": "REL15_1_5_1",
-      "url": "https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/REL15_1_5_1.tar.gz"
+      "version": "REL16_1_6_0",
+      "url": "https://github.com/ossc-db/pg_hint_plan/archive/refs/tags/REL16_1_6_0.tar.gz"
     },
     "pg_ivm": {
       "version": "1.7",

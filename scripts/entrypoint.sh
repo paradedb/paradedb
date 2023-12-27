@@ -22,7 +22,6 @@ declare -A extensions=(
 # The following extensions can be uncommented and added to the list below to pre-install:
 # [pg_net]=pg_net
 # [pgaudit]=pgaudit
-# [citus]=citus
 # [pgsodium]=pgsodium
 # [pgautofailover]=pgautofailover
 # [pg_partman]=pg_partman_bgw

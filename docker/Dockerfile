@@ -30,7 +30,6 @@ ARG PGROUTING_VERSION
 ARG PGSQL_HTTP_VERSION
 ARG HYPOPG_VERSION
 ARG RUM_VERSION
-ARG CITUS_VERSION
 ARG PGSODIUM_VERSION
 ARG PGFINCORE_VERSION
 ARG PG_PARTMAN_VERSION
@@ -68,7 +67,6 @@ ENV PG_MAJOR_VERSION=${PG_MAJOR_VERSION} \
     PGSQL_HTTP_VERSION=${PGSQL_HTTP_VERSION} \
     HYPOPG_VERSION=${HYPOPG_VERSION} \
     RUM_VERSION=${RUM_VERSION} \
-    CITUS_VERSION=${CITUS_VERSION} \
     PGSODIUM_VERSION=${PGSODIUM_VERSION} \
     PGFINCORE_VERSION=${PGFINCORE_VERSION} \
     PG_PARTMAN_VERSION=${PG_PARTMAN_VERSION} \
@@ -200,8 +198,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     fi
 
 # Download & install the non-ParadeDB extensions from their builder stage
-RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/citus-v${CITUS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/citus-v${CITUS_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/citus.deb && \
-    curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/hypopg-v${HYPOPG_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/hypopg-v${HYPOPG_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/hypopg.deb && \
+RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/hypopg-v${HYPOPG_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/hypopg-v${HYPOPG_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/hypopg.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/mysql_fdw-v${MYSQL_FDW_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/mysql_fdw-v${MYSQL_FDW_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/mysql_fdw.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_auto_failover-v${PG_AUTO_FAILOVER_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_auto_failover-v${PG_AUTO_FAILOVER_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_auto_failover.deb && \
     curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/download/pg_cron-v${PG_CRON_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204/pg_cron-v${PG_CRON_VERSION}-pg${PG_MAJOR_VERSION}-$TARGETARCH-ubuntu2204.deb" -o /tmp/pg_cron.deb && \

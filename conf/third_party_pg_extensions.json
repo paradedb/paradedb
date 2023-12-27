@@ -1,9 +1,5 @@
 {
   "extensions": {
-    "citus": {
-      "version": "12.1.1",
-      "url": "https://github.com/citusdata/citus/archive/refs/tags/v12.1.1.tar.gz"
-    },
     "hypopg": {
       "version": "1.4.0",
       "url": "https://github.com/HypoPG/hypopg/archive/refs/tags/1.4.0.tar.gz"

@@ -4,13 +4,17 @@
 # suite. It is supported on both Ubuntu and macOS, for local development via `cargo` as
 # well as in CI testing via Docker.
 #
-#
-# The local development version runs a smaller subset of the hits dataset, hits005.tsv,
-# which is a randomly sampled 5% of the full ClickBench dataset, hits.tsv. It is roughly
-# 5M rows (~3.75GB). The local development version is intended for quick iteration and is
+# The local development version runs a smaller subset of the hits dataset, hits_100k_rows.csv,
+# which is a randomly sampled 100,000 rows from the full ClickBench dataset, hits.csv. It is roughly
+# 0.1% (~0.075GB) of the full dataset of 100M rows (~75GB). Other dataset sizes available inckude:
+# - hits_500k_rows.csv.gz
+# - hits_1m_rows.csv.gz
+# - hits_2m_rows.csv.gz
+# - hits_5m_rows.csv.gz
+# The local development version is intended for quick iteration and is
 # designed to be run via `cargo clickbench`, instead of running this script directly.
 #
-# The CI version runs the full ClickBench dataset, hits.tsv, which is roughly 100M rows
+# The CI version runs the full ClickBench dataset, hits.csv, which is roughly 100M rows
 # (~75GB). The CI version is intended for use in CI and official benchmarking, and is
 # designed to be run directly via `./benchmark.sh`.
 
@@ -98,12 +102,12 @@ echo "**************************************************************************
 echo ""
 
 if [ "$FLAG_TAG" == "pgrx" ]; then
-  # For local benchmarking via pgrx, we download hits005.tsv, which is ~5M rows (~3.75GB)
-  if [ ! -e hits005.tsv ]; then
-    echo "Downloading hits005.tsv dataset..."
-    wget --no-verbose --continue https://paradedb-benchmarks.s3.amazonaws.com/hits005.tsv.gz
-    gzip -d hits005.tsv.gz
-    chmod 666 hits005.tsv
+  # For local benchmarking via pgrx, we download hits_100k_rows.csv, which is ~5M rows (~3.75GB)
+  if [ ! -e hits_100k_rows.csv ]; then
+    echo "Downloading hits_100k_rows.csv dataset..."
+    wget --no-verbose --continue https://paradedb-benchmarks.s3.amazonaws.com/hits_100k_rows.csv.gz
+    gzip -d hits_100k_rows.csv.gz
+    chmod 666 hits_100k_rows.csv
   else
     echo "Dataset already exists, skipping download..."
   fi
@@ -140,12 +144,12 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   # For local benchmarking via pgrx, we don't print the disk usage or parse the results into
   # the format expected by the ClickBench dashboard
 else
-  # For CI/official benchmarking via Docker, we download the full hits.tsv dataset, which is ~100M rows (~75GB)
-  if [ ! -e hits.tsv ]; then
-    echo "Downloading hits.tsv dataset..."
-    wget --no-verbose --continue 'https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz'
-    gzip -d hits.tsv.gz
-    chmod 666 hits.tsv
+  # For CI/official benchmarking via Docker, we download the full hits.csv dataset, which is ~100M rows (~75GB)
+  if [ ! -e hits.csv ]; then
+    echo "Downloading hits.csv dataset..."
+    wget --no-verbose --continue 'https://datasets.clickhouse.com/hits_compatible/hits.csv.gz'
+    gzip -d hits.csv.gz
+    chmod 666 hits.csv
   else
     echo "Dataset already exists, skipping download..."
   fi

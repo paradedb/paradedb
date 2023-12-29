@@ -11,3 +11,5 @@ log.txt
 # Benchmarks
 *.tsv
 *.tsv.gz
+*.csv
+*.csv.gz

@@ -3,11 +3,9 @@
 
 \echo Loading data...
 \timing on
-BEGIN;
 TRUNCATE hits;
-\copy hits FROM 'hits005.tsv' WITH FREEZE;
-VACUUM ANALYZE hits;
-COMMIT;
+\copy hits FROM 'hits_100k_rows.csv' WITH (FORMAT CSV, QUOTE '"', ESCAPE '"');
+VACUUM FREEZE hits;
 
 \echo Running queries...
 \timing on

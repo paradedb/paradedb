@@ -9,8 +9,6 @@
 # 0.1% (~0.075GB) of the full dataset of 100M rows (~75GB). Other dataset sizes available inckude:
 # - hits_500k_rows.csv.gz
 # - hits_1m_rows.csv.gz
-# - hits_2m_rows.csv.gz
-# - hits_5m_rows.csv.gz
 # The local development version is intended for quick iteration and is
 # designed to be run via `cargo clickbench`, instead of running this script directly.
 #

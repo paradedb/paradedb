@@ -5,9 +5,8 @@ use pgrx::*;
 use crate::nodes::t_const::ConstNode;
 use crate::nodes::utils::DatafusionExprTranslator;
 use crate::nodes::utils::DatafusionPlanTranslator;
-use crate::nodes::utils::{
-    datafusion_schema_from_table, datafusion_table_from_name, table_name_from_rte,
-};
+use crate::nodes::utils::{get_datafusion_schema, get_datafusion_table, get_datafusion_table_name};
+use crate::tableam::utils::get_pg_relation;
 
 pub struct ValuesScanNode;
 impl DatafusionPlanTranslator for ValuesScanNode {
@@ -18,9 +17,10 @@ impl DatafusionPlanTranslator for ValuesScanNode {
     ) -> Result<LogicalPlan, String> {
         let values_scan_node = plan as *mut pg_sys::ValuesScan;
         let rte = pg_sys::rt_fetch(1, rtable);
-        let table_name = table_name_from_rte(rte)?;
-        let table_source = datafusion_table_from_name(&table_name)?;
-        let schema = datafusion_schema_from_table(table_source)?;
+        let pg_relation = get_pg_relation(rte)?;
+        let table_name = get_datafusion_table_name(&pg_relation)?;
+        let table_source = get_datafusion_table(&table_name, &pg_relation)?;
+        let schema = get_datafusion_schema(&table_name, table_source)?;
 
         let mut values: Vec<Vec<Expr>> = vec![vec![]];
         let number_of_rows = (*(*values_scan_node).values_lists).length;

@@ -1,24 +1,43 @@
 use async_std::task;
 use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
-
+use datafusion::common::{DFSchema, ScalarValue};
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::datasource::MemTable;
-
+use datafusion::logical_expr::Expr;
 use datafusion::prelude::{ParquetReadOptions, SessionContext};
 use lazy_static::lazy_static;
 use pgrx::*;
 use std::ffi::{CStr, CString};
 use std::sync::Arc;
+use std::sync::Mutex;
 
-// Let's try adding the session context globally for now so we can retain info about our tables
+use crate::nodes::utils::get_datafusion_table_name;
+
+pub struct BulkInsertState {
+    pub batches: Vec<RecordBatch>,
+    pub schema: Option<DFSchema>,
+    pub nslots: usize,
+}
+
+impl BulkInsertState {
+    pub const fn new() -> Self {
+        BulkInsertState {
+            batches: vec![],
+            schema: None,
+            nslots: 0,
+        }
+    }
+}
+
 lazy_static! {
     pub static ref CONTEXT: SessionContext = SessionContext::new();
+    pub static ref BULK_INSERT_STATE: Mutex<BulkInsertState> = Mutex::new(BulkInsertState::new());
 }
 
 pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), String> {
-    let table_name = name_from_pg(pgrel);
-    let fields = fields_from_pg(pgrel)?;
+    let table_name = get_datafusion_table_name(pgrel)?;
+    let fields = get_datafusion_fields_from_pg(pgrel)?;
     let schema = Schema::new(fields);
 
     match persistence {
@@ -28,7 +47,9 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
         pg_sys::RELPERSISTENCE_TEMP => {
             match MemTable::try_new(schema.clone().into(), vec![Vec::<RecordBatch>::new()]).ok() {
                 Some(mem_table) => {
-                    let _ = CONTEXT.register_table(table_name.clone(), Arc::new(mem_table));
+                    CONTEXT
+                        .register_table(table_name.clone(), Arc::new(mem_table))
+                        .expect("Could not register table");
                 }
                 None => return Err("An unexpected error occured creating the table".to_string()),
             };
@@ -38,6 +59,8 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
             let df = CONTEXT
                 .read_batch(batch)
                 .expect("Could not create dataframe");
+            let binding = schema.clone();
+            let read_options = ParquetReadOptions::default().schema(&binding);
 
             let _ = task::block_on(df.write_parquet(
                 get_parquet_directory(&table_name).as_str(),
@@ -48,7 +71,7 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
             let _ = task::block_on(CONTEXT.register_parquet(
                 &table_name.clone(),
                 get_parquet_directory(&table_name).as_str(),
-                ParquetReadOptions::default(),
+                read_options,
             ));
         }
         _ => return Err("Unsupported persistence type".to_string()),
@@ -57,8 +80,9 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
     Ok(())
 }
 
-pub fn name_from_pg(pgrel: &PgRelation) -> String {
-    format!("{}", pgrel.oid()).replace("oid=#", "")
+pub unsafe fn get_pg_relation(rte: *mut pg_sys::RangeTblEntry) -> Result<PgRelation, String> {
+    let relation = pg_sys::RelationIdGetRelation((*rte).relid);
+    Ok(PgRelation::from_pg_owned(relation))
 }
 
 pub unsafe fn get_parquet_directory(table_name: &str) -> String {
@@ -76,7 +100,81 @@ pub unsafe fn get_parquet_directory(table_name: &str) -> String {
     format!("{}/{}/{}", data_dir_str, "paradedb", table_name)
 }
 
-fn fields_from_pg(pgrel: &PgRelation) -> Result<Vec<Field>, String> {
+pub unsafe fn datum_to_expr(
+    datum: *mut pg_sys::Datum,
+    oid: PgOid,
+    is_null: bool,
+) -> Result<Expr, String> {
+    let scalar_value_from_oid = |oid: &PgOid, is_null: bool| -> Result<ScalarValue, String> {
+        match oid {
+            PgOid::BuiltIn(builtin) => match builtin {
+                PgBuiltInOids::BOOLOID => Ok(if is_null {
+                    ScalarValue::Boolean(None)
+                } else {
+                    ScalarValue::Boolean(bool::from_datum(*datum, false))
+                }),
+                PgBuiltInOids::BPCHAROID | PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
+                    Ok(if is_null {
+                        ScalarValue::Utf8(None)
+                    } else {
+                        ScalarValue::Utf8(String::from_datum(*datum, false))
+                    })
+                }
+                PgBuiltInOids::INT2OID => Ok(if is_null {
+                    ScalarValue::Int16(None)
+                } else {
+                    ScalarValue::Int16(i16::from_datum(*datum, false))
+                }),
+                PgBuiltInOids::INT4OID => Ok(if is_null {
+                    ScalarValue::Int32(None)
+                } else {
+                    ScalarValue::Int32(i32::from_datum(*datum, false))
+                }),
+                PgBuiltInOids::INT8OID => Ok(if is_null {
+                    ScalarValue::Int64(None)
+                } else {
+                    ScalarValue::Int64(i64::from_datum(*datum, false))
+                }),
+                PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => Ok(if is_null {
+                    ScalarValue::UInt32(None)
+                } else {
+                    ScalarValue::UInt32(u32::from_datum(*datum, false))
+                }),
+                PgBuiltInOids::FLOAT4OID => Ok(if is_null {
+                    ScalarValue::Float32(None)
+                } else {
+                    ScalarValue::Float32(f32::from_datum(*datum, false))
+                }),
+                PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => Ok(if is_null {
+                    ScalarValue::Float64(None)
+                } else {
+                    ScalarValue::Float64(f64::from_datum(*datum, false))
+                }),
+                PgBuiltInOids::TIMEOID => Ok(if is_null {
+                    ScalarValue::Time32Second(None)
+                } else {
+                    ScalarValue::Time32Second(i32::from_datum(*datum, false))
+                }),
+                PgBuiltInOids::TIMESTAMPOID => Ok(if is_null {
+                    ScalarValue::TimestampSecond(None, None)
+                } else {
+                    ScalarValue::TimestampSecond(i64::from_datum(*datum, false), None)
+                }),
+                PgBuiltInOids::DATEOID => Ok(if is_null {
+                    ScalarValue::Date32(None)
+                } else {
+                    ScalarValue::Date32(i32::from_datum(*datum, false))
+                }),
+                _ => Err(format!("Unsupported built-in Postgres type: {:?}", builtin)),
+            },
+            _ => Err("Custom or Invalid data types are not supported".to_string()),
+        }
+    };
+
+    scalar_value_from_oid(&oid, is_null).map(Expr::Literal)
+}
+
+pub fn get_datafusion_fields_from_pg(pgrel: &PgRelation) -> Result<Vec<Field>, String> {
     let tupdesc = pgrel.tuple_desc();
     let mut fields = Vec::with_capacity(tupdesc.len());
 
@@ -95,7 +193,9 @@ fn fields_from_pg(pgrel: &PgRelation) -> Result<Vec<Field>, String> {
 fn field_from_pg_attribute(attribute: pg_sys::FormData_pg_attribute) -> Result<Field, String> {
     let attname = attribute.name();
     let attribute_type_oid = attribute.type_oid();
-    let nullability = !attribute.attnotnull;
+    // Setting it to true because of a likely bug in Datafusion where inserts
+    // fail on nullability = false fields
+    let nullability = true;
 
     let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
     let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
@@ -111,7 +211,6 @@ fn field_from_pg_attribute(attribute: pg_sys::FormData_pg_attribute) -> Result<F
     match &base_oid {
         PgOid::BuiltIn(builtin) => match builtin {
             PgBuiltInOids::BOOLOID => Ok(Field::new(attname, DataType::Boolean, nullability)),
-            PgBuiltInOids::BPCHAROID => Ok(Field::new(attname, DataType::Utf8, nullability)),
             PgBuiltInOids::INT2OID => Ok(Field::new(attname, DataType::Int16, nullability)),
             PgBuiltInOids::INT4OID => Ok(Field::new(attname, DataType::Int32, nullability)),
             PgBuiltInOids::INT8OID => Ok(Field::new(attname, DataType::Int64, nullability)),
@@ -122,7 +221,7 @@ fn field_from_pg_attribute(attribute: pg_sys::FormData_pg_attribute) -> Result<F
             PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
                 Ok(Field::new(attname, DataType::Float64, nullability))
             }
-            PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
+            PgBuiltInOids::BPCHAROID | PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
                 Ok(Field::new(attname, DataType::Utf8, nullability))
             }
             PgBuiltInOids::TIMEOID => Ok(Field::new(

@@ -1,11 +1,13 @@
 mod build;
 mod ignored;
+mod insert;
 pub mod utils;
 
 use pgrx::*;
 
 use crate::tableam::build::*;
 use crate::tableam::ignored::*;
+use crate::tableam::insert::*;
 
 pub static mut MEM_TABLE_AM_ROUTINE: pg_sys::TableAmRoutine = pg_sys::TableAmRoutine {
     type_: pg_sys::NodeTag::T_TableAmRoutine,
@@ -69,6 +71,7 @@ COMMENT ON ACCESS METHOD mem IS 'mem table access method';
     name = "mem_tableam_handler"
 );
 #[no_mangle]
+#[pg_guard]
 extern "C" fn mem_tableam_handler(
     _fcinfo: pg_sys::FunctionCallInfo,
 ) -> *mut pg_sys::TableAmRoutine {

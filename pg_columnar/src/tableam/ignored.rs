@@ -1,13 +1,10 @@
 use core::ffi::c_int;
 use core::ffi::c_void;
+
 use pgrx::pg_sys::varlena;
 use pgrx::pg_sys::*;
 use pgrx::*;
 use std::ptr;
-
-pub unsafe extern "C" fn memam_slot_callbacks(_rel: Relation) -> *const TupleTableSlotOps {
-    &TTSOpsVirtual
-}
 
 pub unsafe extern "C" fn memam_scan_begin(
     _rel: Relation,
@@ -175,17 +172,6 @@ pub unsafe extern "C" fn memam_tuple_complete_speculative(
     info!("Calling memam_tuple_complete_speculative");
 }
 
-pub unsafe extern "C" fn memam_multi_insert(
-    _rel: Relation,
-    _slots: *mut *mut TupleTableSlot,
-    _nslots: c_int,
-    _cid: CommandId,
-    _options: c_int,
-    _bistate: *mut BulkInsertStateData,
-) {
-    info!("Calling memam_multi_insert");
-}
-
 pub unsafe extern "C" fn memam_tuple_delete(
     _rel: Relation,
     _tid: ItemPointer,
@@ -229,10 +215,6 @@ pub unsafe extern "C" fn memam_tuple_lock(
 ) -> TM_Result {
     info!("Calling memam_tuple_lock");
     0
-}
-
-pub unsafe extern "C" fn memam_finish_bulk_insert(_rel: Relation, _options: c_int) {
-    info!("Calling memam_finish_bulk_insert");
 }
 
 pub unsafe extern "C" fn memam_relation_nontransactional_truncate(_rel: Relation) {

@@ -22,7 +22,9 @@ impl DatafusionPlanTranslator for LimitNode {
         let skip = match skip_node.is_null() {
             true => 0,
             false => match ConstNode::datafusion_expr(skip_node, Some(rtable))? {
+                Expr::Literal(ScalarValue::Int64(Some(s))) => s as usize,
                 Expr::Literal(ScalarValue::Int32(Some(s))) => s as usize,
+                Expr::Literal(ScalarValue::Int16(Some(s))) => s as usize,
                 _ => {
                     return Err("Could not unwrap OFFSET".to_string());
                 }
@@ -32,7 +34,9 @@ impl DatafusionPlanTranslator for LimitNode {
         let fetch = match fetch_node.is_null() {
             true => None,
             false => match ConstNode::datafusion_expr(fetch_node, Some(rtable))? {
+                Expr::Literal(ScalarValue::Int64(Some(f))) => Some(f as usize),
                 Expr::Literal(ScalarValue::Int32(Some(f))) => Some(f as usize),
+                Expr::Literal(ScalarValue::Int16(Some(f))) => Some(f as usize),
                 _ => {
                     return Err("Could not unwrap LIMIT".to_string());
                 }

@@ -1,8 +1,8 @@
-use datafusion::common::ScalarValue;
 use datafusion::logical_expr::Expr;
 use pgrx::*;
 
 use crate::nodes::utils::DatafusionExprTranslator;
+use crate::tableam::utils::datum_to_expr;
 
 pub struct ConstNode;
 impl DatafusionExprTranslator for ConstNode {
@@ -12,12 +12,15 @@ impl DatafusionExprTranslator for ConstNode {
     ) -> Result<Expr, String> {
         let constnode = node as *mut pg_sys::Const;
 
-        let constval = (*constnode).constvalue;
-        let _consttype = (*constnode).consttype;
-        let _constisnull = (*constnode).constisnull;
+        let mut constval = (*constnode).constvalue;
+        let consttype = (*constnode).consttype;
+        let constisnull = (*constnode).constisnull;
 
-        Ok(Expr::Literal(ScalarValue::Int32(Some(
-            constval.value() as i32
-        ))))
+        Ok(datum_to_expr(
+            &mut constval as *mut pg_sys::Datum,
+            PgOid::from(consttype),
+            constisnull,
+        )
+        .expect("Could not convert datum to expr"))
     }
 }

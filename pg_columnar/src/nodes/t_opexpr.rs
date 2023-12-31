@@ -40,10 +40,8 @@ impl DatafusionExprTranslator for OpExpr {
                         pg_sys::ReleaseSysCache(operator_tuple);
 
                         // Recursively get expressions from left and right sides of the operation
-                        let larg_expr =
-                            OpExpr::datafusion_expr(larg as *mut pg_sys::Node, Some(r))?;
-                        let rarg_expr =
-                            OpExpr::datafusion_expr(rarg as *mut pg_sys::Node, Some(r))?;
+                        let larg_expr = OpExpr::datafusion_expr(larg, Some(r))?;
+                        let rarg_expr = OpExpr::datafusion_expr(rarg, Some(r))?;
 
                         Ok(Expr::BinaryExpr(BinaryExpr {
                             left: Box::new(larg_expr),

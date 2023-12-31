@@ -6,8 +6,9 @@ use crate::nodes::t_opexpr::OpExpr;
 use crate::nodes::utils::DatafusionExprTranslator;
 use crate::nodes::utils::DatafusionPlanTranslator;
 use crate::nodes::utils::{
-    datafusion_err_to_string, datafusion_table_from_name, table_name_from_rte,
+    datafusion_err_to_string, get_datafusion_table, get_datafusion_table_name,
 };
+use crate::tableam::utils::get_pg_relation;
 
 pub struct SeqScanNode;
 impl DatafusionPlanTranslator for SeqScanNode {
@@ -52,8 +53,9 @@ impl DatafusionPlanTranslator for SeqScanNode {
         // which are not supported by our existing TableProvider
         // Find the table we're supposed to be scanning by querying the range table
         let rte = pg_sys::rt_fetch((*scan).scan.scanrelid, rtable);
-        let table_name = table_name_from_rte(rte)?;
-        let table_source = datafusion_table_from_name(&table_name)?;
+        let pg_relation = get_pg_relation(rte)?;
+        let table_name = get_datafusion_table_name(&pg_relation)?;
+        let table_source = get_datafusion_table(&table_name, &pg_relation)?;
 
         let mut builder = LogicalPlanBuilder::scan(table_name, table_source, None)
             .map_err(datafusion_err_to_string("Could not create TableScan"))?;

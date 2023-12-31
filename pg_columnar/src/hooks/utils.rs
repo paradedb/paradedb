@@ -6,7 +6,7 @@ use datafusion::common::arrow::array::types::{
 };
 use datafusion::common::arrow::array::RecordBatch;
 use pgrx::*;
-use std::ffi::{c_char, CString};
+use std::ffi::{c_char, CStr, CString};
 use std::num::TryFromIntError;
 
 pub unsafe fn send_tuples_if_necessary(
@@ -211,4 +211,33 @@ pub unsafe fn planned_stmt_is_columnar(ps: *mut pg_sys::PlannedStmt) -> bool {
     }
 
     using_col
+}
+
+pub unsafe fn copy_stmt_is_columnar(copy_stmt: *mut pg_sys::CopyStmt) -> bool {
+    let handlername_cstr = CString::new("mem").unwrap();
+    let handlername_ptr = handlername_cstr.as_ptr() as *const c_char;
+    let memam_oid = pg_sys::get_am_oid(handlername_ptr, true);
+    if memam_oid == pg_sys::InvalidOid {
+        return false;
+    }
+
+    let amTup = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier_AMOID.try_into().unwrap(),
+        pg_sys::Datum::from(memam_oid),
+    );
+    let amForm = pg_sys::heap_tuple_get_struct::<pg_sys::FormData_pg_am>(amTup);
+    let memhandler_oid = (*amForm).amhandler;
+    pg_sys::ReleaseSysCache(amTup);
+
+    let relation = (*copy_stmt).relation;
+    let relation_name = CStr::from_ptr((*relation).relname)
+        .to_str()
+        .expect("Could not get relation name");
+    let pg_relation = PgRelation::open_with_name(relation_name).expect("Could not open relation");
+    let oid = pg_relation.oid();
+    let relation_data = pg_sys::RelationIdGetRelation(oid);
+
+    let am_handler = (*relation_data).rd_amhandler;
+
+    am_handler == memhandler_oid
 }

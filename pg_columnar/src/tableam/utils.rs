@@ -3,16 +3,17 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::{DFSchema, ScalarValue};
 use datafusion::dataframe::DataFrameWriteOptions;
+
 use datafusion::datasource::MemTable;
 use datafusion::logical_expr::Expr;
-use datafusion::prelude::{ParquetReadOptions, SessionContext};
+use datafusion::prelude::{SessionContext};
 use lazy_static::lazy_static;
 use pgrx::*;
 use std::ffi::{CStr, CString};
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::nodes::utils::get_datafusion_table_name;
+use crate::nodes::utils::{get_datafusion_table_name, register_listing_table};
 
 pub struct BulkInsertState {
     pub batches: Vec<RecordBatch>,
@@ -59,8 +60,6 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
             let df = CONTEXT
                 .read_batch(batch)
                 .expect("Could not create dataframe");
-            let binding = schema.clone();
-            let read_options = ParquetReadOptions::default().schema(&binding);
 
             let _ = task::block_on(df.write_parquet(
                 get_parquet_directory(&table_name).as_str(),
@@ -68,11 +67,7 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
                 None,
             ));
 
-            let _ = task::block_on(CONTEXT.register_parquet(
-                &table_name.clone(),
-                get_parquet_directory(&table_name).as_str(),
-                read_options,
-            ));
+            register_listing_table(&table_name, &schema).expect("Could not register table");
         }
         _ => return Err("Unsupported persistence type".to_string()),
     };

@@ -16,7 +16,7 @@ use std::sync::Arc;
 use crate::nodes::utils::{get_datafusion_schema, get_datafusion_table, get_datafusion_table_name};
 use crate::tableam::utils::{BULK_INSERT_STATE, CONTEXT};
 
-static MAX_SLOTS: usize = 10_000_000;
+static MAX_SLOTS: usize = 5_000_000;
 
 #[pg_guard]
 pub unsafe extern "C" fn memam_slot_callbacks(

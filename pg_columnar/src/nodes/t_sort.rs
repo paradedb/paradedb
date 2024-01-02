@@ -18,7 +18,6 @@ impl DatafusionPlanTranslator for SortNode {
         let sort_node = plan as *mut pg_sys::Sort;
 
         // Get sort by operator
-        // Get sort by operator
         let sort_operators_ptr = (*sort_node).sortOperators;
         let sort_operators_slice: &[pg_sys::Oid] =
             std::slice::from_raw_parts(sort_operators_ptr, (*sort_node).numCols as usize);

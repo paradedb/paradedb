@@ -237,6 +237,7 @@ pub unsafe fn planned_stmt_is_columnar(ps: *mut pg_sys::PlannedStmt) -> bool {
     using_col
 }
 
+#[pg_guard]
 pub unsafe fn copy_stmt_is_columnar(copy_stmt: *mut pg_sys::CopyStmt) -> bool {
     let handlername_cstr = CString::new("mem").unwrap();
     let handlername_ptr = handlername_cstr.as_ptr() as *const c_char;

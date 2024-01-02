@@ -9,11 +9,12 @@ use datafusion::logical_expr::Expr;
 use datafusion::prelude::SessionContext;
 use lazy_static::lazy_static;
 use pgrx::*;
-use std::ffi::{CStr, CString};
+use std::ffi::{CStr, CString, NulError};
+use std::string::FromUtf8Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::nodes::utils::{get_datafusion_table_name, register_listing_table};
+use crate::nodes::utils::{datafusion_err_to_string, get_datafusion_table_name, register_listing_table};
 
 pub struct BulkInsertState {
     pub batches: Vec<RecordBatch>,
@@ -50,7 +51,7 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
                 Some(mem_table) => {
                     CONTEXT
                         .register_table(table_name.clone(), Arc::new(mem_table))
-                        .expect("Could not register table");
+                        .map_err(datafusion_err_to_string("Could not register table"))?;
                 }
                 None => return Err("An unexpected error occured creating the table".to_string()),
             };
@@ -59,15 +60,15 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
             let batch = RecordBatch::new_empty(Arc::new(schema.clone()));
             let df = CONTEXT
                 .read_batch(batch)
-                .expect("Could not create dataframe");
+                .map_err(datafusion_err_to_string("Could not create dataframe"))?;
 
             let _ = task::block_on(df.write_parquet(
-                get_parquet_directory(&table_name).as_str(),
+                get_parquet_directory(&table_name)?.as_str(),
                 DataFrameWriteOptions::new(),
                 None,
             ));
 
-            register_listing_table(&table_name, &schema).expect("Could not register table");
+            register_listing_table(&table_name, &schema)?;
         }
         _ => return Err("Unsupported persistence type".to_string()),
     };
@@ -80,8 +81,9 @@ pub unsafe fn get_pg_relation(rte: *mut pg_sys::RangeTblEntry) -> Result<PgRelat
     Ok(PgRelation::from_pg_owned(relation))
 }
 
-pub unsafe fn get_parquet_directory(table_name: &str) -> String {
-    let option_name_cstr = CString::new("data_directory").expect("failed to create CString");
+pub unsafe fn get_parquet_directory(table_name: &str) -> Result<String, String> {
+    let option_name_cstr = CString::new("data_directory")
+        .map_err(|e: NulError| format!("Failed to create CString: {}", e))?;
     let data_dir_str = String::from_utf8(
         CStr::from_ptr(pg_sys::GetConfigOptionByName(
             option_name_cstr.as_ptr(),
@@ -91,8 +93,9 @@ pub unsafe fn get_parquet_directory(table_name: &str) -> String {
         .to_bytes()
         .to_vec(),
     )
-    .expect("Failed to convert C string to Rust string");
-    format!("{}/{}/{}", data_dir_str, "paradedb", table_name)
+    .map_err(|e: FromUtf8Error| format!("Failed to convert C string to Rust string: {}", e))?;
+
+    Ok(format!("{}/{}/{}", data_dir_str, "paradedb", table_name))
 }
 
 pub unsafe fn datum_to_expr(

@@ -7,6 +7,7 @@ use std::ffi::CStr;
 use crate::nodes::t_var::VarNode;
 use crate::nodes::utils::DatafusionExprTranslator;
 use crate::nodes::utils::DatafusionPlanTranslator;
+use crate::nodes::utils::datafusion_err_to_string;
 
 pub struct AggRefNode;
 impl DatafusionPlanTranslator for AggRefNode {
@@ -78,7 +79,7 @@ impl DatafusionPlanTranslator for AggRefNode {
 
         Ok(LogicalPlan::Aggregate(
             Aggregate::try_new(Box::new(outer_plan).into(), vec![], agg_expr)
-                .expect("failed to create aggregate"),
+                .map_err(datafusion_err_to_string("Failed to create Aggregate"))?,
         ))
     }
 }

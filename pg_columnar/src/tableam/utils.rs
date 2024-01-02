@@ -6,7 +6,7 @@ use datafusion::dataframe::DataFrameWriteOptions;
 
 use datafusion::datasource::MemTable;
 use datafusion::logical_expr::Expr;
-use datafusion::prelude::{SessionContext};
+use datafusion::prelude::SessionContext;
 use lazy_static::lazy_static;
 use pgrx::*;
 use std::ffi::{CStr, CString};
@@ -221,21 +221,24 @@ fn field_from_pg_attribute(attribute: pg_sys::FormData_pg_attribute) -> Result<F
             }
             PgBuiltInOids::TIMEOID => Ok(Field::new(
                 attname,
-                DataType::Time32(TimeUnit::Second),
+                DataType::Time64(TimeUnit::Microsecond),
                 nullability,
             )),
-            PgBuiltInOids::TIMESTAMPOID => Ok(Field::new(
-                attname,
-                DataType::Timestamp(TimeUnit::Second, None),
-                nullability,
-            )),
-            PgBuiltInOids::DATEOID => Ok(Field::new(attname, DataType::Date32, nullability)),
-            PgBuiltInOids::TIMESTAMPTZOID => {
-                Err("Timestamp with time zone data type not supported".to_string())
-            }
             PgBuiltInOids::TIMETZOID => {
                 Err("Time with time zone data type not supported".to_string())
             }
+            PgBuiltInOids::DATEOID => Ok(Field::new(attname, DataType::Date32, nullability)),
+            PgBuiltInOids::TIMESTAMPOID => Ok(Field::new(
+                attname,
+                DataType::Timestamp(TimeUnit::Millisecond, None),
+                nullability,
+            )),
+            PgBuiltInOids::TIMESTAMPTZOID => Ok(Field::new(
+                attname,
+                // Postgres stores all timestamps internally as UTC
+                DataType::Timestamp(TimeUnit::Millisecond, Some(Arc::from("UTC"))),
+                nullability,
+            )),
             PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => {
                 Err("JSON data type not supported".to_string())
             }

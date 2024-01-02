@@ -1,8 +1,7 @@
-use datafusion::arrow::array::AsArray;
-use datafusion::arrow::datatypes::{DataType, TimeUnit};
-use datafusion::common::arrow::array::types::{
-    Date32Type, Float32Type, Int16Type, Int32Type, Int64Type, Int8Type, Time32SecondType,
-    TimestampSecondType, UInt32Type,
+use datafusion::arrow::array::{AsArray, StringArray};
+use datafusion::arrow::datatypes::{
+    DataType, Date32Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
+    Time64MicrosecondType, TimeUnit, TimestampMillisecondType, UInt32Type,
 };
 use datafusion::common::arrow::array::RecordBatch;
 use pgrx::*;
@@ -105,20 +104,31 @@ pub unsafe fn send_tuples_if_necessary(
                                     .into_datum()
                                     .ok_or("Could not convert Float32 into datum")?
                             }
-                            // DataType::Utf8 => *tts_value = column.as_primitive::<GenericStringType>().value(row_index).into_datum().unwrap(),
-                            DataType::Time32(TimeUnit::Second) => {
+                            DataType::Float64 => {
                                 *tts_value = column
-                                    .as_primitive::<Time32SecondType>()
+                                    .as_primitive::<Float64Type>()
                                     .value(row_index)
                                     .into_datum()
-                                    .ok_or("Could not convert Time32 into datum")?
+                                    .ok_or("Could not convert Float64 into datum")?
                             }
-                            DataType::Timestamp(TimeUnit::Second, None) => {
-                                *tts_value = column
-                                    .as_primitive::<TimestampSecondType>()
+                            DataType::Utf8 => {
+                                let string_array = column
+                                    .as_any()
+                                    .downcast_ref::<StringArray>()
+                                    .ok_or("Could not downcast Utf8 into string array")?;
+
+                                *tts_value = string_array
                                     .value(row_index)
                                     .into_datum()
-                                    .ok_or("Could not convert Timestamp into datum")?
+                                    .ok_or("Could not convert Utf8 into datum")?
+                            }
+                            DataType::Time64(TimeUnit::Microsecond) => {
+                                info!("time");
+                                *tts_value = column
+                                    .as_primitive::<Time64MicrosecondType>()
+                                    .value(row_index)
+                                    .into_datum()
+                                    .ok_or("Could not convert Time64 into datum")?
                             }
                             DataType::Date32 => {
                                 *tts_value = column
@@ -126,6 +136,20 @@ pub unsafe fn send_tuples_if_necessary(
                                     .value(row_index)
                                     .into_datum()
                                     .ok_or("Could not convert Date32 into datum")?
+                            }
+                            DataType::Timestamp(TimeUnit::Millisecond, None) => {
+                                *tts_value = column
+                                    .as_primitive::<TimestampMillisecondType>()
+                                    .value(row_index)
+                                    .into_datum()
+                                    .ok_or("Could not convert Timestamp into datum")?
+                            }
+                            DataType::Timestamp(TimeUnit::Millisecond, Some(_Arc)) => {
+                                *tts_value = column
+                                    .as_primitive::<TimestampMillisecondType>()
+                                    .value(row_index)
+                                    .into_datum()
+                                    .ok_or("Could not convert Timestamptz into datum")?
                             }
                             _ => {
                                 return Err(format!(

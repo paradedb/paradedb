@@ -20,7 +20,6 @@ impl DatafusionExprTranslator for ConstNode {
             &mut constval as *mut pg_sys::Datum,
             PgOid::from(consttype),
             constisnull,
-        )
-        .expect("Could not convert datum to expr"))
+        )?)
     }
 }

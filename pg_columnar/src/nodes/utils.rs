@@ -56,7 +56,7 @@ pub unsafe fn get_datafusion_table(
     let schema = Schema::new(fields);
 
     let provider = if !CONTEXT.table_exist(table_reference.clone()).unwrap() {
-        register_listing_table(table_name, &schema).expect("Could not register table")
+        register_listing_table(table_name, &schema)?
     } else {
         task::block_on(CONTEXT.table_provider(table_reference)).expect("Could not get table")
     };
@@ -68,18 +68,18 @@ pub fn register_listing_table(
     table_name: &str,
     schema: &Schema,
 ) -> Result<Arc<dyn TableProvider>, String> {
-    let table_path = ListingTableUrl::parse(unsafe { get_parquet_directory(table_name) })
-        .expect("Could not parse table path");
+    let table_path = ListingTableUrl::parse(unsafe { get_parquet_directory(table_name)? })
+        .map_err(datafusion_err_to_string("Could not parse table path"))?;
     let file_format = ParquetFormat::new().with_enable_pruning(Some(true));
     let listing_options =
         ListingOptions::new(Arc::new(file_format)).with_file_extension(".parquet");
     let config = ListingTableConfig::new(table_path)
         .with_listing_options(listing_options)
         .with_schema((*schema).clone().into());
-    let provider = Arc::new(ListingTable::try_new(config).expect("Could not create listing table"));
+    let provider = Arc::new(ListingTable::try_new(config).map_err(datafusion_err_to_string("Could not create listing table"))?);
     let _ = CONTEXT
         .register_table(table_name.clone(), provider.clone())
-        .expect("Could not register table");
+        .map_err(datafusion_err_to_string("Could not register table"))?;
 
     Ok(provider)
 }

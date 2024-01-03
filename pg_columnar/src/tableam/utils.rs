@@ -14,7 +14,9 @@ use std::string::FromUtf8Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-use crate::nodes::utils::{datafusion_err_to_string, get_datafusion_table_name, register_listing_table};
+use crate::nodes::utils::{
+    datafusion_err_to_string, get_datafusion_table_name, register_listing_table,
+};
 
 pub struct BulkInsertState {
     pub batches: Vec<RecordBatch>,

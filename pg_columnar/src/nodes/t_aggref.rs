@@ -5,9 +5,9 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::nodes::t_var::VarNode;
+use crate::nodes::utils::datafusion_err_to_string;
 use crate::nodes::utils::DatafusionExprTranslator;
 use crate::nodes::utils::DatafusionPlanTranslator;
-use crate::nodes::utils::datafusion_err_to_string;
 
 pub struct AggRefNode;
 impl DatafusionPlanTranslator for AggRefNode {

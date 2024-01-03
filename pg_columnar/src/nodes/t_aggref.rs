@@ -4,8 +4,8 @@ use pgrx::nodes::is_a;
 use pgrx::*;
 use std::ffi::CStr;
 
+use crate::datafusion::error::datafusion_err_to_string;
 use crate::nodes::t_var::VarNode;
-use crate::nodes::utils::datafusion_err_to_string;
 use crate::nodes::utils::DatafusionExprTranslator;
 use crate::nodes::utils::DatafusionPlanTranslator;
 
@@ -79,7 +79,7 @@ impl DatafusionPlanTranslator for AggRefNode {
 
         Ok(LogicalPlan::Aggregate(
             Aggregate::try_new(Box::new(outer_plan).into(), vec![], agg_expr)
-                .map_err(datafusion_err_to_string("Failed to create Aggregate"))?,
+                .map_err(datafusion_err_to_string())?,
         ))
     }
 }

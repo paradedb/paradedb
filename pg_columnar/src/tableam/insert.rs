@@ -4,7 +4,7 @@ use core::ffi::c_int;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::arrow::array::{
     ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, StringArray, Time32SecondArray, TimestampSecondArray, UInt32Array,
+    Int64Array, StringArray, Time32SecondArray, TimestampMillisecondArray, UInt32Array,
 };
 use datafusion::common::arrow::datatypes::Schema;
 use datafusion::dataframe::DataFrameWriteOptions;
@@ -139,7 +139,7 @@ pub unsafe extern "C" fn memam_multi_insert(
                         col_idx,
                         |datum: *mut pg_sys::Datum| i64::from_datum(*datum, false),
                     );
-                    values.push(Arc::new(TimestampSecondArray::from(vec)));
+                    values.push(Arc::new(TimestampMillisecondArray::from(vec)));
                 }
                 PgBuiltInOids::DATEOID => {
                     let vec: Vec<Option<i32>> = create_datafusion_array(

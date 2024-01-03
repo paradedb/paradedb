@@ -16,10 +16,10 @@ impl DatafusionExprTranslator for ConstNode {
         let consttype = (*constnode).consttype;
         let constisnull = (*constnode).constisnull;
 
-        Ok(datum_to_expr(
+        datum_to_expr(
             &mut constval as *mut pg_sys::Datum,
             PgOid::from(consttype),
             constisnull,
-        )?)
+        )
     }
 }

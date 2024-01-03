@@ -9,12 +9,12 @@ use datafusion::common::arrow::array::{
 use datafusion::common::arrow::datatypes::Schema;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::datasource::MemTable;
-
 use pgrx::*;
 use std::sync::Arc;
 
-use crate::nodes::utils::{get_datafusion_schema, get_datafusion_table, get_datafusion_table_name};
-use crate::tableam::utils::{BULK_INSERT_STATE, CONTEXT};
+use crate::datafusion::registry::CONTEXT;
+use crate::datafusion::table::DatafusionTable;
+use crate::tableam::utils::BULK_INSERT_STATE;
 
 static MAX_SLOTS: usize = 5_000_000;
 
@@ -43,10 +43,10 @@ pub unsafe extern "C" fn memam_multi_insert(
 
     let natts = tuple_desc.len();
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let table_name = get_datafusion_table_name(&pg_relation).expect("Could not get table name");
+    let table = DatafusionTable::new(&pg_relation).unwrap();
     let mut values: Vec<ArrayRef> = vec![];
 
-    set_schema_if_needed(&table_name, &pg_relation);
+    set_schema_if_needed(&table.name().unwrap(), &pg_relation);
 
     for (col_idx, oid) in oids.iter().enumerate().take(natts) {
         match oid {
@@ -156,7 +156,7 @@ pub unsafe extern "C" fn memam_multi_insert(
         }
     }
 
-    let mut bulk_insert_state = BULK_INSERT_STATE.lock().unwrap();
+    let mut bulk_insert_state = BULK_INSERT_STATE.write();
     bulk_insert_state.nslots += nslots as usize;
 
     if let Some(schema) = &bulk_insert_state.schema {
@@ -207,40 +207,43 @@ where
 #[inline]
 unsafe fn flush_batches(rel: pg_sys::Relation) {
     let pg_relation = PgRelation::from_pg(rel);
-    let table_name = get_datafusion_table_name(&pg_relation).expect("Could not get table name");
-    let mut bulk_insert_state = BULK_INSERT_STATE.lock().unwrap();
+    let table = DatafusionTable::new(&pg_relation).unwrap();
+    let mut bulk_insert_state = BULK_INSERT_STATE.write();
 
     if bulk_insert_state.batches.is_empty() {
         return;
     }
 
     if let Some(schema) = &bulk_insert_state.schema {
-        let table = Arc::new(
+        let binding = CONTEXT.read();
+        let context = (*binding)
+            .as_ref()
+            .ok_or("Context not initialized")
+            .unwrap();
+
+        let memtable = Arc::new(
             MemTable::try_new(
                 Arc::new(Schema::from(schema)),
                 vec![bulk_insert_state.batches.clone()],
             )
             .expect("Could not create MemTable"),
         );
-        let df = CONTEXT
-            .read_table(table)
+        let df = context
+            .read_table(memtable)
             .expect("Could not create dataframe");
-        let _ = task::block_on(df.write_table(&table_name, DataFrameWriteOptions::new()));
+        let _ =
+            task::block_on(df.write_table(&table.name().unwrap(), DataFrameWriteOptions::new()));
         bulk_insert_state.batches.clear();
         bulk_insert_state.nslots = 0;
     }
 }
 
 #[inline]
-unsafe fn set_schema_if_needed(table_name: &str, pg_relation: &PgRelation) {
-    let mut bulk_insert_state = BULK_INSERT_STATE.lock().unwrap();
+unsafe fn set_schema_if_needed(_table_name: &str, pg_relation: &PgRelation) {
+    let mut bulk_insert_state = BULK_INSERT_STATE.write();
 
     if bulk_insert_state.schema.is_none() {
-        let table_source =
-            get_datafusion_table(table_name, pg_relation).expect("Could not get table source");
-        let df_schema =
-            get_datafusion_schema(table_name, table_source).expect("Could not get schema");
-
-        bulk_insert_state.schema = Some(df_schema.clone());
+        let table = DatafusionTable::new(pg_relation).unwrap();
+        bulk_insert_state.schema = Some(table.schema().unwrap());
     }
 }

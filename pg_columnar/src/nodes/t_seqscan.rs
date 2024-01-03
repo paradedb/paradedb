@@ -2,13 +2,12 @@ use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 
 use pgrx::*;
 
+use crate::datafusion::error::datafusion_err_to_string;
+use crate::datafusion::table::DatafusionTable;
 use crate::nodes::t_opexpr::OpExpr;
 use crate::nodes::t_var::VarNode;
 use crate::nodes::utils::DatafusionExprTranslator;
 use crate::nodes::utils::DatafusionPlanTranslator;
-use crate::nodes::utils::{
-    datafusion_err_to_string, get_datafusion_table, get_datafusion_table_name,
-};
 use crate::tableam::utils::get_pg_relation;
 
 pub struct SeqScanNode;
@@ -54,24 +53,19 @@ impl DatafusionPlanTranslator for SeqScanNode {
         // Find the table we're supposed to be scanning by querying the range table
         let rte = pg_sys::rt_fetch((*scan).scan.scanrelid, rtable);
         let pg_relation = get_pg_relation(rte)?;
-        let table_name = get_datafusion_table_name(&pg_relation)?;
-        let table_source = get_datafusion_table(&table_name, &pg_relation)?;
+        let table = DatafusionTable::new(&pg_relation)?;
 
-        let mut builder = LogicalPlanBuilder::scan(table_name, table_source, None)
-            .map_err(datafusion_err_to_string("Could not create TableScan"))?;
+        let mut builder = LogicalPlanBuilder::scan(table.name()?, table.source()?, None)
+            .map_err(datafusion_err_to_string())?;
 
         for filter in filters {
-            builder = builder
-                .filter(filter)
-                .map_err(datafusion_err_to_string("Could not apply filters"))?;
+            builder = builder.filter(filter).map_err(datafusion_err_to_string())?;
         }
 
         builder = builder
             .project(projections)
-            .map_err(datafusion_err_to_string("Could not apply projections"))?;
+            .map_err(datafusion_err_to_string())?;
 
-        builder
-            .build()
-            .map_err(datafusion_err_to_string("Could not build TableScan plan"))
+        builder.build().map_err(datafusion_err_to_string())
     }
 }

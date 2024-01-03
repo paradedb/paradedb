@@ -6,12 +6,13 @@ use pgrx::hooks::PgHooks;
 use pgrx::*;
 use std::ffi::CStr;
 
+use crate::datafusion::registry::CONTEXT;
 use crate::hooks::utils::{
     copy_stmt_is_columnar, planned_stmt_is_columnar, send_tuples_if_necessary,
 };
 use crate::nodes::root::RootPlanNode;
 use crate::nodes::utils::DatafusionPlanTranslator;
-use crate::tableam::utils::{BulkInsertState, BULK_INSERT_STATE, CONTEXT};
+use crate::tableam::utils::{BulkInsertState, BULK_INSERT_STATE};
 
 pub struct DatafusionHook;
 
@@ -45,7 +46,13 @@ impl PgHooks for DatafusionHook {
             let logical_plan = RootPlanNode::datafusion_plan(plan, rtable, None)
                 .expect("Could not get logical plan");
 
-            let dataframe = task::block_on(CONTEXT.execute_logical_plan(logical_plan))
+            let binding = CONTEXT.read();
+            let context = (*binding)
+                .as_ref()
+                .ok_or("Context not initialized")
+                .unwrap();
+
+            let dataframe = task::block_on(context.execute_logical_plan(logical_plan))
                 .expect("Could not execute logical plan");
 
             let recordbatchvec: Vec<RecordBatch> =
@@ -93,7 +100,7 @@ impl PgHooks for DatafusionHook {
             let copy_stmt = plan as *mut pg_sys::CopyStmt;
 
             if unsafe { copy_stmt_is_columnar(copy_stmt) } {
-                let mut bulk_insert_state = BULK_INSERT_STATE.lock().unwrap();
+                let mut bulk_insert_state = BULK_INSERT_STATE.write();
                 *bulk_insert_state = BulkInsertState::new();
             }
         }

@@ -76,7 +76,10 @@ pub fn register_listing_table(
     let config = ListingTableConfig::new(table_path)
         .with_listing_options(listing_options)
         .with_schema((*schema).clone().into());
-    let provider = Arc::new(ListingTable::try_new(config).map_err(datafusion_err_to_string("Could not create listing table"))?);
+    let provider = Arc::new(
+        ListingTable::try_new(config)
+            .map_err(datafusion_err_to_string("Could not create listing table"))?,
+    );
     let _ = CONTEXT
         .register_table(table_name.clone(), provider.clone())
         .map_err(datafusion_err_to_string("Could not register table"))?;

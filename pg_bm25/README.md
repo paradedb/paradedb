@@ -132,9 +132,31 @@ Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy sear
 
 ### Prerequisites
 
-Before developing the extension, ensure that you have Rust v1.73.0 installed, ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
+To develop the extension, first install Rust v1.73.0 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
 
-If you are on macOS and using Postgres.app, you'll first need to add the `pg_config` binary to your path:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup install 1.73.0
+
+# We recommend setting the default version for consistency
+rustup default 1.73.0
+```
+
+Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconcistencies with Homebrew's Rust installation on macOS.
+
+Then, install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
+
+```bash
+# macOS
+brew install postgresql@15
+
+# Ubuntu
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+sudo apt-get update && sudo apt-get install -y postgresql-$15 postgresql-server-dev-15
+```
+
+If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to add the `pg_config` binary to your path before continuing:
 
 ```bash
 export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
@@ -147,6 +169,8 @@ Then, install and initialize pgrx:
 cargo install --locked cargo-pgrx --version 0.11.1
 cargo pgrx init --pg15=`which pg_config`
 ```
+
+Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 
 ### Running the Extension
 

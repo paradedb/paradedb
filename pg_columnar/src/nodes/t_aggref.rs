@@ -75,7 +75,7 @@ impl DatafusionPlanTranslator for AggRefNode {
         }
 
         let outer_plan =
-            outer_plan.ok_or_else(|| "Limit does not have an outer plan".to_string())?;
+            outer_plan.ok_or_else(|| "Aggregate does not have an outer plan".to_string())?;
 
         Ok(LogicalPlan::Aggregate(
             Aggregate::try_new(Box::new(outer_plan).into(), vec![], agg_expr)

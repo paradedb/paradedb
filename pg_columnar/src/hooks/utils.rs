@@ -259,8 +259,7 @@ pub unsafe fn copy_stmt_is_columnar(copy_stmt: *mut pg_sys::CopyStmt) -> bool {
         .to_str()
         .expect("Could not get relation name");
     let pg_relation = PgRelation::open_with_name(relation_name).expect("Could not open relation");
-    let oid = pg_relation.oid();
-    let relation_data = pg_sys::RelationIdGetRelation(oid);
+    let relation_data = pg_relation.as_ptr();
 
     let am_handler = (*relation_data).rd_amhandler;
 

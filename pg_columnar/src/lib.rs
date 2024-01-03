@@ -1,5 +1,7 @@
 #![allow(non_snake_case)]
 
+mod api;
+mod datafusion;
 mod hooks;
 mod nodes;
 mod tableam;
@@ -18,8 +20,6 @@ extension_sql_file!("../sql/_bootstrap.sql");
 static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_columnar");
 static mut DATAFUSION_HOOK: DatafusionHook = DatafusionHook;
 
-#[allow(clippy::missing_safety_doc)]
-#[allow(non_snake_case)]
 #[pg_guard]
 pub extern "C" fn _PG_init() {
     telemetry::posthog::init("pg_columnar deployment");

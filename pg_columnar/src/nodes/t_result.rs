@@ -2,10 +2,10 @@ use datafusion::logical_expr::{Expr, LogicalPlan, Values};
 use pgrx::nodes::is_a;
 use pgrx::*;
 
+use crate::datafusion::table::DatafusionTable;
 use crate::nodes::t_const::ConstNode;
 use crate::nodes::utils::DatafusionExprTranslator;
 use crate::nodes::utils::DatafusionPlanTranslator;
-use crate::nodes::utils::{get_datafusion_schema, get_datafusion_table, get_datafusion_table_name};
 use crate::tableam::utils::get_pg_relation;
 
 pub struct ResultNode;
@@ -17,9 +17,7 @@ impl DatafusionPlanTranslator for ResultNode {
     ) -> Result<LogicalPlan, String> {
         let rte = pg_sys::rt_fetch(1, rtable);
         let pg_relation = get_pg_relation(rte)?;
-        let table_name = get_datafusion_table_name(&pg_relation)?;
-        let table_source = get_datafusion_table(&table_name, &pg_relation)?;
-        let schema = get_datafusion_schema(&table_name, table_source)?;
+        let table = DatafusionTable::new(&pg_relation)?;
 
         let mut values: Vec<Vec<Expr>> = vec![vec![]];
         let row = (*plan).targetlist;
@@ -40,7 +38,7 @@ impl DatafusionPlanTranslator for ResultNode {
         }
 
         Ok(LogicalPlan::Values(Values {
-            schema: schema.into(),
+            schema: table.schema()?.into(),
             values,
         }))
     }

@@ -3,20 +3,17 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema, TimeUnit};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::{DFSchema, ScalarValue};
 use datafusion::dataframe::DataFrameWriteOptions;
-
-use datafusion::datasource::MemTable;
 use datafusion::logical_expr::Expr;
-use datafusion::prelude::SessionContext;
 use lazy_static::lazy_static;
+use parking_lot::RwLock;
 use pgrx::*;
-use std::ffi::{CStr, CString, NulError};
-use std::string::FromUtf8Error;
 use std::sync::Arc;
-use std::sync::Mutex;
 
-use crate::nodes::utils::{
-    datafusion_err_to_string, get_datafusion_table_name, register_listing_table,
-};
+use crate::datafusion::directory::ParquetDirectory;
+use crate::datafusion::error::datafusion_err_to_string;
+use crate::datafusion::registry::{CONTEXT, PARADE_CATALOG, PARADE_SCHEMA};
+use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::table::DatafusionTable;
 
 pub struct BulkInsertState {
     pub batches: Vec<RecordBatch>,
@@ -35,42 +32,50 @@ impl BulkInsertState {
 }
 
 lazy_static! {
-    pub static ref CONTEXT: SessionContext = SessionContext::new();
-    pub static ref BULK_INSERT_STATE: Mutex<BulkInsertState> = Mutex::new(BulkInsertState::new());
+    pub static ref BULK_INSERT_STATE: RwLock<BulkInsertState> = RwLock::new(BulkInsertState::new());
 }
 
 pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), String> {
-    let table_name = get_datafusion_table_name(pgrel)?;
+    let table = DatafusionTable::new(pgrel)?;
+    let table_name = table.name()?;
     let fields = get_datafusion_fields_from_pg(pgrel)?;
     let schema = Schema::new(fields);
+
+    let binding = CONTEXT.read();
+    let context = (*binding).as_ref().ok_or("Context not initialized")?;
 
     match persistence {
         pg_sys::RELPERSISTENCE_UNLOGGED => {
             return Err("Unlogged tables are not yet supported".to_string());
         }
         pg_sys::RELPERSISTENCE_TEMP => {
-            match MemTable::try_new(schema.clone().into(), vec![Vec::<RecordBatch>::new()]).ok() {
-                Some(mem_table) => {
-                    CONTEXT
-                        .register_table(table_name.clone(), Arc::new(mem_table))
-                        .map_err(datafusion_err_to_string("Could not register table"))?;
-                }
-                None => return Err("An unexpected error occured creating the table".to_string()),
-            };
+            return Err("Temp tables are not yet supported".to_string());
         }
         pg_sys::RELPERSISTENCE_PERMANENT => {
             let batch = RecordBatch::new_empty(Arc::new(schema.clone()));
-            let df = CONTEXT
+            let df = context
                 .read_batch(batch)
-                .map_err(datafusion_err_to_string("Could not create dataframe"))?;
+                .map_err(datafusion_err_to_string())?;
 
             let _ = task::block_on(df.write_parquet(
-                get_parquet_directory(&table_name)?.as_str(),
+                &ParquetDirectory::table_path(&table_name)?,
                 DataFrameWriteOptions::new(),
                 None,
             ));
 
-            register_listing_table(&table_name, &schema)?;
+            let schema_provider = context
+                .catalog(PARADE_CATALOG)
+                .ok_or("Catalog not found")
+                .unwrap()
+                .schema(PARADE_SCHEMA)
+                .ok_or("Schema not found")
+                .unwrap();
+            let lister = schema_provider
+                .as_any()
+                .downcast_ref::<ParadeSchemaProvider>();
+            if let Some(lister) = lister {
+                task::block_on(lister.refresh(&context.state())).unwrap();
+            }
         }
         _ => return Err("Unsupported persistence type".to_string()),
     };
@@ -81,23 +86,6 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
 pub unsafe fn get_pg_relation(rte: *mut pg_sys::RangeTblEntry) -> Result<PgRelation, String> {
     let relation = pg_sys::RelationIdGetRelation((*rte).relid);
     Ok(PgRelation::from_pg_owned(relation))
-}
-
-pub unsafe fn get_parquet_directory(table_name: &str) -> Result<String, String> {
-    let option_name_cstr = CString::new("data_directory")
-        .map_err(|e: NulError| format!("Failed to create CString: {}", e))?;
-    let data_dir_str = String::from_utf8(
-        CStr::from_ptr(pg_sys::GetConfigOptionByName(
-            option_name_cstr.as_ptr(),
-            std::ptr::null_mut(),
-            true,
-        ))
-        .to_bytes()
-        .to_vec(),
-    )
-    .map_err(|e: FromUtf8Error| format!("Failed to convert C string to Rust string: {}", e))?;
-
-    Ok(format!("{}/{}/{}", data_dir_str, "paradedb", table_name))
 }
 
 pub unsafe fn datum_to_expr(

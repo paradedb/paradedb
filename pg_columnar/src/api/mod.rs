@@ -39,14 +39,14 @@ pub fn init() {
         }
         None => {
             let mut context =
-                SessionContext::new_with_config_rt(session_config.clone(), Arc::new(runtime_env));
+                SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
             // Create schema provider
             let schema_provider = create_schema_provider(&context.state());
             context.register_catalog_list(Arc::new(ParadeCatalogList::new()));
             // Create and register catalog
             let catalog = ParadeCatalog::new();
             catalog
-                .register_schema(PARADE_SCHEMA, schema_provider.clone())
+                .register_schema(PARADE_SCHEMA, schema_provider)
                 .unwrap();
             context.register_catalog(PARADE_CATALOG, Arc::new(catalog));
             // Set context

@@ -52,7 +52,7 @@ pub unsafe fn create_from_pg(pgrel: &PgRelation, persistence: u8) -> Result<(), 
             return Err("Temp tables are not yet supported".to_string());
         }
         pg_sys::RELPERSISTENCE_PERMANENT => {
-            let batch = RecordBatch::new_empty(Arc::new(schema.clone()));
+            let batch = RecordBatch::new_empty(Arc::new(schema));
             let df = context
                 .read_batch(batch)
                 .map_err(datafusion_err_to_string())?;

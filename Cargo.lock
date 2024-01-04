@@ -169,6 +169,7 @@ dependencies = [
  "half 2.3.1",
  "hashbrown 0.14.2",
  "num",
+ "packed_simd",
 ]
 
 [[package]]
@@ -2919,6 +2920,16 @@ name = "owo-colors"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1b04fb49957986fdce4d6ee7a65027d55d4b6d2265e5848bbb507b58ccfdb6f"
+
+[[package]]
+name = "packed_simd"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f9f08af0c877571712e2e3e686ad79efad9657dbf0f7c3c8ba943ff6c38932d"
+dependencies = [
+ "cfg-if",
+ "num-traits",
+]
 
 [[package]]
 name = "paradedb-tantivy"

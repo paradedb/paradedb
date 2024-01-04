@@ -9,13 +9,8 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm as base
 # Declare all the build arguments and set them to
 # environment variables for use in build and runtime
 ARG PG_VERSION_MAJOR
-<<<<<<< HEAD
 ARG PG_BM25_VERSION
 ARG PG_SPARSE_VERSION
-=======
-ARG PG_COLUMNAR_VERSION
-ARG PG_SEARCH_VERSION
->>>>>>> a110e5f6 (feat: Multi-insert for \copy (#29))
 ARG PGVECTOR_VERSION
 ARG PG_CRON_VERSION
 ARG PG_NET_VERSION
@@ -53,13 +48,8 @@ ARG TELEMETRY
 ARG BUILD_DATE
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
-<<<<<<< HEAD
     PG_BM25_VERSION=${PG_BM25_VERSION} \
     PG_SPARSE_VERSION=${PG_SPARSE_VERSION} \
-=======
-    PG_COLUMNAR_VERSION=${PG_COLUMNAR_VERSION} \
-    PG_SEARCH_VERSION=${PG_SEARCH_VERSION} \
->>>>>>> a110e5f6 (feat: Multi-insert for \copy (#29))
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
     PG_CRON_VERSION=${PG_CRON_VERSION} \
     PG_NET_VERSION=${PG_NET_VERSION} \
@@ -169,12 +159,8 @@ COPY pg_columnar/ /tmp/pg_columnar
 COPY shared/ /tmp/shared
 
 # Use the build argument to update the version in Cargo.toml
-<<<<<<< HEAD
 RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/;}" Cargo.toml && \
     cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-=======
-RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
->>>>>>> a110e5f6 (feat: Multi-insert for \copy (#29))
 
 ###############################################
 # Third Stage: PostgreSQL
@@ -252,7 +238,6 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
 
 # Copy the ParadeDB pgrx extensions from their builder stages
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
-<<<<<<< HEAD
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 
@@ -267,10 +252,6 @@ RUN sed -i "s/default_version = .*/default_version = '${PG_SPARSE_VERSION}'/" sv
     make install && \
     rm -rf /tmp/pg_sparse
 WORKDIR /
-=======
-COPY --from=builder-pg_columnar /tmp/pg_columnar/target/release/pg_columnar-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_columnar /tmp/pg_columnar/target/release/pg_columnar-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
->>>>>>> a110e5f6 (feat: Multi-insert for \copy (#29))
 
 # Copy entrypoint script, which will be handled by the official image initialization scipt
 COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh

@@ -11,7 +11,7 @@ use crate::hooks::utils::{
     copy_stmt_is_columnar, planned_stmt_is_columnar, send_tuples_if_necessary,
 };
 use crate::nodes::root::RootPlanNode;
-use crate::nodes::utils::DatafusionPlanTranslator;
+use crate::nodes::utils::DatafusionPlanProducer;
 use crate::tableam::utils::{BulkInsertState, BULK_INSERT_STATE};
 
 pub struct DatafusionHook;

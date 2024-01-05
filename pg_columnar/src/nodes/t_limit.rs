@@ -3,11 +3,11 @@ use datafusion::logical_expr::{Expr, Limit, LogicalPlan};
 use pgrx::*;
 
 use crate::nodes::t_const::ConstNode;
-use crate::nodes::utils::DatafusionExprTranslator;
-use crate::nodes::utils::DatafusionPlanTranslator;
+use crate::nodes::utils::DatafusionExprProducer;
+use crate::nodes::utils::DatafusionPlanProducer;
 
 pub struct LimitNode;
-impl DatafusionPlanTranslator for LimitNode {
+impl DatafusionPlanProducer for LimitNode {
     unsafe fn datafusion_plan(
         plan: *mut pg_sys::Plan,
         rtable: *mut pg_sys::List,

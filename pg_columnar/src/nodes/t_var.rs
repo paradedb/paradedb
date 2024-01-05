@@ -3,10 +3,10 @@ use pgrx::*;
 use std::cmp::max;
 use std::ffi::CStr;
 
-use crate::nodes::utils::DatafusionExprTranslator;
+use crate::nodes::utils::DatafusionExprProducer;
 
 pub struct VarNode;
-impl DatafusionExprTranslator for VarNode {
+impl DatafusionExprProducer for VarNode {
     unsafe fn datafusion_expr(
         node: *mut pg_sys::Node,
         rtable: Option<*mut pg_sys::List>,

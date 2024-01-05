@@ -1,12 +1,12 @@
 use crate::nodes::t_const::ConstNode;
 use crate::nodes::t_var::VarNode;
-use crate::nodes::utils::DatafusionExprTranslator;
+use crate::nodes::utils::DatafusionExprProducer;
 use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
 use pgrx::pg_sys;
 use std::ffi::CStr;
 
 pub struct OpExpr;
-impl DatafusionExprTranslator for OpExpr {
+impl DatafusionExprProducer for OpExpr {
     unsafe fn datafusion_expr(
         node: *mut pg_sys::Node,
         rtable: Option<*mut pg_sys::List>,

@@ -10,10 +10,10 @@ use crate::nodes::t_seqscan::SeqScanNode;
 use crate::nodes::t_sort::SortNode;
 use crate::nodes::t_valuesscan::ValuesScanNode;
 
-use crate::nodes::utils::DatafusionPlanTranslator;
+use crate::nodes::utils::DatafusionPlanProducer;
 
 pub struct RootPlanNode;
-impl DatafusionPlanTranslator for RootPlanNode {
+impl DatafusionPlanProducer for RootPlanNode {
     unsafe fn datafusion_plan(
         plan: *mut pg_sys::Plan,
         rtable: *mut pg_sys::List,

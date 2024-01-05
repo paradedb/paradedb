@@ -6,12 +6,12 @@ use crate::datafusion::error::datafusion_err_to_string;
 use crate::datafusion::table::DatafusionTable;
 use crate::nodes::t_opexpr::OpExpr;
 use crate::nodes::t_var::VarNode;
-use crate::nodes::utils::DatafusionExprTranslator;
-use crate::nodes::utils::DatafusionPlanTranslator;
+use crate::nodes::utils::DatafusionExprProducer;
+use crate::nodes::utils::DatafusionPlanProducer;
 use crate::tableam::utils::get_pg_relation;
 
 pub struct SeqScanNode;
-impl DatafusionPlanTranslator for SeqScanNode {
+impl DatafusionPlanProducer for SeqScanNode {
     unsafe fn datafusion_plan(
         plan: *mut pg_sys::Plan,
         rtable: *mut pg_sys::List,

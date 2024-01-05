@@ -6,11 +6,11 @@ use std::ffi::CStr;
 
 use crate::datafusion::error::datafusion_err_to_string;
 use crate::nodes::t_var::VarNode;
-use crate::nodes::utils::DatafusionExprTranslator;
-use crate::nodes::utils::DatafusionPlanTranslator;
+use crate::nodes::utils::DatafusionExprProducer;
+use crate::nodes::utils::DatafusionPlanProducer;
 
 pub struct AggRefNode;
-impl DatafusionPlanTranslator for AggRefNode {
+impl DatafusionPlanProducer for AggRefNode {
     unsafe fn datafusion_plan(
         plan: *mut pg_sys::Plan,
         rtable: *mut pg_sys::List,

@@ -4,12 +4,12 @@ use pgrx::*;
 
 use crate::datafusion::table::DatafusionTable;
 use crate::nodes::t_const::ConstNode;
-use crate::nodes::utils::DatafusionExprTranslator;
-use crate::nodes::utils::DatafusionPlanTranslator;
+use crate::nodes::utils::DatafusionExprProducer;
+use crate::nodes::utils::DatafusionPlanProducer;
 use crate::tableam::utils::get_pg_relation;
 
 pub struct ValuesScanNode;
-impl DatafusionPlanTranslator for ValuesScanNode {
+impl DatafusionPlanProducer for ValuesScanNode {
     unsafe fn datafusion_plan(
         plan: *mut pg_sys::Plan,
         rtable: *mut pg_sys::List,

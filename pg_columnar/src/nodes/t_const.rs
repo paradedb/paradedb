@@ -1,11 +1,11 @@
 use datafusion::logical_expr::Expr;
 use pgrx::*;
 
-use crate::datafusion::translator::{DatafusionMap, DatafusionProducer, SubstraitTranslator};
-use crate::nodes::utils::DatafusionExprTranslator;
+use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
+use crate::nodes::utils::DatafusionExprProducer;
 
 pub struct ConstNode;
-impl DatafusionExprTranslator for ConstNode {
+impl DatafusionExprProducer for ConstNode {
     unsafe fn datafusion_expr(
         node: *mut pg_sys::Node,
         _rtable: Option<*mut pg_sys::List>,
@@ -16,8 +16,9 @@ impl DatafusionExprTranslator for ConstNode {
         let consttype = (*constnode).consttype;
         let constisnull = (*constnode).constisnull;
 
-        DatafusionProducer::map(PgOid::from(consttype).to_substrait()?, |df_map: DatafusionMap| {
-            (df_map.literal)(&mut constval, constisnull)
-        })
+        DatafusionMapProducer::map(
+            PgOid::from(consttype).to_substrait()?,
+            |df_map: DatafusionMap| (df_map.literal)(&mut constval, constisnull),
+        )
     }
 }

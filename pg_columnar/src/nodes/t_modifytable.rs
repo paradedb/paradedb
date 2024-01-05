@@ -3,11 +3,11 @@ use datafusion::logical_expr::{DmlStatement, LogicalPlan};
 use pgrx::*;
 
 use crate::datafusion::table::DatafusionTable;
-use crate::nodes::utils::DatafusionPlanTranslator;
+use crate::nodes::utils::DatafusionPlanProducer;
 use crate::tableam::utils::get_pg_relation;
 
 pub struct ModifyTableNode;
-impl DatafusionPlanTranslator for ModifyTableNode {
+impl DatafusionPlanProducer for ModifyTableNode {
     unsafe fn datafusion_plan(
         plan: *mut pg_sys::Plan,
         rtable: *mut pg_sys::List,

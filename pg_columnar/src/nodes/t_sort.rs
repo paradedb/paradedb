@@ -3,11 +3,11 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::nodes::t_var::VarNode;
-use crate::nodes::utils::DatafusionExprTranslator;
-use crate::nodes::utils::DatafusionPlanTranslator;
+use crate::nodes::utils::DatafusionExprProducer;
+use crate::nodes::utils::DatafusionPlanProducer;
 
 pub struct SortNode;
-impl DatafusionPlanTranslator for SortNode {
+impl DatafusionPlanProducer for SortNode {
     unsafe fn datafusion_plan(
         plan: *mut pg_sys::Plan,
         rtable: *mut pg_sys::List,

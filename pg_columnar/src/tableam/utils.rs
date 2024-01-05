@@ -183,6 +183,7 @@ fn field_from_pg_attribute(attribute: pg_sys::FormData_pg_attribute) -> Result<F
     let attribute_type_oid = attribute.type_oid();
     // Setting it to true because of a likely bug in Datafusion where inserts
     // fail on nullability = false fields
+    // let nullability = !attribute.attnotnull;
     let nullability = true;
 
     let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };

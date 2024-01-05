@@ -45,8 +45,7 @@ cargo install --locked cargo-pgrx --version 0.11.1
 cargo pgrx init --pg15=`which pg_config`
 ```
 
-The extension can be developed with or without SIMD enabled. Enabling SIMD improves query times by 10-20x, but significantly
-increases build times. As a result, we recommend developing with SIMD disabled for fast iteration.
+The extension can be developed with or without SIMD enabled. Enabling SIMD improves query times by 10-20x but also significantly increases build times. For fast development iteration, we recommend disabling SIMD.
 
 ## SIMD Disabled 
 
@@ -67,7 +66,7 @@ rustup override set nightly-2023-06-01
 Then, reinstall pgrx for the new version of Rust:
 
 ```bash
-cargo install --locked cargo-pgrx --version 0.11.1
+cargo install --locked cargo-pgrx --version 0.11.1 --force
 ```
 
 Finally, run 

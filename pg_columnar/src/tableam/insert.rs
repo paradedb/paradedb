@@ -10,8 +10,8 @@ use pgrx::*;
 use std::sync::Arc;
 
 use crate::datafusion::registry::CONTEXT;
+use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
 use crate::datafusion::table::DatafusionTable;
-use crate::datafusion::translator::{DatafusionMap, DatafusionProducer, SubstraitTranslator};
 use crate::tableam::utils::BULK_INSERT_STATE;
 
 static MAX_SLOTS: usize = 5_000_000;
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn memam_multi_insert(
     set_schema_if_needed(&table.name().unwrap(), &pg_relation);
 
     for (col_idx, oid) in oids.iter().enumerate().take(natts) {
-        DatafusionProducer::map(oid.to_substrait().unwrap(), |df_map: DatafusionMap| {
+        DatafusionMapProducer::map(oid.to_substrait().unwrap(), |df_map: DatafusionMap| {
             let mut datums = Vec::with_capacity(nslots as usize);
             let mut is_nulls = Vec::with_capacity(nslots as usize);
 

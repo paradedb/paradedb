@@ -46,10 +46,10 @@ impl PgHooks for DatafusionHook {
             let logical_plan = RootPlanNode::datafusion_plan(plan, rtable, None)
                 .expect("Could not get logical plan");
 
-            let binding = CONTEXT.read();
-            let context = (*binding)
+            let context_lock = CONTEXT.read();
+            let context = (*context_lock)
                 .as_ref()
-                .ok_or("Context not initialized")
+                .ok_or("No columnar context found. Run SELECT paradedb.init(); first.")
                 .unwrap();
 
             let dataframe = task::block_on(context.execute_logical_plan(logical_plan))

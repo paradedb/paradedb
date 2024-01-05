@@ -4,3 +4,4 @@ pub mod error;
 pub mod registry;
 pub mod schema;
 pub mod table;
+pub mod translator;

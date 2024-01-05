@@ -2,10 +2,7 @@ use async_std::task;
 use core::ffi::c_int;
 
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::arrow::array::{
-    ArrayRef, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, StringArray, Time32SecondArray, TimestampMillisecondArray, UInt32Array,
-};
+use datafusion::common::arrow::array::ArrayRef;
 use datafusion::common::arrow::datatypes::Schema;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::datasource::MemTable;
@@ -14,6 +11,7 @@ use std::sync::Arc;
 
 use crate::datafusion::registry::CONTEXT;
 use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::translator::{DatafusionMap, DatafusionProducer, SubstraitTranslator};
 use crate::tableam::utils::BULK_INSERT_STATE;
 
 static MAX_SLOTS: usize = 5_000_000;
@@ -49,111 +47,22 @@ pub unsafe extern "C" fn memam_multi_insert(
     set_schema_if_needed(&table.name().unwrap(), &pg_relation);
 
     for (col_idx, oid) in oids.iter().enumerate().take(natts) {
-        match oid {
-            PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::BOOLOID => {
-                    let vec: Vec<Option<bool>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| bool::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(BooleanArray::from(vec)));
-                }
-                PgBuiltInOids::BPCHAROID | PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                    let vec: Vec<Option<String>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| String::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(StringArray::from(vec)));
-                }
-                PgBuiltInOids::INT2OID => {
-                    let vec: Vec<Option<i16>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| i16::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(Int16Array::from(vec)));
-                }
-                PgBuiltInOids::INT4OID => {
-                    let vec: Vec<Option<i32>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| i32::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(Int32Array::from(vec)));
-                }
-                PgBuiltInOids::INT8OID => {
-                    let vec: Vec<Option<i64>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| i64::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(Int64Array::from(vec)));
-                }
-                PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => {
-                    let vec: Vec<Option<u32>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| u32::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(UInt32Array::from(vec)));
-                }
-                PgBuiltInOids::FLOAT4OID => {
-                    let vec: Vec<Option<f32>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| f32::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(Float32Array::from(vec)));
-                }
-                PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
-                    let vec: Vec<Option<f64>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| f64::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(Float64Array::from(vec)));
-                }
-                PgBuiltInOids::TIMEOID => {
-                    let vec: Vec<Option<i32>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| i32::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(Time32SecondArray::from(vec)));
-                }
-                PgBuiltInOids::TIMESTAMPOID => {
-                    let vec: Vec<Option<i64>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| i64::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(TimestampMillisecondArray::from(vec)));
-                }
-                PgBuiltInOids::DATEOID => {
-                    let vec: Vec<Option<i32>> = create_datafusion_array(
-                        nslots as usize,
-                        slots,
-                        col_idx,
-                        |datum: *mut pg_sys::Datum| i32::from_datum(*datum, false),
-                    );
-                    values.push(Arc::new(Date32Array::from(vec)));
-                }
-                _ => todo!(),
-            },
-            _ => todo!(),
-        }
+        DatafusionProducer::map(oid.to_substrait().unwrap(), |df_map: DatafusionMap| {
+            let mut datums = Vec::with_capacity(nslots as usize);
+            let mut is_nulls = Vec::with_capacity(nslots as usize);
+
+            for row_idx in 0..nslots {
+                let tuple_table_slot = *slots.add(row_idx as usize);
+                let datum = (*tuple_table_slot).tts_values.add(col_idx);
+                let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
+
+                datums.push(datum);
+                is_nulls.push(is_null);
+            }
+
+            values.push((df_map.array)(datums, is_nulls));
+        })
+        .expect("Could not map array");
     }
 
     let mut bulk_insert_state = BULK_INSERT_STATE.write();
@@ -178,33 +87,6 @@ pub unsafe extern "C" fn memam_finish_bulk_insert(rel: pg_sys::Relation, _option
 }
 
 #[inline]
-unsafe fn create_datafusion_array<T, F>(
-    nslots: usize,
-    slots: *mut *mut pg_sys::TupleTableSlot,
-    col_idx: usize,
-    from_datum: F,
-) -> Vec<Option<T>>
-where
-    F: Fn(*mut pg_sys::Datum) -> Option<T>,
-{
-    let mut vec = Vec::with_capacity(nslots);
-    for row_idx in 0..nslots {
-        let tuple_table_slot = *slots.add(row_idx);
-        let datum = (*tuple_table_slot).tts_values.add(col_idx);
-        let tts_is_null = (*tuple_table_slot).tts_isnull.add(col_idx);
-
-        let value = if *tts_is_null {
-            None
-        } else {
-            from_datum(datum)
-        };
-
-        vec.push(value);
-    }
-    vec
-}
-
-#[inline]
 unsafe fn flush_batches(rel: pg_sys::Relation) {
     let pg_relation = PgRelation::from_pg(rel);
     let table = DatafusionTable::new(&pg_relation).unwrap();
@@ -215,10 +97,10 @@ unsafe fn flush_batches(rel: pg_sys::Relation) {
     }
 
     if let Some(schema) = &bulk_insert_state.schema {
-        let binding = CONTEXT.read();
-        let context = (*binding)
+        let context_lock = CONTEXT.read();
+        let context = (*context_lock)
             .as_ref()
-            .ok_or("Context not initialized")
+            .ok_or("No columnar context found. Run SELECT paradedb.init(); first.")
             .unwrap();
 
         let memtable = Arc::new(

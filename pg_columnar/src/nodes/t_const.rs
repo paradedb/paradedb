@@ -1,8 +1,8 @@
 use datafusion::logical_expr::Expr;
 use pgrx::*;
 
+use crate::datafusion::translator::{DatafusionMap, DatafusionProducer, SubstraitTranslator};
 use crate::nodes::utils::DatafusionExprTranslator;
-use crate::tableam::utils::datum_to_expr;
 
 pub struct ConstNode;
 impl DatafusionExprTranslator for ConstNode {
@@ -16,10 +16,8 @@ impl DatafusionExprTranslator for ConstNode {
         let consttype = (*constnode).consttype;
         let constisnull = (*constnode).constisnull;
 
-        datum_to_expr(
-            &mut constval as *mut pg_sys::Datum,
-            PgOid::from(consttype),
-            constisnull,
-        )
+        DatafusionProducer::map(PgOid::from(consttype).to_substrait()?, |df_map: DatafusionMap| {
+            (df_map.literal)(&mut constval, constisnull)
+        })
     }
 }

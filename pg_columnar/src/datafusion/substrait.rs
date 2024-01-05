@@ -5,10 +5,10 @@ use datafusion::common::arrow::array::{
 };
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::Expr;
-use substrait::proto::r#type as substrait_type_mod;
-use substrait::proto::Type as SubstraitType;
 use pgrx::*;
 use std::sync::Arc;
+use substrait::proto::r#type as substrait_type_mod;
+use substrait::proto::Type as SubstraitType;
 
 pub struct DatafusionMap {
     pub literal: Box<dyn Fn(*mut pg_sys::Datum, bool) -> Expr>,
@@ -17,9 +17,7 @@ pub struct DatafusionMap {
 
 const SUBSTRAIT_USER_DEFINED_U32: u32 = 1;
 
-fn substrait_user_defined_type_from_reference(
-    type_reference: u32, 
-) -> substrait_type_mod::Kind {
+fn substrait_user_defined_type_from_reference(type_reference: u32) -> substrait_type_mod::Kind {
     let mut result = substrait_type_mod::UserDefined::default();
 
     match type_reference {
@@ -32,14 +30,14 @@ fn substrait_user_defined_type_from_reference(
                             substrait_type_mod::FixedChar {
                                 length: 4,
                                 type_variation_reference: 0,
-                                nullability: substrait_type_mod::Nullability::Required.into()
-                            }
-                        ))
-                    }
-                ))
+                                nullability: substrait_type_mod::Nullability::Required.into(),
+                            },
+                        )),
+                    },
+                )),
             }];
-        },
-        _ => todo!()
+        }
+        _ => todo!(),
     };
 
     substrait_type_mod::Kind::UserDefined(result)
@@ -47,74 +45,60 @@ fn substrait_user_defined_type_from_reference(
 
 pub trait SubstraitTranslator {
     fn to_substrait(&self) -> Result<SubstraitType, String>;
-    fn from_substrait(substrait_type: SubstraitType) -> Result<Self, String> where Self: Sized;
+    fn from_substrait(substrait_type: SubstraitType) -> Result<Self, String>
+    where
+        Self: Sized;
 }
 
 impl SubstraitTranslator for datafusion::arrow::datatypes::DataType {
     fn to_substrait(&self) -> Result<SubstraitType, String> {
-        let result = SubstraitType { kind: match self {
-            DataType::Boolean => Some(
-                substrait_type_mod::Kind::Bool(
-                    substrait_type_mod::Boolean::default()
-                )
-            ),
-            DataType::Utf8 => Some(
-                substrait_type_mod::Kind::String(
-                    substrait_type_mod::String::default()
-                )
-            ),
-            DataType::Int16 => Some(
-                substrait_type_mod::Kind::I16(
-                    substrait_type_mod::I16::default()
-                )
-            ),
-            DataType::Int32 => Some(
-                substrait_type_mod::Kind::I32(
-                    substrait_type_mod::I32::default()
-                )
-            ),
-            DataType::Int64 => Some(
-                substrait_type_mod::Kind::I64(
-                    substrait_type_mod::I64::default()
-                )
-            ),
-            DataType::UInt32 => Some(
-                substrait_user_defined_type_from_reference(
+        let result = SubstraitType {
+            kind: match self {
+                DataType::Boolean => Some(substrait_type_mod::Kind::Bool(
+                    substrait_type_mod::Boolean::default(),
+                )),
+                DataType::Utf8 => Some(substrait_type_mod::Kind::String(
+                    substrait_type_mod::String::default(),
+                )),
+                DataType::Int16 => Some(substrait_type_mod::Kind::I16(
+                    substrait_type_mod::I16::default(),
+                )),
+                DataType::Int32 => Some(substrait_type_mod::Kind::I32(
+                    substrait_type_mod::I32::default(),
+                )),
+                DataType::Int64 => Some(substrait_type_mod::Kind::I64(
+                    substrait_type_mod::I64::default(),
+                )),
+                DataType::UInt32 => Some(substrait_user_defined_type_from_reference(
                     SUBSTRAIT_USER_DEFINED_U32,
-                )
-            ),
-            DataType::Float32 => Some(
-                substrait_type_mod::Kind::Fp32(
-                    substrait_type_mod::Fp32::default()
-                )
-            ),
-            DataType::Float64 => Some(
-                substrait_type_mod::Kind::Fp64(
-                    substrait_type_mod::Fp64::default()
-                )
-            ),
-            DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond) => Some(
-                substrait_type_mod::Kind::Time(
-                    substrait_type_mod::Time::default()
-                )
-            ),
-            DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None) => Some(
-                substrait_type_mod::Kind::Timestamp(
-                    substrait_type_mod::Timestamp::default()
-                )
-            ),
-            DataType::Date32 => Some(
-                substrait_type_mod::Kind::Date(
-                    substrait_type_mod::Date::default()
-                )
-            ),
-            _ => todo!()
-        }};
+                )),
+                DataType::Float32 => Some(substrait_type_mod::Kind::Fp32(
+                    substrait_type_mod::Fp32::default(),
+                )),
+                DataType::Float64 => Some(substrait_type_mod::Kind::Fp64(
+                    substrait_type_mod::Fp64::default(),
+                )),
+                DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond) => Some(
+                    substrait_type_mod::Kind::Time(substrait_type_mod::Time::default()),
+                ),
+                DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None) => {
+                    Some(substrait_type_mod::Kind::Timestamp(
+                        substrait_type_mod::Timestamp::default(),
+                    ))
+                }
+                DataType::Date32 => Some(substrait_type_mod::Kind::Date(
+                    substrait_type_mod::Date::default(),
+                )),
+                _ => todo!(),
+            },
+        };
 
         Ok(result)
     }
 
-    fn from_substrait(substrait_type: SubstraitType) -> Result<datafusion::arrow::datatypes::DataType, String> {
+    fn from_substrait(
+        substrait_type: SubstraitType,
+    ) -> Result<datafusion::arrow::datatypes::DataType, String> {
         let result = match substrait_type.kind {
             Some(kind) => match kind {
                 substrait_type_mod::Kind::Bool(_) => DataType::Boolean,
@@ -124,18 +108,22 @@ impl SubstraitTranslator for datafusion::arrow::datatypes::DataType {
                 substrait_type_mod::Kind::I64(_) => DataType::Int64,
                 substrait_type_mod::Kind::Fp32(_) => DataType::Float32,
                 substrait_type_mod::Kind::Fp64(_) => DataType::Float64,
-                substrait_type_mod::Kind::Time(_) => DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond),
-                substrait_type_mod::Kind::Timestamp(_) => DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None),
+                substrait_type_mod::Kind::Time(_) => {
+                    DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond)
+                }
+                substrait_type_mod::Kind::Timestamp(_) => {
+                    DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None)
+                }
                 substrait_type_mod::Kind::Date(_) => DataType::Date32,
                 substrait_type_mod::Kind::UserDefined(user_defined) => {
                     match user_defined.type_reference {
                         SUBSTRAIT_USER_DEFINED_U32 => DataType::UInt32,
-                        _ => todo!()
+                        _ => todo!(),
                     }
-                },
-                _ => todo!()
+                }
+                _ => todo!(),
             },
-            None => todo!()
+            None => todo!(),
         };
 
         Ok(result)
@@ -144,67 +132,49 @@ impl SubstraitTranslator for datafusion::arrow::datatypes::DataType {
 
 impl SubstraitTranslator for PgOid {
     fn to_substrait(&self) -> Result<SubstraitType, String> {
-        let result = SubstraitType { kind: match self {
-            PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::BOOLOID => Some(
-                    substrait_type_mod::Kind::Bool(
-                        substrait_type_mod::Boolean::default()
-                    )
-                ),
-                PgBuiltInOids::BPCHAROID | PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => Some(
-                    substrait_type_mod::Kind::String(
-                        substrait_type_mod::String::default()
-                    )
-                ),
-                PgBuiltInOids::INT2OID => Some(
-                    substrait_type_mod::Kind::I16(
-                        substrait_type_mod::I16::default()
-                    )
-                ),
-                PgBuiltInOids::INT4OID => Some(
-                    substrait_type_mod::Kind::I32(
-                        substrait_type_mod::I32::default()
-                    )
-                ),
-                PgBuiltInOids::INT8OID => Some(
-                    substrait_type_mod::Kind::I64(
-                        substrait_type_mod::I64::default()
-                    )
-                ),
-                PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => Some(
-                    substrait_user_defined_type_from_reference(
-                        SUBSTRAIT_USER_DEFINED_U32,
-                    )
-                ),
-                PgBuiltInOids::FLOAT4OID => Some(
-                    substrait_type_mod::Kind::Fp32(
-                        substrait_type_mod::Fp32::default()
-                    )
-                ),
-                PgBuiltInOids::FLOAT8OID => Some(
-                    substrait_type_mod::Kind::Fp64(
-                        substrait_type_mod::Fp64::default()
-                    )
-                ),
-                PgBuiltInOids::TIMEOID => Some(
-                    substrait_type_mod::Kind::Time(
-                        substrait_type_mod::Time::default()
-                    )
-                ),
-                PgBuiltInOids::TIMESTAMPOID => Some(
-                    substrait_type_mod::Kind::Timestamp(
-                        substrait_type_mod::Timestamp::default()
-                    )
-                ),
-                PgBuiltInOids::DATEOID => Some(
-                    substrait_type_mod::Kind::Date(
-                        substrait_type_mod::Date::default()
-                    )
-                ),
-                _ => todo!()
+        let result = SubstraitType {
+            kind: match self {
+                PgOid::BuiltIn(builtin) => match builtin {
+                    PgBuiltInOids::BOOLOID => Some(substrait_type_mod::Kind::Bool(
+                        substrait_type_mod::Boolean::default(),
+                    )),
+                    PgBuiltInOids::BPCHAROID
+                    | PgBuiltInOids::TEXTOID
+                    | PgBuiltInOids::VARCHAROID => Some(substrait_type_mod::Kind::String(
+                        substrait_type_mod::String::default(),
+                    )),
+                    PgBuiltInOids::INT2OID => Some(substrait_type_mod::Kind::I16(
+                        substrait_type_mod::I16::default(),
+                    )),
+                    PgBuiltInOids::INT4OID => Some(substrait_type_mod::Kind::I32(
+                        substrait_type_mod::I32::default(),
+                    )),
+                    PgBuiltInOids::INT8OID => Some(substrait_type_mod::Kind::I64(
+                        substrait_type_mod::I64::default(),
+                    )),
+                    PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => Some(
+                        substrait_user_defined_type_from_reference(SUBSTRAIT_USER_DEFINED_U32),
+                    ),
+                    PgBuiltInOids::FLOAT4OID => Some(substrait_type_mod::Kind::Fp32(
+                        substrait_type_mod::Fp32::default(),
+                    )),
+                    PgBuiltInOids::FLOAT8OID => Some(substrait_type_mod::Kind::Fp64(
+                        substrait_type_mod::Fp64::default(),
+                    )),
+                    PgBuiltInOids::TIMEOID => Some(substrait_type_mod::Kind::Time(
+                        substrait_type_mod::Time::default(),
+                    )),
+                    PgBuiltInOids::TIMESTAMPOID => Some(substrait_type_mod::Kind::Timestamp(
+                        substrait_type_mod::Timestamp::default(),
+                    )),
+                    PgBuiltInOids::DATEOID => Some(substrait_type_mod::Kind::Date(
+                        substrait_type_mod::Date::default(),
+                    )),
+                    _ => todo!(),
+                },
+                _ => todo!(),
             },
-            _ => todo!()
-        }};
+        };
 
         Ok(result)
     }
@@ -225,20 +195,20 @@ impl SubstraitTranslator for PgOid {
                 substrait_type_mod::Kind::UserDefined(user_defined) => {
                     match user_defined.type_reference {
                         SUBSTRAIT_USER_DEFINED_U32 => PgBuiltInOids::OIDOID,
-                        _ => todo!()
+                        _ => todo!(),
                     }
-                },
-                _ => todo!()
+                }
+                _ => todo!(),
             },
-            None => todo!()
+            None => todo!(),
         };
 
         Ok(pgrx::PgOid::BuiltIn(result))
     }
 }
 
-pub struct DatafusionProducer;
-impl DatafusionProducer {
+pub struct DatafusionMapProducer;
+impl DatafusionMapProducer {
     pub fn map<F, R>(substrait_type: SubstraitType, mut f: F) -> Result<R, String>
     where
         F: FnMut(DatafusionMap) -> R,
@@ -272,44 +242,38 @@ impl DatafusionProducer {
                     },
                 ),
             }),
-            DataType::Utf8 => {
-                f(DatafusionMap {
-                    literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
-                        if is_null {
-                            Expr::Literal(ScalarValue::Utf8(None))
-                        } else {
-                            unsafe {
-                                Expr::Literal(ScalarValue::Utf8(String::from_datum(
-                                    *datum, false,
-                                )))
-                            }
+            DataType::Utf8 => f(DatafusionMap {
+                literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
+                    if is_null {
+                        Expr::Literal(ScalarValue::Utf8(None))
+                    } else {
+                        unsafe {
+                            Expr::Literal(ScalarValue::Utf8(String::from_datum(*datum, false)))
                         }
-                    }),
-                    array: Box::new(
-                        |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                            let vec: Vec<Option<String>> = (0..datums.len())
-                                .map(|idx| {
-                                    if is_nulls[idx] {
-                                        None
-                                    } else {
-                                        unsafe { String::from_datum(*datums[idx], false) }
-                                    }
-                                })
-                                .collect();
+                    }
+                }),
+                array: Box::new(
+                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
+                        let vec: Vec<Option<String>> = (0..datums.len())
+                            .map(|idx| {
+                                if is_nulls[idx] {
+                                    None
+                                } else {
+                                    unsafe { String::from_datum(*datums[idx], false) }
+                                }
+                            })
+                            .collect();
 
-                            Arc::new(StringArray::from(vec))
-                        },
-                    ),
-                })
-            }
+                        Arc::new(StringArray::from(vec))
+                    },
+                ),
+            }),
             DataType::Int16 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
                     if is_null {
                         Expr::Literal(ScalarValue::Int16(None))
                     } else {
-                        unsafe {
-                            Expr::Literal(ScalarValue::Int16(i16::from_datum(*datum, false)))
-                        }
+                        unsafe { Expr::Literal(ScalarValue::Int16(i16::from_datum(*datum, false))) }
                     }
                 }),
                 array: Box::new(
@@ -333,9 +297,7 @@ impl DatafusionProducer {
                     if is_null {
                         Expr::Literal(ScalarValue::Int32(None))
                     } else {
-                        unsafe {
-                            Expr::Literal(ScalarValue::Int32(i32::from_datum(*datum, false)))
-                        }
+                        unsafe { Expr::Literal(ScalarValue::Int32(i32::from_datum(*datum, false))) }
                     }
                 }),
                 array: Box::new(
@@ -359,9 +321,7 @@ impl DatafusionProducer {
                     if is_null {
                         Expr::Literal(ScalarValue::Int64(None))
                     } else {
-                        unsafe {
-                            Expr::Literal(ScalarValue::Int64(i64::from_datum(*datum, false)))
-                        }
+                        unsafe { Expr::Literal(ScalarValue::Int64(i64::from_datum(*datum, false))) }
                     }
                 }),
                 array: Box::new(
@@ -458,66 +418,67 @@ impl DatafusionProducer {
                     },
                 ),
             }),
-            DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond) => f(DatafusionMap {
-                literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
-                    if is_null {
-                        Expr::Literal(ScalarValue::Time64Microsecond(None))
-                    } else {
-                        unsafe {
-                            Expr::Literal(ScalarValue::Time64Microsecond(i64::from_datum(
-                                *datum, false,
-                            )))
+            DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond) => {
+                f(DatafusionMap {
+                    literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
+                        if is_null {
+                            Expr::Literal(ScalarValue::Time64Microsecond(None))
+                        } else {
+                            unsafe {
+                                Expr::Literal(ScalarValue::Time64Microsecond(i64::from_datum(
+                                    *datum, false,
+                                )))
+                            }
                         }
-                    }
-                }),
-                array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<i64>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { i64::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    }),
+                    array: Box::new(
+                        |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
+                            let vec: Vec<Option<i64>> = (0..datums.len())
+                                .map(|idx| {
+                                    if is_nulls[idx] {
+                                        None
+                                    } else {
+                                        unsafe { i64::from_datum(*datums[idx], false) }
+                                    }
+                                })
+                                .collect();
 
-                        Arc::new(Time64MicrosecondArray::from(vec))
-                    },
-                ),
-            }),
-            DataType::Timestamp(
-                datafusion::arrow::datatypes::TimeUnit::Microsecond,
-                None,
-            ) => f(DatafusionMap {
-                literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
-                    if is_null {
-                        Expr::Literal(ScalarValue::TimestampMicrosecond(None, None))
-                    } else {
-                        unsafe {
-                            Expr::Literal(ScalarValue::TimestampMicrosecond(
-                                i64::from_datum(*datum, false),
-                                None,
-                            ))
+                            Arc::new(Time64MicrosecondArray::from(vec))
+                        },
+                    ),
+                })
+            }
+            DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None) => {
+                f(DatafusionMap {
+                    literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
+                        if is_null {
+                            Expr::Literal(ScalarValue::TimestampMicrosecond(None, None))
+                        } else {
+                            unsafe {
+                                Expr::Literal(ScalarValue::TimestampMicrosecond(
+                                    i64::from_datum(*datum, false),
+                                    None,
+                                ))
+                            }
                         }
-                    }
-                }),
-                array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<i64>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { i64::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    }),
+                    array: Box::new(
+                        |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
+                            let vec: Vec<Option<i64>> = (0..datums.len())
+                                .map(|idx| {
+                                    if is_nulls[idx] {
+                                        None
+                                    } else {
+                                        unsafe { i64::from_datum(*datums[idx], false) }
+                                    }
+                                })
+                                .collect();
 
-                        Arc::new(TimestampMicrosecondArray::from(vec))
-                    },
-                ),
-            }),
+                            Arc::new(TimestampMicrosecondArray::from(vec))
+                        },
+                    ),
+                })
+            }
             DataType::Date32 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
                     if is_null {

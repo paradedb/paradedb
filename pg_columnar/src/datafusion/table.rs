@@ -13,7 +13,7 @@ use crate::datafusion::directory::ParquetDirectory;
 use crate::datafusion::error::datafusion_err_to_string;
 use crate::datafusion::registry::{CONTEXT, PARADE_CATALOG, PARADE_SCHEMA};
 use crate::datafusion::schema::ParadeSchemaProvider;
-use crate::datafusion::translator::SubstraitTranslator;
+use crate::datafusion::substrait::SubstraitTranslator;
 
 pub struct DatafusionTable {
     name: String,
@@ -129,7 +129,11 @@ impl DatafusionTable {
                 return Err("Array data types are not supported".to_string());
             }
 
-            let field = Field::new(attname, SubstraitTranslator::from_substrait(base_oid.to_substrait()?)?, nullability);
+            let field = Field::new(
+                attname,
+                SubstraitTranslator::from_substrait(base_oid.to_substrait()?)?,
+                nullability,
+            );
 
             fields.push(field);
         }

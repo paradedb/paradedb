@@ -1,7 +1,84 @@
-use pgrx::Spi;
+use pgrx::spi::SpiTupleTable;
+use pgrx::{JsonB, Spi};
+use serde_json::Value as JsonValue;
 
 pub const SETUP_SQL: &str = include_str!("sql/index_setup.sql");
 pub const QUERY_SQL: &str = include_str!("sql/search_query.sql");
+
+/// Define a struct to represent the expected row structure of our bm25_test_table,
+/// with optional fields for testing flexibility.
+pub struct ExpectedRow {
+    pub rank_bm25: Option<f64>,
+    pub id: Option<i32>,
+    pub description: Option<&'static str>,
+    pub rating: Option<i32>,
+    pub category: Option<&'static str>,
+    pub in_stock: Option<bool>,
+    pub metadata: Option<JsonValue>,
+    pub highlight_bm25: Option<&'static str>,
+}
+
+/// We default the struct to None for all fields, to avoid needing to pass None to all
+/// the fields which aren't being tested in particular tests.
+impl Default for ExpectedRow {
+    fn default() -> Self {
+        ExpectedRow {
+            rank_bm25: None,
+            id: None,
+            description: None,
+            rating: None,
+            category: None,
+            in_stock: None,
+            metadata: None,
+            highlight_bm25: None,
+        }
+    }
+}
+
+/// Compares the output of Spi::connect() query on our bm25_test_table to the expected output.
+///
+/// NOTE: This function assume that the query is executed against the bm25_search schema created
+/// by the index_setup.sql script.
+pub fn test_table(mut table: SpiTupleTable, expect: Vec<ExpectedRow>) {
+    let mut i = 0;
+    while let Some(_) = table.next() {
+        // Retrieve each field as optional
+        let rank_bm25 = table.get::<f64>(0).ok().flatten();
+        let id = table.get::<i32>(1).ok().flatten();
+        let description = table.get::<&str>(2).ok().flatten();
+        let rating = table.get::<i32>(3).ok().flatten();
+        let category = table.get::<&str>(4).ok().flatten();
+        let in_stock = table.get::<bool>(5).ok().flatten();
+        let metadata = table.get::<JsonB>(6).ok().flatten().map(|jsonb| jsonb.0);
+        let highlight_bm25 = table.get::<&str>(7).ok().flatten();
+
+        // Create a tuple from the retrieved values
+        let row = ExpectedRow {
+            rank_bm25,
+            id,
+            description,
+            rating,
+            category,
+            in_stock,
+            metadata,
+            highlight_bm25,
+        };
+
+        // Compare each field individually with the expected row
+        let expected = &expect[i];
+        assert_eq!(row.rank_bm25, expected.rank_bm25);
+        assert_eq!(row.id, expected.id);
+        assert_eq!(row.description, expected.description);
+        assert_eq!(row.rating, expected.rating);
+        assert_eq!(row.category, expected.category);
+        assert_eq!(row.in_stock, expected.in_stock);
+        assert_eq!(row.metadata, expected.metadata);
+        assert_eq!(row.highlight_bm25, expected.highlight_bm25);
+
+        i += 1;
+    }
+    assert_eq!(expect.len(), i);
+}
 
 /// Executes a query on a remote PostgreSQL database using dblink.
 ///

@@ -78,15 +78,16 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_metric_max() {
+    fn test_metrics_max() {
         Spi::run(SETUP_SQL).expect("failed to setup index");
         let query = r#"
-          {  aggs: {
-                avg: {
-                    field: "release_year"
+            {
+                aggs: {
+                    avg: {
+                        field: "release_year"
+                    }
                 }
             }
-        }
         "#;
 
         let res = aggregation("one_republic_songs_bm25_index", query);

@@ -139,3 +139,423 @@ impl TantivyScanState {
         tantivy_query
     }
 }
+
+#[cfg(any(test, feature = "pg_test"))]
+#[pgrx::pg_schema]
+mod tests {
+    use pgrx::*;
+    use shared::testing::{test_table, ExpectedRow, SETUP_SQL};
+
+    #[pg_test]
+    fn test_basic_search_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics');",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(2),
+                    description: Some("Plastic Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    in_stock: Some(false),
+                    metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(1),
+                    description: Some("Ergonomic metal keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(
+                        serde_json::json!({"color": "Silver", "location": "United States"}),
+                    ),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(12),
+                    description: Some("Innovative wireless earbuds"),
+                    rating: Some(5),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(serde_json::json!({"color": "Black", "location": "China"})),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(22),
+                    description: Some("Fast charging power bank"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(
+                        serde_json::json!({"color": "Black", "location": "United States"}),
+                    ),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(32),
+                    description: Some("Bluetooth-enabled speaker"),
+                    rating: Some(3),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn test_basic_search_with_limit_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2);",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(1),
+                    description: Some("Ergonomic metal keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(2),
+                    description: Some("Plastic Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn test_basic_search_with_fuzzy_field_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('category:electornics', fuzzy_fields => 'category');",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(1),
+                    description: Some("Ergonomic metal keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(2),
+                    description: Some("Plastic Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(12),
+                    description: Some("Innovative wireless earbuds"),
+                    rating: Some(5),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(22),
+                    description: Some("Fast charging power bank"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(32),
+                    description: Some("Bluetooth-enabled speaker"),
+                    rating: Some(3),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn test_basic_search_without_fuzzy_field_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('category:electornics');",
+                None,
+                None,
+            )?;
+
+            // Test search with without fuzzy field and with typo: no results
+            let expect = vec![];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn search_fuzzy_field_transpose_cost_false_distance_one_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => false, distance => 1);",
+                None,
+                None,
+            )?;
+
+            // Test search with without fuzzy field and with typo: no results
+            let expect = vec![];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn search_fuzzy_field_transpose_cost_true_distance_one_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => true, distance => 1);",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(1),
+                    description: Some("Ergonomic metal keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(2),
+                    description: Some("Plastic Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn search_regex_field() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT id, description, rating, category FROM search_config.search('com', regex_fields => 'description');",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(6),
+                    description: Some("Compact digital camera"),
+                    rating: Some(5),
+                    category: Some("Photography"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(23),
+                    description: Some("Comfortable slippers"),
+                    rating: Some(3),
+                    category: Some("Footwear"),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn test_json_search_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT * FROM bm25_search.search('metadata.color:white');",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(4),
+                    description: Some("White jogging shoes"),
+                    rating: Some(3),
+                    category: Some("Footwear"),
+                    in_stock: Some(false),
+                    metadata: Some(
+                        serde_json::json!({"color": "White", "location": "United States"}),
+                    ),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(15),
+                    description: Some("Refreshing face wash"),
+                    rating: Some(2),
+                    category: Some("Beauty"),
+                    in_stock: Some(false),
+                    metadata: Some(serde_json::json!({"color": "White", "location": "China"})),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(25),
+                    description: Some("Anti-aging serum"),
+                    rating: Some(4),
+                    category: Some("Beauty"),
+                    in_stock: Some(true),
+                    metadata: Some(
+                        serde_json::json!({"color": "White", "location": "United States"}),
+                    ),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn test_default_tokenizer_no_results_search_query() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT * FROM bm25_search.search('description:earbud');",
+                None,
+                None,
+            )?;
+
+            // Test search with default tokenizer: no results
+            let expect = vec![];
+
+            test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    // TODO: This test returns None as well
+    // #[pg_test]
+    // fn test_search_with_bm25_scoring_query() -> spi::Result<()> {
+    //     Spi::run(SETUP_SQL).expect("failed to setup index");
+    //     Spi::connect(|client| {
+    //         let table = client.select(
+    //             "SELECT r.rank_bm25, s.* FROM bm25_search.search('category:electronics OR description:keyboard') as s LEFT JOIN bm25_search.rank('category:electronics OR description:keyboard') as r ON s.id = r.id;",
+    //             None,
+    //             None,
+    //         )?;
+
+    //         let expect = vec![
+    //             ExpectedRow {
+    //                 rank_bm25: Some(4.931014),
+    //                 id: Some(1),
+    //                 description: Some("Ergonomic metal keyboard"),
+    //                 rating: Some(4),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(true),
+    //                 metadata: Some(serde_json::json!({"color": "Silver", "location": "United States"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //             ExpectedRow {
+    //                 rank_bm25: Some(5.3764954),
+    //                 id: Some(2),
+    //                 description: Some("Plastic Keyboard"),
+    //                 rating: Some(4),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(false),
+    //                 metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //             ExpectedRow {
+    //                 rank_bm25: Some(2.1096356),
+    //                 id: Some(12),
+    //                 description: Some("Innovative wireless earbuds"),
+    //                 rating: Some(5),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(true),
+    //                 metadata: Some(serde_json::json!({"color": "Black", "location": "China"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //             ExpectedRow {
+    //                 rank_bm25: Some(2.1096356),
+    //                 id: Some(22),
+    //                 description: Some("Fast charging power bank"),
+    //                 rating: Some(4),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(true),
+    //                 metadata: Some(serde_json::json!({"color": "Black", "location": "United States"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //             ExpectedRow {
+    //                 rank_bm25: Some(2.1096356),
+    //                 id: Some(32),
+    //                 description: Some("Bluetooth-enabled speaker"),
+    //                 rating: Some(3),
+    //                 category: Some("Electronics"),
+    //                 in_stock: Some(true),
+    //                 metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+    //                 ..Default::default() // Other fields default to None
+    //             },
+    //         ];
+
+    //         test_table(table, expect);
+
+    //         Ok(())
+    //     })
+    // }
+
+    #[pg_test]
+    fn test_quoted_table_name_search() {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+
+        // Execute the query and retrieve the result
+        let (key, name, age) =
+            Spi::get_three::<i32, String, i32>("SELECT * FROM activity.search('name:alice')")
+                .expect("failed to query");
+
+        // Assert that the retrieved values match the expected output
+        assert_eq!(key, Some(1));
+        assert_eq!(name, Some("Alice".to_string()));
+        assert_eq!(age, Some(29));
+    }
+}

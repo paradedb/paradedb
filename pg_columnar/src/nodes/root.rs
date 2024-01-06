@@ -10,7 +10,7 @@ use crate::nodes::t_seqscan::SeqScanNode;
 use crate::nodes::t_sort::SortNode;
 use crate::nodes::t_valuesscan::ValuesScanNode;
 
-use crate::nodes::utils::DatafusionPlanProducer;
+use crate::nodes::producer::DatafusionPlanProducer;
 
 pub struct RootPlanNode;
 impl DatafusionPlanProducer for RootPlanNode {

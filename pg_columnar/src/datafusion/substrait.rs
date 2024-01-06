@@ -15,6 +15,7 @@ use std::sync::Arc;
 use substrait::proto::r#type as substrait_type_mod;
 use substrait::proto::Type as SubstraitType;
 
+#[allow(clippy::type_complexity)]
 pub struct DatafusionMap {
     pub literal: Box<dyn Fn(*mut pg_sys::Datum, bool) -> Expr>,
     pub array: Box<dyn Fn(Vec<*mut pg_sys::Datum>, Vec<bool>) -> ArrayRef>,

@@ -2,9 +2,9 @@ use datafusion::logical_expr::{Expr, LogicalPlan, Sort};
 use pgrx::*;
 use std::ffi::CStr;
 
+use crate::nodes::producer::DatafusionExprProducer;
+use crate::nodes::producer::DatafusionPlanProducer;
 use crate::nodes::t_var::VarNode;
-use crate::nodes::utils::DatafusionExprProducer;
-use crate::nodes::utils::DatafusionPlanProducer;
 
 pub struct SortNode;
 impl DatafusionPlanProducer for SortNode {

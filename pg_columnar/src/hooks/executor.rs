@@ -8,9 +8,9 @@ use std::num::TryFromIntError;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
-use crate::hooks::utils::ColumnarStmt;
+use crate::hooks::columnar::ColumnarStmt;
+use crate::nodes::producer::DatafusionPlanProducer;
 use crate::nodes::root::RootPlanNode;
-use crate::nodes::utils::DatafusionPlanProducer;
 
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,

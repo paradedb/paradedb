@@ -3,7 +3,7 @@ use datafusion::logical_expr::{DmlStatement, LogicalPlan};
 use pgrx::*;
 
 use crate::datafusion::table::DatafusionTable;
-use crate::nodes::utils::DatafusionPlanProducer;
+use crate::nodes::producer::DatafusionPlanProducer;
 use crate::tableam::utils::get_pg_relation;
 
 pub struct ModifyTableNode;

@@ -2,9 +2,9 @@ use datafusion::common::ScalarValue;
 use datafusion::logical_expr::{Expr, Limit, LogicalPlan};
 use pgrx::*;
 
+use crate::nodes::producer::DatafusionExprProducer;
+use crate::nodes::producer::DatafusionPlanProducer;
 use crate::nodes::t_const::ConstNode;
-use crate::nodes::utils::DatafusionExprProducer;
-use crate::nodes::utils::DatafusionPlanProducer;
 
 pub struct LimitNode;
 impl DatafusionPlanProducer for LimitNode {

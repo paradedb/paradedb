@@ -6,8 +6,8 @@ use pgrx::*;
 use std::sync::Arc;
 
 use crate::datafusion::table::DatafusionTable;
-use crate::hooks::utils::ColumnarStmt;
-use crate::nodes::utils::DatafusionPlansProducer;
+use crate::hooks::columnar::ColumnarStmt;
+use crate::nodes::producer::DatafusionPlansProducer;
 
 pub struct DropStmtNode;
 impl DatafusionPlansProducer for DropStmtNode {

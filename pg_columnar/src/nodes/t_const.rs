@@ -2,7 +2,7 @@ use datafusion::logical_expr::Expr;
 use pgrx::*;
 
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
-use crate::nodes::utils::DatafusionExprProducer;
+use crate::nodes::producer::DatafusionExprProducer;
 
 pub struct ConstNode;
 impl DatafusionExprProducer for ConstNode {

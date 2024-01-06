@@ -1,6 +1,6 @@
+use crate::nodes::producer::DatafusionExprProducer;
 use crate::nodes::t_const::ConstNode;
 use crate::nodes::t_var::VarNode;
-use crate::nodes::utils::DatafusionExprProducer;
 use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
 use pgrx::pg_sys;
 use std::ffi::CStr;

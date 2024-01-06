@@ -4,10 +4,10 @@ use pgrx::*;
 
 use crate::datafusion::error::datafusion_err_to_string;
 use crate::datafusion::table::DatafusionTable;
+use crate::nodes::producer::DatafusionExprProducer;
+use crate::nodes::producer::DatafusionPlanProducer;
 use crate::nodes::t_opexpr::OpExpr;
 use crate::nodes::t_var::VarNode;
-use crate::nodes::utils::DatafusionExprProducer;
-use crate::nodes::utils::DatafusionPlanProducer;
 use crate::tableam::utils::get_pg_relation;
 
 pub struct SeqScanNode;

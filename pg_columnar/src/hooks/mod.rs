@@ -1,6 +1,6 @@
+pub mod columnar;
 mod executor;
 mod process;
-pub mod utils;
 
 use pgrx::hooks::PgHooks;
 use pgrx::*;

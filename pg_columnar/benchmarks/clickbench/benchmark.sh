@@ -93,6 +93,33 @@ cleanup() {
 # Register the cleanup function to run when the script exits
 trap cleanup EXIT
 
+# Download function to retrieve the dataset and verify its checksum
+download_and_verify() {
+    local url=$1
+    local checksum=$2
+    local filename=$3
+
+    # Check if the file already exists and verify its checksum
+    if [ -e "$filename" ]; then
+        echo "Verifying checksum for '$filename'..."
+        echo "$checksum  $filename" | md5sum -c --status
+
+        # If checksum is ok, skip download
+        if [ $? -eq 0 ]; then
+            echo "Dataset '$filename' already exists and is verified, skipping download..."
+            return
+        else
+            echo "Checksum mismatch. Re-downloading '$filename'..."
+        fi
+    fi
+
+    # Downloading the file
+    echo "Downloading $filename dataset..."
+    wget --no-verbose --continue -O "$filename.gz" "$url"
+    gzip -d "$filename.gz"
+    chmod 666 "$filename"
+}
+
 echo ""
 echo "*********************************************************************************"
 echo "* Benchmarking pg_columnar version '$FLAG_TAG' against ClickBench on '$FLAG_STORAGE' storage..."
@@ -101,14 +128,7 @@ echo ""
 
 if [ "$FLAG_TAG" == "pgrx" ]; then
   # For local benchmarking via pgrx, we download hits_100k_rows.csv, which is ~5M rows (~3.75GB)
-  if [ ! -e hits_100k_rows.csv ]; then
-    echo "Downloading hits_100k_rows.csv dataset..."
-    wget --no-verbose --continue https://paradedb-benchmarks.s3.amazonaws.com/hits_100k_rows.csv.gz
-    gzip -d hits_100k_rows.csv.gz
-    chmod 666 hits_100k_rows.csv
-  else
-    echo "Dataset 'hits_100k_rows.csv' already exists, skipping download..."
-  fi
+  download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/hits_100k_rows.csv.gz" "06b18e929bc94ea93706b782d8b1120e" "hits_100k_rows.csv"
 
   # Build pg_columnar and start its pgrx PostgreSQL instance
   echo ""
@@ -136,14 +156,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   # the format expected by the ClickBench dashboard
 else
   # For CI/official benchmarking via Docker, we download the full hits.csv dataset, which is ~100M rows (~75GB)
-  if [ ! -e hits.csv ]; then
-    echo "Downloading hits.csv dataset..."
-    wget --no-verbose --continue 'https://datasets.clickhouse.com/hits_compatible/hits.csv.gz'
-    gzip -d hits.csv.gz
-    chmod 666 hits.csv
-  else
-    echo "Dataset already exists, skipping download..."
-  fi
+  download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.csv.gz" "TODO" "hits.tsv"
 
   # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
   if [ "$FLAG_TAG" == "local" ]; then

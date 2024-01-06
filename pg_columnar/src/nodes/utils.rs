@@ -9,6 +9,14 @@ pub trait DatafusionPlanProducer {
     ) -> Result<LogicalPlan, String>;
 }
 
+pub trait DatafusionPlansProducer {
+    unsafe fn datafusion_plan(
+        plan: *mut pg_sys::Plan,
+        rtable: *mut pg_sys::List,
+        outer_plan: Option<LogicalPlan>,
+    ) -> Result<Vec<LogicalPlan>, String>;
+}
+
 pub trait DatafusionExprProducer {
     unsafe fn datafusion_expr(
         node: *mut pg_sys::Node,

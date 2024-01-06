@@ -8,3 +8,4 @@
 # Outputs
 out/
 typesense-data/
+query_error.log

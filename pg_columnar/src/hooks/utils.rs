@@ -1,12 +1,9 @@
-use datafusion::arrow::array::{AsArray, StringArray};
-use datafusion::arrow::datatypes::{
-    DataType, Date32Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
-    Time64MicrosecondType, TimeUnit, TimestampMillisecondType, UInt32Type,
-};
 use datafusion::common::arrow::array::RecordBatch;
 use pgrx::*;
 use std::ffi::{c_char, CStr, CString};
 use std::num::TryFromIntError;
+
+use crate::datafusion::substrait::{ DatafusionMap, DatafusionMapProducer, SubstraitTranslator };
 
 pub unsafe fn send_tuples_if_necessary(
     query_desc: *mut pg_sys::QueryDesc,
@@ -40,6 +37,16 @@ pub unsafe fn send_tuples_if_necessary(
     match receiveSlot {
         Some(f) => {
             for recordbatch in recordbatchvec.iter() {
+                // Convert the tuple_desc target types to the ones corresponding to the Datafusion column types
+                let tuple_attrs = (*(*query_desc).tupDesc).attrs.as_mut_ptr();
+                for (col_index, _attr) in tuple_desc.iter().enumerate() {
+                    let dt = recordbatch.column(col_index).data_type();
+                    (*tuple_attrs.offset(col_index
+                        .try_into()
+                        .map_err(|e: TryFromIntError| e.to_string())?
+                    )).atttypid = PgOid::from_substrait(dt.to_substrait()?)?.value();
+                }
+
                 for row_index in 0..recordbatch.num_rows() {
                     let tuple_table_slot =
                         pg_sys::MakeTupleTableSlot((*query_desc).tupDesc, &pg_sys::TTSOpsVirtual);
@@ -60,104 +67,9 @@ pub unsafe fn send_tuples_if_necessary(
                                 .try_into()
                                 .map_err(|e: TryFromIntError| e.to_string())?,
                         );
-
-                        match dt {
-                            DataType::Boolean => {
-                                *tts_value = column
-                                    .as_primitive::<Int8Type>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Boolean into datum")?
-                            }
-                            DataType::Int16 => {
-                                *tts_value = column
-                                    .as_primitive::<Int16Type>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Int16 into datum")?
-                            }
-                            DataType::Int32 => {
-                                *tts_value = column
-                                    .as_primitive::<Int32Type>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Int32 into datum")?
-                            }
-                            DataType::Int64 => {
-                                *tts_value = column
-                                    .as_primitive::<Int64Type>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Int64 into datum")?
-                            }
-                            DataType::UInt32 => {
-                                *tts_value = column
-                                    .as_primitive::<UInt32Type>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert UInt32 into datum")?
-                            }
-                            DataType::Float32 => {
-                                *tts_value = column
-                                    .as_primitive::<Float32Type>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Float32 into datum")?
-                            }
-                            DataType::Float64 => {
-                                *tts_value = column
-                                    .as_primitive::<Float64Type>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Float64 into datum")?
-                            }
-                            DataType::Utf8 => {
-                                let string_array = column
-                                    .as_any()
-                                    .downcast_ref::<StringArray>()
-                                    .ok_or("Could not downcast Utf8 into string array")?;
-
-                                *tts_value = string_array
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Utf8 into datum")?
-                            }
-                            DataType::Time64(TimeUnit::Microsecond) => {
-                                info!("time");
-                                *tts_value = column
-                                    .as_primitive::<Time64MicrosecondType>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Time64 into datum")?
-                            }
-                            DataType::Date32 => {
-                                *tts_value = column
-                                    .as_primitive::<Date32Type>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Date32 into datum")?
-                            }
-                            DataType::Timestamp(TimeUnit::Millisecond, None) => {
-                                *tts_value = column
-                                    .as_primitive::<TimestampMillisecondType>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Timestamp into datum")?
-                            }
-                            DataType::Timestamp(TimeUnit::Millisecond, Some(_Arc)) => {
-                                *tts_value = column
-                                    .as_primitive::<TimestampMillisecondType>()
-                                    .value(row_index)
-                                    .into_datum()
-                                    .ok_or("Could not convert Timestamptz into datum")?
-                            }
-                            _ => {
-                                return Err(format!(
-                                    "send_tuples_if_necessary: Unsupported PostgreSQL type: {:?}",
-                                    dt
-                                ))
-                            }
-                        };
+                        *tts_value = DatafusionMapProducer::map(dt.to_substrait()?, |df_map: DatafusionMap| {
+                            (df_map.index_datum)(column, row_index as usize)
+                        })??;
                     }
                     f(tuple_table_slot, dest);
                     pg_sys::ExecDropSingleTupleTableSlot(tuple_table_slot);

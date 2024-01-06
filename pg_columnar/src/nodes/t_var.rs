@@ -3,7 +3,7 @@ use pgrx::*;
 use std::cmp::max;
 use std::ffi::CStr;
 
-use crate::nodes::utils::DatafusionExprProducer;
+use crate::nodes::producer::DatafusionExprProducer;
 
 pub struct VarNode;
 impl DatafusionExprProducer for VarNode {

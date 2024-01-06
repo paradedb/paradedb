@@ -7,9 +7,9 @@ use std::ffi::CStr;
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::registry::{PARADE_CATALOG, PARADE_SCHEMA};
 use crate::datafusion::schema::ParadeSchemaProvider;
-use crate::hooks::utils::ColumnarStmt;
+use crate::hooks::columnar::ColumnarStmt;
+use crate::nodes::producer::DatafusionPlansProducer;
 use crate::nodes::t_dropstmt::DropStmtNode;
-use crate::nodes::utils::DatafusionPlansProducer;
 use crate::tableam::utils::{BulkInsertState, BULK_INSERT_STATE};
 
 #[allow(clippy::type_complexity)]

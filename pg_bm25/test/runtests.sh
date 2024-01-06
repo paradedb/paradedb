@@ -157,6 +157,7 @@ function run_tests() {
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db > /dev/null
 
   # Configure search_path to include the paradedb schema
+  echo "Setting test database search_path..."
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER USER $PGUSER SET search_path TO public,paradedb;" -d test_db > /dev/null
 
   # Reload PostgreSQL configuration
@@ -195,6 +196,22 @@ function run_tests() {
     echo "Installing pg_bm25 extension onto the test database..."
     cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile dev > /dev/null
   fi
+
+  # Configure shared_preload_libraries to include pg_bm25
+  echo "Setting test database shared_preload_libraries..."
+  case "$OS_NAME" in
+    Darwin)
+      sed -i '' "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_bm25'  # (change requires restart)/" "$PGDATA/postgresql.conf"
+      ;;
+    Linux)
+      sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_bm25'  # (change requires restart)/" "$PGDATA/postgresql.conf"
+      ;;
+  esac
+  # cat "$PGDATA/postgresql.conf"
+
+  # Reload PostgreSQL configuration
+  echo "Reloading PostgreSQL configuration..."
+  "$PG_BIN_PATH/pg_ctl" restart
 
   # Get a list of all tests
   while IFS= read -r line; do

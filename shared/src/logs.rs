@@ -31,7 +31,8 @@ extension_sql!(
         END IF;
     END $$;
     "#
-    name = "create_parade_logs_table"
+    name = "create_parade_logs_table",
+    bootstrap
 );
 
 /// A logging macro designed for use within the ParadeDB system. It facilitates logging

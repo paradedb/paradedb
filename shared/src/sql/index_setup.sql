@@ -31,7 +31,7 @@ CALL paradedb.create_bm25(
         album: {},
         genre: {},
         description: {},
-        lyrics: {}
+        lyrics: {fast: true}
     }',
     numeric_fields => '{
         release_year: {},

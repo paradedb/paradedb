@@ -60,11 +60,11 @@ pub fn create_parade_index(
     index_name: String,
     heap_relation: &PgRelation,
     options: PgBox<ParadeOptions>,
-) -> Result<ParadeIndex, Box<dyn Error>> {
+) -> Result<&mut ParadeIndex, Box<dyn Error>> {
     ParadeIndex::new(index_name, heap_relation, options)
 }
 
-pub fn get_parade_index(index_name: &str) -> ParadeIndex {
+pub fn get_parade_index(index_name: &str) -> &'static mut ParadeIndex {
     ParadeIndex::from_index_name(index_name)
 }
 
@@ -222,17 +222,22 @@ pub unsafe fn row_to_json(
     natts: usize,
     dropped: &[bool],
     attributes: &[CategorizedAttribute],
-) -> JsonBuilder {
-    let mut builder = JsonBuilder::new(natts);
-
+    builder: &mut JsonBuilder,
+) {
     for (attr, datum) in decon_row(row, tupdesc, natts, dropped, attributes)
         .filter(|item| item.is_some())
         .flatten()
     {
-        (attr.conversion_func)(&mut builder, attr.attname.clone(), datum, attr.typoid);
+        (attr.conversion_func)(
+            builder,
+            // The attnames are double-quoted in the string, for some reason.
+            // We're just going to remove the quotes pre-emptively so they don't
+            // propogate throughout the rest of the index code.
+            attr.attname.trim_matches('"').into(),
+            datum,
+            attr.typoid,
+        );
     }
-
-    builder
 }
 
 #[inline]
@@ -276,6 +281,23 @@ pub unsafe fn decon_row<'a>(
             Some((&attributes[idx - drop_cnt], datums[idx]))
         }
     })
+}
+
+pub fn get_data_directory() -> String {
+    unsafe {
+        let option_name_cstr =
+            std::ffi::CString::new("data_directory").expect("failed to create CString");
+        String::from_utf8(
+            std::ffi::CStr::from_ptr(pg_sys::GetConfigOptionByName(
+                option_name_cstr.as_ptr(),
+                std::ptr::null_mut(),
+                true,
+            ))
+            .to_bytes()
+            .to_vec(),
+        )
+        .expect("Failed to convert C string to Rust string")
+    }
 }
 
 // Helpers to deserialize a comma-separated string, following all the rules
@@ -353,6 +375,7 @@ mod tests {
     use crate::operator::get_index_oid;
     use pgrx::*;
     use shared::testing::SETUP_SQL;
+    use tantivy::schema::Field;
 
     fn make_tuple() -> PgTupleDesc<'static> {
         Spi::run(SETUP_SQL).expect("failed to setup index");
@@ -368,12 +391,14 @@ mod tests {
 
     #[pg_test]
     fn test_lookup_index_tupdesc() {
+        crate::setup_background_workers();
         let tuple = make_tuple();
         assert_eq!(tuple.len(), tuple.natts as usize);
     }
 
     #[pg_test]
     fn test_categorize_tupdesc() {
+        crate::setup_background_workers();
         let tuple = make_tuple();
         let categories = categorize_tupdesc(&tuple);
 
@@ -388,8 +413,12 @@ mod tests {
     #[pg_test]
     fn test_handle_as_generic_string() {
         let func = handle_as_generic_string(false, PgBuiltInOids::VARCHAROID.into());
-        let mut builder = JsonBuilder::new(1);
+        let mut fields = std::collections::HashMap::new();
         let attname = "description";
+        let field = Field::from_field_id(0);
+        fields.insert(attname.to_string(), field);
+
+        let mut builder = JsonBuilder::new(field, fields);
         // new OR track :)
         let datum = "Mirage".into_datum().expect("failed to convert to datum");
         (func)(
@@ -399,7 +428,7 @@ mod tests {
             PgBuiltInOids::VARCHAROID.into(),
         );
 
-        let (_, value) = builder.values.first().unwrap();
+        let value = builder.values.get(&field).unwrap();
         match value {
             JsonBuilderValue::string(val) => {
                 assert_eq!(val, "Mirage");
@@ -411,8 +440,12 @@ mod tests {
     #[pg_test]
     fn test_handle_as_generic_string_array() {
         let func = handle_as_generic_string(true, PgBuiltInOids::VARCHAROID.into());
-        let mut builder = JsonBuilder::new(1);
+        let mut fields = std::collections::HashMap::new();
         let attname = "2023_Tracks";
+        let field = Field::from_field_id(0);
+        fields.insert(attname.to_string(), field);
+
+        let mut builder = JsonBuilder::new(field, fields);
         // 2023 OR singles :)
         let singles = vec!["Counting Stars", "Mirage", "Ranaway"];
         let datum = singles
@@ -426,7 +459,7 @@ mod tests {
             PgBuiltInOids::VARCHAROID.into(),
         );
 
-        let (_, value) = builder.values.first().unwrap();
+        let value = builder.values.get(&field).unwrap();
         match value {
             JsonBuilderValue::string_array(values) => {
                 assert_eq!(values.len(), singles.len());

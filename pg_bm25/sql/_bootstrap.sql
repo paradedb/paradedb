@@ -141,7 +141,7 @@ BEGIN
     );
 
     -- Drop any existing index and function with the same name to avoid conflicts.
-    CALL paradedb.drop_bm25(index_name);
+    CALL paradedb.drop_bm25(index_name, schema_name => schema_name);
 
     -- Create the new, empty schema.
     EXECUTE format('CREATE SCHEMA %s', index_name);
@@ -338,7 +338,8 @@ END;
 $outerfunc$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE PROCEDURE paradedb.drop_bm25(
-    index_name text
+    index_name text,
+    schema_name text DEFAULT CURRENT_SCHEMA
 )
 LANGUAGE plpgsql AS $$
 DECLARE 
@@ -347,8 +348,9 @@ BEGIN
     SELECT INTO original_client_min_messages current_setting('client_min_messages');
     SET client_min_messages TO WARNING;
 
+    EXECUTE format('DROP INDEX IF EXISTS %s.%s_bm25_index', schema_name, index_name); 
     EXECUTE format('DROP SCHEMA IF EXISTS %s CASCADE', index_name);
-    EXECUTE format('DROP INDEX IF EXISTS %s_bm25_index', index_name); 
+    PERFORM paradedb.drop_bm25_internal(format('%s_bm25_index', index_name));
 
     EXECUTE 'SET client_min_messages TO ' || quote_literal(original_client_min_messages);
   END;

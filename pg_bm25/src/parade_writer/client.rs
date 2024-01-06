@@ -8,6 +8,9 @@ use pgrx::{log, PGRXSharedMemory};
 use std::{error::Error, net::SocketAddr};
 use tantivy::schema::Field;
 
+// A cache for the reqwest HTTP client so that it can be used over the lifespan of this connection.
+static mut HTTP_CLIENT: Option<reqwest::blocking::Client> = None;
+
 #[derive(Copy, Clone, Default)]
 pub struct ParadeWriterClient {
     addr: Option<SocketAddr>,
@@ -29,7 +32,7 @@ impl ParadeWriterClient {
     ) -> Result<ParadeWriterResponse, Box<dyn Error>> {
         let addr = match self.addr {
             // If there's no addr, the server hasn't started yet.
-            // We won't send the shutdown request,but it is up to the insert worker
+            // We won't send the shutdown request, but it is up to the insert worker
             // to handle this case by checking for SIGTERM right before starting its server.
             None => match request {
                 ParadeWriterRequest::Shutdown => {
@@ -49,7 +52,7 @@ impl ParadeWriterClient {
         };
 
         let bytes: Vec<u8> = request.into();
-        let client = reqwest::blocking::Client::new();
+        let client = unsafe { HTTP_CLIENT.get_or_insert_with(|| reqwest::blocking::Client::new()) };
         let response = client.post(format!("http://{addr}")).body(bytes).send()?;
         let response_body = response.bytes()?;
         ParadeWriterResponse::try_from(response_body.to_vec().as_slice()).map_err(|e| e.into())
@@ -81,7 +84,7 @@ impl ParadeWriterClient {
                 data_directory.clone(),
                 json_builder,
             ))
-            .expect("error while sending insert request}");
+            .expect("error while sending insert request");
 
         match response {
             ParadeWriterResponse::Ok => {}
@@ -99,7 +102,7 @@ impl ParadeWriterClient {
                 ctid_field,
                 ctid_values,
             ))
-            .expect("error while sending delete request}");
+            .expect("error while sending delete request");
 
         match response {
             ParadeWriterResponse::Ok => {}
@@ -113,7 +116,7 @@ impl ParadeWriterClient {
         let data_directory = Self::get_data_directory(index_name);
         let response = self
             .send_request(ParadeWriterRequest::Commit(data_directory.clone()))
-            .expect("error while sending commit request}");
+            .expect("error while sending commit request");
 
         match response {
             ParadeWriterResponse::Ok => {}
@@ -127,7 +130,7 @@ impl ParadeWriterClient {
         let data_directory = Self::get_data_directory(index_name);
         let response = self
             .send_request(ParadeWriterRequest::Vacuum(data_directory.clone()))
-            .expect("error while sending commit request}");
+            .expect("error while sending vacuum request}");
 
         match response {
             ParadeWriterResponse::Ok => {}

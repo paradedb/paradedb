@@ -8,34 +8,36 @@ use pgrx::*;
 use std::{path::Path, sync::Arc};
 
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
+use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParquetDirectory;
-use crate::datafusion::registry::{CONTEXT, PARADE_CATALOG, PARADE_SCHEMA};
+use crate::datafusion::registry::{PARADE_CATALOG, PARADE_SCHEMA};
 use crate::datafusion::schema::{ParadeSchemaOpts, ParadeSchemaProvider};
 
 #[pg_extern]
 pub fn init() {
     let session_config = SessionConfig::from_env()
-        .unwrap()
+        .expect("Failed to create session config")
         .with_information_schema(true);
 
     let rn_config = RuntimeConfig::new();
-    let runtime_env = RuntimeEnv::new(rn_config).unwrap();
-
-    let mut context_lock = CONTEXT.write();
+    let runtime_env = RuntimeEnv::new(rn_config).expect("Failed to create runtime env");
+    let mut context_lock = DatafusionContext::write_lock().expect("Failed to get context lock");
 
     match context_lock.as_mut() {
         Some(context) => {
             let schema = context
                 .catalog(PARADE_CATALOG)
-                .ok_or("Catalog not found")
-                .unwrap()
+                .expect("Catalog not found")
                 .schema(PARADE_SCHEMA)
-                .ok_or("Schema not found")
-                .unwrap();
-            let lister = schema.as_any().downcast_ref::<ParadeSchemaProvider>();
-            if let Some(lister) = lister {
-                task::block_on(lister.refresh(&context.state())).unwrap();
-            }
+                .expect("Schema not found");
+
+            let lister = schema
+                .as_any()
+                .downcast_ref::<ParadeSchemaProvider>()
+                .expect("Failed to downcast schema provider");
+
+            task::block_on(lister.refresh(&context.state()))
+                .expect("Failed to refresh schema provider");
         }
         None => {
             let mut context =
@@ -47,7 +49,7 @@ pub fn init() {
             let catalog = ParadeCatalog::new();
             catalog
                 .register_schema(PARADE_SCHEMA, schema_provider)
-                .unwrap();
+                .expect("Failed to register schema");
             context.register_catalog(PARADE_CATALOG, Arc::new(catalog));
             // Set context
             *context_lock = Some(context);
@@ -61,8 +63,15 @@ fn create_schema_provider(state: &SessionState) -> Arc<ParadeSchemaProvider> {
         task::block_on(ParadeSchemaProvider::create(
             state,
             ParadeSchemaOpts {
-                format: Arc::new(ParquetFormat::new().with_enable_pruning(Some(true))),
-                dir: Path::new(&ParquetDirectory::schema_path().unwrap()).to_path_buf(),
+                format: Arc::new(
+                    ParquetFormat::new()
+                        .with_enable_pruning(Some(true))
+                        .with_skip_metadata(Some(false)),
+                ),
+                dir: Path::new(
+                    &ParquetDirectory::schema_path().expect("Failed to get schema path"),
+                )
+                .to_path_buf(),
             },
         ))
         .expect("Could not get schema"),

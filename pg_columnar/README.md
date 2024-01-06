@@ -1,11 +1,12 @@
 # pg_columnar
 
-This extension enables Clickhouse-level OLAP performance inside Postgres. By embedding Apache Datafusion inside Postgres,
-this extension brings column-oriented storage, vectorized query execution, and SIMD instructions to Postgres tables.
+`pg_columnar` enables Clickhouse-level OLAP performance inside Postgres. By embedding Apache Datafusion inside Postgres, this extension brings column-oriented storage, vectorized query execution, and SIMD instructions to Postgres tables.
 
 # Development 
 
 ## Prerequisites
+
+### Install Rust
 
 To develop the extension, first install Rust v1.73.0 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
 
@@ -20,6 +21,8 @@ rustup default 1.73.0
 Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconcistencies with Homebrew's Rust installation on macOS.
 
 Then, install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
+
+### Install Postgres
 
 ```bash
 # macOS
@@ -37,6 +40,8 @@ If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to ad
 export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
 ```
 
+### Install pgrx 
+
 Then, install and initialize pgrx:
 
 ```bash
@@ -46,6 +51,16 @@ cargo pgrx init --pg15=`which pg_config`
 ```
 
 The extension can be developed with or without SIMD enabled. Enabling SIMD improves query times by 10-20x but also significantly increases build times. For fast development iteration, we recommend disabling SIMD.
+
+### Configure Shared Preload Libraries
+
+This extension uses Postgres hooks to intercept Postgres queries. In order to enable these hooks, the extension
+must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are using Postgres 15, this file can be found under `~/.pgrx/data-15`.
+
+```bash
+# Inside postgresql.conf
+shared_preload_libraries = 'pg_columnar'
+```
 
 ## SIMD Disabled 
 

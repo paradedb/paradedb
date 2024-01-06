@@ -24,6 +24,7 @@ impl CatalogProvider for ParadeCatalog {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
     fn register_schema(
         &self,
         name: &str,

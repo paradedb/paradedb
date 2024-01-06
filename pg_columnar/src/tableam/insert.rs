@@ -9,7 +9,7 @@ use datafusion::datasource::MemTable;
 use pgrx::*;
 use std::sync::Arc;
 
-use crate::datafusion::registry::CONTEXT;
+use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
 use crate::datafusion::table::DatafusionTable;
 use crate::tableam::utils::BULK_INSERT_STATE;
@@ -97,24 +97,22 @@ unsafe fn flush_batches(rel: pg_sys::Relation) {
     }
 
     if let Some(schema) = &bulk_insert_state.schema {
-        let context_lock = CONTEXT.read();
-        let context = (*context_lock)
-            .as_ref()
-            .ok_or("No columnar context found. Run SELECT paradedb.init(); first.")
-            .unwrap();
+        DatafusionContext::with_read(|context| {
+            let memtable = Arc::new(
+                MemTable::try_new(
+                    Arc::new(Schema::from(schema)),
+                    vec![bulk_insert_state.batches.clone()],
+                )
+                .expect("Could not create MemTable"),
+            );
+            let df = context
+                .read_table(memtable)
+                .expect("Could not create dataframe");
+            let _ = task::block_on(
+                df.write_table(&table.name().unwrap(), DataFrameWriteOptions::new()),
+            );
+        });
 
-        let memtable = Arc::new(
-            MemTable::try_new(
-                Arc::new(Schema::from(schema)),
-                vec![bulk_insert_state.batches.clone()],
-            )
-            .expect("Could not create MemTable"),
-        );
-        let df = context
-            .read_table(memtable)
-            .expect("Could not create dataframe");
-        let _ =
-            task::block_on(df.write_table(&table.name().unwrap(), DataFrameWriteOptions::new()));
         bulk_insert_state.batches.clear();
         bulk_insert_state.nslots = 0;
     }

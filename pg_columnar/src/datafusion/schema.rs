@@ -8,7 +8,8 @@ use datafusion::datasource::TableProvider;
 use datafusion::error::Result;
 use datafusion::execution::context::SessionState;
 use parking_lot::RwLock;
-use std::{any::Any, collections::HashMap, path::PathBuf, sync::Arc};
+use pgrx::*;
+use std::{any::Any, collections::HashMap, fs::remove_dir_all, path::PathBuf, sync::Arc};
 
 pub struct ParadeSchemaOpts {
     pub dir: PathBuf,
@@ -33,6 +34,23 @@ impl ParadeSchemaProvider {
         let tables = ParadeSchemaProvider::load_tables(state, &self.opts).await?;
         let mut table_lock = self.tables.write();
         *table_lock = tables;
+        Ok(())
+    }
+
+    pub async fn vacuum_tables(&self, state: &SessionState) -> Result<()> {
+        let tables = ParadeSchemaProvider::load_tables(state, &self.opts).await?;
+
+        for (table_oid, _) in tables.iter() {
+            if let Ok(oid) = table_oid.parse() {
+                let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(oid) };
+                let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
+                if relation.is_null() {
+                    let path = self.opts.dir.join(table_oid);
+                    remove_dir_all(path.clone())?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -86,6 +104,7 @@ impl SchemaProvider for ParadeSchemaProvider {
         let tables = self.tables.read();
         tables.contains_key(name)
     }
+
     fn register_table(
         &self,
         name: String,

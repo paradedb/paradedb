@@ -3,14 +3,14 @@ use datafusion::arrow::datatypes::{
     Time64MicrosecondType, TimestampMicrosecondType, UInt32Type,
 };
 use datafusion::common::arrow::array::{
-    Array, ArrayRef, AsArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, 
-    Int32Array, Int64Array, StringArray, Time64MicrosecondArray, TimestampMicrosecondArray, 
+    Array, ArrayRef, AsArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
+    Int32Array, Int64Array, StringArray, Time64MicrosecondArray, TimestampMicrosecondArray,
     UInt32Array,
 };
 use datafusion::common::ScalarValue;
 use datafusion::logical_expr::Expr;
-use pgrx::*;
 use pgrx::pg_sys::Datum;
+use pgrx::*;
 use std::sync::Arc;
 use substrait::proto::r#type as substrait_type_mod;
 use substrait::proto::Type as SubstraitType;
@@ -247,13 +247,15 @@ impl DatafusionMapProducer {
                         Arc::new(BooleanArray::from(vec))
                     },
                 ),
-                index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                    Ok(array
-                        .as_primitive::<Int8Type>()
-                        .value(index)
-                        .into_datum()
-                        .ok_or("Could not convert Boolean into datum")?)
-                }),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<Int8Type>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Boolean into datum")?)
+                    },
+                ),
             }),
             DataType::Utf8 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
@@ -280,15 +282,17 @@ impl DatafusionMapProducer {
                         Arc::new(StringArray::from(vec))
                     },
                 ),
-                index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                    Ok(array
-                        .as_any()
-                        .downcast_ref::<StringArray>()
-                        .ok_or("Could not downcast Utf8 into string array")?
-                        .value(index)
-                        .into_datum()
-                        .ok_or("Could not convert Utf8 into datum")?)
-                }),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_any()
+                            .downcast_ref::<StringArray>()
+                            .ok_or("Could not downcast Utf8 into string array")?
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Utf8 into datum")?)
+                    },
+                ),
             }),
             DataType::Int16 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
@@ -313,13 +317,15 @@ impl DatafusionMapProducer {
                         Arc::new(Int16Array::from(vec))
                     },
                 ),
-                index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                    Ok(array
-                        .as_primitive::<Int16Type>()
-                        .value(index)
-                        .into_datum()
-                        .ok_or("Could not convert Int16 into datum")?)
-                }),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<Int16Type>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Int16 into datum")?)
+                    },
+                ),
             }),
             DataType::Int32 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
@@ -344,13 +350,15 @@ impl DatafusionMapProducer {
                         Arc::new(Int32Array::from(vec))
                     },
                 ),
-                index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                    Ok(array
-                        .as_primitive::<Int32Type>()
-                        .value(index)
-                        .into_datum()
-                        .ok_or("Could not convert Int32 into datum")?)
-                }),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<Int32Type>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Int32 into datum")?)
+                    },
+                ),
             }),
             DataType::Int64 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
@@ -375,13 +383,15 @@ impl DatafusionMapProducer {
                         Arc::new(Int64Array::from(vec))
                     },
                 ),
-                index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                    Ok(array
-                        .as_primitive::<Int64Type>()
-                        .value(index)
-                        .into_datum()
-                        .ok_or("Could not convert Int64 into datum")?)
-                }),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<Int64Type>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Int64 into datum")?)
+                    },
+                ),
             }),
             DataType::UInt32 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
@@ -408,13 +418,15 @@ impl DatafusionMapProducer {
                         Arc::new(UInt32Array::from(vec))
                     },
                 ),
-                index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                    Ok(array
-                        .as_primitive::<UInt32Type>()
-                        .value(index)
-                        .into_datum()
-                        .ok_or("Could not convert UInt32 into datum")?)
-                }),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<UInt32Type>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert UInt32 into datum")?)
+                    },
+                ),
             }),
             DataType::Float32 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
@@ -441,13 +453,15 @@ impl DatafusionMapProducer {
                         Arc::new(Float32Array::from(vec))
                     },
                 ),
-                index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                    Ok(array
-                        .as_primitive::<Float32Type>()
-                        .value(index)
-                        .into_datum()
-                        .ok_or("Could not convert Float32 into datum")?)
-                }),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<Float32Type>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Float32 into datum")?)
+                    },
+                ),
             }),
             DataType::Float64 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
@@ -474,13 +488,15 @@ impl DatafusionMapProducer {
                         Arc::new(Float64Array::from(vec))
                     },
                 ),
-                index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                    Ok(array
-                        .as_primitive::<Float64Type>()
-                        .value(index)
-                        .into_datum()
-                        .ok_or("Could not convert Float64 into datum")?)
-                }),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<Float64Type>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Float64 into datum")?)
+                    },
+                ),
             }),
             DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond) => {
                 f(DatafusionMap {
@@ -510,13 +526,15 @@ impl DatafusionMapProducer {
                             Arc::new(Time64MicrosecondArray::from(vec))
                         },
                     ),
-                    index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
-                            .as_primitive::<Time64MicrosecondType>()
-                            .value(index)
-                            .into_datum()
-                            .ok_or("Could not convert Time64 into datum")?)
-                    }),
+                    index_datum: Box::new(
+                        |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                            Ok(array
+                                .as_primitive::<Time64MicrosecondType>()
+                                .value(index)
+                                .into_datum()
+                                .ok_or("Could not convert Time64 into datum")?)
+                        },
+                    ),
                 })
             }
             DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None) => {
@@ -548,13 +566,15 @@ impl DatafusionMapProducer {
                             Arc::new(TimestampMicrosecondArray::from(vec))
                         },
                     ),
-                    index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
-                            .as_primitive::<TimestampMicrosecondType>()
-                            .value(index)
-                            .into_datum()
-                            .ok_or("Could not convert Timestamp into datum")?)
-                    }),
+                    index_datum: Box::new(
+                        |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                            Ok(array
+                                .as_primitive::<TimestampMicrosecondType>()
+                                .value(index)
+                                .into_datum()
+                                .ok_or("Could not convert Timestamp into datum")?)
+                        },
+                    ),
                 })
             }
             DataType::Date32 => f(DatafusionMap {
@@ -582,13 +602,15 @@ impl DatafusionMapProducer {
                         Arc::new(Date32Array::from(vec))
                     },
                 ),
-                index_datum: Box::new(|array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                    Ok(array
-                        .as_primitive::<Date32Type>()
-                        .value(index)
-                        .into_datum()
-                        .ok_or("Could not convert Date32 into datum")?)
-                }),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<Date32Type>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Date32 into datum")?)
+                    },
+                ),
             }),
             _ => todo!(),
         };

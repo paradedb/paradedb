@@ -9,9 +9,10 @@ use datafusion::sql::TableReference;
 use pgrx::*;
 use std::sync::Arc;
 
+use crate::datafusion::context::CONTEXT;
 use crate::datafusion::directory::ParquetDirectory;
 use crate::datafusion::error::datafusion_err_to_string;
-use crate::datafusion::registry::{CONTEXT, PARADE_CATALOG, PARADE_SCHEMA};
+use crate::datafusion::registry::{PARADE_CATALOG, PARADE_SCHEMA};
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::substrait::SubstraitTranslator;
 
@@ -84,19 +85,20 @@ impl DatafusionTable {
 
         let schema_provider = context
             .catalog(PARADE_CATALOG)
-            .ok_or("Catalog not found")
-            .unwrap()
+            .expect("Catalog not found")
             .schema(PARADE_SCHEMA)
-            .ok_or("Schema not found")
-            .unwrap();
+            .expect("Schema not found");
+
         let lister = schema_provider
             .as_any()
-            .downcast_ref::<ParadeSchemaProvider>();
-        if let Some(lister) = lister {
-            task::block_on(lister.refresh(&context.state())).unwrap();
-        }
+            .downcast_ref::<ParadeSchemaProvider>()
+            .expect("Failed to downcast schema provider");
 
-        let table = task::block_on(schema_provider.table(&name)).unwrap();
+        task::block_on(lister.refresh(&context.state()))
+            .expect("Failed to refresh schema provider");
+
+        let table = task::block_on(schema_provider.table(&name)).expect("Failed to get table");
+
         Ok(Self {
             name,
             source: Some(provider_as_source(table)),

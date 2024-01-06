@@ -107,7 +107,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
     gzip -d hits_100k_rows.csv.gz
     chmod 666 hits_100k_rows.csv
   else
-    echo "Dataset already exists, skipping download..."
+    echo "Dataset 'hits_100k_rows.csv' already exists, skipping download..."
   fi
 
   # Build pg_columnar and start its pgrx PostgreSQL instance
@@ -119,18 +119,11 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
 
   # Run the benchmarking
   if [ "$FLAG_STORAGE" = "hot" ]; then
-    # For hot storage, we create a temporary table, load all the data in it, and run the queries
-    # within the same session. Queries are run directly from the `copy_hot.sql` file
-    psql -h localhost -p 28815 -d pg_columnar -t < copy_hot.sql
+    # Table creation, data loading, and query execution are all done from `benchmark_hot.sql`
+    psql -h localhost -p 28815 -d pg_columnar -t < benchmark_hot.sql
   elif [ "$FLAG_STORAGE" = "cold" ]; then
-    # For cold storage, we create a permanent table, load all the data in it, and run the queries
-    # once, printing the output of each query to the terminal
-    echo "Creating pg_columnar..."
-    psql -h localhost -p 28815 -d pg_columnar -t < create_cold.sql
-    echo "Loading data..."
-    psql -h localhost -p 28815 -d pg_columnar -t < copy_cold.sql
-    echo "Running queries..."
-    psql -h localhost -p 28815 -d pg_columnar -t < queries.sql
+    # Table creation, data loading, and query execution are all done from `benchmark_cold.sql`
+    psql -h localhost -p 28815 -d pg_columnar -t < benchmark_cold.sql
   elif [ "$FLAG_STORAGE" = "parquet-single" ]; then
     echo "TODO: Implement pgrx + Parquet single storage benchmarking"
   elif [ "$FLAG_STORAGE" = "parquet-partitioned" ]; then

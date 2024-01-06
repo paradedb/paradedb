@@ -1,4 +1,3 @@
-CREATE EXTENSION pg_columnar;
 CREATE TABLE hits
 (
     WatchID BIGINT NOT NULL,

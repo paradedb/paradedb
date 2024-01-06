@@ -173,27 +173,24 @@ impl ParadeWriterServer {
             Ok(writer) => {
                 // Delete all Tantivy documents.
 
-                // In case there are unflushed documents in the Tantivy writer, commit first.
-                {
+                // If the index directory folder has been deleted for some reason, the commands
+                // below will fail and block the rest of the drop_index procedude. We'll just
+                // skip the next two commands in this case, as there's nothing to delete if the
+                // folder is somehow gone.
+                if std::path::Path::new(&index_directory_path).exists() {
+                    if let Err(e) = writer.delete_all_documents() {
+                        let msg =
+                            format!("error deleting tantivy documents during drop_index: {e:?}");
+                        return ParadeWriterResponse::Error(msg);
+                    }
+
+                    // A commit is required after deleting the documents.
                     if let ParadeWriterResponse::Error(msg) = Self::commit_with_writer(writer) {
                         let msg = format!(
-                            "error while commiting before tantivy deletion in drop_index: {msg}"
+                            "error while commiting after tantivy deletion in drop_index: {msg}"
                         );
                         return ParadeWriterResponse::Error(msg);
                     }
-                }
-
-                if let Err(e) = writer.delete_all_documents() {
-                    let msg = format!("error deleting tantivy documents during drop_index: {e:?}");
-                    return ParadeWriterResponse::Error(msg);
-                }
-
-                // A commit is required after deleting the documents.
-                if let ParadeWriterResponse::Error(msg) = Self::commit_with_writer(writer) {
-                    let msg = format!(
-                        "error while commiting after tantivy deletion in drop_index: {msg}"
-                    );
-                    return ParadeWriterResponse::Error(msg);
                 }
             }
         }

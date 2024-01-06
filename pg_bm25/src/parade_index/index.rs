@@ -24,7 +24,7 @@ const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 const CACHE_NUM_BLOCKS: usize = 10;
 
 // A collection of index names that will be committed at the end of a given transaction.
-// If an insert to an indedx occurs, that index name will be added to this set.
+// If an insert to an index occurs, that index name will be added to this set.
 // At the end of the transaction, `commit()` will be called for all the indices in this set.
 // The set will be cleared, so it will be empty on the next transaction.
 static mut WILL_COMMIT_SET: Option<HashSet<String>> = None;
@@ -344,17 +344,17 @@ impl ParadeIndex {
                     };
                     register_xact_callback(PgXactCallbackEvent::Commit, callback);
                     // TODO. Not clear on whether Abort should be handled differently from commit.
-                    // It's possible that we should not actually be committing if/when abort is called.
-                    // It may be more appropriate to have a server action that clears the pending
-                    // inserts.
-                    register_xact_callback(PgXactCallbackEvent::Abort, callback);
+                    // For now, making the assumption that we should not be attempting to commit if
+                    // the transaction fails. Instead, we should send a message that clears pending
+                    // documents from the index writer.
+                    // register_xact_callback(PgXactCallbackEvent::Abort, callback);
                     WILL_COMMIT_SET.as_mut().unwrap()
                 }
                 Some(set) => set,
             }
         };
 
-        // Ensure this index is in the set that will be committed at the ned of the transaction.
+        // Ensure this index is in the set that will be committed at the end of the transaction.
         will_commit_set.insert(self.name.clone());
     }
 
@@ -362,7 +362,6 @@ impl ParadeIndex {
         // Send the insert requests to the writer server.
         // Note that these will not be flused to disk until commit() is separately called.
         WRITER.share().insert(&self.name, builder);
-        self.reader.reload().unwrap();
         self.register_commit_callbacks();
     }
 

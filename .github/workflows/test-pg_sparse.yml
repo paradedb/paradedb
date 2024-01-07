@@ -1,0 +1,58 @@
+# workflows/test-pg_sparse.yml
+#
+# Test pg_sparse
+# Run unit and integration tests for the pg_sparse extension.
+
+name: Test pg_sparse
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - main
+    paths:
+      - "pg_sparse/**"
+      - "!pg_sparse/README.md"
+      - ".github/workflows/test-pg_sparse.yml"
+  workflow_dispatch:
+    inputs:
+      test_upgrade_version:
+        description: "Upcoming pg_sparse version to test upgrading against"
+        required: false
+        default: ""
+
+concurrency:
+  group: test-pg_sparse-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-pg_sparse:
+    name: Test pg_sparse on PostgreSQL ${{ matrix.pg_version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pg_version: [12, 13, 14, 15, 16]
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Remove old postgres, llvm, clang, and install appropriate version
+        run: |
+          sudo apt-get remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
+          apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D15(\D.*)?$' | xargs sudo apt remove -y
+          sudo apt-get install -y llvm-15-dev libclang-15-dev clang-15 gcc
+
+      - name: Install & Configure Supported PostgreSQL Version
+        run: |
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/include/postgresql/${{ matrix.pg_version }}/server/extension/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
+
+      # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
+      - name: Run pg_sparse Tests
+        working-directory: pg_sparse/test/
+        run: ./runtests.sh -p sequential -v "${{ matrix.pg_version }}"

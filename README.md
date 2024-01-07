@@ -4,72 +4,55 @@
 </h1>
 
 <p align="center">
-    <b>PostgreSQL for Search</b> <br />
+  <b>PostgreSQL for Real-Time Search & Analytics</b> <br />
 </p>
 
 <h3 align="center">
-  <a href="https://paradedb.com">Cloud</a> &bull;
   <a href="https://paradedb.com">Website</a> &bull;
-  <a href="https://docs.paradedb.com">Documentation</a> &bull;
-  <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ">Community</a>
+  <a href="https://docs.paradedb.com">Docs</a> &bull;
+  <a href="https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ">Community</a> &bull;
+  <a href="https://docs.paradedb.com/blog/">Blog</a> &bull;
+  <a href="https://docs.paradedb.com/changelog/">Changelog</a>
 </h3>
 
 ---
 
-[![Benchmark ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/benchmark-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/benchmark-paradedb.yml)
 [![Publish ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml)
 [![codecov](https://codecov.io/gh/paradedb/paradedb/graph/badge.svg?token=PI3TWD558R)](https://codecov.io/gh/paradedb/paradedb)
+[![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
 
-[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on PostgreSQL,
-engineered for lightning-fast full text, similarity, and hybrid search.
+[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on Postgres. You can think of ParadeDB as. We're building the features of ElasticSearch's product suite, starting with real-time search and analytics. ParadeDB offers Elastic-level full text search and ClickHouse-level aggregates as PostgreSQL. ParadeDB is **not** a fork, it is a collection.
 
-It offers the most comprehensive, Postgres-native search features of any Postgres
-database, so you don't need to glue cumbersome services like a search engine or
-vector database on top.
+## Status
 
-## Key Benefits
-
-- ⚡ **Speed**: ParadeDB is built in Rust on top of PostgreSQL and Tantivy,
-  a Rust-based implementation of Apache Lucene. See our benchmarks [here](./benchmarks/README.md).
-
-- 🌿 **Simplicity**: Consolidate your database and search engine
-  into a single system, so you don't need to worry about keeping separate services
-  in sync.
-
-- 🐘 **SQL First**: Write search queries in SQL with ACID transactions.
-
-- 🚀 **Scalability**: Scale to millions of rows with support for distributed
-  search, high availability, backups, and point-in-time-recovery.
+ParadeDB is currently in Public Beta. Star and watch this repository to get notified of updates.
 
 ### Roadmap
 
-- [ ] Search
+- [x] Search
   - [x] Full-text search with BM25 with [pg_bm25](https://github.com/paradedb/paradedb/tree/dev/pg_bm25#overview)
-  - [x] Similarity search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
-  - [x] Sparse vector similarity search with [pg_sparse](https://github.com/paradedb/paradedb/tree/dev/pg_sparse#overview)
-  - [x] Hybrid search with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
-  - [x] Real-time search
-  - [ ] Faceted search
-  - [ ] Distributed search (horizontal scaling/sharding)
-  - [ ] Generative search
-  - [ ] Multimodal search
-- [x] Self-hosting
+  - [x] Sparse vector search with [pg_sparse](https://github.com/paradedb/paradedb/tree/dev/pg_sparse#overview)
+  - [x] Dense vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
+  - [x] Hybrid search
+- [ ] Analytics
+  - [x] Real-time aggregations
+  - [ ] Log ingestion
+  - [ ] Log monitoring
+- [x] Self-hosted ParadeDB
   - [x] Docker image & [deployment instructions](https://docs.paradedb.com/deploy/aws)
   - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [ ] Cloud Database
-  - [x] Managed cloud
-  - [x] Self-serve cloud
-  - [ ] Public Cloud (AWS, GCP, Azure) Marketplace Images
-  - [x] High availability
-- [ ] Web-based SQL Editor
+  - [ ] Managed cloud
+  - [ ] Cloud Marketplace Images
+  - [ ] Web-based SQL Editor
 
 ## Creating a ParadeDB Instance
 
 ### ParadeDB Cloud
 
-Try [ParadeDB Cloud](https://dashboard.paradedb.com) to get started with a free, managed ParadeDB instance.
-Then connect to it with any Postgres client.
+ParadeDB Cloud is currently under development. To get notified when it becomes live, we invite you to join our
+[waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
 
 ### Self-Hosted
 
@@ -143,4 +126,4 @@ Thank you for helping us make ParadeDB better for everyone :heart:.
 
 ## License
 
-ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE), except for `pg_sparse` which is licensed under the [PostgreSQL License](pg_sparse/LICENSE).
+ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE). The `pg_sparse` extension is licensed under the [PostgreSQL License](pg_sparse/LICENSE).

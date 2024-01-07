@@ -1,8 +1,17 @@
-use std::collections::HashMap;
-
+use crate::tokenizers::code::CodeTokenizer;
+use crate::tokenizers::lindera::{LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
+use crate::tokenizers::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer};
 use serde::*;
-use tantivy::schema::*;
+use std::collections::HashMap;
+use tantivy::{
+    schema::*,
+    tokenizer::{
+        AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter,
+        SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
+    },
+};
 
+pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 // Tokenizers
 // Serde will pick a ParadeTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.
@@ -54,6 +63,66 @@ impl ParadeTokenizer {
             ParadeTokenizer::ChineseLindera => "chinese_lindera".into(),
             ParadeTokenizer::JapaneseLindera => "japanese_lindera".into(),
             ParadeTokenizer::KoreanLindera => "korean_lindera".into(),
+        }
+    }
+}
+
+impl From<ParadeTokenizer> for TextAnalyzer {
+    fn from(val: ParadeTokenizer) -> Self {
+        match val {
+            ParadeTokenizer::Default => TextAnalyzer::builder(SimpleTokenizer::default())
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                .filter(LowerCaser)
+                .build(),
+            ParadeTokenizer::WhiteSpace => TextAnalyzer::builder(WhitespaceTokenizer::default())
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                .filter(LowerCaser)
+                .build(),
+            ParadeTokenizer::EnStem => TextAnalyzer::builder(SimpleTokenizer::default())
+                .filter(RemoveLongFilter::limit(40))
+                .filter(LowerCaser)
+                .filter(Stemmer::new(Language::English))
+                .build(),
+            ParadeTokenizer::Raw => TextAnalyzer::builder(RawTokenizer::default())
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                .build(),
+            ParadeTokenizer::ChineseCompatible => TextAnalyzer::builder(ChineseTokenizer)
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                .filter(LowerCaser)
+                .build(),
+            ParadeTokenizer::SourceCode => TextAnalyzer::builder(CodeTokenizer::default())
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                .filter(LowerCaser)
+                .filter(AsciiFoldingFilter)
+                .build(),
+            ParadeTokenizer::Ngram {
+                min_gram,
+                max_gram,
+                prefix_only,
+            } => {
+                TextAnalyzer::builder(NgramTokenizer::new(min_gram, max_gram, prefix_only).unwrap())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build()
+            }
+            ParadeTokenizer::ChineseLindera => {
+                TextAnalyzer::builder(LinderaChineseTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build()
+            }
+            ParadeTokenizer::JapaneseLindera => {
+                TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build()
+            }
+            ParadeTokenizer::KoreanLindera => {
+                TextAnalyzer::builder(LinderaKoreanTokenizer::default())
+                    .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                    .filter(LowerCaser)
+                    .build()
+            }
         }
     }
 }
@@ -175,7 +244,7 @@ impl Default for ParadeNumericOptions {
     fn default() -> Self {
         Self {
             indexed: true,
-            fast: true,
+            fast: false,
             stored: true,
         }
     }
@@ -213,7 +282,7 @@ impl Default for ParadeBooleanOptions {
     fn default() -> Self {
         Self {
             indexed: true,
-            fast: true,
+            fast: false,
             stored: true,
         }
     }
@@ -390,7 +459,7 @@ mod tests {
             "indexed": true,
             "stored": true,
             "fieldnorms": false,
-            "fast": true
+            "fast": false
         }"#;
         let expected: NumericOptions = serde_json::from_str(json).unwrap();
         let int_options = NumericOptions::from(ParadeNumericOptions::default());
@@ -404,7 +473,7 @@ mod tests {
             "indexed": true,
             "stored": true,
             "fieldnorms": false,
-            "fast": true
+            "fast": false
         }"#;
         let expected: NumericOptions = serde_json::from_str(json).unwrap();
         let int_options = NumericOptions::from(ParadeBooleanOptions::default());

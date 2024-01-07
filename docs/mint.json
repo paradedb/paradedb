@@ -35,57 +35,118 @@
       "name": "Blog",
       "icon": "rss",
       "url": "blog"
+    },
+    {
+      "name": "Changelog",
+      "icon": "clock",
+      "url": "changelog"
     }
   ],
+  "versions": ["Latest", "<v0.4"],
   "navigation": [
     {
       "group": "Documentation",
       "pages": [
         "introduction",
-        "quickstart",
+        "latest/quickstart",
         "import",
         {
           "group": "Indexing",
-          "pages": ["indexing/overview", "indexing/bm25", "indexing/hnsw"]
+          "pages": [
+            "latest/indexing/overview",
+            "latest/indexing/bm25",
+            "latest/indexing/hnsw",
+            "latest/indexing/sparse"
+          ]
         },
         {
           "group": "Full Text Search",
           "pages": [
-            "search/bm25",
-            "search/scoring",
-            "search/highlighting",
-            "search/fuzzy",
-            "search/autocomplete"
+            "latest/search/bm25",
+            "latest/search/scoring",
+            "latest/search/highlighting",
+            "latest/search/fuzzy",
+            "latest/search/autocomplete"
           ]
         },
         {
           "group": "Similarity Search",
-          "pages": ["search/hnsw"]
+          "pages": ["latest/search/hnsw", "latest/search/sparse"]
         },
         {
           "group": "Hybrid Search",
-          "pages": ["search/hybrid"]
+          "pages": ["latest/search/hybrid"]
+        },
+        {
+          "group": "Deployment",
+          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
+        },
+        "latest/upgrading"
+      ],
+      "version": "Latest"
+    },
+    {
+      "group": "Documentation",
+      "pages": [
+        "introduction",
+        "v0.4/quickstart",
+        "import",
+        {
+          "group": "Indexing",
+          "pages": [
+            "v0.4/indexing/overview",
+            "v0.4/indexing/bm25",
+            "v0.4/indexing/hnsw"
+          ]
+        },
+        {
+          "group": "Full Text Search",
+          "pages": [
+            "v0.4/search/bm25",
+            "v0.4/search/scoring",
+            "v0.4/search/highlighting",
+            "v0.4/search/fuzzy",
+            "v0.4/search/autocomplete"
+          ]
+        },
+        {
+          "group": "Similarity Search",
+          "pages": ["v0.4/search/hnsw"]
+        },
+        {
+          "group": "Hybrid Search",
+          "pages": ["v0.4/search/hybrid"]
         },
         {
           "group": "Aggregations",
           "pages": [
-            "aggregations/overview",
-            "aggregations/bucket",
-            "aggregations/metrics"
+            "v0.4/aggregations/overview",
+            "v0.4/aggregations/bucket",
+            "v0.4/aggregations/metrics"
           ]
         },
         {
           "group": "Deployment",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         }
-      ]
+      ],
+      "version": "<v0.4"
     },
     {
       "group": "Blog",
       "pages": [
-        "blog/introducing_paradedb_cloud",
+        "blog/introducing_sparse",
         "blog/introducing_bm25",
         "blog/introducing_paradedb"
+      ]
+    },
+    {
+      "group": "Changelog",
+      "pages": [
+        "changelog/0.4.3",
+        "changelog/0.4.2",
+        "changelog/0.4.1",
+        "changelog/deprecated"
       ]
     }
   ],

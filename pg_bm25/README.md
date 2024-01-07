@@ -17,15 +17,18 @@ Check out the `pg_bm25` benchmarks [here](../benchmarks/README.md).
 
 - [x] BM25 scoring
 - [x] Highlighting
-- [x] Boosted queries
 - [x] Filtering
-- [x] Bucket and metrics aggregations
 - [x] Autocomplete
+- [x] Boosted queries
 - [x] Fuzzy search
-- [x] Custom tokenizers
+- [x] Custom tokenizers (Chinese, Japanese, Korean, Arabc, Ngram)
 - [x] JSON field search
-- [ ] Datetime aggregations
-- [ ] Facet fields
+- [x] Hybrid search
+- [ ] Datetime fields
+- [ ] Faceted search
+- [ ] Generative search
+- [ ] Multimodal search
+- [ ] Distributed search
 
 ## Installation
 
@@ -55,9 +58,9 @@ We provide pre-built binaries for Debian-based Linux for PostgreSQL 15 (more ver
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
-#### macOS and Windows
+#### macOS
 
-We don't suggest running production workloads on macOS or Windows. As a result, we don't provide prebuilt binaries for these platforms. If you are running Postgres on macOS or Windows and want to install `pg_bm25`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
+We don't suggest running production workloads on macOS. As a result, we don't provide prebuilt binaries for macOS. If you are running Postgres on macOS and want to install `pg_bm25`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
 
 You can then create the extension in your database by running:
 
@@ -67,6 +70,10 @@ CREATE EXTENSION pg_bm25;
 
 Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
 
+#### Windows
+
+Windows is not supported. This restriction is [inherited from pgrx not supporting Windows](https://github.com/pgcentralfoundation/pgrx?tab=readme-ov-file#caveats--known-issues).
+
 ## Usage
 
 ### Indexing
@@ -74,17 +81,22 @@ Note: If you are using a managed Postgres service like Amazon RDS, you will not 
 `pg_bm25` comes with a helper function that creates a test table that you can use for quick experimentation.
 
 ```sql
-CALL paradedb.create_bm25_test_table();
-CREATE TABLE mock_items AS SELECT * FROM paradedb.bm25_test_table;
+CALL paradedb.create_bm25_test_table(
+  schema_name => 'public',
+  table_name => 'mock_items'
+);
 ```
 
 To index the table, use the following SQL command:
 
 ```sql
-CREATE INDEX idx_mock_items
-ON mock_items
-USING bm25 ((mock_items.*))
-WITH (key_field='id', text_fields='{"description": {}, "category": {}}');
+CALL paradedb.create_bm25(
+        index_name => 'search_idx',
+        schema_name => 'public',
+        table_name => 'mock_items',
+        key_field => 'id',
+        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}'
+);
 ```
 
 Note the mandatory `key_field` option in the `WITH` code. Every `bm25` index needs a `key_field`, which should be the name of a column that will function as a row's unique identifier within the index. Usually, the `key_field` can just be the name of your table's primary key column.
@@ -97,8 +109,7 @@ Execute a search query on your indexed table:
 
 ```sql
 SELECT description, rating, category
-FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics'
+FROM search_idx.search('description:keyboard OR category:electronics')
 LIMIT 5;
 ```
 
@@ -115,70 +126,37 @@ This will return:
 (5 rows)
 ```
 
-Scoring and highlighting are supported:
-
-```sql
-SELECT description, rating, category, paradedb.rank_bm25(id), paradedb.highlight_bm25(id, 'idx_mock_items', 'description')
-FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics'
-LIMIT 5;
-```
-
-This will return:
-
-```csv
- id |         description         | rating |  category   | rank_bm25 |         highlight_bm25
-----+-----------------------------+--------+-------------+-----------+---------------------------------
-  1 | Ergonomic metal keyboard    |      4 | Electronics | 4.9403534 | Ergonomic metal <b>keyboard</b>
-  2 | Very plasticy keyboard      |      4 | Electronics | 4.9403534 | Very plasticy <b>keyboard</b>
- 12 | Innovative wireless earbuds |      5 | Electronics | 2.1096356 |
- 22 | Fast charging power bank    |      4 | Electronics | 2.1096356 |
- 32 | Bluetooth-enabled speaker   |      3 | Electronics | 2.1096356 |
-(5 rows)
-```
-
-Scores can be tuned via boosted queries:
-
-```sql
-SELECT description, rating, category
-FROM mock_items
-WHERE mock_items @@@ 'description:keyboard^2 OR category:electronics';
-```
-
-New data that arrives or rows that are changed are automatically reindexed and searchable. For instance, let's create and search for a new row in our table:
-
-```sql
-INSERT INTO mock_items (description, rating, category) VALUES ('New keyboard', 5, 'Electronics');
-
-SELECT description, rating, category
-FROM mock_items
-WHERE mock_items @@@ 'description:keyboard OR category:electronics'
-LIMIT 5;
-```
-
-This will return:
-
-```csv
-         description         | rating |  category
------------------------------+--------+-------------
- New keyboard                |      5 | Electronics
- Plastic Keyboard            |      4 | Electronics
- Ergonomic metal keyboard    |      4 | Electronics
- Innovative wireless earbuds |      5 | Electronics
- Fast charging power bank    |      4 | Electronics
-(5 rows)
-```
-
-Please refer to the [documentation](https://docs.paradedb.com/search/bm25) for a more thorough overview of `pg_bm25`'s query support.
+Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](http://localhost:3000/latest/search/bm25) and [quickstart](http://localhost:3000/latest/quickstart) for a more thorough overview of `pg_bm25`'s query support.
 
 ## Development
 
 ### Prerequisites
 
-Before developing the extension, ensure that you have Rust installed
-(version >1.70), ideally via `rustup` (we've observed issues with installing Rust via Homebrew on macOS).
+To develop the extension, first install Rust v1.73.0 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
 
-If you are on macOS and using Postgres.app, you'll first need to add the `pg_config` binary to your path:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+rustup install 1.73.0
+
+# We recommend setting the default version for consistency
+rustup default 1.73.0
+```
+
+Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconcistencies with Homebrew's Rust installation on macOS.
+
+Then, install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
+
+```bash
+# macOS
+brew install postgresql@15
+
+# Ubuntu
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+sudo apt-get update && sudo apt-get install -y postgresql-$15 postgresql-server-dev-15
+```
+
+If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to add the `pg_config` binary to your path before continuing:
 
 ```bash
 export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
@@ -191,6 +169,8 @@ Then, install and initialize pgrx:
 cargo install --locked cargo-pgrx --version 0.11.1
 cargo pgrx init --pg15=`which pg_config`
 ```
+
+Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 
 ### Running the Extension
 
@@ -238,7 +218,7 @@ This will run all unit tests defined in `/src`. To add a new unit test, simply a
 To run the integration test suite, simply run:
 
 ```bash
-./test/runtests.sh -p threaded
+./test/runtests.sh -p sequential
 ```
 
 This will create a temporary database, initialize it with the SQL commands defined in `fixtures.sql`, and run the tests in `/test/sql` against it. To add a new test, simply add a new `.sql` file to `/test/sql` and a corresponding `.out` file to `/test/expected` for the expected output, and it will automatically get picked up by the test suite.

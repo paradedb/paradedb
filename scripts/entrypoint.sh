@@ -3,38 +3,35 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# List of extensions to possibly install (if a version variable is set)
+# List of extensions to pre-install (if a version variable is set when building the Dockerfile).
+# Note that this is not an exhaustive list of extensions that can be installed, only the ones that
+# we pre-install.
+#
+# For the full list of extensions available on ParadeDB, see:
+# https://paradedb.notion.site/PostgreSQL-Extensions-Supported-on-ParadeDB-0aefcad16b6846ca9b3c7099cfc9e4f1?pvs=4
+# All extensions listed there can be added to the list below to pre-install, or installed at runtime via CREATE EXTENSION.
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
-  [pg_search]=${PG_SEARCH_VERSION:-}
-  [pg_sparse]=${PG_SPARSE_VERSION:-}
+  [pg_columnar]=${PG_COLUMNAR_VERSION:-}
+  [svector]=${PG_SPARSE_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
-  [pg_cron]=${PG_CRON_VERSION:-}
-  [pg_net]=${PG_NET_VERSION:-}
-  [pg_ivm]=${PG_IVM_VERSION:-}
-  [pg_graphql]=${PG_GRAPHQL_VERSION:-}
-  [pg_hashids]=${PG_HASHIDS_VERSION:-}
-  [pg_jsonschema]=${PG_JSONSCHEMA_VERSION:-}
-  [pg_repack]=${PG_REPACK_VERSION:-}
-  [pg_stat_monitor]=${PG_STAT_MONITOR_VERSION:-}
-  [pg_hint_plan]=${PG_HINT_PLAN_VERSION:-}
-  [pgfaceting]=${PGFACETING_VERSION:-}
-  [pgtap]=${PGTAP_VERSION:-}
-  [pgaudit]=${PGAUDIT_VERSION:-}
-  [postgis]=${POSTGIS_VERSION:-}
-  [pgrouting]=${PGROUTING_VERSION:-}
-  [roaringbitmap]=${PG_ROARINGBITMAP_VERSION:-}
-  [http]=${PGSQL_HTTP_VERSION:-}
-  [hypopg]=${HYPOPG_VERSION:-}
-  [rum]=${RUM_VERSION:-}
-  [age]=${AGE_VERSION:-}
 )
 
-# List of extensions that must be added to shared_preload_libraries
+# List of extensions that must be added to shared_preload_libraries to be installed. Extensions that
+# get added to shared_preload_libraries must also be listed in `extensions` above in order to get pre-installed, otherwise
+# they can be installed at runtime via CREATE EXTENSION.
+#
+# The following extensions require shared_preload_libraries and are supported on ParadeDB:
+# [citus]=citus
+# [pgaudit]=pgaudit
+# [pgsodium]=pgsodium
+# [pgautofailover]=pgautofailover
+# [pg_net]=pg_net
+# [pg_partman]=pg_partman_bgw
+# [pg_cron]=${PG_CRON_VERSION:-}
 declare -A preload_names=(
-  [pg_cron]=pg_cron
-  [pg_net]=pg_net
-  [pgaudit]=pgaudit
+  [pg_bm25]=pg_bm25
+  [pg_columnar]=pg_columnar
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed
@@ -82,7 +79,7 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "template1" <<-EOSQ
 EOSQL
 
 # We need to restart the server for the changes above to be reflected
-pg_ctl restart
+pg_ctl restart 2> /dev/null
 
 # We collect basic, anonymous telemetry to help us understand how many people are using
 # the project. We only do this if TELEMETRY is set to "true", and only do it once per deployment
@@ -108,6 +105,7 @@ echo "PostgreSQL is up - installing extensions..."
 for extension in "${!extensions[@]}"; do
   version=${extensions[$extension]}
   if [ -n "$version" ]; then
-    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION IF NOT EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
+    PGPASSWORD=$POSTGRES_PASSWORD psql -c "DROP EXTENSION IF EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" 2> /dev/null
+    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
   fi
 done

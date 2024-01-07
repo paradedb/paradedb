@@ -1,0 +1,62 @@
+version: 2
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+    groups:
+      github-actions-dependencies:
+        patterns:
+          - "*"
+
+  # - package-ecosystem: "docker"
+  #   directory: "/docker"
+  #   schedule:
+  #     interval: "monthly"
+  #   ignore:
+  #     - dependency-name: "*"
+  #       update-types: ["version-update:semver-patch"]
+  #   groups:
+  #     docker-dependencies:
+  #       patterns:
+  #         - "*"
+
+  # - package-ecosystem: "cargo"
+  #   directory: "/pg_bm25"
+  #   schedule:
+  #     interval: "monthly"
+  #   ignore:
+  #     - dependency-name: "*"
+  #       update-types: ["version-update:semver-patch"]
+  #   groups:
+  #     pg_bm25-dependencies:
+  #       patterns:
+  #         - "*"
+
+  # - package-ecosystem: "cargo"
+  #   directory: "/pg_columnar"
+  #   schedule:
+  #     interval: "monthly"
+  #   ignore:
+  #     - dependency-name: "*"
+  #       update-types: ["version-update:semver-patch"]
+  #   groups:
+  #     pg_columnar-dependencies:
+  #       patterns:
+  #         - "*"
+
+  # - package-ecosystem: "cargo"
+  #   directory: "/shared"
+  #   schedule:
+  #     interval: "monthly"
+  #   ignore:
+  #     - dependency-name: "*"
+  #       update-types: ["version-update:semver-patch"]
+  #   groups:
+  #     shared-dependencies:
+  #       patterns:
+  #         - "*"

@@ -5,7 +5,8 @@ title: Welcome to ParadeDB
 ## What is ParadeDB?
 
 ParadeDB is a Postgres-based ElasticSearch alternative, engineered for lightning-fast full text,
-similarity, and hybrid search.
+similarity, and hybrid search. ParadeDB is not a fork of Postgres, but rather a collection of extensions
+which can be installed on any Postgres 12+ database. ParadeDB itself ships with Postgres 15.
 
 Today, developers implementing search face one of two options: adopt an external service like ElasticSearch,
 which is powerful but painful to run, tune, and sync, or use Postgres' native search features, which are pleasant to
@@ -29,10 +30,14 @@ ParadeDB is **not** a good fit if:
 
 ## Current Status
 
-[ParadeDB Cloud](https://dashboard.paradedb.com), a self-serve managed version of ParadeDB, is now live.
+We have released two products: `pg_bm25`, which enables full text search in Postgres, and `pg_sparse`,
+which enables sparse vector search using HNSW in Postgres.
+
+ParadeDB Cloud is currently being revamped. To get notified when it becomes live, we invite you to join our
+[waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
 
 <CardGroup cols={2}>
-  <Card title="Quickstart" icon="rocket" href="/quickstart">
+  <Card title="Quickstart" icon="rocket" href="/latest/quickstart">
     Get started with ParadeDB.
   </Card>
   <Card title="Blog" icon="rss" href="/blog">

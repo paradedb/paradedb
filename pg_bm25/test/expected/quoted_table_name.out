@@ -8,8 +8,13 @@ INSERT INTO "Activity" (name, age) VALUES ('George', 41);
 INSERT INTO "Activity" (name, age) VALUES ('Hannah', 22);
 INSERT INTO "Activity" (name, age) VALUES ('Ivan', 30);
 INSERT INTO "Activity" (name, age) VALUES ('Julia', 25);
-CREATE INDEX ON "Activity" USING bm25(("Activity".*)) WITH (key_field='key', text_fields='{"name": {}}');
-SELECT * FROM "Activity" WHERE "Activity" @@@ 'name:alice';
+CALL paradedb.create_bm25(
+	index_name => 'activity',
+	table_name => 'Activity',
+	key_field => 'key',
+	text_fields => '{"name": {}}'
+);
+SELECT * FROM activity.search('name:alice');
  key | name  | age 
 -----+-------+-----
    1 | Alice |  29

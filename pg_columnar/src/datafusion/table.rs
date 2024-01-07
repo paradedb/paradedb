@@ -116,7 +116,7 @@ impl DatafusionTable {
         let tupdesc = pg_relation.tuple_desc();
         let mut fields = Vec::with_capacity(tupdesc.len());
 
-        for (_, attribute) in tupdesc.iter().enumerate() {
+        for attribute in tupdesc.iter() {
             if attribute.is_dropped() {
                 continue;
             }

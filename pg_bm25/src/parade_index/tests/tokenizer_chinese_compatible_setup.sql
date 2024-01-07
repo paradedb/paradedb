@@ -27,20 +27,19 @@ VALUES
     ('王芳', '第三篇文章', '这是第三篇文章的信息', '{"details": "还有一些JSON内容"}', EXTRACT(EPOCH FROM now()) * 1000, 15, 0, 3);
 
 
-CREATE INDEX idx_posts_fts
-ON posts
-USING bm25 ((posts.*))
-WITH (
-    key_field='id',
-    text_fields='{
+CALL paradedb.create_bm25(
+    index_name => 'posts',
+    table_name => 'posts',
+    key_field => 'id',
+    text_fields => '{
         author: {tokenizer: {type: "chinese_compatible"}, record: "position"},
         title: {tokenizer: {type: "chinese_compatible"}, record: "position"},
         message: {tokenizer: {type: "chinese_compatible"},record: "position"}
     }',
-    json_fields='{
+    json_fields => '{
         content: {}
     }',
-    numeric_fields='{
+    numeric_fields => '{
         unix_timestamp_milli: {},
         like_count: {},
         dislike_count: {},

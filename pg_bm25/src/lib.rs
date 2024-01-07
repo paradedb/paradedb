@@ -5,7 +5,6 @@ use shared::telemetry;
 mod api;
 mod index_access;
 mod json;
-mod manager;
 mod operator;
 mod parade_index;
 mod tokenizers;

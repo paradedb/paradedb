@@ -40,7 +40,6 @@ usage() {
 # Instantiate vars
 FLAG_TAG="pgrx"
 FLAG_STORAGE="hot"
-TRIES=3
 
 # Assign flags to vars and check
 while getopts "ht:s:" flag
@@ -77,7 +76,7 @@ cleanup() {
       echo "PostgreSQL is in recovery mode (likely due to a crash), waiting for recovery to finish..."
       sleep 5
     done
-    if [ $attempt -eq 5 ]; then
+    if [ "$attempt" -eq 5 ]; then
       echo "Failed to drop pg_columnar extension after several attempts. PostgreSQL is likely still in recovery mode."
     fi
     cargo pgrx stop
@@ -95,29 +94,26 @@ trap cleanup EXIT
 
 # Download function to retrieve the dataset and verify its checksum
 download_and_verify() {
-    local url=$1
-    local checksum=$2
-    local filename=$3
+  local url=$1
+  local checksum=$2
+  local filename=$3
 
-    # Check if the file already exists and verify its checksum
-    if [ -e "$filename" ]; then
-        echo "Verifying checksum for '$filename'..."
-        echo "$checksum  $filename" | md5sum -c --status
-
-        # If checksum is ok, skip download
-        if [ $? -eq 0 ]; then
-            echo "Dataset '$filename' already exists and is verified, skipping download..."
-            return
-        else
-            echo "Checksum mismatch. Re-downloading '$filename'..."
-        fi
+  # Check if the file already exists and verify its checksum
+  if [ -e "$filename" ]; then
+    echo "Verifying checksum for '$filename'..."
+    if echo "$checksum  $filename" | md5sum -c --status; then
+      echo "Dataset '$filename' already exists and is verified, skipping download..."
+      return
+    else
+      echo "Checksum mismatch. Re-downloading '$filename'..."
     fi
+  fi
 
-    # Downloading the file
-    echo "Downloading $filename dataset..."
-    wget --no-verbose --continue -O "$filename.gz" "$url"
-    gzip -d "$filename.gz"
-    chmod 666 "$filename"
+  # Downloading the file
+  echo "Downloading $filename dataset..."
+  wget --no-verbose --continue -O "$filename.gz" "$url"
+  gzip -d "$filename.gz"
+  chmod 666 "$filename"
 }
 
 echo ""
@@ -165,8 +161,8 @@ else
       -f "../../../docker/Dockerfile" \
       --build-arg PG_VERSION_MAJOR="15" \
       --build-arg PG_BM25_VERSION="0.0.0" \
-      --build-arg PG_SPARSE_VERSION="0.0.0" \
       --build-arg PG_COLUMNAR_VERSION="0.0.0" \
+      --build-arg PG_SPARSE_VERSION="0.0.0" \
       --build-arg PGVECTOR_VERSION="0.5.1" \
       "../../../"
     echo ""
@@ -180,7 +176,7 @@ else
     -e POSTGRES_USER=myuser \
     -e POSTGRES_PASSWORD=mypassword \
     -e POSTGRES_DB=mydatabase \
-    -p $PORT:5432 \
+    -p "$PORT":5432 \
     paradedb/paradedb:"$FLAG_TAG"
 
   # Wait for Docker container to spin up

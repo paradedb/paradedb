@@ -1,54 +1,129 @@
--- Invalid CREATE INDEX
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*));
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id');
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (invalid_field='{}');
+-- Invalid create_bm25
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config'
+);
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	key_field => 'id'
+);
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	key_field => 'id',
+	invalid_field => '{}'		
+);
 
 -- Default text field
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', text_fields='{"description": {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	text_fields => '{"description": {}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');
 
 -- Text field with options
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', text_fields='{"description": {"fast": true, "tokenizer": { "type": "en_stem" }, "record": "freq", "normalizer": "raw"}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	text_fields => '{"description": {"fast": true, "tokenizer": { "type": "en_stem" }, "record": "freq", "normalizer": "raw"}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');
 
 -- Multiple text fields
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', text_fields='{"description": {fast: true, tokenizer: { type: "en_stem" }, record: "freq", normalizer: "raw"}, category: {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	text_fields => '{"description": {fast: true, tokenizer: { type: "en_stem" }, record: "freq", normalizer: "raw"}, category: {}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');
 
 -- Default numeric field
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', numeric_fields='{"rating": {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	numeric_fields => '{"rating": {}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');
 
 -- Numeric field with options
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', numeric_fields='{"rating": {"fast": false}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	numeric_fields => '{"rating": {"fast": false}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');
 
 -- Default boolean field
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', boolean_fields='{"in_stock": {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	boolean_fields => '{"in_stock": {}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');
 
 -- Boolean field with options
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', boolean_fields='{"in_stock": {"fast": false}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	boolean_fields => '{"in_stock": {"fast": false}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');
 
 -- Default Json field
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', json_fields='{"metadata": {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	json_fields => '{"metadata": {}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');
 
 -- Json field with options
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', json_fields='{metadata: {fast: true, expand_dots: false, tokenizer: { type: "raw" }, normalizer: "raw"}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	json_fields => '{metadata: {fast: true, expand_dots: false, tokenizer: { type: "raw" }, normalizer: "raw"}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');
 
 -- Multiple fields
-CREATE INDEX idxindexconfig ON index_config USING bm25 ((index_config.*)) WITH (key_field='id', text_fields='{description: {}, category: {}}', numeric_fields='{rating: {}}', boolean_fields='{in_stock: {}}', json_fields='{metadata: {}}');
-SELECT * from paradedb.schema_bm25('idxindexconfig');
-DROP INDEX idxindexconfig;
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	text_fields => '{description: {}, category: {}}',
+	numeric_fields => '{rating: {}}',
+	boolean_fields => '{in_stock: {}}',
+	json_fields => '{metadata: {}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config');

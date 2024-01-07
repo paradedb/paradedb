@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-  <b>PostgreSQL for Search</b> <br />
+  <b>PostgreSQL for Real-Time Search & Analytics</b> <br />
 </p>
 
 <h3 align="center">
@@ -22,7 +22,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
 
-[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on Postgres. We're building the features of ElasticSearch's product suite, starting with search.
+[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on Postgres. You can think of ParadeDB as. We're building the features of ElasticSearch's product suite, starting with real-time search and analytics. ParadeDB offers Elastic-level full text search and ClickHouse-level aggregates as PostgreSQL. ParadeDB is **not** a fork, it is a collection.
 
 ## Status
 
@@ -36,7 +36,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Dense vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search
 - [ ] Analytics
-  - [ ] Real-time aggregations
+  - [x] Real-time aggregations
   - [ ] Log ingestion
   - [ ] Log monitoring
 - [x] Self-hosted ParadeDB
@@ -51,7 +51,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 
 ### ParadeDB Cloud
 
-ParadeDB Cloud is currently being revamped. To get notified when it becomes live, we invite you to join our
+ParadeDB Cloud is currently under development. To get notified when it becomes live, we invite you to join our
 [waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
 
 ### Self-Hosted

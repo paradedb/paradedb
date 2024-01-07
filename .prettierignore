@@ -1,3 +1,4 @@
+/benchmarks/*.json
 /benchmarks/out/
 /benchmarks/*_ts.json
 /benchmarks/wiki-articles.json

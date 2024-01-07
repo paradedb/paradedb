@@ -10,7 +10,7 @@ use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::hooks::columnar::ColumnarStmt;
 use crate::nodes::producer::DatafusionPlansProducer;
 use crate::nodes::t_dropstmt::DropStmtNode;
-use crate::tableam::utils::{BulkInsertState, BULK_INSERT_STATE};
+use crate::tableam::insert::{BulkInsertState, BULK_INSERT_STATE};
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]

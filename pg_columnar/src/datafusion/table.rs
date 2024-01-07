@@ -22,7 +22,14 @@ pub struct DatafusionTable {
 }
 
 impl DatafusionTable {
-    pub fn new(pg_relation: &PgRelation) -> Result<Self, String> {
+    pub fn from_range_table(rte: *mut pg_sys::RangeTblEntry) -> Result<Self, String> {
+        let relation = unsafe { pg_sys::RelationIdGetRelation((*rte).relid) };
+        let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
+
+        Self::from_pg(&pg_relation)
+    }
+
+    pub fn from_pg(pg_relation: &PgRelation) -> Result<Self, String> {
         let name = Self::get_name_from_pg(pg_relation)?;
 
         // Get TableSource

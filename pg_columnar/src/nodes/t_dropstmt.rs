@@ -34,10 +34,9 @@ impl DatafusionPlansProducer for DropStmtNode {
             if ColumnarStmt::relation_is_columnar(relation_data).unwrap_or(false) {
                 let relation = pg_sys::RelationIdGetRelation((*relation_data).rd_id);
                 let pg_relation = PgRelation::from_pg_owned(relation);
-                let table = DatafusionTable::new(&pg_relation).unwrap();
-                let table_name = table.name().unwrap().clone();
-                let reference = TableReference::from(table_name);
-                let schema = Arc::new(table.schema().unwrap());
+                let table = DatafusionTable::from_pg(&pg_relation)?;
+                let reference = TableReference::from(table.name()?);
+                let schema = Arc::new(table.schema()?);
 
                 drop_plans.push(LogicalPlan::Ddl(DdlStatement::DropTable(DropTable {
                     if_exists: (*drop_stmt).missing_ok,

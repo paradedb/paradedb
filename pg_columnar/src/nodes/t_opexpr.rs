@@ -5,8 +5,8 @@ use datafusion::logical_expr::{BinaryExpr, Expr, Operator};
 use pgrx::pg_sys;
 use std::ffi::CStr;
 
-pub struct OpExpr;
-impl DatafusionExprProducer for OpExpr {
+pub struct OpExprNode;
+impl DatafusionExprProducer for OpExprNode {
     unsafe fn datafusion_expr(
         node: *mut pg_sys::Node,
         rtable: Option<*mut pg_sys::List>,
@@ -20,7 +20,7 @@ impl DatafusionExprProducer for OpExpr {
 
                     // Args len can be 1 or 2
                     if (*args).length == 1 {
-                        Ok(OpExpr::datafusion_expr(node, Some(r))?)
+                        Ok(OpExprNode::datafusion_expr(node, Some(r))?)
                     } else {
                         let larg = (*elements.offset(0)).ptr_value as *mut pg_sys::Node;
                         let rarg = (*elements.offset(1)).ptr_value as *mut pg_sys::Node;
@@ -40,8 +40,8 @@ impl DatafusionExprProducer for OpExpr {
                         pg_sys::ReleaseSysCache(operator_tuple);
 
                         // Recursively get expressions from left and right sides of the operation
-                        let larg_expr = OpExpr::datafusion_expr(larg, Some(r))?;
-                        let rarg_expr = OpExpr::datafusion_expr(rarg, Some(r))?;
+                        let larg_expr = OpExprNode::datafusion_expr(larg, Some(r))?;
+                        let rarg_expr = OpExprNode::datafusion_expr(rarg, Some(r))?;
 
                         Ok(Expr::BinaryExpr(BinaryExpr {
                             left: Box::new(larg_expr),

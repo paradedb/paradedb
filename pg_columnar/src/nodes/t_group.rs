@@ -3,8 +3,8 @@ use datafusion::logical_expr::{Expr, LogicalPlan};
 use pgrx::*;
 
 use crate::datafusion::error::datafusion_err_to_string;
-use crate::nodes::producer::{DatafusionExprProducer, DatafusionPlanProducer};
 use crate::datafusion::table::DatafusionTable;
+use crate::nodes::producer::{DatafusionExprProducer, DatafusionPlanProducer};
 use crate::nodes::t_var::VarNode;
 use crate::tableam::utils::get_pg_relation;
 
@@ -56,16 +56,13 @@ impl DatafusionPlanProducer for GroupNode {
         let pg_relation = get_pg_relation(rte)?;
         let table = DatafusionTable::new(&pg_relation)?;
 
-        let mut builder = LogicalPlanBuilder::scan(table.name()?, table.source()?, None).map_err(
-            datafusion_err_to_string(),
-        )?;
-
-        builder = builder
-            .aggregate(group_expr.clone(), aggr_expr.clone())
+        let mut builder = LogicalPlanBuilder::scan(table.name()?, table.source()?, None)
             .map_err(datafusion_err_to_string())?;
 
-        builder
-            .build()
-            .map_err(datafusion_err_to_string())
+        builder = builder
+            .aggregate(group_expr.clone(), aggr_expr)
+            .map_err(datafusion_err_to_string())?;
+
+        builder.build().map_err(datafusion_err_to_string())
     }
 }

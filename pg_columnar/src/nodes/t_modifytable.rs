@@ -4,7 +4,6 @@ use pgrx::*;
 
 use crate::datafusion::table::DatafusionTable;
 use crate::nodes::producer::DatafusionPlanProducer;
-use crate::tableam::utils::get_pg_relation;
 
 pub struct ModifyTableNode;
 impl DatafusionPlanProducer for ModifyTableNode {
@@ -15,8 +14,7 @@ impl DatafusionPlanProducer for ModifyTableNode {
     ) -> Result<LogicalPlan, String> {
         let modify = plan as *mut pg_sys::ModifyTable;
         let rte = pg_sys::rt_fetch((*modify).nominalRelation, rtable);
-        let pg_relation = get_pg_relation(rte)?;
-        let table = DatafusionTable::new(&pg_relation)?;
+        let table = DatafusionTable::from_range_table(rte)?;
 
         Ok(LogicalPlan::Dml(DmlStatement {
             table_name: table.name()?.into(),

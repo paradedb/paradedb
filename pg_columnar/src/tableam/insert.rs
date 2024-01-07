@@ -4,16 +4,39 @@ use core::ffi::c_int;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::arrow::array::ArrayRef;
 use datafusion::common::arrow::datatypes::Schema;
+use datafusion::common::DFSchema;
 use datafusion::dataframe::DataFrameWriteOptions;
 use datafusion::datasource::MemTable;
+use lazy_static::lazy_static;
+use parking_lot::RwLock;
 use pgrx::*;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
 use crate::datafusion::table::DatafusionTable;
-use crate::tableam::utils::BULK_INSERT_STATE;
 
+pub struct BulkInsertState {
+    pub batches: Vec<RecordBatch>,
+    pub schema: Option<DFSchema>,
+    pub nslots: usize,
+}
+
+impl BulkInsertState {
+    pub const fn new() -> Self {
+        BulkInsertState {
+            batches: vec![],
+            schema: None,
+            nslots: 0,
+        }
+    }
+}
+
+lazy_static! {
+    pub static ref BULK_INSERT_STATE: RwLock<BulkInsertState> = RwLock::new(BulkInsertState::new());
+}
+
+// Number of slots to hold in memory before flushing to disk
 static MAX_SLOTS: usize = 5_000_000;
 
 #[pg_guard]
@@ -41,7 +64,7 @@ pub unsafe extern "C" fn memam_multi_insert(
 
     let natts = tuple_desc.len();
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let table = DatafusionTable::new(&pg_relation).unwrap();
+    let table = DatafusionTable::from_pg(&pg_relation).expect("Failed to get Datafusion table");
     let mut values: Vec<ArrayRef> = vec![];
 
     set_schema_if_needed(&table.name().unwrap(), &pg_relation);
@@ -89,7 +112,7 @@ pub unsafe extern "C" fn memam_finish_bulk_insert(rel: pg_sys::Relation, _option
 #[inline]
 unsafe fn flush_batches(rel: pg_sys::Relation) {
     let pg_relation = PgRelation::from_pg(rel);
-    let table = DatafusionTable::new(&pg_relation).unwrap();
+    let table = DatafusionTable::from_pg(&pg_relation).expect("Failed to get Datafusion table");
     let mut bulk_insert_state = BULK_INSERT_STATE.write();
 
     if bulk_insert_state.batches.is_empty() {
@@ -123,7 +146,7 @@ unsafe fn set_schema_if_needed(_table_name: &str, pg_relation: &PgRelation) {
     let mut bulk_insert_state = BULK_INSERT_STATE.write();
 
     if bulk_insert_state.schema.is_none() {
-        let table = DatafusionTable::new(pg_relation).unwrap();
-        bulk_insert_state.schema = Some(table.schema().unwrap());
+        let table = DatafusionTable::from_pg(pg_relation).expect("Failed to get Datafusion table");
+        bulk_insert_state.schema = Some(table.schema().expect("Failed to get schema"));
     }
 }

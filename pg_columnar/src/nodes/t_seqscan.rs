@@ -8,7 +8,6 @@ use crate::nodes::producer::DatafusionExprProducer;
 use crate::nodes::producer::DatafusionPlanProducer;
 use crate::nodes::t_opexpr::OpExprNode;
 use crate::nodes::t_var::VarNode;
-use crate::tableam::utils::get_pg_relation;
 
 pub struct SeqScanNode;
 impl DatafusionPlanProducer for SeqScanNode {
@@ -65,8 +64,7 @@ impl DatafusionPlanProducer for SeqScanNode {
         // which are not supported by our existing TableProvider
         // Find the table we're supposed to be scanning by querying the range table
         let rte = pg_sys::rt_fetch((*scan).scan.scanrelid, rtable);
-        let pg_relation = get_pg_relation(rte)?;
-        let table = DatafusionTable::new(&pg_relation)?;
+        let table = DatafusionTable::from_range_table(rte)?;
 
         let mut builder = LogicalPlanBuilder::scan(table.name()?, table.source()?, None)
             .map_err(datafusion_err_to_string())?;

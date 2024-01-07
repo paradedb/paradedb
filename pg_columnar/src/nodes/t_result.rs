@@ -6,7 +6,6 @@ use crate::datafusion::table::DatafusionTable;
 use crate::nodes::producer::DatafusionExprProducer;
 use crate::nodes::producer::DatafusionPlanProducer;
 use crate::nodes::t_const::ConstNode;
-use crate::tableam::utils::get_pg_relation;
 
 pub struct ResultNode;
 impl DatafusionPlanProducer for ResultNode {
@@ -16,8 +15,7 @@ impl DatafusionPlanProducer for ResultNode {
         _outer_plan: Option<LogicalPlan>,
     ) -> Result<LogicalPlan, String> {
         let rte = pg_sys::rt_fetch(1, rtable);
-        let pg_relation = get_pg_relation(rte)?;
-        let table = DatafusionTable::new(&pg_relation)?;
+        let table = DatafusionTable::from_range_table(rte)?;
 
         let mut values: Vec<Vec<Expr>> = vec![vec![]];
         let row = (*plan).targetlist;

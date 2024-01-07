@@ -68,6 +68,10 @@ pub struct ParadeIndex {
     pub ctid_field: Field,
     #[serde(skip_serializing)]
     underlying_index: Index,
+    #[serde(skip_serializing)]
+    key_field: Field,
+    #[serde(skip_serializing)]
+    timestamp_field: Field,
 }
 
 impl ParadeIndex {
@@ -587,6 +591,11 @@ impl ParadeIndex {
         // creating a name conflict with a user-named column.
         let ctid_field = schema_builder.add_u64_field("ctid", INDEXED | STORED);
         fields.insert("ctid".to_string(), ctid_field);
+
+        // Until we have a global index writer working, we need to add a timestamp to each
+        // field so we can deduplicate query results.
+        let timestamp_field = schema_builder.add_i64_field("__timestamp", INDEXED | STORED);
+        fields.insert("__timestamp".to_string(), timestamp_field);
 
         Ok((schema_builder.build(), fields))
     }

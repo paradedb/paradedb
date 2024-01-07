@@ -1,0 +1,18 @@
+# PostgreSQL
+dist/
+sql/svector--?.?.?.sql
+
+# Libraries
+*.o
+*.so
+*.bc
+*.dll
+*.dylib
+*.obj
+*.lib
+*.exp
+
+# pg_regress
+results/
+test/test_logs.log
+regression.*

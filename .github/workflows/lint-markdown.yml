@@ -1,0 +1,39 @@
+# workflows/lint-markdown.yml
+#
+# Lint Markdown
+# Lint Markdown files using Prettier.
+
+name: Lint Markdown
+
+on:
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "**/*.mdx"
+      - ".github/workflows/lint-markdown.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: lint-markdown-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-markdown:
+    name: Lint Markdown Files
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Set up NodeJS Environment
+        uses: actions/setup-node@v4
+
+      - name: Install Prettier
+        run: npm install -g prettier markdownlint-cli
+
+      - name: Run Markdown Lint
+        run: markdownlint '**/*.md'
+
+      - name: Run Pettier
+        run: prettier --check '{**/*.md,**/*.mdx}'

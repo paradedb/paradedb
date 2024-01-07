@@ -2,10 +2,6 @@
 resolver = "2"
 members = [
     "pg_bm25",
-<<<<<<< HEAD
-=======
-    "pg_columnar",
->>>>>>> 08b51c26 (feat: Basic clickbench in pgrx (#5))
     "shared"
 ]
 

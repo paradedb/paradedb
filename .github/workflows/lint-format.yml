@@ -1,0 +1,64 @@
+# workflows/lint-format.yml
+#
+# Lint Format
+# Lint the project's file trailing spaces, line endings, and format.
+
+name: Lint Format
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: lint-format-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-format:
+    name: Lint File Endings & Trailing Whitespaces
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Install fd Search Tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fd-find
+          mkdir -p "$HOME/.local/bin"
+          sudo ln -s $(which fdfind) "$HOME/.local/bin/fd"
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Add Trailing Newlines
+        run: .github/workflows/helpers/lint_trailing_newlines.sh
+
+      - name: Check for CRLF Files
+        run: |
+          FILES=$(git ls-files --eol | grep crlf || true)
+          if [[ ! -z "$FILES" ]]; then
+            echo "The following files have incorrect line endings:"
+            echo "$FILES"
+            false
+          fi
+
+      # We ignore .out and .sql files, which are used by pg_regress for testing
+      # and need a very specific format
+      - name: Check for Trailing Whitespaces
+        run: |
+          FILES=$(git grep -Ilr '[[:blank:]]$' -- ':(exclude)*.out' ':(exclude)*.sql' || true)
+          if [[ ! -z "$FILES" ]]; then
+            echo "The following files have trailing whitespaces:"
+            echo "$FILES"
+            exit 1
+          fi
+
+      - name: Print Modified Files
+        run: |
+          FILES=$(git ls-files --modified)
+          if [[ ! -z "$FILES" ]]; then
+            echo "The following files have incorrect trailing newlines:"
+            echo "$FILES"
+            echo "Please fix them using .github/workflows/helpers/lint_trailing_newlines.sh"
+            false
+          fi

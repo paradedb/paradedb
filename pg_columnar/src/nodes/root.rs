@@ -3,6 +3,7 @@ use pgrx::pg_sys::NodeTag;
 use pgrx::*;
 
 use crate::nodes::t_aggref::AggRefNode;
+use crate::nodes::t_group::GroupNode;
 use crate::nodes::t_limit::LimitNode;
 use crate::nodes::t_modifytable::ModifyTableNode;
 use crate::nodes::t_result::ResultNode;
@@ -39,7 +40,7 @@ impl DatafusionPlanProducer for RootPlanNode {
             NodeTag::T_Agg => AggRefNode::datafusion_plan(plan, rtable, outer_plan),
             NodeTag::T_Limit => LimitNode::datafusion_plan(plan, rtable, outer_plan),
             NodeTag::T_Sort => SortNode::datafusion_plan(plan, rtable, outer_plan),
-            NodeTag::T_Group => todo!(),
+            NodeTag::T_Group => GroupNode::datafusion_plan(plan, rtable, outer_plan),
             NodeTag::T_Invalid => todo!(),
             _ => Err(format!("node type {:?} not supported yet", node_tag)),
         }

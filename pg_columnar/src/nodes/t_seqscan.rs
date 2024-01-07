@@ -6,7 +6,7 @@ use crate::datafusion::error::datafusion_err_to_string;
 use crate::datafusion::table::DatafusionTable;
 use crate::nodes::producer::DatafusionExprProducer;
 use crate::nodes::producer::DatafusionPlanProducer;
-use crate::nodes::t_opexpr::OpExpr;
+use crate::nodes::t_opexpr::OpExprNode;
 use crate::nodes::t_var::VarNode;
 use crate::tableam::utils::get_pg_relation;
 
@@ -28,9 +28,22 @@ impl DatafusionPlanProducer for SeqScanNode {
             for i in 0..(*targets).length {
                 let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
                 let target_entry = list_cell_node as *mut pg_sys::TargetEntry;
-                let var = (*target_entry).expr as *mut pg_sys::Node;
+                let node = (*target_entry).expr as *mut pg_sys::Node;
 
-                projections.push(VarNode::datafusion_expr(var, Some(rtable))?);
+                match (*node).type_ {
+                    pg_sys::NodeTag::T_Var => {
+                        projections.push(VarNode::datafusion_expr(node, Some(rtable))?);
+                    }
+                    pg_sys::NodeTag::T_OpExpr => {
+                        projections.push(OpExprNode::datafusion_expr(node, Some(rtable))?);
+                    }
+                    _ => {
+                        return Err(format!(
+                            "Node {:?} not supported in SeqScanNode",
+                            (*node).type_
+                        ))
+                    }
+                }
             }
         }
 
@@ -42,7 +55,7 @@ impl DatafusionPlanProducer for SeqScanNode {
             let elements = (*quals).elements;
             for i in 0..(*quals).length {
                 let list_cell_node = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
-                let expr = OpExpr::datafusion_expr(list_cell_node, Some(rtable))?;
+                let expr = OpExprNode::datafusion_expr(list_cell_node, Some(rtable))?;
                 filters.push(expr);
             }
         }

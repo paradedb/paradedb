@@ -104,9 +104,7 @@ impl DatafusionPlanProducer for AggRefNode {
                 .aggregate(group_expr.clone(), agg_expr.clone())
                 .map_err(datafusion_err_to_string())?;
 
-            builder
-                .build()
-                .map_err(datafusion_err_to_string())
+            builder.build().map_err(datafusion_err_to_string())
         } else {
             let outer_plan =
                 outer_plan.ok_or_else(|| "Limit does not have an outer plan".to_string())?;

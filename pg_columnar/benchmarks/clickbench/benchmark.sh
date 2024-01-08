@@ -100,7 +100,6 @@ download_and_verify() {
 
   # Check if the file already exists and verify its checksum
   if [ -e "$filename" ]; then
-    echo "Verifying checksum for '$filename'..."
     if echo "$checksum  $filename" | md5sum -c --status; then
       echo "Dataset '$filename' already exists and is verified, skipping download..."
       return
@@ -125,13 +124,30 @@ echo ""
 if [ "$FLAG_TAG" == "pgrx" ]; then
   # For local benchmarking via pgrx, we download hits_100k_rows.csv, which is ~5M rows (~3.75GB)
   download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/hits_100k_rows.csv.gz" "06b18e929bc94ea93706b782d8b1120e" "hits_100k_rows.csv"
+  echo ""
+
+  # Rust nightly is required for SIMD support, which is mandatory for benchmarking as
+  # it is a major performance boost
+  CURRENT_RUST_TOOLCHAIN=$(rustup show active-toolchain)
+  if [[ $CURRENT_RUST_TOOLCHAIN != *"nightly"* ]]; then
+    echo "Switching to Rust nightly toolchain for maximum performance via SIMD..."
+    rustup override unset
+    rustup update nightly
+    rustup default nightly
+
+    echo "Reinstalling cargo-pgrx on Rust nightly toolchain..."
+    cargo install --locked cargo-pgrx --version 0.11.1 --force
+  else
+    echo "Already on Rust nightly toolchain, skipping toolchain switch..."
+  fi
 
   # Build pg_columnar and start its pgrx PostgreSQL instance
   echo ""
-  echo "Building pg_columnar..."
+  echo "Building pg_columnar in release mode with SIMD support..."
   cargo pgrx stop
-  cargo pgrx install
+  cargo pgrx install --features simd --release
   cargo pgrx start
+  echo ""
 
   # Run the benchmarking
   if [ "$FLAG_STORAGE" = "hot" ]; then

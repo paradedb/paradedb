@@ -66,11 +66,12 @@ docker run \
   -e POSTGRES_PASSWORD=<password> \
   -e POSTGRES_DB=<dbname> \
   -p 5432:5432 \
+  -v paradedb-data:/var/lib/postgresql/data \
   -d \
   paradedb/paradedb:latest
 ```
 
-Alternatively, you can clone this repo and run our `docker-compose.yml` file. By default, this will start the ParadeDB database at `http://localhost:5432`. Use `psql` to connect:
+The `-v` flag is optional, but recommended. It will persist the ParadeDB PostgreSQL data across restarts. Alternatively, you can clone this repo and run our `docker-compose.yml` file. By default, this will start the ParadeDB database at `http://localhost:5432`. Use `psql` to connect:
 
 ```bash
 psql -h <hostname> -U <user> -d <dbname> -p 5432 -W

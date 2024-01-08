@@ -78,12 +78,20 @@ EOSQL
 pg_ctl restart 2> /dev/null
 
 # We collect basic, anonymous telemetry to help us understand how many people are using
-# the project. We only do this if TELEMETRY is set to "true", and only do it once per deployment
+# the project. We only do this if TELEMETRY is set to "true"
 if [[ ${TELEMETRY:-} == "true" ]]; then
+  # For privacy reasons, we generate an anonymous UUID for each new deployment
+  UUID_FILE="/var/lib/postgresql/data/deployment_uuid"
+  if [ ! -f "$UUID_FILE" ]; then
+      uuidgen > "$UUID_FILE"
+  fi
+  DISTINCT_ID=$(cat "$UUID_FILE")
+
+  # Send the deployment event to PostHog
   curl -s -L --header "Content-Type: application/json" -d '{
     "api_key": "'"$POSTHOG_API_KEY"'",
     "event": "ParadeDB Deployment",
-    "distinct_id": "'"$(uuidgen)"'",
+    "distinct_id": "'"$DISTINCT_ID"'",
     "properties": {
       "commit_sha": "'"${COMMIT_SHA:-}"'"
     }

@@ -55,3 +55,5 @@ services:
       POSTGRES_DB: mydatabase
     ports:
       - "5432:5432"
+    volumes:
+      - paradedb-data:/var/lib/postgresql/data

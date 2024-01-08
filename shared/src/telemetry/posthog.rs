@@ -1,8 +1,8 @@
 use pgrx::*;
-use std::fs;
-use std::path::Path;
 use serde::Deserialize;
 use serde_json::json;
+use std::fs;
+use std::path::Path;
 
 #[derive(Deserialize, Debug)]
 struct Config {

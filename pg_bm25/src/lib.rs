@@ -23,7 +23,7 @@ extension_sql_file!("../sql/_bootstrap.sql");
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
     index_access::options::init();
-    telemetry::posthog::init("pg_bm25 Deployment");
+    telemetry::posthog::init("pg_bm25");
     PARADE_LOGS_GLOBAL.init();
 }
 

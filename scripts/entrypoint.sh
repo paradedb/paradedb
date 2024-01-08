@@ -83,7 +83,7 @@ if [[ ${TELEMETRY:-} == "true" ]]; then
   # For privacy reasons, we generate an anonymous UUID for each new deployment
   UUID_FILE="/var/lib/postgresql/data/paradedb_uuid"
   if [ ! -f "$UUID_FILE" ]; then
-      uuidgen > "$UUID_FILE"
+    uuidgen > "$UUID_FILE"
   fi
   DISTINCT_ID=$(cat "$UUID_FILE")
 

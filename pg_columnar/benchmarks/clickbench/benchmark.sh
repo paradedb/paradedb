@@ -168,7 +168,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   # the format expected by the ClickBench dashboard
 else
   # For CI/official benchmarking via Docker, we download the full hits.csv dataset, which is ~100M rows (~75GB)
-  download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.csv.gz" "TODO" "hits.tsv"
+  download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.csv.gz" "5ef60063da951e18ae3fa929c9f3aad4" "hits.tsv"
 
   # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
   if [ "$FLAG_TAG" == "local" ]; then

@@ -193,7 +193,7 @@ sudo apt-get install libicu-dev
 ```
 
 And if you're facing issues with `icu-config` not being found in your path, simply run:
-  
+
 ```bash
 # ARM macOS
 export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"

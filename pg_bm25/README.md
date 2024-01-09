@@ -180,6 +180,30 @@ cargo pgrx init --pg15=`which pg_config`
 
 Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 
+#### ICU Tokenizer
+
+`pg_bm25` comes with multiple tokenizers for different languages. To build `pg_bm25` with the ICU tokenizer you'll need the `icu4c` library, which should be preinstalled on most distros. If you're facing issues with `icu4c` not being found, you can install it using your system package manager:
+
+```bash
+# macOS
+brew install icu4c
+
+# Ubuntu
+sudo apt-get install libicu-dev
+```
+
+And if you're facing issues with `icu-config` not being found in your path, simply run:
+  
+```bash
+# ARM macOS
+export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
+
+# Intel macOS
+export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig"
+```
+
+You should now be able to build `pg_bm25` with the ICU tokenizer.
+
 ### Running the Extension
 
 First, start pgrx:

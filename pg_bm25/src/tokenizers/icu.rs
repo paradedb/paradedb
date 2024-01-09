@@ -132,6 +132,7 @@ mod tests {
     /// Same tests as Lucene ICU tokenizer might be enough
     use super::*;
     use pgrx::*;
+    use shared::testing::SETUP_SQL;
     use tantivy::tokenizer::{Token, TokenStream};
 
     impl<'a> Iterator for ICUTokenizerTokenStream<'a> {
@@ -742,15 +743,15 @@ mod tests {
     }
 
     #[pg_test]
-    fn test_icu_tokenizer_arabic() -> spi::Result<()> {
+    fn test_icu_tokenizer_arabic() {
         Spi::run(SETUP_SQL).expect("failed to setup index");
-    
-        let query1: &str = Spi::get_one("SELECT title FROM idx_arabic.search('author:"محمد"');")
+
+        let query1: &str = Spi::get_one("SELECT title FROM idx_arabic.search('author:محمد');")
             .expect("failed to query")
             .unwrap();
         assert_eq!(query1, "رحلة إلى السوق مع أبي");
 
-        let query2: &str = Spi::get_one("SELECT message FROM idx_arabic.search('title:"السوق"');")
+        let query2: &str = Spi::get_one("SELECT message FROM idx_arabic.search('title:السوق');")
             .expect("failed to query")
             .unwrap();
         assert_eq!(
@@ -758,45 +759,42 @@ mod tests {
             "مرحباً بك في المقالة الأولى. أتمنى أن تجد المحتوى مفيدًا ومثيرًا للاهتمام"
         );
 
-        let query3: &str = Spi::get_one("SELECT author FROM idx_arabic.search('message:"في"');")
+        let query3: &str = Spi::get_one("SELECT author FROM idx_arabic.search('message:في');")
             .expect("failed to query")
             .unwrap();
         assert_eq!(query3, "محمد");
     }
 
     #[pg_test]
-    fn test_icu_tokenizer_amharic() -> spi::Result<()> {
+    fn test_icu_tokenizer_amharic() {
         Spi::run(SETUP_SQL).expect("failed to setup index");
-    
-        let query1: &str = Spi::get_one("SELECT title FROM idx_amharic.search('author:"አለም"');")
+
+        let query1: &str = Spi::get_one("SELECT title FROM idx_amharic.search('author:አለም');")
             .expect("failed to query")
             .unwrap();
         assert_eq!(query1, "መረጃዎች ለመማር");
 
-        let query2: &str = Spi::get_one("SELECT message FROM idx_amharic.search('title:"ለመማር"');")
+        let query2: &str = Spi::get_one("SELECT message FROM idx_amharic.search('title:ለመማር');")
             .expect("failed to query")
             .unwrap();
-        assert_eq!(
-            query2,
-            "እነዚህ መረጃዎች የምስሉ ለመማር በእያንዳንዱ ላይ ይመልከቱ።"
-        );
+        assert_eq!(query2, "እነዚህ መረጃዎች የምስሉ ለመማር በእያንዳንዱ ላይ ይመልከቱ።");
 
-        let query3: &str = Spi::get_one("SELECT author FROM idx_amharic.search('message:"ዝናብ"');")
+        let query3: &str = Spi::get_one("SELECT author FROM idx_amharic.search('message:ዝናብ');")
             .expect("failed to query")
             .unwrap();
-        assert_eq!(query3, "መሐመድ");
+        assert_eq!(query3, "ፋትስ");
     }
 
     #[pg_test]
-    fn test_icu_tokenizer_greek() -> spi::Result<()> {
+    fn test_icu_tokenizer_greek() {
         Spi::run(SETUP_SQL).expect("failed to setup index");
-    
-        let query1: &str = Spi::get_one("SELECT title FROM idx_greek.search('author:"Σοφία"');")
+
+        let query1: &str = Spi::get_one("SELECT title FROM idx_greek.search('author:Σοφία');")
             .expect("failed to query")
             .unwrap();
         assert_eq!(query1, "Ταξίδι στην Ανατολή");
 
-        let query2: &str = Spi::get_one("SELECT message FROM idx_greek.search('title:"επιτυχία"');")
+        let query2: &str = Spi::get_one("SELECT message FROM idx_greek.search('title:επιτυχία');")
             .expect("failed to query")
             .unwrap();
         assert_eq!(
@@ -804,9 +802,10 @@ mod tests {
             "Εδώ παρέχουμε μερικές πολύτιμες συμβουλές για την επίτευξη επιτυχίας στην επαγγελματική και προσωπική σας ζωή. Επωφεληθείτε από αυτές και επιτύχετε τους στόχους σας."
         );
 
-        let query3: &str = Spi::get_one("SELECT author FROM idx_greek.search('message:"συμβουλές"');")
-            .expect("failed to query")
-            .unwrap();
+        let query3: &str =
+            Spi::get_one("SELECT author FROM idx_greek.search('message:συμβουλές');")
+                .expect("failed to query")
+                .unwrap();
         assert_eq!(query3, "Αλέξανδρος");
     }
 }

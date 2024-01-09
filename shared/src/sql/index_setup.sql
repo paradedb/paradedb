@@ -36,11 +36,11 @@ CALL paradedb.create_bm25(
     numeric_fields => '{
         release_year: {},
     }'
-)
+);
 
 
 -- Arabic test table
-CREATE TABLE IF NOT EXISTS arabic (
+CREATE TABLE arabic (
     id SERIAL PRIMARY KEY,
     author TEXT,
     title TEXT,
@@ -65,8 +65,9 @@ CALL paradedb.create_bm25(
 );
 
 
+
 -- Amharic test table
-CREATE TABLE IF NOT EXISTS amharic (
+CREATE TABLE amharic (
     id SERIAL PRIMARY KEY,
     author TEXT,
     title TEXT,
@@ -92,7 +93,7 @@ CALL paradedb.create_bm25(
 
 
 -- Greek test table
-CREATE TABLE IF NOT EXISTS greek (
+CREATE TABLE greek (
     id SERIAL PRIMARY KEY,
     author TEXT,
     title TEXT,
@@ -114,4 +115,4 @@ CALL paradedb.create_bm25(
         title: {tokenizer: {type: "icu"},},
         message: {tokenizer: {type: "icu"},}
     }'
-);
+)

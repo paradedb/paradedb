@@ -46,28 +46,26 @@ pub fn init(extension_name: &str) {
 
         // For privacy reasons, we generate an anonymous UUID for each new deployment
         let uuid_file = format!("/var/lib/postgresql/data/{}_uuid", extension_name);
+        
+        // Closure to generate a new UUID and write it to the file
+        let generate_and_save_uuid = || {
+            let new_uuid = uuid::Uuid::new_v4().to_string();
+            fs::write(&uuid_file, &new_uuid).expect("Unable to write UUID to file");
+            new_uuid
+        };
+
         let distinct_id = if Path::new(&uuid_file).exists() {
             match fs::read_to_string(&uuid_file) {
                 Ok(uuid_str) => {
-                    match Uuid::parse_str(&uuid_str) {
+                    match uuid::Uuid::parse_str(&uuid_str) {
                         Ok(uuid) => uuid.to_string(),
-                        Err(_) => {
-                            let new_uuid = Uuid::new_v4().to_string();
-                            fs::write(&uuid_file, &new_uuid).expect("Unable to write new UUID to file");
-                            new_uuid
-                        }
+                        Err(_) => generate_and_save_uuid(),
                     }
                 }
-                Err(_) => {
-                    let new_uuid = Uuid::new_v4().to_string();
-                    fs::write(&uuid_file, &new_uuid).expect("Unable to write new UUID to file");
-                    new_uuid
-                }
+                Err(_) => generate_and_save_uuid(),
             }
         } else {
-            let new_uuid = Uuid::new_v4().to_string();
-            fs::write(&uuid_file, &new_uuid).expect("Unable to write UUID to file");
-            new_uuid
+            generate_and_save_uuid()
         };
 
         let endpoint = format!("{}/capture", config.posthog_host);

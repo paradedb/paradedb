@@ -478,7 +478,7 @@ impl ParadeIndex {
             );
         }
 
-        for (_, attribute) in tupdesc.iter().enumerate() {
+        for attribute in tupdesc.iter() {
             if attribute.is_dropped() {
                 continue;
             }

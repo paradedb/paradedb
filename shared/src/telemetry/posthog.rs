@@ -46,7 +46,7 @@ pub fn init(extension_name: &str) {
 
         // For privacy reasons, we generate an anonymous UUID for each new deployment
         let uuid_file = format!("/var/lib/postgresql/data/{}_uuid", extension_name);
-        
+
         // Closure to generate a new UUID and write it to the file
         let generate_and_save_uuid = || {
             let new_uuid = uuid::Uuid::new_v4().to_string();
@@ -56,12 +56,10 @@ pub fn init(extension_name: &str) {
 
         let distinct_id = if Path::new(&uuid_file).exists() {
             match fs::read_to_string(&uuid_file) {
-                Ok(uuid_str) => {
-                    match uuid::Uuid::parse_str(&uuid_str) {
-                        Ok(uuid) => uuid.to_string(),
-                        Err(_) => generate_and_save_uuid(),
-                    }
-                }
+                Ok(uuid_str) => match uuid::Uuid::parse_str(&uuid_str) {
+                    Ok(uuid) => uuid.to_string(),
+                    Err(_) => generate_and_save_uuid(),
+                },
                 Err(_) => generate_and_save_uuid(),
             }
         } else {

@@ -1,7 +1,3 @@
-use crate::tokenizers::code::CodeTokenizer;
-use crate::tokenizers::icu::ICUTokenizer;
-use crate::tokenizers::lindera::{LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
-use crate::tokenizers::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer};
 use serde::*;
 use std::collections::HashMap;
 use tantivy::{
@@ -11,6 +7,12 @@ use tantivy::{
         SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
     },
 };
+
+use crate::tokenizers::code::CodeTokenizer;
+#[cfg(feature = "icu")]
+use crate::tokenizers::icu::ICUTokenizer;
+use crate::tokenizers::lindera::{LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
+use crate::tokenizers::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer};
 
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 // Tokenizers
@@ -45,6 +47,7 @@ pub enum ParadeTokenizer {
     JapaneseLindera,
     #[serde(rename = "korean_lindera")]
     KoreanLindera,
+    #[cfg(feature = "icu")]
     #[serde(rename = "icu")]
     ICUTokenizer,
 }
@@ -66,6 +69,7 @@ impl ParadeTokenizer {
             ParadeTokenizer::ChineseLindera => "chinese_lindera".into(),
             ParadeTokenizer::JapaneseLindera => "japanese_lindera".into(),
             ParadeTokenizer::KoreanLindera => "korean_lindera".into(),
+            #[cfg(feature = "icu")]
             ParadeTokenizer::ICUTokenizer => "icu".into(),
         }
     }
@@ -127,6 +131,7 @@ impl From<ParadeTokenizer> for TextAnalyzer {
                     .filter(LowerCaser)
                     .build()
             }
+            #[cfg(feature = "icu")]
             ParadeTokenizer::ICUTokenizer => TextAnalyzer::builder(ICUTokenizer)
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)

@@ -1,12 +1,12 @@
 pub(crate) mod cjk;
 pub(crate) mod code;
+#[cfg(feature = "icu")]
 pub(crate) mod icu;
 pub(crate) mod lindera;
 
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap, ParadeTokenizer};
 use crate::tokenizers::cjk::ChineseTokenizer;
 use crate::tokenizers::code::CodeTokenizer;
-use crate::tokenizers::icu::ICUTokenizer;
 use crate::tokenizers::lindera::{
     LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer,
 };
@@ -16,6 +16,9 @@ use tantivy::tokenizer::{
     AsciiFoldingFilter, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter, TextAnalyzer,
     TokenizerManager,
 };
+
+#[cfg(feature = "icu")]
+use crate::tokenizers::icu::ICUTokenizer;
 
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 
@@ -83,6 +86,7 @@ pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManage
                     .filter(LowerCaser)
                     .build(),
             ),
+            #[cfg(feature = "icu")]
             ParadeTokenizer::ICUTokenizer => Some(
                 TextAnalyzer::builder(ICUTokenizer)
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))

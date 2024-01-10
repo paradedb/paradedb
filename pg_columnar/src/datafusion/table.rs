@@ -63,7 +63,7 @@ impl ParadeTable {
                 Err(e) => return Err(datafusion_err_to_string()(e)),
             };
 
-            source.ok_or("Table not found. Run SELECT paradedb.init(); first.".to_string())
+            source.ok_or("Table not found. Run CALL paradedb.init(); first.".to_string())
         })
     }
 

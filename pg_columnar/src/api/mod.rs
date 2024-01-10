@@ -14,8 +14,22 @@ use crate::datafusion::directory::ParquetDirectory;
 use crate::datafusion::registry::{PARADE_CATALOG, PARADE_SCHEMA};
 use crate::datafusion::schema::{ParadeSchemaOpts, ParadeSchemaProvider};
 
-#[pg_extern]
-pub fn init() {
+#[pg_guard]
+#[no_mangle]
+extern "C" fn pg_finfo_init() -> &'static pg_sys::Pg_finfo_record {
+    const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
+    &V1_API
+}
+
+extension_sql!(
+    r#"
+    CREATE OR REPLACE PROCEDURE init() LANGUAGE C AS 'MODULE_PATHNAME', 'init';
+    "#,
+    name = "init"
+);
+#[pg_guard]
+#[no_mangle]
+pub extern "C" fn init() {
     let session_config = SessionConfig::from_env()
         .expect("Failed to create session config")
         .with_information_schema(true);

@@ -4,7 +4,6 @@ use core::ffi::c_void;
 use pgrx::pg_sys::varlena;
 use pgrx::pg_sys::*;
 use pgrx::*;
-use std::ptr;
 
 pub unsafe extern "C" fn memam_scan_begin(
     _rel: Relation,
@@ -80,9 +79,13 @@ pub unsafe extern "C" fn memam_parallelscan_reinitialize(
     table_block_parallelscan_reinitialize(rel, pscan)
 }
 
-pub unsafe extern "C" fn memam_index_fetch_begin(_rel: Relation) -> *mut IndexFetchTableData {
+#[pg_guard]
+pub unsafe extern "C" fn memam_index_fetch_begin(rel: Relation) -> *mut IndexFetchTableData {
     info!("Calling memam_index_fetch_begin");
-    ptr::null_mut::<IndexFetchTableData>()
+    let mut data = PgBox::<IndexFetchTableData>::alloc0();
+    data.rel = rel;
+
+    data.into_pg()
 }
 
 pub unsafe extern "C" fn memam_index_fetch_reset(_data: *mut IndexFetchTableData) {

@@ -1,54 +1,68 @@
+use async_std::task;
 use async_trait::async_trait;
-use datafusion::catalog::schema::SchemaProvider;
-use datafusion::datasource::file_format::FileFormat;
-use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-};
-use datafusion::datasource::TableProvider;
-use datafusion::error::Result;
-use datafusion::execution::context::SessionState;
-use parking_lot::RwLock;
+use deltalake::datafusion::arrow::record_batch::RecordBatch;
+use deltalake::datafusion::catalog::schema::SchemaProvider;
+use deltalake::datafusion::datasource::TableProvider;
+use deltalake::datafusion::error::Result;
+use deltalake::datafusion::execution::context::SessionState;
+use deltalake::writer::{DeltaWriter, RecordBatchWriter};
+use deltalake::DeltaTable;
+use parking_lot::{Mutex, RwLock};
 use pgrx::*;
 use std::{
     any::Any, collections::HashMap, ffi::CStr, fs::remove_dir_all, path::PathBuf, sync::Arc,
 };
 
+use crate::datafusion::directory::ParquetDirectory;
+use crate::datafusion::error::delta_err_to_string;
+
 pub struct ParadeSchemaOpts {
     pub dir: PathBuf,
-    pub format: Arc<dyn FileFormat>,
 }
 
 pub struct ParadeSchemaProvider {
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
+    writers: Mutex<HashMap<String, RecordBatchWriter>>,
     opts: ParadeSchemaOpts,
 }
 
 impl ParadeSchemaProvider {
-    pub async fn create(state: &SessionState, opts: ParadeSchemaOpts) -> Result<Self> {
-        let tables = ParadeSchemaProvider::load_tables(state, &opts).await?;
+    pub async fn try_new(state: &SessionState, opts: ParadeSchemaOpts) -> Result<Self> {
+        let (tables, writers) = ParadeSchemaProvider::load(state, &opts).await?;
         Ok(Self {
             tables: RwLock::new(tables),
+            writers: Mutex::new(writers),
             opts,
         })
     }
 
     pub async fn refresh(&self, state: &SessionState) -> Result<()> {
-        let tables = ParadeSchemaProvider::load_tables(state, &self.opts).await?;
+        let (tables, writers) = ParadeSchemaProvider::load(state, &self.opts).await?;
         let mut table_lock = self.tables.write();
         *table_lock = tables;
+
+        let mut writer_lock = self.writers.lock();
+        *writer_lock = writers;
+
         Ok(())
     }
 
-    pub async fn vacuum_tables(&self, state: &SessionState) -> Result<()> {
-        let tables = ParadeSchemaProvider::load_tables(state, &self.opts).await?;
+    pub fn vacuum_tables(&self, _state: &SessionState) -> Result<()> {
+        let listdir = std::fs::read_dir(self.opts.dir.clone())?;
 
-        for (table_oid, _) in tables.iter() {
+        for res in listdir {
+            let entry = res?;
+            let file_name = entry.file_name();
+            let table_oid = file_name.to_str().unwrap().to_string();
             if let Ok(oid) = table_oid.parse() {
                 let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(oid) };
                 let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
+
                 if relation.is_null() {
-                    let path = self.opts.dir.join(table_oid);
+                    let path = self.opts.dir.join(&table_oid);
                     remove_dir_all(path.clone())?;
+                } else {
+                    unsafe { pg_sys::RelationClose(relation) }
                 }
             }
         }
@@ -56,16 +70,61 @@ impl ParadeSchemaProvider {
         Ok(())
     }
 
-    pub fn tables(&self) -> Result<HashMap<String, Arc<dyn TableProvider>>> {
-        Ok(self.tables.read().clone())
+    pub fn write(&self, table_name: &str, batch: RecordBatch) -> Result<(), String> {
+        let MAX_BUFFER_LEN = 100_000_000;
+
+        // Write batch to buffer
+        let mut writer_lock = self.writers.lock();
+        let writer = writer_lock
+            .get_mut(table_name)
+            .expect("Failed to get writer");
+
+        task::block_on(writer.write(batch)).map_err(delta_err_to_string())?;
+
+        // If the buffer is too large, flush it to disk
+        if writer.buffer_len() > MAX_BUFFER_LEN {
+            task::block_on(writer.flush()).map_err(delta_err_to_string())?;
+        }
+
+        Ok(())
     }
 
-    async fn load_tables(
-        state: &SessionState,
+    pub fn flush_and_commit(
+        &self,
+        table_name: &str,
+        mut delta_table: DeltaTable,
+    ) -> Result<(), String> {
+        let mut writer_lock = self.writers.lock();
+        let writer = writer_lock
+            .get_mut(table_name)
+            .expect("Failed to get writer");
+
+        // Flush and commit buffer to delta logs
+        task::block_on(writer.flush_and_commit(&mut delta_table)).map_err(delta_err_to_string())?;
+
+        // Commiting creates a new version of the DeltaTable
+        // Update the provider with the new version
+        let mut table_lock = self.tables.write();
+        table_lock.insert(
+            table_name.to_string(),
+            Arc::new(delta_table) as Arc<dyn TableProvider>,
+        );
+
+        Ok(())
+    }
+
+    async fn load(
+        _state: &SessionState,
         opts: &ParadeSchemaOpts,
-    ) -> Result<HashMap<String, Arc<dyn TableProvider>>> {
+    ) -> Result<(
+        HashMap<String, Arc<dyn TableProvider>>,
+        HashMap<String, RecordBatchWriter>,
+    )> {
         let mut tables = HashMap::new();
+        let mut writers = HashMap::new();
+
         let listdir = std::fs::read_dir(opts.dir.clone())?;
+
         for res in listdir {
             let entry = res?;
             let file_name = entry.file_name();
@@ -83,29 +142,24 @@ impl ParadeSchemaProvider {
                         .to_str()
                         .unwrap()
                 };
-                let table_path = ListingTableUrl::parse(entry.path().to_str().unwrap())?;
-                let listing_options = ListingOptions::new(opts.format.clone());
-                let config = match ListingTableConfig::new(table_path)
-                    .with_listing_options(listing_options)
-                    .infer_schema(state)
-                    .await
-                {
-                    Ok(conf) => conf,
-                    Err(_) => {
-                        continue;
-                    }
-                };
-                let table = ListingTable::try_new(config)?;
-                tables.insert(
-                    table_name.to_string(),
-                    Arc::new(table) as Arc<dyn TableProvider>,
-                );
+
+                let table_path = ParquetDirectory::table_path(&table_oid).unwrap();
+
+                if let Ok(delta_table) = deltalake::open_table(table_path).await {
+                    let writer = RecordBatchWriter::for_table(&delta_table)?;
+
+                    writers.insert(table_name.to_string(), writer);
+                    tables.insert(
+                        table_name.to_string(),
+                        Arc::new(delta_table) as Arc<dyn TableProvider>,
+                    );
+                }
 
                 unsafe { pg_sys::RelationClose(relation) };
             }
         }
 
-        Ok(tables)
+        Ok((tables, writers))
     }
 }
 

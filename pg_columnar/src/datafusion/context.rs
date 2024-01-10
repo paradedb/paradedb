@@ -1,15 +1,16 @@
-use datafusion::common::arrow::datatypes::DataType;
-use datafusion::common::config::ConfigOptions;
-use datafusion::common::{plan_err, DataFusionError};
-use datafusion::datasource::provider_as_source;
-use datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
-use datafusion::prelude::SessionContext;
-use datafusion::sql::planner::ContextProvider;
-use datafusion::sql::TableReference;
+use async_std::task;
+use deltalake::datafusion::catalog::schema::SchemaProvider;
+use deltalake::datafusion::common::arrow::datatypes::DataType;
+use deltalake::datafusion::common::config::ConfigOptions;
+use deltalake::datafusion::common::{plan_err, DataFusionError};
+use deltalake::datafusion::datasource::provider_as_source;
+use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
+use deltalake::datafusion::prelude::SessionContext;
+use deltalake::datafusion::sql::planner::ContextProvider;
+use deltalake::datafusion::sql::TableReference;
 use lazy_static::lazy_static;
 use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::collections::HashMap;
-
 use std::sync::Arc;
 
 use crate::datafusion::registry::{PARADE_CATALOG, PARADE_SCHEMA};
@@ -29,8 +30,7 @@ impl<'a> DatafusionContext {
         let context_lock = CONTEXT.read();
         let context = context_lock
             .as_ref()
-            .ok_or("Run SELECT paradedb.init(); first.")
-            .expect("No columnar context found");
+            .expect("Please run SELECT paradedb.init(); first.");
         f(context)
     }
 
@@ -42,8 +42,7 @@ impl<'a> DatafusionContext {
         let mut context_lock = CONTEXT.write();
         let context = context_lock
             .as_mut()
-            .ok_or("Run SELECT paradedb.init(); first.")
-            .expect("No columnar context found");
+            .expect("Please run SELECT paradedb.init(); first.");
         f(context)
     }
 
@@ -76,11 +75,13 @@ impl ParadeContextProvider {
                 .downcast_ref::<ParadeSchemaProvider>()
                 .expect("Failed to downcast schema provider");
 
-            let table_providers = lister.tables().expect("Failed to get tables");
+            let table_names = lister.table_names();
             let mut tables = HashMap::new();
 
-            for (table_oid, provider) in table_providers.iter() {
-                tables.insert(table_oid.to_string(), provider_as_source(provider.clone()));
+            for table_name in table_names.iter() {
+                let table_provider =
+                    task::block_on(lister.table(table_name)).expect("Failed to get table provider");
+                tables.insert(table_name.to_string(), provider_as_source(table_provider));
             }
 
             Self {
@@ -92,7 +93,7 @@ impl ParadeContextProvider {
 }
 
 impl ContextProvider for ParadeContextProvider {
-    fn get_table_source(
+    fn get_table_provider(
         &self,
         name: TableReference,
     ) -> Result<Arc<dyn TableSource>, DataFusionError> {

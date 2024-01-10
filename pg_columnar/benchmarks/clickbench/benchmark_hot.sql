@@ -2,7 +2,7 @@
 CREATE EXTENSION pg_columnar;
 
 \echo Initialize ParadeDB context...
-SELECT paradedb.init();
+CALL paradedb.init();
 
 \echo Creating temporary table...
 \i create_hot.sql

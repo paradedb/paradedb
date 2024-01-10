@@ -67,6 +67,13 @@ pub static mut MEM_TABLE_AM_ROUTINE: pg_sys::TableAmRoutine = pg_sys::TableAmRou
     relation_set_new_filelocator: Some(memam_relation_set_new_filelocator),
 };
 
+#[pg_guard]
+#[no_mangle]
+extern "C" fn pg_finfo_mem_tableam_handler() -> &'static pg_sys::Pg_finfo_record {
+    const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
+    &V1_API
+}
+
 extension_sql!(
     r#"
 CREATE FUNCTION mem_tableam_handler(internal) RETURNS table_am_handler AS 'MODULE_PATHNAME', 'mem_tableam_handler' LANGUAGE C STRICT;

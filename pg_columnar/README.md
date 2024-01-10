@@ -9,7 +9,7 @@ The following toy example shows how to get started with `pg_columnar`.
 ```sql
 CREATE EXTENSION pg_columnar;
 -- This needs to be run once per connection
-SELECT paradedb.init();
+CALL paradedb.init();
 -- USING mem indicates that we are creating a columnar table
 CREATE TABLE t (a int) USING mem;
 -- Now you can any Postgres query

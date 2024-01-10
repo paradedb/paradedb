@@ -30,7 +30,7 @@ impl<'a> DatafusionContext {
         let context_lock = CONTEXT.read();
         let context = context_lock
             .as_ref()
-            .expect("Please run SELECT paradedb.init(); first.");
+            .expect("Please run CALL paradedb.init(); first.");
         f(context)
     }
 
@@ -42,7 +42,7 @@ impl<'a> DatafusionContext {
         let mut context_lock = CONTEXT.write();
         let context = context_lock
             .as_mut()
-            .expect("Please run SELECT paradedb.init(); first.");
+            .expect("Please run CALL paradedb.init(); first.");
         f(context)
     }
 

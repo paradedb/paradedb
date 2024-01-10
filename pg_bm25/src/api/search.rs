@@ -217,8 +217,8 @@ impl Iterator for DedupeResultsIterator {
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::*;
-    use shared::testing::SETUP_SQL;
-    // use shared::testing::{test_table, ExpectedRow, SETUP_SQL};
+    // use shared::testing::SETUP_SQL;
+    use shared::testing::{test_table, ExpectedRow, SETUP_SQL};
 
     #[pg_test]
     fn test_rank_bm25() {
@@ -258,111 +258,111 @@ mod tests {
     }
 
     // TODO: The highlight tests don't pass, for some reason
-    // #[pg_test]
-    // fn highlight_without_max_num_chars() -> spi::Result<()> {
-    //     Spi::run(SETUP_SQL).expect("failed to setup index");
-    //     Spi::connect(|client| {
-    //         let table = client.select(
-    //             "SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics') as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description') as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics') as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;",
-    //             None,
-    //             None,
-    //         )?;
+    #[pg_test]
+    fn highlight_without_max_num_chars() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics') as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description') as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics') as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;",
+                None,
+                None,
+            )?;
 
-    //         let expect = vec![
-    //             ExpectedRow {
-    //                 description: Some("Plastic Keyboard"),
-    //                 rating: Some(4),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some("Plastic <b>Keyboard</b>"),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //             ExpectedRow {
-    //                 description: Some("Ergonomic metal keyboard"),
-    //                 rating: Some(4),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some("Ergonomic metal <b>keyboard</b>"),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //             ExpectedRow {
-    //                 description: Some("Innovative wireless earbuds"),
-    //                 rating: Some(5),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some(""),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //             ExpectedRow {
-    //                 description: Some("Fast charging power bank"),
-    //                 rating: Some(4),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some(""),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //             ExpectedRow {
-    //                 description: Some("Bluetooth-enabled speaker"),
-    //                 rating: Some(3),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some(""),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //         ];
+            let expect = vec![
+                ExpectedRow {
+                    description: Some("Plastic Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some("Plastic <b>Keyboard</b>"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    description: Some("Ergonomic metal keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some("Ergonomic metal <b>keyboard</b>"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    description: Some("Innovative wireless earbuds"),
+                    rating: Some(5),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some(""),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    description: Some("Fast charging power bank"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some(""),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    description: Some("Bluetooth-enabled speaker"),
+                    rating: Some(3),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some(""),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
 
-    //         test_table(table, expect);
+            let _ = test_table(table, expect);
 
-    //         Ok(())
-    //     })
-    // }
+            Ok(())
+        })
+    }
 
-    // #[pg_test]
-    // fn highlight_with_max_num_chars() -> spi::Result<()> {
-    //     Spi::run(SETUP_SQL).expect("failed to setup index");
-    //     Spi::connect(|client| {
-    //         let table = client.select(
-    //             "SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics', max_num_chars => 14) as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description', max_num_chars => 14) as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics', max_num_chars => 14) as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;",
-    //             None,
-    //             None,
-    //         )?;
+    #[pg_test]
+    fn highlight_with_max_num_chars() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics', max_num_chars => 14) as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description', max_num_chars => 14) as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics', max_num_chars => 14) as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;",
+                None,
+                None,
+            )?;
 
-    //         let expect = vec![
-    //             ExpectedRow {
-    //                 description: Some("Plastic Keyboard"),
-    //                 rating: Some(4),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some("<b>Keyboard</b>"),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //             ExpectedRow {
-    //                 description: Some("Ergonomic metal keyboard"),
-    //                 rating: Some(4),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some("metal <b>keyboard</b>"),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //             ExpectedRow {
-    //                 description: Some("Innovative wireless earbuds"),
-    //                 rating: Some(5),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some(""),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //             ExpectedRow {
-    //                 description: Some("Fast charging power bank"),
-    //                 rating: Some(4),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some(""),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //             ExpectedRow {
-    //                 description: Some("Bluetooth-enabled speaker"),
-    //                 rating: Some(3),
-    //                 category: Some("Electronics"),
-    //                 highlight_bm25: Some(""),
-    //                 ..Default::default() // Other fields default to None
-    //             },
-    //         ];
+            let expect = vec![
+                ExpectedRow {
+                    description: Some("Plastic Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some("<b>Keyboard</b>"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    description: Some("Ergonomic metal keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some("metal <b>keyboard</b>"),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    description: Some("Innovative wireless earbuds"),
+                    rating: Some(5),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some(""),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    description: Some("Fast charging power bank"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some(""),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    description: Some("Bluetooth-enabled speaker"),
+                    rating: Some(3),
+                    category: Some("Electronics"),
+                    highlight_bm25: Some(""),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
 
-    //         test_table(table, expect);
+            let _ = test_table(table, expect);
 
-    //         Ok(())
-    //     })
-    // }
+            Ok(())
+        })
+    }
 }

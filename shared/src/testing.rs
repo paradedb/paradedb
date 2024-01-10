@@ -1,6 +1,7 @@
 use pgrx::spi::SpiTupleTable;
 use pgrx::{JsonB, Spi};
 use serde_json::Value as JsonValue;
+use std::error::Error;
 
 pub const SETUP_SQL: &str = include_str!("sql/index_setup.sql");
 pub const QUERY_SQL: &str = include_str!("sql/search_query.sql");
@@ -8,7 +9,7 @@ pub const QUERY_SQL: &str = include_str!("sql/search_query.sql");
 /// Define a struct to represent the expected row structure of our bm25_test_table,
 /// with optional fields for testing flexibility.
 pub struct ExpectedRow {
-    pub rank_bm25: Option<f64>,
+    pub rank_bm25: Option<f32>,
     pub id: Option<i32>,
     pub description: Option<&'static str>,
     pub rating: Option<i32>,
@@ -35,22 +36,75 @@ impl Default for ExpectedRow {
     }
 }
 
+fn get_column_names(table: &SpiTupleTable) -> Result<Vec<String>, Box<dyn Error>> {
+    let mut column_names = Vec::new();
+    let mut ordinal = 1;
+
+    while let Ok(name) = table.column_name(ordinal) {
+        column_names.push(name);
+        ordinal += 1;
+    }
+
+    Ok(column_names)
+}
+
 /// Compares the output of Spi::connect() query on our bm25_test_table to the expected output.
 ///
 /// NOTE: This function assume that the query is executed against the bm25_search schema created
 /// by the index_setup.sql script.
-pub fn test_table(mut table: SpiTupleTable, expect: Vec<ExpectedRow>) {
+pub fn test_table(
+    mut table: SpiTupleTable,
+    expect: Vec<ExpectedRow>,
+) -> Result<(), Box<dyn Error>> {
+    let column_names = get_column_names(&table)?;
+
     let mut i = 0;
     while let Some(_) = table.next() {
-        // Retrieve each field as optional
-        let rank_bm25 = table.get::<f64>(0).ok().flatten();
-        let id = table.get::<i32>(1).ok().flatten();
-        let description = table.get::<&str>(2).ok().flatten();
-        let rating = table.get::<i32>(3).ok().flatten();
-        let category = table.get::<&str>(4).ok().flatten();
-        let in_stock = table.get::<bool>(5).ok().flatten();
-        let metadata = table.get::<JsonB>(6).ok().flatten().map(|jsonb| jsonb.0);
-        let highlight_bm25 = table.get::<&str>(7).ok().flatten();
+        // Initialize fields with default values
+        let mut rank_bm25 = None;
+        let mut id = None;
+        let mut description = None;
+        let mut rating = None;
+        let mut category = None;
+        let mut in_stock = None;
+        let mut metadata = None;
+        let mut highlight_bm25 = None;
+
+        for (index, col_name) in column_names.iter().enumerate() {
+            match col_name.as_str() {
+                "rank_bm25" => {
+                    rank_bm25 = table.get(index + 1).ok().flatten();
+                }
+                "id" => {
+                    id = table.get(index + 1).ok().flatten();
+                }
+                "description" => {
+                    description = table.get(index + 1).ok().flatten();
+                }
+                "rating" => {
+                    rating = table.get(index + 1).ok().flatten();
+                }
+                "category" => {
+                    category = table.get(index + 1).ok().flatten();
+                }
+                "in_stock" => {
+                    in_stock = table.get(index + 1).ok().flatten();
+                }
+                "metadata" => {
+                    metadata = table
+                        .get(index + 1)
+                        .ok()
+                        .flatten()
+                        .map(|jsonb: JsonB| jsonb.0);
+                }
+                "highlight_bm25" => {
+                    highlight_bm25 = table.get(index + 1).ok().flatten();
+                }
+                _ => {
+                    panic!("Unexpected column name: {}", col_name); // Should never happen
+                }
+            }
+        }
 
         // Create a tuple from the retrieved values
         let row = ExpectedRow {
@@ -77,7 +131,8 @@ pub fn test_table(mut table: SpiTupleTable, expect: Vec<ExpectedRow>) {
 
         i += 1;
     }
-    assert_eq!(expect.len(), i);
+    assert_eq!(expect.len(), i, "Number of rows does not match expected");
+    Ok(())
 }
 
 /// Executes a query on a remote PostgreSQL database using dblink.

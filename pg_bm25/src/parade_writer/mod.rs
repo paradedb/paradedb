@@ -1,18 +1,21 @@
 pub mod client;
 pub mod server;
+pub mod transfer;
 
-use crate::json::builder::JsonBuilder;
+// use crate::json::builder::JsonBuilder;
 pub use client::ParadeWriterClient;
 use pgrx::PGRXSharedMemory;
 use serde::{Deserialize, Serialize};
 pub use server::ParadeWriterServer;
 use tantivy::schema::Field;
 
+use crate::json::builder::JsonBuilder;
+
 /// Possible actions to request of the ParadeWriterServer.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ParadeWriterRequest {
-    /// index_directory_path, json_builder.
-    Insert(String, JsonBuilder),
+    /// index_directory_path
+    Insert(String),
     /// index_directory_path, vector of ctid values.
     Delete(String, Field, Vec<u64>),
     /// index_directory_path, vector of paths
@@ -23,6 +26,12 @@ pub enum ParadeWriterRequest {
     Vacuum(String),
     /// should only be called by shutdown bgworker.
     Shutdown,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ParadeWriterInsertMessage {
+    Data(JsonBuilder),
+    Done,
 }
 
 /// Possible responses for the ParadeWriterServer.

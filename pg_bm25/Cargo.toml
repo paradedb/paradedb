@@ -21,8 +21,11 @@ telemetry = ["shared/telemetry"]
 [dependencies]
 chrono = "0.4.31"
 csv = "1.2.2"
+heapless = "0.8.0"
 indexmap = "2.1.0"
+interprocess = "1.2.1"
 json5 = "0.4.1"
+libc = "0.2.152"
 lindera-core = "0.27.1"
 lindera-dictionary = "0.27.1"
 lindera-tokenizer = { version = "0.27.1", features = [

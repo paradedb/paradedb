@@ -7,8 +7,12 @@ use std::path::Path;
 use tantivy::schema::Field;
 use tantivy::{Document, IndexWriter, Term};
 
+use super::transfer::{WriterTransferConsumer, WriterTransferMessage};
+
 pub struct ParadeWriterServer {
+    /// A flag to tell the HTTP server that a shutdown message has been received.
     should_exit: bool,
+    /// Map of index directory path to Tantivy writer instance.
     writers: HashMap<String, IndexWriter>,
 }
 
@@ -28,20 +32,44 @@ impl ParadeWriterServer {
     }
 
     /// A displach method to choose an action based on a variant of ParadeWriterRequest.
-    pub fn handle(&mut self, request: ParadeWriterRequest) -> ParadeWriterResponse {
+    pub fn handle<F: FnOnce(ParadeWriterResponse)>(
+        &mut self,
+        request: &ParadeWriterRequest,
+        respond: F,
+    ) {
         match request {
-            ParadeWriterRequest::Shutdown => self.shutdown(),
-            ParadeWriterRequest::Commit(index_directory_path) => self.commit(index_directory_path),
-            ParadeWriterRequest::Insert(index_directory_path, json_builder) => {
-                self.insert(index_directory_path, json_builder)
+            ParadeWriterRequest::Shutdown => {
+                respond(self.shutdown());
+            }
+            ParadeWriterRequest::Commit(index_directory_path) => {
+                respond(self.commit(index_directory_path));
+            }
+            ParadeWriterRequest::Insert(index_directory_path) => {
+                // The consumer needs to be initialized before we respond to the client.
+                let mut consumer = WriterTransferConsumer::new()
+                    .expect("could not create writer transfer consumer");
+
+                pgrx::log!("responding to insert with writer response");
+                respond(ParadeWriterResponse::Ok);
+
+                pgrx::log!("listening to insert stream from named pipe");
+                self.insert_stream(&index_directory_path, &mut consumer);
+                pgrx::log!("completed reading from named pipe");
+                self.commit(&index_directory_path);
+                pgrx::log!("completed commit to tantivy");
             }
             ParadeWriterRequest::Delete(index_directory_path, ctid_field, ctid_values) => {
-                self.delete(index_directory_path, ctid_field, ctid_values)
+                respond(self.delete(index_directory_path, ctid_field, ctid_values))
             }
             ParadeWriterRequest::DropIndex(index_directory_path, paths_to_delete) => {
-                self.drop_index(index_directory_path, paths_to_delete)
+                let paths_to_delete: Vec<&str> =
+                    paths_to_delete.iter().map(AsRef::as_ref).collect();
+
+                respond(self.drop_index(index_directory_path, &paths_to_delete));
             }
-            ParadeWriterRequest::Vacuum(index_directory_path) => self.vacuum(index_directory_path),
+            ParadeWriterRequest::Vacuum(index_directory_path) => {
+                respond(self.vacuum(index_directory_path))
+            }
         }
     }
 
@@ -60,10 +88,32 @@ impl ParadeWriterServer {
         ))
     }
 
+    pub fn insert_stream(
+        &mut self,
+        index_directory_path: &str,
+        transfer_consumer: &mut WriterTransferConsumer,
+    ) {
+        for value in transfer_consumer.read_stream::<JsonBuilder>() {
+            match value {
+                Ok(WriterTransferMessage::Done) => {
+                    pgrx::log!("got DONE value from insert stream");
+                    self.commit(index_directory_path);
+                }
+                Ok(WriterTransferMessage::Data(json_builder)) => {
+                    pgrx::log!("got value from insert stream: {json_builder:?}");
+                    self.insert(index_directory_path, json_builder);
+                }
+                Err(err) => {
+                    pgrx::log!("received an error ")
+                }
+            }
+        }
+    }
+
     /// Insert one row of fields into the Tantivy index as a new document.
     fn insert(
         &mut self,
-        index_directory_path: String,
+        index_directory_path: &str,
         json_builder: JsonBuilder,
     ) -> ParadeWriterResponse {
         let key_field = json_builder.key;
@@ -107,15 +157,15 @@ impl ParadeWriterServer {
 
     fn delete(
         &mut self,
-        index_directory_path: String,
-        ctid_field: Field,
-        ctid_values: Vec<u64>,
+        index_directory_path: &str,
+        ctid_field: &Field,
+        ctid_values: &[u64],
     ) -> ParadeWriterResponse {
         match self.writer(&index_directory_path) {
             Err(e) => ParadeWriterResponse::Error(e.to_string()),
             Ok(writer) => {
                 for ctid in ctid_values {
-                    let ctid_term = Term::from_field_u64(ctid_field, ctid);
+                    let ctid_term = Term::from_field_u64(ctid_field.clone(), ctid.clone());
                     writer.delete_term(ctid_term);
                 }
                 ParadeWriterResponse::Ok
@@ -139,14 +189,14 @@ impl ParadeWriterServer {
         ParadeWriterResponse::Ok
     }
 
-    fn commit(&mut self, index_directory_path: String) -> ParadeWriterResponse {
+    fn commit(&mut self, index_directory_path: &str) -> ParadeWriterResponse {
         match self.writer(&index_directory_path) {
             Err(e) => ParadeWriterResponse::Error(e.to_string()),
             Ok(writer) => Self::commit_with_writer(writer),
         }
     }
 
-    fn vacuum(&mut self, index_directory_path: String) -> ParadeWriterResponse {
+    fn vacuum(&mut self, index_directory_path: &str) -> ParadeWriterResponse {
         match self.writer(&index_directory_path) {
             Err(e) => ParadeWriterResponse::Error(e.to_string()),
             Ok(writer) => {
@@ -162,8 +212,8 @@ impl ParadeWriterServer {
 
     fn drop_index(
         &mut self,
-        index_directory_path: String,
-        mut paths_to_delete: Vec<String>,
+        index_directory_path: &str,
+        paths_to_delete: &[&str],
     ) -> ParadeWriterResponse {
         match self.writer(&index_directory_path) {
             Err(_) => {
@@ -198,7 +248,7 @@ impl ParadeWriterServer {
         // Remove the writer from the cache so that it is dropped.
         // We want to do this first so that the lockfile is released before deleting.
         // We'll manually call drop to make sure the lockfile is cleaned up.
-        match self.writers.remove(&index_directory_path) {
+        match self.writers.remove(index_directory_path) {
             Some(writer) => std::mem::drop(writer),
             None => {
                 let msg =
@@ -208,6 +258,7 @@ impl ParadeWriterServer {
         };
 
         // Filter out non-existent paths and sort: files first, then directories
+        let mut paths_to_delete = paths_to_delete.to_vec();
         paths_to_delete.retain(|path| Path::new(path).exists());
         paths_to_delete.sort_by_key(|path| !Path::new(path).is_file());
 

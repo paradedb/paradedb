@@ -1,16 +1,19 @@
-use crate::parade_writer::ParadeWriterServer;
-use crate::parade_writer::WriterInitError;
-use crate::parade_writer::{ParadeWriterRequest, ParadeWriterResponse};
+#![allow(dead_code, unused_variables)]
+use crate::parade_writer::{
+    ParadeWriterRequest, ParadeWriterResponse, ParadeWriterServer, WriterInitError,
+};
 use parade_writer::ParadeWriterClient;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
+use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 use tiny_http::{Response, Server};
 
 mod api;
+mod env;
 mod index_access;
 mod json;
 mod operator;
@@ -92,6 +95,7 @@ pub fn setup_background_workers() {
 pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
     // Bind to port 0 to let the OS choose a free port.
     // Check if there was an error starting the server, and return early if so.
+    let mut socket_addr: Option<SocketAddr> = None;
     let server = {
         // Note that we do not derefence the WRITER to mutate it, due to PGRX shared struct rules.
         // We also acquire its lock with `.exclusive` inside an enclosing block to ensure that
@@ -108,6 +112,7 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
                     // We want to set the socket address on the addr field of the writer client,
                     // so that connection processes that share it know where to send their requests.
                     tiny_http::ListenAddr::IP(addr) => {
+                        socket_addr.replace(addr);
                         writer_client.set_addr(addr);
                     }
                     // It's not clear when tiny_http would choose to use a Unix socket address,
@@ -140,17 +145,30 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
     // handles the requests and produces responses.
     let mut writer_server = ParadeWriterServer::new();
 
+    pgrx::log!(
+        "initialized writer server at {}",
+        socket_addr.map(|a| a.to_string()).unwrap_or("".into())
+    );
     for mut request in server.incoming_requests() {
-        let response = match ParadeWriterRequest::try_from(&mut request) {
+        let writer_request = ParadeWriterRequest::try_from(&mut request);
+        pgrx::log!("got writer request: {writer_request:?}");
+        match &writer_request {
+            // Handle any kind of error parsing the request.
             Err(e) => {
-                ParadeWriterResponse::Error(format!("error parsing parade writer request: {e:?}"))
+                pgrx::log!("unexpecting error on writer server while parsing client request");
+                let response =  ParadeWriterResponse::Error(format!("error parsing parade writer request: {e:?}"));
+                request
+                    .respond(Response::from_data(response))
+                    .unwrap_or_else(|e| log!("parade index writer encountered an unexpected error responding to client: {e:?}"));
             }
-            Ok(req) => writer_server.handle(req),
+            // The expected path, the request was successfully parsed and we delegate to the
+            // server instance to handle it.
+            Ok(req) => writer_server.handle(req, |response| {
+                request
+                    .respond(Response::from_data(response))
+                    .unwrap_or_else(|e| log!("parade index writer encountered an unexpected error responding to client: {e:?}"));
+            }),
         };
-
-        request
-            .respond(Response::from_data(response))
-            .unwrap_or_else(|e| log!("parade index writer encountered an unexpected error responding to client: {e:?}"));
 
         if writer_server.should_exit() {
             log!("pg_bm25 server received shutdown request, shutting down.");

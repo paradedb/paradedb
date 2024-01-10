@@ -103,6 +103,7 @@ jobs:
 
       # TODO: Extension upgrade test without pg_regress
       - name: Initialize pgrx for Current PostgreSQL Version
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
         working-directory: pg_columnar/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 

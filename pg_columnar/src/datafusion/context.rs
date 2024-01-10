@@ -1,10 +1,8 @@
 use datafusion::common::arrow::datatypes::DataType;
-
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::{plan_err, DataFusionError};
 use datafusion::datasource::provider_as_source;
 use datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
-
 use datafusion::prelude::SessionContext;
 use datafusion::sql::planner::ContextProvider;
 use datafusion::sql::TableReference;

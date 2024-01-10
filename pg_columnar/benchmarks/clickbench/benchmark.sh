@@ -86,6 +86,11 @@ cleanup() {
     fi
     docker rm paradedb > /dev/null 2>&1
   fi
+
+  # Delete the log.txt file, if it exists
+  if [ -f "log.txt" ]; then
+    rm -rf "log.txt"
+  fi
   echo "Done, goodbye!"
 }
 
@@ -154,8 +159,14 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
     # Table creation, data loading, and query execution are all done from `benchmark_hot.sql`
     psql -h localhost -p 28815 -d pg_columnar -t < benchmark_hot.sql
   elif [ "$FLAG_STORAGE" = "cold" ]; then
-    # Table creation, data loading, and query execution are all done from `benchmark_cold.sql`
+    # Table creation and data loading are done from `benchmark_cold.sql`, and query execution
+    # is done via `run.sh`
     psql -h localhost -p 28815 -d pg_columnar -t < benchmark_cold.sql
+    ./run.sh 2>&1 | tee log.txt
+
+    # Display results in the format expected by the ClickBench dashboard
+    echo ""
+    grep -Eo 'Time: \d+\.\d+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' | awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
   elif [ "$FLAG_STORAGE" = "parquet-single" ]; then
     echo "TODO: Implement pgrx + Parquet single storage benchmarking"
   elif [ "$FLAG_STORAGE" = "parquet-partitioned" ]; then
@@ -216,4 +227,5 @@ else
   fi
 fi
 
+echo ""
 echo "Benchmark complete!"

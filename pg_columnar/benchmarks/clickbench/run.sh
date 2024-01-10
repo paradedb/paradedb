@@ -15,20 +15,15 @@ while read -r query; do
 
   if [[ "$OS" == "Linux" ]]; then
     echo 3 | sudo tee /proc/sys/vm/drop_caches
-  elif [[ "$OS" == "Darwin" ]]; then
-    echo 3 | tee /proc/sys/vm/drop_caches
-  else
-    echo "Unsupported OS: $OS"
-    exit 1
   fi
 
   # TODO: Make this work with multiple storage types
   echo "$query";
   for _ in $(seq 1 $TRIES); do
     if [[ "$OS" == "Linux" ]]; then
-      sudo -u postgres psql pg_columnar -t -c '\timing' -c "$query" | grep 'Time'
+      sudo -u postgres psql pg_columnar -t -c "SELECT paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
     elif [[ "$OS" == "Darwin" ]]; then
-      psql -h localhost -p 28815 -d pg_columnar -t -c '\timing' -c "$query" | grep 'Time'
+      psql -h localhost -p 28815 -d pg_columnar -t -c "SELECT paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
     fi
   done;
-done < clickbench/paradedb/queries.sql
+done < queries.sql

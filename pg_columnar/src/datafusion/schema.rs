@@ -70,7 +70,6 @@ impl ParadeSchemaProvider {
             let entry = res?;
             let file_name = entry.file_name();
             let table_oid = file_name.to_str().unwrap().to_string();
-
             if let Ok(oid) = table_oid.parse() {
                 let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(oid) };
                 let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };

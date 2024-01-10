@@ -13,6 +13,4 @@ TRUNCATE hits;
 \copy hits FROM 'hits_100k_rows.csv' WITH (FORMAT CSV, QUOTE '"', ESCAPE '"');
 VACUUM FREEZE hits;
 
-\echo Running ClickBench queries...
-\timing on
-\i queries.sql
+-- In benchmark_cold.sql, we run the queries via `./run.sh`

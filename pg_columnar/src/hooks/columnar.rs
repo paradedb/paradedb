@@ -61,15 +61,6 @@ impl ColumnarStmt {
         Ok(using_col)
     }
 
-    pub unsafe fn relation_is_columnar(
-        relation: *mut pg_sys::RelationData,
-    ) -> Result<bool, String> {
-        let columnar_handler_oid = Self::columnar_handler_oid()?;
-        let relation_handler_oid = (*relation).rd_amhandler;
-
-        Ok(relation_handler_oid == columnar_handler_oid)
-    }
-
     unsafe fn columnar_handler_oid() -> Result<pg_sys::Oid, String> {
         let columnar_handler_str = CString::new(COLUMNAR_HANDLER).unwrap();
         let columnar_handler_ptr = columnar_handler_str.as_ptr() as *const c_char;

@@ -102,7 +102,6 @@ jobs:
         run: cargo clean
 
       # TODO: Extension upgrade test without pg_regress
-
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_columnar/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config

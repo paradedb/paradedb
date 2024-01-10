@@ -3,7 +3,6 @@
 mod api;
 mod datafusion;
 mod hooks;
-mod nodes;
 mod tableam;
 
 use pgrx::*;

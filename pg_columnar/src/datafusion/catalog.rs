@@ -1,6 +1,6 @@
-use datafusion::catalog::schema::SchemaProvider;
-use datafusion::catalog::{CatalogList, CatalogProvider};
-use datafusion::common::DataFusionError;
+use deltalake::datafusion::catalog::schema::SchemaProvider;
+use deltalake::datafusion::catalog::{CatalogList, CatalogProvider};
+use deltalake::datafusion::common::DataFusionError;
 use parking_lot::RwLock;
 use std::{any::Any, collections::HashMap, sync::Arc};
 

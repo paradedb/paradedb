@@ -1,11 +1,11 @@
-use datafusion::logical_expr::{DdlStatement, DropTable, LogicalPlan};
-use datafusion::sql::TableReference;
+use deltalake::datafusion::logical_expr::{DdlStatement, DropTable, LogicalPlan};
+use deltalake::datafusion::sql::TableReference;
 
 use pgrx::*;
 
 use std::sync::Arc;
 
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::ParadeTable;
 use crate::hooks::columnar::ColumnarStmt;
 use crate::nodes::producer::DatafusionPlansProducer;
 
@@ -49,7 +49,7 @@ impl DatafusionPlansProducer for DropStmtNode {
             if ColumnarStmt::relation_is_columnar(relation_data).unwrap_or(false) {
                 let relation = pg_sys::RelationIdGetRelation((*relation_data).rd_id);
                 let pg_relation = PgRelation::from_pg_owned(relation);
-                let table = DatafusionTable::from_pg(&pg_relation)?;
+                let table = ParadeTable::from_pg(&pg_relation)?;
                 let reference = TableReference::from(table.name()?);
                 let schema = Arc::new(table.schema()?);
 

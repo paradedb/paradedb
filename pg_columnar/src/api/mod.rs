@@ -1,11 +1,12 @@
 use async_std::task;
-use datafusion::catalog::CatalogProvider;
-use datafusion::datasource::file_format::parquet::ParquetFormat;
-use datafusion::execution::context::SessionState;
-use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
-use datafusion::prelude::{SessionConfig, SessionContext};
+use deltalake::datafusion::catalog::CatalogProvider;
+
+use deltalake::datafusion::execution::context::SessionState;
+use deltalake::datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
+use deltalake::datafusion::prelude::{SessionConfig, SessionContext};
 use pgrx::*;
-use std::{path::Path, sync::Arc};
+use std::path::Path;
+use std::sync::Arc;
 
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
 use crate::datafusion::context::DatafusionContext;
@@ -44,6 +45,9 @@ pub fn init() {
                 SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
             // Create schema provider
             let schema_provider = create_schema_provider(&context.state());
+            task::block_on(schema_provider.refresh(&context.state()))
+                .expect("Failed to refresh schema provider");
+
             context.register_catalog_list(Arc::new(ParadeCatalogList::new()));
             // Create and register catalog
             let catalog = ParadeCatalog::new();
@@ -60,20 +64,15 @@ pub fn init() {
 #[inline]
 fn create_schema_provider(state: &SessionState) -> Arc<ParadeSchemaProvider> {
     Arc::new(
-        task::block_on(ParadeSchemaProvider::create(
+        task::block_on(ParadeSchemaProvider::try_new(
             state,
             ParadeSchemaOpts {
-                format: Arc::new(
-                    ParquetFormat::new()
-                        .with_enable_pruning(Some(true))
-                        .with_skip_metadata(Some(false)),
-                ),
                 dir: Path::new(
                     &ParquetDirectory::schema_path().expect("Failed to get schema path"),
                 )
                 .to_path_buf(),
             },
         ))
-        .expect("Could not get schema"),
+        .expect("Failed to create schema provider"),
     )
 }

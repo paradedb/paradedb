@@ -1,11 +1,11 @@
 use async_std::task;
-use datafusion::arrow::array::AsArray;
+use deltalake::datafusion::arrow::array::AsArray;
 
-use datafusion::common::arrow::array::types::UInt64Type;
-use datafusion::common::arrow::array::RecordBatch;
-use datafusion::sql::parser::DFParser;
-use datafusion::sql::planner::SqlToRel;
-use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
+use deltalake::datafusion::common::arrow::array::types::UInt64Type;
+use deltalake::datafusion::common::arrow::array::RecordBatch;
+use deltalake::datafusion::sql::parser::DFParser;
+use deltalake::datafusion::sql::planner::SqlToRel;
+use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
 use std::ffi::CStr;
 use std::num::TryFromIntError;
@@ -30,24 +30,35 @@ pub fn executor_run(
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;
 
+        // Only use this hook for columnar tables
         if rtable.is_null() || !ColumnarStmt::rtable_is_columnar(rtable).unwrap_or(false) {
             prev_hook(query_desc, direction, count, execute_once);
             return HookResult::new(());
         }
 
-        let query_str = CStr::from_ptr(query_desc.sourceText)
+        // Only use this hook for SELECT queries
+        // INSERT/UPDATE/DELETE are handled by the table access method
+        if query_desc.operation != pg_sys::CmdType_CMD_SELECT {
+            prev_hook(query_desc, direction, count, execute_once);
+            return HookResult::new(());
+        }
+
+        // Parse the query into an AST
+        let dialect = PostgreSqlDialect {};
+        let query = CStr::from_ptr(query_desc.sourceText)
             .to_str()
             .expect("Failed to parse query string");
-        let dialect = PostgreSqlDialect {};
-        let ast =
-            DFParser::parse_sql_with_dialect(query_str, &dialect).expect("Failed to parse AST");
+        let ast = DFParser::parse_sql_with_dialect(query, &dialect).expect("Failed to parse AST");
         let statement = &ast[0];
+
+        // Convert the AST into a logical plan
         let context_provider = ParadeContextProvider::new();
         let sql_to_rel = SqlToRel::new(&context_provider);
         let logical_plan = sql_to_rel
             .statement_to_plan(statement.clone())
             .expect("Failed to create plan");
 
+        // Execute the logical plan
         let recordbatchvec: Vec<RecordBatch> = DatafusionContext::with_read(|context| {
             let dataframe = task::block_on(context.execute_logical_plan(logical_plan)).unwrap();
             task::block_on(dataframe.collect()).unwrap()
@@ -64,6 +75,7 @@ pub fn executor_run(
             (*(*query_desc.clone().into_pg()).estate).es_processed = num_updated;
         }
 
+        // Return result tuples
         let _ = send_tuples_if_necessary(query_desc.into_pg(), recordbatchvec);
 
         HookResult::new(())

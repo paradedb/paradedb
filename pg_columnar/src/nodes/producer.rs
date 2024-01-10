@@ -1,4 +1,4 @@
-use datafusion::logical_expr::{Expr, LogicalPlan};
+use deltalake::datafusion::logical_expr::{Expr, LogicalPlan};
 use pgrx::*;
 
 pub trait DatafusionPlanProducer {

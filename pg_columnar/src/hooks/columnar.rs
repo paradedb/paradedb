@@ -1,5 +1,5 @@
 use pgrx::*;
-use std::ffi::{c_char, CStr, CString};
+use std::ffi::{c_char, CString};
 
 static COLUMNAR_HANDLER: &str = "mem";
 
@@ -61,13 +61,6 @@ impl ColumnarStmt {
         Ok(using_col)
     }
 
-    pub unsafe fn copy_is_columnar(copy_stmt: *mut pg_sys::CopyStmt) -> Result<bool, String> {
-        let columnar_handler_oid = Self::columnar_handler_oid()?;
-        let relation_handler_oid = Self::relation_handler_oid((*copy_stmt).relation)?;
-
-        Ok(relation_handler_oid == columnar_handler_oid)
-    }
-
     pub unsafe fn relation_is_columnar(
         relation: *mut pg_sys::RelationData,
     ) -> Result<bool, String> {
@@ -94,12 +87,5 @@ impl ColumnarStmt {
         pg_sys::ReleaseSysCache(heap_tuple_data);
 
         Ok((*catalog).amhandler)
-    }
-
-    unsafe fn relation_handler_oid(relation: *mut pg_sys::RangeVar) -> Result<pg_sys::Oid, String> {
-        let relation_name = CStr::from_ptr((*relation).relname).to_str().unwrap();
-        let relation_data = PgRelation::open_with_name(relation_name)?.as_ptr();
-
-        Ok((*relation_data).rd_amhandler)
     }
 }

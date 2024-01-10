@@ -1,6 +1,6 @@
 # pg_columnar
 
-`pg_columnar` is a Postgres extension that enables Clickhouse-level analytics (OLAP) performance inside Postgres. `pg_columnar` achieves this by leveraging Apache Parquet for storage, Apache Arrow for column-oriented memory, and Apache Datafusion for vectorized query execution with SIMD.
+`pg_columnar` is a Postgres extension that enables Clickhouse-level analytics (OLAP) performance inside Postgres. `pg_columnar` achieves this using Apache Parquet for storage, Apache Arrow for column-oriented memory, and Apache Datafusion for vectorized query execution with SIMD.
 
 ## Getting Started
 

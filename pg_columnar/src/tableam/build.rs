@@ -2,7 +2,7 @@ use core::ffi::c_char;
 use pgrx::pg_sys::*;
 use pgrx::*;
 
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::ParadeTable;
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
@@ -40,7 +40,7 @@ fn create_table(rel: Relation, persistence: c_char) {
             panic!("Temp tables are not yet supported");
         }
         pg_sys::RELPERSISTENCE_PERMANENT => {
-            let _ = DatafusionTable::create(&pg_relation).unwrap();
+            let _ = ParadeTable::create(&pg_relation).unwrap();
         }
         _ => {
             panic!("Unknown persistence type");

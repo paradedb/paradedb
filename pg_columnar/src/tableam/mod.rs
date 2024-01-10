@@ -1,6 +1,6 @@
 mod build;
 mod ignored;
-pub mod insert;
+mod insert;
 
 use pgrx::*;
 

@@ -1,14 +1,14 @@
-use datafusion::arrow::datatypes::{
+use deltalake::datafusion::arrow::datatypes::{
     DataType, Date32Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type, Int8Type,
-    Time64MicrosecondType, TimestampMicrosecondType, UInt32Type,
+    Time64MicrosecondType, TimeUnit, TimestampMicrosecondType, UInt32Type,
 };
-use datafusion::common::arrow::array::{
+use deltalake::datafusion::common::arrow::array::{
     Array, ArrayRef, AsArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array,
     Int32Array, Int64Array, StringArray, Time64MicrosecondArray, TimestampMicrosecondArray,
     UInt32Array,
 };
-use datafusion::common::ScalarValue;
-use datafusion::logical_expr::Expr;
+use deltalake::datafusion::common::ScalarValue;
+use deltalake::datafusion::logical_expr::Expr;
 use pgrx::pg_sys::Datum;
 use pgrx::*;
 use std::sync::Arc;
@@ -18,7 +18,7 @@ use substrait::proto::Type as SubstraitType;
 #[allow(clippy::type_complexity)]
 pub struct DatafusionMap {
     pub literal: Box<dyn Fn(*mut pg_sys::Datum, bool) -> Expr>,
-    pub array: Box<dyn Fn(Vec<*mut pg_sys::Datum>, Vec<bool>) -> ArrayRef>,
+    pub array: Box<dyn Fn(*mut *mut pg_sys::TupleTableSlot, usize, usize) -> ArrayRef>,
     pub index_datum: Box<dyn Fn(&Arc<dyn Array>, usize) -> Result<Datum, String>>,
 }
 
@@ -57,7 +57,7 @@ pub trait SubstraitTranslator {
         Self: Sized;
 }
 
-impl SubstraitTranslator for datafusion::arrow::datatypes::DataType {
+impl SubstraitTranslator for DataType {
     fn to_substrait(&self) -> Result<SubstraitType, String> {
         let result = SubstraitType {
             kind: match self {
@@ -85,14 +85,12 @@ impl SubstraitTranslator for datafusion::arrow::datatypes::DataType {
                 DataType::Float64 => Some(substrait_type_mod::Kind::Fp64(
                     substrait_type_mod::Fp64::default(),
                 )),
-                DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond) => Some(
-                    substrait_type_mod::Kind::Time(substrait_type_mod::Time::default()),
+                DataType::Time64(TimeUnit::Microsecond) => Some(substrait_type_mod::Kind::Time(
+                    substrait_type_mod::Time::default(),
+                )),
+                DataType::Timestamp(TimeUnit::Microsecond, None) => Some(
+                    substrait_type_mod::Kind::Timestamp(substrait_type_mod::Timestamp::default()),
                 ),
-                DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None) => {
-                    Some(substrait_type_mod::Kind::Timestamp(
-                        substrait_type_mod::Timestamp::default(),
-                    ))
-                }
                 DataType::Date32 => Some(substrait_type_mod::Kind::Date(
                     substrait_type_mod::Date::default(),
                 )),
@@ -103,9 +101,7 @@ impl SubstraitTranslator for datafusion::arrow::datatypes::DataType {
         Ok(result)
     }
 
-    fn from_substrait(
-        substrait_type: SubstraitType,
-    ) -> Result<datafusion::arrow::datatypes::DataType, String> {
+    fn from_substrait(substrait_type: SubstraitType) -> Result<DataType, String> {
         let result = match substrait_type.kind {
             Some(kind) => match kind {
                 substrait_type_mod::Kind::Bool(_) => DataType::Boolean,
@@ -115,11 +111,9 @@ impl SubstraitTranslator for datafusion::arrow::datatypes::DataType {
                 substrait_type_mod::Kind::I64(_) => DataType::Int64,
                 substrait_type_mod::Kind::Fp32(_) => DataType::Float32,
                 substrait_type_mod::Kind::Fp64(_) => DataType::Float64,
-                substrait_type_mod::Kind::Time(_) => {
-                    DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond)
-                }
+                substrait_type_mod::Kind::Time(_) => DataType::Time64(TimeUnit::Microsecond),
                 substrait_type_mod::Kind::Timestamp(_) => {
-                    DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None)
+                    DataType::Timestamp(TimeUnit::Microsecond, None)
                 }
                 substrait_type_mod::Kind::Date(_) => DataType::Date32,
                 substrait_type_mod::Kind::UserDefined(user_defined) => {
@@ -234,16 +228,23 @@ impl DatafusionMapProducer {
                     }
                 }),
                 array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<bool>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { bool::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { bool::from_datum(*datum, false) });
+                            }
+                        }
 
                         Arc::new(BooleanArray::from(vec))
                     },
@@ -269,16 +270,23 @@ impl DatafusionMapProducer {
                     }
                 }),
                 array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<String>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { String::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { String::from_datum(*datum, false) });
+                            }
+                        }
 
                         Arc::new(StringArray::from(vec))
                     },
@@ -304,16 +312,23 @@ impl DatafusionMapProducer {
                     }
                 }),
                 array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<i16>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { i16::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { i16::from_datum(*datum, false) });
+                            }
+                        }
 
                         Arc::new(Int16Array::from(vec))
                     },
@@ -337,16 +352,23 @@ impl DatafusionMapProducer {
                     }
                 }),
                 array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<i32>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { i32::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { i32::from_datum(*datum, false) });
+                            }
+                        }
 
                         Arc::new(Int32Array::from(vec))
                     },
@@ -370,16 +392,23 @@ impl DatafusionMapProducer {
                     }
                 }),
                 array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<i64>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { i64::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { i64::from_datum(*datum, false) });
+                            }
+                        }
 
                         Arc::new(Int64Array::from(vec))
                     },
@@ -405,16 +434,23 @@ impl DatafusionMapProducer {
                     }
                 }),
                 array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<u32>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { u32::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { u32::from_datum(*datum, false) });
+                            }
+                        }
 
                         Arc::new(UInt32Array::from(vec))
                     },
@@ -440,16 +476,23 @@ impl DatafusionMapProducer {
                     }
                 }),
                 array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<f32>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { f32::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { f32::from_datum(*datum, false) });
+                            }
+                        }
 
                         Arc::new(Float32Array::from(vec))
                     },
@@ -475,16 +518,23 @@ impl DatafusionMapProducer {
                     }
                 }),
                 array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<f64>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { f64::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { f64::from_datum(*datum, false) });
+                            }
+                        }
 
                         Arc::new(Float64Array::from(vec))
                     },
@@ -499,85 +549,95 @@ impl DatafusionMapProducer {
                     },
                 ),
             }),
-            DataType::Time64(datafusion::arrow::datatypes::TimeUnit::Microsecond) => {
-                f(DatafusionMap {
-                    literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
-                        if is_null {
-                            Expr::Literal(ScalarValue::Time64Microsecond(None))
-                        } else {
-                            unsafe {
-                                Expr::Literal(ScalarValue::Time64Microsecond(i64::from_datum(
-                                    *datum, false,
-                                )))
+            DataType::Time64(TimeUnit::Microsecond) => f(DatafusionMap {
+                literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
+                    if is_null {
+                        Expr::Literal(ScalarValue::Time64Microsecond(None))
+                    } else {
+                        unsafe {
+                            Expr::Literal(ScalarValue::Time64Microsecond(i64::from_datum(
+                                *datum, false,
+                            )))
+                        }
+                    }
+                }),
+                array: Box::new(
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { i64::from_datum(*datum, false) });
                             }
                         }
-                    }),
-                    array: Box::new(
-                        |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                            let vec: Vec<Option<i64>> = (0..datums.len())
-                                .map(|idx| {
-                                    if is_nulls[idx] {
-                                        None
-                                    } else {
-                                        unsafe { i64::from_datum(*datums[idx], false) }
-                                    }
-                                })
-                                .collect();
 
-                            Arc::new(Time64MicrosecondArray::from(vec))
-                        },
-                    ),
-                    index_datum: Box::new(
-                        |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                            Ok(array
-                                .as_primitive::<Time64MicrosecondType>()
-                                .value(index)
-                                .into_datum()
-                                .ok_or("Could not convert Time64 into datum")?)
-                        },
-                    ),
-                })
-            }
-            DataType::Timestamp(datafusion::arrow::datatypes::TimeUnit::Microsecond, None) => {
-                f(DatafusionMap {
-                    literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
-                        if is_null {
-                            Expr::Literal(ScalarValue::TimestampMicrosecond(None, None))
-                        } else {
-                            unsafe {
-                                Expr::Literal(ScalarValue::TimestampMicrosecond(
-                                    i64::from_datum(*datum, false),
-                                    None,
-                                ))
+                        Arc::new(Time64MicrosecondArray::from(vec))
+                    },
+                ),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<Time64MicrosecondType>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Time64 into datum")?)
+                    },
+                ),
+            }),
+            DataType::Timestamp(TimeUnit::Microsecond, None) => f(DatafusionMap {
+                literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
+                    if is_null {
+                        Expr::Literal(ScalarValue::TimestampMicrosecond(None, None))
+                    } else {
+                        unsafe {
+                            Expr::Literal(ScalarValue::TimestampMicrosecond(
+                                i64::from_datum(*datum, false),
+                                None,
+                            ))
+                        }
+                    }
+                }),
+                array: Box::new(
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { i64::from_datum(*datum, false) });
                             }
                         }
-                    }),
-                    array: Box::new(
-                        |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                            let vec: Vec<Option<i64>> = (0..datums.len())
-                                .map(|idx| {
-                                    if is_nulls[idx] {
-                                        None
-                                    } else {
-                                        unsafe { i64::from_datum(*datums[idx], false) }
-                                    }
-                                })
-                                .collect();
 
-                            Arc::new(TimestampMicrosecondArray::from(vec))
-                        },
-                    ),
-                    index_datum: Box::new(
-                        |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                            Ok(array
-                                .as_primitive::<TimestampMicrosecondType>()
-                                .value(index)
-                                .into_datum()
-                                .ok_or("Could not convert Timestamp into datum")?)
-                        },
-                    ),
-                })
-            }
+                        Arc::new(TimestampMicrosecondArray::from(vec))
+                    },
+                ),
+                index_datum: Box::new(
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
+                        Ok(array
+                            .as_primitive::<TimestampMicrosecondType>()
+                            .value(index)
+                            .into_datum()
+                            .ok_or("Could not convert Timestamp into datum")?)
+                    },
+                ),
+            }),
             DataType::Date32 => f(DatafusionMap {
                 literal: Box::new(|datum: *mut pg_sys::Datum, is_null: bool| -> Expr {
                     if is_null {
@@ -589,16 +649,23 @@ impl DatafusionMapProducer {
                     }
                 }),
                 array: Box::new(
-                    |datums: Vec<*mut pg_sys::Datum>, is_nulls: Vec<bool>| -> ArrayRef {
-                        let vec: Vec<Option<i32>> = (0..datums.len())
-                            .map(|idx| {
-                                if is_nulls[idx] {
-                                    None
-                                } else {
-                                    unsafe { i32::from_datum(*datums[idx], false) }
-                                }
-                            })
-                            .collect();
+                    |slots: *mut *mut pg_sys::TupleTableSlot,
+                     nslots: usize,
+                     col_idx: usize|
+                     -> ArrayRef {
+                        let mut vec = Vec::with_capacity(nslots);
+
+                        for row_idx in 0..nslots {
+                            let tuple_table_slot = unsafe { *slots.add(row_idx) };
+                            let datum = unsafe { (*tuple_table_slot).tts_values.add(col_idx) };
+                            let is_null = unsafe { *(*tuple_table_slot).tts_isnull.add(col_idx) };
+
+                            if is_null {
+                                vec.push(None);
+                            } else {
+                                vec.push(unsafe { i32::from_datum(*datum, false) });
+                            }
+                        }
 
                         Arc::new(Date32Array::from(vec))
                     },

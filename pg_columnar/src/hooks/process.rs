@@ -1,5 +1,3 @@
-use async_std::task;
-
 use pgrx::pg_sys::NodeTag;
 use pgrx::*;
 use std::ffi::CStr;
@@ -7,10 +5,6 @@ use std::ffi::CStr;
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::registry::{PARADE_CATALOG, PARADE_SCHEMA};
 use crate::datafusion::schema::ParadeSchemaProvider;
-use crate::hooks::columnar::ColumnarStmt;
-use crate::nodes::producer::DatafusionPlansProducer;
-use crate::nodes::t_dropstmt::DropStmtNode;
-use crate::tableam::insert::{BulkInsertState, BULK_INSERT_STATE};
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -36,32 +30,8 @@ pub fn process_utility(
 ) -> HookResult<()> {
     let plan = pstmt.utilityStmt;
 
+    #[allow(clippy::single_match)]
     match unsafe { (*plan).type_ } {
-        NodeTag::T_CopyStmt => {
-            let copy_stmt = plan as *mut pg_sys::CopyStmt;
-
-            if unsafe { ColumnarStmt::copy_is_columnar(copy_stmt).unwrap_or(false) } {
-                let mut bulk_insert_state = BULK_INSERT_STATE.write();
-                *bulk_insert_state = BulkInsertState::new();
-            }
-        }
-        NodeTag::T_DropStmt => unsafe {
-            let plans = DropStmtNode::datafusion_plan(
-                plan as *mut pg_sys::Plan,
-                (*(plan as *mut pg_sys::DropStmt)).objects,
-                None,
-            )
-            .expect("Failed to create DropTable plan");
-
-            if !plans.is_empty() {
-                DatafusionContext::with_read(|context| {
-                    for plan in plans {
-                        let dataframe = task::block_on(context.execute_logical_plan(plan)).unwrap();
-                        let _ = task::block_on(dataframe.collect()).unwrap();
-                    }
-                });
-            }
-        },
         NodeTag::T_VacuumStmt => unsafe {
             let vacuum_stmt = plan as *mut pg_sys::VacuumStmt;
             let rels = (*vacuum_stmt).rels;
@@ -83,10 +53,13 @@ pub fn process_utility(
                         .downcast_ref::<ParadeSchemaProvider>()
                         .expect("Failed to downcast schema provider");
 
-                    task::block_on(lister.vacuum_tables(&context.state()))
+                    lister
+                        .vacuum_tables(&context.state())
                         .expect("Failed to vacuum tables");
                 });
             }
+
+            // TODO: Implement VACUUM <table>
         },
         _ => {}
     }

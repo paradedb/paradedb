@@ -149,17 +149,6 @@ pub unsafe extern "C" fn memam_index_delete_tuples(
     0
 }
 
-#[pg_guard]
-pub unsafe extern "C" fn memam_tuple_insert(
-    _rel: Relation,
-    _slot: *mut TupleTableSlot,
-    _cid: CommandId,
-    _options: c_int,
-    _bistate: *mut BulkInsertStateData,
-) {
-    info!("Calling memam_tuple_insert");
-}
-
 pub unsafe extern "C" fn memam_tuple_insert_speculative(
     _rel: Relation,
     _slot: *mut TupleTableSlot,

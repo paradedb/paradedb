@@ -35,9 +35,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        pg_version: [15]
-        # TODO: Make pg_columnar compatible with PostgreSQL 12, 13, 14, 16
-        # pg_version: [12, 13, 14, 15, 16]
+        pg_version: [12, 13, 14, 15, 16]
 
     steps:
       # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only

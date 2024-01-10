@@ -217,7 +217,6 @@ impl Iterator for DedupeResultsIterator {
 #[pgrx::pg_schema]
 mod tests {
     use pgrx::*;
-    // use shared::testing::SETUP_SQL;
     use shared::testing::{test_table, ExpectedRow, SETUP_SQL};
 
     #[pg_test]
@@ -257,7 +256,6 @@ mod tests {
         assert_eq!(highlight, "<b>Im</b> shaking");
     }
 
-    // TODO: The highlight tests don't pass, for some reason
     #[pg_test]
     fn highlight_without_max_num_chars() -> spi::Result<()> {
         Spi::run(SETUP_SQL).expect("failed to setup index");

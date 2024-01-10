@@ -188,3 +188,23 @@ CALL paradedb.create_bm25(
 	boolean_fields => '{"in_stock": {}}',
 	json_fields => '{"metadata": {}}'
 );
+
+
+-- text_arrays.sql
+CREATE TABLE example_table (
+    id SERIAL PRIMARY KEY,
+    text_array TEXT[],
+    varchar_array VARCHAR[]
+);
+
+INSERT INTO example_table (text_array, varchar_array) VALUES 
+('{"text1", "text2", "text3"}', '{"vtext1", "vtext2"}'),
+('{"another", "array", "of", "texts"}', '{"vtext3", "vtext4", "vtext5"}'),
+('{"single element"}', '{"single varchar element"}');
+
+CALL paradedb.create_bm25(
+	index_name => 'example_table',
+	table_name => 'example_table',
+	key_field => 'id',
+	text_fields => '{text_array: {}, varchar_array: {}}'
+);

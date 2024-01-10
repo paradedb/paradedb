@@ -561,4 +561,175 @@ mod tests {
         assert_eq!(name, Some("Alice".to_string()));
         assert_eq!(age, Some(29));
     }
+
+    #[pg_test]
+    fn test_real_time_search() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::run("SET search_path TO paradedb;").expect("failed to set search path");
+        Spi::run("INSERT INTO bm25_search (description, rating, category) VALUES ('New keyboard', 5, 'Electronics'); DELETE FROM bm25_search WHERE id = 1; UPDATE bm25_search SET description = 'PVC Keyboard' WHERE id = 2;").expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics');",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(42),
+                    description: Some("New keyboard"),
+                    rating: Some(5),
+                    category: Some("Electronics"),
+                    in_stock: None,
+                    metadata: None,
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(2),
+                    description: Some("PVC Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    in_stock: Some(false),
+                    metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(12),
+                    description: Some("Innovative wireless earbuds"),
+                    rating: Some(5),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(serde_json::json!({"color": "Black", "location": "China"})),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(22),
+                    description: Some("Fast charging power bank"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(
+                        serde_json::json!({"color": "Black", "location": "United States"}),
+                    ),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(32),
+                    description: Some("Bluetooth-enabled speaker"),
+                    rating: Some(3),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            let _ = test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn test_sequential_scan_syntax() -> spi::Result<()> {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+        Spi::connect(|client| {
+            let table = client.select(
+                "SELECT * FROM paradedb.bm25_test_table WHERE paradedb.search_tantivy(paradedb.bm25_test_table.*,jsonb_build_object('index_name', 'bm25_search_bm25_index','table_name', 'bm25_test_table','schema_name', 'paradedb','key_field', 'id','query', 'category:electronics'));",
+                None,
+                None,
+            )?;
+
+            let expect = vec![
+                ExpectedRow {
+                    id: Some(1),
+                    description: Some("Ergonomic metal keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(
+                        serde_json::json!({"color": "Silver", "location": "United States"}),
+                    ),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(2),
+                    description: Some("Plastic Keyboard"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    in_stock: Some(false),
+                    metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(12),
+                    description: Some("Innovative wireless earbuds"),
+                    rating: Some(5),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(serde_json::json!({"color": "Black", "location": "China"})),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(22),
+                    description: Some("Fast charging power bank"),
+                    rating: Some(4),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(
+                        serde_json::json!({"color": "Black", "location": "United States"}),
+                    ),
+                    ..Default::default() // Other fields default to None
+                },
+                ExpectedRow {
+                    id: Some(32),
+                    description: Some("Bluetooth-enabled speaker"),
+                    rating: Some(3),
+                    category: Some("Electronics"),
+                    in_stock: Some(true),
+                    metadata: Some(serde_json::json!({"color": "Black", "location": "Canada"})),
+                    ..Default::default() // Other fields default to None
+                },
+            ];
+
+            let _ = test_table(table, expect);
+
+            Ok(())
+        })
+    }
+
+    #[pg_test]
+    fn test_text_arrays() {
+        Spi::run(SETUP_SQL).expect("failed to setup index");
+
+        let (id, text_array, varchar_array) = Spi::get_three("SELECT id, text_array::TEXT, varchar_array::TEXT FROM example_table.search('text_array:text1');")
+            .expect("failed to query");
+        assert_eq!(id, Some(1));
+        assert_eq!(text_array, Some("{text1,text2,text3}".to_string()));
+        assert_eq!(varchar_array, Some("{vtext1,vtext2}".to_string()));
+
+        let (id, text_array, varchar_array) = Spi::get_three("SELECT id, text_array::TEXT, varchar_array::TEXT FROM example_table.search('text_array:\"single element\"');")
+            .expect("failed to query");
+        assert_eq!(id, Some(3));
+        assert_eq!(text_array, Some("{\"single element\"}".to_string()));
+        assert_eq!(
+            varchar_array,
+            Some("{\"single varchar element\"}".to_string())
+        );
+
+        let (id, text_array, varchar_array) = Spi::get_three("SELECT id, text_array::TEXT, varchar_array::TEXT FROM example_table.search('varchar_array:varchar OR text_array:array') LIMIT 1;")
+        .expect("failed to query");
+        assert_eq!(id, Some(3));
+        assert_eq!(text_array, Some("{\"single element\"}".to_string()));
+        assert_eq!(
+            varchar_array,
+            Some("{\"single varchar element\"}".to_string())
+        );
+
+        let (id, text_array, varchar_array) = Spi::get_three("SELECT id, text_array::TEXT, varchar_array::TEXT FROM example_table.search('varchar_array:varchar OR text_array:array') LIMIT 1 OFFSET 1;")
+        .expect("failed to query");
+        assert_eq!(id, Some(2));
+        assert_eq!(text_array, Some("{another,array,of,texts}".to_string()));
+        assert_eq!(varchar_array, Some("{vtext3,vtext4,vtext5}".to_string()));
+    }
 }

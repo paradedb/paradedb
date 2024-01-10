@@ -16,5 +16,3 @@ VACUUM FREEZE hits;
 \echo Running ClickBench queries...
 \timing on
 \i queries.sql
-
-\echo Benchmark complete!

@@ -1,5 +1,5 @@
 use async_std::task;
-use datafusion::arrow::datatypes::{Field, Schema};
+use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::DFSchema;
 use datafusion::dataframe::DataFrameWriteOptions;
@@ -22,15 +22,8 @@ pub struct DatafusionTable {
 }
 
 impl DatafusionTable {
-    pub fn from_range_table(rte: *mut pg_sys::RangeTblEntry) -> Result<Self, String> {
-        let relation = unsafe { pg_sys::RelationIdGetRelation((*rte).relid) };
-        let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
-
-        Self::from_pg(&pg_relation)
-    }
-
     pub fn from_pg(pg_relation: &PgRelation) -> Result<Self, String> {
-        let name = Self::get_name_from_pg(pg_relation)?;
+        let table_name = pg_relation.name().to_string();
 
         // Get TableSource
         let context_lock = CONTEXT.read();
@@ -38,7 +31,7 @@ impl DatafusionTable {
             .as_ref()
             .ok_or("No columnar context found. Run SELECT paradedb.init(); first.")?;
 
-        let reference = TableReference::from(name.clone());
+        let reference = TableReference::from(table_name.clone());
 
         let source = match context.table_exist(&reference) {
             Ok(true) => {
@@ -50,7 +43,10 @@ impl DatafusionTable {
             Err(e) => return Err(datafusion_err_to_string()(e)),
         };
 
-        Ok(Self { name, source })
+        Ok(Self {
+            name: table_name,
+            source,
+        })
     }
 
     pub fn name(&self) -> Result<String, String> {
@@ -71,7 +67,8 @@ impl DatafusionTable {
     }
 
     pub fn create(pg_relation: &PgRelation) -> Result<Self, String> {
-        let name = Self::get_name_from_pg(pg_relation)?;
+        let table_oid = Self::get_oid_from_pg(pg_relation)?;
+        let table_name = pg_relation.name();
         let fields = Self::fields(pg_relation)?;
         let schema = Schema::new(fields);
         let batch = RecordBatch::new_empty(Arc::new(schema));
@@ -85,7 +82,7 @@ impl DatafusionTable {
             .map_err(datafusion_err_to_string())?;
 
         let _ = task::block_on(df.write_parquet(
-            &ParquetDirectory::table_path(&name)?,
+            &ParquetDirectory::table_path(&table_oid)?,
             DataFrameWriteOptions::new(),
             None,
         ));
@@ -104,10 +101,10 @@ impl DatafusionTable {
         task::block_on(lister.refresh(&context.state()))
             .expect("Failed to refresh schema provider");
 
-        let table = task::block_on(schema_provider.table(&name)).expect("Failed to get table");
+        let table = task::block_on(schema_provider.table(table_name)).expect("Failed to get table");
 
         Ok(Self {
-            name,
+            name: table_name.to_string(),
             source: Some(provider_as_source(table)),
         })
     }
@@ -140,7 +137,7 @@ impl DatafusionTable {
 
             let field = Field::new(
                 attname,
-                SubstraitTranslator::from_substrait(base_oid.to_substrait()?)?,
+                DataType::from_substrait(base_oid.to_substrait()?)?,
                 nullability,
             );
 
@@ -150,7 +147,7 @@ impl DatafusionTable {
         Ok(fields)
     }
 
-    fn get_name_from_pg(pg_relation: &PgRelation) -> Result<String, String> {
+    fn get_oid_from_pg(pg_relation: &PgRelation) -> Result<String, String> {
         let name: String = format!("{}", pg_relation.oid())
             .chars()
             .filter(|c| c.is_ascii_digit())

@@ -3,14 +3,16 @@ use datafusion::arrow::array::AsArray;
 
 use datafusion::common::arrow::array::types::UInt64Type;
 use datafusion::common::arrow::array::RecordBatch;
+use datafusion::sql::parser::DFParser;
+use datafusion::sql::planner::SqlToRel;
+use datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
+use std::ffi::CStr;
 use std::num::TryFromIntError;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::context::{DatafusionContext, ParadeContextProvider};
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
 use crate::hooks::columnar::ColumnarStmt;
-use crate::nodes::producer::DatafusionPlanProducer;
-use crate::nodes::root::RootPlanNode;
 
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
@@ -26,18 +28,25 @@ pub fn executor_run(
 ) -> HookResult<()> {
     unsafe {
         let ps = query_desc.plannedstmt;
+        let rtable = (*ps).rtable;
 
-        if !ColumnarStmt::planned_is_columnar(ps).unwrap_or(false) {
+        if rtable.is_null() || !ColumnarStmt::rtable_is_columnar(rtable).unwrap_or(false) {
             prev_hook(query_desc, direction, count, execute_once);
             return HookResult::new(());
         }
 
-        let plan: *mut pg_sys::Plan = (*ps).planTree;
-        let node = plan as *mut pg_sys::Node;
-        let node_tag = (*node).type_;
-        let rtable = (*ps).rtable;
-
-        let logical_plan = RootPlanNode::datafusion_plan(plan, rtable, None).unwrap();
+        let query_str = CStr::from_ptr(query_desc.sourceText)
+            .to_str()
+            .expect("Failed to parse query string");
+        let dialect = PostgreSqlDialect {};
+        let ast =
+            DFParser::parse_sql_with_dialect(query_str, &dialect).expect("Failed to parse AST");
+        let statement = &ast[0];
+        let context_provider = ParadeContextProvider::new();
+        let sql_to_rel = SqlToRel::new(&context_provider);
+        let logical_plan = sql_to_rel
+            .statement_to_plan(statement.clone())
+            .expect("Failed to create plan");
 
         let recordbatchvec: Vec<RecordBatch> = DatafusionContext::with_read(|context| {
             let dataframe = task::block_on(context.execute_logical_plan(logical_plan)).unwrap();
@@ -45,7 +54,9 @@ pub fn executor_run(
         });
 
         // This is for any node types that need to do additional processing on estate
-        if node_tag == pg_sys::NodeTag::T_ModifyTable {
+        let plan: *mut pg_sys::Plan = (*ps).planTree;
+        let node = plan as *mut pg_sys::Node;
+        if (*node).type_ == pg_sys::NodeTag::T_ModifyTable {
             let num_updated = recordbatchvec[0]
                 .column(0)
                 .as_primitive::<UInt64Type>()

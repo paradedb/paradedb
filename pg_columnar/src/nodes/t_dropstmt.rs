@@ -17,12 +17,27 @@ impl DatafusionPlansProducer for DropStmtNode {
         _outer_plan: Option<LogicalPlan>,
     ) -> Result<Vec<LogicalPlan>, String> {
         let drop_stmt = plan as *mut pg_sys::DropStmt;
+        let mut drop_plans: Vec<LogicalPlan> = vec![];
+
+        #[cfg(feature = "pg12")]
+        let mut current_cell = (*rtable).head;
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         let elements = (*rtable).elements;
-        let mut drop_plans = vec![];
 
         for i in 0..(*rtable).length {
             let mut relation_data: *mut pg_sys::RelationData = std::ptr::null_mut();
-            let obj = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
+
+            let obj: *mut pg_sys::Node;
+            #[cfg(feature = "pg12")]
+            {
+                obj = (*current_cell).data.ptr_value as *mut pg_sys::Node;
+                current_cell = (*current_cell).next;
+            }
+            #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+            {
+                obj = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::Node;
+            }
+
             let _ = pg_sys::get_object_address(
                 (*drop_stmt).removeType,
                 obj,

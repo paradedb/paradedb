@@ -1,12 +1,25 @@
 # pg_columnar
 
-`pg_columnar` enables Clickhouse-level OLAP performance inside Postgres. By embedding Apache Datafusion inside Postgres, this extension brings column-oriented storage, vectorized query execution, and SIMD instructions to Postgres tables.
+`pg_columnar` is a Postgres extension that enables Clickhouse-level analytics (OLAP) performance inside Postgres. `pg_columnar` achieves this by leveraging Apache Parquet for storage, Apache Arrow for column-oriented memory, and Apache Datafusion for vectorized query execution with SIMD.
+
+## Getting Started
+
+The following toy example shows how to get started with `pg_columnar`.
+
+```sql
+CREATE EXTENSION pg_columnar;
+-- This needs to be run once per connection
+SELECT paradedb.init();
+-- USING mem indicates that we are creating a columnar table
+CREATE TABLE t (a int) USING mem;
+-- Now you can any Postgres query
+INSERT INTO t VALUES (1), (2), (3);
+SELECT COUNT(*) FROM t;
+```
 
 ## Development
 
-### Prerequisites
-
-#### Install Rust
+### Install Rust
 
 To develop the extension, first install Rust v1.73.0 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
 
@@ -22,7 +35,7 @@ Note: While it is possible to install Rust via your package manager, we recommen
 
 Then, install the PostgreSQL version of your choice using your system package manager. Here we provide the commands for the default PostgreSQL version used by this project:
 
-#### Install Postgres
+### Install Postgres
 
 ```bash
 # macOS
@@ -40,9 +53,9 @@ If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to ad
 export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
 ```
 
-#### Install pgrx
+### Install pgrx
 
-Then, install and initialize pgrx:
+Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg15 with your version of Postgres, if different (i.e. --pg16, --pg14, etc.)
@@ -50,9 +63,7 @@ cargo install --locked cargo-pgrx --version 0.11.1
 cargo pgrx init --pg15=`which pg_config`
 ```
 
-The extension can be developed with or without SIMD enabled. Enabling SIMD improves query times by 10-20x but also significantly increases build times. For fast development iteration, we recommend disabling SIMD.
-
-#### Configure Shared Preload Libraries
+### Configure Shared Preload Libraries
 
 This extension uses Postgres hooks to intercept Postgres queries. In order to enable these hooks, the extension
 must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are using Postgres 15, this file can be found under `~/.pgrx/data-15`.
@@ -62,15 +73,17 @@ must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are
 shared_preload_libraries = 'pg_columnar'
 ```
 
-### SIMD Disabled
+### Run Without Optimized Build
 
-To launch the extension with SIMD disabled, run
+The extension can be developed with or without an optimized build. An optimized build improves query times by 10-20x but also significantly increases build times.
+
+To launch the extension without an optimized build, run
 
 ```bash
 cargo pgrx run
 ```
 
-### SIMD Enabled
+### Run With Optimized Build
 
 First, switch to latest Rust Nightly (as of writing, 1.77) via:
 
@@ -79,19 +92,15 @@ rustup update nightly
 rustup override set nightly
 ```
 
-Then, reinstall pgrx for the new version of Rust:
+Then, reinstall `pgrx` for the new version of Rust:
 
 ```bash
 cargo install --locked cargo-pgrx --version 0.11.1 --force
 ```
 
-Finally, run to enable SIMD:
+Finally, run to build in release mode with SIMD:
 
 ```bash
-# To build in development mode, with SIMD enabled
-cargo pgrx run --features simd
-
-# To build in release mode, with SIMD enabled
 cargo pgrx run --features simd --release
 ```
 
@@ -105,12 +114,4 @@ rustup override unset
 
 ## Benchmarks
 
-To run benchmarks locally for development, first enter the `pg_columnar/` directory before running `cargo clickbench`. This runs a minified version of the ClickBench benchmark suite on a purely in-memory version of `pg_columnar`. As of writing, this is the only functional benchmark suite as we haven't built persistence in our TableAM. Once we do, you can run the full suite using on-disk storage via `cargo clickbench cold`.
-
-what ot do with the benchmarks
-
-both in /benchmarks
-
-or both in benchmark/ in their respective subproject (?)
-
-or I put the specific for each extension benchmarking directly in it, and in the benchmarks/ I just put the benchmarks for workflows which combine both types of workloads?
+To run benchmarks locally, first enter the `pg_columnar/` directory before running `cargo clickbench`. This runs a minified version of the ClickBench benchmark suite on `pg_columnar`.

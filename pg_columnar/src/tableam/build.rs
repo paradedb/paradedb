@@ -5,6 +5,7 @@ use pgrx::*;
 use crate::datafusion::table::DatafusionTable;
 
 #[pg_guard]
+#[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
 pub unsafe extern "C" fn memam_relation_set_new_filenode(
     rel: Relation,
     _newrnode: *const RelFileNode,
@@ -12,6 +13,23 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
     _freezeXid: *mut TransactionId,
     _minmulti: *mut MultiXactId,
 ) {
+    create_table(rel, persistence);
+}
+
+#[pg_guard]
+#[cfg(feature = "pg16")]
+pub unsafe extern "C" fn memam_relation_set_new_filelocator(
+    rel: Relation,
+    _newrlocator: *const RelFileLocator,
+    persistence: c_char,
+    _freezeXid: *mut TransactionId,
+    _minmulti: *mut MultiXactId,
+) {
+    create_table(rel, persistence);
+}
+
+#[inline]
+fn create_table(rel: Relation, persistence: c_char) {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 
     match persistence as u8 {

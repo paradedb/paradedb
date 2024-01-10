@@ -4,6 +4,7 @@ mod process;
 
 use pgrx::hooks::PgHooks;
 use pgrx::*;
+
 use std::ffi::CStr;
 
 pub struct ParadeHook;

@@ -1,7 +1,9 @@
 use core::ffi::c_int;
 use core::ffi::c_void;
 
+#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 use pgrx::pg_sys::varlena;
+
 use pgrx::pg_sys::*;
 use pgrx::*;
 
@@ -41,6 +43,7 @@ pub unsafe extern "C" fn memam_scan_getnextslot(
     false
 }
 
+#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 pub unsafe extern "C" fn memam_scan_set_tidrange(
     _scan: TableScanDesc,
     _mintid: ItemPointer,
@@ -49,6 +52,7 @@ pub unsafe extern "C" fn memam_scan_set_tidrange(
     info!("Calling memam_scan_set_tidrange");
 }
 
+#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 pub unsafe extern "C" fn memam_scan_getnextslot_tidrange(
     _scan: TableScanDesc,
     _direction: ScanDirection,
@@ -136,6 +140,7 @@ pub unsafe extern "C" fn memam_tuple_satisfies_snapshot(
     false
 }
 
+#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 pub unsafe extern "C" fn memam_index_delete_tuples(
     _rel: Relation,
     _delstate: *mut TM_IndexDeleteOp,
@@ -189,6 +194,7 @@ pub unsafe extern "C" fn memam_tuple_delete(
     0
 }
 
+#[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
 pub unsafe extern "C" fn memam_tuple_update(
     _rel: Relation,
     _otid: ItemPointer,
@@ -200,6 +206,23 @@ pub unsafe extern "C" fn memam_tuple_update(
     _tmfd: *mut TM_FailureData,
     _lockmode: *mut LockTupleMode,
     _update_indexes: *mut bool,
+) -> TM_Result {
+    info!("Calling memam_tuple_update");
+    0
+}
+
+#[cfg(feature = "pg16")]
+pub unsafe extern "C" fn memam_tuple_update(
+    _rel: Relation,
+    _otid: ItemPointer,
+    _slot: *mut TupleTableSlot,
+    _cid: CommandId,
+    _snapshot: Snapshot,
+    _crosscheck: Snapshot,
+    _wait: bool,
+    _tmfd: *mut TM_FailureData,
+    _lockmode: *mut LockTupleMode,
+    _update_indexes: *mut TU_UpdateIndexes,
 ) -> TM_Result {
     info!("Calling memam_tuple_update");
     0
@@ -224,7 +247,16 @@ pub unsafe extern "C" fn memam_relation_nontransactional_truncate(_rel: Relation
     info!("Calling memam_relation_nontransactional_truncate");
 }
 
+#[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
 pub unsafe extern "C" fn memam_relation_copy_data(_rel: Relation, _newrnode: *const RelFileNode) {
+    info!("Calling memam_relation_copy_data");
+}
+
+#[cfg(feature = "pg16")]
+pub unsafe extern "C" fn memam_relation_copy_data(
+    _rel: Relation,
+    _newrnode: *const RelFileLocator,
+) {
     info!("Calling memam_relation_copy_data");
 }
 
@@ -308,11 +340,13 @@ pub unsafe extern "C" fn memam_relation_needs_toast_table(_rel: Relation) -> boo
     false
 }
 
+#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 pub unsafe extern "C" fn memam_relation_toast_am(_rel: Relation) -> Oid {
     info!("Calling memam_relation_needs_toast_am");
     Oid::INVALID
 }
 
+#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 pub unsafe extern "C" fn memam_relation_fetch_toast_slice(
     _toastrel: Relation,
     _valueid: Oid,
@@ -366,4 +400,14 @@ pub unsafe extern "C" fn memam_scan_sample_next_tuple(
 ) -> bool {
     info!("Calling memam_scan_sample_next_tuple");
     false
+}
+
+#[cfg(any(feature = "pg12", feature = "pg13"))]
+pub unsafe extern "C" fn memam_compute_xid_horizon_for_tuples(
+    _rel: Relation,
+    _items: *mut ItemPointerData,
+    _nitems: c_int,
+) -> TransactionId {
+    info!("Calling memam_compute_xid_horizon_for_tuples");
+    0
 }

@@ -9,7 +9,9 @@ use datafusion::error::Result;
 use datafusion::execution::context::SessionState;
 use parking_lot::RwLock;
 use pgrx::*;
-use std::{any::Any, collections::HashMap, fs::remove_dir_all, path::PathBuf, sync::Arc};
+use std::{
+    any::Any, collections::HashMap, ffi::CStr, fs::remove_dir_all, path::PathBuf, sync::Arc,
+};
 
 pub struct ParadeSchemaOpts {
     pub dir: PathBuf,
@@ -54,6 +56,10 @@ impl ParadeSchemaProvider {
         Ok(())
     }
 
+    pub fn tables(&self) -> Result<HashMap<String, Arc<dyn TableProvider>>> {
+        Ok(self.tables.read().clone())
+    }
+
     async fn load_tables(
         state: &SessionState,
         opts: &ParadeSchemaOpts,
@@ -63,21 +69,41 @@ impl ParadeSchemaProvider {
         for res in listdir {
             let entry = res?;
             let file_name = entry.file_name();
-            let table_name = file_name.to_str().unwrap().to_string();
-            let table_path = ListingTableUrl::parse(entry.path().to_str().unwrap())?;
-            let listing_options = ListingOptions::new(opts.format.clone());
-            let config = match ListingTableConfig::new(table_path)
-                .with_listing_options(listing_options)
-                .infer_schema(state)
-                .await
-            {
-                Ok(conf) => conf,
-                Err(_) => {
+            let table_oid = file_name.to_str().unwrap().to_string();
+
+            if let Ok(oid) = table_oid.parse() {
+                let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(oid) };
+                let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
+
+                if relation.is_null() {
                     continue;
                 }
-            };
-            let table = ListingTable::try_new(config)?;
-            tables.insert(table_name, Arc::new(table) as Arc<dyn TableProvider>);
+
+                let table_name = unsafe {
+                    CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr())
+                        .to_str()
+                        .unwrap()
+                };
+                let table_path = ListingTableUrl::parse(entry.path().to_str().unwrap())?;
+                let listing_options = ListingOptions::new(opts.format.clone());
+                let config = match ListingTableConfig::new(table_path)
+                    .with_listing_options(listing_options)
+                    .infer_schema(state)
+                    .await
+                {
+                    Ok(conf) => conf,
+                    Err(_) => {
+                        continue;
+                    }
+                };
+                let table = ListingTable::try_new(config)?;
+                tables.insert(
+                    table_name.to_string(),
+                    Arc::new(table) as Arc<dyn TableProvider>,
+                );
+
+                unsafe { pg_sys::RelationClose(relation) };
+            }
         }
 
         Ok(tables)

@@ -6,20 +6,29 @@ static COLUMNAR_HANDLER: &str = "mem";
 pub struct ColumnarStmt;
 
 impl ColumnarStmt {
-    pub unsafe fn planned_is_columnar(ps: *mut pg_sys::PlannedStmt) -> Result<bool, String> {
-        let rtable = (*ps).rtable;
-        if rtable.is_null() {
-            return Err("rtable is null".to_string());
-        }
-
+    pub unsafe fn rtable_is_columnar(rtable: *mut pg_sys::List) -> Result<bool, String> {
         let columnar_handler_oid = Self::columnar_handler_oid()?;
 
+        #[cfg(feature = "pg12")]
+        let mut current_cell = (*rtable).head;
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         let elements = (*rtable).elements;
+
         let mut using_noncol: bool = false;
         let mut using_col: bool = false;
 
         for i in 0..(*rtable).length {
-            let rte = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::RangeTblEntry;
+            let rte: *mut pg_sys::RangeTblEntry;
+            #[cfg(feature = "pg12")]
+            {
+                rte = (*current_cell).data.ptr_value as *mut pg_sys::RangeTblEntry;
+                current_cell = (*current_cell).next;
+            }
+            #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+            {
+                rte = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::RangeTblEntry;
+            }
+
             if (*rte).rtekind != pg_sys::RTEKind_RTE_RELATION {
                 continue;
             }

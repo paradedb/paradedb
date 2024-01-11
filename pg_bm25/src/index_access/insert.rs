@@ -44,7 +44,9 @@ unsafe fn aminsert_internal(
     let parade_index = get_parade_index(index_relation_ref.name());
     let builder = parade_index.json_builder(*ctid, &tupdesc, values);
 
-    parade_index.insert(builder);
+    parade_index.insert(builder).unwrap_or_else(|err| {
+        panic!("error inserting json builder during insert callback: {err:?}")
+    });
 
     true
 }

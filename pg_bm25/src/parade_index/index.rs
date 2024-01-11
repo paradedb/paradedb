@@ -10,13 +10,15 @@ use std::io::Write;
 use std::path::Path;
 use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher};
 use tantivy::{IndexReader, IndexWriter, TantivyError};
+use thiserror::Error;
 
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{self, categorize_tupdesc, row_to_json, SearchConfig};
 use crate::json::builder::JsonBuilder;
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
-use crate::WRITER;
+use crate::writer::WriterRequest;
+use crate::{writer, WRITER_STATUS};
 
 use super::state::TantivyScanState;
 
@@ -46,7 +48,22 @@ static mut WILL_COMMIT_SET: Option<HashSet<String>> = None;
 /// this cache, tied to its own lifecycle.
 static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
 
-#[derive(Serialize, Clone)]
+#[derive(Error, Debug)]
+pub enum ParadeIndexError {
+    #[error(transparent)]
+    WriterClientError(#[from] writer::ClientError),
+
+    #[error(transparent)]
+    TantivyError(#[from] tantivy::error::TantivyError),
+
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    SerdeError(#[from] serde_json::Error),
+}
+
+#[derive(Serialize)]
 pub struct ParadeIndex {
     pub name: String,
     pub fields: HashMap<String, Field>,
@@ -61,6 +78,8 @@ pub struct ParadeIndex {
     pub ctid_field: Field,
     #[serde(skip_serializing)]
     underlying_index: Index,
+    #[serde(skip_serializing)]
+    writer_client: writer::Client<writer::WriterRequest>,
 }
 
 impl ParadeIndex {
@@ -137,6 +156,9 @@ impl ParadeIndex {
                 "field_configs": field_configs
             })
         );
+
+        let writer_client = writer::Client::new(WRITER_STATUS.share().addr());
+
         let new_self = Self {
             name: name.clone(),
             fields,
@@ -147,6 +169,7 @@ impl ParadeIndex {
             data_directory,
             key_field,
             ctid_field,
+            writer_client,
         };
 
         // Serialize ParadeIndex to disk so it can be initialized by other connections.
@@ -261,12 +284,12 @@ impl ParadeIndex {
     /// Retrieve an owned writer for a given index. This is a static method, as
     /// we expect to be called from the writer process. The return type needs to
     /// be entirely owned by the new process, with no references.
-    pub fn writer(index_directory_path: &str) -> Result<IndexWriter, String> {
-        let parade_index = Self::from_disk(index_directory_path).map_err(|e| e.to_string())?;
-        parade_index
+    pub fn writer(index_directory_path: &str) -> Result<IndexWriter, ParadeIndexError> {
+        let parade_index = Self::from_disk(index_directory_path)?;
+        let index_writer = parade_index
             .underlying_index
-            .writer(INDEX_TANTIVY_MEMORY_BUDGET)
-            .map_err(|e| e.to_string())
+            .writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
+        Ok(index_writer)
     }
 
     pub fn get_field_configs_path(index_directory_path: &str) -> String {
@@ -296,26 +319,21 @@ impl ParadeIndex {
 
     /// This function must not panic, because it use used by the ParadeServer, which cannot
     /// handle panics.
-    fn from_disk(index_directory_path: &str) -> Result<Self, String> {
+    fn from_disk(index_directory_path: &str) -> Result<Self, ParadeIndexError> {
         let config_path = &Self::get_field_configs_path(index_directory_path);
-        let serialized_data = fs::read_to_string(config_path).map_err(|err| {
-            format!("could not read index config for {index_directory_path} from {config_path}: {err:?}")
-        })?;
-        serde_json::from_str(&serialized_data).map_err(|err| {
-            format!(
-                "could not deserialize config from disk for index {index_directory_path}: {err:?}"
-            )
-        })
+        let serialized_data = fs::read_to_string(config_path)?;
+        let new_self = serde_json::from_str(&serialized_data)?;
+        Ok(new_self)
     }
 
     // commit needs a static method variant so it can be passed into a callback.
-    fn commit_static(index_name: &str) {
-        WRITER.share().commit(index_name);
-    }
+    // fn commit_static(index_name: &str) {
+    //     WRITER.share().commit(index_name);
+    // }
 
-    fn commit(&self) {
-        Self::commit_static(&self.name);
-    }
+    // fn commit(&self) {
+    //     Self::commit_static(&self.name);
+    // }
 
     /// Register this index to be committed at the end of this transaction.
     fn register_commit_callbacks(&self) {
@@ -337,7 +355,7 @@ impl ParadeIndex {
                         // maintain a set of names, and commit them all once the transaction is
                         // complete.
                         for index_name in WILL_COMMIT_SET.as_ref().unwrap() {
-                            ParadeIndex::commit_static(index_name);
+                            // ParadeIndex::commit_static(index_name);
                             // Clear the cache set so its empty fo rthe next
                             WILL_COMMIT_SET = None;
                         }
@@ -358,14 +376,21 @@ impl ParadeIndex {
         will_commit_set.insert(self.name.clone());
     }
 
-    pub fn insert(&self, builder: JsonBuilder) {
+    pub fn insert(&mut self, json_builder: JsonBuilder) -> Result<(), ParadeIndexError> {
         // Send the insert requests to the writer server.
-        // Note that these will not be flused to disk until commit() is separately called.
-        WRITER.share().insert(&self.name, builder);
-        self.register_commit_callbacks();
+        let index_directory_path = Self::get_index_directory(&self.name);
+        let request = WriterRequest::Insert {
+            index_directory_path,
+            json_builder,
+        };
+        self.writer_client.transfer(request)?;
+        Ok(())
     }
 
-    pub fn delete(&mut self, should_delete: impl Fn(*mut ItemPointerData) -> bool) -> (u32, u32) {
+    pub fn delete(
+        &mut self,
+        should_delete: impl Fn(*mut ItemPointerData) -> bool,
+    ) -> Result<(u32, u32), ParadeIndexError> {
         let mut deleted: u32 = 0;
         let mut not_deleted: u32 = 0;
         let mut ctids_to_delete: Vec<u64> = vec![];
@@ -397,22 +422,55 @@ impl ParadeIndex {
             }
         }
 
+        let request = WriterRequest::Delete {
+            field: self.ctid_field,
+            ctids: ctids_to_delete,
+            index_directory_path: Self::get_index_directory(&self.name),
+        };
+        self.writer_client.request(request)?;
         // Send the delete requests to the writer server.
         // Note that these will not be flused to disk until commit() is separately called.
-        WRITER
-            .share()
-            .delete(&self.name, self.ctid_field, ctids_to_delete);
+        // WRITER
+        //     .share()
+        //     .delete(&self.name, self.ctid_field, ctids_to_delete);
 
-        self.commit();
-        (deleted, not_deleted)
+        // self.commit();
+        Ok((deleted, not_deleted))
     }
 
-    pub fn drop_index(index_name: &str) {
-        WRITER.share().drop_index(index_name);
+    pub fn drop_index(&self) -> Result<(), ParadeIndexError> {
+        let index_directory_path = Self::get_index_directory(&self.name);
+        let paths_to_delete = vec![
+            index_directory_path.clone(),
+            ParadeIndex::get_field_configs_path(&index_directory_path),
+            format!("{index_directory_path}/.tantivy-writer.lock"),
+            format!("{index_directory_path}/.tantivy-meta.lock"),
+        ];
+
+        let request = WriterRequest::DropIndex {
+            index_directory_path,
+            paths_to_delete,
+        };
+
+        self.writer_client.request(request)?;
+
+        Ok(())
     }
 
-    pub fn vacuum(&self) {
-        WRITER.share().vacuum(&self.name);
+    pub fn vacuum(&self) -> Result<(), ParadeIndexError> {
+        let index_directory_path = Self::get_index_directory(&self.name);
+        let request = WriterRequest::Vacuum {
+            index_directory_path,
+        };
+        self.writer_client.request(request)?;
+        Ok(())
+    }
+
+    fn get_index_directory(name: &str) -> String {
+        crate::env::paradedb_data_dir_path()
+            .join(name)
+            .display()
+            .to_string()
     }
 
     pub fn json_builder(
@@ -614,6 +672,8 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             panic!("error deserializing index: ctid field does not exist in schema",)
         });
 
+        let writer_client = writer::Client::new(WRITER_STATUS.share().addr());
+
         // Construct the ParadeIndex.
         Ok(ParadeIndex {
             name,
@@ -625,6 +685,7 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             data_directory,
             key_field,
             ctid_field,
+            writer_client,
         })
     }
 }

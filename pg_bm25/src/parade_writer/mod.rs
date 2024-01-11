@@ -3,7 +3,7 @@ pub mod server;
 pub mod transfer;
 
 // use crate::json::builder::JsonBuilder;
-pub use client::ParadeWriterClient;
+pub use client::WriterStatus;
 use pgrx::PGRXSharedMemory;
 use serde::{Deserialize, Serialize};
 pub use server::ParadeWriterServer;

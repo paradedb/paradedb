@@ -7,7 +7,7 @@ use std::path::Path;
 use tantivy::schema::Field;
 use tantivy::{Document, IndexWriter, Term};
 
-use super::transfer::{WriterTransferConsumer, WriterTransferMessage};
+use super::transfer::WriterTransferConsumer;
 
 pub struct ParadeWriterServer {
     /// A flag to tell the HTTP server that a shutdown message has been received.
@@ -46,12 +46,24 @@ impl ParadeWriterServer {
             }
             ParadeWriterRequest::Insert(index_directory_path) => {
                 // The consumer needs to be initialized before we respond to the client.
-                let mut consumer = WriterTransferConsumer::new()
-                    .expect("could not create writer transfer consumer");
+                let mut consumer = WriterTransferConsumer::<JsonBuilder>::new();
 
                 pgrx::log!("responding to insert with writer response");
                 respond(ParadeWriterResponse::Ok);
 
+                for value in consumer.read_stream() {
+                    match value {
+                        Ok(json_builder) => {
+                            pgrx::log!("got value from insert stream: {json_builder:?}");
+                            self.insert(index_directory_path, json_builder);
+                        }
+                        Err(err) => {
+                            pgrx::log!(
+                                "error deserializing item from insert transfer consumer: {err:?}"
+                            )
+                        }
+                    }
+                }
                 pgrx::log!("listening to insert stream from named pipe");
                 self.insert_stream(&index_directory_path, &mut consumer);
                 pgrx::log!("completed reading from named pipe");
@@ -91,23 +103,8 @@ impl ParadeWriterServer {
     pub fn insert_stream(
         &mut self,
         index_directory_path: &str,
-        transfer_consumer: &mut WriterTransferConsumer,
+        transfer_consumer: &mut WriterTransferConsumer<JsonBuilder>,
     ) {
-        for value in transfer_consumer.read_stream::<JsonBuilder>() {
-            match value {
-                Ok(WriterTransferMessage::Done) => {
-                    pgrx::log!("got DONE value from insert stream");
-                    self.commit(index_directory_path);
-                }
-                Ok(WriterTransferMessage::Data(json_builder)) => {
-                    pgrx::log!("got value from insert stream: {json_builder:?}");
-                    self.insert(index_directory_path, json_builder);
-                }
-                Err(err) => {
-                    pgrx::log!("received an error ")
-                }
-            }
-        }
     }
 
     /// Insert one row of fields into the Tantivy index as a new document.

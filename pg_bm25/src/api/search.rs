@@ -1,5 +1,4 @@
 use crate::index_access::utils::{get_parade_index, SearchConfig};
-use crate::parade_index::index::ParadeIndex;
 use pgrx::{prelude::TableIterator, *};
 use tantivy::{schema::FieldType, SnippetGenerator};
 
@@ -115,7 +114,10 @@ pub fn minmax_bm25(
 #[pg_extern]
 fn drop_bm25_internal(index_name: &str) {
     // Drop the Tantivy data directory.
-    ParadeIndex::drop_index(index_name);
+    let parade_index = get_parade_index(index_name);
+    parade_index
+        .drop_index()
+        .expect(&format!("error dropping index {index_name}"));
 }
 
 #[cfg(any(test, feature = "pg_test"))]

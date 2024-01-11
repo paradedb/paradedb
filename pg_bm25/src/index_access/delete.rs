@@ -25,10 +25,15 @@ pub extern "C" fn ambulkdelete(
     }
 
     if let Some(actual_callback) = callback {
-        let (deleted, not_deleted) =
-            parade_index.delete(|ctid| unsafe { actual_callback(ctid, callback_state) });
-        stats.pages_deleted += deleted;
-        stats.num_pages += not_deleted;
+        match parade_index.delete(|ctid| unsafe { actual_callback(ctid, callback_state) }) {
+            Ok((deleted, not_deleted)) => {
+                stats.pages_deleted += deleted;
+                stats.num_pages += not_deleted;
+            }
+            Err(err) => {
+                panic!("error: {err:?}")
+            }
+        }
     }
 
     stats.into_pg()

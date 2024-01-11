@@ -25,7 +25,9 @@ pub extern "C" fn amvacuumcleanup(
     let parade_index = ParadeIndex::from_index_name(index_name);
 
     // Garbage collect the index and clear the writer cache to free up locks.
-    parade_index.vacuum();
+    parade_index
+        .vacuum()
+        .unwrap_or_else(|err| panic!("error during vacuum on index {index_name}: {err:?}"));
 
     stats
 }

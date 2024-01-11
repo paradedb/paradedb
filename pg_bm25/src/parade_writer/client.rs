@@ -1,10 +1,12 @@
 use super::transfer::WriterTransferProducer;
+use super::ParadeWriterServer;
 use crate::parade_index::index::ParadeIndex;
 use crate::WriterInitError;
 use crate::{
     json::builder::JsonBuilder,
     parade_writer::{ParadeWriterRequest, ParadeWriterResponse},
 };
+use once_cell::sync::Lazy;
 use pgrx::{log, PGRXSharedMemory};
 use std::{error::Error, net::SocketAddr};
 use tantivy::schema::Field;
@@ -15,13 +17,19 @@ static mut HTTP_CLIENT: Option<reqwest::blocking::Client> = None;
 /// A cache to use for the transfer producer being used in the current transaction.
 static mut WRITER_TRANSFER_PRODUCER: Option<WriterTransferProducer<JsonBuilder>> = None;
 
+static mut SERVER: Lazy<ParadeWriterServer> = Lazy::new(|| ParadeWriterServer::new());
+
 #[derive(Copy, Clone, Default)]
-pub struct ParadeWriterClient {
-    addr: Option<SocketAddr>,
-    error: Option<WriterInitError>,
+pub struct WriterStatus {
+    pub addr: Option<SocketAddr>,
+    pub error: Option<WriterInitError>,
 }
 
-impl ParadeWriterClient {
+impl WriterStatus {
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
+            .expect("could not access writer status, writer server may not have started.")
+    }
     pub fn set_addr(&mut self, addr: SocketAddr) {
         self.addr = Some(addr);
     }
@@ -213,7 +221,7 @@ impl ParadeWriterClient {
                 data_directory.clone(),
                 paths_to_delete,
             ))
-            .expect("error while sending drop index request}");
+            .expect("error while sending drop index request");
 
         match response {
             ParadeWriterResponse::Ok => {}
@@ -229,4 +237,4 @@ impl ParadeWriterClient {
     }
 }
 
-unsafe impl PGRXSharedMemory for ParadeWriterClient {}
+unsafe impl PGRXSharedMemory for WriterStatus {}

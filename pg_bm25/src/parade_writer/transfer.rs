@@ -23,21 +23,21 @@ impl<'a, T> Iterator for WriterTransferMessageIterator<'a, T>
 where
     T: DeserializeOwned + 'a,
 {
-    type Item = serde_json::Result<WriterTransferMessage<T>>;
+    type Item = serde_json::Result<T>; // Assuming T is JsonBuilder
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.stream.next() {
             Some(Ok(WriterTransferMessage::Data(builder))) => {
                 pgrx::log!("GOT MESSAGE");
-                Some(Ok(WriterTransferMessage::Data(builder)))
+                Some(Ok(builder)) // Directly return the builder
             }
             Some(Ok(WriterTransferMessage::Done)) => {
                 pgrx::log!("GOT DONE MESSAGE");
-                None // End interator
+                None // End iterator
             }
             Some(Err(e)) => {
                 pgrx::log!("Error parsing JSON in writer transfer consumer message: {e:?}",);
-                None // End iterator on error
+                Some(Err(e)) // Return the error
             }
             None => None, // No more items
         }
@@ -53,6 +53,10 @@ pub struct WriterTransferProducer<T: Serialize> {
 impl<T: Serialize> WriterTransferProducer<T> {
     pub fn new() -> std::io::Result<Self> {
         let pipe_path = crate::env::paradedb_transfer_pipe_path();
+        // It's important that this process is the "owner" of the named pipe file path.
+        // We'll remove any existing pipe_path, and connect to the first producer
+        // process who creates a new one.
+        let pipe = Self::delete_named_pipe_file(&pipe_path)?;
         let pipe = Self::create_named_pipe_file(&pipe_path)?;
         Ok(Self {
             pipe,
@@ -89,6 +93,14 @@ impl<T: Serialize> WriterTransferProducer<T> {
 
         File::create(&pipe_path)
     }
+
+    fn delete_named_pipe_file(pipe_path: &Path) -> std::io::Result<()> {
+        if pipe_path.exists() {
+            std::fs::remove_file(&pipe_path)?;
+        }
+
+        Ok(())
+    }
 }
 
 impl<T: Serialize> Write for WriterTransferProducer<T> {
@@ -113,37 +125,30 @@ impl<T: Serialize> Drop for WriterTransferProducer<T> {
     }
 }
 
-pub struct WriterTransferConsumer {
+pub struct WriterTransferConsumer<T: Serialize> {
     pipe_path: PathBuf,
+    marker: PhantomData<T>,
 }
 
-impl WriterTransferConsumer {
-    pub fn new() -> std::io::Result<Self> {
-        let pipe_path = crate::env::paradedb_transfer_pipe_path();
-        // We'll remove the existing pipe_path, because we want to allow
-        // the producer to create the file.
-        if pipe_path.exists() {
-            std::fs::remove_file(&pipe_path).unwrap_or_else(|err| {
-                pgrx::log!(
-                    "writer consumer could not remove the pipe path file {pipe_path:?}: {err:?}"
-                )
-            });
+impl<T: Serialize> WriterTransferConsumer<T> {
+    pub fn new() -> Self {
+        Self {
+            pipe_path: crate::env::paradedb_transfer_pipe_path(),
+            marker: PhantomData,
         }
-        Ok(Self { pipe_path })
     }
 
-    pub fn read_stream<'a, T>(&'a mut self) -> WriterTransferMessageIterator<'a, T>
+    pub fn read_stream<'a>(&'a mut self) -> WriterTransferMessageIterator<'a, T>
     where
         T: DeserializeOwned + 'a,
     {
         // Wait for the client to create the pipe.
         while !self.pipe_path.exists() {
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
 
         let pipe_file = std::fs::OpenOptions::new()
             .read(true)
-            // .custom_flags(libc::O_NONBLOCK) // Set the O_NONBLOCK flag
             .open(&self.pipe_path)
             .unwrap_or_else(|err| {
                 let pipe_path = self.pipe_path.display().to_string();

@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use crate::datafusion::catalog::PARADE_CATALOG;
 use crate::datafusion::schema::{ParadeSchemaProvider, PARADE_SCHEMA};
+use crate::errors::ParadeError;
 
 lazy_static! {
     pub static ref CONTEXT: RwLock<Option<SessionContext>> = RwLock::new(None);
@@ -23,35 +24,35 @@ lazy_static! {
 pub struct DatafusionContext;
 
 impl<'a> DatafusionContext {
-    pub fn with_provider_context<F, R>(f: F) -> R
+    pub fn with_provider_context<F, R>(f: F) -> Result<R, ParadeError>
     where
         F: FnOnce(&ParadeSchemaProvider, &SessionContext) -> R,
     {
         let context_lock = CONTEXT.read();
         let context = context_lock
             .as_ref()
-            .expect("Please run CALL paradedb.init(); first.");
+            .ok_or_else(|| ParadeError::ContextNotInitialized)?;
 
         let schema_provider = context
             .catalog(PARADE_CATALOG)
-            .expect("Catalog not found")
+            .ok_or_else(|| ParadeError::NotFound)?
             .schema(PARADE_SCHEMA)
-            .expect("Schema not found");
+            .ok_or_else(|| ParadeError::NotFound)?;
 
         let parade_provider = schema_provider
             .as_any()
             .downcast_ref::<ParadeSchemaProvider>()
-            .expect("Failed to downcast schema provider");
+            .ok_or_else(|| ParadeError::NotFound)?;
 
-        f(parade_provider, context)
+        Ok(f(parade_provider, context))
     }
 
-    pub fn with_write_lock<F, R>(f: F) -> R
+    pub fn with_write_lock<F, R>(f: F) -> Result<R, ParadeError>
     where
         F: FnOnce(RwLockWriteGuard<'a, Option<SessionContext>>) -> R,
     {
         let context_lock = CONTEXT.write();
-        f(context_lock)
+        Ok(f(context_lock))
     }
 }
 
@@ -61,22 +62,22 @@ pub struct ParadeContextProvider {
 }
 
 impl ParadeContextProvider {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, ParadeError> {
         DatafusionContext::with_provider_context(|provider, _| {
             let table_names = provider.table_names();
             let mut tables = HashMap::new();
 
             for table_name in table_names.iter() {
                 let table_provider = task::block_on(provider.table(table_name))
-                    .expect("Failed to get table provider");
+                    .ok_or_else(|| ParadeError::NotFound)?;
                 tables.insert(table_name.to_string(), provider_as_source(table_provider));
             }
 
-            Self {
+            Ok(Self {
                 options: ConfigOptions::new(),
                 tables,
-            }
-        })
+            })
+        })?
     }
 }
 

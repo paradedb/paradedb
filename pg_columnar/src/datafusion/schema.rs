@@ -21,8 +21,8 @@ use std::{
 };
 
 use crate::datafusion::directory::ParquetDirectory;
-use crate::datafusion::error::{datafusion_err_to_string, delta_err_to_string};
 use crate::datafusion::substrait::SubstraitTranslator;
+use crate::errors::ParadeError;
 use crate::guc::PARADE_GUC;
 
 pub static PARADE_SCHEMA: &str = "public";
@@ -36,7 +36,7 @@ pub struct ParadeSchemaProvider {
 
 impl ParadeSchemaProvider {
     // Creates an empty ParadeSchemaProvider
-    pub async fn try_new(dir: PathBuf) -> Result<Self> {
+    pub async fn try_new(dir: PathBuf) -> Result<Self, ParadeError> {
         Ok(Self {
             tables: RwLock::new(HashMap::new()),
             writers: Mutex::new(HashMap::new()),
@@ -45,14 +45,18 @@ impl ParadeSchemaProvider {
     }
 
     // Loads tables and writers into ParadeSchemaProvider
-    pub async fn init(&self) -> Result<()> {
+    pub async fn init(&self) -> Result<(), ParadeError> {
         let mut tables = HashMap::new();
         let mut writers = HashMap::new();
 
         let listdir = std::fs::read_dir(self.dir.clone())?;
 
         for res in listdir {
-            let table_oid = res?.file_name().to_str().unwrap().to_string();
+            let table_oid = res?
+                .file_name()
+                .to_str()
+                .ok_or_else(|| ParadeError::NotFound)?
+                .to_string();
 
             if let Ok(oid) = table_oid.parse() {
                 let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(oid) };
@@ -65,14 +69,13 @@ impl ParadeSchemaProvider {
                 let table_name = unsafe {
                     CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr())
                         .to_str()
-                        .unwrap()
+                        .map_err(|_| ParadeError::NotFound)?
                 };
 
                 let delta_table = match Self::table_exist(self, table_name) {
-                    true => Self::get_delta_table(self, table_name).await.unwrap(),
+                    true => Self::get_delta_table(self, table_name).await?,
                     false => {
-                        deltalake::open_table(&ParquetDirectory::table_path(&table_oid).unwrap())
-                            .await?
+                        deltalake::open_table(&ParquetDirectory::table_path(&table_oid)?).await?
                     }
                 };
 
@@ -98,24 +101,23 @@ impl ParadeSchemaProvider {
     }
 
     // Creates and registers an empty DeltaTable
-    pub async fn create_table(&self, pg_relation: &PgRelation) -> Result<(), String> {
+    pub async fn create_table(&self, pg_relation: &PgRelation) -> Result<(), ParadeError> {
         // Create a RecordBatch with schema from pg_relation
         let table_oid = pg_relation.oid().as_u32().to_string();
         let table_name = pg_relation.name();
         let fields = Self::fields(pg_relation)?;
         let arrow_schema = ArrowSchema::new(fields);
-        let delta_schema =
-            DeltaSchema::try_from(&arrow_schema).expect("Could not convert Arrow to Delta schema");
+        let delta_schema = DeltaSchema::try_from(&arrow_schema).map_err(ParadeError::Arrow)?;
         let batch = RecordBatch::new_empty(Arc::new(arrow_schema));
 
         // Create a DeltaTable
         let mut table = DeltaOps::try_from_uri(&ParquetDirectory::table_path(&table_oid)?)
             .await
-            .map_err(delta_err_to_string())?
+            .map_err(ParadeError::Delta)?
             .create()
             .with_columns(delta_schema.get_fields().to_vec())
             .await
-            .map_err(delta_err_to_string())?;
+            .map_err(ParadeError::Delta)?;
 
         // Create a table writer
         let writer_properties = WriterProperties::builder()
@@ -123,18 +125,18 @@ impl ParadeSchemaProvider {
             .build();
 
         let mut writer = RecordBatchWriter::for_table(&table)
-            .map_err(delta_err_to_string())?
+            .map_err(ParadeError::Delta)?
             .with_writer_properties(writer_properties);
 
         // Write the RecordBatch to the DeltaTable
-        writer.write(batch).await.map_err(delta_err_to_string())?;
+        writer.write(batch).await.map_err(ParadeError::Delta)?;
         writer
             .flush_and_commit(&mut table)
             .await
-            .map_err(delta_err_to_string())?;
+            .map_err(ParadeError::Delta)?;
 
         // Register the table writer
-        Self::register_writer(self, table_name, writer).map_err(datafusion_err_to_string())?;
+        Self::register_writer(self, table_name, writer)?;
 
         // Register the DeltaTable
         Self::register_table(
@@ -142,13 +144,13 @@ impl ParadeSchemaProvider {
             table_name.to_string(),
             Arc::new(table) as Arc<dyn TableProvider>,
         )
-        .map_err(datafusion_err_to_string())?;
+        .map_err(ParadeError::DataFusion)?;
 
         Ok(())
     }
 
     // Calls DeltaOps vacuum on a DeltaTable
-    pub async fn vacuum(&self, table_name: &str, optimize: bool) -> Result<(), String> {
+    pub async fn vacuum(&self, table_name: &str, optimize: bool) -> Result<(), ParadeError> {
         // Open the DeltaTable
         let mut old_table = Self::get_delta_table(self, table_name).await?;
 
@@ -158,7 +160,7 @@ impl ParadeSchemaProvider {
                 OptimizeBuilder::new(old_table.object_store(), old_table.state.clone())
                     .with_target_size(PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB)
                     .await
-                    .map_err(delta_err_to_string())?
+                    .map_err(ParadeError::Delta)?
                     .0;
 
             old_table = optimized_table;
@@ -171,7 +173,7 @@ impl ParadeSchemaProvider {
             ))
             .with_enforce_retention_duration(PARADE_GUC.vacuum_enforce_retention.get())
             .await
-            .map_err(delta_err_to_string())?
+            .map_err(ParadeError::Delta)?
             .0;
 
         // Commit the vacuumed table
@@ -180,18 +182,23 @@ impl ParadeSchemaProvider {
             table_name.to_string(),
             Arc::new(vacuumed_table) as Arc<dyn TableProvider>,
         )
-        .map_err(datafusion_err_to_string())?;
+        .map_err(ParadeError::DataFusion)?;
 
         Ok(())
     }
 
     // Vacuum all tables in the schema directory and delete directories for dropped tables
-    pub async fn vacuum_all(&self, optimize: bool) -> Result<(), String> {
-        let listdir = std::fs::read_dir(self.dir.clone()).unwrap();
+    pub async fn vacuum_all(&self, optimize: bool) -> Result<(), ParadeError> {
+        let listdir = std::fs::read_dir(self.dir.clone()).map_err(ParadeError::IO)?;
 
         // Iterate over all tables in the directory
         for res in listdir {
-            let table_oid = res.unwrap().file_name().to_str().unwrap().to_string();
+            let table_oid = res
+                .map_err(ParadeError::IO)?
+                .file_name()
+                .to_str()
+                .ok_or_else(|| ParadeError::NotFound)?
+                .to_string();
 
             if let Ok(oid) = table_oid.parse() {
                 let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(oid) };
@@ -200,13 +207,11 @@ impl ParadeSchemaProvider {
                 // If the relation is null, delete the directory
                 if relation.is_null() {
                     let path = self.dir.join(&table_oid);
-                    remove_dir_all(path.clone()).unwrap();
+                    remove_dir_all(path.clone())?;
                 // Otherwise, vacuum the table
                 } else {
                     let table_name = unsafe {
-                        CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr())
-                            .to_str()
-                            .unwrap()
+                        CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()?
                     };
 
                     Self::vacuum(self, table_name, optimize).await?;
@@ -220,27 +225,27 @@ impl ParadeSchemaProvider {
     }
 
     // Write a RecordBatch to a table's writer
-    pub fn write(&self, table_name: &str, batch: RecordBatch) -> Result<(), String> {
+    pub fn write(&self, table_name: &str, batch: RecordBatch) -> Result<(), ParadeError> {
         let FILE_SIZE_MB = (PARADE_GUC.optimize_file_size_mb.get() as i64) * BYTES_IN_MB;
 
         // Write batch to buffer
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
             .get_mut(table_name)
-            .expect("Failed to get writer");
+            .ok_or_else(|| ParadeError::NotFound)?;
 
-        task::block_on(writer.write(batch)).map_err(delta_err_to_string())?;
+        task::block_on(writer.write(batch)).map_err(ParadeError::Delta)?;
 
         // If the buffer is too large, flush it to disk
         if writer.buffer_len() > FILE_SIZE_MB as usize {
-            task::block_on(writer.flush()).map_err(delta_err_to_string())?;
+            task::block_on(writer.flush()).map_err(ParadeError::Delta)?;
         }
 
         Ok(())
     }
 
     // Flush and commit a table's writer buffer to disk
-    pub async fn flush_and_commit(&self, table_name: &str) -> Result<(), String> {
+    pub async fn flush_and_commit(&self, table_name: &str) -> Result<(), ParadeError> {
         // Get the DeltaTable
         let mut delta_table = Self::get_delta_table(self, table_name).await?;
 
@@ -248,10 +253,10 @@ impl ParadeSchemaProvider {
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
             .get_mut(table_name)
-            .expect("Failed to get writer");
+            .ok_or_else(|| ParadeError::NotFound)?;
 
         // Flush and commit buffer to delta logs
-        task::block_on(writer.flush_and_commit(&mut delta_table)).map_err(delta_err_to_string())?;
+        task::block_on(writer.flush_and_commit(&mut delta_table)).map_err(ParadeError::Delta)?;
 
         // Commiting creates a new version of the DeltaTable
         // Update the provider with the new version
@@ -260,7 +265,7 @@ impl ParadeSchemaProvider {
             table_name.to_string(),
             Arc::new(delta_table) as Arc<dyn TableProvider>,
         )
-        .map_err(datafusion_err_to_string())?;
+        .map_err(ParadeError::DataFusion)?;
 
         Ok(())
     }
@@ -268,20 +273,25 @@ impl ParadeSchemaProvider {
     // SchemaProvider stores immutable TableProviders, whereas many DeltaOps methods
     // require a mutable DeltaTable. This function gets a mutable DeltaTable from
     // a TableProvider using the DeltaOps UpdateBuilder.
-    async fn get_delta_table(&self, table_name: &str) -> Result<DeltaTable, String> {
-        let provider = Self::table(self, table_name).await.unwrap();
-        let old_table = provider.as_any().downcast_ref::<DeltaTable>().unwrap();
+    async fn get_delta_table(&self, table_name: &str) -> Result<DeltaTable, ParadeError> {
+        let provider = Self::table(self, table_name)
+            .await
+            .ok_or_else(|| ParadeError::NotFound)?;
+        let old_table = provider
+            .as_any()
+            .downcast_ref::<DeltaTable>()
+            .ok_or_else(|| ParadeError::NotFound)?;
 
         Ok(
             UpdateBuilder::new(old_table.object_store(), old_table.state.clone())
                 .await
-                .map_err(delta_err_to_string())?
+                .map_err(ParadeError::Delta)?
                 .0,
         )
     }
 
     // Helper function to convert pg_relation attributes to a list of Datafusion Fields
-    fn fields(pg_relation: &PgRelation) -> Result<Vec<Field>, String> {
+    fn fields(pg_relation: &PgRelation) -> Result<Vec<Field>, ParadeError> {
         let tupdesc = pg_relation.tuple_desc();
         let mut fields = Vec::with_capacity(tupdesc.len());
 
@@ -304,7 +314,9 @@ impl ParadeSchemaProvider {
             };
 
             if is_array {
-                return Err("Array data types are not supported".to_string());
+                return Err(ParadeError::Generic(
+                    "Array types not yet supported".to_string(),
+                ));
             }
 
             let field = Field::new(
@@ -320,7 +332,7 @@ impl ParadeSchemaProvider {
     }
 
     // Helper function to register a table writer
-    fn register_writer(&self, name: &str, writer: RecordBatchWriter) -> Result<()> {
+    fn register_writer(&self, name: &str, writer: RecordBatchWriter) -> Result<(), ParadeError> {
         let mut writers = self.writers.lock();
         writers.insert(name.to_string(), writer);
 

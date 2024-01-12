@@ -8,10 +8,10 @@ use deltalake::datafusion::sql::planner::SqlToRel;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
 use std::ffi::CStr;
-use std::num::TryFromIntError;
 
 use crate::datafusion::context::{DatafusionContext, ParadeContextProvider};
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
+use crate::errors::ParadeError;
 use crate::hooks::columnar::ColumnarStmt;
 
 pub fn executor_run(
@@ -52,7 +52,7 @@ pub fn executor_run(
         let statement = &ast[0];
 
         // Convert the AST into a logical plan
-        let context_provider = ParadeContextProvider::new();
+        let context_provider = ParadeContextProvider::new().expect("Failed to create context");
         let sql_to_rel = SqlToRel::new(&context_provider);
         let logical_plan = sql_to_rel
             .statement_to_plan(statement.clone())
@@ -61,9 +61,11 @@ pub fn executor_run(
         // Execute the logical plan
         let recordbatchvec: Vec<RecordBatch> =
             DatafusionContext::with_provider_context(|_, context| {
-                let dataframe = task::block_on(context.execute_logical_plan(logical_plan)).unwrap();
-                task::block_on(dataframe.collect()).unwrap()
-            });
+                let dataframe = task::block_on(context.execute_logical_plan(logical_plan))
+                    .expect("Failed to execute plan");
+                task::block_on(dataframe.collect()).expect("Failed to collect dataframe")
+            })
+            .expect("Failed to get record batch");
 
         // This is for any node types that need to do additional processing on estate
         let plan: *mut pg_sys::Plan = (*ps).planTree;
@@ -87,7 +89,7 @@ pub fn executor_run(
 unsafe fn send_tuples_if_necessary(
     query_desc: *mut pg_sys::QueryDesc,
     recordbatchvec: Vec<RecordBatch>,
-) -> Result<(), String> {
+) -> Result<(), ParadeError> {
     let sendTuples = (*query_desc).operation == pg_sys::CmdType_CMD_SELECT
         || (*(*query_desc).plannedstmt).hasReturning;
 
@@ -96,76 +98,49 @@ unsafe fn send_tuples_if_necessary(
     }
 
     let dest = (*query_desc).dest;
-    let rStartup = (*dest).rStartup;
-    match rStartup {
-        Some(f) => f(
-            dest,
-            (*query_desc)
-                .operation
-                .try_into()
-                .map_err(|e: TryFromIntError| e.to_string())?,
-            (*query_desc).tupDesc,
-        ),
-        None => return Err("No rStartup found".to_string()),
-    };
+    let startup = (*dest).rStartup.ok_or_else(|| ParadeError::NotFound)?;
+
+    startup(dest, (*query_desc).operation as i32, (*query_desc).tupDesc);
 
     let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
-    let receiveSlot = (*dest).receiveSlot;
-    let mut row_number = 0;
+    let receive = (*dest).receiveSlot.ok_or_else(|| ParadeError::NotFound)?;
 
-    match receiveSlot {
-        Some(f) => {
-            for recordbatch in recordbatchvec.iter() {
-                // Convert the tuple_desc target types to the ones corresponding to the Datafusion column types
-                let tuple_attrs = (*(*query_desc).tupDesc).attrs.as_mut_ptr();
-                for (col_index, _attr) in tuple_desc.iter().enumerate() {
-                    let dt = recordbatch.column(col_index).data_type();
-                    (*tuple_attrs.offset(
-                        col_index
-                            .try_into()
-                            .map_err(|e: TryFromIntError| e.to_string())?,
-                    ))
-                    .atttypid = PgOid::from_substrait(dt.to_substrait()?)?.value();
-                }
-
-                for row_index in 0..recordbatch.num_rows() {
-                    let tuple_table_slot =
-                        pg_sys::MakeTupleTableSlot((*query_desc).tupDesc, &pg_sys::TTSOpsVirtual);
-
-                    pg_sys::ExecStoreVirtualTuple(tuple_table_slot);
-
-                    // Assign TID to the tuple table slot
-                    let mut tid = pg_sys::ItemPointerData::default();
-                    u64_to_item_pointer(row_number as u64, &mut tid);
-                    (*tuple_table_slot).tts_tid = tid;
-                    row_number += 1;
-
-                    for (col_index, _attr) in tuple_desc.iter().enumerate() {
-                        let column = recordbatch.column(col_index);
-                        let dt = column.data_type();
-                        let tts_value = (*tuple_table_slot).tts_values.offset(
-                            col_index
-                                .try_into()
-                                .map_err(|e: TryFromIntError| e.to_string())?,
-                        );
-                        *tts_value = DatafusionMapProducer::map(
-                            dt.to_substrait()?,
-                            |df_map: DatafusionMap| (df_map.index_datum)(column, row_index),
-                        )??;
-                    }
-                    f(tuple_table_slot, dest);
-                    pg_sys::ExecDropSingleTupleTableSlot(tuple_table_slot);
-                }
-            }
+    for (row_number, recordbatch) in recordbatchvec.iter().enumerate() {
+        // Convert the tuple_desc target types to the ones corresponding to the Datafusion column types
+        let tuple_attrs = (*(*query_desc).tupDesc).attrs.as_mut_ptr();
+        for (col_index, _attr) in tuple_desc.iter().enumerate() {
+            let dt = recordbatch.column(col_index).data_type();
+            (*tuple_attrs.add(col_index)).atttypid =
+                PgOid::from_substrait(dt.to_substrait()?)?.value();
         }
-        None => return Err("No receiveslot".to_string()),
+
+        for row_index in 0..recordbatch.num_rows() {
+            let tuple_table_slot =
+                pg_sys::MakeTupleTableSlot((*query_desc).tupDesc, &pg_sys::TTSOpsVirtual);
+
+            pg_sys::ExecStoreVirtualTuple(tuple_table_slot);
+
+            // Assign TID to the tuple table slot
+            let mut tid = pg_sys::ItemPointerData::default();
+            u64_to_item_pointer(row_number as u64, &mut tid);
+            (*tuple_table_slot).tts_tid = tid;
+
+            for (col_index, _attr) in tuple_desc.iter().enumerate() {
+                let column = recordbatch.column(col_index);
+                let dt = column.data_type();
+                let tts_value = (*tuple_table_slot).tts_values.add(col_index);
+                *tts_value =
+                    DatafusionMapProducer::map(dt.to_substrait()?, |df_map: DatafusionMap| {
+                        (df_map.index_datum)(column, row_index)
+                    })??;
+            }
+            receive(tuple_table_slot, dest);
+            pg_sys::ExecDropSingleTupleTableSlot(tuple_table_slot);
+        }
     }
 
-    let rShutdown = (*dest).rShutdown;
-    match rShutdown {
-        Some(f) => f(dest),
-        None => return Err("No rshutdown".to_string()),
-    }
+    let shutdown = (*dest).rShutdown.ok_or_else(|| ParadeError::NotFound)?;
+    shutdown(dest);
 
     Ok(())
 }

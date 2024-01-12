@@ -40,7 +40,7 @@ fn create_table(rel: pg_sys::Relation, persistence: c_char) {
             panic!("Temp tables are not yet supported");
         }
         pg_sys::RELPERSISTENCE_PERMANENT => {
-            DatafusionContext::with_provider_context(|provider, _| {
+            let _ = DatafusionContext::with_provider_context(|provider, _| {
                 task::block_on(provider.create_table(&pg_relation))
                     .expect("Failed to create table");
             });

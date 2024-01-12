@@ -3,6 +3,7 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::context::DatafusionContext;
+use crate::errors::ParadeError;
 use crate::hooks::columnar::ColumnarStmt;
 
 struct VacuumOptions {
@@ -19,7 +20,7 @@ impl VacuumOptions {
     }
 }
 
-pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), String> {
+pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeError> {
     // Read VACUUM options
     let vacuum_options = {
         let options = (*vacuum_stmt).options;
@@ -45,10 +46,7 @@ pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<()
                     option = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::DefElem;
                 }
 
-                let option_name = CStr::from_ptr((*option).defname)
-                    .to_str()
-                    .unwrap()
-                    .to_uppercase();
+                let option_name = CStr::from_ptr((*option).defname).to_str()?.to_uppercase();
 
                 match option_name.as_str() {
                     "FULL" => vacuum_options.full = true,
@@ -79,7 +77,7 @@ pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<()
         true => DatafusionContext::with_provider_context(|provider, _| {
             task::block_on(provider.vacuum_all(vacuum_options.full))?;
             Ok(())
-        }),
+        })?,
         false => {
             let num_rels = (*rels).length;
 
@@ -110,20 +108,18 @@ pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<()
                     continue;
                 }
 
-                if !ColumnarStmt::relation_is_columnar(relation).unwrap() {
+                if !ColumnarStmt::relation_is_columnar(relation)? {
                     pg_sys::RelationClose(relation);
                     continue;
                 }
 
                 pg_sys::RelationClose(relation);
 
-                let table_name = CStr::from_ptr((*(*vacuum_rel).relation).relname)
-                    .to_str()
-                    .expect("Failed to get table name");
+                let table_name = CStr::from_ptr((*(*vacuum_rel).relation).relname).to_str()?;
 
-                DatafusionContext::with_provider_context(|provider, _| {
+                let _ = DatafusionContext::with_provider_context(|provider, _| {
                     task::block_on(provider.vacuum(table_name, vacuum_options.full))?;
-                    Ok::<(), String>(())
+                    Ok::<(), ParadeError>(())
                 })?;
             }
 

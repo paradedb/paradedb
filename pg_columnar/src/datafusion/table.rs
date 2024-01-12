@@ -10,44 +10,43 @@ use pgrx::*;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
-
-use crate::datafusion::error::datafusion_err_to_string;
+use crate::errors::ParadeError;
 
 pub struct ParadeTable {
     name: String,
 }
 
 impl ParadeTable {
-    pub fn from_pg(pg_relation: &PgRelation) -> Result<Self, String> {
+    pub fn from_pg(pg_relation: &PgRelation) -> Result<Self, ParadeError> {
         let name = pg_relation.name().to_string();
         Ok(Self { name })
     }
 
-    pub fn name(&self) -> Result<String, String> {
+    pub fn name(&self) -> Result<String, ParadeError> {
         Ok(self.name.clone())
     }
 
-    pub fn schema(&self) -> Result<DFSchema, String> {
+    pub fn schema(&self) -> Result<DFSchema, ParadeError> {
         let source = Self::source(self)?;
         DFSchema::try_from_qualified_schema(&self.name, source.schema().as_ref())
-            .map_err(datafusion_err_to_string())
+            .map_err(ParadeError::DataFusion)
     }
 
-    pub fn source(&self) -> Result<Arc<dyn TableSource>, String> {
+    fn source(&self) -> Result<Arc<dyn TableSource>, ParadeError> {
         DatafusionContext::with_provider_context(|_, context| {
             let reference = TableReference::from(self.name.clone());
 
             let source = match context.table_exist(&reference) {
                 Ok(true) => {
                     let provider = task::block_on(context.table_provider(reference))
-                        .map_err(datafusion_err_to_string())?;
+                        .map_err(ParadeError::DataFusion)?;
                     Some(provider_as_source(provider))
                 }
                 Ok(false) => None,
-                Err(e) => return Err(datafusion_err_to_string()(e)),
+                Err(err) => return Err(ParadeError::DataFusion(err)),
             };
 
-            source.ok_or("Table not found. Run CALL paradedb.init(); first.".to_string())
-        })
+            source.ok_or_else(|| ParadeError::ContextNotInitialized)
+        })?
     }
 }

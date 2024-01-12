@@ -3831,6 +3831,7 @@ dependencies = [
  "serde_json",
  "shared",
  "substrait",
+ "thiserror",
 ]
 
 [[package]]

@@ -33,7 +33,7 @@ fn main() {
 
     let script_path = pg_columnar_dir.join("benchmarks/clickbench/benchmark.sh");
 
-    if env::current_dir().unwrap() != pg_columnar_dir {
+    if current_dir != pg_columnar_dir {
         env::set_current_dir(&pg_columnar_dir).expect("Failed to change directory");
     }
 

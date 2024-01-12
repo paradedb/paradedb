@@ -15,11 +15,13 @@ use std::sync::Arc;
 use substrait::proto::r#type as substrait_type_mod;
 use substrait::proto::Type as SubstraitType;
 
+use crate::errors::ParadeError;
+
 #[allow(clippy::type_complexity)]
 pub struct DatafusionMap {
     pub literal: Box<dyn Fn(*mut pg_sys::Datum, bool) -> Expr>,
     pub array: Box<dyn Fn(*mut *mut pg_sys::TupleTableSlot, usize, usize) -> ArrayRef>,
-    pub index_datum: Box<dyn Fn(&Arc<dyn Array>, usize) -> Result<Datum, String>>,
+    pub index_datum: Box<dyn Fn(&Arc<dyn Array>, usize) -> Result<Datum, ParadeError>>,
 }
 
 const SUBSTRAIT_USER_DEFINED_U32: u32 = 1;
@@ -51,14 +53,14 @@ fn substrait_user_defined_type_from_reference(type_reference: u32) -> substrait_
 }
 
 pub trait SubstraitTranslator {
-    fn to_substrait(&self) -> Result<SubstraitType, String>;
-    fn from_substrait(substrait_type: SubstraitType) -> Result<Self, String>
+    fn to_substrait(&self) -> Result<SubstraitType, ParadeError>;
+    fn from_substrait(substrait_type: SubstraitType) -> Result<Self, ParadeError>
     where
         Self: Sized;
 }
 
 impl SubstraitTranslator for DataType {
-    fn to_substrait(&self) -> Result<SubstraitType, String> {
+    fn to_substrait(&self) -> Result<SubstraitType, ParadeError> {
         let result = SubstraitType {
             kind: match self {
                 DataType::Boolean => Some(substrait_type_mod::Kind::Bool(
@@ -101,7 +103,7 @@ impl SubstraitTranslator for DataType {
         Ok(result)
     }
 
-    fn from_substrait(substrait_type: SubstraitType) -> Result<DataType, String> {
+    fn from_substrait(substrait_type: SubstraitType) -> Result<DataType, ParadeError> {
         let result = match substrait_type.kind {
             Some(kind) => match kind {
                 substrait_type_mod::Kind::Bool(_) => DataType::Boolean,
@@ -132,7 +134,7 @@ impl SubstraitTranslator for DataType {
 }
 
 impl SubstraitTranslator for PgOid {
-    fn to_substrait(&self) -> Result<SubstraitType, String> {
+    fn to_substrait(&self) -> Result<SubstraitType, ParadeError> {
         let result = SubstraitType {
             kind: match self {
                 PgOid::BuiltIn(builtin) => match builtin {
@@ -180,7 +182,7 @@ impl SubstraitTranslator for PgOid {
         Ok(result)
     }
 
-    fn from_substrait(substrait_type: SubstraitType) -> Result<PgOid, String> {
+    fn from_substrait(substrait_type: SubstraitType) -> Result<PgOid, ParadeError> {
         let result = match substrait_type.kind {
             Some(kind) => match kind {
                 substrait_type_mod::Kind::Bool(_) => PgBuiltInOids::BOOLOID,
@@ -210,7 +212,7 @@ impl SubstraitTranslator for PgOid {
 
 pub struct DatafusionMapProducer;
 impl DatafusionMapProducer {
-    pub fn map<F, R>(substrait_type: SubstraitType, mut f: F) -> Result<R, String>
+    pub fn map<F, R>(substrait_type: SubstraitType, mut f: F) -> Result<R, ParadeError>
     where
         F: FnMut(DatafusionMap) -> R,
     {
@@ -250,12 +252,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<Int8Type>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Boolean into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -292,14 +294,14 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_any()
                             .downcast_ref::<StringArray>()
-                            .ok_or("Could not downcast Utf8 into string array")?
+                            .ok_or_else(|| ParadeError::NotFound)?
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Utf8 into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -334,12 +336,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<Int16Type>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Int16 into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -374,12 +376,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<Int32Type>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Int32 into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -414,12 +416,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<Int64Type>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Int64 into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -456,12 +458,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<UInt32Type>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert UInt32 into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -498,12 +500,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<Float32Type>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Float32 into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -540,12 +542,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<Float64Type>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Float64 into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -584,12 +586,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<Time64MicrosecondType>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Time64 into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -629,12 +631,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<TimestampMicrosecondType>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Timestamp into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),
@@ -671,12 +673,12 @@ impl DatafusionMapProducer {
                     },
                 ),
                 index_datum: Box::new(
-                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, String> {
-                        Ok(array
+                    |array: &Arc<dyn Array>, index: usize| -> Result<Datum, ParadeError> {
+                        array
                             .as_primitive::<Date32Type>()
                             .value(index)
                             .into_datum()
-                            .ok_or("Could not convert Date32 into datum")?)
+                            .ok_or_else(|| ParadeError::NotFound)
                     },
                 ),
             }),

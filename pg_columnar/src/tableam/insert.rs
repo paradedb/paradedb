@@ -8,11 +8,9 @@ use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
-
-use crate::datafusion::error::arrow_err_to_string;
-
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
 use crate::datafusion::table::ParadeTable;
+use crate::errors::ParadeError;
 
 #[pg_guard]
 pub extern "C" fn memam_slot_callbacks(_rel: pg_sys::Relation) -> *const pg_sys::TupleTableSlotOps {
@@ -48,10 +46,10 @@ pub extern "C" fn memam_finish_bulk_insert(rel: pg_sys::Relation, _options: c_in
     let table_name = unsafe {
         CStr::from_ptr((*((*rel).rd_rel)).relname.data.as_ptr())
             .to_str()
-            .unwrap()
+            .expect("Failed to get table name")
     };
 
-    DatafusionContext::with_provider_context(|provider, _| {
+    let _ = DatafusionContext::with_provider_context(|provider, _| {
         task::block_on(provider.flush_and_commit(table_name)).expect("Failed to commit");
     });
 }
@@ -62,7 +60,7 @@ fn insert_tuples(
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
     commit: bool,
-) -> Result<(), String> {
+) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let tuple_desc = pg_relation.tuple_desc();
     let oids = tuple_desc
@@ -75,7 +73,7 @@ fn insert_tuples(
 
     // Convert the TupleTableSlots into Datafusion arrays
     for (col_idx, oid) in oids.iter().enumerate().take(natts) {
-        DatafusionMapProducer::map(oid.to_substrait().unwrap(), |df_map: DatafusionMap| {
+        DatafusionMapProducer::map(oid.to_substrait()?, |df_map: DatafusionMap| {
             values.push((df_map.array)(slots, nslots, col_idx));
         })?;
     }
@@ -85,17 +83,16 @@ fn insert_tuples(
     let table_name = parade_table.name()?;
     let arrow_schema = ArrowSchema::from(parade_table.schema()?);
 
-    let batch =
-        RecordBatch::try_new(Arc::new(arrow_schema), values).map_err(arrow_err_to_string())?;
+    let batch = RecordBatch::try_new(Arc::new(arrow_schema), values).map_err(ParadeError::Arrow)?;
 
     // Write the RecordBatch to the Delta table
     DatafusionContext::with_provider_context(|provider, _| {
         let _ = provider.write(&table_name, batch);
 
         if commit {
-            task::block_on(provider.flush_and_commit(&table_name)).expect("Failed to commit");
+            task::block_on(provider.flush_and_commit(&table_name))?;
         }
 
         Ok(())
-    })
+    })?
 }

@@ -27,7 +27,7 @@ pub extern "C" fn init() {
     let rn_config = RuntimeConfig::new();
     let runtime_env = RuntimeEnv::new(rn_config).expect("Failed to create runtime env");
 
-    DatafusionContext::with_write_lock(|mut context_lock| {
+    let _ = DatafusionContext::with_write_lock(|mut context_lock| {
         if context_lock.as_mut().is_none() {
             let mut context =
                 SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
@@ -53,7 +53,7 @@ pub extern "C" fn init() {
     });
 
     // Load the schema provider with tables
-    DatafusionContext::with_provider_context(|provider, _| {
+    let _ = DatafusionContext::with_provider_context(|provider, _| {
         task::block_on(provider.init()).expect("Failed to refresh schema provider");
     });
 }

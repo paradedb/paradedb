@@ -2,6 +2,7 @@
 
 mod api;
 mod datafusion;
+mod errors;
 mod guc;
 mod hooks;
 mod tableam;

@@ -1,12 +1,14 @@
 use pgrx::*;
 use std::ffi::{c_char, CString};
 
+use crate::errors::ParadeError;
+
 static COLUMNAR_HANDLER: &str = "mem";
 
 pub struct ColumnarStmt;
 
 impl ColumnarStmt {
-    pub unsafe fn rtable_is_columnar(rtable: *mut pg_sys::List) -> Result<bool, String> {
+    pub unsafe fn rtable_is_columnar(rtable: *mut pg_sys::List) -> Result<bool, ParadeError> {
         let columnar_handler_oid = Self::columnar_handler_oid()?;
 
         #[cfg(feature = "pg12")]
@@ -55,7 +57,9 @@ impl ColumnarStmt {
         }
 
         if using_col && using_noncol {
-            return Err("Mixing table types in a single query is not supported yet".to_string());
+            return Err(ParadeError::Generic(
+                "Heap and columnar tables in the same query is not yet supported".to_string(),
+            ));
         }
 
         Ok(using_col)
@@ -63,7 +67,7 @@ impl ColumnarStmt {
 
     pub unsafe fn relation_is_columnar(
         relation: *mut pg_sys::RelationData,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, ParadeError> {
         if relation.is_null() {
             return Ok(false);
         }
@@ -74,13 +78,16 @@ impl ColumnarStmt {
         Ok(relation_handler_oid == columnar_handler_oid)
     }
 
-    unsafe fn columnar_handler_oid() -> Result<pg_sys::Oid, String> {
-        let columnar_handler_str = CString::new(COLUMNAR_HANDLER).unwrap();
+    unsafe fn columnar_handler_oid() -> Result<pg_sys::Oid, ParadeError> {
+        let columnar_handler_str = CString::new(COLUMNAR_HANDLER)?;
         let columnar_handler_ptr = columnar_handler_str.as_ptr() as *const c_char;
 
         let columnar_oid = pg_sys::get_am_oid(columnar_handler_ptr, true);
+
         if columnar_oid == pg_sys::InvalidOid {
-            return Err("Columnar handler not found".to_string());
+            return Err(ParadeError::Generic(
+                "Columnar handler not found".to_string(),
+            ));
         }
 
         let heap_tuple_data = pg_sys::SearchSysCache1(

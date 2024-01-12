@@ -59,10 +59,11 @@ pub fn executor_run(
             .expect("Failed to create plan");
 
         // Execute the logical plan
-        let recordbatchvec: Vec<RecordBatch> = DatafusionContext::with_read(|context| {
-            let dataframe = task::block_on(context.execute_logical_plan(logical_plan)).unwrap();
-            task::block_on(dataframe.collect()).unwrap()
-        });
+        let recordbatchvec: Vec<RecordBatch> =
+            DatafusionContext::with_provider_context(|_, context| {
+                let dataframe = task::block_on(context.execute_logical_plan(logical_plan)).unwrap();
+                task::block_on(dataframe.collect()).unwrap()
+            });
 
         // This is for any node types that need to do additional processing on estate
         let plan: *mut pg_sys::Plan = (*ps).planTree;

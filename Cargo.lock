@@ -3371,6 +3371,7 @@ version = "0.4.3"
 dependencies = [
  "async-std",
  "async-trait",
+ "chrono",
  "datafusion 34.0.0",
  "deltalake",
  "lazy_static",

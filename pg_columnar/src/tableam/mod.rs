@@ -3,6 +3,7 @@ mod ignored;
 mod insert;
 
 use pgrx::*;
+use std::ptr::addr_of_mut;
 
 use crate::tableam::build::*;
 use crate::tableam::ignored::*;
@@ -76,10 +77,11 @@ extern "C" fn pg_finfo_mem_tableam_handler() -> &'static pg_sys::Pg_finfo_record
 
 extension_sql!(
     r#"
-CREATE FUNCTION mem_tableam_handler(internal) RETURNS table_am_handler AS 'MODULE_PATHNAME', 'mem_tableam_handler' LANGUAGE C STRICT;
-CREATE ACCESS METHOD mem TYPE TABLE HANDLER mem_tableam_handler;
-COMMENT ON ACCESS METHOD mem IS 'mem table access method';
-"#,
+    CREATE FUNCTION mem_tableam_handler(internal)
+    RETURNS table_am_handler AS 'MODULE_PATHNAME', 'mem_tableam_handler' LANGUAGE C STRICT;
+    CREATE ACCESS METHOD mem TYPE TABLE HANDLER mem_tableam_handler;
+    COMMENT ON ACCESS METHOD mem IS 'mem table access method';
+    "#,
     name = "mem_tableam_handler"
 );
 #[no_mangle]
@@ -87,5 +89,5 @@ COMMENT ON ACCESS METHOD mem IS 'mem table access method';
 extern "C" fn mem_tableam_handler(
     _fcinfo: pg_sys::FunctionCallInfo,
 ) -> *mut pg_sys::TableAmRoutine {
-    unsafe { &mut MEM_TABLE_AM_ROUTINE as *mut pg_sys::TableAmRoutine }
+    unsafe { addr_of_mut!(MEM_TABLE_AM_ROUTINE) }
 }

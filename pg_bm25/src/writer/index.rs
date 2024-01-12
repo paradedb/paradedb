@@ -80,7 +80,7 @@ impl Writer {
     ) -> Result<(), ServerError> {
         let writer = self.get_writer(index_directory_path)?;
         for ctid in ctid_values {
-            let ctid_term = tantivy::Term::from_field_u64(ctid_field.clone(), ctid.clone());
+            let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
             writer.delete_term(ctid_term);
         }
         Ok(())

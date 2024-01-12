@@ -117,7 +117,7 @@ pub fn minmax_bm25(
 #[pg_extern]
 fn drop_bm25_internal(index_name: &str) {
     // Drop the Tantivy data directory.
-    ParadeIndex::drop_index(index_name).expect(&format!("error dropping index {index_name}"));
+    ParadeIndex::drop_index(index_name).unwrap_or_else(|_| panic!("error dropping index {index_name}"));
 }
 
 #[cfg(any(test, feature = "pg_test"))]

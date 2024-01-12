@@ -58,7 +58,7 @@ impl<T: Serialize> WriterTransferProducer<T> {
         // We'll remove any existing pipe_path, and connect to the first producer
         // process who creates a new one.
         let pipe_path = Self::pipe_path()?;
-        let pipe = Self::delete_named_pipe_file(&pipe_path)?;
+        Self::delete_named_pipe_file(&pipe_path)?;
         let pipe = Self::create_named_pipe_file(&pipe_path)?;
         Ok(Self {
             pipe,
@@ -92,21 +92,21 @@ impl<T: Serialize> WriterTransferProducer<T> {
 
     fn create_named_pipe_file(pipe_path: &Path) -> std::io::Result<File> {
         if pipe_path.exists() {
-            std::fs::remove_file(&pipe_path)?;
+            std::fs::remove_file(pipe_path)?;
         }
 
-        fifo_file::create_fifo(&pipe_path, 0o600)?;
+        fifo_file::create_fifo(pipe_path, 0o600)?;
 
         let permissions = std::fs::Permissions::from_mode(0o666);
-        std::fs::set_permissions(&pipe_path, permissions)?;
+        std::fs::set_permissions(pipe_path, permissions)?;
 
-        let file = File::create(&pipe_path);
-        file
+        
+        File::create(pipe_path)
     }
 
     fn delete_named_pipe_file(pipe_path: &Path) -> std::io::Result<()> {
         if pipe_path.exists() {
-            std::fs::remove_file(&pipe_path)?;
+            std::fs::remove_file(pipe_path)?;
         }
 
         Ok(())
@@ -152,7 +152,7 @@ where
     let pipe_file = std::fs::OpenOptions::new()
         .read(true)
         .open(pipe_path_ref)
-        .map_err(|err| ServerError::OpenPipeFile(err))?;
+        .map_err(ServerError::OpenPipeFile)?;
 
     let reader = BufReader::new(pipe_file);
     let stream = Deserializer::from_reader(reader).into_iter::<WriterTransferMessage<T>>();

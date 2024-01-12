@@ -79,7 +79,7 @@ impl<T: Serialize> Client<T> {
             _ => {
                 let err = response
                     .text()
-                    .map_err(|err| ClientError::ResponseParseError(err))?;
+                    .map_err(ClientError::ResponseParseError)?;
                 Err(ClientError::ServerError(err))
             }
         }

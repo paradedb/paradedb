@@ -324,8 +324,7 @@ impl ParadeIndex {
                 .and_then(|mut client| {
                     client
                         .request(WriterRequest::Commit)
-                        .map_err(ParadeIndexError::from)
-                        .and_then(|_| Ok(pgrx::log!("sent commit request to index writer server")))
+                        .map_err(ParadeIndexError::from).map(|_| pgrx::log!("sent commit request to index writer server"))
                 })
                 .unwrap_or_else(|err| {
                     pgrx::log!("error while sending index commit to writer server: {err:?}")
@@ -340,8 +339,7 @@ impl ParadeIndex {
                 .and_then(|mut client| {
                     client
                         .request(WriterRequest::Abort)
-                        .map_err(ParadeIndexError::from)
-                        .and_then(|_| Ok(pgrx::log!("sent abort request to index writer server")))
+                        .map_err(ParadeIndexError::from).map(|_| pgrx::log!("sent abort request to index writer server"))
                 })
                 .unwrap_or_else(|err| {
                     pgrx::log!("error while sending index abort to writer server: {err:?}")

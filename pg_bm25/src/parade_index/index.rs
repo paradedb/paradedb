@@ -332,6 +332,22 @@ impl ParadeIndex {
                 });
         })?;
 
+        let writer_client = self.writer_client.clone();
+        Transaction::call_once_on_abort("parade_index", move || {
+            writer_client
+                .lock()
+                .map_err(ParadeIndexError::from)
+                .and_then(|mut client| {
+                    client
+                        .request(WriterRequest::Abort)
+                        .map_err(ParadeIndexError::from)
+                        .and_then(|_| Ok(pgrx::log!("sent abort request to index writer server")))
+                })
+                .unwrap_or_else(|err| {
+                    pgrx::log!("error while sending index abort to writer server: {err:?}")
+                });
+        })?;
+
         Ok(())
     }
 

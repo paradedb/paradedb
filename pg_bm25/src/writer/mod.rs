@@ -27,6 +27,7 @@ pub enum WriterRequest {
         index_directory_path: String,
         paths_to_delete: Vec<String>,
     },
+    Abort,
     Commit,
     Vacuum {
         index_directory_path: String,

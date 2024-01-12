@@ -7,36 +7,7 @@ use std::marker::PhantomData;
 use std::path::Path;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum ServerError {
-    #[error("couldn't open the consumer pipe file: {0}")]
-    OpenPipeFile(std::io::Error),
-
-    #[error("only integer key fields are supported for parade index")]
-    InvalidKeyField,
-
-    #[error("error binding writer server to address: {0}")]
-    AddressBindFailed(String),
-
-    #[error("couldn't get writer for index {0}: {1}")]
-    GetWriterFailed(String, String),
-
-    #[error("writer server must not bind to unix socket, attemped: {0}")]
-    UnixSocketBindAttempt(String),
-
-    #[error(transparent)]
-    IOError(#[from] std::io::Error),
-
-    #[error(transparent)]
-    ReqwestError(#[from] reqwest::Error),
-
-    #[error(transparent)]
-    SerdeError(#[from] serde_json::Error),
-
-    #[error(transparent)]
-    TantivyError(#[from] tantivy::TantivyError),
-}
-
+/// A generic server for receiving requests and transfers from a client.
 pub struct Server<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> {
     addr: std::net::SocketAddr,
     http: tiny_http::Server,
@@ -129,4 +100,34 @@ impl<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> Server<'a, T, H> {
 
         unreachable!("server should never stop listening");
     }
+}
+
+#[derive(Error, Debug)]
+pub enum ServerError {
+    #[error("couldn't open the consumer pipe file: {0}")]
+    OpenPipeFile(std::io::Error),
+
+    #[error("only integer key fields are supported for parade index")]
+    InvalidKeyField,
+
+    #[error("error binding writer server to address: {0}")]
+    AddressBindFailed(String),
+
+    #[error("couldn't get writer for index {0}: {1}")]
+    GetWriterFailed(String, String),
+
+    #[error("writer server must not bind to unix socket, attemped: {0}")]
+    UnixSocketBindAttempt(String),
+
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    ReqwestError(#[from] reqwest::Error),
+
+    #[error(transparent)]
+    SerdeError(#[from] serde_json::Error),
+
+    #[error(transparent)]
+    TantivyError(#[from] tantivy::TantivyError),
 }

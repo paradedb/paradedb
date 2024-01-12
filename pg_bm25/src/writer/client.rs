@@ -12,11 +12,31 @@ pub struct Client<T: Serialize> {
     marker: PhantomData<T>,
 }
 
+/// A generic client for communication with background server.
+/// The client has two functions, "request" and "transfer".
+
+/// "request" sends a synchronous request and waits for a response.
+
+/// "transfer" sends a request, and then opens a data pipe to the backend.
+/// This is useful for transfering large volumes of data, where "request"
+/// has too much overhead to be called over and over.
+
+/// A transfer requires exclusive access to the background server, so
+/// during a transfer, other connections will block and wait for the
+/// background server to become available again.
 impl<T: Serialize> Client<T> {
     pub fn new(addr: SocketAddr) -> Self {
+        // Some server processes, like creating a index, can take a long time.
+        // Because the server is blocking/single-threaded, clients should wait
+        // as long as they need to for their turn to use the server.
+        let http = reqwest::blocking::ClientBuilder::new()
+            .timeout(None)
+            .build()
+            .expect("error building http client");
+
         Self {
             addr,
-            http: reqwest::blocking::Client::new(),
+            http,
             producer: None,
             marker: PhantomData,
         }
@@ -44,15 +64,15 @@ impl<T: Serialize> Client<T> {
         // with more requests.
         self.stop_transfer();
         let bytes = serde_json::to_vec(&request)?;
-        // pgrx::log!(
-        //     "sending request {:?}",
-        //     serde_json::to_string_pretty(&request)
-        // );
+        pgrx::log!(
+            "sending request {:?}",
+            serde_json::to_string_pretty(&request)
+        );
         let response = self.http.post(self.url()).body::<Vec<u8>>(bytes).send()?;
-        // pgrx::log!(
-        //     "received response {:?}",
-        //     serde_json::to_string_pretty(&request)
-        // );
+        pgrx::log!(
+            "received response {:?}",
+            serde_json::to_string_pretty(&request)
+        );
 
         match response.status() {
             reqwest::StatusCode::OK => Ok(()),
@@ -77,9 +97,11 @@ impl<T: Serialize> Client<T> {
         Ok(())
     }
 
-    /// Stop a data pipe transfer. Must be called when inserting is done, or
-    /// the client + server will both hang forever. It's tricky to know when inserting
-    /// is completely done. You can't necessarily wait until the end of the transaction,
+    /// Stop a data pipe transfer. Must be called when the transfer is done, or
+    /// the client + server will both hang forever.
+    ///
+    /// With contexts like inserting, it's tricky to know when the transfer is
+    /// completely done. You can't necessarily wait until the end of the transaction,
     /// because there may be more writer operations (delete etc.) in the same transaction.
     /// Best practice is to call this both during the end of transaction callback, as well
     /// as before every send_request.

@@ -56,6 +56,9 @@ impl<T> From<PoisonError<T>> for TransactionError {
 static TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
+static TRANSACTION_CALL_ONCE_ON_ABORT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
+
 pub struct Transaction {}
 
 impl Transaction {
@@ -74,7 +77,36 @@ impl Transaction {
                 match cache_clone.lock() {
                     Ok(mut cache) => cache.clear(),
                     Err(err) => pgrx::log!(
-                        "could not acquire lock in register transaction callback: {err:?}"
+                        "could not acquire lock in register transaction commit callback: {err:?}"
+                    ),
+                }
+
+                // Actually call the callback.
+                callback();
+            });
+
+            cache.insert(id.into());
+        }
+
+        Ok(())
+    }
+
+    pub fn call_once_on_abort<F>(id: &str, callback: F) -> Result<(), TransactionError>
+    where
+        F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
+    {
+        // Clone the cache here for use inside the closure.
+        let cache_clone = TRANSACTION_CALL_ONCE_ON_ABORT_CACHE.clone();
+
+        let mut cache = TRANSACTION_CALL_ONCE_ON_ABORT_CACHE.lock()?;
+        if !cache.contains(id) {
+            // Now using `cache_clone` inside the closure.
+            register_xact_callback(PgXactCallbackEvent::Abort, move || {
+                // Clear the cache so callbacks can be registered on next transaction.
+                match cache_clone.lock() {
+                    Ok(mut cache) => cache.clear(),
+                    Err(err) => pgrx::log!(
+                        "could not acquire lock in register transaction abort callback: {err:?}"
                     ),
                 }
 

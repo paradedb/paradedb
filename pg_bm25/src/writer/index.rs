@@ -94,6 +94,13 @@ impl Writer {
         Ok(())
     }
 
+    fn abort(&mut self) -> Result<(), ServerError> {
+        // If the transaction was aborted, we should clear all the writers from the cache.
+        // Otherwise, partialy written data could stick around for the next transaction.
+        self.tantivy_writers.drain();
+        Ok(())
+    }
+
     fn vacuum(&mut self, index_directory_path: &str) -> Result<(), ServerError> {
         let writer = self.get_writer(index_directory_path)?;
         writer.garbage_collect_files().wait()?;
@@ -161,6 +168,7 @@ impl Handler<WriterRequest> for Writer {
                 paths_to_delete,
             } => self.drop_index(&index_directory_path, &paths_to_delete),
             WriterRequest::Commit => self.commit(),
+            WriterRequest::Abort => self.abort(),
             WriterRequest::Vacuum {
                 index_directory_path,
             } => self.vacuum(&index_directory_path),

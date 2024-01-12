@@ -8,10 +8,12 @@ use std::error::Error;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
+use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher};
 use tantivy::{IndexReader, IndexWriter, TantivyError};
 use thiserror::Error;
 
+use super::state::TantivyScanState;
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{self, categorize_tupdesc, row_to_json, SearchConfig};
 use crate::json::builder::JsonBuilder;
@@ -20,7 +22,7 @@ use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use crate::writer::WriterRequest;
 use crate::{writer, WRITER_STATUS};
 
-use super::state::TantivyScanState;
+type WriterClient = writer::Client<writer::WriterRequest>;
 
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 const CACHE_NUM_BLOCKS: usize = 10;
@@ -48,21 +50,6 @@ static mut WILL_COMMIT_SET: Option<HashSet<String>> = None;
 /// this cache, tied to its own lifecycle.
 static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
 
-#[derive(Error, Debug)]
-pub enum ParadeIndexError {
-    #[error(transparent)]
-    WriterClientError(#[from] writer::ClientError),
-
-    #[error(transparent)]
-    TantivyError(#[from] tantivy::error::TantivyError),
-
-    #[error(transparent)]
-    IOError(#[from] std::io::Error),
-
-    #[error(transparent)]
-    SerdeError(#[from] serde_json::Error),
-}
-
 #[derive(Serialize)]
 pub struct ParadeIndex {
     pub name: String,
@@ -79,7 +66,7 @@ pub struct ParadeIndex {
     #[serde(skip_serializing)]
     underlying_index: Index,
     #[serde(skip_serializing)]
-    writer_client: writer::Client<writer::WriterRequest>,
+    writer_client: Arc<Mutex<WriterClient>>,
 }
 
 impl ParadeIndex {
@@ -157,7 +144,9 @@ impl ParadeIndex {
             })
         );
 
-        let writer_client = writer::Client::new(WRITER_STATUS.share().addr());
+        let writer_client = Arc::new(Mutex::new(writer::Client::new(
+            WRITER_STATUS.share().addr(),
+        )));
 
         let new_self = Self {
             name: name.clone(),
@@ -336,45 +325,45 @@ impl ParadeIndex {
     // }
 
     /// Register this index to be committed at the end of this transaction.
-    fn register_commit_callbacks(&self) {
-        let will_commit_set = unsafe {
-            match &mut WILL_COMMIT_SET {
-                // It's important to remember that each Postgres connection is its own process,
-                // so each `static` variable is local to each process.
-                None => {
-                    // This is the first time this method has been called for this transaction.
-                    // We need to initialize the set here so we can use it as a cache.
-                    // It will be set back to `None` in the callback that we register.
-                    WILL_COMMIT_SET = Some(HashSet::new());
-                    // This callback will be fired at the end of the transaction. We only
-                    // register it inside this None case, which tells us that this is the first
-                    // time this method is being called for the current transaction. This lets
-                    // us avoid registering it over and over.
-                    let callback = || {
-                        // In case this transaction involves inserst into multiple indices, we
-                        // maintain a set of names, and commit them all once the transaction is
-                        // complete.
-                        for index_name in WILL_COMMIT_SET.as_ref().unwrap() {
-                            // ParadeIndex::commit_static(index_name);
-                            // Clear the cache set so its empty fo rthe next
-                            WILL_COMMIT_SET = None;
-                        }
-                    };
-                    register_xact_callback(PgXactCallbackEvent::Commit, callback);
-                    // TODO. Not clear on whether Abort should be handled differently from commit.
-                    // For now, making the assumption that we should not be attempting to commit if
-                    // the transaction fails. Instead, we should send a message that clears pending
-                    // documents from the index writer.
-                    // register_xact_callback(PgXactCallbackEvent::Abort, callback);
-                    WILL_COMMIT_SET.as_mut().unwrap()
-                }
-                Some(set) => set,
-            }
-        };
+    // fn register_commit_callbacks(&self) {
+    //     let will_commit_set = unsafe {
+    //         match &mut WILL_COMMIT_SET {
+    //             // It's important to remember that each Postgres connection is its own process,
+    //             // so each `static` variable is local to each process.
+    //             None => {
+    //                 // This is the first time this method has been called for this transaction.
+    //                 // We need to initialize the set here so we can use it as a cache.
+    //                 // It will be set back to `None` in the callback that we register.
+    //                 WILL_COMMIT_SET = Some(HashSet::new());
+    //                 // This callback will be fired at the end of the transaction. We only
+    //                 // register it inside this None case, which tells us that this is the first
+    //                 // time this method is being called for the current transaction. This lets
+    //                 // us avoid registering it over and over.
+    //                 let callback = || {
+    //                     // In case this transaction involves inserst into multiple indices, we
+    //                     // maintain a set of names, and commit them all once the transaction is
+    //                     // complete.
+    //                     for index_name in WILL_COMMIT_SET.as_ref().unwrap() {
+    //                         // ParadeIndex::commit_static(index_name);
+    //                         // Clear the cache set so its empty fo rthe next
+    //                         WILL_COMMIT_SET = None;
+    //                     }
+    //                 };
+    //                 register_xact_callback(PgXactCallbackEvent::Commit, callback);
+    //                 // TODO. Not clear on whether Abort should be handled differently from commit.
+    //                 // For now, making the assumption that we should not be attempting to commit if
+    //                 // the transaction fails. Instead, we should send a message that clears pending
+    //                 // documents from the index writer.
+    //                 // register_xact_callback(PgXactCallbackEvent::Abort, callback);
+    //                 WILL_COMMIT_SET.as_mut().unwrap()
+    //             }
+    //             Some(set) => set,
+    //         }
+    //     };
 
-        // Ensure this index is in the set that will be committed at the end of the transaction.
-        will_commit_set.insert(self.name.clone());
-    }
+    // Ensure this index is in the set that will be committed at the end of the transaction.
+    // will_commit_set.insert(self.name.clone());
+    // }
 
     pub fn insert(&mut self, json_builder: JsonBuilder) -> Result<(), ParadeIndexError> {
         // Send the insert requests to the writer server.
@@ -383,7 +372,23 @@ impl ParadeIndex {
             index_directory_path,
             json_builder,
         };
-        self.writer_client.transfer(request)?;
+        let writer_client = self.writer_client.clone();
+        writer_client.lock()?.transfer(request)?;
+
+        register_xact_callback(PgXactCallbackEvent::Commit, move || {
+            writer_client
+                .lock()
+                .map_err(ParadeIndexError::from)
+                .and_then(|mut client| {
+                    client
+                        .request(WriterRequest::Commit)
+                        .map_err(ParadeIndexError::from)
+                        .and_then(|_| Ok(pgrx::log!("sent commit request to index writer server")))
+                })
+                .unwrap_or_else(|err| {
+                    pgrx::log!("error while sending index commit to writer server: {err:?}")
+                });
+        });
         Ok(())
     }
 
@@ -427,7 +432,7 @@ impl ParadeIndex {
             ctids: ctids_to_delete,
             index_directory_path: Self::get_index_directory(&self.name),
         };
-        self.writer_client.request(request)?;
+        self.writer_client.lock()?.request(request)?;
         // Send the delete requests to the writer server.
         // Note that these will not be flused to disk until commit() is separately called.
         // WRITER
@@ -438,7 +443,7 @@ impl ParadeIndex {
         Ok((deleted, not_deleted))
     }
 
-    pub fn drop_index(&self) -> Result<(), ParadeIndexError> {
+    pub fn drop_index(&mut self) -> Result<(), ParadeIndexError> {
         let index_directory_path = Self::get_index_directory(&self.name);
         let paths_to_delete = vec![
             index_directory_path.clone(),
@@ -452,17 +457,17 @@ impl ParadeIndex {
             paths_to_delete,
         };
 
-        self.writer_client.request(request)?;
+        self.writer_client.lock()?.request(request)?;
 
         Ok(())
     }
 
-    pub fn vacuum(&self) -> Result<(), ParadeIndexError> {
+    pub fn vacuum(&mut self) -> Result<(), ParadeIndexError> {
         let index_directory_path = Self::get_index_directory(&self.name);
         let request = WriterRequest::Vacuum {
             index_directory_path,
         };
-        self.writer_client.request(request)?;
+        self.writer_client.lock()?.request(request)?;
         Ok(())
     }
 
@@ -672,7 +677,9 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             panic!("error deserializing index: ctid field does not exist in schema",)
         });
 
-        let writer_client = writer::Client::new(WRITER_STATUS.share().addr());
+        let writer_client = Arc::new(Mutex::new(writer::Client::new(
+            WRITER_STATUS.share().addr(),
+        )));
 
         // Construct the ParadeIndex.
         Ok(ParadeIndex {
@@ -687,6 +694,30 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             ctid_field,
             writer_client,
         })
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ParadeIndexError {
+    #[error(transparent)]
+    WriterClientError(#[from] writer::ClientError),
+
+    #[error(transparent)]
+    TantivyError(#[from] tantivy::error::TantivyError),
+
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    SerdeError(#[from] serde_json::Error),
+
+    #[error("mutex lock on writer client failed: {0}")]
+    WriterClientRace(String),
+}
+
+impl<T> From<PoisonError<T>> for ParadeIndexError {
+    fn from(err: PoisonError<T>) -> Self {
+        ParadeIndexError::WriterClientRace(format!("{}", err))
     }
 }
 

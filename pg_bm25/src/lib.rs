@@ -1,26 +1,20 @@
 #![allow(dead_code, unused_variables)]
-use crate::parade_writer::{
-    ParadeWriterRequest, ParadeWriterResponse, ParadeWriterServer, WriterInitError,
-};
-use parade_writer::WriterStatus;
-use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
-use pgrx::*;
-use shared::logs::ParadeLogsGlobal;
-use shared::telemetry;
-use std::net::SocketAddr;
-use std::thread;
-use std::time::Duration;
-use tiny_http::{Response, Server};
-
 mod api;
 mod env;
 mod index_access;
 mod json;
 mod operator;
 mod parade_index;
-mod parade_writer;
 mod tokenizers;
 mod writer;
+
+use parade_writer::WriterStatus;
+use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
+use pgrx::*;
+use shared::logs::ParadeLogsGlobal;
+use shared::telemetry;
+use std::thread;
+use std::time::Duration;
 
 // This is a flag that can be set by the user in a session to enable logs.
 // You need to initialize this in every extension that uses `plog!`.
@@ -47,7 +41,7 @@ pub unsafe extern "C" fn _PG_init() {
 
     // We call this in a helper function to the bgworker initialization
     // can be used in test suites.
-    // setup_background_workers();
+    setup_background_workers();
 }
 
 #[pg_guard]
@@ -94,43 +88,13 @@ pub fn setup_background_workers() {
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
-    // Bind to port 0 to let the OS choose a free port.
-    // Check if there was an error starting the server, and return early if so.
-    let mut socket_addr: Option<SocketAddr> = None;
-    let server = {
-        // Note that we do not derefence the WRITER to mutate it, due to PGRX shared struct rules.
-        // We also acquire its lock with `.exclusive` inside an enclosing block to ensure that
-        // it is dropped after we are done with it.
-        let mut writer_status = WRITER_STATUS.exclusive();
-        match Server::http("0.0.0.0:0") {
-            Err(error) => {
-                log!("error starting pg_bm25 server: {error:?}");
-                writer_status.set_error(WriterInitError::ServerBindError);
-                return;
-            }
-            Ok(server) => {
-                match server.server_addr() {
-                    // We want to set the socket address on the addr field of the writer client,
-                    // so that connection processes that share it know where to send their requests.
-                    tiny_http::ListenAddr::IP(addr) => {
-                        socket_addr.replace(addr);
-                        writer_status.set_addr(addr);
-                    }
-                    // It's not clear when tiny_http would choose to use a Unix socket address,
-                    // but we have to handle the enum variant, so we'll consider this outcome
-                    // an irrecovereable error, although its not expected to happen.
-                    tiny_http::ListenAddr::Unix(_) => {
-                        writer_status.set_error(WriterInitError::ServerUnixPortError);
-                        log!("paradedb bm25 writer started server with a unix port, which is not supported");
-                        return;
-                    }
-                };
-                server
-            }
-        }
-    };
+    pgrx::log!("starting insert worker");
+    let writer = writer::Writer::new();
+    let mut server = writer::Server::new(writer).expect("error starting writer server");
 
+    pgrx::log!("setting insert worker addr");
     // Retrieve the assigned port and assign to global state.
+    WRITER_STATUS.exclusive().set_addr(server.addr());
 
     // Handle an edge case where Postgres has been shut down very quickly. In this case, the
     // shutdown worker will have already sent the shutdown message, but we haven't started the
@@ -141,42 +105,96 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
         return;
     }
 
-    // We initialized the tiny_http server above, which is the actual HTTP server that reads
-    // requests. The ParadeWriterServer is more like the "server implementation", and actually
-    // handles the requests and produces responses.
-    let mut writer_server = ParadeWriterServer::new();
-
-    pgrx::log!(
-        "initialized writer server at {}",
-        socket_addr.map(|a| a.to_string()).unwrap_or("".into())
-    );
-    for mut request in server.incoming_requests() {
-        let writer_request = ParadeWriterRequest::try_from(&mut request);
-        pgrx::log!("got writer request: {writer_request:?}");
-        match &writer_request {
-            // Handle any kind of error parsing the request.
-            Err(e) => {
-                pgrx::log!("unexpecting error on writer server while parsing client request");
-                let response =  ParadeWriterResponse::Error(format!("error parsing parade writer request: {e:?}"));
-                request
-                    .respond(Response::from_data(response))
-                    .unwrap_or_else(|e| log!("parade index writer encountered an unexpected error responding to client: {e:?}"));
-            }
-            // The expected path, the request was successfully parsed and we delegate to the
-            // server instance to handle it.
-            Ok(req) => writer_server.handle(req, |response| {
-                request
-                    .respond(Response::from_data(response))
-                    .unwrap_or_else(|e| log!("parade index writer encountered an unexpected error responding to client: {e:?}"));
-            }),
-        };
-
-        if writer_server.should_exit() {
-            log!("pg_bm25 server received shutdown request, shutting down.");
-            return;
-        }
-    }
+    pgrx::log!("starting insert worker server");
+    server.start().expect("writer server crashed");
 }
+
+// #[pg_guard]
+// #[no_mangle]
+// pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
+//     // Bind to port 0 to let the OS choose a free port.
+//     // Check if there was an error starting the server, and return early if so.
+//     let mut socket_addr: Option<SocketAddr> = None;
+//     let server = {
+//         // Note that we do not derefence the WRITER to mutate it, due to PGRX shared struct rules.
+//         // We also acquire its lock with `.exclusive` inside an enclosing block to ensure that
+//         // it is dropped after we are done with it.
+//         let mut writer_status = WRITER_STATUS.exclusive();
+//         match Server::http("0.0.0.0:0") {
+//             Err(error) => {
+//                 log!("error starting pg_bm25 server: {error:?}");
+//                 writer_status.set_error(WriterInitError::ServerBindError);
+//                 return;
+//             }
+//             Ok(server) => {
+//                 match server.server_addr() {
+//                     // We want to set the socket address on the addr field of the writer client,
+//                     // so that connection processes that share it know where to send their requests.
+//                     tiny_http::ListenAddr::IP(addr) => {
+//                         socket_addr.replace(addr);
+//                         writer_status.set_addr(addr);
+//                     }
+//                     // It's not clear when tiny_http would choose to use a Unix socket address,
+//                     // but we have to handle the enum variant, so we'll consider this outcome
+//                     // an irrecovereable error, although its not expected to happen.
+//                     tiny_http::ListenAddr::Unix(_) => {
+//                         writer_status.set_error(WriterInitError::ServerUnixPortError);
+//                         log!("paradedb bm25 writer started server with a unix port, which is not supported");
+//                         return;
+//                     }
+//                 };
+//                 server
+//             }
+//         }
+//     };
+
+// // Retrieve the assigned port and assign to global state.
+
+// // Handle an edge case where Postgres has been shut down very quickly. In this case, the
+// // shutdown worker will have already sent the shutdown message, but we haven't started the
+// // server, so we'll have missed it. We should check ourselves for the SIGTERM signal, and
+// // just shutdown early if it's been received.
+// if BackgroundWorker::sigterm_received() {
+//     log!("insert worker received sigterm before starting server, shutting down early");
+//     return;
+// }
+
+//     // We initialized the tiny_http server above, which is the actual HTTP server that reads
+//     // requests. The ParadeWriterServer is more like the "server implementation", and actually
+//     // handles the requests and produces responses.
+//     let mut writer_server = ParadeWriterServer::new();
+
+//     pgrx::log!(
+//         "initialized writer server at {}",
+//         socket_addr.map(|a| a.to_string()).unwrap_or("".into())
+//     );
+//     for mut request in server.incoming_requests() {
+//         let writer_request = ParadeWriterRequest::try_from(&mut request);
+//         pgrx::log!("got writer request: {writer_request:?}");
+//         match &writer_request {
+//             // Handle any kind of error parsing the request.
+//             Err(e) => {
+//                 pgrx::log!("unexpecting error on writer server while parsing client request");
+//                 let response =  ParadeWriterResponse::Error(format!("error parsing parade writer request: {e:?}"));
+//                 request
+//                     .respond(Response::from_data(response))
+//                     .unwrap_or_else(|e| log!("parade index writer encountered an unexpected error responding to client: {e:?}"));
+//             }
+//             // The expected path, the request was successfully parsed and we delegate to the
+//             // server instance to handle it.
+//             Ok(req) => writer_server.handle(req, |response| {
+//                 request
+//                     .respond(Response::from_data(response))
+//                     .unwrap_or_else(|e| log!("parade index writer encountered an unexpected error responding to client: {e:?}"));
+//             }),
+//         };
+
+//         if writer_server.should_exit() {
+//             log!("pg_bm25 server received shutdown request, shutting down.");
+//             return;
+//         }
+//     }
+// }
 
 #[pg_guard]
 #[no_mangle]
@@ -190,7 +208,7 @@ pub extern "C" fn pg_bm25_shutdown_worker(_arg: pg_sys::Datum) {
     while BackgroundWorker::wait_latch(Some(Duration::from_secs(1))) {}
 
     // We've received SIGTERM. Send a shutdown message to the HTTP server.
-    let writer_client: writer::Client<writer::WriterRequest> =
+    let mut writer_client: writer::Client<writer::WriterRequest> =
         writer::Client::new(WRITER_STATUS.share().addr());
 
     writer_client

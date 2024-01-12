@@ -52,10 +52,10 @@ pub struct WriterTransferProducer<T: Serialize> {
 
 impl<T: Serialize> WriterTransferProducer<T> {
     pub fn new() -> std::io::Result<Self> {
-        let pipe_path = crate::env::paradedb_transfer_pipe_path();
         // It's important that this process is the "owner" of the named pipe file path.
         // We'll remove any existing pipe_path, and connect to the first producer
         // process who creates a new one.
+        let pipe_path = Self::pipe_path()?;
         let pipe = Self::delete_named_pipe_file(&pipe_path)?;
         let pipe = Self::create_named_pipe_file(&pipe_path)?;
         Ok(Self {
@@ -81,8 +81,19 @@ impl<T: Serialize> WriterTransferProducer<T> {
         self.flush()
     }
 
+    pub fn pipe_path() -> std::io::Result<PathBuf> {
+        let pid = std::process::id();
+        let dir = crate::env::paradedb_transfer_pipe_path();
+        if !dir.exists() {
+            std::fs::create_dir_all(&dir)?;
+        }
+        Ok(dir.join(pid.to_string()))
+    }
+
     fn create_named_pipe_file(pipe_path: &Path) -> std::io::Result<File> {
+        pgrx::log!("deleting path again");
         if pipe_path.exists() {
+            pgrx::log!("deleting path exists again");
             std::fs::remove_file(&pipe_path)?;
         }
 
@@ -91,11 +102,16 @@ impl<T: Serialize> WriterTransferProducer<T> {
         let permissions = std::fs::Permissions::from_mode(0o666);
         std::fs::set_permissions(&pipe_path, permissions)?;
 
-        File::create(&pipe_path)
+        pgrx::log!("creating file probably hanigng here");
+        let file = File::create(&pipe_path);
+        pgrx::log!("hmm nope");
+        file
     }
 
     fn delete_named_pipe_file(pipe_path: &Path) -> std::io::Result<()> {
+        pgrx::log!("deleting path");
         if pipe_path.exists() {
+            pgrx::log!("deleting path that exists");
             std::fs::remove_file(&pipe_path)?;
         }
 
@@ -138,14 +154,19 @@ impl<T: Serialize> WriterTransferConsumer<T> {
         }
     }
 
-    pub fn read_stream<'a>(&'a mut self) -> WriterTransferMessageIterator<'a, T>
+    pub fn read_stream<'a, P: AsRef<Path>>(
+        &'a mut self,
+        pipe_path: P,
+    ) -> WriterTransferMessageIterator<'a, T>
     where
         T: DeserializeOwned + 'a,
     {
+        pgrx::log!("starting read stream, waiting for file to exist");
         // Wait for the client to create the pipe.
         while !self.pipe_path.exists() {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        pgrx::log!("file exists starting to read");
 
         let pipe_file = std::fs::OpenOptions::new()
             .read(true)

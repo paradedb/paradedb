@@ -31,6 +31,7 @@ parking_lot = "0.12.1"
 async-trait = "0.1.77"
 substrait = "0.21.0"
 deltalake = { version = "0.16.5", features = ["datafusion"] }
+chrono = "0.4.31"
 
 [dev-dependencies]
 pgrx-tests = "=0.11.1"

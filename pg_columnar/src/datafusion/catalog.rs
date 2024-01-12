@@ -4,6 +4,8 @@ use deltalake::datafusion::common::DataFusionError;
 use parking_lot::RwLock;
 use std::{any::Any, collections::HashMap, sync::Arc};
 
+pub static PARADE_CATALOG: &str = "datafusion";
+
 pub struct ParadeCatalog {
     schemas: RwLock<HashMap<String, Arc<dyn SchemaProvider>>>,
 }

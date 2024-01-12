@@ -1,4 +1,4 @@
-use crate::json::builder::JsonBuilder;
+use crate::{json::builder::JsonBuilder, WRITER_STATUS};
 
 use super::{transfer::WriterTransferProducer, ServerRequest};
 use serde::Serialize;
@@ -22,6 +22,11 @@ impl<T: Serialize> Client<T> {
         }
     }
 
+    pub fn from_writer_addr() -> Self {
+        let addr = WRITER_STATUS.share().addr();
+        Self::new(addr)
+    }
+
     fn url(&self) -> String {
         format!("http://{}", self.addr)
     }
@@ -39,7 +44,15 @@ impl<T: Serialize> Client<T> {
         // with more requests.
         self.stop_transfer();
         let bytes = serde_json::to_vec(&request)?;
+        // pgrx::log!(
+        //     "sending request {:?}",
+        //     serde_json::to_string_pretty(&request)
+        // );
         let response = self.http.post(self.url()).body::<Vec<u8>>(bytes).send()?;
+        // pgrx::log!(
+        //     "received response {:?}",
+        //     serde_json::to_string_pretty(&request)
+        // );
 
         match response.status() {
             reqwest::StatusCode::OK => Ok(()),
@@ -59,11 +72,8 @@ impl<T: Serialize> Client<T> {
                 .to_string();
             self.send_request(ServerRequest::Transfer(pipe_path))?;
             self.producer.replace(WriterTransferProducer::new()?);
-            pgrx::log!("we've replaced the producer")
         }
-        pgrx::log!("sending message");
         self.producer.as_mut().unwrap().write_message(&request)?;
-        pgrx::log!("message sent");
         Ok(())
     }
 
@@ -87,6 +97,15 @@ impl<T: Serialize> Client<T> {
 
 #[derive(Error, Debug)]
 pub enum ClientError {
+    #[error("couldn't open fifo file {0} {1}")]
+    OpenPipeFile(std::io::Error, std::path::PathBuf),
+
+    #[error("couldn't create fifo file {0}")]
+    CreatePipeFile(std::io::Error, std::path::PathBuf),
+
+    #[error("couldn't remove fifo file {0}")]
+    RemoveipeFile(std::io::Error, std::path::PathBuf),
+
     #[error("could not parse response from writer server: {0}")]
     ResponseParseError(reqwest::Error),
 

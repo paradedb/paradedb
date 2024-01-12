@@ -1,4 +1,6 @@
-use super::{transfer::WriterTransferConsumer, Handler, ServerRequest};
+use crate::writer::transfer;
+
+use super::{Handler, ServerRequest};
 use serde::{de::DeserializeOwned, Serialize};
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -7,6 +9,9 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ServerError {
+    #[error("couldn't open the consumer pipe file: {0}")]
+    OpenPipeFile(std::io::Error),
+
     #[error("only integer key fields are supported for parade index")]
     InvalidKeyField,
 
@@ -37,7 +42,6 @@ pub struct Server<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> {
     http: tiny_http::Server,
     should_exit: bool,
     handler: RefCell<H>,
-    consumer: RefCell<WriterTransferConsumer<T>>,
     marker: PhantomData<&'a T>,
 }
 
@@ -61,7 +65,6 @@ impl<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> Server<'a, T, H> {
             http,
             handler: RefCell::new(handler),
             should_exit: false,
-            consumer: RefCell::new(WriterTransferConsumer::new()),
             marker: PhantomData,
         })
     }
@@ -76,18 +79,14 @@ impl<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> Server<'a, T, H> {
 
     fn listen_transfer<P: AsRef<Path>>(&self, pipe_path: P) -> Result<(), ServerError> {
         // Our consumer will receive messages suitable for our handler.
-        pgrx::log!("starting read_stream");
-        for incoming in self.consumer.borrow_mut().read_stream(pipe_path) {
-            pgrx::log!(
-                "received transfer: {}",
-                serde_json::to_string_pretty(&incoming.as_ref().unwrap()).unwrap()
-            );
+        for incoming in transfer::read_stream(pipe_path)? {
             self.handler.borrow_mut().handle(incoming?)?;
         }
         Ok(())
     }
 
     fn listen_request(&mut self) -> Result<(), ServerError> {
+        pgrx::log!("listening to incoming requests at {:?}", self.addr);
         for mut incoming in self.http.incoming_requests() {
             let reader = incoming.as_reader();
             let request: Result<ServerRequest<T>, ServerError> =

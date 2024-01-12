@@ -14,13 +14,14 @@ use tantivy::{IndexReader, IndexWriter, TantivyError};
 use thiserror::Error;
 
 use super::state::TantivyScanState;
+use crate::env::Transaction;
 use crate::index_access::options::ParadeOptions;
 use crate::index_access::utils::{self, categorize_tupdesc, row_to_json, SearchConfig};
 use crate::json::builder::JsonBuilder;
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
+use crate::writer;
 use crate::writer::WriterRequest;
-use crate::{writer, WRITER_STATUS};
 
 type WriterClient = writer::Client<writer::WriterRequest>;
 
@@ -144,9 +145,7 @@ impl ParadeIndex {
             })
         );
 
-        let writer_client = Arc::new(Mutex::new(writer::Client::new(
-            WRITER_STATUS.share().addr(),
-        )));
+        let writer_client = Arc::new(Mutex::new(writer::Client::from_writer_addr()));
 
         let new_self = Self {
             name: name.clone(),
@@ -315,67 +314,10 @@ impl ParadeIndex {
         Ok(new_self)
     }
 
-    // commit needs a static method variant so it can be passed into a callback.
-    // fn commit_static(index_name: &str) {
-    //     WRITER.share().commit(index_name);
-    // }
-
-    // fn commit(&self) {
-    //     Self::commit_static(&self.name);
-    // }
-
-    /// Register this index to be committed at the end of this transaction.
-    // fn register_commit_callbacks(&self) {
-    //     let will_commit_set = unsafe {
-    //         match &mut WILL_COMMIT_SET {
-    //             // It's important to remember that each Postgres connection is its own process,
-    //             // so each `static` variable is local to each process.
-    //             None => {
-    //                 // This is the first time this method has been called for this transaction.
-    //                 // We need to initialize the set here so we can use it as a cache.
-    //                 // It will be set back to `None` in the callback that we register.
-    //                 WILL_COMMIT_SET = Some(HashSet::new());
-    //                 // This callback will be fired at the end of the transaction. We only
-    //                 // register it inside this None case, which tells us that this is the first
-    //                 // time this method is being called for the current transaction. This lets
-    //                 // us avoid registering it over and over.
-    //                 let callback = || {
-    //                     // In case this transaction involves inserst into multiple indices, we
-    //                     // maintain a set of names, and commit them all once the transaction is
-    //                     // complete.
-    //                     for index_name in WILL_COMMIT_SET.as_ref().unwrap() {
-    //                         // ParadeIndex::commit_static(index_name);
-    //                         // Clear the cache set so its empty fo rthe next
-    //                         WILL_COMMIT_SET = None;
-    //                     }
-    //                 };
-    //                 register_xact_callback(PgXactCallbackEvent::Commit, callback);
-    //                 // TODO. Not clear on whether Abort should be handled differently from commit.
-    //                 // For now, making the assumption that we should not be attempting to commit if
-    //                 // the transaction fails. Instead, we should send a message that clears pending
-    //                 // documents from the index writer.
-    //                 // register_xact_callback(PgXactCallbackEvent::Abort, callback);
-    //                 WILL_COMMIT_SET.as_mut().unwrap()
-    //             }
-    //             Some(set) => set,
-    //         }
-    //     };
-
-    // Ensure this index is in the set that will be committed at the end of the transaction.
-    // will_commit_set.insert(self.name.clone());
-    // }
-
-    pub fn insert(&mut self, json_builder: JsonBuilder) -> Result<(), ParadeIndexError> {
-        // Send the insert requests to the writer server.
-        let index_directory_path = Self::get_index_directory(&self.name);
-        let request = WriterRequest::Insert {
-            index_directory_path,
-            json_builder,
-        };
+    fn register_commit_callback(&self) -> Result<(), ParadeIndexError> {
         let writer_client = self.writer_client.clone();
-        writer_client.lock()?.transfer(request)?;
 
-        register_xact_callback(PgXactCallbackEvent::Commit, move || {
+        Transaction::call_once_on_commit("parade_index", move || {
             writer_client
                 .lock()
                 .map_err(ParadeIndexError::from)
@@ -388,7 +330,24 @@ impl ParadeIndex {
                 .unwrap_or_else(|err| {
                     pgrx::log!("error while sending index commit to writer server: {err:?}")
                 });
-        });
+        })?;
+
+        Ok(())
+    }
+
+    pub fn insert(&mut self, json_builder: JsonBuilder) -> Result<(), ParadeIndexError> {
+        // Send the insert requests to the writer server.
+        let index_directory_path = Self::get_index_directory(&self.name);
+        let request = WriterRequest::Insert {
+            index_directory_path,
+            json_builder,
+        };
+
+        let writer_client = self.writer_client.clone();
+        writer_client.lock()?.transfer(request)?;
+
+        self.register_commit_callback()?;
+
         Ok(())
     }
 
@@ -433,18 +392,14 @@ impl ParadeIndex {
             index_directory_path: Self::get_index_directory(&self.name),
         };
         self.writer_client.lock()?.request(request)?;
-        // Send the delete requests to the writer server.
-        // Note that these will not be flused to disk until commit() is separately called.
-        // WRITER
-        //     .share()
-        //     .delete(&self.name, self.ctid_field, ctids_to_delete);
 
-        // self.commit();
+        self.register_commit_callback()?;
         Ok((deleted, not_deleted))
     }
 
-    pub fn drop_index(&mut self) -> Result<(), ParadeIndexError> {
-        let index_directory_path = Self::get_index_directory(&self.name);
+    pub fn drop_index(index_name: &str) -> Result<(), ParadeIndexError> {
+        let mut writer_client = WriterClient::from_writer_addr();
+        let index_directory_path = Self::get_index_directory(index_name);
         let paths_to_delete = vec![
             index_directory_path.clone(),
             ParadeIndex::get_field_configs_path(&index_directory_path),
@@ -457,7 +412,7 @@ impl ParadeIndex {
             paths_to_delete,
         };
 
-        self.writer_client.lock()?.request(request)?;
+        writer_client.request(request)?;
 
         Ok(())
     }
@@ -677,9 +632,7 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             panic!("error deserializing index: ctid field does not exist in schema",)
         });
 
-        let writer_client = Arc::new(Mutex::new(writer::Client::new(
-            WRITER_STATUS.share().addr(),
-        )));
+        let writer_client = Arc::new(Mutex::new(writer::Client::from_writer_addr()));
 
         // Construct the ParadeIndex.
         Ok(ParadeIndex {
@@ -704,6 +657,9 @@ pub enum ParadeIndexError {
 
     #[error(transparent)]
     TantivyError(#[from] tantivy::error::TantivyError),
+
+    #[error(transparent)]
+    TransactionError(#[from] crate::env::TransactionError),
 
     #[error(transparent)]
     IOError(#[from] std::io::Error),

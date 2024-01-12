@@ -87,7 +87,7 @@ impl Writer {
     }
 
     fn commit(&mut self) -> Result<(), ServerError> {
-        for writer in self.tantivy_writers.values_mut() {
+        for (path, writer) in self.tantivy_writers.iter_mut() {
             writer.prepare_commit()?;
             writer.commit()?;
         }
@@ -108,7 +108,7 @@ impl Writer {
         if let Ok(writer) = self.get_writer(index_directory_path) {
             if std::path::Path::new(&index_directory_path).exists() {
                 writer.delete_all_documents()?;
-                // TODO: COMMIT HERE!
+                self.commit()?;
             }
 
             // Remove the writer from the cache so that it is dropped.

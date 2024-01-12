@@ -19,6 +19,7 @@ pg_test = []
 telemetry = ["shared/telemetry"]
 
 [dependencies]
+anyhow = { version = "1.0.79", features = ["backtrace"] }
 chrono = "0.4.31"
 csv = "1.2.2"
 heapless = "0.8.0"

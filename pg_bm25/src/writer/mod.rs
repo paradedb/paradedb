@@ -35,7 +35,7 @@ pub enum WriterRequest {
 
 // A layer of the client-server request structure that handles
 // details around actions the server should perform.
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 enum ServerRequest<R: Serialize> {
     /// Request with payload.
     Request(R),

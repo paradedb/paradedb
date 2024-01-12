@@ -7,6 +7,10 @@ use std::io::{BufReader, Write};
 use std::marker::PhantomData;
 use std::os::unix::prelude::PermissionsExt;
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::Duration;
+
+use crate::writer::ServerError;
 
 #[derive(Deserialize, Serialize)]
 pub enum WriterTransferMessage<T> {
@@ -28,11 +32,9 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         match self.stream.next() {
             Some(Ok(WriterTransferMessage::Data(builder))) => {
-                pgrx::log!("GOT MESSAGE");
                 Some(Ok(builder)) // Directly return the builder
             }
             Some(Ok(WriterTransferMessage::Done)) => {
-                pgrx::log!("GOT DONE MESSAGE");
                 None // End iterator
             }
             Some(Err(e)) => {
@@ -66,7 +68,6 @@ impl<T: Serialize> WriterTransferProducer<T> {
     }
 
     pub fn write_message(&mut self, data: &T) -> std::io::Result<()> {
-        pgrx::log!("WRITING MESSAGE!");
         let message = WriterTransferMessage::Data(data);
         let serialized = serde_json::to_vec(&message)?;
         self.write_all(&serialized)?;
@@ -74,7 +75,6 @@ impl<T: Serialize> WriterTransferProducer<T> {
     }
 
     pub fn write_done_message(&mut self) -> std::io::Result<()> {
-        pgrx::log!("WRITING DONE MESSAGE!");
         let message: WriterTransferMessage<T> = WriterTransferMessage::Done;
         let serialized = serde_json::to_vec(&message).unwrap();
         self.write_all(&serialized)?;
@@ -91,9 +91,7 @@ impl<T: Serialize> WriterTransferProducer<T> {
     }
 
     fn create_named_pipe_file(pipe_path: &Path) -> std::io::Result<File> {
-        pgrx::log!("deleting path again");
         if pipe_path.exists() {
-            pgrx::log!("deleting path exists again");
             std::fs::remove_file(&pipe_path)?;
         }
 
@@ -102,16 +100,12 @@ impl<T: Serialize> WriterTransferProducer<T> {
         let permissions = std::fs::Permissions::from_mode(0o666);
         std::fs::set_permissions(&pipe_path, permissions)?;
 
-        pgrx::log!("creating file probably hanigng here");
         let file = File::create(&pipe_path);
-        pgrx::log!("hmm nope");
         file
     }
 
     fn delete_named_pipe_file(pipe_path: &Path) -> std::io::Result<()> {
-        pgrx::log!("deleting path");
         if pipe_path.exists() {
-            pgrx::log!("deleting path that exists");
             std::fs::remove_file(&pipe_path)?;
         }
 
@@ -141,43 +135,26 @@ impl<T: Serialize> Drop for WriterTransferProducer<T> {
     }
 }
 
-pub struct WriterTransferConsumer<T: Serialize> {
-    pipe_path: PathBuf,
-    marker: PhantomData<T>,
-}
+pub fn read_stream<'a, T, P>(
+    pipe_path: P,
+) -> Result<WriterTransferMessageIterator<'a, T>, ServerError>
+where
+    P: AsRef<Path>,
+    T: DeserializeOwned + 'a,
+{
+    let pipe_path_ref = pipe_path.as_ref();
 
-impl<T: Serialize> WriterTransferConsumer<T> {
-    pub fn new() -> Self {
-        Self {
-            pipe_path: crate::env::paradedb_transfer_pipe_path(),
-            marker: PhantomData,
-        }
+    // Wait for the client to create the pipe.
+    while !pipe_path_ref.exists() {
+        thread::sleep(Duration::from_millis(10));
     }
 
-    pub fn read_stream<'a, P: AsRef<Path>>(
-        &'a mut self,
-        pipe_path: P,
-    ) -> WriterTransferMessageIterator<'a, T>
-    where
-        T: DeserializeOwned + 'a,
-    {
-        pgrx::log!("starting read stream, waiting for file to exist");
-        // Wait for the client to create the pipe.
-        while !self.pipe_path.exists() {
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        pgrx::log!("file exists starting to read");
+    let pipe_file = std::fs::OpenOptions::new()
+        .read(true)
+        .open(pipe_path_ref)
+        .map_err(|err| ServerError::OpenPipeFile(err))?;
 
-        let pipe_file = std::fs::OpenOptions::new()
-            .read(true)
-            .open(&self.pipe_path)
-            .unwrap_or_else(|err| {
-                let pipe_path = self.pipe_path.display().to_string();
-                panic!("could not open pipe file at {pipe_path}: {err:?}");
-            });
-
-        let reader = BufReader::new(pipe_file);
-        let stream = Deserializer::from_reader(reader).into_iter::<WriterTransferMessage<T>>();
-        WriterTransferMessageIterator { stream }
-    }
+    let reader = BufReader::new(pipe_file);
+    let stream = Deserializer::from_reader(reader).into_iter::<WriterTransferMessage<T>>();
+    Ok(WriterTransferMessageIterator { stream })
 }

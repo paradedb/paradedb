@@ -9,12 +9,12 @@ use deltalake::datafusion::prelude::SessionContext;
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
 use lazy_static::lazy_static;
-use parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
+use parking_lot::{RwLock, RwLockWriteGuard};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::datafusion::registry::{PARADE_CATALOG, PARADE_SCHEMA};
-use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::catalog::PARADE_CATALOG;
+use crate::datafusion::schema::{ParadeSchemaProvider, PARADE_SCHEMA};
 
 lazy_static! {
     pub static ref CONTEXT: RwLock<Option<SessionContext>> = RwLock::new(None);
@@ -23,36 +23,35 @@ lazy_static! {
 pub struct DatafusionContext;
 
 impl<'a> DatafusionContext {
-    pub fn with_read<F, R>(f: F) -> R
+    pub fn with_provider_context<F, R>(f: F) -> R
     where
-        F: FnOnce(&SessionContext) -> R,
+        F: FnOnce(&ParadeSchemaProvider, &SessionContext) -> R,
     {
         let context_lock = CONTEXT.read();
         let context = context_lock
             .as_ref()
             .expect("Please run CALL paradedb.init(); first.");
-        f(context)
+
+        let schema_provider = context
+            .catalog(PARADE_CATALOG)
+            .expect("Catalog not found")
+            .schema(PARADE_SCHEMA)
+            .expect("Schema not found");
+
+        let parade_provider = schema_provider
+            .as_any()
+            .downcast_ref::<ParadeSchemaProvider>()
+            .expect("Failed to downcast schema provider");
+
+        f(parade_provider, context)
     }
 
-    #[allow(dead_code)]
-    pub fn with_write<F, R>(f: F) -> R
+    pub fn with_write_lock<F, R>(f: F) -> R
     where
-        F: FnOnce(&mut SessionContext) -> R,
+        F: FnOnce(RwLockWriteGuard<'a, Option<SessionContext>>) -> R,
     {
-        let mut context_lock = CONTEXT.write();
-        let context = context_lock
-            .as_mut()
-            .expect("Please run CALL paradedb.init(); first.");
-        f(context)
-    }
-
-    #[allow(dead_code)]
-    pub fn read_lock() -> Result<RwLockReadGuard<'a, Option<SessionContext>>, String> {
-        Ok(CONTEXT.read())
-    }
-
-    pub fn write_lock() -> Result<RwLockWriteGuard<'a, Option<SessionContext>>, String> {
-        Ok(CONTEXT.write())
+        let context_lock = CONTEXT.write();
+        f(context_lock)
     }
 }
 
@@ -63,24 +62,13 @@ pub struct ParadeContextProvider {
 
 impl ParadeContextProvider {
     pub fn new() -> Self {
-        DatafusionContext::with_read(|context| {
-            let schema_provider = context
-                .catalog(PARADE_CATALOG)
-                .expect("Catalog not found")
-                .schema(PARADE_SCHEMA)
-                .expect("Schema not found");
-
-            let lister = schema_provider
-                .as_any()
-                .downcast_ref::<ParadeSchemaProvider>()
-                .expect("Failed to downcast schema provider");
-
-            let table_names = lister.table_names();
+        DatafusionContext::with_provider_context(|provider, _| {
+            let table_names = provider.table_names();
             let mut tables = HashMap::new();
 
             for table_name in table_names.iter() {
-                let table_provider =
-                    task::block_on(lister.table(table_name)).expect("Failed to get table provider");
+                let table_provider = task::block_on(provider.table(table_name))
+                    .expect("Failed to get table provider");
                 tables.insert(table_name.to_string(), provider_as_source(table_provider));
             }
 

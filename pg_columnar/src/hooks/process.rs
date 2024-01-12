@@ -2,9 +2,7 @@ use pgrx::pg_sys::NodeTag;
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::registry::{PARADE_CATALOG, PARADE_SCHEMA};
-use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::hooks::vacuum::vacuum_columnar;
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -34,38 +32,13 @@ pub fn process_utility(
     match unsafe { (*plan).type_ } {
         NodeTag::T_VacuumStmt => unsafe {
             let vacuum_stmt = plan as *mut pg_sys::VacuumStmt;
-            let rels = (*vacuum_stmt).rels;
-            // Rels is null if VACUUM was called, not null if VACUUM <table> was called
-            let vacuum_all = rels.is_null();
-            // VacuumStmt can also be used for other statements, so we need to check if it's actually VACUUM
-            let is_vacuum = (*vacuum_stmt).is_vacuumcmd;
-
-            if is_vacuum && vacuum_all {
-                DatafusionContext::with_read(|context| {
-                    let schema_provider = context
-                        .catalog(PARADE_CATALOG)
-                        .expect("Catalog not found")
-                        .schema(PARADE_SCHEMA)
-                        .expect("Schema not found");
-
-                    let lister = schema_provider
-                        .as_any()
-                        .downcast_ref::<ParadeSchemaProvider>()
-                        .expect("Failed to downcast schema provider");
-
-                    lister
-                        .vacuum_tables(&context.state())
-                        .expect("Failed to vacuum tables");
-                });
-            }
-
-            // TODO: Implement VACUUM <table>
+            vacuum_columnar(vacuum_stmt).expect("Failed to vacuum");
         },
         _ => {}
-    }
+    };
 
     prev_hook(
-        pstmt,
+        pstmt.clone(),
         query_string,
         read_only_tree,
         context,
@@ -73,7 +46,5 @@ pub fn process_utility(
         query_env,
         dest,
         completion_tag,
-    );
-
-    HookResult::new(())
+    )
 }

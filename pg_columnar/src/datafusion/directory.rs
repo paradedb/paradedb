@@ -2,7 +2,7 @@ use pgrx::*;
 use std::ffi::{CStr, CString, NulError};
 use std::string::FromUtf8Error;
 
-use crate::datafusion::registry::PARADE_DIRECTORY;
+const PARADE_DIRECTORY: &str = "paradedb";
 
 pub struct ParquetDirectory;
 

@@ -1,10 +1,10 @@
-pub mod columnar;
+mod columnar;
 mod executor;
 mod process;
+mod vacuum;
 
 use pgrx::hooks::PgHooks;
 use pgrx::*;
-
 use std::ffi::CStr;
 
 pub struct ParadeHook;

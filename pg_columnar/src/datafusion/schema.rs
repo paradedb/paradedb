@@ -11,9 +11,7 @@ use deltalake::operations::vacuum::VacuumBuilder;
 use deltalake::parquet::file::properties::{WriterProperties, WriterVersion};
 use deltalake::schema::Schema as DeltaSchema;
 use deltalake::writer::{DeltaWriter, RecordBatchWriter};
-use deltalake::DeltaOps;
-use deltalake::DeltaTable;
-
+use deltalake::{DeltaOps, DeltaTable};
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
 use std::{

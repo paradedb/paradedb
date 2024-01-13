@@ -1,11 +1,10 @@
 use async_std::task;
 
+use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::common::DFSchema;
-
 use deltalake::datafusion::datasource::provider_as_source;
 use deltalake::datafusion::logical_expr::TableSource;
 use deltalake::datafusion::sql::TableReference;
-
 use pgrx::*;
 use std::sync::Arc;
 
@@ -26,8 +25,14 @@ impl ParadeTable {
         Ok(self.name.clone())
     }
 
-    pub fn schema(&self) -> Result<DFSchema, ParadeError> {
+    pub fn arrow_schema(&self) -> Result<Arc<ArrowSchema>, ParadeError> {
+        let df_schema = self.df_schema()?;
+        Ok(Arc::new(df_schema.into()))
+    }
+
+    fn df_schema(&self) -> Result<DFSchema, ParadeError> {
         let source = Self::source(self)?;
+
         Ok(DFSchema::try_from_qualified_schema(
             &self.name,
             source.schema().as_ref(),

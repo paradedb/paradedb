@@ -4,12 +4,12 @@ use pgrx::*;
 pub static PARADE_GUC: ParadeGUC = ParadeGUC::new();
 
 // Vacuum retention days
-const DEFAULT_VACUUM_RETENTION_DAYS: i32 = 7;
+const DEFAULT_VACUUM_RETENTION_DAYS: i32 = 0;
 const MIN_VACUUM_RETENTION_DAYS: i32 = 0;
 const MAX_VACUUM_RETENTION_DAYS: i32 = 365;
 
 // Vacuum enforce retention
-const DEFAULT_VACUUM_ENFORCE_RETENTION: bool = true;
+const DEFAULT_VACUUM_ENFORCE_RETENTION: bool = false;
 
 // Optimize target file size
 const DEFAULT_OPTIMIZE_FILE_SIZE_MB: i32 = 100;

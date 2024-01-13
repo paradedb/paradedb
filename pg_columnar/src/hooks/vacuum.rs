@@ -6,6 +6,7 @@ use crate::datafusion::context::DatafusionContext;
 use crate::errors::ParadeError;
 use crate::hooks::columnar::ColumnarStmt;
 
+#[derive(Debug)]
 struct VacuumOptions {
     full: bool,
     freeze: bool,
@@ -18,14 +19,8 @@ impl VacuumOptions {
             freeze: false,
         }
     }
-}
 
-pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeError> {
-    // Read VACUUM options
-    let vacuum_options = {
-        let options = (*vacuum_stmt).options;
-        let mut vacuum_options = VacuumOptions::new();
-
+    unsafe fn init(&mut self, options: *mut pg_sys::List) -> Result<(), ParadeError> {
         if !options.is_null() {
             let num_options = (*options).length;
 
@@ -49,15 +44,21 @@ pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<()
                 let option_name = CStr::from_ptr((*option).defname).to_str()?.to_uppercase();
 
                 match option_name.as_str() {
-                    "FULL" => vacuum_options.full = true,
-                    "FREEZE" => vacuum_options.freeze = true,
+                    "FULL" => self.full = true,
+                    "FREEZE" => self.freeze = true,
                     _ => {}
                 }
             }
         }
 
-        vacuum_options
-    };
+        Ok(())
+    }
+}
+
+pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeError> {
+    // Read VACUUM options
+    let mut vacuum_options = VacuumOptions::new();
+    vacuum_options.init((*vacuum_stmt).options)?;
 
     // VacuumStmt can also be used for other statements, so we need to check if it's actually VACUUM
     if !(*vacuum_stmt).is_vacuumcmd {
@@ -73,6 +74,7 @@ pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<()
     let rels = (*vacuum_stmt).rels;
     let vacuum_all = (*vacuum_stmt).rels.is_null();
 
+    // Perform vacuum
     match vacuum_all {
         true => DatafusionContext::with_provider_context(|provider, _| {
             task::block_on(provider.vacuum_all(vacuum_options.full))?;

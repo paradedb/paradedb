@@ -43,15 +43,18 @@ pub extern "C" fn memam_multi_insert(
 
 #[pg_guard]
 pub extern "C" fn memam_finish_bulk_insert(rel: pg_sys::Relation, _options: c_int) {
-    let table_name = unsafe {
-        CStr::from_ptr((*((*rel).rd_rel)).relname.data.as_ptr())
-            .to_str()
-            .expect("Failed to get table name")
-    };
+    flush_and_commit(rel).expect("Failed to commit tuples");
+}
+
+#[inline]
+fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
+    let table_name = unsafe { CStr::from_ptr((*((*rel).rd_rel)).relname.data.as_ptr()).to_str()? };
 
     let _ = DatafusionContext::with_provider_context(|provider, _| {
-        task::block_on(provider.flush_and_commit(table_name)).expect("Failed to commit");
-    });
+        task::block_on(provider.flush_and_commit(table_name))
+    })?;
+
+    Ok(())
 }
 
 #[inline]
@@ -83,7 +86,7 @@ fn insert_tuples(
     let table_name = parade_table.name()?;
     let arrow_schema = ArrowSchema::from(parade_table.schema()?);
 
-    let batch = RecordBatch::try_new(Arc::new(arrow_schema), values).map_err(ParadeError::Arrow)?;
+    let batch = RecordBatch::try_new(Arc::new(arrow_schema), values)?;
 
     // Write the RecordBatch to the Delta table
     DatafusionContext::with_provider_context(|provider, _| {

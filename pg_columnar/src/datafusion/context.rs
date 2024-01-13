@@ -29,9 +29,14 @@ impl<'a> DatafusionContext {
         F: FnOnce(&ParadeSchemaProvider, &SessionContext) -> R,
     {
         let context_lock = CONTEXT.read();
-        let context = context_lock
-            .as_ref()
-            .ok_or_else(|| ParadeError::ContextNotInitialized)?;
+        let context = match context_lock.as_ref() {
+            Some(context) => context,
+            None => {
+                return Err(ParadeError::ContextNotInitialized(
+                    "Please run `CALL paradedb.init();` first".to_string(),
+                ))
+            }
+        };
 
         let schema_provider = context
             .catalog(PARADE_CATALOG)

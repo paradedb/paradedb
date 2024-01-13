@@ -28,25 +28,27 @@ impl ParadeTable {
 
     pub fn schema(&self) -> Result<DFSchema, ParadeError> {
         let source = Self::source(self)?;
-        DFSchema::try_from_qualified_schema(&self.name, source.schema().as_ref())
-            .map_err(ParadeError::DataFusion)
+        Ok(DFSchema::try_from_qualified_schema(
+            &self.name,
+            source.schema().as_ref(),
+        )?)
     }
 
     fn source(&self) -> Result<Arc<dyn TableSource>, ParadeError> {
         DatafusionContext::with_provider_context(|_, context| {
             let reference = TableReference::from(self.name.clone());
 
-            let source = match context.table_exist(&reference) {
+            match context.table_exist(&reference) {
                 Ok(true) => {
-                    let provider = task::block_on(context.table_provider(reference))
-                        .map_err(ParadeError::DataFusion)?;
-                    Some(provider_as_source(provider))
+                    let provider = task::block_on(context.table_provider(reference))?;
+                    Ok(provider_as_source(provider))
                 }
-                Ok(false) => None,
-                Err(err) => return Err(ParadeError::DataFusion(err)),
-            };
-
-            source.ok_or_else(|| ParadeError::ContextNotInitialized)
+                Ok(false) => Err(ParadeError::ContextNotInitialized(format!(
+                    "Table {} not found. Please run `CALL paradedb.init();`.",
+                    self.name
+                ))),
+                Err(err) => Err(ParadeError::DataFusion(err)),
+            }
         })?
     }
 }

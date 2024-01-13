@@ -24,6 +24,9 @@ impl PgHooks for ParadeHook {
         ) -> HookResult<()>,
     ) -> HookResult<()> {
         executor::executor_run(query_desc, direction, count, execute_once, prev_hook)
+            .expect("Query failed");
+
+        HookResult::new(())
     }
 
     fn process_utility_hook(
@@ -58,5 +61,8 @@ impl PgHooks for ParadeHook {
             completion_tag,
             prev_hook,
         )
+        .expect("Utility statement failed");
+
+        HookResult::new(())
     }
 }

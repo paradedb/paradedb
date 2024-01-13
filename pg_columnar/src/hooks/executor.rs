@@ -3,6 +3,7 @@ use deltalake::datafusion::arrow::array::AsArray;
 
 use deltalake::datafusion::common::arrow::array::types::UInt64Type;
 use deltalake::datafusion::common::arrow::array::RecordBatch;
+use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::sql::parser::DFParser;
 use deltalake::datafusion::sql::planner::SqlToRel;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
@@ -25,7 +26,7 @@ pub fn executor_run(
         count: u64,
         execute_once: bool,
     ) -> HookResult<()>,
-) -> HookResult<()> {
+) -> Result<(), ParadeError> {
     unsafe {
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;
@@ -33,39 +34,32 @@ pub fn executor_run(
         // Only use this hook for columnar tables
         if rtable.is_null() || !ColumnarStmt::rtable_is_columnar(rtable).unwrap_or(false) {
             prev_hook(query_desc, direction, count, execute_once);
-            return HookResult::new(());
+            return Ok(());
         }
 
         // Only use this hook for SELECT queries
         // INSERT/UPDATE/DELETE are handled by the table access method
         if query_desc.operation != pg_sys::CmdType_CMD_SELECT {
             prev_hook(query_desc, direction, count, execute_once);
-            return HookResult::new(());
+            return Ok(());
         }
 
         // Parse the query into an AST
         let dialect = PostgreSqlDialect {};
-        let query = CStr::from_ptr(query_desc.sourceText)
-            .to_str()
-            .expect("Failed to parse query string");
-        let ast = DFParser::parse_sql_with_dialect(query, &dialect).expect("Failed to parse AST");
+        let query = CStr::from_ptr(query_desc.sourceText).to_str()?;
+        let ast = DFParser::parse_sql_with_dialect(query, &dialect)
+            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
         let statement = &ast[0];
 
         // Convert the AST into a logical plan
-        let context_provider = ParadeContextProvider::new().expect("Failed to create context");
+        let context_provider = ParadeContextProvider::new()?;
         let sql_to_rel = SqlToRel::new(&context_provider);
-        let logical_plan = sql_to_rel
-            .statement_to_plan(statement.clone())
-            .expect("Failed to create plan");
-
+        let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
         // Execute the logical plan
-        let recordbatchvec: Vec<RecordBatch> =
-            DatafusionContext::with_provider_context(|_, context| {
-                let dataframe = task::block_on(context.execute_logical_plan(logical_plan))
-                    .expect("Failed to execute plan");
-                task::block_on(dataframe.collect()).expect("Failed to collect dataframe")
-            })
-            .expect("Failed to get record batch");
+        let recordbatchvec = DatafusionContext::with_provider_context(|_, context| {
+            let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
+            task::block_on(dataframe.collect())
+        })??;
 
         // This is for any node types that need to do additional processing on estate
         let plan: *mut pg_sys::Plan = (*ps).planTree;
@@ -81,7 +75,7 @@ pub fn executor_run(
         // Return result tuples
         let _ = send_tuples_if_necessary(query_desc.into_pg(), recordbatchvec);
 
-        HookResult::new(())
+        Ok(())
     }
 }
 
@@ -134,6 +128,7 @@ unsafe fn send_tuples_if_necessary(
                         (df_map.index_datum)(column, row_index)
                     })??;
             }
+
             receive(tuple_table_slot, dest);
             pg_sys::ExecDropSingleTupleTableSlot(tuple_table_slot);
         }

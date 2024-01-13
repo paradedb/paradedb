@@ -67,9 +67,7 @@ impl ParadeSchemaProvider {
                 }
 
                 let table_name = unsafe {
-                    CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr())
-                        .to_str()
-                        .map_err(|_| ParadeError::NotFound)?
+                    CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()?
                 };
 
                 let delta_table = match Self::table_exist(self, table_name) {
@@ -107,33 +105,27 @@ impl ParadeSchemaProvider {
         let table_name = pg_relation.name();
         let fields = Self::fields(pg_relation)?;
         let arrow_schema = ArrowSchema::new(fields);
-        let delta_schema = DeltaSchema::try_from(&arrow_schema).map_err(ParadeError::Arrow)?;
+        let delta_schema = DeltaSchema::try_from(&arrow_schema)?;
         let batch = RecordBatch::new_empty(Arc::new(arrow_schema));
 
         // Create a DeltaTable
         let mut table = DeltaOps::try_from_uri(&ParquetDirectory::table_path(&table_oid)?)
-            .await
-            .map_err(ParadeError::Delta)?
+            .await?
             .create()
             .with_columns(delta_schema.get_fields().to_vec())
-            .await
-            .map_err(ParadeError::Delta)?;
+            .await?;
 
         // Create a table writer
         let writer_properties = WriterProperties::builder()
             .set_writer_version(WriterVersion::PARQUET_2_0)
             .build();
 
-        let mut writer = RecordBatchWriter::for_table(&table)
-            .map_err(ParadeError::Delta)?
-            .with_writer_properties(writer_properties);
+        let mut writer =
+            RecordBatchWriter::for_table(&table)?.with_writer_properties(writer_properties);
 
         // Write the RecordBatch to the DeltaTable
-        writer.write(batch).await.map_err(ParadeError::Delta)?;
-        writer
-            .flush_and_commit(&mut table)
-            .await
-            .map_err(ParadeError::Delta)?;
+        writer.write(batch).await?;
+        writer.flush_and_commit(&mut table).await?;
 
         // Register the table writer
         Self::register_writer(self, table_name, writer)?;
@@ -143,8 +135,7 @@ impl ParadeSchemaProvider {
             self,
             table_name.to_string(),
             Arc::new(table) as Arc<dyn TableProvider>,
-        )
-        .map_err(ParadeError::DataFusion)?;
+        )?;
 
         Ok(())
     }
@@ -159,8 +150,7 @@ impl ParadeSchemaProvider {
             let optimized_table =
                 OptimizeBuilder::new(old_table.object_store(), old_table.state.clone())
                     .with_target_size(PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB)
-                    .await
-                    .map_err(ParadeError::Delta)?
+                    .await?
                     .0;
 
             old_table = optimized_table;
@@ -172,8 +162,7 @@ impl ParadeSchemaProvider {
                 PARADE_GUC.vacuum_retention_days.get() as i64,
             ))
             .with_enforce_retention_duration(PARADE_GUC.vacuum_enforce_retention.get())
-            .await
-            .map_err(ParadeError::Delta)?
+            .await?
             .0;
 
         // Commit the vacuumed table
@@ -181,20 +170,18 @@ impl ParadeSchemaProvider {
             self,
             table_name.to_string(),
             Arc::new(vacuumed_table) as Arc<dyn TableProvider>,
-        )
-        .map_err(ParadeError::DataFusion)?;
+        )?;
 
         Ok(())
     }
 
     // Vacuum all tables in the schema directory and delete directories for dropped tables
     pub async fn vacuum_all(&self, optimize: bool) -> Result<(), ParadeError> {
-        let listdir = std::fs::read_dir(self.dir.clone()).map_err(ParadeError::IO)?;
+        let listdir = std::fs::read_dir(self.dir.clone())?;
 
         // Iterate over all tables in the directory
         for res in listdir {
-            let table_oid = res
-                .map_err(ParadeError::IO)?
+            let table_oid = res?
                 .file_name()
                 .to_str()
                 .ok_or_else(|| ParadeError::NotFound)?
@@ -234,11 +221,11 @@ impl ParadeSchemaProvider {
             .get_mut(table_name)
             .ok_or_else(|| ParadeError::NotFound)?;
 
-        task::block_on(writer.write(batch)).map_err(ParadeError::Delta)?;
+        task::block_on(writer.write(batch))?;
 
         // If the buffer is too large, flush it to disk
         if writer.buffer_len() > FILE_SIZE_MB as usize {
-            task::block_on(writer.flush()).map_err(ParadeError::Delta)?;
+            task::block_on(writer.flush())?;
         }
 
         Ok(())
@@ -256,7 +243,7 @@ impl ParadeSchemaProvider {
             .ok_or_else(|| ParadeError::NotFound)?;
 
         // Flush and commit buffer to delta logs
-        task::block_on(writer.flush_and_commit(&mut delta_table)).map_err(ParadeError::Delta)?;
+        task::block_on(writer.flush_and_commit(&mut delta_table))?;
 
         // Commiting creates a new version of the DeltaTable
         // Update the provider with the new version
@@ -264,8 +251,7 @@ impl ParadeSchemaProvider {
             self,
             table_name.to_string(),
             Arc::new(delta_table) as Arc<dyn TableProvider>,
-        )
-        .map_err(ParadeError::DataFusion)?;
+        )?;
 
         Ok(())
     }
@@ -284,8 +270,7 @@ impl ParadeSchemaProvider {
 
         Ok(
             UpdateBuilder::new(old_table.object_store(), old_table.state.clone())
-                .await
-                .map_err(ParadeError::Delta)?
+                .await?
                 .0,
         )
     }

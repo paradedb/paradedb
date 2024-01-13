@@ -10,6 +10,7 @@ use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList, PARADE_CATALO
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParquetDirectory;
 use crate::datafusion::schema::{ParadeSchemaProvider, PARADE_SCHEMA};
+use crate::errors::ParadeError;
 
 extension_sql!(
     r#"
@@ -20,40 +21,40 @@ extension_sql!(
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn init() {
-    let session_config = SessionConfig::from_env()
-        .expect("Failed to create session config")
-        .with_information_schema(true);
+    init_impl().expect("Failed to initialize context");
+}
+
+#[inline]
+fn init_impl() -> Result<(), ParadeError> {
+    let session_config = SessionConfig::from_env()?.with_information_schema(true);
 
     let rn_config = RuntimeConfig::new();
-    let runtime_env = RuntimeEnv::new(rn_config).expect("Failed to create runtime env");
+    let runtime_env = RuntimeEnv::new(rn_config)?;
 
     let _ = DatafusionContext::with_write_lock(|mut context_lock| {
         if context_lock.as_mut().is_none() {
             let mut context =
                 SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
             // Create an empty schema provider
-            let schema_provider = Arc::new(
-                task::block_on(ParadeSchemaProvider::try_new(
-                    Path::new(&ParquetDirectory::schema_path().expect("Failed to get schema path"))
-                        .to_path_buf(),
-                ))
-                .expect("Failed to create schema provider"),
-            );
+            let schema_provider = Arc::new(task::block_on(ParadeSchemaProvider::try_new(
+                Path::new(&ParquetDirectory::schema_path()?).to_path_buf(),
+            ))?);
             // Register catalog list
             context.register_catalog_list(Arc::new(ParadeCatalogList::new()));
             // Create and register catalog
             let catalog = ParadeCatalog::new();
-            catalog
-                .register_schema(PARADE_SCHEMA, schema_provider)
-                .expect("Failed to register schema");
+            catalog.register_schema(PARADE_SCHEMA, schema_provider)?;
             context.register_catalog(PARADE_CATALOG, Arc::new(catalog));
             // Set context
             *context_lock = Some(context);
         }
-    });
+
+        Ok::<(), ParadeError>(())
+    })?;
 
     // Load the schema provider with tables
-    let _ = DatafusionContext::with_provider_context(|provider, _| {
-        task::block_on(provider.init()).expect("Failed to refresh schema provider");
-    });
+    let _ =
+        DatafusionContext::with_provider_context(|provider, _| task::block_on(provider.init()))?;
+
+    Ok(())
 }

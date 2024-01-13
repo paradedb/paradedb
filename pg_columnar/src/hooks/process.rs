@@ -2,6 +2,7 @@ use pgrx::pg_sys::NodeTag;
 use pgrx::*;
 use std::ffi::CStr;
 
+use crate::errors::ParadeError;
 use crate::hooks::vacuum::vacuum_columnar;
 
 #[allow(clippy::type_complexity)]
@@ -25,19 +26,19 @@ pub fn process_utility(
         dest: PgBox<pg_sys::DestReceiver>,
         completion_tag: *mut pg_sys::QueryCompletion,
     ) -> HookResult<()>,
-) -> HookResult<()> {
+) -> Result<(), ParadeError> {
     let plan = pstmt.utilityStmt;
 
     #[allow(clippy::single_match)]
     match unsafe { (*plan).type_ } {
         NodeTag::T_VacuumStmt => unsafe {
             let vacuum_stmt = plan as *mut pg_sys::VacuumStmt;
-            vacuum_columnar(vacuum_stmt).expect("Failed to vacuum");
+            vacuum_columnar(vacuum_stmt)?;
         },
         _ => {}
     };
 
-    prev_hook(
+    let _ = prev_hook(
         pstmt.clone(),
         query_string,
         read_only_tree,
@@ -46,5 +47,7 @@ pub fn process_utility(
         query_env,
         dest,
         completion_tag,
-    )
+    );
+
+    Ok(())
 }

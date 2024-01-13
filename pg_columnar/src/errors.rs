@@ -23,8 +23,8 @@ pub enum ParadeError {
     #[error("Value not found")]
     NotFound,
 
-    #[error("Please run `CALL paradedb.init();` first")]
-    ContextNotInitialized,
+    #[error("{0}")]
+    ContextNotInitialized(String),
 
     #[error("{0}")]
     Generic(String),

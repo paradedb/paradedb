@@ -59,7 +59,6 @@ impl JsonBuilder {
         }
     }
 
-    #[inline]
     pub fn add_bool(&mut self, attname: String, value: bool) {
         self.insert(attname, JsonBuilderValue::bool(value));
     }

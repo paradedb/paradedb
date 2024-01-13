@@ -1,3 +1,4 @@
+use once_cell::unsync::Lazy;
 use pgrx::pg_sys::ItemPointerData;
 use pgrx::*;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -16,7 +17,7 @@ use thiserror::Error;
 use super::state::TantivyScanState;
 use crate::env::Transaction;
 use crate::index_access::options::ParadeOptions;
-use crate::index_access::utils::{self, categorize_tupdesc, row_to_json, SearchConfig};
+use crate::index_access::utils::{self, row_to_json, SearchConfig};
 use crate::json::builder::JsonBuilder;
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
@@ -49,7 +50,7 @@ static mut WILL_COMMIT_SET: Option<HashSet<String>> = None;
 /// It's also crucial to remember that this cache is NOT shared across different backend
 /// processes. Each PostgreSQL backend process will have its own separate instance of
 /// this cache, tied to its own lifecycle.
-static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
+static mut PARADE_INDEX_MEMORY: Lazy<HashMap<String, ParadeIndex>> = Lazy::new(|| HashMap::new());
 
 #[derive(Serialize)]
 pub struct ParadeIndex {
@@ -189,34 +190,13 @@ impl ParadeIndex {
             .try_into()
     }
 
-    unsafe fn from_cached_index(name: String) -> Option<&'static mut Self> {
-        // This function needs to be unsafe because it accesses
-        // data from a static mut variable.
-        // If the cache has not been initialized for this process,
-        // initialize it first.
-        if PARADE_INDEX_MEMORY.is_none() {
-            PARADE_INDEX_MEMORY = Some(HashMap::new());
-            return None;
-        }
-
-        PARADE_INDEX_MEMORY.as_mut()?.get_mut(&name)
-    }
-
     unsafe fn into_cached_index(self) {
-        if PARADE_INDEX_MEMORY.is_none() {
-            PARADE_INDEX_MEMORY = Some(HashMap::new());
-        }
-
-        PARADE_INDEX_MEMORY
-            .as_mut()
-            .unwrap()
-            .insert(self.name.clone(), self);
+        PARADE_INDEX_MEMORY.insert(self.name.clone(), self);
     }
 
     pub fn from_index_name<'a>(name: &str) -> &'a mut Self {
         unsafe {
-            let cached_self = Self::from_cached_index(name.into());
-            if let Some(new_self) = cached_self {
+            if let Some(new_self) = PARADE_INDEX_MEMORY.get_mut(name) {
                 return new_self;
             }
         }
@@ -324,7 +304,8 @@ impl ParadeIndex {
                 .and_then(|mut client| {
                     client
                         .request(WriterRequest::Commit)
-                        .map_err(ParadeIndexError::from).map(|_| pgrx::log!("sent commit request to index writer server"))
+                        .map_err(ParadeIndexError::from)
+                        .map(|_| pgrx::log!("sent commit request to index writer server"))
                 })
                 .unwrap_or_else(|err| {
                     pgrx::log!("error while sending index commit to writer server: {err:?}")
@@ -339,7 +320,8 @@ impl ParadeIndex {
                 .and_then(|mut client| {
                     client
                         .request(WriterRequest::Abort)
-                        .map_err(ParadeIndexError::from).map(|_| pgrx::log!("sent abort request to index writer server"))
+                        .map_err(ParadeIndexError::from)
+                        .map(|_| pgrx::log!("sent abort request to index writer server"))
                 })
                 .unwrap_or_else(|err| {
                     pgrx::log!("error while sending index abort to writer server: {err:?}")
@@ -453,24 +435,10 @@ impl ParadeIndex {
         tupdesc: &PgTupleDesc,
         values: *mut pg_sys::Datum,
     ) -> JsonBuilder {
-        let attributes = categorize_tupdesc(tupdesc);
-        let natts = tupdesc.natts as usize;
-        let dropped = (0..tupdesc.natts as usize)
-            .map(|i| tupdesc.get(i).unwrap().is_dropped())
-            .collect::<Vec<bool>>();
         let values = unsafe { std::slice::from_raw_parts(values, 1) };
         let mut builder = JsonBuilder::new(self.key_field, self.fields.clone());
         // Insert the fields from the row
-        unsafe {
-            row_to_json(
-                values[0],
-                tupdesc,
-                natts,
-                &dropped,
-                &attributes,
-                &mut builder,
-            )
-        };
+        unsafe { row_to_json(values[0], tupdesc, &mut builder) };
 
         // Insert the ctid value
         builder.add_u64("ctid".into(), item_pointer_to_u64(ctid));

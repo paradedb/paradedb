@@ -41,10 +41,15 @@ unsafe fn aminsert_internal(
 ) -> bool {
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);
-    let parade_index = get_parade_index(index_relation_ref.name());
-    let builder = parade_index.json_builder(*ctid, &tupdesc, values);
+    let index_name = index_relation_ref.name();
+    let parade_index = get_parade_index(index_name);
+    let index_entries = parade_index
+        .row_to_index_entries(*ctid, &tupdesc, values)
+        .unwrap_or_else(|err| {
+            panic!("error creating index entries for index '{index_name}': {err:?}",)
+        });
 
-    parade_index.insert(builder).unwrap_or_else(|err| {
+    parade_index.insert(index_entries).unwrap_or_else(|err| {
         panic!("error inserting json builder during insert callback: {err:?}")
     });
 

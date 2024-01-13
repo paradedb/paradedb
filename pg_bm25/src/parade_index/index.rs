@@ -4,7 +4,7 @@ use pgrx::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use shared::plog;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{self, File};
 use std::io::Write;
@@ -17,23 +17,16 @@ use thiserror::Error;
 use super::state::TantivyScanState;
 use crate::env::Transaction;
 use crate::index_access::options::ParadeOptions;
-use crate::index_access::utils::{self, row_to_json, SearchConfig};
-use crate::json::builder::JsonBuilder;
+use crate::index_access::utils::{self, row_to_index_entries, SearchConfig};
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
-use crate::writer;
 use crate::writer::WriterRequest;
+use crate::writer::{self, IndexEntry, IndexValue};
 
 type WriterClient = writer::Client<writer::WriterRequest>;
 
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 const CACHE_NUM_BLOCKS: usize = 10;
-
-// A collection of index names that will be committed at the end of a given transaction.
-// If an insert to an index occurs, that index name will be added to this set.
-// At the end of the transaction, `commit()` will be called for all the indices in this set.
-// The set will be cleared, so it will be empty on the next transaction.
-static mut WILL_COMMIT_SET: Option<HashSet<String>> = None;
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
@@ -331,12 +324,13 @@ impl ParadeIndex {
         Ok(())
     }
 
-    pub fn insert(&mut self, json_builder: JsonBuilder) -> Result<(), ParadeIndexError> {
+    pub fn insert(&mut self, index_entries: Vec<IndexEntry>) -> Result<(), ParadeIndexError> {
         // Send the insert requests to the writer server.
         let index_directory_path = Self::get_index_directory(&self.name);
         let request = WriterRequest::Insert {
             index_directory_path,
-            json_builder,
+            index_entries,
+            key_field: self.key_field,
         };
 
         let writer_client = self.writer_client.clone();
@@ -429,21 +423,20 @@ impl ParadeIndex {
             .to_string()
     }
 
-    pub fn json_builder(
+    pub fn row_to_index_entries(
         &self,
         ctid: pg_sys::ItemPointerData,
         tupdesc: &PgTupleDesc,
         values: *mut pg_sys::Datum,
-    ) -> JsonBuilder {
-        let values = unsafe { std::slice::from_raw_parts(values, 1) };
-        let mut builder = JsonBuilder::new(self.key_field, self.fields.clone());
-        // Insert the fields from the row
-        unsafe { row_to_json(values[0], tupdesc, &mut builder) };
+    ) -> Result<Vec<IndexEntry>, ParadeIndexError> {
+        // Create a vector of index entries from the postgres row.
+        let mut index_entries = unsafe { row_to_index_entries(tupdesc, values, &self.fields) }?;
 
-        // Insert the ctid value
-        builder.add_u64("ctid".into(), item_pointer_to_u64(ctid));
+        // Insert the ctid value into the entries.
+        let ctid_index_value = IndexValue::U64(item_pointer_to_u64(ctid));
+        index_entries.push(IndexEntry::new(self.ctid_field, ctid_index_value));
 
-        builder
+        Ok(index_entries)
     }
 
     fn build_index_schema(
@@ -636,6 +629,9 @@ impl<'de> Deserialize<'de> for ParadeIndex {
 pub enum ParadeIndexError {
     #[error(transparent)]
     WriterClientError(#[from] writer::ClientError),
+
+    #[error(transparent)]
+    WriterIndexError(#[from] writer::IndexError),
 
     #[error(transparent)]
     TantivyError(#[from] tantivy::error::TantivyError),

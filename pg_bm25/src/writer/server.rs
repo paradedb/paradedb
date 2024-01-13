@@ -11,7 +11,6 @@ use thiserror::Error;
 pub struct Server<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> {
     addr: std::net::SocketAddr,
     http: tiny_http::Server,
-    should_exit: bool,
     handler: RefCell<H>,
     marker: PhantomData<&'a T>,
 }
@@ -35,7 +34,6 @@ impl<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> Server<'a, T, H> {
             addr,
             http,
             handler: RefCell::new(handler),
-            should_exit: false,
             marker: PhantomData,
         })
     }
@@ -106,9 +104,6 @@ impl<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> Server<'a, T, H> {
 pub enum ServerError {
     #[error("couldn't open the consumer pipe file: {0}")]
     OpenPipeFile(std::io::Error),
-
-    #[error("only integer key fields are supported for parade index")]
-    InvalidKeyField,
 
     #[error("error binding writer server to address: {0}")]
     AddressBindFailed(String),

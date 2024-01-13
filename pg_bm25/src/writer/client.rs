@@ -1,6 +1,6 @@
-use crate::{json::builder::JsonBuilder, WRITER_STATUS};
+use crate::WRITER_STATUS;
 
-use super::{transfer::WriterTransferProducer, ServerRequest};
+use super::{transfer::WriterTransferProducer, IndexEntry, ServerRequest};
 use serde::Serialize;
 use std::{marker::PhantomData, net::SocketAddr};
 use thiserror::Error;
@@ -77,9 +77,7 @@ impl<T: Serialize> Client<T> {
         match response.status() {
             reqwest::StatusCode::OK => Ok(()),
             _ => {
-                let err = response
-                    .text()
-                    .map_err(ClientError::ResponseParseError)?;
+                let err = response.text().map_err(ClientError::ResponseParseError)?;
                 Err(ClientError::ServerError(err))
             }
         }
@@ -87,7 +85,7 @@ impl<T: Serialize> Client<T> {
 
     fn send_transfer(&mut self, request: T) -> Result<(), ClientError> {
         if self.producer.is_none() {
-            let pipe_path = WriterTransferProducer::<JsonBuilder>::pipe_path()?
+            let pipe_path = WriterTransferProducer::<IndexEntry>::pipe_path()?
                 .display()
                 .to_string();
             self.send_request(ServerRequest::Transfer(pipe_path))?;
@@ -119,15 +117,6 @@ impl<T: Serialize> Client<T> {
 
 #[derive(Error, Debug)]
 pub enum ClientError {
-    #[error("couldn't open fifo file {0} {1}")]
-    OpenPipeFile(std::io::Error, std::path::PathBuf),
-
-    #[error("couldn't create fifo file {0}")]
-    CreatePipeFile(std::io::Error, std::path::PathBuf),
-
-    #[error("couldn't remove fifo file {0}")]
-    RemoveipeFile(std::io::Error, std::path::PathBuf),
-
     #[error("could not parse response from writer server: {0}")]
     ResponseParseError(reqwest::Error),
 

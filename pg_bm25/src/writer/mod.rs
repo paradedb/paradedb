@@ -1,9 +1,10 @@
 mod client;
+mod entry;
 mod index;
 mod server;
 mod transfer;
 
-use crate::json::builder::JsonBuilder;
+pub use self::entry::{IndexEntry, IndexError, IndexKey, IndexValue};
 pub use client::{Client, ClientError};
 pub use index::Writer;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,8 @@ use tantivy::schema::Field;
 pub enum WriterRequest {
     Insert {
         index_directory_path: String,
-        json_builder: JsonBuilder,
+        index_entries: Vec<IndexEntry>,
+        key_field: IndexKey,
     },
     Delete {
         index_directory_path: String,
@@ -51,7 +53,5 @@ enum ServerRequest<R: Serialize> {
 /// The two systems are otherwise decoupled, so they can be tested
 /// and re-used independently.
 pub trait Handler<T: Serialize> {
-    fn handle(&mut self, request: T) -> Result<(), ServerError> {
-        Ok(())
-    }
+    fn handle(&mut self, request: T) -> Result<(), ServerError>;
 }

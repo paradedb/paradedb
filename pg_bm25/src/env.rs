@@ -48,7 +48,7 @@ pub enum TransactionError {
 }
 
 impl<T> From<PoisonError<T>> for TransactionError {
-    fn from(err: PoisonError<T>) -> Self {
+    fn from(_: PoisonError<T>) -> Self {
         TransactionError::AcquireLock
     }
 }

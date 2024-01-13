@@ -1,8 +1,9 @@
-use super::{server::ServerError, Handler, WriterRequest};
-use crate::{
-    json::builder::{JsonBuilder, JsonBuilderValue},
-    parade_index::index::ParadeIndex,
+use super::{
+    entry::{IndexEntry, IndexKey},
+    server::ServerError,
+    Handler, WriterRequest,
 };
+use crate::parade_index::index::ParadeIndex;
 use std::{
     collections::{
         hash_map::Entry::{Occupied, Vacant},
@@ -11,7 +12,7 @@ use std::{
     fs,
     path::Path,
 };
-use tantivy::{schema::Field, Document, IndexWriter, Term};
+use tantivy::{schema::Field, Document, IndexWriter};
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct Writer {
@@ -42,29 +43,21 @@ impl Writer {
     fn insert(
         &mut self,
         index_directory_path: &str,
-        json_builder: JsonBuilder,
+        index_entries: Vec<IndexEntry>,
+        key_field: IndexKey,
     ) -> Result<(), ServerError> {
-        let key_field = json_builder.key;
-        let key_value: i64 = match json_builder.values.get(&key_field) {
-            Some(JsonBuilderValue::i16(value)) => *value as i64,
-            Some(JsonBuilderValue::i32(value)) => *value as i64,
-            Some(JsonBuilderValue::i64(value)) => *value,
-            Some(JsonBuilderValue::u32(value)) => *value as i64,
-            Some(JsonBuilderValue::u64(value)) => *value as i64,
-            _ => return Err(ServerError::InvalidKeyField),
-        };
-
         let writer = self.get_writer(index_directory_path)?;
 
         // Add each of the fields to the Tantivy document.
         let mut doc: Document = Document::new();
-        for (field, value) in json_builder.values.iter() {
-            value.add_to_tantivy_doc(&mut doc, field);
-        }
+        for entry in index_entries {
+            // Delete any exiting documents with the same key.
+            if entry.key == key_field {
+                writer.delete_term(entry.clone().into());
+            }
 
-        // Delete any exiting documents with the same key.
-        let key_term = Term::from_field_i64(key_field, key_value);
-        writer.delete_term(key_term);
+            doc.add_field_value(entry.key, entry.value);
+        }
 
         // Add the Tantivy document to the index.
         writer.add_document(doc)?;
@@ -87,7 +80,7 @@ impl Writer {
     }
 
     fn commit(&mut self) -> Result<(), ServerError> {
-        for (path, writer) in self.tantivy_writers.iter_mut() {
+        for writer in self.tantivy_writers.values_mut() {
             writer.prepare_commit()?;
             writer.commit()?;
         }
@@ -156,8 +149,9 @@ impl Handler<WriterRequest> for Writer {
         match request {
             WriterRequest::Insert {
                 index_directory_path,
-                json_builder,
-            } => self.insert(&index_directory_path, json_builder),
+                index_entries,
+                key_field,
+            } => self.insert(&index_directory_path, index_entries, key_field),
             WriterRequest::Delete {
                 index_directory_path,
                 field,

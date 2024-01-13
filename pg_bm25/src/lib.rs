@@ -1,4 +1,3 @@
-#![allow(dead_code, unused_variables)]
 mod api;
 mod env;
 mod index_access;

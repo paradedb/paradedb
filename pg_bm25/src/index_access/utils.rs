@@ -1,24 +1,17 @@
-use pgrx::pg_sys::Datum;
 use pgrx::*;
 use serde::Deserialize;
 
 use serde::de::DeserializeOwned;
 
+use std::collections::HashMap;
 use std::default::Default;
 
 use std::error::Error;
 use std::str::FromStr;
 
 use crate::index_access::options::ParadeOptions;
-use crate::json::builder::JsonBuilder;
 use crate::parade_index::index::ParadeIndex;
-
-type ConversionFunc = dyn Fn(&mut JsonBuilder, String, pg_sys::Datum, pg_sys::Oid);
-pub struct CategorizedAttribute {
-    pub attname: String,
-    pub typoid: pg_sys::Oid,
-    pub attno: usize,
-}
+use crate::writer::{IndexEntry, IndexError, IndexKey, IndexValue};
 
 #[derive(Debug, Deserialize, Default, Clone, PartialEq)]
 pub struct SearchConfig {
@@ -89,53 +82,12 @@ pub fn lookup_index_tupdesc(indexrel: &PgRelation) -> PgTupleDesc<'static> {
     }
 }
 
-fn handle_as_generic_string(
-    is_array: bool,
-    base_type_oid: pg_sys::Oid,
-    builder: &mut JsonBuilder,
-    attname: String,
-    datum: Datum,
-) {
-    let mut output_func = pg_sys::InvalidOid;
-    let mut is_varlena = false;
-
-    unsafe {
-        pg_sys::getTypeOutputInfo(base_type_oid, &mut output_func, &mut is_varlena);
-    }
-
-    if is_array {
-        let array: Array<pg_sys::Datum> = unsafe { Array::from_datum(datum, false).unwrap() };
-
-        let mut values = Vec::with_capacity(array.len());
-        for element_datum in array.iter().flatten() {
-            if base_type_oid == pg_sys::TEXTOID || base_type_oid == pg_sys::VARCHAROID {
-                values.push(Some(
-                    unsafe { String::from_datum(element_datum, false) }.unwrap(),
-                ));
-            } else {
-                let result = unsafe {
-                    std::ffi::CStr::from_ptr(pg_sys::OidOutputFunctionCall(
-                        output_func,
-                        element_datum,
-                    ))
-                };
-                values.push(Some(result.to_str().unwrap().to_string()));
-            }
-        }
-
-        builder.add_string_array(attname, values)
-    } else {
-        let result = unsafe { String::from_datum(datum, false) }.unwrap();
-
-        builder.add_string(attname, result);
-    }
-}
-
-pub unsafe fn row_to_json<'a>(
-    row: pg_sys::Datum,
+pub unsafe fn row_to_index_entries<'a>(
     tupdesc: &PgTupleDesc,
-    builder: &mut JsonBuilder,
-) {
+    values: *mut pg_sys::Datum,
+    field_lookup: &HashMap<String, IndexKey>,
+) -> Result<Vec<IndexEntry>, IndexError> {
+    let row = unsafe { std::slice::from_raw_parts(values, 1)[0] };
     let td =
         pg_sys::pg_detoast_datum(row.cast_mut_ptr::<pg_sys::varlena>()) as pg_sys::HeapTupleHeader;
 
@@ -157,6 +109,7 @@ pub unsafe fn row_to_json<'a>(
     );
 
     let mut dropped = 0;
+    let mut index_entries: Vec<IndexEntry> = vec![];
     for (attno, attribute) in tupdesc.iter().enumerate() {
         if attribute.is_dropped() {
             dropped += 1;
@@ -164,6 +117,14 @@ pub unsafe fn row_to_json<'a>(
         }
         let attname = attribute.name().to_string();
         let attribute_type_oid = attribute.type_oid();
+
+        // If we can't lookup the attribute name in the field_lookup parameter,
+        // it means that this field is not part of the index. We should skip it.
+        let index_key = if let Some(index_key) = field_lookup.get(&attname) {
+            index_key
+        } else {
+            continue;
+        };
 
         let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
         let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
@@ -177,45 +138,70 @@ pub unsafe fn row_to_json<'a>(
         match &base_oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::BOOLOID => {
-                    builder.add_bool(attname, unsafe { bool::from_datum(datum, false) }.unwrap());
+                    let value = bool::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    index_entries.push(IndexEntry::new(*index_key, IndexValue::Bool(value)));
                 }
                 PgBuiltInOids::INT2OID => {
-                    builder.add_i16(attname, unsafe { i16::from_datum(datum, false) }.unwrap());
+                    let value = i16::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    index_entries.push(IndexEntry::new(*index_key, IndexValue::I16(value)));
                 }
                 PgBuiltInOids::INT4OID => {
-                    builder.add_i32(attname, unsafe { i32::from_datum(datum, false) }.unwrap());
+                    let value = i32::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    index_entries.push(IndexEntry::new(*index_key, IndexValue::I32(value)));
                 }
                 PgBuiltInOids::INT8OID => {
-                    builder.add_i64(attname, unsafe { i64::from_datum(datum, false) }.unwrap());
+                    let value = i64::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    index_entries.push(IndexEntry::new(*index_key, IndexValue::I64(value)));
                 }
-                PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => {
-                    builder.add_u32(attname, unsafe { u32::from_datum(datum, false) }.unwrap())
+                PgBuiltInOids::OIDOID => {
+                    let value = u32::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    index_entries.push(IndexEntry::new(*index_key, IndexValue::U32(value)));
                 }
                 PgBuiltInOids::FLOAT4OID => {
-                    builder.add_f32(attname, unsafe { f32::from_datum(datum, false) }.unwrap())
+                    let value = f32::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    index_entries.push(IndexEntry::new(*index_key, IndexValue::F32(value)));
                 }
-                PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
-                    builder.add_f64(attname, unsafe { f64::from_datum(datum, false) }.unwrap())
+                PgBuiltInOids::FLOAT8OID => {
+                    let value = f64::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    index_entries.push(IndexEntry::new(*index_key, IndexValue::F64(value)));
                 }
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
-                    handle_as_generic_string(is_array, base_oid.value(), builder, attname, datum)
+                PgBuiltInOids::TEXTOID => {
+                    if is_array {
+                        let array: Array<pg_sys::Datum> =
+                            Array::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                        for element_datum in array.iter().flatten() {
+                            let value = String::from_datum(element_datum, false)
+                                .ok_or(IndexError::DatumDeref)?;
+                            index_entries
+                                .push(IndexEntry::new(*index_key, IndexValue::String(value)));
+                        }
+                    } else {
+                        let value =
+                            String::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                        index_entries.push(IndexEntry::new(*index_key, IndexValue::String(value)));
+                    }
                 }
-                PgBuiltInOids::JSONOID => builder.add_json_string(
-                    attname,
-                    unsafe { pgrx::JsonString::from_datum(datum, false) }.unwrap(),
-                ),
+                PgBuiltInOids::JSONOID => {
+                    let JsonString(value) =
+                        JsonString::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    index_entries.push(IndexEntry::new(*index_key, IndexValue::Json(value)));
+                }
                 PgBuiltInOids::JSONBOID => {
-                    builder.add_jsonb(attname, unsafe { JsonB::from_datum(datum, false) }.unwrap())
+                    let JsonB(serde_value) =
+                        JsonB::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    let value = serde_json::to_vec(&serde_value)?;
+                    index_entries.push(IndexEntry::new(*index_key, IndexValue::JsonB(value)));
                 }
-
-                _ => {}
+                unsupported => Err(IndexError::UnsupportedValue(
+                    attname.to_string(),
+                    format!("{unsupported:?}"),
+                ))?,
             },
-            PgOid::Invalid => {
-                panic!("{} has a type oid of InvalidOid", attribute.name())
-            }
-            _ => {}
+            _ => Err(IndexError::InvalidOid(attname.to_string()))?,
         }
     }
+
+    Ok(index_entries)
 }
 
 pub fn get_data_directory() -> String {
@@ -305,12 +291,10 @@ where
 #[cfg(any(test, feature = "pg_test"))]
 #[pgrx::pg_schema]
 mod tests {
-    use super::{handle_as_generic_string, lookup_index_tupdesc};
-    use crate::json::builder::{JsonBuilder, JsonBuilderValue};
+    use super::lookup_index_tupdesc;
     use crate::operator::get_index_oid;
     use pgrx::*;
     use shared::testing::SETUP_SQL;
-    use tantivy::schema::Field;
 
     fn make_tuple() -> PgTupleDesc<'static> {
         Spi::run(SETUP_SQL).expect("failed to setup index");
@@ -329,66 +313,5 @@ mod tests {
         crate::setup_background_workers();
         let tuple = make_tuple();
         assert_eq!(tuple.len(), tuple.natts as usize);
-    }
-
-    #[pg_test]
-    fn test_handle_as_generic_string() {
-        let mut fields = std::collections::HashMap::new();
-        let attname = "description";
-        let field = Field::from_field_id(0);
-        fields.insert(attname.to_string(), field);
-
-        let mut builder = JsonBuilder::new(field, fields);
-        // new OR track :)
-        let datum = "Mirage".into_datum().expect("failed to convert to datum");
-        handle_as_generic_string(
-            false,
-            PgBuiltInOids::VARCHAROID.into(),
-            &mut builder,
-            attname.to_string(),
-            datum,
-        );
-
-        let value = builder.values.get(&field).unwrap();
-        match value {
-            JsonBuilderValue::string(val) => {
-                assert_eq!(val, "Mirage");
-            }
-            _ => panic!("Expected string, found other."),
-        }
-    }
-
-    #[pg_test]
-    fn test_handle_as_generic_string_array() {
-        let mut fields = std::collections::HashMap::new();
-        let attname = "2023_Tracks";
-        let field = Field::from_field_id(0);
-        fields.insert(attname.to_string(), field);
-
-        let mut builder = JsonBuilder::new(field, fields);
-        // 2023 OR singles :)
-        let singles = vec!["Counting Stars", "Mirage", "Ranaway"];
-        let datum = singles
-            .clone()
-            .into_datum()
-            .expect("failed to convert tracks to datum");
-
-        handle_as_generic_string(
-            true,
-            PgBuiltInOids::VARCHAROID.into(),
-            &mut builder,
-            attname.to_string(),
-            datum,
-        );
-        let value = builder.values.get(&field).unwrap();
-        match value {
-            JsonBuilderValue::string_array(values) => {
-                assert_eq!(values.len(), singles.len());
-                for (single, value) in singles.iter().zip(values.iter()) {
-                    assert_eq!(value.clone().unwrap(), single.to_string());
-                }
-            }
-            _ => panic!("Incorrect type: expected string_array."),
-        }
     }
 }

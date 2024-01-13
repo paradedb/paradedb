@@ -1,11 +1,9 @@
 use async_std::task;
 use core::ffi::c_int;
-use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
 use std::ffi::CStr;
-use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
@@ -84,9 +82,8 @@ fn insert_tuples(
     // Create a RecordBatch
     let parade_table = ParadeTable::from_pg(&pg_relation)?;
     let table_name = parade_table.name()?;
-    let arrow_schema = ArrowSchema::from(parade_table.schema()?);
-
-    let batch = RecordBatch::try_new(Arc::new(arrow_schema), values)?;
+    let arrow_schema = parade_table.arrow_schema()?;
+    let batch = RecordBatch::try_new(arrow_schema, values)?;
 
     // Write the RecordBatch to the Delta table
     DatafusionContext::with_provider_context(|provider, _| {

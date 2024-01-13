@@ -66,6 +66,7 @@ impl CatalogList for ParadeCatalogList {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
     fn register_catalog(
         &self,
         name: String,

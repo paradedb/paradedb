@@ -348,8 +348,8 @@ impl ParadeIndex {
             key_field: self.key_field,
         };
 
-        // let writer_client = self.writer_client.clone();
-        // writer_client.lock()?.transfer(request)?;
+        let writer_client = self.writer_client.clone();
+        writer_client.lock()?.transfer(request)?;
 
         self.register_commit_callback()?;
 

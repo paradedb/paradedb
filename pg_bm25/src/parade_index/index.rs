@@ -583,7 +583,7 @@ impl<'de> Deserialize<'de> for ParadeIndex {
     where
         D: Deserializer<'de>,
     {
-        // A helper struct that lets use use the default serialization for most fields.
+        // A helper struct that lets us use the default serialization for most fields.
         #[derive(Deserialize)]
         struct ParadeIndexHelper {
             name: String,

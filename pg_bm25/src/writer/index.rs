@@ -53,15 +53,15 @@ impl Writer {
 
         // Add each of the fields to the Tantivy document.
         let mut doc: Document = Document::new();
-        // for entry in index_entries {
-        //     // Delete any exiting documents with the same key.
-        //     if entry.key == key_field {
-        //         writer.delete_term(entry.clone().into());
-        //     }
+        for entry in index_entries {
+            // Delete any exiting documents with the same key.
+            if entry.key == key_field {
+                writer.delete_term(entry.clone().into());
+            }
 
-        //     let tantivy_value: Value = entry.value.try_into()?;
-        //     doc.add_field_value(entry.key, tantivy_value);
-        // }
+            // let tantivy_value: Value = entry.value.try_into()?;
+            // doc.add_field_value(entry.key, tantivy_value);
+        }
 
         // // Add the Tantivy document to the index.
         writer.add_document(doc)?;

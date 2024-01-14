@@ -57,6 +57,10 @@ impl Writer {
             // same key from the index, but has been the source of
             // memory problems.
             //
+            // TODO investigate whether this actually improves our
+            // concurrency situation. If it can be removed, we can also
+            // lose the key_field => parameter to create_bm25().
+            //
             // Delete any exiting documents with the same key.
             // if entry.key == key_field {
             //     writer.delete_term(entry.clone().into());
@@ -66,7 +70,7 @@ impl Writer {
             doc.add_field_value(entry.key, tantivy_value);
         }
 
-        // // Add the Tantivy document to the index.
+        // Add the Tantivy document to the index.
         writer.add_document(doc)?;
 
         Ok(())

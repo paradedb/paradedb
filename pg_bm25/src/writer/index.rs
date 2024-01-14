@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_mut, unused_imports)]
 use super::{
     entry::{IndexEntry, IndexKey},
     Handler, IndexError, ServerError, WriterRequest,
@@ -47,20 +46,24 @@ impl Writer {
         &mut self,
         index_directory_path: &str,
         index_entries: Vec<IndexEntry>,
-        key_field: IndexKey,
+        _key_field: IndexKey,
     ) -> Result<(), IndexError> {
         let writer = self.get_writer(index_directory_path)?;
 
         // Add each of the fields to the Tantivy document.
         let mut doc: Document = Document::new();
         for entry in index_entries {
+            // The below search was intended to remove entries with the
+            // same key from the index, but has been the source of
+            // memory problems.
+            //
             // Delete any exiting documents with the same key.
-            if entry.key == key_field {
-                writer.delete_term(entry.clone().into());
-            }
+            // if entry.key == key_field {
+            //     writer.delete_term(entry.clone().into());
+            // }
 
-            // let tantivy_value: Value = entry.value.try_into()?;
-            // doc.add_field_value(entry.key, tantivy_value);
+            let tantivy_value: Value = entry.value.try_into()?;
+            doc.add_field_value(entry.key, tantivy_value);
         }
 
         // // Add the Tantivy document to the index.

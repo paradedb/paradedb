@@ -11,8 +11,8 @@ use pgrx::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 use std::net::SocketAddr;
-use std::thread;
 use std::time::Duration;
+use std::{process, thread};
 
 #[derive(Copy, Clone, Default)]
 pub struct WriterStatus {
@@ -103,7 +103,7 @@ pub fn setup_background_workers() {
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
-    pgrx::log!("starting pg_bm25 insert worker");
+    pgrx::log!("starting pg_bm25 insert worker at PID {}", process::id());
     let writer = writer::Writer::new();
     let mut server = writer::Server::new(writer).expect("error starting writer server");
 
@@ -130,11 +130,11 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn pg_bm25_shutdown_worker(_arg: pg_sys::Datum) {
+    pgrx::log!("starting pg_bm25 shutdown worker at PID {}", process::id());
     // These are the signals we want to receive.  If we don't attach the SIGTERM handler, then
     // we'll never be able to exit via an external notification.
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGTERM);
 
-    log!("started shutdown background worker");
     // Check every second to see if we've received SIGTERM.
     while BackgroundWorker::wait_latch(Some(Duration::from_secs(1))) {}
 

@@ -64,7 +64,7 @@ impl Writer {
         // }
 
         // // Add the Tantivy document to the index.
-        // writer.add_document(doc)?;
+        writer.add_document(doc)?;
 
         Ok(())
     }

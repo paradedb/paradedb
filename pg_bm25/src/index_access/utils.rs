@@ -165,7 +165,7 @@ pub unsafe fn row_to_index_entries<'a>(
                     let value = f64::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
                     index_entries.push(IndexEntry::new(*index_key, IndexValue::F64(value)));
                 }
-                PgBuiltInOids::TEXTOID => {
+                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
                     if is_array {
                         let array: Array<pg_sys::Datum> =
                             Array::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
@@ -202,23 +202,6 @@ pub unsafe fn row_to_index_entries<'a>(
     }
 
     Ok(index_entries)
-}
-
-pub fn get_data_directory() -> String {
-    unsafe {
-        let option_name_cstr =
-            std::ffi::CString::new("data_directory").expect("failed to create CString");
-        String::from_utf8(
-            std::ffi::CStr::from_ptr(pg_sys::GetConfigOptionByName(
-                option_name_cstr.as_ptr(),
-                std::ptr::null_mut(),
-                true,
-            ))
-            .to_bytes()
-            .to_vec(),
-        )
-        .expect("Failed to convert C string to Rust string")
-    }
 }
 
 // Helpers to deserialize a comma-separated string, following all the rules

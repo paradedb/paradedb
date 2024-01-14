@@ -15,9 +15,9 @@ use tantivy::{IndexReader, IndexWriter, TantivyError};
 use thiserror::Error;
 
 use super::state::TantivyScanState;
-use crate::env::Transaction;
+use crate::env::{self, Transaction};
 use crate::index_access::options::ParadeOptions;
-use crate::index_access::utils::{self, row_to_index_entries, SearchConfig};
+use crate::index_access::utils::{row_to_index_entries, SearchConfig};
 use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use crate::writer::WriterRequest;
@@ -168,7 +168,12 @@ impl ParadeIndex {
     }
 
     fn data_directory(name: &str) -> String {
-        format!("{}/{}/{}", utils::get_data_directory(), "paradedb", name)
+        format!(
+            "{}/{}/{}",
+            env::postgres_data_dir_path().display().to_string(),
+            "paradedb",
+            name
+        )
     }
 
     fn setup_tokenizers(underlying_index: &mut Index, field_configs: &ParadeOptionMap) {
@@ -253,8 +258,11 @@ impl ParadeIndex {
         Ok(index_writer)
     }
 
-    pub fn get_field_configs_path(index_directory_path: &str) -> String {
-        format!("{}_parade_field_configs.json", index_directory_path)
+    pub fn get_field_configs_path<T: AsRef<Path>>(index_directory_path: T) -> String {
+        format!(
+            "{}_parade_field_configs.json",
+            index_directory_path.as_ref().display().to_string()
+        )
     }
 
     fn to_disk(&self) {
@@ -671,7 +679,8 @@ mod tests {
             "{}/paradedb/{name}_parade_field_configs.json",
             current_execution_dir.to_str().unwrap()
         );
-        let result = ParadeIndex::get_field_configs_path(name);
+        let index_directory = ParadeIndex::get_index_directory(&name);
+        let result = ParadeIndex::get_field_configs_path(&index_directory);
         assert_eq!(result, expected);
     }
 

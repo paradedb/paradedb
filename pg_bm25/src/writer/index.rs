@@ -62,8 +62,8 @@ impl Writer {
             doc.add_field_value(entry.key, tantivy_value);
         }
 
-        // Add the Tantivy document to the index.
-        writer.add_document(doc)?;
+        // // Add the Tantivy document to the index.
+        // writer.add_document(doc)?;
 
         Ok(())
     }
@@ -150,13 +150,13 @@ impl Writer {
 impl Handler<WriterRequest> for Writer {
     fn handle(&mut self, request: WriterRequest) -> Result<(), ServerError> {
         match request {
-            // WriterRequest::Insert {
-            //     index_directory_path,
-            //     index_entries,
-            //     key_field,
-            // } => self
-            //     .insert(&index_directory_path, index_entries, key_field)
-            //     .map_err(ServerError::from),
+            WriterRequest::Insert {
+                index_directory_path,
+                index_entries,
+                key_field,
+            } => self
+                .insert(&index_directory_path, index_entries, key_field)
+                .map_err(ServerError::from),
             WriterRequest::Delete {
                 index_directory_path,
                 field,
@@ -177,7 +177,6 @@ impl Handler<WriterRequest> for Writer {
             } => self
                 .vacuum(&index_directory_path)
                 .map_err(ServerError::from),
-            _ => Ok(()),
         }
     }
 }

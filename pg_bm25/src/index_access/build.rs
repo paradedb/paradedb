@@ -113,7 +113,7 @@ unsafe extern "C" fn build_callback_internal(
             panic!("error creating index entries for index '{index_name}': {err:?}",)
         });
 
-    // parade_index.insert(index_entries).unwrap_or_else(|err| {
-    //     panic!("error inserting json builder during index build callback: {err:?}")
-    // });
+    parade_index.insert(index_entries).unwrap_or_else(|err| {
+        panic!("error inserting json builder during index build callback: {err:?}")
+    });
 }

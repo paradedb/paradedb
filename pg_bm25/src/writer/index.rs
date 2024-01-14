@@ -11,7 +11,10 @@ use std::{
     fs,
     path::Path,
 };
-use tantivy::{schema::Field, Document, IndexWriter};
+use tantivy::{
+    schema::{Field, Value},
+    Document, IndexWriter,
+};
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct Writer {
@@ -55,7 +58,8 @@ impl Writer {
                 writer.delete_term(entry.clone().into());
             }
 
-            doc.add_field_value(entry.key, entry.value);
+            let tantivy_value: Value = entry.value.try_into()?;
+            doc.add_field_value(entry.key, tantivy_value);
         }
 
         // Add the Tantivy document to the index.

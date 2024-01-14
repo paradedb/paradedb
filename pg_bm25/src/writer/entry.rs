@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Map;
 use tantivy::{
     schema::{Field, Value},
     Term,
@@ -61,9 +62,10 @@ impl IndexEntry {
     }
 }
 
-impl From<IndexValue> for Value {
-    fn from(value: IndexValue) -> Self {
-        match value {
+impl TryFrom<IndexValue> for Value {
+    type Error = IndexError;
+    fn try_from(value: IndexValue) -> Result<Self, IndexError> {
+        let tantivy_value = match value {
             IndexValue::Bool(val) => val.into(),
             IndexValue::I16(val) => (val as i64).into(),
             IndexValue::I32(val) => (val as i64).into(),
@@ -73,9 +75,15 @@ impl From<IndexValue> for Value {
             IndexValue::F32(val) => (val as f64).into(),
             IndexValue::F64(val) => val.into(),
             IndexValue::String(val) => val.into(),
-            IndexValue::Json(val) => val.into(),
-            IndexValue::JsonB(val) => val.into(),
-        }
+            IndexValue::Json(val) => {
+                serde_json::from_str::<Map<String, serde_json::Value>>(&val)?.into()
+            }
+            IndexValue::JsonB(val) => {
+                serde_json::from_slice::<Map<String, serde_json::Value>>(&val)?.into()
+            }
+        };
+
+        Ok(tantivy_value)
     }
 }
 

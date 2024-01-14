@@ -50,7 +50,7 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let parade_index = get_parade_index(index_name);
-    let mut state = parade_index.scan_state(&query_config);
+    let mut state = parade_index.scan_state(&query_config).unwrap();
 
     let top_docs = state.search();
 

@@ -1,7 +1,6 @@
 use super::{
     entry::{IndexEntry, IndexKey},
-    server::ServerError,
-    Handler, WriterRequest,
+    Handler, IndexError, ServerError, WriterRequest,
 };
 use crate::parade_index::index::ParadeIndex;
 use std::{
@@ -29,11 +28,11 @@ impl Writer {
 
     /// Check the writer server cache for an existing IndexWriter. If it does not exist,
     /// then retrieve the ParadeIndex and use it to create a new IndexWriter, caching it.
-    fn get_writer(&mut self, index_directory_path: &str) -> Result<&mut IndexWriter, ServerError> {
+    fn get_writer(&mut self, index_directory_path: &str) -> Result<&mut IndexWriter, IndexError> {
         match self.tantivy_writers.entry(index_directory_path.to_string()) {
             Vacant(entry) => Ok(
                 entry.insert(ParadeIndex::writer(index_directory_path).map_err(|err| {
-                    ServerError::GetWriterFailed(index_directory_path.to_string(), err.to_string())
+                    IndexError::GetWriterFailed(index_directory_path.to_string(), err.to_string())
                 })?),
             ),
             Occupied(entry) => Ok(entry.into_mut()),
@@ -45,7 +44,7 @@ impl Writer {
         index_directory_path: &str,
         index_entries: Vec<IndexEntry>,
         key_field: IndexKey,
-    ) -> Result<(), ServerError> {
+    ) -> Result<(), IndexError> {
         let writer = self.get_writer(index_directory_path)?;
 
         // Add each of the fields to the Tantivy document.
@@ -70,7 +69,7 @@ impl Writer {
         index_directory_path: &str,
         ctid_field: &Field,
         ctid_values: &[u64],
-    ) -> Result<(), ServerError> {
+    ) -> Result<(), IndexError> {
         let writer = self.get_writer(index_directory_path)?;
         for ctid in ctid_values {
             let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
@@ -79,7 +78,7 @@ impl Writer {
         Ok(())
     }
 
-    fn commit(&mut self) -> Result<(), ServerError> {
+    fn commit(&mut self) -> Result<(), IndexError> {
         for writer in self.tantivy_writers.values_mut() {
             writer.prepare_commit()?;
             writer.commit()?;
@@ -87,14 +86,14 @@ impl Writer {
         Ok(())
     }
 
-    fn abort(&mut self) -> Result<(), ServerError> {
+    fn abort(&mut self) -> Result<(), IndexError> {
         // If the transaction was aborted, we should clear all the writers from the cache.
         // Otherwise, partialy written data could stick around for the next transaction.
         self.tantivy_writers.drain();
         Ok(())
     }
 
-    fn vacuum(&mut self, index_directory_path: &str) -> Result<(), ServerError> {
+    fn vacuum(&mut self, index_directory_path: &str) -> Result<(), IndexError> {
         let writer = self.get_writer(index_directory_path)?;
         writer.garbage_collect_files().wait()?;
         Ok(())
@@ -104,7 +103,7 @@ impl Writer {
         &mut self,
         index_directory_path: &str,
         paths_to_delete: &[T],
-    ) -> Result<(), ServerError> {
+    ) -> Result<(), IndexError> {
         if let Ok(writer) = self.get_writer(index_directory_path) {
             if std::path::Path::new(&index_directory_path).exists() {
                 writer.delete_all_documents()?;
@@ -151,21 +150,29 @@ impl Handler<WriterRequest> for Writer {
                 index_directory_path,
                 index_entries,
                 key_field,
-            } => self.insert(&index_directory_path, index_entries, key_field),
+            } => self
+                .insert(&index_directory_path, index_entries, key_field)
+                .map_err(ServerError::from),
             WriterRequest::Delete {
                 index_directory_path,
                 field,
                 ctids,
-            } => self.delete(&index_directory_path, &field, &ctids),
+            } => self
+                .delete(&index_directory_path, &field, &ctids)
+                .map_err(ServerError::from),
             WriterRequest::DropIndex {
                 index_directory_path,
                 paths_to_delete,
-            } => self.drop_index(&index_directory_path, &paths_to_delete),
-            WriterRequest::Commit => self.commit(),
-            WriterRequest::Abort => self.abort(),
+            } => self
+                .drop_index(&index_directory_path, &paths_to_delete)
+                .map_err(ServerError::from),
+            WriterRequest::Commit => self.commit().map_err(ServerError::from),
+            WriterRequest::Abort => self.abort().map_err(ServerError::from),
             WriterRequest::Vacuum {
                 index_directory_path,
-            } => self.vacuum(&index_directory_path),
+            } => self
+                .vacuum(&index_directory_path)
+                .map_err(ServerError::from),
         }
     }
 }

@@ -62,6 +62,11 @@ static TRANSACTION_CALL_ONCE_ON_ABORT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
 pub struct Transaction {}
 
 impl Transaction {
+    pub fn needs_commit(id: &str) -> Result<bool, TransactionError> {
+        let cache = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.lock()?;
+        Ok(cache.contains(id))
+    }
+
     pub fn call_once_on_commit<F>(id: &str, callback: F) -> Result<(), TransactionError>
     where
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,

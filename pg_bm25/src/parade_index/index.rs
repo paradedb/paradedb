@@ -27,6 +27,7 @@ type WriterClient = writer::Client<writer::WriterRequest>;
 
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 const CACHE_NUM_BLOCKS: usize = 10;
+const TRANSACTION_CACHE_ID: &str = "parade_index";
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
@@ -234,9 +235,17 @@ impl ParadeIndex {
         )
     }
 
-    pub fn scan_state(&self, config: &SearchConfig) -> TantivyScanState {
-        self.reader.reload().unwrap();
-        TantivyScanState::new(self, config)
+    pub fn scan_state(&self, config: &SearchConfig) -> Result<TantivyScanState, ParadeIndexError> {
+        // Prepare to perform a search.
+        // In case this is happening in the same transaction as an index build or an insert,
+        // we want to commit first so that the most recent results appear.
+        let writer_client = self.writer_client.clone();
+        if Transaction::needs_commit(TRANSACTION_CACHE_ID)? {
+            writer_client.lock()?.request(WriterRequest::Commit)?
+        }
+
+        self.reader.reload()?;
+        Ok(TantivyScanState::new(self, config))
     }
 
     pub fn schema(&self) -> Schema {
@@ -298,7 +307,7 @@ impl ParadeIndex {
     fn register_commit_callback(&self) -> Result<(), ParadeIndexError> {
         let writer_client = self.writer_client.clone();
 
-        Transaction::call_once_on_commit("parade_index", move || {
+        Transaction::call_once_on_commit(TRANSACTION_CACHE_ID, move || {
             writer_client
                 .lock()
                 .map_err(ParadeIndexError::from)
@@ -306,7 +315,6 @@ impl ParadeIndex {
                     client
                         .request(WriterRequest::Commit)
                         .map_err(ParadeIndexError::from)
-                        .map(|_| pgrx::log!("sent commit request to index writer server"))
                 })
                 .unwrap_or_else(|err| {
                     pgrx::log!("error while sending index commit to writer server: {err:?}")
@@ -314,7 +322,7 @@ impl ParadeIndex {
         })?;
 
         let writer_client = self.writer_client.clone();
-        Transaction::call_once_on_abort("parade_index", move || {
+        Transaction::call_once_on_abort(TRANSACTION_CACHE_ID, move || {
             writer_client
                 .lock()
                 .map_err(ParadeIndexError::from)
@@ -322,7 +330,6 @@ impl ParadeIndex {
                     client
                         .request(WriterRequest::Abort)
                         .map_err(ParadeIndexError::from)
-                        .map(|_| pgrx::log!("sent abort request to index writer server"))
                 })
                 .unwrap_or_else(|err| {
                     pgrx::log!("error while sending index abort to writer server: {err:?}")

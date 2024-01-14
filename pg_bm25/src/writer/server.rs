@@ -1,6 +1,6 @@
 use crate::writer::transfer;
 
-use super::{Handler, ServerRequest};
+use super::{Handler, IndexError, ServerRequest};
 use serde::{de::DeserializeOwned, Serialize};
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -59,7 +59,7 @@ impl<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> Server<'a, T, H> {
         for mut incoming in self.http.incoming_requests() {
             let reader = incoming.as_reader();
             let request: Result<ServerRequest<T>, ServerError> =
-                serde_json::from_reader(reader).map_err(ServerError::SerdeError);
+                serde_json::from_reader(reader).map_err(ServerError::SerdeJsonError);
 
             // A flag to tell us after we've sent the response that the client has
             // a data transfer to send us. The response must be returned before the transfer.
@@ -108,11 +108,11 @@ pub enum ServerError {
     #[error("error binding writer server to address: {0}")]
     AddressBindFailed(String),
 
-    #[error("couldn't get writer for index {0}: {1}")]
-    GetWriterFailed(String, String),
-
     #[error("writer server must not bind to unix socket, attemped: {0}")]
     UnixSocketBindAttempt(String),
+
+    #[error(transparent)]
+    WriterError(#[from] IndexError),
 
     #[error(transparent)]
     IOError(#[from] std::io::Error),
@@ -121,8 +121,5 @@ pub enum ServerError {
     ReqwestError(#[from] reqwest::Error),
 
     #[error(transparent)]
-    SerdeError(#[from] serde_json::Error),
-
-    #[error(transparent)]
-    TantivyError(#[from] tantivy::TantivyError),
+    SerdeJsonError(#[from] serde_json::Error),
 }

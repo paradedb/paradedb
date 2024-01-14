@@ -100,7 +100,6 @@ impl<T: Serialize> WriterTransferProducer<T> {
         let permissions = std::fs::Permissions::from_mode(0o666);
         std::fs::set_permissions(pipe_path, permissions)?;
 
-        
         File::create(pipe_path)
     }
 

@@ -13,8 +13,17 @@ pub enum IndexError {
     #[error("could not dereference postgres datum")]
     DatumDeref,
 
+    #[error("couldn't get writer for index {0}: {1}")]
+    GetWriterFailed(String, String),
+
     #[error("{0} has a type oid of InvalidOid")]
     InvalidOid(String),
+
+    #[error(transparent)]
+    TantivyError(#[from] tantivy::TantivyError),
+
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
 
     #[error(transparent)]
     SerdeJsonError(#[from] serde_json::Error),

@@ -14,7 +14,7 @@ fn search_tantivy(
             .expect("could not parse search config");
 
         let parade_index = get_parade_index(&search_config.index_name);
-        let mut scan_state = parade_index.scan_state(&search_config);
+        let mut scan_state = parade_index.scan_state(&search_config).unwrap();
         let top_docs = scan_state.search();
         let mut hs = FxHashSet::default();
 

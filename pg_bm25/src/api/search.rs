@@ -14,7 +14,7 @@ pub fn rank_bm25(
         serde_json::from_value(search_config_json).expect("could not parse search config");
     let parade_index = get_parade_index(&search_config.index_name);
 
-    let mut scan_state = parade_index.scan_state(&search_config);
+    let mut scan_state = parade_index.scan_state(&search_config).unwrap();
     let top_docs = scan_state.search();
 
     let mut field_rows = Vec::new();
@@ -41,7 +41,7 @@ pub fn highlight_bm25(
     let field_name = search_config.highlight_field.as_ref().unwrap_or_else(|| {
         panic!("highlight_field parameter required for {function_schema}.highlight function")
     });
-    let mut scan_state = parade_index.scan_state(&search_config);
+    let mut scan_state = parade_index.scan_state(&search_config).unwrap();
     let top_docs = scan_state.search();
 
     let highlight_field = schema
@@ -86,7 +86,7 @@ pub fn minmax_bm25(
         serde_json::from_value(search_config_json).expect("could not parse search config");
     let parade_index = get_parade_index(&search_config.index_name);
 
-    let mut scan_state = parade_index.scan_state(&search_config);
+    let mut scan_state = parade_index.scan_state(&search_config).unwrap();
     let top_docs = scan_state.search();
     let (min_score, max_score) = top_docs
         .iter()
@@ -118,7 +118,7 @@ pub fn minmax_bm25(
 fn drop_bm25_internal(index_name: &str) {
     // Drop the Tantivy data directory.
     ParadeIndex::drop_index(index_name)
-        .unwrap_or_else(|_| panic!("error dropping index {index_name}"));
+        .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err}"));
 }
 
 #[cfg(any(test, feature = "pg_test"))]
@@ -141,13 +141,13 @@ mod tests {
         assert_eq!(ctid.ip_posid, 3);
 
         let query = r#"
-            SELECT song_id FROM one_republic_songs.search('lyrics:time AND description:song')
+            SELECT rank_bm25 FROM one_republic_songs.rank('lyrics:im AND description:song')
         "#;
 
-        let _rank = Spi::get_one::<f32>(query)
+        let rank = Spi::get_one::<f32>(query)
             .expect("failed to rank query")
             .unwrap();
-        // assert!(rank > 1.0);
+        assert!(rank > 1.0);
     }
 
     #[pg_test]

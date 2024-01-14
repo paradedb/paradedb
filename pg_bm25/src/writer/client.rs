@@ -90,11 +90,9 @@ impl<T: Serialize> Client<T> {
     /// Stop a data pipe transfer. Must be called when the transfer is done, or
     /// the client + server will both hang forever.
     ///
-    /// With contexts like inserting, it's tricky to know when the transfer is
-    /// completely done. You can't necessarily wait until the end of the transaction,
-    /// because there may be more writer operations (delete etc.) in the same transaction.
-    /// Best practice is to call this both during the end of transaction callback, as well
-    /// as before every send_request.
+    /// With insert transactions, it's tricky to know when the transfer is
+    /// completely done. Best practice is to call this both during the end of
+    /// transaction callback, as well as before every send_request.
     fn stop_transfer(&mut self) {
         // Dropping the producer closes the named pipe file.
         self.producer.take();

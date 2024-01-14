@@ -55,10 +55,7 @@ pub struct IndexEntry {
 
 impl IndexEntry {
     pub fn new(key: IndexKey, value: IndexValue) -> Self {
-        Self {
-            key,
-            value: value.into(),
-        }
+        Self { key, value }
     }
 }
 

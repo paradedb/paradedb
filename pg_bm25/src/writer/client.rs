@@ -69,7 +69,7 @@ impl<T: Serialize> Client<T> {
         match response.status() {
             reqwest::StatusCode::OK => Ok(()),
             _ => {
-                let err = response.text().map_err(ClientError::ResponseParseError)?;
+                let err = response.text().map_err(ClientError::ResponseParse)?;
                 Err(ClientError::ServerError(err))
             }
         }
@@ -110,7 +110,7 @@ impl<T: Serialize> Client<T> {
 #[derive(Error, Debug)]
 pub enum ClientError {
     #[error("could not parse response from writer server: {0}")]
-    ResponseParseError(reqwest::Error),
+    ResponseParse(reqwest::Error),
 
     #[error("writer server responded with an error: {0}")]
     ServerError(String),

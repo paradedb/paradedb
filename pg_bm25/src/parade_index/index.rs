@@ -44,7 +44,7 @@ const TRANSACTION_CACHE_ID: &str = "parade_index";
 /// It's also crucial to remember that this cache is NOT shared across different backend
 /// processes. Each PostgreSQL backend process will have its own separate instance of
 /// this cache, tied to its own lifecycle.
-static mut PARADE_INDEX_MEMORY: Lazy<HashMap<String, ParadeIndex>> = Lazy::new(|| HashMap::new());
+static mut PARADE_INDEX_MEMORY: Lazy<HashMap<String, ParadeIndex>> = Lazy::new(HashMap::new);
 
 #[derive(Serialize)]
 pub struct ParadeIndex {
@@ -171,7 +171,7 @@ impl ParadeIndex {
     fn data_directory(name: &str) -> String {
         format!(
             "{}/{}/{}",
-            env::postgres_data_dir_path().display().to_string(),
+            env::postgres_data_dir_path().display(),
             "paradedb",
             name
         )
@@ -270,7 +270,7 @@ impl ParadeIndex {
     pub fn get_field_configs_path<T: AsRef<Path>>(index_directory_path: T) -> String {
         format!(
             "{}_parade_field_configs.json",
-            index_directory_path.as_ref().display().to_string()
+            index_directory_path.as_ref().display()
         )
     }
 
@@ -686,8 +686,8 @@ mod tests {
             "{}/paradedb/{name}_parade_field_configs.json",
             current_execution_dir.to_str().unwrap()
         );
-        let index_directory = ParadeIndex::get_index_directory(&name);
-        let result = ParadeIndex::get_field_configs_path(&index_directory);
+        let index_directory = ParadeIndex::get_index_directory(name);
+        let result = ParadeIndex::get_field_configs_path(index_directory);
         assert_eq!(result, expected);
     }
 

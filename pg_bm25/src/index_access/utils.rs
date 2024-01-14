@@ -82,7 +82,7 @@ pub fn lookup_index_tupdesc(indexrel: &PgRelation) -> PgTupleDesc<'static> {
     }
 }
 
-pub unsafe fn row_to_index_entries<'a>(
+pub unsafe fn row_to_index_entries(
     tupdesc: &PgTupleDesc,
     values: *mut pg_sys::Datum,
     field_lookup: &HashMap<String, IndexKey>,

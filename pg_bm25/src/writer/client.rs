@@ -64,15 +64,7 @@ impl<T: Serialize> Client<T> {
         // with more requests.
         self.stop_transfer();
         let bytes = serde_json::to_vec(&request)?;
-        pgrx::log!(
-            "sending request {:?}",
-            serde_json::to_string_pretty(&request)
-        );
         let response = self.http.post(self.url()).body::<Vec<u8>>(bytes).send()?;
-        pgrx::log!(
-            "received response {:?}",
-            serde_json::to_string_pretty(&request)
-        );
 
         match response.status() {
             reqwest::StatusCode::OK => Ok(()),

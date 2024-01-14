@@ -94,6 +94,7 @@ unsafe extern "C" fn build_callback(
     build_callback_internal(*ctid, values, state, index);
 }
 
+#[allow(unused_variables)]
 #[inline(always)]
 unsafe extern "C" fn build_callback_internal(
     ctid: pg_sys::ItemPointerData,
@@ -107,13 +108,13 @@ unsafe extern "C" fn build_callback_internal(
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);
     let index_name = index_relation_ref.name();
     let parade_index = get_parade_index(index_name);
-    let index_entries = parade_index
-        .row_to_index_entries(ctid, &tupdesc, values)
-        .unwrap_or_else(|err| {
-            panic!("error creating index entries for index '{index_name}': {err:?}",)
-        });
+    // let index_entries = parade_index
+    //     .row_to_index_entries(ctid, &tupdesc, values)
+    //     .unwrap_or_else(|err| {
+    //         panic!("error creating index entries for index '{index_name}': {err:?}",)
+    //     });
 
-    parade_index.insert(index_entries).unwrap_or_else(|err| {
-        panic!("error inserting json builder during index build callback: {err:?}")
-    });
+    // parade_index.insert(index_entries).unwrap_or_else(|err| {
+    //     panic!("error inserting json builder during index build callback: {err:?}")
+    // });
 }

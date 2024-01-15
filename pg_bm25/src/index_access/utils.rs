@@ -111,10 +111,18 @@ pub unsafe fn row_to_index_entries(
     let mut dropped = 0;
     let mut index_entries: Vec<IndexEntry> = vec![];
     for (attno, attribute) in tupdesc.iter().enumerate() {
+        // Skip attributes that have been dropped.
         if attribute.is_dropped() {
             dropped += 1;
             continue;
         }
+        // Skip attributes that have null values.
+        if let Some(is_null) = nulls.get(attno) {
+            if *is_null {
+                continue;
+            }
+        }
+
         let attname = attribute.name().to_string();
         let attribute_type_oid = attribute.type_oid();
 

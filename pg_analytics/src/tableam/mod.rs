@@ -1,13 +1,25 @@
-mod build;
-mod ignored;
+#![allow(clippy::too_many_arguments)]
+
+mod create;
+mod delete;
+mod index;
 mod insert;
+mod plan;
+mod scan;
+mod update;
+mod vacuum;
 
 use pgrx::*;
 use std::ptr::addr_of_mut;
 
-use crate::tableam::build::*;
-use crate::tableam::ignored::*;
+use crate::tableam::create::*;
+use crate::tableam::delete::*;
+use crate::tableam::index::*;
 use crate::tableam::insert::*;
+use crate::tableam::plan::*;
+use crate::tableam::scan::*;
+use crate::tableam::update::*;
+use crate::tableam::vacuum::*;
 
 pub static mut ANALYTICS_TABLE_AM_ROUTINE: pg_sys::TableAmRoutine = pg_sys::TableAmRoutine {
     type_: pg_sys::NodeTag::T_TableAmRoutine,

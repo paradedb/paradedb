@@ -6,31 +6,30 @@ use crate::datafusion::context::DatafusionContext;
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-pub unsafe extern "C" fn analytics_relation_set_new_filenode(
+pub extern "C" fn analytics_relation_set_new_filenode(
     rel: pg_sys::Relation,
     _newrnode: *const pg_sys::RelFileNode,
     persistence: c_char,
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    info!("Calling memam_relation_set_new_filenode");
     create_table(rel, persistence);
 }
 
 #[pg_guard]
 #[cfg(feature = "pg16")]
-pub unsafe extern "C" fn analytics_relation_set_new_filelocator(
+pub extern "C" fn analytics_relation_set_new_filelocator(
     rel: pg_sys::Relation,
     _newrlocator: *const pg_sys::RelFileLocator,
     persistence: c_char,
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    info!("Calling memam_relation_set_new_filenode");
     create_table(rel, persistence);
 }
 
 #[inline]
+#[pg_guard]
 fn create_table(rel: pg_sys::Relation, persistence: c_char) {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 

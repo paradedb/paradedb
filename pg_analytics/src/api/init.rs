@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList, PARADE_CATALOG};
 use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::directory::ParquetDirectory;
+use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::{ParadeSchemaProvider, PARADE_SCHEMA};
 use crate::errors::ParadeError;
 
@@ -35,16 +35,23 @@ fn init_impl() -> Result<(), ParadeError> {
         if context_lock.as_mut().is_none() {
             let mut context =
                 SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
+
+            // Create schema directory if it doesn't exist
+            ParadeDirectory::create_schema_path()?;
+
             // Create an empty schema provider
             let schema_provider = Arc::new(task::block_on(ParadeSchemaProvider::try_new(
-                Path::new(&ParquetDirectory::schema_path()?).to_path_buf(),
+                Path::new(&ParadeDirectory::schema_path()?).to_path_buf(),
             ))?);
+
             // Register catalog list
             context.register_catalog_list(Arc::new(ParadeCatalogList::new()));
+
             // Create and register catalog
             let catalog = ParadeCatalog::new();
             catalog.register_schema(PARADE_SCHEMA, schema_provider)?;
             context.register_catalog(PARADE_CATALOG, Arc::new(catalog));
+
             // Set context
             *context_lock = Some(context);
         }

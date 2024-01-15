@@ -15,7 +15,7 @@ pub unsafe extern "C" fn memam_scan_begin(
     _pscan: ParallelTableScanDesc,
     _flags: uint32,
 ) -> TableScanDesc {
-    info!("Calling memam_relation_scan_begin");
+    info!("Calling memam_scan_begin");
     PgBox::<TableScanDescData>::alloc0().into_pg()
 }
 
@@ -39,7 +39,7 @@ pub unsafe extern "C" fn memam_scan_getnextslot(
     _direction: ScanDirection,
     _slot: *mut TupleTableSlot,
 ) -> bool {
-    info!("Calling memam_relation_scan_getnextslot");
+    info!("Calling memam_scan_getnextslot");
     false
 }
 

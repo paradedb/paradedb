@@ -13,6 +13,7 @@ pub unsafe extern "C" fn memam_relation_set_new_filenode(
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
+    info!("Calling memam_relation_set_new_filenode");
     create_table(rel, persistence);
 }
 
@@ -25,6 +26,7 @@ pub unsafe extern "C" fn memam_relation_set_new_filelocator(
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
+    info!("Calling memam_relation_set_new_filenode");
     create_table(rel, persistence);
 }
 

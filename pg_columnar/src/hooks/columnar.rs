@@ -19,6 +19,8 @@ impl ColumnarStmt {
         let mut using_noncol: bool = false;
         let mut using_col: bool = false;
 
+        // Iterate over all the tables in range table list `rtable`, and check whether
+        // the table `i` is a columnar table.
         for i in 0..(*rtable).length {
             let rte: *mut pg_sys::RangeTblEntry;
             #[cfg(feature = "pg12")]

@@ -46,6 +46,17 @@ pub extern "C" fn analytics_finish_bulk_insert(rel: pg_sys::Relation, _options: 
     flush_and_commit(rel).expect("Failed to commit tuples");
 }
 
+#[pg_guard]
+pub extern "C" fn analytics_tuple_insert_speculative(
+    _rel: pg_sys::Relation,
+    _slot: *mut pg_sys::TupleTableSlot,
+    _cid: pg_sys::CommandId,
+    _options: c_int,
+    _bistate: *mut pg_sys::BulkInsertStateData,
+    _specToken: pg_sys::uint32,
+) {
+}
+
 #[inline]
 fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let table_name = unsafe { CStr::from_ptr((*((*rel).rd_rel)).relname.data.as_ptr()).to_str()? };

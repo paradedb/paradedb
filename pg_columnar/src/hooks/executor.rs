@@ -32,7 +32,8 @@ pub fn executor_run(
         let rtable = (*ps).rtable;
 
         // Only use this hook for columnar tables
-        if rtable.is_null() || !ColumnarStmt::rtable_is_columnar(rtable).unwrap_or(false) {
+        // TODO: add support for join across both columnar and non-columnar tables
+        if rtable.is_null() || !ColumnarStmt::rtable_is_columnar(rtable)? {
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }

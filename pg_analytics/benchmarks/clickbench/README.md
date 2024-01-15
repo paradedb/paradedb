@@ -9,7 +9,7 @@ ParadeDB is an alternative to ElasticSearch built on PostgreSQL.
 
 ### Local
 
-The benchmarks are configured to run locally via `cargo pgrx bench` within `pg_columnar`,
+The benchmarks are configured to run locally via `cargo pgrx bench` within `pg_analytics`,
 
 ### Official
 

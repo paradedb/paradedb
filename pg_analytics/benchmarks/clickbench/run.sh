@@ -21,9 +21,9 @@ while read -r query; do
   echo "$query";
   for _ in $(seq 1 $TRIES); do
     if [[ "$OS" == "Linux" ]]; then
-      sudo -u postgres psql pg_columnar -t -c "CALL paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
+      sudo -u postgres psql pg_analytics -t -c "CALL paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
     elif [[ "$OS" == "Darwin" ]]; then
-      psql -h localhost -p 28815 -d pg_columnar -t -c "CALL paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
+      psql -h localhost -p 28815 -d pg_analytics -t -c "CALL paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
     fi
   done;
 done < queries.sql

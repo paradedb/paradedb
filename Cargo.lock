@@ -3791,6 +3791,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "pg_analytics"
+version = "0.4.3"
+dependencies = [
+ "async-std",
+ "async-trait",
+ "chrono",
+ "datafusion 34.0.0",
+ "deltalake",
+ "lazy_static",
+ "parking_lot",
+ "pgrx",
+ "pgrx-tests",
+ "serde",
+ "serde_json",
+ "shared",
+ "substrait",
+ "thiserror",
+]
+
+[[package]]
 name = "pg_bm25"
 version = "0.4.3"
 dependencies = [
@@ -3812,26 +3832,6 @@ dependencies = [
  "serde_path_to_error",
  "shared",
  "utoipa",
-]
-
-[[package]]
-name = "pg_columnar"
-version = "0.4.3"
-dependencies = [
- "async-std",
- "async-trait",
- "chrono",
- "datafusion 34.0.0",
- "deltalake",
- "lazy_static",
- "parking_lot",
- "pgrx",
- "pgrx-tests",
- "serde",
- "serde_json",
- "shared",
- "substrait",
- "thiserror",
 ]
 
 [[package]]

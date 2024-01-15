@@ -1,9 +1,9 @@
-# workflows/publish-pg_columnar.yml
+# workflows/publish-pg_analytics.yml
 #
-# Publish pg_columnar
-# Build and publish the pg_columnar extension as a .deb to GitHub Releases.
+# Publish pg_analytics
+# Build and publish the pg_analytics extension as a .deb to GitHub Releases.
 
-name: Publish pg_columnar
+name: Publish pg_analytics
 
 on:
   push:
@@ -12,17 +12,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_columnar release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        description: "The version to set for the pg_analytics release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
         default: ""
 
 concurrency:
-  group: publish-pg_columnar-${{ github.head_ref || github.ref }}
+  group: publish-pg_analytics-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  publish-pg_columnar:
-    name: Publish pg_columnar for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+  publish-pg_analytics:
+    name: Publish pg_analytics for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -65,19 +65,19 @@ jobs:
         run: cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.1
 
       - name: Initialize pgrx for Current PostgreSQL Version
-        working-directory: pg_columnar/
+        working-directory: pg_analytics/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      - name: Package pg_columnar Extension with pgrx
-        working-directory: pg_columnar/
+      - name: Package pg_analytics Extension with pgrx
+        working-directory: pg_analytics/
         run: cargo pgrx package --features telemetry simd
 
       - name: Create .deb Package
         run: |
           # Create installable package
           mkdir archive
-          cp `find target/release -type f -name "pg_columnar*"` archive
-          package_dir=pg_columnar-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}
+          cp `find target/release -type f -name "pg_analytics*"` archive
+          package_dir=pg_analytics-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
@@ -114,10 +114,10 @@ jobs:
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      - name: Upload pg_columnar .deb to GitHub Release
+      - name: Upload pg_analytics .deb to GitHub Release
         uses: shogo82148/actions-upload-release-asset@v1
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_columnar-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
-          asset_name: pg_columnar-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
+          asset_path: ./pg_analytics-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
+          asset_name: pg_analytics-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb

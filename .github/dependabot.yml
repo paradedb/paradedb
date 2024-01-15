@@ -38,14 +38,14 @@ updates:
   #         - "*"
 
   # - package-ecosystem: "cargo"
-  #   directory: "/pg_columnar"
+  #   directory: "/pg_analytics"
   #   schedule:
   #     interval: "monthly"
   #   ignore:
   #     - dependency-name: "*"
   #       update-types: ["version-update:semver-patch"]
   #   groups:
-  #     pg_columnar-dependencies:
+  #     pg_analytics-dependencies:
   #       patterns:
   #         - "*"
 

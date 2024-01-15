@@ -1,6 +1,6 @@
 [package]
-name = "pg_columnar"
-description = "Columnar storage for PostgreSQL"
+name = "pg_analytics"
+description = "pg_analytics by ParadeDB"
 version = "0.4.3"
 edition = "2021"
 license = "AGPL-3.0"

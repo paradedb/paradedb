@@ -145,12 +145,12 @@ for version in "${PG_VERSIONS[@]}"; do
 done
 
 echo ""
-echo "Installing pg_columnar..."
-cd "$BASEDIR/../pg_columnar"
+echo "Installing pg_analytics..."
+cd "$BASEDIR/../pg_analytics"
 
-# Build and install pg_columnar into the pgrx environment
+# Build and install pg_analytics into the pgrx environment
 for version in "${PG_VERSIONS[@]}"; do
-  echo "Installing pg_columnar for PostgreSQL $version..."
+  echo "Installing pg_analytics for PostgreSQL $version..."
   case "$OS_NAME" in
     Darwin)
       # Check arch to set proper pg_config path
@@ -194,4 +194,4 @@ if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
   esac
 fi
 
-echo "Done! pg_bm25, pg_columnar, pgvector, and pg_sparse are all available to 'cargo pgrx run'!"
+echo "Done! pg_bm25, pg_analytics, pgvector, and pg_sparse are all available to 'cargo pgrx run'!"

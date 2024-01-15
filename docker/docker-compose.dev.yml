@@ -14,7 +14,7 @@ services:
       args:
         PG_VERSION_MAJOR: 15
         PG_BM25_VERSION: 0.0.0
-        PG_COLUMNAR_VERSION: 0.0.0
+        PG_ANALYTICS_VERSION: 0.0.0
         PG_SPARSE_VERSION: 0.0.0
         PGVECTOR_VERSION: 0.5.1
         PG_CRON_VERSION: 1.6.2

@@ -7,7 +7,7 @@
 /docker/                                                       @philippemnoel
 /docs/                                                         @rebasedming
 /pg_bm25/                                                      @rebasedming @neilyio
-/pg_columnar/                                                  @rebasedming @sardination
+/pg_analytics/                                                  @rebasedming @sardination
 /pg_sparse/                                                    @rebasedming @sardination
 /scripts/                                                      @philippemnoel @mauaraujo
 /shared/                                                       @rebasedming @neilyio

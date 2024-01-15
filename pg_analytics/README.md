@@ -1,17 +1,17 @@
-# pg_columnar
+# pg_analytics
 
-`pg_columnar` is a Postgres extension that enables Clickhouse-level analytics (OLAP) performance inside Postgres. `pg_columnar` achieves this using Apache Parquet for storage, Apache Arrow for column-oriented memory, and Apache Datafusion for vectorized query execution with SIMD.
+`pg_analytics` is a Postgres extension that enables Clickhouse-level analytics (OLAP) performance inside Postgres. `pg_analytics` achieves this using Apache Parquet for storage, Apache Arrow for column-oriented memory, and Apache Datafusion for vectorized query execution with SIMD.
 
 ## Getting Started
 
-The following toy example shows how to get started with `pg_columnar`.
+The following toy example shows how to get started with `pg_analytics`.
 
 ```sql
-CREATE EXTENSION pg_columnar;
+CREATE EXTENSION pg_analytics;
 -- This needs to be run once per connection
 CALL paradedb.init();
--- USING mem indicates that we are creating a columnar table
-CREATE TABLE t (a int) USING mem;
+-- USING analytics indicates that we are creating an analytics table
+CREATE TABLE t (a int) USING analytics;
 -- Now you can any Postgres query
 INSERT INTO t VALUES (1), (2), (3);
 SELECT COUNT(*) FROM t;
@@ -70,7 +70,7 @@ must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are
 
 ```bash
 # Inside postgresql.conf
-shared_preload_libraries = 'pg_columnar'
+shared_preload_libraries = 'pg_analytics'
 ```
 
 ### Run Without Optimized Build
@@ -114,4 +114,4 @@ rustup override unset
 
 ## Benchmarks
 
-To run benchmarks locally, first enter the `pg_columnar/` directory before running `cargo clickbench`. This runs a minified version of the ClickBench benchmark suite on `pg_columnar`.
+To run benchmarks locally, first enter the `pg_analytics/` directory before running `cargo clickbench`. This runs a minified version of the ClickBench benchmark suite on `pg_analytics`.

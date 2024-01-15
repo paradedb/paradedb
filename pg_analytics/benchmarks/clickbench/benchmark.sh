@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script benchmarks the performance of pg_columnar using the ClickBench benchmkark
+# This script benchmarks the performance of pg_analytics using the ClickBench benchmkark
 # suite. It is supported on both Ubuntu and macOS, for local development via `cargo` as
 # well as in CI testing via Docker.
 #
@@ -28,7 +28,7 @@ usage() {
   echo "                  - 'x.y.z'  Runs the full ClickBench benchmark against a specific ParadeDB Docker image (e.g. 0.3.1)"
   echo "                  - 'latest' Runs the full ClickBench benchmark the latest ParadeDB Docker image"
   echo "                  - 'local'  Runs the full ClickBench benchmark the current commit inside a local ParadeDB Docker build"
-  echo "                  - 'pgrx'   Runs a minified ClickBench benchmark against the current commit inside the pg_columnar pgrx PostgreSQL instance"
+  echo "                  - 'pgrx'   Runs a minified ClickBench benchmark against the current commit inside the pg_analytics pgrx PostgreSQL instance"
   echo " -s (optional),  Type of storage layout to benchmark:"
   echo "                  - 'hot'                 Runs with in-memory storage using PostgreSQL's CREATE TEMP TABLE"
   echo "                  - 'cold'                Runs with on-disk storage using PostgreSQL's CREATE TABLE"
@@ -72,12 +72,12 @@ cleanup() {
     # Check if PostgreSQL is in recovery mode. This can happen if one of the quer caused a crash. If
     # so, we need to wait for recovery to finish before we can drop the extension.
     for attempt in {1..5}; do
-      psql -h localhost -p 28815 -d pg_columnar -t -c 'DROP EXTENSION IF EXISTS pg_columnar CASCADE;' &> /dev/null && break
+      psql -h localhost -p 28815 -d pg_analytics -t -c 'DROP EXTENSION IF EXISTS pg_analytics CASCADE;' &> /dev/null && break
       echo "PostgreSQL is in recovery mode (likely due to a crash), waiting for recovery to finish..."
       sleep 5
     done
     if [ "$attempt" -eq 5 ]; then
-      echo "Failed to drop pg_columnar extension after several attempts. PostgreSQL is likely still in recovery mode."
+      echo "Failed to drop pg_analytics extension after several attempts. PostgreSQL is likely still in recovery mode."
     fi
     cargo pgrx stop
   else
@@ -122,7 +122,7 @@ download_and_verify() {
 
 echo ""
 echo "*********************************************************************************"
-echo "* Benchmarking pg_columnar version '$FLAG_TAG' against ClickBench on '$FLAG_STORAGE' storage..."
+echo "* Benchmarking pg_analytics version '$FLAG_TAG' against ClickBench on '$FLAG_STORAGE' storage..."
 echo "*********************************************************************************"
 echo ""
 
@@ -146,9 +146,9 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
     echo "Already on Rust nightly toolchain, skipping toolchain switch..."
   fi
 
-  # Build pg_columnar and start its pgrx PostgreSQL instance
+  # Build pg_analytics and start its pgrx PostgreSQL instance
   echo ""
-  echo "Building pg_columnar in release mode with SIMD support..."
+  echo "Building pg_analytics in release mode with SIMD support..."
   cargo pgrx stop
   cargo pgrx install --features simd --release
   cargo pgrx start
@@ -157,11 +157,11 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   # Run the benchmarking
   if [ "$FLAG_STORAGE" = "hot" ]; then
     # Table creation, data loading, and query execution are all done from `benchmark_hot.sql`
-    psql -h localhost -p 28815 -d pg_columnar -t < benchmark_hot.sql
+    psql -h localhost -p 28815 -d pg_analytics -t < benchmark_hot.sql
   elif [ "$FLAG_STORAGE" = "cold" ]; then
     # Table creation and data loading are done from `benchmark_cold.sql`, and query execution
     # is done via `run.sh`
-    psql -h localhost -p 28815 -d pg_columnar -t < benchmark_cold.sql
+    psql -h localhost -p 28815 -d pg_analytics -t < benchmark_cold.sql
     ./run.sh 2>&1 | tee log.txt
 
     # Display results in the format expected by the ClickBench dashboard
@@ -188,7 +188,7 @@ else
       -f "../../../docker/Dockerfile" \
       --build-arg PG_VERSION_MAJOR="15" \
       --build-arg PG_BM25_VERSION="0.0.0" \
-      --build-arg PG_COLUMNAR_VERSION="0.0.0" \
+      --build-arg PG_ANALYTICS_VERSION="0.0.0" \
       --build-arg PG_SPARSE_VERSION="0.0.0" \
       --build-arg PGVECTOR_VERSION="0.5.1" \
       "../../../"

@@ -27,9 +27,9 @@ flags:
     paths:
       - pg_bm25/*
     carryforward: true
-  pg_columnar:
+  pg_analytics:
     paths:
-      - pg_columnar/*
+      - pg_analytics/*
     carryforward: true
   pg_sparse:
     paths:

@@ -27,6 +27,13 @@ flags:
     paths:
       - pg_bm25/*
     carryforward: true
+<<<<<<< HEAD
+=======
+  pg_analytics:
+    paths:
+      - pg_analytics/*
+    carryforward: true
+>>>>>>> ae94acb2 (chore: Rename extension (#102))
   pg_sparse:
     paths:
       - pg_sparse/*

@@ -39,7 +39,7 @@ impl ParadeGUC {
     /// ```
     pub fn init(&self) {
         GucRegistry::define_int_guc(
-            "paradedb.vacuum_retention_days",
+            "parade.vacuum_retention_days",
             "Only vacuum data older than this many days.",
             "Entries younger than this will not be vacuumed. Defaults to 7 days.",
             &self.vacuum_retention_days,
@@ -50,7 +50,7 @@ impl ParadeGUC {
         );
 
         GucRegistry::define_bool_guc(
-            "paradedb.vacuum_enforce_retention",
+            "parade.vacuum_enforce_retention",
             "If set to true, vacuums fail if the specified vacuum_retention_days is less than 7 days.",
             "Defaults to true.",
             &self.vacuum_enforce_retention,
@@ -59,7 +59,7 @@ impl ParadeGUC {
         );
 
         GucRegistry::define_int_guc(
-            "paradedb.optimize_file_size_mb",
+            "parade.optimize_file_size_mb",
             "The target file size, in MB, when optimizing a table by merging small Parquet files into a large file.",
             "Defaults to 100.",
             &self.optimize_file_size_mb,

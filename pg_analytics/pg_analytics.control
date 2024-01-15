@@ -1,0 +1,6 @@
+comment = 'pg_analytics by ParadeDB'
+default_version = '@CARGO_VERSION@'
+module_pathname = '$libdir/pg_analytics'
+relocatable = false
+superuser = false
+schema = paradedb

@@ -1,9 +1,9 @@
-# workflows/test-pg_columnar.yml
+# workflows/test-pg_analytics.yml
 #
-# Test pg_columnar
-# Run unit and integration tests for the pg_columnar extension.
+# Test pg_analytics
+# Run unit and integration tests for the pg_analytics extension.
 
-name: Test pg_columnar
+name: Test pg_analytics
 
 on:
   pull_request:
@@ -12,26 +12,26 @@ on:
       - staging
       - main
     paths:
-      - "pg_columnar/**"
-      - "!pg_columnar/README.md"
-      - ".github/workflows/test-pg_columnar.yml"
+      - "pg_analytics/**"
+      - "!pg_analytics/README.md"
+      - ".github/workflows/test-pg_analytics.yml"
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
   workflow_dispatch:
     inputs:
       test_upgrade_version:
-        description: "Upcoming pg_columnar version to test upgrading against"
+        description: "Upcoming pg_analytics version to test upgrading against"
         required: false
         default: ""
 
 concurrency:
-  group: test-pg_columnar-${{ github.head_ref || github.ref }}
+  group: test-pg_analytics-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-pg_columnar:
-    name: Test pg_columnar on PostgreSQL ${{ matrix.pg_version }}
+  test-pg_analytics:
+    name: Test pg_analytics on PostgreSQL ${{ matrix.pg_version }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -64,7 +64,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1"
-          shared-key: ${{ runner.os }}-rust-cache-pg_columnar-${{ HashFiles('Cargo.lock') }}
+          shared-key: ${{ runner.os }}-rust-cache-pg_analytics-${{ HashFiles('Cargo.lock') }}
           cache-targets: true
           cache-on-failure: true
           cache-all-crates: true
@@ -93,25 +93,25 @@ jobs:
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
 
-      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_columnar extension. Since we
+      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_analytics extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
-      # clean any cached pg_columnar & dependencies build artifacts before running the tests
+      # clean any cached pg_analytics & dependencies build artifacts before running the tests
       - name: Clean Cached Build Artifacts
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
-        working-directory: pg_columnar/
+        working-directory: pg_analytics/
         run: cargo clean
 
       # TODO: Extension upgrade test without pg_regress
       - name: Initialize pgrx for Current PostgreSQL Version
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_columnar/
+        working-directory: pg_analytics/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      - name: Run pg_columnar Unit Tests
+      - name: Run pg_analytics Unit Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_columnar/
+        working-directory: pg_analytics/
         env:
-          LLVM_PROFILE_FILE: target/coverage/pg_columnar-%p-%m.profraw
+          LLVM_PROFILE_FILE: target/coverage/pg_analytics-%p-%m.profraw
           RUST_BACKTRACE: full
         run: |
           mkdir -p ../target/coverage ../target/coverage-report

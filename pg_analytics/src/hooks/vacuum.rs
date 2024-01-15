@@ -55,7 +55,7 @@ impl VacuumOptions {
     }
 }
 
-pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeError> {
+pub unsafe fn vacuum_analytics(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeError> {
     // Read VACUUM options
     let mut vacuum_options = VacuumOptions::new();
     vacuum_options.init((*vacuum_stmt).options)?;
@@ -102,7 +102,7 @@ pub unsafe fn vacuum_columnar(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<()
                         (*elements.offset(i as isize)).ptr_value as *mut pg_sys::VacuumRelation;
                 }
 
-                // If the relation is null or not columnar, skip it
+                // If the relation is null or not analytics, skip it
                 let oid = pg_sys::RelnameGetRelid((*(*vacuum_rel).relation).relname);
                 let relation = pg_sys::RelationIdGetRelation(oid);
 

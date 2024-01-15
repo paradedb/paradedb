@@ -11,8 +11,8 @@ use pgrx::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
 use std::net::SocketAddr;
+use std::process;
 use std::time::Duration;
-use std::{process, thread};
 
 #[derive(Copy, Clone, Default)]
 pub struct WriterStatus {
@@ -51,7 +51,7 @@ pub unsafe extern "C" fn _PG_init() {
     telemetry::posthog::init("pg_bm25");
     PARADE_LOGS_GLOBAL.init();
 
-    // Set up the writer bgworker shared satate.
+    // Set up the writer bgworker shared state.
     pg_shmem_init!(WRITER_STATUS);
 
     // We call this in a helper function to the bgworker initialization
@@ -94,10 +94,6 @@ pub fn setup_background_workers() {
         // Also, it doesn't seem like bgworkers will start without this.
         .enable_spi_access()
         .load();
-
-    // Add a short delay to allow the HTTP server to start. This is a temporary
-    // fix for the sake of the test suite. We should add a specific lock for this.
-    thread::sleep(Duration::from_millis(1000));
 }
 
 #[pg_guard]

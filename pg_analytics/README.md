@@ -1,6 +1,13 @@
 # pg_analytics
 
-`pg_analytics` is a Postgres extension that enables Clickhouse-level analytics (OLAP) performance inside Postgres. `pg_analytics` achieves this using Apache Parquet for storage, Apache Arrow for column-oriented memory, and Apache Datafusion for vectorized query execution with SIMD.
+`pg_analytics` is a Postgres extension that enables Clickhouse-level analytics (OLAP) performance inside Postgres.
+
+The primary dependencies are:
+
+- [x] [Apache Arrow](https://github.com/apache/arrow) for column-oriented memory
+- [x] [Apache Datafusion](https://github.com/apache/arrow-datafusion) for vectorized query execution with SIMD
+- [x] [Apache Parquet](https://github.com/apache/parquet-mr/) for persistence
+- [x] [Delta Lake](https://github.com/delta-io/delta-rs) for ACID transactions over Parquet
 
 ## Getting Started
 

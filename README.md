@@ -22,7 +22,7 @@
 [![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
 
-[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on Postgres. You can think of ParadeDB as. We're building the features of ElasticSearch's product suite, starting with real-time search and analytics. ParadeDB offers Elastic-level full text search and ClickHouse-level aggregates as PostgreSQL. ParadeDB is **not** a fork, it is a collection.
+[ParadeDB](https://paradedb.com) is an ElasticSearch alternative built on Postgres. We're building the features of ElasticSearch's product suite, starting with search and analytics.
 
 ## Status
 

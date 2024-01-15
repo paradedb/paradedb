@@ -18,7 +18,7 @@ use std::{
     any::Any, collections::HashMap, ffi::CStr, fs::remove_dir_all, path::PathBuf, sync::Arc,
 };
 
-use crate::datafusion::directory::ParquetDirectory;
+use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::substrait::SubstraitTranslator;
 use crate::errors::ParadeError;
 use crate::guc::PARADE_GUC;
@@ -71,7 +71,7 @@ impl ParadeSchemaProvider {
                 let delta_table = match Self::table_exist(self, table_name) {
                     true => Self::get_delta_table(self, table_name).await?,
                     false => {
-                        deltalake::open_table(&ParquetDirectory::table_path(&table_oid)?).await?
+                        deltalake::open_table(&ParadeDirectory::table_path(&table_oid)?).await?
                     }
                 };
 
@@ -107,7 +107,7 @@ impl ParadeSchemaProvider {
         let batch = RecordBatch::new_empty(Arc::new(arrow_schema));
 
         // Create a DeltaTable
-        let mut table = DeltaOps::try_from_uri(&ParquetDirectory::table_path(&table_oid)?)
+        let mut table = DeltaOps::try_from_uri(&ParadeDirectory::table_path(&table_oid)?)
             .await?
             .create()
             .with_columns(delta_schema.get_fields().to_vec())

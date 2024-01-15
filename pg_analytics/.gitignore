@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# Cargo
+Cargo.lock
+target/
+
+# Logs
+log.txt
+
+# Benchmarks
+*.tsv
+*.tsv.gz
+*.csv
+*.csv.gz

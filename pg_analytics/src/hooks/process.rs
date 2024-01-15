@@ -3,7 +3,7 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::errors::ParadeError;
-use crate::hooks::vacuum::vacuum_columnar;
+use crate::hooks::vacuum::vacuum_analytics;
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -33,13 +33,13 @@ pub fn process_utility(
     match unsafe { (*plan).type_ } {
         NodeTag::T_VacuumStmt => unsafe {
             let vacuum_stmt = plan as *mut pg_sys::VacuumStmt;
-            vacuum_columnar(vacuum_stmt)?;
+            vacuum_analytics(vacuum_stmt)?;
         },
         _ => {}
     };
 
     let _ = prev_hook(
-        pstmt.clone(),
+        pstmt,
         query_string,
         read_only_tree,
         context,

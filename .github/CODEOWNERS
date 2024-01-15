@@ -7,6 +7,10 @@
 /docker/                                                       @philippemnoel
 /docs/                                                         @rebasedming
 /pg_bm25/                                                      @rebasedming @neilyio
+<<<<<<< HEAD
+=======
+/pg_analytics/                                                  @rebasedming @sardination
+>>>>>>> ae94acb2 (chore: Rename extension (#102))
 /pg_sparse/                                                    @rebasedming @sardination
 /scripts/                                                      @philippemnoel @mauaraujo
 /shared/                                                       @rebasedming @neilyio

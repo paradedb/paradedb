@@ -38,6 +38,21 @@ updates:
   #         - "*"
 
   # - package-ecosystem: "cargo"
+<<<<<<< HEAD
+=======
+  #   directory: "/pg_analytics"
+  #   schedule:
+  #     interval: "monthly"
+  #   ignore:
+  #     - dependency-name: "*"
+  #       update-types: ["version-update:semver-patch"]
+  #   groups:
+  #     pg_analytics-dependencies:
+  #       patterns:
+  #         - "*"
+
+  # - package-ecosystem: "cargo"
+>>>>>>> ae94acb2 (chore: Rename extension (#102))
   #   directory: "/shared"
   #   schedule:
   #     interval: "monthly"

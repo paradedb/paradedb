@@ -144,6 +144,37 @@ for version in "${PG_VERSIONS[@]}"; do
   esac
 done
 
+<<<<<<< HEAD
+=======
+echo ""
+echo "Installing pg_analytics..."
+cd "$BASEDIR/../pg_analytics"
+
+# Build and install pg_analytics into the pgrx environment
+for version in "${PG_VERSIONS[@]}"; do
+  echo "Installing pg_analytics for PostgreSQL $version..."
+  case "$OS_NAME" in
+    Darwin)
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        cargo pgrx init "--pg$version=/opt/homebrew/opt/postgresql@$version/bin/pg_config" > /dev/null
+        cargo pgrx install --pg-config="/opt/homebrew/opt/postgresql@$version/bin/pg_config" --profile dev
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        cargo pgrx init "--pg$version=/usr/local/opt/postgresql@$version/bin/pg_config" > /dev/null
+        cargo pgrx install --pg-config="/usr/local/opt/postgresql@$version/bin/pg_config" --profile dev
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
+      ;;
+    Linux)
+      cargo pgrx init "--pg$version=/usr/lib/postgresql/$version/bin/pg_config"
+      cargo pgrx install --pg-config="/usr/lib/postgresql/$version/bin/pg_config" --profile dev
+      ;;
+  esac
+done
+
+>>>>>>> ae94acb2 (chore: Rename extension (#102))
 # We can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time, so we make one final call to
 # `cargo pgrx init` to load the project's default pgrx PostgreSQL version (for local development)
 default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
@@ -166,4 +197,8 @@ if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
   esac
 fi
 
+<<<<<<< HEAD
 echo "Done! pg_bm25, pgvector, and pg_sparse are all available when you do 'cargo pgrx run'!"
+=======
+echo "Done! pg_bm25, pg_analytics, pgvector, and pg_sparse are all available to 'cargo pgrx run'!"
+>>>>>>> ae94acb2 (chore: Rename extension (#102))

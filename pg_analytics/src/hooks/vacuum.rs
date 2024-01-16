@@ -4,7 +4,7 @@ use std::ffi::CStr;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::errors::ParadeError;
-use crate::hooks::columnar::ColumnarStmt;
+use crate::hooks::handler::DeltaHandler;
 
 #[derive(Debug)]
 struct VacuumOptions {
@@ -110,7 +110,7 @@ pub unsafe fn vacuum_analytics(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(
                     continue;
                 }
 
-                if !ColumnarStmt::relation_is_columnar(relation)? {
+                if !DeltaHandler::relation_is_delta(relation)? {
                     pg_sys::RelationClose(relation);
                     continue;
                 }

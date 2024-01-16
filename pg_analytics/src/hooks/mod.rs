@@ -1,5 +1,5 @@
-mod columnar;
 mod executor;
+mod handler;
 mod process;
 mod vacuum;
 

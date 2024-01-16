@@ -87,7 +87,7 @@ pub unsafe fn row_to_index_entries(
     values: *mut pg_sys::Datum,
     field_lookup: &HashMap<String, IndexKey>,
 ) -> Result<Vec<IndexEntry>, IndexError> {
-    let row = unsafe { std::slice::from_raw_parts(values, 1)[0] };
+    let row = std::slice::from_raw_parts(values, 1)[0];
     let td =
         pg_sys::pg_detoast_datum(row.cast_mut_ptr::<pg_sys::varlena>()) as pg_sys::HeapTupleHeader;
 

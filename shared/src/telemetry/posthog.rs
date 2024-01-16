@@ -4,6 +4,8 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
+use crate::constants::{PARADEDB_NAME, PG_BM25_NAME};
+
 #[derive(Deserialize, Debug)]
 struct Config {
     telemetry_handled: Option<String>, // Option because it won't be set if running the extension standalone
@@ -96,12 +98,18 @@ pub fn connection_start() {
             let extension_name;
             let file_content;
 
-            if Path::new(uuid_dir).join("paradedb_uuid").exists() {
-                extension_name = "ParadeDB";
-                file_content = fs::read_to_string(Path::new(uuid_dir).join("paradedb_uuid"))
+            if Path::new(uuid_dir)
+                .join(format!("{}_uuid", PARADEDB_NAME.to_lowercase()))
+                .exists()
+            {
+                extension_name = PARADEDB_NAME;
+                file_content = fs::read_to_string(
+                    Path::new(uuid_dir).join(format!("{}_uuid", PARADEDB_NAME.to_lowercase())),
+                )
             } else {
-                extension_name = "pg_bm25";
-                file_content = fs::read_to_string(Path::new(uuid_dir).join("pg_bm25_uuid"))
+                extension_name = PG_BM25_NAME;
+                file_content =
+                    fs::read_to_string(Path::new(uuid_dir).join(format!("{}_uuid", PG_BM25_NAME)))
             };
 
             let distinct_id = match file_content {

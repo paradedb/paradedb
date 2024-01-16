@@ -11,7 +11,7 @@ use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher};
-use tantivy::{IndexReader, IndexWriter, TantivyError};
+use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
 use thiserror::Error;
 
 use super::state::TantivyScanState;
@@ -87,6 +87,15 @@ impl ParadeIndex {
             }
         };
         let settings = IndexSettings {
+            // We use the key_field for sorting this index. This is useful for performance reasons
+            // within Tantivy, but more importantly to us it stabilize the ordering of query results.
+            // If you do not pre-sort the index with sort_by_field, then Tantivy will order the
+            // results in the order of their document address in the index, which will not always
+            // match up with the order you'd expect, and is not a stable ordering.
+            sort_by_field: Some(IndexSortByField {
+                field: key_field_name.to_string(),
+                order: Order::Asc,
+            }),
             docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
             ..Default::default()
         };
@@ -512,9 +521,8 @@ impl ParadeIndex {
                     | PgBuiltInOids::OIDOID
                     | PgBuiltInOids::XIDOID => {
                         if is_key_field {
-                            schema_builder
-                                .add_i64_field(attname, INDEXED | STORED)
-                                .into()
+                            // The key field must be a fast field for index sorting.
+                            schema_builder.add_i64_field(attname, STORED | FAST).into()
                         } else {
                             numeric_fields.get(attname).map(|options| {
                                 let numeric_options: NumericOptions = (*options).into();

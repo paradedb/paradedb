@@ -13,7 +13,7 @@ use std::ffi::CStr;
 use crate::datafusion::context::{DatafusionContext, ParadeContextProvider};
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
 use crate::errors::ParadeError;
-use crate::hooks::columnar::ColumnarStmt;
+use crate::hooks::handler::DeltaHandler;
 
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
@@ -31,9 +31,8 @@ pub fn executor_run(
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;
 
-        // Only use this hook for columnar tables
-        // TODO: add support for join across both columnar and non-columnar tables
-        if rtable.is_null() || !ColumnarStmt::rtable_is_columnar(rtable)? {
+        // Only use this hook for deltalake tables
+        if rtable.is_null() || !DeltaHandler::rtable_is_delta(rtable)? {
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }

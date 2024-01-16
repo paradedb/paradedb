@@ -30,6 +30,12 @@ pub enum ParadeError {
     Generic(String),
 }
 
+impl From<&str> for ParadeError {
+    fn from(err: &str) -> Self {
+        ParadeError::Generic(err.to_string())
+    }
+}
+
 impl From<Utf8Error> for ParadeError {
     fn from(err: Utf8Error) -> Self {
         ParadeError::Generic(err.to_string())

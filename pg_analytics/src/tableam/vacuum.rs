@@ -5,7 +5,7 @@
 use pgrx::*;
 
 #[pg_guard]
-pub extern "C" fn analytics_relation_vacuum(
+pub extern "C" fn deltalake_relation_vacuum(
     _rel: pg_sys::Relation,
     _params: *mut pg_sys::VacuumParams,
     _bstrategy: pg_sys::BufferAccessStrategy,
@@ -14,7 +14,7 @@ pub extern "C" fn analytics_relation_vacuum(
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-pub extern "C" fn analytics_relation_copy_data(
+pub extern "C" fn deltalake_relation_copy_data(
     _rel: pg_sys::Relation,
     _newrnode: *const pg_sys::RelFileNode,
 ) {
@@ -22,14 +22,14 @@ pub extern "C" fn analytics_relation_copy_data(
 
 #[pg_guard]
 #[cfg(feature = "pg16")]
-pub extern "C" fn analytics_relation_copy_data(
+pub extern "C" fn deltalake_relation_copy_data(
     _rel: pg_sys::Relation,
     _newrnode: *const pg_sys::RelFileLocator,
 ) {
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_relation_copy_for_cluster(
+pub extern "C" fn deltalake_relation_copy_for_cluster(
     _NewTable: pg_sys::Relation,
     _OldTable: pg_sys::Relation,
     _OldIndex: pg_sys::Relation,

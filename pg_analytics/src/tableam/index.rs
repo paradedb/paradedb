@@ -6,7 +6,7 @@ use core::ffi::c_void;
 use pgrx::*;
 
 #[pg_guard]
-pub extern "C" fn analytics_index_fetch_begin(
+pub extern "C" fn deltalake_index_fetch_begin(
     rel: pg_sys::Relation,
 ) -> *mut pg_sys::IndexFetchTableData {
     unsafe {
@@ -18,13 +18,13 @@ pub extern "C" fn analytics_index_fetch_begin(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {}
+pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {}
 
 #[pg_guard]
-pub extern "C" fn analytics_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {}
+pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {}
 
 #[pg_guard]
-pub extern "C" fn analytics_index_fetch_tuple(
+pub extern "C" fn deltalake_index_fetch_tuple(
     _scan: *mut pg_sys::IndexFetchTableData,
     _tid: pg_sys::ItemPointer,
     _snapshot: pg_sys::Snapshot,
@@ -37,7 +37,7 @@ pub extern "C" fn analytics_index_fetch_tuple(
 
 #[pg_guard]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
-pub extern "C" fn analytics_index_delete_tuples(
+pub extern "C" fn deltalake_index_delete_tuples(
     _rel: pg_sys::Relation,
     _delstate: *mut pg_sys::TM_IndexDeleteOp,
 ) -> pg_sys::TransactionId {
@@ -45,7 +45,7 @@ pub extern "C" fn analytics_index_delete_tuples(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_index_build_range_scan(
+pub extern "C" fn deltalake_index_build_range_scan(
     _table_rel: pg_sys::Relation,
     _index_rel: pg_sys::Relation,
     _index_info: *mut pg_sys::IndexInfo,
@@ -62,7 +62,7 @@ pub extern "C" fn analytics_index_build_range_scan(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_index_validate_scan(
+pub extern "C" fn deltalake_index_validate_scan(
     _table_rel: pg_sys::Relation,
     _index_rel: pg_sys::Relation,
     _index_info: *mut pg_sys::IndexInfo,

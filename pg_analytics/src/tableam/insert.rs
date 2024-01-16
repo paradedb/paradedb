@@ -10,14 +10,14 @@ use crate::datafusion::table::ParadeTable;
 use crate::errors::ParadeError;
 
 #[pg_guard]
-pub extern "C" fn analytics_slot_callbacks(
+pub extern "C" fn deltalake_slot_callbacks(
     _rel: pg_sys::Relation,
 ) -> *const pg_sys::TupleTableSlotOps {
     unsafe { &pg_sys::TTSOpsVirtual }
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_tuple_insert(
+pub extern "C" fn deltalake_tuple_insert(
     rel: pg_sys::Relation,
     slot: *mut pg_sys::TupleTableSlot,
     _cid: pg_sys::CommandId,
@@ -29,7 +29,7 @@ pub extern "C" fn analytics_tuple_insert(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_multi_insert(
+pub extern "C" fn deltalake_multi_insert(
     rel: pg_sys::Relation,
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: c_int,
@@ -41,12 +41,12 @@ pub extern "C" fn analytics_multi_insert(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_finish_bulk_insert(rel: pg_sys::Relation, _options: c_int) {
+pub extern "C" fn deltalake_finish_bulk_insert(rel: pg_sys::Relation, _options: c_int) {
     flush_and_commit(rel).expect("Failed to commit tuples");
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_tuple_insert_speculative(
+pub extern "C" fn deltalake_tuple_insert_speculative(
     _rel: pg_sys::Relation,
     _slot: *mut pg_sys::TupleTableSlot,
     _cid: pg_sys::CommandId,

@@ -33,7 +33,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
- id          | I64        | t      | t       | f    | t          |             |           |          | 
+ id          | I64        | t      | t       | t    | t          |             |           |          | 
  description | Str        | t      | t       | f    | t          |             | default   | position | 
  ctid        | U64        | t      | t       | f    | t          |             |           |          | 
 (3 rows)
@@ -50,7 +50,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
- id          | I64        | t      | t       | f    | t          |             |           |        | 
+ id          | I64        | t      | t       | t    | t          |             |           |        | 
  description | Str        | t      | t       | t    | t          |             | en_stem   | freq   | raw
  ctid        | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
@@ -67,7 +67,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
- id          | I64        | t      | t       | f    | t          |             |           |          | 
+ id          | I64        | t      | t       | t    | t          |             |           |          | 
  description | Str        | t      | t       | t    | t          |             | en_stem   | freq     | raw
  category    | Str        | t      | t       | f    | t          |             | default   | position | 
  ctid        | U64        | t      | t       | f    | t          |             |           |          | 
@@ -85,7 +85,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
   name  | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 --------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
- id     | I64        | t      | t       | f    | t          |             |           |        | 
+ id     | I64        | t      | t       | t    | t          |             |           |        | 
  rating | I64        | t      | t       | t    | f          |             |           |        | 
  ctid   | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
@@ -102,7 +102,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
   name  | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 --------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
- id     | I64        | t      | t       | f    | t          |             |           |        | 
+ id     | I64        | t      | t       | t    | t          |             |           |        | 
  rating | I64        | t      | t       | f    | f          |             |           |        | 
  ctid   | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
@@ -119,7 +119,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
- id       | I64        | t      | t       | f    | t          |             |           |        | 
+ id       | I64        | t      | t       | t    | t          |             |           |        | 
  in_stock | Bool       | t      | t       | t    | f          |             |           |        | 
  ctid     | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
@@ -136,7 +136,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer | record | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+-----------+--------+------------
- id       | I64        | t      | t       | f    | t          |             |           |        | 
+ id       | I64        | t      | t       | t    | t          |             |           |        | 
  in_stock | Bool       | t      | t       | f    | f          |             |           |        | 
  ctid     | U64        | t      | t       | f    | t          |             |           |        | 
 (3 rows)
@@ -153,7 +153,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
- id       | I64        | t      | t       | f    | t          |             |           |          | 
+ id       | I64        | t      | t       | t    | t          |             |           |          | 
  metadata | JsonObject | t      | t       | f    | f          | t           | default   | position | 
  ctid     | U64        | t      | t       | f    | t          |             |           |          | 
 (3 rows)
@@ -170,7 +170,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
    name   | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 ----------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
- id       | I64        | t      | t       | f    | t          |             |           |          | 
+ id       | I64        | t      | t       | t    | t          |             |           |          | 
  metadata | JsonObject | t      | t       | t    | f          | f           | raw       | position | raw
  ctid     | U64        | t      | t       | f    | t          |             |           |          | 
 (3 rows)
@@ -190,7 +190,7 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
     name     | field_type | stored | indexed | fast | fieldnorms | expand_dots | tokenizer |  record  | normalizer 
 -------------+------------+--------+---------+------+------------+-------------+-----------+----------+------------
- id          | I64        | t      | t       | f    | t          |             |           |          | 
+ id          | I64        | t      | t       | t    | t          |             |           |          | 
  description | Str        | t      | t       | f    | t          |             | default   | position | 
  rating      | I64        | t      | t       | t    | f          |             |           |          | 
  category    | Str        | t      | t       | f    | t          |             | default   | position | 

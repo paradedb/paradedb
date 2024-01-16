@@ -522,7 +522,9 @@ impl ParadeIndex {
                     | PgBuiltInOids::XIDOID => {
                         if is_key_field {
                             // The key field must be a fast field for index sorting.
-                            schema_builder.add_i64_field(attname, STORED | FAST).into()
+                            schema_builder
+                                .add_i64_field(attname, INDEXED | STORED | FAST)
+                                .into()
                         } else {
                             numeric_fields.get(attname).map(|options| {
                                 let numeric_options: NumericOptions = (*options).into();

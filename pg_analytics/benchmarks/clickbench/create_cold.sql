@@ -107,4 +107,4 @@ CREATE TABLE hits
     CLID INTEGER NOT NULL,
     PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 )
-USING analytics;
+USING deltalake;

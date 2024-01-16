@@ -7,7 +7,7 @@ use crate::errors::ParadeError;
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-pub extern "C" fn analytics_relation_set_new_filenode(
+pub extern "C" fn deltalake_relation_set_new_filenode(
     rel: pg_sys::Relation,
     _newrnode: *const pg_sys::RelFileNode,
     persistence: c_char,
@@ -19,7 +19,7 @@ pub extern "C" fn analytics_relation_set_new_filenode(
 
 #[pg_guard]
 #[cfg(feature = "pg16")]
-pub extern "C" fn analytics_relation_set_new_filelocator(
+pub extern "C" fn deltalake_relation_set_new_filelocator(
     rel: pg_sys::Relation,
     _newrlocator: *const pg_sys::RelFileLocator,
     persistence: c_char,

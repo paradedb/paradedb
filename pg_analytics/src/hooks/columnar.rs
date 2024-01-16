@@ -3,13 +3,13 @@ use std::ffi::{c_char, CString};
 
 use crate::errors::ParadeError;
 
-static ANALYTICS_HANDLER: &str = "analytics";
+static DELTALAKE_HANDLER: &str = "deltalake";
 
 pub struct ColumnarStmt;
 
 impl ColumnarStmt {
     pub unsafe fn rtable_is_columnar(rtable: *mut pg_sys::List) -> Result<bool, ParadeError> {
-        let analytics_handler_oid = Self::analytics_handler_oid()?;
+        let deltalake_handler_oid = Self::deltalake_handler_oid()?;
 
         #[cfg(feature = "pg12")]
         let mut current_cell = (*rtable).head;
@@ -51,7 +51,7 @@ impl ColumnarStmt {
             //       we'll have to process in postgres plan for part of it and
             //       datafusion for the other part. For now, we'll simply
             //       fail if we encounter an unsupported node, so this won't happen.
-            if relation_handler_oid == analytics_handler_oid {
+            if relation_handler_oid == deltalake_handler_oid {
                 using_col = true;
             } else {
                 using_noncol = true;
@@ -60,7 +60,7 @@ impl ColumnarStmt {
 
         if using_col && using_noncol {
             return Err(ParadeError::Generic(
-                "Heap and analytics tables in the same query is not yet supported".to_string(),
+                "Heap and deltalake tables in the same query is not yet supported".to_string(),
             ));
         }
 
@@ -74,27 +74,27 @@ impl ColumnarStmt {
             return Ok(false);
         }
 
-        let analytics_handler_oid = Self::analytics_handler_oid()?;
+        let deltalake_handler_oid = Self::deltalake_handler_oid()?;
         let relation_handler_oid = (*relation).rd_amhandler;
 
-        Ok(relation_handler_oid == analytics_handler_oid)
+        Ok(relation_handler_oid == deltalake_handler_oid)
     }
 
-    unsafe fn analytics_handler_oid() -> Result<pg_sys::Oid, ParadeError> {
-        let analytics_handler_str = CString::new(ANALYTICS_HANDLER)?;
-        let analytics_handler_ptr = analytics_handler_str.as_ptr() as *const c_char;
+    unsafe fn deltalake_handler_oid() -> Result<pg_sys::Oid, ParadeError> {
+        let deltalake_handler_str = CString::new(DELTALAKE_HANDLER)?;
+        let deltalake_handler_ptr = deltalake_handler_str.as_ptr() as *const c_char;
 
-        let analytics_oid = pg_sys::get_am_oid(analytics_handler_ptr, true);
+        let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
 
-        if analytics_oid == pg_sys::InvalidOid {
+        if deltalake_oid == pg_sys::InvalidOid {
             return Err(ParadeError::Generic(
-                "Analytics handler not found".to_string(),
+                "Deltalake handler not found".to_string(),
             ));
         }
 
         let heap_tuple_data = pg_sys::SearchSysCache1(
             pg_sys::SysCacheIdentifier_AMOID as i32,
-            pg_sys::Datum::from(analytics_oid),
+            pg_sys::Datum::from(deltalake_oid),
         );
         let catalog = pg_sys::heap_tuple_get_struct::<pg_sys::FormData_pg_am>(heap_tuple_data);
         pg_sys::ReleaseSysCache(heap_tuple_data);

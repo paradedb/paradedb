@@ -21,85 +21,85 @@ use crate::tableam::scan::*;
 use crate::tableam::update::*;
 use crate::tableam::vacuum::*;
 
-pub static mut ANALYTICS_TABLE_AM_ROUTINE: pg_sys::TableAmRoutine = pg_sys::TableAmRoutine {
+pub static mut DELTALAKE_TABLE_AM_ROUTINE: pg_sys::TableAmRoutine = pg_sys::TableAmRoutine {
     type_: pg_sys::NodeTag::T_TableAmRoutine,
-    slot_callbacks: Some(analytics_slot_callbacks),
-    scan_begin: Some(analytics_scan_begin),
-    scan_end: Some(analytics_scan_end),
-    scan_rescan: Some(analytics_scan_rescan),
-    scan_getnextslot: Some(analytics_scan_getnextslot),
-    parallelscan_estimate: Some(analytics_parallelscan_estimate),
-    parallelscan_initialize: Some(analytics_parallelscan_initialize),
-    parallelscan_reinitialize: Some(analytics_parallelscan_reinitialize),
-    index_fetch_begin: Some(analytics_index_fetch_begin),
-    index_fetch_reset: Some(analytics_index_fetch_reset),
-    index_fetch_end: Some(analytics_index_fetch_end),
-    index_fetch_tuple: Some(analytics_index_fetch_tuple),
-    tuple_fetch_row_version: Some(analytics_tuple_fetch_row_version),
-    tuple_tid_valid: Some(analytics_tuple_tid_valid),
-    tuple_get_latest_tid: Some(analytics_tuple_get_latest_tid),
-    tuple_satisfies_snapshot: Some(analytics_tuple_satisfies_snapshot),
-    tuple_insert: Some(analytics_tuple_insert),
-    tuple_insert_speculative: Some(analytics_tuple_insert_speculative),
-    tuple_complete_speculative: Some(analytics_tuple_complete_speculative),
-    multi_insert: Some(analytics_multi_insert),
-    tuple_delete: Some(analytics_tuple_delete),
-    tuple_update: Some(analytics_tuple_update),
-    tuple_lock: Some(analytics_tuple_lock),
-    finish_bulk_insert: Some(analytics_finish_bulk_insert),
-    relation_nontransactional_truncate: Some(analytics_relation_nontransactional_truncate),
-    relation_copy_data: Some(analytics_relation_copy_data),
-    relation_copy_for_cluster: Some(analytics_relation_copy_for_cluster),
-    relation_vacuum: Some(analytics_relation_vacuum),
-    scan_analyze_next_block: Some(analytics_scan_analyze_next_block),
-    scan_analyze_next_tuple: Some(analytics_scan_analyze_next_tuple),
-    index_build_range_scan: Some(analytics_index_build_range_scan),
-    index_validate_scan: Some(analytics_index_validate_scan),
-    relation_size: Some(analytics_relation_size),
-    relation_needs_toast_table: Some(analytics_relation_needs_toast_table),
-    relation_estimate_size: Some(analytics_relation_estimate_size),
-    scan_bitmap_next_block: Some(analytics_scan_bitmap_next_block),
-    scan_bitmap_next_tuple: Some(analytics_scan_bitmap_next_tuple),
-    scan_sample_next_block: Some(analytics_scan_sample_next_block),
-    scan_sample_next_tuple: Some(analytics_scan_sample_next_tuple),
+    slot_callbacks: Some(deltalake_slot_callbacks),
+    scan_begin: Some(deltalake_scan_begin),
+    scan_end: Some(deltalake_scan_end),
+    scan_rescan: Some(deltalake_scan_rescan),
+    scan_getnextslot: Some(deltalake_scan_getnextslot),
+    parallelscan_estimate: Some(deltalake_parallelscan_estimate),
+    parallelscan_initialize: Some(deltalake_parallelscan_initialize),
+    parallelscan_reinitialize: Some(deltalake_parallelscan_reinitialize),
+    index_fetch_begin: Some(deltalake_index_fetch_begin),
+    index_fetch_reset: Some(deltalake_index_fetch_reset),
+    index_fetch_end: Some(deltalake_index_fetch_end),
+    index_fetch_tuple: Some(deltalake_index_fetch_tuple),
+    tuple_fetch_row_version: Some(deltalake_tuple_fetch_row_version),
+    tuple_tid_valid: Some(deltalake_tuple_tid_valid),
+    tuple_get_latest_tid: Some(deltalake_tuple_get_latest_tid),
+    tuple_satisfies_snapshot: Some(deltalake_tuple_satisfies_snapshot),
+    tuple_insert: Some(deltalake_tuple_insert),
+    tuple_insert_speculative: Some(deltalake_tuple_insert_speculative),
+    tuple_complete_speculative: Some(deltalake_tuple_complete_speculative),
+    multi_insert: Some(deltalake_multi_insert),
+    tuple_delete: Some(deltalake_tuple_delete),
+    tuple_update: Some(deltalake_tuple_update),
+    tuple_lock: Some(deltalake_tuple_lock),
+    finish_bulk_insert: Some(deltalake_finish_bulk_insert),
+    relation_nontransactional_truncate: Some(deltalake_relation_nontransactional_truncate),
+    relation_copy_data: Some(deltalake_relation_copy_data),
+    relation_copy_for_cluster: Some(deltalake_relation_copy_for_cluster),
+    relation_vacuum: Some(deltalake_relation_vacuum),
+    scan_analyze_next_block: Some(deltalake_scan_analyze_next_block),
+    scan_analyze_next_tuple: Some(deltalake_scan_analyze_next_tuple),
+    index_build_range_scan: Some(deltalake_index_build_range_scan),
+    index_validate_scan: Some(deltalake_index_validate_scan),
+    relation_size: Some(deltalake_relation_size),
+    relation_needs_toast_table: Some(deltalake_relation_needs_toast_table),
+    relation_estimate_size: Some(deltalake_relation_estimate_size),
+    scan_bitmap_next_block: Some(deltalake_scan_bitmap_next_block),
+    scan_bitmap_next_tuple: Some(deltalake_scan_bitmap_next_tuple),
+    scan_sample_next_block: Some(deltalake_scan_sample_next_block),
+    scan_sample_next_tuple: Some(deltalake_scan_sample_next_tuple),
     #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-    relation_set_new_filenode: Some(analytics_relation_set_new_filenode),
+    relation_set_new_filenode: Some(deltalake_relation_set_new_filenode),
     #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
-    relation_toast_am: Some(analytics_relation_toast_am),
+    relation_toast_am: Some(deltalake_relation_toast_am),
     #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
-    relation_fetch_toast_slice: Some(analytics_relation_fetch_toast_slice),
+    relation_fetch_toast_slice: Some(deltalake_relation_fetch_toast_slice),
     #[cfg(any(feature = "pg12", feature = "pg13"))]
-    compute_xid_horizon_for_tuples: Some(analytics_compute_xid_horizon_for_tuples),
+    compute_xid_horizon_for_tuples: Some(deltalake_compute_xid_horizon_for_tuples),
     #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
-    scan_set_tidrange: Some(analytics_scan_set_tidrange),
+    scan_set_tidrange: Some(deltalake_scan_set_tidrange),
     #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
-    scan_getnextslot_tidrange: Some(analytics_scan_getnextslot_tidrange),
+    scan_getnextslot_tidrange: Some(deltalake_scan_getnextslot_tidrange),
     #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
-    index_delete_tuples: Some(analytics_index_delete_tuples),
+    index_delete_tuples: Some(deltalake_index_delete_tuples),
     #[cfg(feature = "pg16")]
-    relation_set_new_filelocator: Some(analytics_relation_set_new_filelocator),
+    relation_set_new_filelocator: Some(deltalake_relation_set_new_filelocator),
 };
 
 #[pg_guard]
 #[no_mangle]
-extern "C" fn pg_finfo_analytics_tableam_handler() -> &'static pg_sys::Pg_finfo_record {
+extern "C" fn pg_finfo_deltalake_tableam_handler() -> &'static pg_sys::Pg_finfo_record {
     const V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
     &V1_API
 }
 
 extension_sql!(
     r#"
-    CREATE FUNCTION analytics_tableam_handler(internal)
-    RETURNS table_am_handler AS 'MODULE_PATHNAME', 'analytics_tableam_handler' LANGUAGE C STRICT;
-    CREATE ACCESS METHOD analytics TYPE TABLE HANDLER analytics_tableam_handler;
-    COMMENT ON ACCESS METHOD analytics IS 'analytics table access method';
+    CREATE FUNCTION deltalake_tableam_handler(internal)
+    RETURNS table_am_handler AS 'MODULE_PATHNAME', 'deltalake_tableam_handler' LANGUAGE C STRICT;
+    CREATE ACCESS METHOD deltalake TYPE TABLE HANDLER deltalake_tableam_handler;
+    COMMENT ON ACCESS METHOD deltalake IS 'ParadeDB deltalake table access method';
     "#,
-    name = "analytics_tableam_handler"
+    name = "deltalake_tableam_handler"
 );
 #[no_mangle]
 #[pg_guard]
-extern "C" fn analytics_tableam_handler(
+extern "C" fn deltalake_tableam_handler(
     _fcinfo: pg_sys::FunctionCallInfo,
 ) -> *mut pg_sys::TableAmRoutine {
-    unsafe { addr_of_mut!(ANALYTICS_TABLE_AM_ROUTINE) }
+    unsafe { addr_of_mut!(DELTALAKE_TABLE_AM_ROUTINE) }
 }

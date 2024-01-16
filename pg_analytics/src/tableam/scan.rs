@@ -7,7 +7,7 @@ use core::ffi::c_int;
 use pgrx::*;
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_begin(
+pub extern "C" fn deltalake_scan_begin(
     _rel: pg_sys::Relation,
     _snapshot: pg_sys::Snapshot,
     _nkeys: c_int,
@@ -19,10 +19,10 @@ pub extern "C" fn analytics_scan_begin(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_end(_scan: pg_sys::TableScanDesc) {}
+pub extern "C" fn deltalake_scan_end(_scan: pg_sys::TableScanDesc) {}
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_rescan(
+pub extern "C" fn deltalake_scan_rescan(
     _scan: pg_sys::TableScanDesc,
     _key: *mut pg_sys::ScanKeyData,
     _set_params: bool,
@@ -33,7 +33,7 @@ pub extern "C" fn analytics_scan_rescan(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_getnextslot(
+pub extern "C" fn deltalake_scan_getnextslot(
     _scan: pg_sys::TableScanDesc,
     _direction: pg_sys::ScanDirection,
     _slot: *mut pg_sys::TupleTableSlot,
@@ -43,7 +43,7 @@ pub extern "C" fn analytics_scan_getnextslot(
 
 #[pg_guard]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
-pub extern "C" fn analytics_scan_set_tidrange(
+pub extern "C" fn deltalake_scan_set_tidrange(
     _scan: pg_sys::TableScanDesc,
     _mintid: pg_sys::ItemPointer,
     _maxtid: pg_sys::ItemPointer,
@@ -52,7 +52,7 @@ pub extern "C" fn analytics_scan_set_tidrange(
 
 #[pg_guard]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
-pub extern "C" fn analytics_scan_getnextslot_tidrange(
+pub extern "C" fn deltalake_scan_getnextslot_tidrange(
     _scan: pg_sys::TableScanDesc,
     _direction: pg_sys::ScanDirection,
     _slot: *mut pg_sys::TupleTableSlot,
@@ -61,12 +61,12 @@ pub extern "C" fn analytics_scan_getnextslot_tidrange(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_parallelscan_estimate(rel: pg_sys::Relation) -> pg_sys::Size {
+pub extern "C" fn deltalake_parallelscan_estimate(rel: pg_sys::Relation) -> pg_sys::Size {
     unsafe { pg_sys::table_block_parallelscan_estimate(rel) }
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_parallelscan_initialize(
+pub extern "C" fn deltalake_parallelscan_initialize(
     rel: pg_sys::Relation,
     pscan: pg_sys::ParallelTableScanDesc,
 ) -> pg_sys::Size {
@@ -74,7 +74,7 @@ pub extern "C" fn analytics_parallelscan_initialize(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_parallelscan_reinitialize(
+pub extern "C" fn deltalake_parallelscan_reinitialize(
     rel: pg_sys::Relation,
     pscan: pg_sys::ParallelTableScanDesc,
 ) {
@@ -82,7 +82,7 @@ pub extern "C" fn analytics_parallelscan_reinitialize(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_analyze_next_block(
+pub extern "C" fn deltalake_scan_analyze_next_block(
     _scan: pg_sys::TableScanDesc,
     _blockno: pg_sys::BlockNumber,
     _bstrategy: pg_sys::BufferAccessStrategy,
@@ -91,7 +91,7 @@ pub extern "C" fn analytics_scan_analyze_next_block(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_analyze_next_tuple(
+pub extern "C" fn deltalake_scan_analyze_next_tuple(
     _scan: pg_sys::TableScanDesc,
     _OldestXmin: pg_sys::TransactionId,
     _liverows: *mut f64,
@@ -102,7 +102,7 @@ pub extern "C" fn analytics_scan_analyze_next_tuple(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_bitmap_next_block(
+pub extern "C" fn deltalake_scan_bitmap_next_block(
     _scan: pg_sys::TableScanDesc,
     _tbmres: *mut pg_sys::TBMIterateResult,
 ) -> bool {
@@ -110,7 +110,7 @@ pub extern "C" fn analytics_scan_bitmap_next_block(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_bitmap_next_tuple(
+pub extern "C" fn deltalake_scan_bitmap_next_tuple(
     _scan: pg_sys::TableScanDesc,
     _tbmres: *mut pg_sys::TBMIterateResult,
     _slot: *mut pg_sys::TupleTableSlot,
@@ -119,7 +119,7 @@ pub extern "C" fn analytics_scan_bitmap_next_tuple(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_sample_next_block(
+pub extern "C" fn deltalake_scan_sample_next_block(
     _scan: pg_sys::TableScanDesc,
     _scanstate: *mut pg_sys::SampleScanState,
 ) -> bool {
@@ -127,7 +127,7 @@ pub extern "C" fn analytics_scan_sample_next_block(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_scan_sample_next_tuple(
+pub extern "C" fn deltalake_scan_sample_next_tuple(
     _scan: pg_sys::TableScanDesc,
     _scanstate: *mut pg_sys::SampleScanState,
     _slot: *mut pg_sys::TupleTableSlot,
@@ -136,7 +136,7 @@ pub extern "C" fn analytics_scan_sample_next_tuple(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_tuple_fetch_row_version(
+pub extern "C" fn deltalake_tuple_fetch_row_version(
     _rel: pg_sys::Relation,
     _tid: pg_sys::ItemPointer,
     _snapshot: pg_sys::Snapshot,
@@ -146,7 +146,7 @@ pub extern "C" fn analytics_tuple_fetch_row_version(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_tuple_tid_valid(
+pub extern "C" fn deltalake_tuple_tid_valid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) -> bool {
@@ -154,14 +154,14 @@ pub extern "C" fn analytics_tuple_tid_valid(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_tuple_get_latest_tid(
+pub extern "C" fn deltalake_tuple_get_latest_tid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) {
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_tuple_satisfies_snapshot(
+pub extern "C" fn deltalake_tuple_satisfies_snapshot(
     _rel: pg_sys::Relation,
     _slot: *mut pg_sys::TupleTableSlot,
     _snapshot: pg_sys::Snapshot,
@@ -170,7 +170,7 @@ pub extern "C" fn analytics_tuple_satisfies_snapshot(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_tuple_complete_speculative(
+pub extern "C" fn deltalake_tuple_complete_speculative(
     _rel: pg_sys::Relation,
     _slot: *mut pg_sys::TupleTableSlot,
     _specToken: pg_sys::uint32,
@@ -179,7 +179,7 @@ pub extern "C" fn analytics_tuple_complete_speculative(
 }
 
 #[pg_guard]
-pub extern "C" fn analytics_tuple_lock(
+pub extern "C" fn deltalake_tuple_lock(
     _rel: pg_sys::Relation,
     _tid: pg_sys::ItemPointer,
     _snapshot: pg_sys::Snapshot,

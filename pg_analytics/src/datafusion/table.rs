@@ -54,6 +54,6 @@ impl ParadeTable {
                 ))),
                 Err(err) => Err(ParadeError::DataFusion(err)),
             }
-        })?
+        })
     }
 }

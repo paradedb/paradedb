@@ -60,8 +60,8 @@ pub fn executor_run(
         // Execute the logical plan
         let recordbatchvec = DatafusionContext::with_provider_context(|_, context| {
             let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
-            task::block_on(dataframe.collect())
-        })??;
+            Ok(task::block_on(dataframe.collect())?)
+        })?;
 
         // This is for any node types that need to do additional processing on estate
         let plan: *mut pg_sys::Plan = (*ps).planTree;

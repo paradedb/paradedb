@@ -3,7 +3,6 @@ use core::ffi::c_int;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
-use std::ffi::CStr;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
@@ -59,10 +58,13 @@ pub extern "C" fn analytics_tuple_insert_speculative(
 
 #[inline]
 fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
-    let table_name = unsafe { CStr::from_ptr((*((*rel).rd_rel)).relname.data.as_ptr()).to_str()? };
+    let pg_relation = unsafe { PgRelation::from_pg(rel) };
+    let table_name = pg_relation.name();
+    let parade_table = ParadeTable::from_pg(&pg_relation)?;
+    let arrow_schema = parade_table.arrow_schema()?;
 
-    let _ = DatafusionContext::with_provider_context(|provider, _| {
-        task::block_on(provider.flush_and_commit(table_name))
+    DatafusionContext::with_provider_context(|provider, _| {
+        task::block_on(provider.flush_and_commit(table_name, arrow_schema))
     })?;
 
     Ok(())
@@ -96,16 +98,16 @@ fn insert_tuples(
     let parade_table = ParadeTable::from_pg(&pg_relation)?;
     let table_name = parade_table.name()?;
     let arrow_schema = parade_table.arrow_schema()?;
-    let batch = RecordBatch::try_new(arrow_schema, values)?;
+    let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
     // Write the RecordBatch to the Delta table
     DatafusionContext::with_provider_context(|provider, _| {
-        let _ = provider.write(&table_name, batch);
+        task::block_on(provider.write(&table_name, batch))?;
 
         if commit {
-            task::block_on(provider.flush_and_commit(&table_name))?;
+            task::block_on(provider.flush_and_commit(&table_name, arrow_schema))?;
         }
 
         Ok(())
-    })?
+    })
 }

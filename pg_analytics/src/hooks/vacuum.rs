@@ -79,7 +79,7 @@ pub unsafe fn vacuum_analytics(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(
         true => DatafusionContext::with_provider_context(|provider, _| {
             task::block_on(provider.vacuum_all(vacuum_options.full))?;
             Ok(())
-        })?,
+        }),
         false => {
             let num_rels = (*rels).length;
 
@@ -119,7 +119,7 @@ pub unsafe fn vacuum_analytics(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(
 
                 let table_name = CStr::from_ptr((*(*vacuum_rel).relation).relname).to_str()?;
 
-                let _ = DatafusionContext::with_provider_context(|provider, _| {
+                DatafusionContext::with_provider_context(|provider, _| {
                     task::block_on(provider.vacuum(table_name, vacuum_options.full))
                 })?;
             }

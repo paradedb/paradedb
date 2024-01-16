@@ -26,7 +26,7 @@ pub struct DatafusionContext;
 impl<'a> DatafusionContext {
     pub fn with_provider_context<F, R>(f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(&ParadeSchemaProvider, &SessionContext) -> R,
+        F: FnOnce(&ParadeSchemaProvider, &SessionContext) -> Result<R, ParadeError>,
     {
         let context_lock = CONTEXT.read();
         let context = match context_lock.as_ref() {
@@ -49,15 +49,15 @@ impl<'a> DatafusionContext {
             .downcast_ref::<ParadeSchemaProvider>()
             .ok_or_else(|| ParadeError::NotFound)?;
 
-        Ok(f(parade_provider, context))
+        f(parade_provider, context)
     }
 
     pub fn with_write_lock<F, R>(f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(RwLockWriteGuard<'a, Option<SessionContext>>) -> R,
+        F: FnOnce(RwLockWriteGuard<'a, Option<SessionContext>>) -> Result<R, ParadeError>,
     {
         let context_lock = CONTEXT.write();
-        Ok(f(context_lock))
+        f(context_lock)
     }
 }
 
@@ -82,7 +82,7 @@ impl ParadeContextProvider {
                 options: ConfigOptions::new(),
                 tables,
             })
-        })?
+        })
     }
 }
 

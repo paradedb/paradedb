@@ -6,11 +6,13 @@ use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
 use deltalake::operations::optimize::OptimizeBuilder;
+use deltalake::operations::transaction::commit;
 use deltalake::operations::update::UpdateBuilder;
 use deltalake::operations::vacuum::VacuumBuilder;
-use deltalake::parquet::file::properties::{WriterProperties, WriterVersion};
+use deltalake::operations::writer::{DeltaWriter, WriterConfig};
+use deltalake::protocol::{Action, DeltaOperation, SaveMode};
 use deltalake::schema::Schema as DeltaSchema;
-use deltalake::writer::{DeltaWriter, RecordBatchWriter};
+use deltalake::storage::DeltaObjectStore;
 use deltalake::{DeltaOps, DeltaTable};
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
@@ -28,7 +30,7 @@ const BYTES_IN_MB: i64 = 1_048_576;
 
 pub struct ParadeSchemaProvider {
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
-    writers: Mutex<HashMap<String, RecordBatchWriter>>,
+    writers: Mutex<HashMap<String, DeltaWriter>>,
     dir: PathBuf,
 }
 
@@ -50,6 +52,7 @@ impl ParadeSchemaProvider {
         let listdir = std::fs::read_dir(self.dir.clone())?;
 
         for res in listdir {
+            // Get the table OID from the file name
             let table_oid = res?
                 .file_name()
                 .to_str()
@@ -64,10 +67,14 @@ impl ParadeSchemaProvider {
                     continue;
                 }
 
+                // Get the table name from the OID
                 let table_name = unsafe {
                     CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()?
                 };
 
+                // Create a DeltaTable
+                // This is the only place where deltalake::open_table should be called
+                // Calling deltalake::open_table multiple times on the same directory results in an error
                 let delta_table = match Self::table_exist(self, table_name) {
                     true => Self::get_delta_table(self, table_name).await?,
                     false => {
@@ -75,7 +82,14 @@ impl ParadeSchemaProvider {
                     }
                 };
 
-                let writer = RecordBatchWriter::for_table(&delta_table)?;
+                // Create a writer
+                let pg_relation = unsafe { PgRelation::from_pg(relation) };
+                let fields = Self::fields(&pg_relation)?;
+                let writer = Self::create_writer(
+                    self,
+                    delta_table.object_store(),
+                    Arc::new(ArrowSchema::new(fields)),
+                )?;
 
                 writers.insert(table_name.to_string(), writer);
                 tables.insert(
@@ -87,6 +101,7 @@ impl ParadeSchemaProvider {
             }
         }
 
+        // Register all tables and writers
         let mut table_lock = self.tables.write();
         *table_lock = tables;
 
@@ -104,35 +119,40 @@ impl ParadeSchemaProvider {
         let fields = Self::fields(pg_relation)?;
         let arrow_schema = ArrowSchema::new(fields);
         let delta_schema = DeltaSchema::try_from(&arrow_schema)?;
-        let batch = RecordBatch::new_empty(Arc::new(arrow_schema));
+        let batch = RecordBatch::new_empty(Arc::new(arrow_schema.clone()));
 
         // Create a DeltaTable
-        let mut table = DeltaOps::try_from_uri(&ParadeDirectory::table_path(&table_oid)?)
+        let mut delta_table = DeltaOps::try_from_uri(&ParadeDirectory::table_path(&table_oid)?)
             .await?
             .create()
             .with_columns(delta_schema.get_fields().to_vec())
             .await?;
 
-        // Create a table writer
-        let writer_properties = WriterProperties::builder()
-            .set_writer_version(WriterVersion::PARQUET_2_0)
-            .build();
-
-        let mut writer =
-            RecordBatchWriter::for_table(&table)?.with_writer_properties(writer_properties);
+        let mut writer = Self::create_writer(
+            self,
+            delta_table.object_store(),
+            Arc::new(arrow_schema.clone()),
+        )?;
 
         // Write the RecordBatch to the DeltaTable
-        writer.write(batch).await?;
-        writer.flush_and_commit(&mut table).await?;
+        writer.write(&batch).await?;
+        writer.close().await?;
+
+        // Update the DeltaTable
+        delta_table.update().await?;
 
         // Register the table writer
-        Self::register_writer(self, table_name, writer)?;
+        Self::register_writer(
+            self,
+            table_name,
+            Self::create_writer(self, delta_table.object_store(), Arc::new(arrow_schema))?,
+        )?;
 
         // Register the DeltaTable
         Self::register_table(
             self,
             table_name.to_string(),
-            Arc::new(table) as Arc<dyn TableProvider>,
+            Arc::new(delta_table) as Arc<dyn TableProvider>,
         )?;
 
         Ok(())
@@ -210,38 +230,57 @@ impl ParadeSchemaProvider {
     }
 
     // Write a RecordBatch to a table's writer
-    pub fn write(&self, table_name: &str, batch: RecordBatch) -> Result<(), ParadeError> {
-        let FILE_SIZE_MB = (PARADE_GUC.optimize_file_size_mb.get() as i64) * BYTES_IN_MB;
-
+    pub async fn write(&self, table_name: &str, batch: RecordBatch) -> Result<(), ParadeError> {
         // Write batch to buffer
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
             .get_mut(table_name)
             .ok_or_else(|| ParadeError::NotFound)?;
 
-        task::block_on(writer.write(batch))?;
-
-        // If the buffer is too large, flush it to disk
-        if writer.buffer_len() > FILE_SIZE_MB as usize {
-            task::block_on(writer.flush())?;
-        }
-
+        task::block_on(writer.write(&batch))?;
         Ok(())
     }
 
     // Flush and commit a table's writer buffer to disk
-    pub async fn flush_and_commit(&self, table_name: &str) -> Result<(), ParadeError> {
+    pub async fn flush_and_commit(
+        &self,
+        table_name: &str,
+        arrow_schema: Arc<ArrowSchema>,
+    ) -> Result<(), ParadeError> {
         // Get the DeltaTable
         let mut delta_table = Self::get_delta_table(self, table_name).await?;
 
         // Get the writer
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
-            .get_mut(table_name)
+            .remove(table_name)
             .ok_or_else(|| ParadeError::NotFound)?;
 
-        // Flush and commit buffer to delta logs
-        task::block_on(writer.flush_and_commit(&mut delta_table))?;
+        // Generate commit actions by closing the writer and commit to delta logs
+        let actions = task::block_on(writer.close())?;
+        drop(writer_lock);
+
+        task::block_on(commit(
+            delta_table.object_store().as_ref(),
+            &actions.iter().map(|a| Action::add(a.clone())).collect(),
+            DeltaOperation::Write {
+                mode: SaveMode::Append,
+                partition_by: None,
+                predicate: None,
+            },
+            &delta_table.state,
+            None,
+        ))?;
+
+        // Update the DeltaTable
+        task::block_on(delta_table.update())?;
+
+        // Create and register a new writer
+        Self::register_writer(
+            self,
+            table_name,
+            Self::create_writer(self, delta_table.object_store(), arrow_schema)?,
+        )?;
 
         // Commiting creates a new version of the DeltaTable
         // Update the provider with the new version
@@ -315,11 +354,27 @@ impl ParadeSchemaProvider {
     }
 
     // Helper function to register a table writer
-    fn register_writer(&self, name: &str, writer: RecordBatchWriter) -> Result<(), ParadeError> {
+    fn register_writer(&self, name: &str, writer: DeltaWriter) -> Result<(), ParadeError> {
         let mut writers = self.writers.lock();
         writers.insert(name.to_string(), writer);
 
         Ok(())
+    }
+
+    fn create_writer(
+        &self,
+        object_store: Arc<DeltaObjectStore>,
+        arrow_schema: Arc<ArrowSchema>,
+    ) -> Result<DeltaWriter, ParadeError> {
+        let target_file_size = PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB;
+        let writer_config = WriterConfig::new(
+            arrow_schema,
+            vec![],
+            None,
+            Some(target_file_size as usize),
+            None,
+        );
+        Ok(DeltaWriter::new(object_store, writer_config))
     }
 }
 

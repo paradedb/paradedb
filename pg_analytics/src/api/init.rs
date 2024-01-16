@@ -31,7 +31,7 @@ fn init_impl() -> Result<(), ParadeError> {
     let rn_config = RuntimeConfig::new();
     let runtime_env = RuntimeEnv::new(rn_config)?;
 
-    let _ = DatafusionContext::with_write_lock(|mut context_lock| {
+    DatafusionContext::with_write_lock(|mut context_lock| {
         if context_lock.as_mut().is_none() {
             let mut context =
                 SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
@@ -60,8 +60,7 @@ fn init_impl() -> Result<(), ParadeError> {
     })?;
 
     // Load the schema provider with tables
-    let _ =
-        DatafusionContext::with_provider_context(|provider, _| task::block_on(provider.init()))?;
+    DatafusionContext::with_provider_context(|provider, _| task::block_on(provider.init()))?;
 
     Ok(())
 }

@@ -95,7 +95,7 @@ unsafe extern "C" fn build_callback(
 }
 
 #[inline(always)]
-unsafe extern "C" fn build_callback_internal(
+unsafe fn build_callback_internal(
     ctid: pg_sys::ItemPointerData,
     values: *mut pg_sys::Datum,
     _state: *mut std::os::raw::c_void,

@@ -2,7 +2,7 @@ use pgrx::*;
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-pub extern "C" fn analytics_tuple_update(
+pub extern "C" fn deltalake_tuple_update(
     _rel: pg_sys::Relation,
     _otid: pg_sys::ItemPointer,
     _slot: *mut pg_sys::TupleTableSlot,
@@ -19,7 +19,7 @@ pub extern "C" fn analytics_tuple_update(
 
 #[pg_guard]
 #[cfg(feature = "pg16")]
-pub extern "C" fn analytics_tuple_update(
+pub extern "C" fn deltalake_tuple_update(
     _rel: pg_sys::Relation,
     _otid: pg_sys::ItemPointer,
     _slot: *mut pg_sys::TupleTableSlot,

@@ -1,7 +1,7 @@
 use pgrx::*;
 
 #[pg_guard]
-pub extern "C" fn analytics_tuple_delete(
+pub extern "C" fn deltalake_tuple_delete(
     _rel: pg_sys::Relation,
     _tid: pg_sys::ItemPointer,
     _cid: pg_sys::CommandId,

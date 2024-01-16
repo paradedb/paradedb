@@ -96,20 +96,17 @@ pub fn connection_start() {
         if config.telemetry.as_deref() == Some("true") {
             let uuid_dir = "/var/lib/postgresql/data";
             let extension_name;
-            let file_content;
-
-            if Path::new(uuid_dir)
+            let file_content = if Path::new(uuid_dir)
                 .join(format!("{}_uuid", PARADEDB_NAME.to_lowercase()))
                 .exists()
             {
                 extension_name = PARADEDB_NAME;
-                file_content = fs::read_to_string(
+                fs::read_to_string(
                     Path::new(uuid_dir).join(format!("{}_uuid", PARADEDB_NAME.to_lowercase())),
                 )
             } else {
                 extension_name = PG_BM25_NAME;
-                file_content =
-                    fs::read_to_string(Path::new(uuid_dir).join(format!("{}_uuid", PG_BM25_NAME)))
+                fs::read_to_string(Path::new(uuid_dir).join(format!("{}_uuid", PG_BM25_NAME)))
             };
 
             let distinct_id = match file_content {

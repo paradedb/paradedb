@@ -17,7 +17,7 @@ The following toy example shows how to get started with `pg_analytics`.
 CREATE EXTENSION pg_analytics;
 -- This needs to be run once per connection
 CALL paradedb.init();
--- USING deltalake indicates that we are creating an deltalake  table
+-- Create a deltalake table
 CREATE TABLE t (a int) USING deltalake;
 -- Now you can any Postgres query
 INSERT INTO t VALUES (1), (2), (3);

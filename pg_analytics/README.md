@@ -1,17 +1,24 @@
-# pg_analytics
+<h1 align="center">
+  <img src="../docs/logo/pg_analytics.svg" alt="pg_analytics" width="500px">
+<br>
+</h1>
 
-`pg_analytics` is a Postgres extension that enables Clickhouse-level analytics (OLAP) performance inside Postgres.
+## Overview
+
+`pg_analytics` is an extension that transforms Postgres into a very fast analytical database. Without needing to leave
+Postgres, query speeds are comparable to those of dedicated OLAP databases like Clickhouse or DuckDB (see Clickbench results).
 
 The primary dependencies are:
 
-- [x] [Apache Arrow](https://github.com/apache/arrow) for column-oriented memory
+- [x] [Apache Arrow](https://github.com/apache/arrow) for column-oriented memory format
 - [x] [Apache Datafusion](https://github.com/apache/arrow-datafusion) for vectorized query execution with SIMD
 - [x] [Apache Parquet](https://github.com/apache/parquet-mr/) for persistence
 - [x] [Delta Lake](https://github.com/delta-io/delta-rs) as a storage framework with ACID properties
+- [x] [pgrx](https://github.com/pgcentralfoundation/pgrx), the framework for creating Postgres extensions in Rust
 
 ## Getting Started
 
-The following toy example shows how to get started with `pg_analytics`.
+This toy example demonstrates how to get started.
 
 ```sql
 CREATE EXTENSION pg_analytics;
@@ -19,10 +26,27 @@ CREATE EXTENSION pg_analytics;
 CALL paradedb.init();
 -- Create a deltalake table
 CREATE TABLE t (a int) USING deltalake;
--- Now you can any Postgres query
+-- pg_analytics supercharges the performance of any
+-- Postgres query run on a deltalake table
 INSERT INTO t VALUES (1), (2), (3);
 SELECT COUNT(*) FROM t;
 ```
+
+## How It Works
+
+`pg_analytics` is built on Apache Arrow, Parquet, and Datafusion — state-of-the-art libraries for a column-oriented memory format, column-oriented file format, and vectorized query execution, respectively. They are the building blocks of many modern analytical databases.
+
+### Column-Oriented Format
+
+Today, Postgres tables store data row by row. While this makes sense for operational data, it means that analytics queries over large tables require individual reads of every row, which is computationally expensive. As a result, most dedicated analytics (i.e. OLAP) databases organize data by column such that a single read can see many rows at once.
+
+### Vectorized Query Execution
+
+Vectorized query execution is a technique that takes advantage of modern CPUs to divide column-oriented data into batches and process the batches in parallel.
+
+### Postgres Integration
+
+`pg_analytics` embeds Arrow, Parquet, and Datafusion inside Postgres via executor hooks and the table access method API. The table access method enables Postgres tables to be backed by Parquet files and registers them with Postgres' system catalogs. Executor hooks are used to intercept queries to these tables and reroute them to Datafusion, which creates an optimal query plan, executes the query, and sends the results back to Postgres.
 
 ## Development
 

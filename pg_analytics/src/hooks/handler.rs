@@ -5,11 +5,11 @@ use crate::errors::ParadeError;
 
 static DELTALAKE_HANDLER: &str = "deltalake";
 
-pub struct ColumnarStmt;
+pub struct DeltaHandler;
 
-impl ColumnarStmt {
-    pub unsafe fn rtable_is_columnar(rtable: *mut pg_sys::List) -> Result<bool, ParadeError> {
-        let deltalake_handler_oid = Self::deltalake_handler_oid()?;
+impl DeltaHandler {
+    pub unsafe fn rtable_is_delta(rtable: *mut pg_sys::List) -> Result<bool, ParadeError> {
+        let oid = Self::oid()?;
 
         #[cfg(feature = "pg12")]
         let mut current_cell = (*rtable).head;
@@ -19,8 +19,6 @@ impl ColumnarStmt {
         let mut using_noncol: bool = false;
         let mut using_col: bool = false;
 
-        // Iterate over all the tables in range table list `rtable`, and check whether
-        // the table `i` is a columnar table.
         for i in 0..(*rtable).length {
             let rte: *mut pg_sys::RangeTblEntry;
             #[cfg(feature = "pg12")]
@@ -51,7 +49,7 @@ impl ColumnarStmt {
             //       we'll have to process in postgres plan for part of it and
             //       datafusion for the other part. For now, we'll simply
             //       fail if we encounter an unsupported node, so this won't happen.
-            if relation_handler_oid == deltalake_handler_oid {
+            if relation_handler_oid == oid {
                 using_col = true;
             } else {
                 using_noncol = true;
@@ -67,20 +65,20 @@ impl ColumnarStmt {
         Ok(using_col)
     }
 
-    pub unsafe fn relation_is_columnar(
+    pub unsafe fn relation_is_delta(
         relation: *mut pg_sys::RelationData,
     ) -> Result<bool, ParadeError> {
         if relation.is_null() {
             return Ok(false);
         }
 
-        let deltalake_handler_oid = Self::deltalake_handler_oid()?;
+        let oid = Self::oid()?;
         let relation_handler_oid = (*relation).rd_amhandler;
 
-        Ok(relation_handler_oid == deltalake_handler_oid)
+        Ok(relation_handler_oid == oid)
     }
 
-    unsafe fn deltalake_handler_oid() -> Result<pg_sys::Oid, ParadeError> {
+    unsafe fn oid() -> Result<pg_sys::Oid, ParadeError> {
         let deltalake_handler_str = CString::new(DELTALAKE_HANDLER)?;
         let deltalake_handler_ptr = deltalake_handler_str.as_ptr() as *const c_char;
 

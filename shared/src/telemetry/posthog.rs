@@ -88,3 +88,50 @@ pub fn init(extension_name: &str) {
         }
     }
 }
+
+pub fn connection_start() {
+    if let Some(config) = Config::from_env() {
+        if config.telemetry.as_deref() == Some("true") {
+            let uuid_dir = "/var/lib/postgresql/data";
+            let extension_name;
+            let file_content;
+
+            if Path::new(uuid_dir).join("paradedb_uuid").exists() {
+                extension_name = "ParadeDB";
+                file_content = fs::read_to_string(Path::new(uuid_dir).join("paradedb_uuid"))
+            } else {
+                extension_name = "pg_bm25";
+                file_content = fs::read_to_string(Path::new(uuid_dir).join("pg_bm25_uuid"))
+            };
+
+            let distinct_id = match file_content {
+                Ok(uuid) => uuid,
+                Err(_) => {
+                    warning!("telemetry enabled but uuid file is empty!");
+                    return;
+                }
+            };
+
+            let endpoint = format!("{}/capture", config.posthog_host);
+            let data = json!({
+                "api_key": config.posthog_api_key,
+                "event": format!("{} Connection Started", extension_name),
+                "distinct_id": distinct_id,
+                "properties": {
+                    "commit_sha": config.commit_sha
+                }
+            });
+
+            let client = reqwest::blocking::Client::new();
+            let response = client
+                .post(endpoint)
+                .header("Content-Type", "application/json")
+                .body(data.to_string())
+                .send();
+
+            if let Err(e) = response {
+                warning!("Error sending telemetry request: {}", e);
+            }
+        }
+    }
+}

@@ -3,7 +3,7 @@ use pgrx::pg_sys::ItemPointerData;
 use pgrx::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
-use shared::plog;
+use shared::{plog, telemetry};
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs::{self, File};
@@ -173,6 +173,10 @@ impl ParadeIndex {
         unsafe {
             new_self.into_cached_index();
         }
+
+        // Send a telemetry event on each new connection. Since the reference to the index
+        // is cached, we expect to capture one event per connection.
+        telemetry::posthog::connection_start();
 
         // We need to return the Self that is borrowed from the cache.
         let new_self_ref = Self::from_index_name(name.to_string().as_ref());

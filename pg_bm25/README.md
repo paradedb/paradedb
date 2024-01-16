@@ -54,7 +54,7 @@ If you are self-hosting Postgres and would like to use the extension within your
 
 It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_bm25` must be in the list of `shared_preload_libraries`:
 
-```
+```c
 shared_preload_libraries = 'pg_bm25'
 ```
 

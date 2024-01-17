@@ -72,18 +72,25 @@ pub fn executor_run(
                     returning,
                 } = *sql_statement
                 {
+                    let context_provider = ParadeContextProvider::new()?;
                     // only one table
                     let table_name = from[0].relation.to_string();
-                    // info!("Table {}", table_name);
-                    // selection is the WHERE clause
-                    /*
-                    if let Some(expr) = selection {
-                        info!("{}", expr);
-                        info!("{}", expr.to_string());
-                    }
-                    */
+                    info!("Table {}", table_name);
                     DatafusionContext::with_provider_context(|provider, _| {
-                        task::block_on(provider.delete(table_name.as_str(), selection))
+                        let sql_to_rel = SqlToRel::new(&context_provider);
+                        let schema = task::block_on(provider.get_schema(table_name.as_str()))?;
+                        let df_expr = match selection {
+                            Some(expr) => {
+                                info!("{}", expr);
+                                Some(sql_to_rel.sql_to_expr(
+                                    expr,
+                                    &schema,
+                                    &mut Default::default(),
+                                )?)
+                            }
+                            None => None,
+                        };
+                        task::block_on(provider.delete(table_name.as_str(), df_expr))
                     })??;
                 }
             }

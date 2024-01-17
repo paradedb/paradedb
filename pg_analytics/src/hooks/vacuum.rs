@@ -5,6 +5,7 @@ use std::ffi::CStr;
 use crate::datafusion::context::DatafusionContext;
 use crate::errors::ParadeError;
 use crate::hooks::handler::DeltaHandler;
+use deltalake::datafusion::catalog::CatalogProvider;
 
 #[derive(Debug)]
 struct VacuumOptions {
@@ -76,10 +77,18 @@ pub unsafe fn vacuum_analytics(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(
 
     // Perform vacuum
     match vacuum_all {
-        true => DatafusionContext::with_provider_context(|provider, _| {
-            task::block_on(provider.vacuum_all(vacuum_options.full))?;
+        true => {
+            let schema_names =
+                DatafusionContext::with_catalog(|catalog| Ok(catalog.schema_names()))?;
+
+            for schema_name in schema_names {
+                DatafusionContext::with_schema_provider(&schema_name, |provider| {
+                    task::block_on(provider.vacuum_all(vacuum_options.full))
+                })?;
+            }
+
             Ok(())
-        }),
+        }
         false => {
             let num_rels = (*rels).length;
 
@@ -103,7 +112,14 @@ pub unsafe fn vacuum_analytics(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(
                 }
 
                 // If the relation is null or not analytics, skip it
-                let oid = pg_sys::RelnameGetRelid((*(*vacuum_rel).relation).relname);
+                let oid = match (*(*vacuum_rel).relation).schemaname.is_null() {
+                    true => pg_sys::RelnameGetRelid((*(*vacuum_rel).relation).relname),
+                    false => pg_sys::get_relname_relid(
+                        (*(*vacuum_rel).relation).relname,
+                        pg_sys::get_namespace_oid((*(*vacuum_rel).relation).schemaname, true),
+                    ),
+                };
+
                 let relation = pg_sys::RelationIdGetRelation(oid);
 
                 if relation.is_null() {
@@ -115,13 +131,15 @@ pub unsafe fn vacuum_analytics(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(
                     continue;
                 }
 
-                pg_sys::RelationClose(relation);
+                let pg_relation = PgRelation::from_pg(relation);
+                let table_name = pg_relation.name();
+                let schema_name = pg_relation.namespace();
 
-                let table_name = CStr::from_ptr((*(*vacuum_rel).relation).relname).to_str()?;
-
-                DatafusionContext::with_provider_context(|provider, _| {
+                DatafusionContext::with_schema_provider(schema_name, |provider| {
                     task::block_on(provider.vacuum(table_name, vacuum_options.full))
                 })?;
+
+                pg_sys::RelationClose(relation);
             }
 
             Ok(())

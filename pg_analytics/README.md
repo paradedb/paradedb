@@ -33,7 +33,7 @@ SELECT COUNT(*) FROM t;
 
 ## Roadmap
 
-`pg_analytics` is currently in beta. 
+`pg_analytics` is currently in beta.
 
 ### Features Supported
 
@@ -70,7 +70,7 @@ Vectorized query execution is a technique that takes advantage of modern CPUs to
 
 ### Postgres Integration
 
-`pg_analytics` embeds Arrow, Parquet, and Datafusion inside Postgres via executor hooks and the table access method API. Executor hooks are used to intercept queries to these tables and reroute them to Datafusion, which creates an optimal query plan, executes the query, and sends the results back to Postgres. The table access method persists Postgres tables as Parquet files and registers them with Postgres' system catalogs. The Parquet files are managed by Delta Lake, which provides ACID transactions.
+`pg_analytics` embeds Arrow, Parquet, and Datafusion inside Postgres via executor hooks and the table access method API. Executor hooks intercept queries to these tables and reroute them to Datafusion, which creates an optimal query plan, executes the query, and sends the results back to Postgres. The table access method persists Postgres tables as Parquet files and registers them with Postgres' system catalogs. The Parquet files are managed by Delta Lake, which provides ACID transactions.
 
 ## Development
 

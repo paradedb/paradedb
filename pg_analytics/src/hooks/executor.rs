@@ -90,36 +90,37 @@ pub fn executor_run(
                     })??;
                 }
             }
-            if is_select {
-                let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-                    .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
-                let statement = &ast[0];
-                info!("query parsed into AST");
-
-                // Convert the AST into a logical plan
-                let context_provider = ParadeContextProvider::new()?;
-                let sql_to_rel = SqlToRel::new(&context_provider);
-                let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
-                info!("converted AST into logical plan");
-
-                // Execute the logical plan
-                let batches = DatafusionContext::with_session_context(|context| {
-                    let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
-                    Ok(task::block_on(dataframe.collect())?)
-                })?;
-
-                // This is for any node types that need to do additional processing on estate
-                let plan: *mut pg_sys::Plan = (*ps).planTree;
-                let node = plan as *mut pg_sys::Node;
-                if (*node).type_ == pg_sys::NodeTag::T_ModifyTable {
-                    let num_updated = batches[0].column(0).as_primitive::<UInt64Type>().value(0);
-                    (*(*query_desc.clone().into_pg()).estate).es_processed = num_updated;
-                }
-
-                // Return result tuples
-                send_tuples_if_necessary(query_desc.into_pg(), batches)?;
-            }
+            return Ok(());
         }
+
+        if is_select {
+            let ast = DFParser::parse_sql_with_dialect(query, &dialect)
+                .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
+            let statement = &ast[0];
+            info!("query parsed into AST");
+
+            // Convert the AST into a logical plan
+            let context_provider = ParadeContextProvider::new()?;
+            let sql_to_rel = SqlToRel::new(&context_provider);
+            let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
+            info!("converted AST into logical plan");
+
+        // Execute the logical plan
+        let batches = DatafusionContext::with_session_context(|context| {
+            let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
+            Ok(task::block_on(dataframe.collect())?)
+        })?;
+
+        // This is for any node types that need to do additional processing on estate
+        let plan: *mut pg_sys::Plan = (*ps).planTree;
+        let node = plan as *mut pg_sys::Node;
+        if (*node).type_ == pg_sys::NodeTag::T_ModifyTable {
+            let num_updated = batches[0].column(0).as_primitive::<UInt64Type>().value(0);
+            (*(*query_desc.clone().into_pg()).estate).es_processed = num_updated;
+        }
+
+        // Return result tuples
+        send_tuples_if_necessary(query_desc.into_pg(), batches)?;
 
         Ok(())
     }

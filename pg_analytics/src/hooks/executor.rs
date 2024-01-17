@@ -7,6 +7,8 @@ use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::sql::parser::DFParser;
 use deltalake::datafusion::sql::planner::SqlToRel;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
+use deltalake::datafusion::sql::parser;
+use deltalake::datafusion::sql::sqlparser::ast;
 use pgrx::*;
 use std::ffi::CStr;
 
@@ -55,15 +57,20 @@ pub fn executor_run(
         if is_delete {
             info!("{}", query);
             // find the first WHERE and take everything afterwards...
-            if let Some(index) = query.find("WHERE ") {
-                let predicate = &query[index + "WHERE ".len()..];
-                info!("{}", predicate);
+            // better: parse
+            let ast = DFParser::parse_sql_with_dialect(query, &dialect)
+            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
+        let statement = &ast[0];
+        if let parser::Statement::Statement(sql_statement) = statement {
+            if let ast::Statement::Delete {tables, from, using, selection, returning} = **sql_statement {
+                // only one table
+                let table_name = tables[0].to_string().as_str();
+                // selection is the WHERE clause
+
                 DatafusionContext::with_provider_context(|provider, _| {
-                    // TODO: extract table name
-                    task::block_on(provider.delete("t", predicate))
+                        task::block_on(provider.delete(table_name, selection))
                 })??;
             }
-            return Ok(());
         }
         if is_select {
         let ast = DFParser::parse_sql_with_dialect(query, &dialect)

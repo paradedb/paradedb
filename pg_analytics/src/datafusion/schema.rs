@@ -5,6 +5,7 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
+use deltalake::datafusion::logical_expr::Expr;
 use deltalake::operations::delete::DeleteBuilder;
 use deltalake::operations::delete::DeleteBuilder;
 use deltalake::operations::optimize::OptimizeBuilder;
@@ -17,6 +18,7 @@ use deltalake::schema::Schema as DeltaSchema;
 use deltalake::storage::DeltaObjectStore;
 use deltalake::{DeltaOps, DeltaTable};
 use parking_lot::{Mutex, RwLock};
+use pgrx::pg_sys::print;
 use pgrx::*;
 use std::{
     any::Any, collections::HashMap, ffi::CStr, ffi::CString, fs::remove_dir_all, path::PathBuf,
@@ -317,17 +319,24 @@ impl ParadeSchemaProvider {
     }
 
     // modeled after vacuum
-    pub async fn delete(&self, table_name: &str, predicate: &str) -> Result<(), ParadeError> {
+    pub async fn delete(
+        &self,
+        table_name: &str,
+        predicate: Option<Expr>,
+    ) -> Result<(), ParadeError> {
         // Open the DeltaTable
         let old_table = Self::get_delta_table(self, table_name).await?;
 
         // Delete (deletebuilder can take a string predicate as long as it can be turned into a datafusion expr)
-        let deleted_table = DeleteBuilder::new(old_table.object_store(), old_table.state)
-            .with_predicate(predicate)
-            .await?
-            .0;
+        let delete_builder = DeleteBuilder::new(old_table.object_store(), old_table.state);
+        let deleted_table = match predicate {
+            Some(expr) => delete_builder.with_predicate(expr),
+            None => delete_builder,
+        }
+        .await?
+        .0;
 
-        // Commit the vacuumed table
+        // Commit the edited table
         Self::register_table(
             self,
             table_name.to_string(),

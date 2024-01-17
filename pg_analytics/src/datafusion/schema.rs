@@ -17,7 +17,8 @@ use deltalake::{DeltaOps, DeltaTable};
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
 use std::{
-    any::Any, collections::HashMap, ffi::CStr, fs::remove_dir_all, path::PathBuf, sync::Arc,
+    any::Any, collections::HashMap, ffi::CStr, ffi::CString, fs::remove_dir_all, path::PathBuf,
+    sync::Arc,
 };
 
 use crate::datafusion::directory::ParadeDirectory;
@@ -25,10 +26,10 @@ use crate::datafusion::substrait::SubstraitTranslator;
 use crate::errors::ParadeError;
 use crate::guc::PARADE_GUC;
 
-pub static PARADE_SCHEMA: &str = "public";
 const BYTES_IN_MB: i64 = 1_048_576;
 
 pub struct ParadeSchemaProvider {
+    schema_name: String,
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
     writers: Mutex<HashMap<String, DeltaWriter>>,
     dir: PathBuf,
@@ -36,8 +37,9 @@ pub struct ParadeSchemaProvider {
 
 impl ParadeSchemaProvider {
     // Creates an empty ParadeSchemaProvider
-    pub async fn try_new(dir: PathBuf) -> Result<Self, ParadeError> {
+    pub async fn try_new(schema_name: &str, dir: PathBuf) -> Result<Self, ParadeError> {
         Ok(Self {
+            schema_name: schema_name.to_string(),
             tables: RwLock::new(HashMap::new()),
             writers: Mutex::new(HashMap::new()),
             dir,
@@ -72,13 +74,25 @@ impl ParadeSchemaProvider {
                     CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()?
                 };
 
+                let schema_oid = unsafe {
+                    pg_sys::get_namespace_oid(
+                        CString::new(self.schema_name.clone())?.as_ptr(),
+                        true,
+                    )
+                };
+
                 // Create a DeltaTable
                 // This is the only place where deltalake::open_table should be called
                 // Calling deltalake::open_table multiple times on the same directory results in an error
                 let delta_table = match Self::table_exist(self, table_name) {
                     true => Self::get_delta_table(self, table_name).await?,
                     false => {
-                        deltalake::open_table(&ParadeDirectory::table_path(&table_oid)?).await?
+                        deltalake::open_table(
+                            ParadeDirectory::table_path(schema_oid, pg_oid)?
+                                .to_str()
+                                .ok_or_else(|| ParadeError::NotFound)?,
+                        )
+                        .await?
                     }
                 };
 
@@ -114,7 +128,8 @@ impl ParadeSchemaProvider {
     // Creates and registers an empty DeltaTable
     pub async fn create_table(&self, pg_relation: &PgRelation) -> Result<(), ParadeError> {
         // Create a RecordBatch with schema from pg_relation
-        let table_oid = pg_relation.oid().as_u32().to_string();
+        let table_oid = pg_relation.oid();
+        let schema_oid = pg_relation.namespace_oid();
         let table_name = pg_relation.name();
         let fields = Self::fields(pg_relation)?;
         let arrow_schema = ArrowSchema::new(fields);
@@ -122,11 +137,17 @@ impl ParadeSchemaProvider {
         let batch = RecordBatch::new_empty(Arc::new(arrow_schema.clone()));
 
         // Create a DeltaTable
-        let mut delta_table = DeltaOps::try_from_uri(&ParadeDirectory::table_path(&table_oid)?)
-            .await?
-            .create()
-            .with_columns(delta_schema.get_fields().to_vec())
-            .await?;
+        ParadeDirectory::create_schema_path(schema_oid)?;
+
+        let mut delta_table = DeltaOps::try_from_uri(
+            &ParadeDirectory::table_path(schema_oid, table_oid)?
+                .to_str()
+                .ok_or_else(|| ParadeError::NotFound)?,
+        )
+        .await?
+        .create()
+        .with_columns(delta_schema.get_fields().to_vec())
+        .await?;
 
         let mut writer = Self::create_writer(
             self,
@@ -361,6 +382,7 @@ impl ParadeSchemaProvider {
         Ok(())
     }
 
+    // Helper function to create a table writer
     fn create_writer(
         &self,
         object_store: Arc<DeltaObjectStore>,

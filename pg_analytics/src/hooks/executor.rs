@@ -57,7 +57,7 @@ pub fn executor_run(
         let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
 
         // Execute the logical plan
-        let recordbatchvec = DatafusionContext::with_provider_context(|_, context| {
+        let recordbatchvec = DatafusionContext::with_session_context(|context| {
             let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
             Ok(task::block_on(dataframe.collect())?)
         })?;

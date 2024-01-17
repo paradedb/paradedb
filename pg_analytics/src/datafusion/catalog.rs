@@ -2,7 +2,12 @@ use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::catalog::{CatalogList, CatalogProvider};
 use deltalake::datafusion::common::DataFusionError;
 use parking_lot::RwLock;
-use std::{any::Any, collections::HashMap, sync::Arc};
+use pgrx::*;
+use std::{any::Any, collections::HashMap, ffi::CStr, sync::Arc};
+
+use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::errors::ParadeError;
 
 pub static PARADE_CATALOG: &str = "datafusion";
 
@@ -15,10 +20,53 @@ pub struct ParadeCatalogList {
 }
 
 impl ParadeCatalog {
-    pub fn new() -> Self {
-        Self {
+    pub fn try_new() -> Result<Self, ParadeError> {
+        Ok(Self {
             schemas: RwLock::new(HashMap::new()),
+        })
+    }
+
+    pub async fn init(&self) -> Result<(), ParadeError> {
+        let delta_dir = ParadeDirectory::delta_path()?;
+
+        for entry in std::fs::read_dir(delta_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_dir() {
+                let schema_oid = path
+                    .file_name()
+                    .ok_or_else(|| ParadeError::NotFound)?
+                    .to_str()
+                    .ok_or_else(|| ParadeError::NotFound)?
+                    .parse()?;
+
+                let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(schema_oid) };
+
+                let schema_name = unsafe {
+                    let schema_name = pg_sys::get_namespace_name(pg_oid);
+                    if schema_name.is_null() {
+                        continue;
+                    }
+
+                    CStr::from_ptr(schema_name).to_str()?.to_owned()
+                };
+
+                let schema_provider = Arc::new(
+                    ParadeSchemaProvider::try_new(
+                        schema_name.as_str(),
+                        ParadeDirectory::schema_path(pg_oid)?,
+                    )
+                    .await?,
+                );
+
+                schema_provider.init().await?;
+
+                Self::register_schema(self, schema_name.as_str(), schema_provider)?;
+            }
         }
+
+        Ok(())
     }
 }
 
@@ -55,10 +103,10 @@ impl CatalogProvider for ParadeCatalog {
 }
 
 impl ParadeCatalogList {
-    pub fn new() -> Self {
-        Self {
+    pub fn try_new() -> Result<Self, ParadeError> {
+        Ok(Self {
             catalogs: RwLock::new(HashMap::new()),
-        }
+        })
     }
 }
 

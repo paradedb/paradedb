@@ -12,17 +12,27 @@ use crate::datafusion::context::DatafusionContext;
 use crate::errors::ParadeError;
 
 pub struct ParadeTable {
-    name: String,
+    table_name: String,
+    schema_name: String,
 }
 
 impl ParadeTable {
     pub fn from_pg(pg_relation: &PgRelation) -> Result<Self, ParadeError> {
-        let name = pg_relation.name().to_string();
-        Ok(Self { name })
+        let table_name = pg_relation.name().to_string();
+        let schema_name = pg_relation.namespace().to_string();
+
+        Ok(Self {
+            table_name,
+            schema_name,
+        })
     }
 
-    pub fn name(&self) -> Result<String, ParadeError> {
-        Ok(self.name.clone())
+    pub fn table_name(&self) -> Result<String, ParadeError> {
+        Ok(self.table_name.clone())
+    }
+
+    pub fn schema_name(&self) -> Result<String, ParadeError> {
+        Ok(self.schema_name.clone())
     }
 
     pub fn arrow_schema(&self) -> Result<Arc<ArrowSchema>, ParadeError> {
@@ -32,25 +42,27 @@ impl ParadeTable {
 
     fn df_schema(&self) -> Result<DFSchema, ParadeError> {
         let source = Self::source(self)?;
+        let reference = TableReference::partial(self.schema_name.clone(), self.table_name.clone());
 
         Ok(DFSchema::try_from_qualified_schema(
-            &self.name,
+            reference,
             source.schema().as_ref(),
         )?)
     }
 
     fn source(&self) -> Result<Arc<dyn TableSource>, ParadeError> {
-        DatafusionContext::with_provider_context(|_, context| {
-            let reference = TableReference::from(self.name.clone());
+        DatafusionContext::with_session_context(|context| {
+            let reference =
+                TableReference::partial(self.schema_name.clone(), self.table_name.clone());
 
             match context.table_exist(&reference) {
                 Ok(true) => {
-                    let provider = task::block_on(context.table_provider(reference))?;
-                    Ok(provider_as_source(provider))
+                    let table_provider = task::block_on(context.table_provider(reference))?;
+                    Ok(provider_as_source(table_provider))
                 }
                 Ok(false) => Err(ParadeError::ContextNotInitialized(format!(
-                    "Table {} not found. Please run `CALL paradedb.init();`.",
-                    self.name
+                    "Table {}.{} not found. Please run `CALL paradedb.init();`.",
+                    self.schema_name, self.table_name
                 ))),
                 Err(err) => Err(ParadeError::DataFusion(err)),
             }

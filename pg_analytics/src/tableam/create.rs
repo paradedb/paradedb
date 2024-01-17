@@ -2,7 +2,12 @@ use async_std::task;
 use core::ffi::c_char;
 use pgrx::*;
 
+use deltalake::datafusion::catalog::CatalogProvider;
+use std::sync::Arc;
+
 use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -41,7 +46,23 @@ fn create_table(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Parade
             "Temp tables are not yet supported".to_string(),
         )),
         pg_sys::RELPERSISTENCE_PERMANENT => {
-            DatafusionContext::with_provider_context(|provider, _| {
+            let schema_name = pg_relation.namespace();
+            let schema_oid = pg_relation.namespace_oid();
+
+            DatafusionContext::with_catalog(|catalog| {
+                if catalog.schema(schema_name).is_none() {
+                    let schema_provider = Arc::new(task::block_on(ParadeSchemaProvider::try_new(
+                        schema_name,
+                        ParadeDirectory::schema_path(schema_oid)?,
+                    ))?);
+
+                    catalog.register_schema(schema_name, schema_provider)?;
+                }
+
+                Ok(())
+            })?;
+
+            DatafusionContext::with_schema_provider(schema_name, |provider| {
                 task::block_on(provider.create_table(&pg_relation))
             })
         }

@@ -4,8 +4,10 @@ use deltalake::datafusion::arrow::array::AsArray;
 use deltalake::datafusion::common::arrow::array::types::UInt64Type;
 use deltalake::datafusion::common::arrow::array::RecordBatch;
 use deltalake::datafusion::error::DataFusionError;
+use deltalake::datafusion::sql::parser;
 use deltalake::datafusion::sql::parser::DFParser;
 use deltalake::datafusion::sql::planner::SqlToRel;
+use deltalake::datafusion::sql::sqlparser::ast;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
 use std::ffi::CStr;
@@ -50,7 +52,9 @@ pub fn executor_run(
 
         // Only use this hook for SELECT queries
         // INSERT/UPDATE/DELETE are handled by the table access method
-        if query_desc.operation != pg_sys::CmdType_CMD_SELECT && query_desc.operation != pg_sys::CmdType_CMD_DELETE {
+        if query_desc.operation != pg_sys::CmdType_CMD_SELECT
+            && query_desc.operation != pg_sys::CmdType_CMD_DELETE
+        {
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }
@@ -64,44 +68,58 @@ pub fn executor_run(
         if is_delete {
             info!("{}", query);
             // find the first WHERE and take everything afterwards...
-            if let Some(index) = query.find("WHERE ") {
-                let predicate = &query[index + "WHERE ".len()..];
-                info!("{}", predicate);
-                DatafusionContext::with_provider_context(|provider, _| {
-                    // TODO: extract table name
-                    task::block_on(provider.delete("t", predicate))
-                })??;
+            // better: parse
+            let ast = DFParser::parse_sql_with_dialect(query, &dialect)
+                .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
+            let statement = &ast[0];
+            if let parser::Statement::Statement(sql_statement) = statement {
+                if let ast::Statement::Delete {
+                    tables,
+                    from,
+                    using,
+                    selection,
+                    returning,
+                } = **sql_statement
+                {
+                    // only one table
+                    let table_name = tables[0].to_string().as_str();
+                    // selection is the WHERE clause
+
+                    DatafusionContext::with_provider_context(|provider, _| {
+                        task::block_on(provider.delete(table_name, selection))
+                    })??;
+                }
             }
-            return Ok(());
+            if is_select {
+                let ast = DFParser::parse_sql_with_dialect(query, &dialect)
+                    .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
+                let statement = &ast[0];
+                info!("query parsed into AST");
+
+                // Convert the AST into a logical plan
+                let context_provider = ParadeContextProvider::new()?;
+                let sql_to_rel = SqlToRel::new(&context_provider);
+                let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
+                info!("converted AST into logical plan");
+
+                // Execute the logical plan
+                let batches = DatafusionContext::with_session_context(|context| {
+                    let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
+                    Ok(task::block_on(dataframe.collect())?)
+                })?;
+
+                // This is for any node types that need to do additional processing on estate
+                let plan: *mut pg_sys::Plan = (*ps).planTree;
+                let node = plan as *mut pg_sys::Node;
+                if (*node).type_ == pg_sys::NodeTag::T_ModifyTable {
+                    let num_updated = batches[0].column(0).as_primitive::<UInt64Type>().value(0);
+                    (*(*query_desc.clone().into_pg()).estate).es_processed = num_updated;
+                }
+
+                // Return result tuples
+                send_tuples_if_necessary(query_desc.into_pg(), batches)?;
+            }
         }
-        if is_select {
-        let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
-        let statement = &ast[0];
-        info!("query parsed into AST");
-
-        // Convert the AST into a logical plan
-        let context_provider = ParadeContextProvider::new()?;
-        let sql_to_rel = SqlToRel::new(&context_provider);
-        let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
-        info!("converted AST into logical plan");
-
-        // Execute the logical plan
-        let batches = DatafusionContext::with_session_context(|context| {
-            let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
-            Ok(task::block_on(dataframe.collect())?)
-        })?;
-
-        // This is for any node types that need to do additional processing on estate
-        let plan: *mut pg_sys::Plan = (*ps).planTree;
-        let node = plan as *mut pg_sys::Node;
-        if (*node).type_ == pg_sys::NodeTag::T_ModifyTable {
-            let num_updated = batches[0].column(0).as_primitive::<UInt64Type>().value(0);
-            (*(*query_desc.clone().into_pg()).estate).es_processed = num_updated;
-        }
-
-        // Return result tuples
-        send_tuples_if_necessary(query_desc.into_pg(), batches)?;
 
         Ok(())
     }

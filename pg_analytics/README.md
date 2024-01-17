@@ -37,9 +37,9 @@ SELECT COUNT(*) FROM t;
 
 ### Features Supported
 
+- [x] 100x faster Clickbench performance than regular Postgres, no database tuning required
 - [x] `deltalake` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
 - [x] `INSERT`, `UPDATE`, `DELETE`, `VACUUM`
-- [x] 100x faster analytical performance than regular Postgres, no database tuning required (see Clickbench results)
 
 ### Known Limitations
 

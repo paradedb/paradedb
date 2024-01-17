@@ -62,7 +62,7 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 
 ### Column-Oriented Storage
 
-Today, Postgres tables, known as heap tables, organize data by row. While this makes sense for operational data, it means that analytics queries over large tables require separate reads of every row, which is expensive. As a result, most dedicated analytics (i.e. OLAP) databases organize data by column such that a single read can see many rows at once.
+Regular Postgres tables, known as heap tables, organize data by row. While this makes sense for operational data, it means that analytics queries over large tables require separate reads of every row, which is expensive. As a result, most dedicated analytics (i.e. OLAP) databases organize data by column such that a single read can see many rows at once.
 
 ### Vectorized Query Execution
 

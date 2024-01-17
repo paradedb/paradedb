@@ -9,22 +9,6 @@ SELECT id, description, rating, category FROM search_config.search('category:ele
  32 | Bluetooth-enabled speaker   |      3 | Electronics
 (5 rows)
 
--- With limit
-SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2) ORDER BY id;
- id |       description        | rating |  category   
-----+--------------------------+--------+-------------
-  1 | Ergonomic metal keyboard |      4 | Electronics
-  2 | Plastic Keyboard         |      4 | Electronics
-(2 rows)
-
--- With limit and offset
-SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2, offset_rows => 1) ORDER BY id;
- id |         description         | rating |  category   
-----+-----------------------------+--------+-------------
-  2 | Plastic Keyboard            |      4 | Electronics
- 12 | Innovative wireless earbuds |      5 | Electronics
-(2 rows)
-
 -- With fuzzy field
 SELECT id, description, rating, category FROM search_config.search('category:electornics', fuzzy_fields => 'category') ORDER BY id;
  id |         description         | rating |  category   

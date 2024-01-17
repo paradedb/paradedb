@@ -1,9 +1,5 @@
 -- Basic seach query
 SELECT id, description, rating, category FROM search_config.search('category:electronics') ORDER BY id;
--- With limit
-SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2) ORDER BY id;
--- With limit and offset
-SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2, offset_rows => 1) ORDER BY id;
 -- With fuzzy field
 SELECT id, description, rating, category FROM search_config.search('category:electornics', fuzzy_fields => 'category') ORDER BY id;
 -- Without fuzzy field

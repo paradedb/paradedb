@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-  <b>PostgreSQL for Real-Time Search & Analytics</b> <br />
+  <b>Postgres for Real-Time Search & Analytics</b> <br />
 </p>
 
 <h3 align="center">

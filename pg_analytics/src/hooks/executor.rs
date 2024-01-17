@@ -63,21 +63,27 @@ pub fn executor_run(
             let ast = DFParser::parse_sql_with_dialect(query, &dialect)
                 .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
             let statement = &ast[0];
-            if let parser::Statement::Statement(sql_statement) = statement {
+            if let parser::Statement::Statement(sql_statement) = statement.clone() {
                 if let ast::Statement::Delete {
                     tables,
                     from,
                     using,
                     selection,
                     returning,
-                } = **sql_statement
+                } = *sql_statement
                 {
                     // only one table
-                    let table_name = tables[0].to_string().as_str();
+                    let table_name = from[0].relation.to_string();
+                    // info!("Table {}", table_name);
                     // selection is the WHERE clause
-
+                    /*
+                    if let Some(expr) = selection {
+                        info!("{}", expr);
+                        info!("{}", expr.to_string());
+                    }
+                    */
                     DatafusionContext::with_provider_context(|provider, _| {
-                        task::block_on(provider.delete(table_name, selection))
+                        task::block_on(provider.delete(table_name.as_str(), selection))
                     })??;
                 }
             }

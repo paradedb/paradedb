@@ -15,6 +15,9 @@ mod tests {
 
         Spi::run(SETUP_SQL).expect("error running setup query");
 
+        // Allow the commits to flush to disk. This doesn't seem to be a problem locally,
+        // but has been necessary for older versions of Postgres to pass tests in CI.
+        std::thread::sleep(std::time::Duration::from_secs(2));
         let highlight = Spi::get_one(QUERY_SQL);
 
         // Assert that the highlight returned by the tokenizer is as expected.

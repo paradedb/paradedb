@@ -33,34 +33,40 @@ SELECT COUNT(*) FROM t;
 
 ## Roadmap
 
-`pg_analytics` is currently in beta. The following is a non-exhaustive list of known limitations of `deltalake` tables.
-As `pg_analytics` becomes production-ready, many of these limitations will be resolved.
+`pg_analytics` is currently in beta. The following features are supported:
 
-- [ ] Foreign keys
-- [ ] Index scans
+- [ ] `deltalake` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
+- [ ] `INSERT`, `UPDATE`, `DELETE`, `VACUUM`
+- [ ] 100x faster analytical performance than regular Postgres, no database tuning required (see Clickbench results)
+
+The following is a non-exhaustive list of known limitations of `deltalake` tables. As `pg_analytics` becomes production-ready, many of these limitations will be resolved.
+
 - [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
 - [ ] User-defined functions, aggregations, or types
 - [ ] Partitioned tables
 - [ ] Some Postgres types like arrays and JSON
+- [ ] Write-ahead-log (WAL) support
+- [ ] Foreign keys
+- [ ] Index scans
 - [ ] `TEMP` tables
 - [ ] Using an external data lake as a table storage provider
 - [ ] Full text search over `deltalake` tables with `pg_bm25`
 
 ## How It Works
 
-`pg_analytics` is built on Apache Arrow, Parquet, and Datafusion — state-of-the-art libraries for column-oriented memory formats, column-oriented file format, and vectorized query execution, respectively. They are the building blocks of many modern analytical databases.
+`pg_analytics` introduces column-oriented storage and vectorized query execution to Postgres via Apache Parquet, Arrow, and Datafusion. These libraries are the building blocks of many modern analytical databases.
 
-### Column-Oriented Format
+### Column-Oriented Storage
 
-Today, Postgres tables store data row by row. While this makes sense for operational data, it means that analytics queries over large tables require individual reads of every row, which is computationally expensive. As a result, most dedicated analytics (i.e. OLAP) databases organize data by column such that a single read can see many rows at once.
+Today, Postgres tables, known as heap tables, organize data by row. While this makes sense for operational data, it means that analytics queries over large tables require separate reads of every row, which is expensive. As a result, most dedicated analytics (i.e. OLAP) databases organize data by column such that a single read can see many rows at once.
 
 ### Vectorized Query Execution
 
-Vectorized query execution is a technique that takes advantage of modern CPUs to divide column-oriented data into batches and process the batches in parallel.
+Vectorized query execution is a technique that takes advantage of modern CPUs to break column-oriented data into batches and process the batches in parallel.
 
 ### Postgres Integration
 
-`pg_analytics` embeds Arrow, Parquet, and Datafusion inside Postgres via executor hooks and the table access method API. The table access method enables Postgres tables to be backed by Parquet files and registers them with Postgres' system catalogs. Executor hooks are used to intercept queries to these tables and reroute them to Datafusion, which creates an optimal query plan, executes the query, and sends the results back to Postgres.
+`pg_analytics` embeds Arrow, Parquet, and Datafusion inside Postgres via executor hooks and the table access method API. Executor hooks are used to intercept queries to these tables and reroute them to Datafusion, which creates an optimal query plan, executes the query, and sends the results back to Postgres. The table access method persists Postgres tables as Parquet files and registers them with Postgres' system catalogs. The Parquet files are managed by Delta Lake, which provides ACID transactions.
 
 ## Development
 

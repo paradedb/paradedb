@@ -18,12 +18,8 @@ pub fn rank_bm25(
     let top_docs = scan_state.search();
 
     let mut field_rows = Vec::new();
-    for (score, doc_address) in top_docs.into_iter() {
-        let document = scan_state
-            .doc(doc_address)
-            .unwrap_or_else(|err| panic!("error retrieving document for rank: {err:?}"));
-        let key = parade_index.get_key_value(&document);
-        field_rows.push((key, score));
+    for (score, _) in top_docs.into_iter() {
+        field_rows.push((score.key as i64, score.bm25));
     }
     TableIterator::new(field_rows)
 }
@@ -92,7 +88,7 @@ pub fn minmax_bm25(
         .iter()
         .map(|(score, _)| *score)
         .fold((f32::MAX, f32::MIN), |(min, max), score| {
-            (min.min(score), max.max(score))
+            (min.min(score.bm25), max.max(score.bm25))
         });
     let score_range = max_score - min_score;
     let mut field_rows = Vec::new();
@@ -106,7 +102,7 @@ pub fn minmax_bm25(
         let normalized_score = if score_range == 0.0 {
             1.0
         } else {
-            (score - min_score) / score_range
+            (score.bm25 - min_score) / score_range
         };
 
         field_rows.push((key, normalized_score));

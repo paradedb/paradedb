@@ -7,15 +7,17 @@ use tantivy::{
     schema::*,
     DocAddress, Score, Searcher,
 };
+use tantivy::{DocId, SegmentReader};
 
 use super::index::ParadeIndex;
+use super::score::ParadeIndexScore;
 
 pub struct TantivyScanState {
     pub schema: Schema,
     pub query: Box<dyn Query>,
     pub parser: QueryParser,
     pub searcher: Searcher,
-    pub iterator: *mut std::vec::IntoIter<(Score, DocAddress)>,
+    pub iterator: *mut std::vec::IntoIter<(ParadeIndexScore, DocAddress)>,
     pub config: SearchConfig,
     pub key_field_name: String,
 }
@@ -58,7 +60,7 @@ impl TantivyScanState {
         }
     }
 
-    pub fn search(&mut self) -> Vec<(f32, DocAddress)> {
+    pub fn search(&mut self) -> Vec<(ParadeIndexScore, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
             // We use unwrap_or_else here so this block doesn't run unless
@@ -73,9 +75,28 @@ impl TantivyScanState {
         });
 
         let offset = self.config.offset_rows.unwrap_or(0);
+        let key_field_name = self.key_field_name.clone();
+        let top_docs_by_custom_score = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
+            move |segment_reader: &SegmentReader| {
+                let key_field_value = segment_reader
+                    .fast_fields()
+                    .u64(&key_field_name)
+                    .unwrap_or_else(|err| {
+                        panic!("key field {} is not a u64: {err:?}", &key_field_name)
+                    })
+                    .first(0)
+                    .unwrap_or_else(|| panic!("key field {} not present", &key_field_name));
+
+                // We can now define our actual scoring function
+                move |_doc: DocId, original_score: Score| ParadeIndexScore {
+                    bm25: original_score,
+                    key: key_field_value,
+                }
+            },
+        );
 
         self.searcher
-            .search(&self.query, &TopDocs::with_limit(limit).and_offset(offset))
+            .search(&self.query, &top_docs_by_custom_score)
             .expect("failed to search")
     }
 

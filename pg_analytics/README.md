@@ -32,6 +32,21 @@ INSERT INTO t VALUES (1), (2), (3);
 SELECT COUNT(*) FROM t;
 ```
 
+## Roadmap
+
+`pg_analytics` is currently in beta. The following is a non-exhaustive list of known limitations of `deltalake` tables.
+As `pg_analytics` becomes production-ready, many of these limitations will be resolved.
+
+- [ ] Foreign keys
+- [ ] Index scans
+- [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
+- [ ] User-defined functions, aggregations, or types
+- [ ] Partitioned tables
+- [ ] Some Postgres types like arrays and JSON
+- [ ] `TEMP` tables
+- [ ] Using an external data lake as a table storage provider
+- [ ] Full text search over `deltalake` tables with `pg_bm25`
+
 ## How It Works
 
 `pg_analytics` is built on Apache Arrow, Parquet, and Datafusion — state-of-the-art libraries for a column-oriented memory format, column-oriented file format, and vectorized query execution, respectively. They are the building blocks of many modern analytical databases.

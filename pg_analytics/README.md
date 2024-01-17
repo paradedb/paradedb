@@ -5,8 +5,7 @@
 
 ## Overview
 
-`pg_analytics` is an extension that transforms Postgres into a very fast analytical database. Without needing to leave
-Postgres, query speeds are comparable to those of dedicated OLAP databases like Clickhouse or DuckDB (see Clickbench results).
+`pg_analytics` is an extension that transforms Postgres into a very fast analytical database. Query speeds are comparable to those of dedicated OLAP databases like Clickhouse or DuckDB — without the need to leave Postgres.
 
 The primary dependencies are:
 

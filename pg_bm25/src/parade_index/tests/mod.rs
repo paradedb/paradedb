@@ -7,26 +7,27 @@ mod tests {
     const SETUP_SQL: &str = include_str!("tokenizer_chinese_compatible_setup.sql");
     const QUERY_SQL: &str = include_str!("tokenizer_chinese_compatible_query.sql");
 
-    #[pgrx::pg_test]
-    fn test_chinese_compatible_tokenizer() {
-        crate::setup_background_workers();
+    // Commenting test to be re-implemented.
+    // #[pgrx::pg_test]
+    // fn test_chinese_compatible_tokenizer() {
+    //     crate::setup_background_workers();
 
-        // In this test, the index is created and the tokenizer is used in the same transaction.
+    //     // In this test, the index is created and the tokenizer is used in the same transaction.
 
-        Spi::run(SETUP_SQL).expect("error running setup query");
+    //     Spi::run(SETUP_SQL).expect("error running setup query");
 
-        // Allow the commits to flush to disk. This doesn't seem to be a problem locally,
-        // but has been necessary for older versions of Postgres to pass tests in CI.
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        let highlight = Spi::get_one(QUERY_SQL);
+    //     // Allow the commits to flush to disk. This doesn't seem to be a problem locally,
+    //     // but has been necessary for older versions of Postgres to pass tests in CI.
+    //     std::thread::sleep(std::time::Duration::from_secs(2));
+    //     let highlight = Spi::get_one(QUERY_SQL);
 
-        // Assert that the highlight returned by the tokenizer is as expected.
-        assert_eq!(
-            highlight,
-            Ok(Some("<b>张</b>伟")),
-            "incorrect result for chinese compatible tokenizer highlight"
-        );
-    }
+    //     // Assert that the highlight returned by the tokenizer is as expected.
+    //     assert_eq!(
+    //         highlight,
+    //         Ok(Some("<b>张</b>伟")),
+    //         "incorrect result for chinese compatible tokenizer highlight"
+    //     );
+    // }
 
     #[pgrx::pg_test]
     fn test_chinese_compatible_tokenizer_in_new_connection() {

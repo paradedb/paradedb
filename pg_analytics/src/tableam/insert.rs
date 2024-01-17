@@ -59,12 +59,13 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
 #[inline]
 fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let table_name = pg_relation.name();
     let parade_table = ParadeTable::from_pg(&pg_relation)?;
+    let table_name = parade_table.table_name()?;
+    let schema_name = parade_table.schema_name()?;
     let arrow_schema = parade_table.arrow_schema()?;
 
-    DatafusionContext::with_provider_context(|provider, _| {
-        task::block_on(provider.flush_and_commit(table_name, arrow_schema))
+    DatafusionContext::with_schema_provider(&schema_name, |provider| {
+        task::block_on(provider.flush_and_commit(&table_name, arrow_schema))
     })?;
 
     Ok(())
@@ -96,12 +97,13 @@ fn insert_tuples(
 
     // Create a RecordBatch
     let parade_table = ParadeTable::from_pg(&pg_relation)?;
-    let table_name = parade_table.name()?;
+    let table_name = parade_table.table_name()?;
+    let schema_name = parade_table.schema_name()?;
     let arrow_schema = parade_table.arrow_schema()?;
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
     // Write the RecordBatch to the Delta table
-    DatafusionContext::with_provider_context(|provider, _| {
+    DatafusionContext::with_schema_provider(&schema_name, |provider| {
         task::block_on(provider.write(&table_name, batch))?;
 
         if commit {

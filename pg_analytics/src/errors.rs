@@ -2,6 +2,7 @@ use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use std::ffi::NulError;
+use std::num::ParseIntError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
@@ -32,6 +33,12 @@ pub enum ParadeError {
 
 impl From<&str> for ParadeError {
     fn from(err: &str) -> Self {
+        ParadeError::Generic(err.to_string())
+    }
+}
+
+impl From<ParseIntError> for ParadeError {
+    fn from(err: ParseIntError) -> Self {
         ParadeError::Generic(err.to_string())
     }
 }

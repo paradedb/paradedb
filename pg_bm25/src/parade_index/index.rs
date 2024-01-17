@@ -1,28 +1,33 @@
-use chrono::Utc;
-use pgrx::pg_sys::{IndexBulkDeleteCallback, IndexBulkDeleteResult, ItemPointerData};
+use once_cell::unsync::Lazy;
+use pgrx::pg_sys::ItemPointerData;
 use pgrx::*;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::json;
 use shared::plog;
 use std::collections::HashMap;
 use std::error::Error;
-use std::ffi::{CStr, CString};
-use std::fs::{self, create_dir_all, remove_dir_all, File};
+use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher, Term};
-use tantivy::{IndexReader, IndexWriter, SingleSegmentIndexWriter, TantivyError};
-
-use crate::index_access::options::ParadeOptions;
-use crate::index_access::utils::SearchConfig;
-use crate::json::builder::{JsonBuilder, JsonBuilderValue};
-use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
-use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
+use std::sync::{Arc, Mutex, PoisonError};
+use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher};
+use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
+use thiserror::Error;
 
 use super::state::TantivyScanState;
+use crate::env::{self, Transaction};
+use crate::index_access::options::ParadeOptions;
+use crate::index_access::utils::{row_to_index_entries, SearchConfig};
+use crate::parade_index::fields::{ParadeOption, ParadeOptionMap};
+use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
+use crate::writer::WriterRequest;
+use crate::writer::{self, IndexEntry, IndexValue};
 
+type WriterClient = writer::Client<writer::WriterRequest>;
+
+const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
 const CACHE_NUM_BLOCKS: usize = 10;
-const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
+const TRANSACTION_CACHE_ID: &str = "parade_index";
 
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
@@ -39,46 +44,30 @@ const INDEX_TANTIVY_MEMORY_BUDGET: usize = 50_000_000;
 /// It's also crucial to remember that this cache is NOT shared across different backend
 /// processes. Each PostgreSQL backend process will have its own separate instance of
 /// this cache, tied to its own lifecycle.
-static mut PARADE_INDEX_MEMORY: Option<HashMap<String, ParadeIndex>> = None;
+static mut PARADE_INDEX_MEMORY: Lazy<HashMap<String, ParadeIndex>> = Lazy::new(HashMap::new);
 
-#[derive(PartialEq, Eq, Hash)]
-pub enum ParadeIndexKey {
-    Number(i64),
-}
+/// A global singleton for the instance of the client to the background writer process.
+/// The client is agnotistic to which index we're writing to, so keeping a global one
+/// ensures that the instance can be re-used if a single transaction needs to write to
+/// multiple indexes.
+static mut PARADE_INDEX_WRITER_CLIENT: Lazy<Arc<Mutex<WriterClient>>> =
+    Lazy::new(|| Arc::new(Mutex::new(writer::Client::from_writer_addr())));
 
-impl TryFrom<&JsonBuilderValue> for ParadeIndexKey {
-    type Error = Box<dyn Error>;
-
-    fn try_from(value: &JsonBuilderValue) -> Result<Self, Self::Error> {
-        match value {
-            JsonBuilderValue::i16(v) => Ok(ParadeIndexKey::Number(*v as i64)),
-            JsonBuilderValue::i32(v) => Ok(ParadeIndexKey::Number(*v as i64)),
-            JsonBuilderValue::i64(v) => Ok(ParadeIndexKey::Number(*v)),
-            JsonBuilderValue::u32(v) => Ok(ParadeIndexKey::Number(*v as i64)),
-            JsonBuilderValue::u64(v) => Ok(ParadeIndexKey::Number(*v as i64)),
-            _ => Err(format!(
-                "BM25 index key field must be an integer, received: {:#?}",
-                value
-            )
-            .into()),
-        }
-    }
-}
-
-#[derive(Clone, Serialize)]
+#[derive(Serialize)]
 pub struct ParadeIndex {
     pub name: String,
     pub fields: HashMap<String, Field>,
     pub field_configs: ParadeOptionMap,
     pub key_field_name: String,
-    #[serde(skip_serializing, deserialize_with = "ParadeIndex::deserialize_reader")]
-    reader: IndexReader,
+    pub data_directory: String,
+    #[serde(skip_serializing)]
+    pub reader: IndexReader,
+    #[serde(skip_serializing)]
+    pub key_field: Field,
+    #[serde(skip_serializing)]
+    pub ctid_field: Field,
     #[serde(skip_serializing)]
     underlying_index: Index,
-    #[serde(skip_serializing)]
-    key_field: Field,
-    #[serde(skip_serializing)]
-    timestamp_field: Field,
 }
 
 impl ParadeIndex {
@@ -86,15 +75,13 @@ impl ParadeIndex {
         name: String,
         heap_relation: &PgRelation,
         options: PgBox<ParadeOptions>,
-    ) -> Result<Self, Box<dyn Error>> {
-        let dir = Self::get_data_directory(&name);
-        let path = Path::new(&dir);
+    ) -> Result<&mut Self, Box<dyn Error>> {
+        let data_directory = Self::data_directory(&name);
 
-        if path.exists() {
-            remove_dir_all(path).expect("failed to remove paradedb directory");
-        }
-
-        create_dir_all(path).expect("failed to create paradedb directory");
+        // This will fail if the index directory already exists.
+        // This should have been cleaned up correctly by the writer server, so we won't
+        // attempt to delete the index directory here.
+        Self::create_index_directory(&data_directory).expect("failed to create paradedb directory");
 
         let key_field_name = options.get_key_field();
         let result = Self::build_index_schema(heap_relation, &key_field_name, &options);
@@ -105,6 +92,15 @@ impl ParadeIndex {
             }
         };
         let settings = IndexSettings {
+            // We use the key_field for sorting this index. This is useful for performance reasons
+            // within Tantivy, but more importantly to us it stabilize the ordering of query results.
+            // If you do not pre-sort the index with sort_by_field, then Tantivy will order the
+            // results in the order of their document address in the index, which will not always
+            // match up with the order you'd expect, and is not a stable ordering.
+            sort_by_field: Some(IndexSortByField {
+                field: key_field_name.to_string(),
+                order: Order::Asc,
+            }),
             docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
             ..Default::default()
         };
@@ -112,15 +108,15 @@ impl ParadeIndex {
         let mut underlying_index = Index::builder()
             .schema(schema.clone())
             .settings(settings.clone())
-            .create_in_dir(dir)
+            .create_in_dir(&data_directory)
             .expect("failed to create index");
 
         let key_field = schema.get_field(&key_field_name).unwrap_or_else(|_| {
             panic!("error creating index: key_field '{key_field_name}' does not exist in schema",)
         });
 
-        let timestamp_field = schema.get_field("__timestamp").unwrap_or_else(|_| {
-            panic!("error creating index: timestamp field '__timestamp' does not exist in schema",)
+        let ctid_field = schema.get_field("ctid").unwrap_or_else(|_| {
+            panic!("error deserializing index: ctid field does not exist in schema",)
         });
 
         // Save the json_fields used to configure the index to disk.
@@ -157,6 +153,7 @@ impl ParadeIndex {
                 "field_configs": field_configs
             })
         );
+
         let new_self = Self {
             name: name.clone(),
             fields,
@@ -164,8 +161,9 @@ impl ParadeIndex {
             reader,
             underlying_index,
             key_field_name,
+            data_directory,
             key_field,
-            timestamp_field,
+            ctid_field,
         };
 
         // Serialize ParadeIndex to disk so it can be initialized by other connections.
@@ -173,10 +171,21 @@ impl ParadeIndex {
 
         // Save a reference to this ParadeIndex so it can be re-used by this connection.
         unsafe {
-            new_self.to_cached_index();
+            new_self.into_cached_index();
         }
 
-        Ok(new_self)
+        // We need to return the Self that is borrowed from the cache.
+        let new_self_ref = Self::from_index_name(name.to_string().as_ref());
+        Ok(new_self_ref)
+    }
+
+    fn data_directory(name: &str) -> String {
+        format!(
+            "{}/{}/{}",
+            env::postgres_data_dir_path().display(),
+            "paradedb",
+            name
+        )
     }
 
     fn setup_tokenizers(underlying_index: &mut Index, field_configs: &ParadeOptionMap) {
@@ -191,164 +200,40 @@ impl ParadeIndex {
             .try_into()
     }
 
-    unsafe fn from_cached_index(name: &str) -> Option<Self> {
-        // This function needs to be unsafe because it accesses
-        // data from a static mut variable.
-        // If the cache has not been initialized for this process,
-        // initialize it first.
-        if PARADE_INDEX_MEMORY.is_none() {
-            PARADE_INDEX_MEMORY = Some(HashMap::new());
-            return None;
-        }
-
-        PARADE_INDEX_MEMORY.as_ref()?.get(name).cloned()
+    unsafe fn into_cached_index(self) {
+        PARADE_INDEX_MEMORY.insert(self.name.clone(), self);
     }
 
-    unsafe fn to_cached_index(&self) {
-        if PARADE_INDEX_MEMORY.is_none() {
-            PARADE_INDEX_MEMORY = Some(HashMap::new());
-        }
-
-        PARADE_INDEX_MEMORY
-            .as_mut()
-            .unwrap()
-            .insert(self.name.clone(), self.clone());
-    }
-
-    pub fn from_index_name(name: &str) -> Self {
+    pub fn from_index_name<'a>(name: &str) -> &'a mut Self {
         unsafe {
-            // First check cache to see if we can retrieve the index from memory.
-            if let Some(new_self) = Self::from_cached_index(name) {
+            if let Some(new_self) = PARADE_INDEX_MEMORY.get_mut(name) {
                 return new_self;
             }
         }
 
-        let new_self = Self::from_disk(name);
+        let index_directory_path = Self::data_directory(name);
+        let new_self =
+            Self::from_disk(&index_directory_path).expect("could not retrieve index from disk");
 
         // Since we've re-fetched the index, save it to the cache.
         unsafe {
-            new_self.to_cached_index();
+            new_self.into_cached_index();
         }
 
-        new_self
+        Self::from_index_name(name)
     }
 
-    pub fn get_key_value(&self, document: &Document) -> ParadeIndexKey {
+    pub fn get_key_value(&self, document: &Document) -> i64 {
         let key_field_name = &self.key_field_name;
         let value = document.get_first(self.key_field).unwrap_or_else(|| {
             panic!("cannot find key field '{key_field_name}' on retrieved document")
         });
 
         match value {
-            tantivy::schema::Value::U64(val) => ParadeIndexKey::Number(*val as i64),
-            tantivy::schema::Value::I64(val) => ParadeIndexKey::Number(*val),
-            _ => panic!("invalid type for parade index key in document"),
-        }
-    }
-
-    pub fn get_timestamp_value(&self, document: &Document) -> i64 {
-        let timestamp_field_name = "__timestamp";
-        let value = document.get_first(self.timestamp_field).unwrap_or_else(|| {
-            panic!("cannot find key field '{timestamp_field_name}' on retrieved document")
-        });
-
-        match value {
             tantivy::schema::Value::U64(val) => *val as i64,
             tantivy::schema::Value::I64(val) => *val,
-            _ => panic!("invalid type for timestamp in document"),
+            _ => panic!("invalid type for parade index key in document"),
         }
-    }
-
-    pub fn insert_with_writer(
-        &mut self,
-        writer: &mut SingleSegmentIndexWriter,
-        ctid: ItemPointerData,
-        builder: JsonBuilder,
-    ) {
-        // This method is both an implemenation for `self.insert`, and used publicly
-        // during index build, where we want to make sure that the same writer is used
-        // for the entire build.
-        let mut doc: Document = Document::new();
-        for (col_name, value) in builder.values.iter() {
-            let field_option = self.fields.get(col_name.trim_matches('"'));
-            if let Some(field) = field_option {
-                value.add_to_tantivy_doc(&mut doc, field);
-            }
-        }
-
-        let timestamp = Utc::now().timestamp();
-        let timestamp_field_option = self.fields.get("__timestamp");
-        doc.add_i64(*timestamp_field_option.unwrap(), timestamp);
-
-        let ctid_field_option = self.fields.get("ctid");
-        doc.add_u64(*ctid_field_option.unwrap(), item_pointer_to_u64(ctid));
-        writer.add_document(doc).expect("failed to add document");
-    }
-
-    pub fn insert(&mut self, ctid: ItemPointerData, builder: JsonBuilder) {
-        // We expect this method to be called during regular inserts (after index creation).
-        // We need to create a new writer each time to avoid race conditions, and make sure
-        // to reload the reader afterwards.
-        let mut writer = self
-            .single_segment_writer()
-            .expect("Could not retrieve single segment writer for insert");
-        self.insert_with_writer(&mut writer, ctid, builder);
-        writer.commit().unwrap();
-        self.reload();
-    }
-
-    pub fn bulk_delete(
-        &self,
-        mut stats_binding: PgBox<IndexBulkDeleteResult, AllocatedByPostgres>,
-        callback: IndexBulkDeleteCallback,
-        callback_state: *mut ::std::os::raw::c_void,
-    ) -> PgBox<IndexBulkDeleteResult, AllocatedByPostgres> {
-        let mut index_writer = self
-            .underlying_index
-            .writer(INDEX_TANTIVY_MEMORY_BUDGET)
-            .unwrap(); // Adjust the size as
-                       // necessary
-
-        let schema = self.underlying_index.schema();
-        let ctid_field = schema
-            .get_field("ctid")
-            .expect("Field 'ctid' not found in schema");
-
-        let searcher = self.searcher();
-
-        for segment_reader in searcher.segment_readers() {
-            let store_reader = segment_reader
-                .get_store_reader(CACHE_NUM_BLOCKS)
-                .expect("Failed to get store reader");
-
-            for doc_id in 0..segment_reader.num_docs() {
-                if let Ok(stored_fields) = store_reader.get(doc_id) {
-                    if let Some(Value::U64(ctid_val)) = stored_fields.get_first(ctid_field) {
-                        if let Some(actual_callback) = callback {
-                            let mut ctid = pg_sys::ItemPointerData::default();
-                            u64_to_item_pointer(*ctid_val, &mut ctid);
-
-                            let should_delete =
-                                unsafe { actual_callback(&mut ctid, callback_state) };
-
-                            if should_delete {
-                                let term_to_delete = Term::from_field_u64(ctid_field, *ctid_val);
-                                index_writer.delete_term(term_to_delete);
-                                stats_binding.pages_deleted += 1;
-                            } else {
-                                stats_binding.num_pages += 1;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        index_writer
-            .prepare_commit()
-            .expect("could not prepare_commit");
-        index_writer.commit().unwrap();
-        stats_binding
     }
 
     pub fn query_parser(&self) -> QueryParser {
@@ -361,9 +246,17 @@ impl ParadeIndex {
         )
     }
 
-    pub fn scan_state(&self, config: &SearchConfig) -> TantivyScanState {
-        self.reload();
-        TantivyScanState::new(self, config)
+    pub fn scan_state(&self, config: &SearchConfig) -> Result<TantivyScanState, ParadeIndexError> {
+        // Prepare to perform a search.
+        // In case this is happening in the same transaction as an index build or an insert,
+        // we want to commit first so that the most recent results appear.
+        let writer_client = self.writer_client();
+        if Transaction::needs_commit(TRANSACTION_CACHE_ID)? {
+            writer_client.lock()?.request(WriterRequest::Commit)?
+        }
+
+        self.reader.reload()?;
+        Ok(TantivyScanState::new(self, config))
     }
 
     pub fn schema(&self) -> Schema {
@@ -374,56 +267,31 @@ impl ParadeIndex {
         self.reader.searcher()
     }
 
-    pub fn single_segment_writer(&self) -> Result<SingleSegmentIndexWriter, TantivyError> {
-        SingleSegmentIndexWriter::new(self.underlying_index.clone(), INDEX_TANTIVY_MEMORY_BUDGET)
+    /// Retrieve an owned writer for a given index. This is a static method, as
+    /// we expect to be called from the writer process. The return type needs to
+    /// be entirely owned by the new process, with no references.
+    pub fn writer(index_directory_path: &str) -> Result<IndexWriter, ParadeIndexError> {
+        let parade_index = Self::from_disk(index_directory_path)?;
+        let index_writer = parade_index
+            .underlying_index
+            .writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
+        Ok(index_writer)
     }
 
-    pub fn writer(&self) -> Result<IndexWriter, TantivyError> {
-        self.underlying_index.writer(INDEX_TANTIVY_MEMORY_BUDGET)
+    pub fn get_field_configs_path<T: AsRef<Path>>(index_directory_path: T) -> String {
+        format!(
+            "{}_parade_field_configs.json",
+            index_directory_path.as_ref().display()
+        )
     }
 
-    pub fn reload(&self) {
-        self.reader.reload().unwrap();
-    }
-
-    pub fn garbage_collect_files(&self) {
-        let index_writer = self
-            .writer()
-            .expect("Could not create writer to garbage collect files");
-
-        index_writer
-            .garbage_collect_files()
-            .wait()
-            .expect("Could not collect garbage");
-    }
-
-    fn get_data_directory(name: &str) -> String {
-        unsafe {
-            let option_name_cstr =
-                CString::new("data_directory").expect("failed to create CString");
-            let data_dir_str = String::from_utf8(
-                CStr::from_ptr(pg_sys::GetConfigOptionByName(
-                    option_name_cstr.as_ptr(),
-                    std::ptr::null_mut(),
-                    true,
-                ))
-                .to_bytes()
-                .to_vec(),
-            )
-            .expect("Failed to convert C string to Rust string");
-
-            format!("{}/{}/{}", data_dir_str, "paradedb", name)
-        }
-    }
-
-    fn get_field_configs_path(name: &str) -> String {
-        let dir_path = Self::get_data_directory(name);
-        format!("{}_parade_field_configs.json", dir_path)
+    fn writer_client(&self) -> Arc<Mutex<writer::Client<WriterRequest>>> {
+        unsafe { PARADE_INDEX_WRITER_CLIENT.clone() }
     }
 
     fn to_disk(&self) {
         let index_name = &self.name;
-        let config_path = &Self::get_field_configs_path(index_name);
+        let config_path = &Self::get_field_configs_path(&self.data_directory);
         let serialized_data = serde_json::to_string(self).unwrap_or_else(|err| {
             panic!("could not serialize index config for {index_name}: {err:?}")
         });
@@ -442,15 +310,162 @@ impl ParadeIndex {
         file.flush().unwrap();
     }
 
-    fn from_disk(index_name: &str) -> Self {
-        let config_path = &Self::get_field_configs_path(index_name);
-        let serialized_data = fs::read_to_string(config_path).unwrap_or_else(|err| {
-            panic!("could not read index config for {index_name} from {config_path}: {err:?}")
-        });
+    /// This function must not panic, because it use used by the ParadeServer, which cannot
+    /// handle panics.
+    fn from_disk(index_directory_path: &str) -> Result<Self, ParadeIndexError> {
+        let config_path = &Self::get_field_configs_path(index_directory_path);
+        let serialized_data = fs::read_to_string(config_path)?;
+        let new_self = serde_json::from_str(&serialized_data)?;
+        Ok(new_self)
+    }
 
-        serde_json::from_str(&serialized_data).unwrap_or_else(|err| {
-            panic!("could not deserialize config from disk for index {index_name}: {err:?}");
-        })
+    fn register_commit_callback(&self) -> Result<(), ParadeIndexError> {
+        let writer_client = self.writer_client();
+        Transaction::call_once_on_precommit(TRANSACTION_CACHE_ID, move || {
+            writer_client
+                .lock()
+                .map_err(ParadeIndexError::from)
+                .and_then(|mut client| {
+                    client
+                        .request(WriterRequest::Commit)
+                        .map_err(ParadeIndexError::from)
+                })
+                .unwrap_or_else(|err| {
+                    pgrx::log!("error while sending index commit to writer server: {err:?}")
+                });
+        })?;
+
+        let writer_client = self.writer_client();
+        Transaction::call_once_on_abort(TRANSACTION_CACHE_ID, move || {
+            writer_client
+                .lock()
+                .map_err(ParadeIndexError::from)
+                .and_then(|mut client| {
+                    client
+                        .request(WriterRequest::Abort)
+                        .map_err(ParadeIndexError::from)
+                })
+                .unwrap_or_else(|err| {
+                    pgrx::log!("error while sending index abort to writer server: {err:?}")
+                });
+        })?;
+
+        Ok(())
+    }
+
+    pub fn insert(&mut self, index_entries: Vec<IndexEntry>) -> Result<(), ParadeIndexError> {
+        // Send the insert requests to the writer server.
+        let index_directory_path = Self::get_index_directory(&self.name);
+        let request = WriterRequest::Insert {
+            index_directory_path,
+            index_entries,
+            key_field: self.key_field,
+        };
+
+        let writer_client = self.writer_client();
+        writer_client.lock()?.transfer(request)?;
+
+        self.register_commit_callback()?;
+
+        Ok(())
+    }
+
+    pub fn delete(
+        &mut self,
+        should_delete: impl Fn(*mut ItemPointerData) -> bool,
+    ) -> Result<(u32, u32), ParadeIndexError> {
+        let mut deleted: u32 = 0;
+        let mut not_deleted: u32 = 0;
+        let mut ctids_to_delete: Vec<u64> = vec![];
+
+        for segment_reader in self.searcher().segment_readers() {
+            let store_reader = segment_reader
+                .get_store_reader(CACHE_NUM_BLOCKS)
+                .expect("Failed to get store reader");
+
+            for (delete, ctid) in (0..segment_reader.num_docs())
+                .filter_map(|id| store_reader.get(id).ok())
+                .filter_map(|doc| doc.get_first(self.ctid_field).cloned())
+                .filter_map(|value| match value {
+                    Value::U64(ctid_val) => Some(ctid_val),
+                    _ => None,
+                })
+                .map(|ctid_val| {
+                    let mut ctid = ItemPointerData::default();
+                    u64_to_item_pointer(ctid_val, &mut ctid);
+                    (should_delete(&mut ctid), ctid_val)
+                })
+            {
+                if delete {
+                    ctids_to_delete.push(ctid);
+                    deleted += 1
+                } else {
+                    not_deleted += 1
+                }
+            }
+        }
+
+        let request = WriterRequest::Delete {
+            field: self.ctid_field,
+            ctids: ctids_to_delete,
+            index_directory_path: Self::get_index_directory(&self.name),
+        };
+        self.writer_client().lock()?.request(request)?;
+
+        self.register_commit_callback()?;
+        Ok((deleted, not_deleted))
+    }
+
+    pub fn drop_index(index_name: &str) -> Result<(), ParadeIndexError> {
+        let mut writer_client = WriterClient::from_writer_addr();
+        let index_directory_path = Self::get_index_directory(index_name);
+        let paths_to_delete = vec![
+            index_directory_path.clone(),
+            ParadeIndex::get_field_configs_path(&index_directory_path),
+            format!("{index_directory_path}/.tantivy-writer.lock"),
+            format!("{index_directory_path}/.tantivy-meta.lock"),
+        ];
+
+        let request = WriterRequest::DropIndex {
+            index_directory_path,
+            paths_to_delete,
+        };
+
+        writer_client.request(request)?;
+
+        Ok(())
+    }
+
+    pub fn vacuum(&mut self) -> Result<(), ParadeIndexError> {
+        let index_directory_path = Self::get_index_directory(&self.name);
+        let request = WriterRequest::Vacuum {
+            index_directory_path,
+        };
+        self.writer_client().lock()?.request(request)?;
+        Ok(())
+    }
+
+    fn get_index_directory(name: &str) -> String {
+        crate::env::paradedb_data_dir_path()
+            .join(name)
+            .display()
+            .to_string()
+    }
+
+    pub fn row_to_index_entries(
+        &self,
+        ctid: pg_sys::ItemPointerData,
+        tupdesc: &PgTupleDesc,
+        values: *mut pg_sys::Datum,
+    ) -> Result<Vec<IndexEntry>, ParadeIndexError> {
+        // Create a vector of index entries from the postgres row.
+        let mut index_entries = unsafe { row_to_index_entries(tupdesc, values, &self.fields) }?;
+
+        // Insert the ctid value into the entries.
+        let ctid_index_value = IndexValue::U64(item_pointer_to_u64(ctid));
+        index_entries.push(IndexEntry::new(self.ctid_field, ctid_index_value));
+
+        Ok(index_entries)
     }
 
     fn build_index_schema(
@@ -511,8 +526,9 @@ impl ParadeIndex {
                     | PgBuiltInOids::OIDOID
                     | PgBuiltInOids::XIDOID => {
                         if is_key_field {
+                            // The key field must be a fast field for index sorting.
                             schema_builder
-                                .add_i64_field(attname, INDEXED | STORED)
+                                .add_i64_field(attname, INDEXED | STORED | FAST)
                                 .into()
                         } else {
                             numeric_fields.get(attname).map(|options| {
@@ -568,12 +584,12 @@ impl ParadeIndex {
         let ctid_field = schema_builder.add_u64_field("ctid", INDEXED | STORED);
         fields.insert("ctid".to_string(), ctid_field);
 
-        // Until we have a global index writer working, we need to add a timestamp to each
-        // field so we can deduplicate query results.
-        let timestamp_field = schema_builder.add_i64_field("__timestamp", INDEXED | STORED);
-        fields.insert("__timestamp".to_string(), timestamp_field);
-
         Ok((schema_builder.build(), fields))
+    }
+
+    fn create_index_directory(data_directory: &str) -> Result<(), std::io::Error> {
+        let path = Path::new(&data_directory);
+        fs::create_dir_all(path)
     }
 }
 
@@ -582,13 +598,14 @@ impl<'de> Deserialize<'de> for ParadeIndex {
     where
         D: Deserializer<'de>,
     {
-        // A helper struct that lets use use the default serialization for most fields.
+        // A helper struct that lets us use the default serialization for most fields.
         #[derive(Deserialize)]
         struct ParadeIndexHelper {
             name: String,
             fields: HashMap<String, Field>,
             field_configs: ParadeOptionMap,
             key_field_name: String,
+            data_directory: String,
         }
 
         // Deserialize into the struct with automatic handling for most fields
@@ -597,10 +614,11 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             fields,
             field_configs,
             key_field_name,
+            data_directory,
         } = ParadeIndexHelper::deserialize(deserializer)?;
 
-        let dir = Self::get_data_directory(&name);
-        let mut underlying_index = Index::open_in_dir(dir).expect("failed to open index");
+        let mut underlying_index =
+            Index::open_in_dir(&data_directory).expect("failed to open index");
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
@@ -611,17 +629,15 @@ impl<'de> Deserialize<'de> for ParadeIndex {
 
         let key_field = schema.get_field(&key_field_name).unwrap_or_else(|_| {
             panic!(
-                "error deserializing index: key_field '{key_field_name}' does not exist in schema",
+                "error deserializing index: key field '{key_field_name}' does not exist in schema",
             )
         });
 
-        let timestamp_field = schema.get_field("__timestamp").unwrap_or_else(|_| {
-            panic!(
-                "error deserializing index: timestamp_field '__timestamp' does not exist in schema",
-            )
+        let ctid_field = schema.get_field("ctid").unwrap_or_else(|_| {
+            panic!("error deserializing index: ctid field does not exist in schema",)
         });
 
-        // Construct the ParadeIndex
+        // Construct the ParadeIndex.
         Ok(ParadeIndex {
             name,
             fields,
@@ -629,9 +645,40 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             reader,
             underlying_index,
             key_field_name,
+            data_directory,
             key_field,
-            timestamp_field,
+            ctid_field,
         })
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ParadeIndexError {
+    #[error(transparent)]
+    WriterClientError(#[from] writer::ClientError),
+
+    #[error(transparent)]
+    WriterIndexError(#[from] writer::IndexError),
+
+    #[error(transparent)]
+    TantivyError(#[from] tantivy::error::TantivyError),
+
+    #[error(transparent)]
+    TransactionError(#[from] crate::env::TransactionError),
+
+    #[error(transparent)]
+    IOError(#[from] std::io::Error),
+
+    #[error(transparent)]
+    SerdeError(#[from] serde_json::Error),
+
+    #[error("mutex lock on writer client failed: {0}")]
+    WriterClientRace(String),
+}
+
+impl<T> From<PoisonError<T>> for ParadeIndexError {
+    fn from(err: PoisonError<T>) -> Self {
+        ParadeIndexError::WriterClientRace(format!("{}", err))
     }
 }
 
@@ -644,18 +691,6 @@ mod tests {
     use shared::testing::SETUP_SQL;
 
     #[pg_test]
-    fn test_get_data_directory() {
-        let dir_name = "thescore";
-        let current_execution_dir = std::env::current_dir().unwrap();
-        let expected = format!(
-            "{}/paradedb/{dir_name}",
-            current_execution_dir.to_str().unwrap()
-        );
-        let result = ParadeIndex::get_data_directory(dir_name);
-        assert_eq!(result, expected);
-    }
-
-    #[pg_test]
     fn test_get_field_configs_path() {
         let name = "thescore";
         let current_execution_dir = std::env::current_dir().unwrap();
@@ -663,7 +698,8 @@ mod tests {
             "{}/paradedb/{name}_parade_field_configs.json",
             current_execution_dir.to_str().unwrap()
         );
-        let result = ParadeIndex::get_field_configs_path(name);
+        let index_directory = ParadeIndex::get_index_directory(name);
+        let result = ParadeIndex::get_field_configs_path(index_directory);
         assert_eq!(result, expected);
     }
 
@@ -671,15 +707,16 @@ mod tests {
     #[should_panic]
     fn test_index_from_disk_panics() {
         let index_name = "tomwalker";
-        ParadeIndex::from_disk(index_name);
+        ParadeIndex::from_disk(index_name).unwrap();
     }
 
     #[pg_test]
     fn test_from_index_name() {
+        crate::setup_background_workers();
         Spi::run(SETUP_SQL).expect("failed to create index");
         let index_name = "one_republic_songs_bm25_index";
         let index = ParadeIndex::from_index_name(index_name);
-        let fields = index.fields;
-        assert_eq!(fields.len(), 9);
+        let fields = &index.fields;
+        assert_eq!(fields.len(), 8);
     }
 }

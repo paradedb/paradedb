@@ -50,7 +50,15 @@ This will spin up a Postgres instance with `pg_bm25` preinstalled.
 
 ### From Self-Hosted PostgreSQL
 
-If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow these steps:
+If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow the steps below.
+
+It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_bm25` must be in the list of `shared_preload_libraries`:
+
+```c
+shared_preload_libraries = 'pg_bm25'
+```
+
+This enables the extension to spawn a background worker process that performs writes to the index. If this background process is not started because of an incorrect `postgresql.conf` configuration, your database connection will crash or hang when you attempt to create a `pg_bm25` index.
 
 #### Debian/Ubuntu
 

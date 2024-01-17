@@ -92,6 +92,9 @@ pub fn init(extension_name: &str) {
 }
 
 pub fn connection_start() {
+    // This function shares configuration with the `init` function on this file.
+    // The TELEMETRY environment variable controls both functions, allowing it to be used
+    // for opting out of all telemetry.
     if let Some(config) = Config::from_env() {
         if config.telemetry.as_deref() == Some("true") {
             let uuid_dir = "/var/lib/postgresql/data";

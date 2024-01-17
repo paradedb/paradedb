@@ -46,6 +46,13 @@ const TRANSACTION_CACHE_ID: &str = "parade_index";
 /// this cache, tied to its own lifecycle.
 static mut PARADE_INDEX_MEMORY: Lazy<HashMap<String, ParadeIndex>> = Lazy::new(HashMap::new);
 
+/// A global singleton for the instance of the client to the background writer process.
+/// The client is agnotistic to which index we're writing to, so keeping a global one
+/// ensures that the instance can be re-used if a single transaction needs to write to
+/// multiple indexes.
+static mut PARADE_INDEX_WRITER_CLIENT: Lazy<Arc<Mutex<WriterClient>>> =
+    Lazy::new(|| Arc::new(Mutex::new(writer::Client::from_writer_addr())));
+
 #[derive(Serialize)]
 pub struct ParadeIndex {
     pub name: String,
@@ -61,8 +68,6 @@ pub struct ParadeIndex {
     pub ctid_field: Field,
     #[serde(skip_serializing)]
     underlying_index: Index,
-    #[serde(skip_serializing)]
-    writer_client: Arc<Mutex<WriterClient>>,
 }
 
 impl ParadeIndex {
@@ -149,8 +154,6 @@ impl ParadeIndex {
             })
         );
 
-        let writer_client = Arc::new(Mutex::new(writer::Client::from_writer_addr()));
-
         let new_self = Self {
             name: name.clone(),
             fields,
@@ -161,7 +164,6 @@ impl ParadeIndex {
             data_directory,
             key_field,
             ctid_field,
-            writer_client,
         };
 
         // Serialize ParadeIndex to disk so it can be initialized by other connections.
@@ -248,7 +250,7 @@ impl ParadeIndex {
         // Prepare to perform a search.
         // In case this is happening in the same transaction as an index build or an insert,
         // we want to commit first so that the most recent results appear.
-        let writer_client = self.writer_client.clone();
+        let writer_client = self.writer_client();
         if Transaction::needs_commit(TRANSACTION_CACHE_ID)? {
             writer_client.lock()?.request(WriterRequest::Commit)?
         }
@@ -283,6 +285,10 @@ impl ParadeIndex {
         )
     }
 
+    fn writer_client(&self) -> Arc<Mutex<writer::Client<WriterRequest>>> {
+        unsafe { PARADE_INDEX_WRITER_CLIENT.clone() }
+    }
+
     fn to_disk(&self) {
         let index_name = &self.name;
         let config_path = &Self::get_field_configs_path(&self.data_directory);
@@ -314,8 +320,7 @@ impl ParadeIndex {
     }
 
     fn register_commit_callback(&self) -> Result<(), ParadeIndexError> {
-        let writer_client = self.writer_client.clone();
-
+        let writer_client = self.writer_client();
         Transaction::call_once_on_commit(TRANSACTION_CACHE_ID, move || {
             writer_client
                 .lock()
@@ -330,7 +335,7 @@ impl ParadeIndex {
                 });
         })?;
 
-        let writer_client = self.writer_client.clone();
+        let writer_client = self.writer_client();
         Transaction::call_once_on_abort(TRANSACTION_CACHE_ID, move || {
             writer_client
                 .lock()
@@ -357,7 +362,7 @@ impl ParadeIndex {
             key_field: self.key_field,
         };
 
-        let writer_client = self.writer_client.clone();
+        let writer_client = self.writer_client();
         writer_client.lock()?.transfer(request)?;
 
         self.register_commit_callback()?;
@@ -405,7 +410,7 @@ impl ParadeIndex {
             ctids: ctids_to_delete,
             index_directory_path: Self::get_index_directory(&self.name),
         };
-        self.writer_client.lock()?.request(request)?;
+        self.writer_client().lock()?.request(request)?;
 
         self.register_commit_callback()?;
         Ok((deleted, not_deleted))
@@ -436,7 +441,7 @@ impl ParadeIndex {
         let request = WriterRequest::Vacuum {
             index_directory_path,
         };
-        self.writer_client.lock()?.request(request)?;
+        self.writer_client().lock()?.request(request)?;
         Ok(())
     }
 
@@ -632,8 +637,6 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             panic!("error deserializing index: ctid field does not exist in schema",)
         });
 
-        let writer_client = Arc::new(Mutex::new(writer::Client::from_writer_addr()));
-
         // Construct the ParadeIndex.
         Ok(ParadeIndex {
             name,
@@ -645,7 +648,6 @@ impl<'de> Deserialize<'de> for ParadeIndex {
             data_directory,
             key_field,
             ctid_field,
-            writer_client,
         })
     }
 }

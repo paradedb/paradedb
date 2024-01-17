@@ -5,7 +5,7 @@ use std::path::Path;
 
 use crate::errors::ParadeError;
 
-const PARADE_DIRECTORY: &str = "paradedb";
+const PARADE_DIRECTORY: &str = "deltalake";
 
 pub struct ParadeDirectory;
 

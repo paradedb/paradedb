@@ -67,7 +67,7 @@ impl Transaction {
         Ok(cache.contains(id))
     }
 
-    pub fn call_once_on_commit<F>(id: &str, callback: F) -> Result<(), TransactionError>
+    pub fn call_once_on_precommit<F>(id: &str, callback: F) -> Result<(), TransactionError>
     where
         F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
     {
@@ -77,7 +77,7 @@ impl Transaction {
         let mut cache = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.lock()?;
         if !cache.contains(id) {
             // Now using `cache_clone` inside the closure.
-            register_xact_callback(PgXactCallbackEvent::Commit, move || {
+            register_xact_callback(PgXactCallbackEvent::PreCommit, move || {
                 // Clear the cache so callbacks can be registered on next transaction.
                 match cache_clone.lock() {
                     Ok(mut cache) => cache.clear(),

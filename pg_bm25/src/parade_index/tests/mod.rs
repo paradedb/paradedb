@@ -15,9 +15,6 @@ mod tests {
 
         Spi::run(SETUP_SQL).expect("error running setup query");
 
-        // Allow some time to for the writer to flush to disk.
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-
         let highlight = Spi::get_one(QUERY_SQL);
 
         // Assert that the highlight returned by the tokenizer is as expected.

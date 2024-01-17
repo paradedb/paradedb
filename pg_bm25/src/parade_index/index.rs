@@ -321,7 +321,7 @@ impl ParadeIndex {
 
     fn register_commit_callback(&self) -> Result<(), ParadeIndexError> {
         let writer_client = self.writer_client();
-        Transaction::call_once_on_commit(TRANSACTION_CACHE_ID, move || {
+        Transaction::call_once_on_precommit(TRANSACTION_CACHE_ID, move || {
             writer_client
                 .lock()
                 .map_err(ParadeIndexError::from)

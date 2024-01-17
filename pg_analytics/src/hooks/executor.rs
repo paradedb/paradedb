@@ -50,22 +50,41 @@ pub fn executor_run(
 
         // Only use this hook for SELECT queries
         // INSERT/UPDATE/DELETE are handled by the table access method
-        if query_desc.operation != pg_sys::CmdType_CMD_SELECT {
+        if query_desc.operation != pg_sys::CmdType_CMD_SELECT && query_desc.operation != pg_sys::CmdType_CMD_DELETE {
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }
 
+        let is_select = query_desc.operation == pg_sys::CmdType_CMD_SELECT;
+        let is_delete = query_desc.operation == pg_sys::CmdType_CMD_DELETE;
+
         // Parse the query into an AST
         let dialect = PostgreSqlDialect {};
         let query = CStr::from_ptr(query_desc.sourceText).to_str()?;
+        if is_delete {
+            info!("{}", query);
+            // find the first WHERE and take everything afterwards...
+            if let Some(index) = query.find("WHERE ") {
+                let predicate = &query[index + "WHERE ".len()..];
+                info!("{}", predicate);
+                DatafusionContext::with_provider_context(|provider, _| {
+                    // TODO: extract table name
+                    task::block_on(provider.delete("t", predicate))
+                })??;
+            }
+            return Ok(());
+        }
+        if is_select {
         let ast = DFParser::parse_sql_with_dialect(query, &dialect)
             .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
         let statement = &ast[0];
+        info!("query parsed into AST");
 
         // Convert the AST into a logical plan
         let context_provider = ParadeContextProvider::new()?;
         let sql_to_rel = SqlToRel::new(&context_provider);
         let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
+        info!("converted AST into logical plan");
 
         // Execute the logical plan
         let batches = DatafusionContext::with_session_context(|context| {

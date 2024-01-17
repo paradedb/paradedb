@@ -9,6 +9,7 @@ use deltalake::kernel::Action;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
 use deltalake::operations::delete::DeleteBuilder;
+use deltalake::operations::delete::DeleteBuilder;
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::transaction::commit;
 use deltalake::operations::update::UpdateBuilder;
@@ -294,6 +295,27 @@ impl ParadeSchemaProvider {
             self,
             table_name.to_string(),
             Arc::new(delta_table) as Arc<dyn TableProvider>,
+        )?;
+
+        Ok(())
+    }
+
+    // modeled after vacuum
+    pub async fn delete(&self, table_name: &str, predicate: &str) -> Result<(), ParadeError> {
+        // Open the DeltaTable
+        let old_table = Self::get_delta_table(self, table_name).await?;
+
+        // Delete (deletebuilder can take a string predicate as long as it can be turned into a datafusion expr)
+        let deleted_table = DeleteBuilder::new(old_table.object_store(), old_table.state)
+            .with_predicate(predicate)
+            .await?
+            .0;
+
+        // Commit the vacuumed table
+        Self::register_table(
+            self,
+            table_name.to_string(),
+            Arc::new(deleted_table) as Arc<dyn TableProvider>,
         )?;
 
         Ok(())

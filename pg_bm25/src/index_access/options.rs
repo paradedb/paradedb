@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::ffi::CStr;
 
 use crate::parade_index::fields::{
-    ParadeBooleanOptions, ParadeJsonOptions, ParadeNumericOptions, ParadeTextOptions,
+    ParadeBooleanOptions, ParadeDateOptions, ParadeJsonOptions, ParadeNumericOptions,
+    ParadeTextOptions,
 };
 
 /* ADDING OPTIONS
@@ -35,6 +36,7 @@ pub struct ParadeOptions {
     numeric_fields_offset: i32,
     boolean_fields_offset: i32,
     json_fields_offset: i32,
+    date_fields_offset: i32,
     key_field_offset: i32,
 }
 
@@ -83,7 +85,19 @@ extern "C" fn validate_json_fields(value: *const std::os::raw::c_char) {
     }
 
     let _options: HashMap<String, ParadeJsonOptions> =
-        from_str(&json_str).expect("failed to validate boolean_fields");
+        from_str(&json_str).expect("failed to validate json_fields");
+}
+
+#[pg_guard]
+extern "C" fn validate_date_fields(value: *const std::os::raw::c_char) {
+    let json_str = cstr_to_rust_str(value);
+
+    if json_str.is_empty() {
+        return;
+    }
+
+    let _options: HashMap<String, ParadeDateOptions> =
+        from_str(&json_str).expect("failed to validate date_fields");
 }
 
 #[pg_guard]
@@ -104,7 +118,7 @@ fn cstr_to_rust_str(value: *const std::os::raw::c_char) -> String {
 }
 
 // For now, we support changing the tokenizer between default, raw, and en_stem
-const NUM_REL_OPTS: usize = 5;
+const NUM_REL_OPTS: usize = 6;
 #[pg_guard]
 pub unsafe extern "C" fn amoptions(
     reloptions: pg_sys::Datum,
@@ -130,6 +144,11 @@ pub unsafe extern "C" fn amoptions(
             optname: "json_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
             offset: offset_of!(ParadeOptions, json_fields_offset) as i32,
+        },
+        pg_sys::relopt_parse_elt {
+            optname: "date_fields".as_pg_cstr(),
+            opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
+            offset: offset_of!(ParadeOptions, date_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
@@ -235,6 +254,17 @@ impl ParadeOptions {
             .expect("failed to parse json_fields")
     }
 
+    pub fn get_date_fields(&self) -> HashMap<String, ParadeDateOptions> {
+        let fields = self.get_str(self.date_fields_offset, "".to_string());
+
+        if fields.is_empty() {
+            return HashMap::new();
+        }
+
+        from_str::<HashMap<String, ParadeDateOptions>>(&fields)
+            .expect("failed to parse date_fields")
+    }
+
     pub fn get_key_field(&self) -> String {
         let key_field = self.get_str(self.key_field_offset, "".to_string());
         if key_field.is_empty() {
@@ -299,6 +329,17 @@ pub unsafe fn init() {
         "JSON string specifying how JSON fields should be indexed".as_pg_cstr(),
         std::ptr::null(),
         Some(validate_json_fields),
+        #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+        {
+            pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE
+        },
+    );
+    pg_sys::add_string_reloption(
+        RELOPT_KIND_PDB,
+        "date_fields".as_pg_cstr(),
+        "JSON string specifying how date fields should be indexed".as_pg_cstr(),
+        std::ptr::null(),
+        Some(validate_date_fields),
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         {
             pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE

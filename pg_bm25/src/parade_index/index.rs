@@ -139,6 +139,10 @@ impl ParadeIndex {
             field_configs.insert(field_name, ParadeOption::Boolean(options));
         }
 
+        for (field_name, options) in options.get_date_fields() {
+            field_configs.insert(field_name, ParadeOption::Date(options));
+        }
+
         Self::setup_tokenizers(&mut underlying_index, &field_configs);
 
         let reader = Self::reader(&underlying_index).unwrap_or_else(|_| {
@@ -485,14 +489,16 @@ impl ParadeIndex {
         let numeric_fields = options.get_numeric_fields();
         let boolean_fields = options.get_boolean_fields();
         let json_fields = options.get_json_fields();
+        let date_fields = options.get_date_fields();
 
         if text_fields.is_empty()
             && numeric_fields.is_empty()
             && boolean_fields.is_empty()
             && json_fields.is_empty()
+            && date_fields.is_empty()
         {
             return Err(
-                "no text_fields, numeric_fields, boolean_fields, or json_fields were specified"
+                "no text_fields, numeric_fields, boolean_fields, json_fields or date fields were specified"
                     .to_string(),
             );
         }
@@ -570,6 +576,19 @@ impl ParadeIndex {
                             json_fields.get(attname).map(|options| {
                                 let json_options: JsonObjectOptions = (*options).into();
                                 schema_builder.add_json_field(attname, json_options)
+                            })
+                        }
+                    }
+                    PgBuiltInOids::DATEOID
+                    | PgBuiltInOids::TIMEOID
+                    | PgBuiltInOids::TIMESTAMPOID => {
+                        if is_key_field {
+                            panic!("bm25 id column must be an integer type, received datetime")
+                        } else {
+                            info!("Got a date or time, with attname: {}", attname);
+                            date_fields.get(attname).map(|options| {
+                                let date_options: DateOptions = (*options).into();
+                                schema_builder.add_date_field(attname, date_options)
                             })
                         }
                     }

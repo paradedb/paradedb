@@ -379,12 +379,62 @@ impl From<ParadeJsonOptions> for JsonObjectOptions {
     }
 }
 
+// Date options
+#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
+pub struct ParadeDateOptions {
+    #[serde(default = "default_as_true")]
+    indexed: bool,
+    #[serde(default = "default_as_true")]
+    fast: bool,
+    #[serde(default = "default_as_true")]
+    stored: bool,
+    #[serde(default = "default_as_true")]
+    fieldnorms: bool,
+    #[serde(default)]
+    precision: DateTimePrecision,
+}
+
+impl Default for ParadeDateOptions {
+    fn default() -> Self {
+        Self {
+            indexed: true,
+            fast: false,
+            stored: true,
+            fieldnorms: true,
+            // Default used by Tantivy
+            precision: DateTimePrecision::Nanoseconds,
+        }
+    }
+}
+
+impl From<ParadeDateOptions> for DateOptions {
+    fn from(parade_options: ParadeDateOptions) -> Self {
+        let mut date_options = DateOptions::default();
+
+        if parade_options.stored {
+            date_options = date_options.set_stored();
+        }
+        if parade_options.fast {
+            date_options = date_options.set_fast();
+        }
+        if parade_options.fieldnorms {
+            date_options = date_options.set_fieldnorm();
+        }
+        if parade_options.indexed {
+            let precision = date_options.get_precision();
+            date_options = date_options.set_precision(precision).set_indexed();
+        }
+        date_options
+    }
+}
+
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub enum ParadeOption {
     Text(ParadeTextOptions),
     Json(ParadeJsonOptions),
     Numeric(ParadeNumericOptions),
     Boolean(ParadeBooleanOptions),
+    Date(ParadeDateOptions),
 }
 
 pub type ParadeOptionMap = HashMap<String, ParadeOption>;

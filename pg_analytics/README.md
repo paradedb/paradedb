@@ -48,7 +48,7 @@ As `pg_analytics` becomes production-ready, many of these limitations will be re
 
 ## How It Works
 
-`pg_analytics` is built on Apache Arrow, Parquet, and Datafusion — state-of-the-art libraries for a column-oriented memory format, column-oriented file format, and vectorized query execution, respectively. They are the building blocks of many modern analytical databases.
+`pg_analytics` is built on Apache Arrow, Parquet, and Datafusion — state-of-the-art libraries for column-oriented memory formats, column-oriented file formats, and vectorized query execution, respectively. They are the building blocks of many modern analytical databases.
 
 ### Column-Oriented Format
 

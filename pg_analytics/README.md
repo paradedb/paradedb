@@ -33,13 +33,15 @@ SELECT COUNT(*) FROM t;
 
 ## Roadmap
 
-`pg_analytics` is currently in beta. The following features are supported:
+`pg_analytics` is currently in beta. 
 
-- [ ] `deltalake` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
-- [ ] `INSERT`, `UPDATE`, `DELETE`, `VACUUM`
-- [ ] 100x faster analytical performance than regular Postgres, no database tuning required (see Clickbench results)
+The following features are supported:
 
-The following is a non-exhaustive list of known limitations of `deltalake` tables. As `pg_analytics` becomes production-ready, many of these limitations will be resolved.
+- [x] `deltalake` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
+- [x] `INSERT`, `UPDATE`, `DELETE`, `VACUUM`
+- [x] 100x faster analytical performance than regular Postgres, no database tuning required (see Clickbench results)
+
+There are also several known limitations. As `pg_analytics` becomes production-ready, many of these will be resolved.
 
 - [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
 - [ ] User-defined functions, aggregations, or types

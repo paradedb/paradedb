@@ -17,6 +17,7 @@ use crate::datafusion::context::{DatafusionContext, ParadeContextProvider};
 use crate::datafusion::datatype::{
     DatafusionMapProducer, DatafusionTypeTranslator, PostgresTypeTranslator,
 };
+use crate::datafusion::table::ParadeTable;
 use crate::errors::ParadeError;
 use crate::hooks::handler::DeltaHandler;
 
@@ -70,11 +71,21 @@ pub fn executor_run(
             let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
             info!("converted AST into logical plan");
 
+            let elements = (*rtable).elements;
+            let rte = (*elements.offset(0)).ptr_value as *mut pg_sys::RangeTblEntry;
+            let relation = pg_sys::RelationIdGetRelation((*rte).relid);
+            let pg_relation = PgRelation::from_pg_owned(relation);
+            let parade_table = ParadeTable::from_pg(&pg_relation)?;
+            let schema_name = parade_table.schema_name()?;
+            info!("{}", schema_name);
+
             DatafusionContext::with_session_context(|context| {
-                DatafusionContext::with_schema_provider("converter", |provider| {
-                    let optimized_plan = context.state().optimize(&logical_plan)?;
-                    if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-                        let table_name = dml_statement.table_name.to_string();
+                info!("{:?}", logical_plan);
+                let optimized_plan = context.state().optimize(&logical_plan)?;
+                if let LogicalPlan::Dml(dml_statement) = optimized_plan {
+                    info!("{:?}", dml_statement.table_name);
+                    let table_name = dml_statement.table_name.to_string();
+                    DatafusionContext::with_schema_provider(schema_name.as_str(), |provider| {
                         if let LogicalPlan::Filter(filter) = dml_statement.input.as_ref() {
                             info!("{:?}", filter.predicate.clone());
                             task::block_on(
@@ -84,12 +95,12 @@ pub fn executor_run(
                         } else {
                             task::block_on(provider.delete(table_name.as_str(), None))
                         }
-                    } else {
-                        Ok(())
-                    }
-                    // let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
-                    // task::block_on(dataframe.collect())
-                })
+                    })
+                } else {
+                    Ok(())
+                }
+                // let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
+                // task::block_on(dataframe.collect())
             })?;
             return Ok(());
         }

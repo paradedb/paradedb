@@ -8,9 +8,9 @@ pub struct ParadeIndexScore {
     pub key: i64,
 }
 
-// We do these custom trait impls, because we want these to be sorted so:
-// - it's ordered descending by bm25 score.
-// - in case of a tie, it's ordered by ascending key.
+// We do these custom trait impls, because we want these to be sortable so:
+// - they're ordered descending by bm25 score.
+// - in case of a tie, they're ordered by ascending key.
 
 impl PartialEq for ParadeIndexScore {
     fn eq(&self, other: &Self) -> bool {

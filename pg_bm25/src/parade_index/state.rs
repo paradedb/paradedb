@@ -77,6 +77,9 @@ impl TantivyScanState {
         let offset = self.config.offset_rows.unwrap_or(0);
         let key_field_name = self.key_field_name.clone();
         let top_docs_by_custom_score = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
+            // tweak_score expects a function that will return a function. A little unusual for
+            // Rust, but not too much of a problem as long as you don't need to reference
+            // many variables outside the function scope.
             move |segment_reader: &SegmentReader| {
                 let key_field_reader = segment_reader
                     .fast_fields()
@@ -86,11 +89,8 @@ impl TantivyScanState {
                     })
                     .first_or_default_col(0);
 
-                // We can now define our actual scoring function
                 move |doc: DocId, original_score: Score| ParadeIndexScore {
                     bm25: original_score,
-                    // We want the results to be in ascending order by key.
-                    // So we invert the key index.
                     key: key_field_reader.get_val(doc),
                 }
             },

@@ -5,11 +5,10 @@ set -Eeuo pipefail
 
 # List of extensions to pre-install (if a version variable is set when building the Dockerfile).
 # Note that this is not an exhaustive list of extensions that can be installed, only the ones that
-# we pre-install.
-#
-# For the full list of extensions available on ParadeDB, see:
+# we pre-install. For the full list of extensions available on ParadeDB, see:
 # https://paradedb.notion.site/PostgreSQL-Extensions-Supported-on-ParadeDB-0aefcad16b6846ca9b3c7099cfc9e4f1?pvs=4
-# All extensions listed there can be added to the list below to pre-install, or installed at runtime via CREATE EXTENSION.
+#
+# The following extensions can be uncommented and added to the list below to pre-install:
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
   [pg_analytics]=${PG_ANALYTICS_VERSION:-}
@@ -18,17 +17,16 @@ declare -A extensions=(
 )
 
 # List of extensions that must be added to shared_preload_libraries to be installed. Extensions that
-# get added to shared_preload_libraries must also be listed in `extensions` above in order to get pre-installed, otherwise
-# they can be installed at runtime via CREATE EXTENSION.
+# get added to shared_preload_libraries must also be listed in `extensions` above in order to get installed.
 #
-# The following extensions require shared_preload_libraries and are supported on ParadeDB:
-# [citus]=citus
+# The following extensions can be uncommented and added to the list below to pre-install:
+# [pg_cron]=pg_cron
+# [pg_net]=pg_net
 # [pgaudit]=pgaudit
+# [citus]=citus
 # [pgsodium]=pgsodium
 # [pgautofailover]=pgautofailover
-# [pg_net]=pg_net
 # [pg_partman]=pg_partman_bgw
-# [pg_cron]=${PG_CRON_VERSION:-}
 declare -A preload_names=(
   [pg_bm25]=pg_bm25
   [pg_analytics]=pg_analytics
@@ -82,22 +80,30 @@ EOSQL
 pg_ctl restart 2> /dev/null
 
 # We collect basic, anonymous telemetry to help us understand how many people are using
-# the project. We only do this if TELEMETRY is set to "true", and only do it once per deployment
+# the project. We only do this if TELEMETRY is set to "true"
 if [[ ${TELEMETRY:-} == "true" ]]; then
+  # For privacy reasons, we generate an anonymous UUID for each new deployment
+  UUID_FILE="/var/lib/postgresql/data/paradedb_uuid"
+  if [ ! -f "$UUID_FILE" ]; then
+    uuidgen > "$UUID_FILE"
+  fi
+  DISTINCT_ID=$(cat "$UUID_FILE")
+
+  # Send the deployment event to PostHog
   curl -s -L --header "Content-Type: application/json" -d '{
     "api_key": "'"$POSTHOG_API_KEY"'",
     "event": "ParadeDB Deployment",
-    "distinct_id": "'"$(uuidgen)"'",
+    "distinct_id": "'"$DISTINCT_ID"'",
     "properties": {
       "commit_sha": "'"${COMMIT_SHA:-}"'"
     }
   }' "$POSTHOG_HOST/capture/" > /dev/null
-fi
 
-# Mark telemetry as handled so we don't try to send it again when
-# initializing our PostgreSQL extensions. We use a file for IPC
-# between this script and our PostgreSQL extensions
-echo "true" > /tmp/telemetry
+  # Mark telemetry as handled so we don't try to send it again when
+  # initializing our PostgreSQL extensions. We use a file for IPC
+  # between this script and our PostgreSQL extensions
+  echo "true" > /tmp/telemetry
+fi
 
 echo "PostgreSQL is up - installing extensions..."
 

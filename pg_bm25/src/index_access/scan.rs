@@ -50,7 +50,7 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let parade_index = get_parade_index(index_name);
-    let mut state = parade_index.scan_state(&query_config);
+    let mut state = parade_index.scan_state(&query_config).unwrap();
 
     let top_docs = state.search();
 
@@ -132,6 +132,7 @@ mod tests {
 
     #[pg_test]
     fn test_ambeginscan() {
+        crate::setup_background_workers();
         Spi::run(SETUP_SQL).expect("failed to create index and table");
         let oid = get_index_oid("one_republic_songs_bm25_index", "bm25")
             .expect("could not find oid for one_republic")

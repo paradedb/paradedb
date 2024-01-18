@@ -51,17 +51,6 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
             let schema_name = pg_relation.namespace().to_string();
             let schema_oid = pg_relation.namespace_oid();
 
-            let table_exists = DatafusionContext::with_session_context(|context| {
-                let reference = TableReference::partial(schema_name.clone(), table_name);
-                Ok(context.table_exist(reference)?)
-            })?;
-
-            // If the table already exists, then this function is being called as part of
-            // another operation like VACUUM FULL or TRUNCATE and we don't want to do anything
-            if table_exists {
-                return Ok(());
-            }
-
             DatafusionContext::with_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
                     let schema_provider = Arc::new(task::block_on(ParadeSchemaProvider::try_new(
@@ -74,6 +63,17 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
 
                 Ok(())
             })?;
+
+            let table_exists = DatafusionContext::with_session_context(|context| {
+                let reference = TableReference::partial(schema_name.clone(), table_name);
+                Ok(context.table_exist(reference)?)
+            })?;
+
+            // If the table already exists, then this function is being called as part of another
+            // operation like VACUUM FULL or TRUNCATE and we don't want to create any new files
+            if table_exists {
+                return Ok(());
+            }
 
             DatafusionContext::with_schema_provider(&schema_name, |provider| {
                 task::block_on(provider.create_table(&pg_relation))

@@ -5,7 +5,7 @@
 
 ## Overview
 
-`pg_analytics` is an extension that transforms Postgres into a very fast analytical database. Query speeds are comparable to those of dedicated OLAP databases like Clickhouse or DuckDB — without the need to leave Postgres.
+`pg_analytics` is an extension that transforms Postgres into a very fast analytical database. Query speeds are comparable to those of dedicated OLAP databases like Clickhouse — without the need to leave Postgres.
 
 The primary dependencies are:
 
@@ -14,6 +14,17 @@ The primary dependencies are:
 - [x] [Apache Parquet](https://github.com/apache/parquet-mr/) for persistence
 - [x] [Delta Lake](https://github.com/delta-io/delta-rs) as a storage framework with ACID properties
 - [x] [pgrx](https://github.com/pgcentralfoundation/pgrx), the framework for creating Postgres extensions in Rust
+
+## Benchmarks
+
+On [Clickbench](https://github.com/ClickHouse/ClickBench), ParadeDB is the fastest Postgres-based analytical
+database. It's 94x faster than regular Postgres, 8x faster than ElasticSearch, and almost ties Clickhouse.
+
+<img src="../docs/images/clickbench_results.png" alt="Clickbench Results" width="1000px">
+
+These benchmarks were run on a c6a.4xlarge with 500GB storage. None of the databases were tuned or
+used partitioned Parquet storage (applicable only to ParadeDB and Clickhouse). ParadeDB Clickbench results
+have not yet been published to the live site but will be soon.
 
 ## Getting Started
 
@@ -39,9 +50,9 @@ VACUUM FULL t;
 
 ### Features Supported
 
-- [x] 100x faster Clickbench performance than regular Postgres, no database tuning required
 - [x] `deltalake` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
-- [x] `INSERT`, `UPDATE`, `DELETE`, `VACUUM`
+- [x] DML operations (i.e. update, delete, truncate)
+- [x] Vacuum and Parquet storage optimization
 
 ### Known Limitations
 
@@ -169,6 +180,6 @@ To revert back to the stable version of Rust, run:
 rustup override unset
 ```
 
-## Benchmarks
+### Run Benchmarks
 
-To run benchmarks locally, first enter the `pg_analytics/` directory before running `cargo clickbench`. This runs a minified version of the ClickBench benchmark suite on `pg_analytics`.
+To run benchmarks locally, enter the `pg_analytics/` directory and run `cargo clickbench`. This runs a minified version of the ClickBench benchmark suite on `pg_analytics`.

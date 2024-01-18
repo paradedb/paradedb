@@ -3,9 +3,11 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::context::DatafusionContext;
+use deltalake::datafusion::catalog::CatalogProvider;
+
 use crate::errors::ParadeError;
 use crate::hooks::handler::DeltaHandler;
-use deltalake::datafusion::catalog::CatalogProvider;
+use crate::hooks::utils::relation_from_rangevar;
 
 #[derive(Debug)]
 struct VacuumOptions {
@@ -56,7 +58,7 @@ impl VacuumOptions {
     }
 }
 
-pub unsafe fn vacuum_analytics(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeError> {
+pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeError> {
     // Read VACUUM options
     let mut vacuum_options = VacuumOptions::new();
     vacuum_options.init((*vacuum_stmt).options)?;
@@ -112,15 +114,7 @@ pub unsafe fn vacuum_analytics(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(
                 }
 
                 // If the relation is null or not analytics, skip it
-                let oid = match (*(*vacuum_rel).relation).schemaname.is_null() {
-                    true => pg_sys::RelnameGetRelid((*(*vacuum_rel).relation).relname),
-                    false => pg_sys::get_relname_relid(
-                        (*(*vacuum_rel).relation).relname,
-                        pg_sys::get_namespace_oid((*(*vacuum_rel).relation).schemaname, true),
-                    ),
-                };
-
-                let relation = pg_sys::RelationIdGetRelation(oid);
+                let relation = relation_from_rangevar((*vacuum_rel).relation);
 
                 if relation.is_null() {
                     continue;

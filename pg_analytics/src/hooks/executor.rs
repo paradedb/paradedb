@@ -57,7 +57,7 @@ pub fn executor_run(
         let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
 
         // Execute the logical plan
-        let recordbatchvec = DatafusionContext::with_session_context(|context| {
+        let batches = DatafusionContext::with_session_context(|context| {
             let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
             Ok(task::block_on(dataframe.collect())?)
         })?;
@@ -66,15 +66,12 @@ pub fn executor_run(
         let plan: *mut pg_sys::Plan = (*ps).planTree;
         let node = plan as *mut pg_sys::Node;
         if (*node).type_ == pg_sys::NodeTag::T_ModifyTable {
-            let num_updated = recordbatchvec[0]
-                .column(0)
-                .as_primitive::<UInt64Type>()
-                .value(0);
+            let num_updated = batches[0].column(0).as_primitive::<UInt64Type>().value(0);
             (*(*query_desc.clone().into_pg()).estate).es_processed = num_updated;
         }
 
         // Return result tuples
-        let _ = send_tuples_if_necessary(query_desc.into_pg(), recordbatchvec);
+        let _ = send_tuples_if_necessary(query_desc.into_pg(), batches);
 
         Ok(())
     }
@@ -83,12 +80,12 @@ pub fn executor_run(
 #[inline]
 unsafe fn send_tuples_if_necessary(
     query_desc: *mut pg_sys::QueryDesc,
-    recordbatchvec: Vec<RecordBatch>,
+    batches: Vec<RecordBatch>,
 ) -> Result<(), ParadeError> {
-    let sendTuples = (*query_desc).operation == pg_sys::CmdType_CMD_SELECT
+    let send_tuples = (*query_desc).operation == pg_sys::CmdType_CMD_SELECT
         || (*(*query_desc).plannedstmt).hasReturning;
 
-    if !sendTuples {
+    if !send_tuples {
         return Ok(());
     }
 
@@ -100,7 +97,7 @@ unsafe fn send_tuples_if_necessary(
     let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
     let receive = (*dest).receiveSlot.ok_or_else(|| ParadeError::NotFound)?;
 
-    for (row_number, recordbatch) in recordbatchvec.iter().enumerate() {
+    for (row_number, recordbatch) in batches.iter().enumerate() {
         // Convert the tuple_desc target types to the ones corresponding to the Datafusion column types
         let tuple_attrs = (*(*query_desc).tupDesc).attrs.as_mut_ptr();
         for (col_index, _attr) in tuple_desc.iter().enumerate() {

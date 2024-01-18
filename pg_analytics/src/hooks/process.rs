@@ -3,7 +3,10 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::errors::ParadeError;
-use crate::hooks::vacuum::vacuum_analytics;
+use crate::hooks::alter::alter;
+use crate::hooks::rename::rename;
+use crate::hooks::truncate::truncate;
+use crate::hooks::vacuum::vacuum;
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -29,11 +32,18 @@ pub fn process_utility(
 ) -> Result<(), ParadeError> {
     let plan = pstmt.utilityStmt;
 
-    #[allow(clippy::single_match)]
     match unsafe { (*plan).type_ } {
+        NodeTag::T_AlterTableStmt => {
+            alter(plan as *mut pg_sys::AlterTableStmt)?;
+        }
+        NodeTag::T_RenameStmt => unsafe {
+            rename(plan as *mut pg_sys::RenameStmt)?;
+        },
+        NodeTag::T_TruncateStmt => unsafe {
+            truncate(plan as *mut pg_sys::TruncateStmt)?;
+        },
         NodeTag::T_VacuumStmt => unsafe {
-            let vacuum_stmt = plan as *mut pg_sys::VacuumStmt;
-            vacuum_analytics(vacuum_stmt)?;
+            vacuum(plan as *mut pg_sys::VacuumStmt)?;
         },
         _ => {}
     };

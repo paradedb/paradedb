@@ -8,14 +8,24 @@ use pgrx::*;
 
 #[pg_guard]
 pub extern "C" fn deltalake_scan_begin(
-    _rel: pg_sys::Relation,
-    _snapshot: pg_sys::Snapshot,
-    _nkeys: c_int,
-    _key: *mut pg_sys::ScanKeyData,
-    _pscan: pg_sys::ParallelTableScanDesc,
-    _flags: pg_sys::uint32,
+    rel: pg_sys::Relation,
+    snapshot: pg_sys::Snapshot,
+    nkeys: c_int,
+    key: *mut pg_sys::ScanKeyData,
+    pscan: pg_sys::ParallelTableScanDesc,
+    flags: pg_sys::uint32,
 ) -> pg_sys::TableScanDesc {
-    unsafe { PgBox::<pg_sys::TableScanDescData>::alloc0().into_pg() }
+    unsafe {
+        let mut data = PgBox::<pg_sys::TableScanDescData>::alloc0();
+        data.rs_rd = rel;
+        data.rs_snapshot = snapshot;
+        data.rs_nkeys = nkeys;
+        data.rs_key = key;
+        data.rs_parallel = pscan;
+        data.rs_flags = flags;
+
+        data.into_pg()
+    }
 }
 
 #[pg_guard]

@@ -79,7 +79,7 @@ pub fn executor_run(
             let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
             info!("converted AST into logical plan");
 
-            DatafusionContext::with_provider_context(|provider, context| {
+            DatafusionContext::with_session_context(|provider, context| {
                 let optimized_plan = context.optimize(&logical_plan)?;
                 if let LogicalPlan::Dml(dml_statement) = optimized_plan {
                     let table_name = dml_statement.table_name.to_string();
@@ -97,54 +97,19 @@ pub fn executor_run(
                 // let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
                 // task::block_on(dataframe.collect())
             })??;
-            /*
-            if let parser::Statement::Statement(sql_statement) = statement.clone() {
-                if let ast::Statement::Delete {
-                    tables,
-                    from,
-                    using,
-                    selection,
-                    returning,
-                } = *sql_statement
-                {
-                    let context_provider = ParadeContextProvider::new()?;
-                    // only one table
-                    let table_name = from[0].relation.to_string();
-                    info!("Table {}", table_name);
-                    DatafusionContext::with_provider_context(|provider, _| {
-                        let sql_to_rel = SqlToRel::new(&context_provider);
-                        let schema = task::block_on(provider.get_schema(table_name.as_str()))?;
-                        let df_expr = match selection {
-                            Some(expr) => {
-                                info!("{}", schema);
-                                info!("{}", expr);
-                                Some(sql_to_rel.sql_to_expr(
-                                    expr,
-                                    &schema,
-                                    &mut Default::default(),
-                                )?)
-                            }
-                            None => None,
-                        };
-                        task::block_on(provider.delete(table_name.as_str(), df_expr))
-                    })??;
-                }
-            }
-            */
             return Ok(());
         }
 
-        if is_select {
-            let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-                .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
-            let statement = &ast[0];
-            info!("query parsed into AST");
+        let ast = DFParser::parse_sql_with_dialect(query, &dialect)
+            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
+        let statement = &ast[0];
+        info!("query parsed into AST");
 
-            // Convert the AST into a logical plan
-            let context_provider = ParadeContextProvider::new()?;
-            let sql_to_rel = SqlToRel::new(&context_provider);
-            let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
-            info!("converted AST into logical plan");
+        // Convert the AST into a logical plan
+        let context_provider = ParadeContextProvider::new()?;
+        let sql_to_rel = SqlToRel::new(&context_provider);
+        let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
+        info!("converted AST into logical plan");
 
         // Execute the logical plan
         let batches = DatafusionContext::with_session_context(|context| {

@@ -1,6 +1,10 @@
+mod alter;
 mod executor;
 mod handler;
 mod process;
+mod rename;
+mod truncate;
+mod utils;
 mod vacuum;
 
 use pgrx::hooks::PgHooks;

@@ -43,7 +43,7 @@ impl DeltaHandler {
             let relation_handler_oid = (*relation).rd_amhandler;
 
             // If any table uses the Table AM handler, then return true.
-            // TODO: if we support more operations, this will be more complex.
+            // TODO: If we support more operations, this will be more complex.
             //       for example, if to support joins, some of the nodes will use
             //       table AM for the nodes while others won't. In this case,
             //       we'll have to process in postgres plan for part of it and

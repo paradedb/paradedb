@@ -29,6 +29,8 @@ CREATE TABLE t (a int) USING deltalake;
 -- Postgres query run on a deltalake table
 INSERT INTO t VALUES (1), (2), (3);
 SELECT COUNT(*) FROM t;
+-- This bin packs small Parquet files for optimal compression
+VACUUM FULL t;
 ```
 
 ## Roadmap

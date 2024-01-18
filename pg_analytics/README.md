@@ -50,7 +50,7 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 - [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
 - [ ] User-defined functions, aggregations, or types
 - [ ] Partitioned tables
-- [ ] Some Postgres types like arrays and JSON
+- [ ] Some Postgres types like arrays, JSON, time, and timestamp with time zone
 - [ ] Write-ahead-log (WAL) support and `ROLLBACK`
 - [ ] Foreign keys
 - [ ] Index scans

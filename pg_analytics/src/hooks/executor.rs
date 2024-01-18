@@ -11,7 +11,9 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::context::{DatafusionContext, ParadeContextProvider};
-use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
+use crate::datafusion::datatype::{
+    DatafusionMapProducer, DatafusionTypeTranslator, PostgresTypeTranslator,
+};
 use crate::errors::ParadeError;
 use crate::hooks::handler::DeltaHandler;
 
@@ -71,7 +73,7 @@ pub fn executor_run(
         }
 
         // Return result tuples
-        let _ = send_tuples_if_necessary(query_desc.into_pg(), batches);
+        send_tuples_if_necessary(query_desc.into_pg(), batches)?;
 
         Ok(())
     }
@@ -102,8 +104,10 @@ unsafe fn send_tuples_if_necessary(
         let tuple_attrs = (*(*query_desc).tupDesc).attrs.as_mut_ptr();
         for (col_index, _attr) in tuple_desc.iter().enumerate() {
             let dt = recordbatch.column(col_index).data_type();
-            (*tuple_attrs.add(col_index)).atttypid =
-                PgOid::from_substrait(dt.to_substrait()?)?.value();
+            let (typid, typmod) = PgOid::from_sql_data_type(dt.to_sql_data_type()?)?;
+            let tuple_attr = tuple_attrs.add(col_index);
+            (*tuple_attr).atttypid = typid.value();
+            (*tuple_attr).atttypmod = typmod;
         }
 
         for row_index in 0..recordbatch.num_rows() {
@@ -122,9 +126,7 @@ unsafe fn send_tuples_if_necessary(
                 let dt = column.data_type();
                 let tts_value = (*tuple_table_slot).tts_values.add(col_index);
                 *tts_value =
-                    DatafusionMapProducer::map(dt.to_substrait()?, |df_map: DatafusionMap| {
-                        (df_map.index_datum)(column, row_index)
-                    })??;
+                    DatafusionMapProducer::index_datum(dt.to_sql_data_type()?, column, row_index)?
             }
 
             receive(tuple_table_slot, dest);

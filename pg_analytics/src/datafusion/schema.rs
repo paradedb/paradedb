@@ -5,6 +5,7 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
+use deltalake::datafusion::logical_expr::Expr;
 use deltalake::operations::delete::DeleteBuilder;
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::transaction::commit;
@@ -344,6 +345,32 @@ impl ParadeSchemaProvider {
             self,
             table_name.to_string(),
             Arc::new(truncated_table) as Arc<dyn TableProvider>,
+        )?;
+
+        Ok(())
+    }
+
+    pub async fn delete(
+        &self,
+        table_name: &str,
+        predicate: Option<Expr>,
+    ) -> Result<(), ParadeError> {
+        // Open the DeltaTable
+        let old_table = Self::get_delta_table(self, table_name).await?;
+
+        let delete_builder = DeleteBuilder::new(old_table.object_store(), old_table.state);
+        let deleted_table = match predicate {
+            Some(expr) => delete_builder.with_predicate(expr),
+            None => delete_builder,
+        }
+        .await?
+        .0;
+
+        // Commit the vacuumed table
+        Self::register_table(
+            self,
+            table_name.to_string(),
+            Arc::new(deleted_table) as Arc<dyn TableProvider>,
         )?;
 
         Ok(())

@@ -100,7 +100,7 @@ mod tests {
             .map(|schema| schema.0.as_str())
             .collect::<Vec<_>>();
 
-        assert_eq!(schemas.len(), 9);
+        assert_eq!(schemas.len(), 8);
         assert_eq!(
             names,
             vec![

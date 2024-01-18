@@ -145,6 +145,7 @@ for version in "${PG_VERSIONS[@]}"; do
 done
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 echo ""
 echo "Installing pg_analytics..."
@@ -175,6 +176,8 @@ for version in "${PG_VERSIONS[@]}"; do
 done
 
 >>>>>>> ae94acb2 (chore: Rename extension (#102))
+=======
+>>>>>>> e7fb3d84 (chore: Rebase on paradedb/paradedb as of Jan 18, 2024 (#132))
 # We can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time, so we make one final call to
 # `cargo pgrx init` to load the project's default pgrx PostgreSQL version (for local development)
 default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
@@ -197,8 +200,4 @@ if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
   esac
 fi
 
-<<<<<<< HEAD
-echo "Done! pg_bm25, pgvector, and pg_sparse are all available when you do 'cargo pgrx run'!"
-=======
 echo "Done! pg_bm25, pg_analytics, pgvector, and pg_sparse are all available to 'cargo pgrx run'!"
->>>>>>> ae94acb2 (chore: Rename extension (#102))

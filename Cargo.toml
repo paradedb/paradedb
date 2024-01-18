@@ -2,10 +2,6 @@
 resolver = "2"
 members = [
     "pg_bm25",
-<<<<<<< HEAD
-=======
-    "pg_analytics",
->>>>>>> ae94acb2 (chore: Rename extension (#102))
     "shared"
 ]
 

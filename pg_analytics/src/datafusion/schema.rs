@@ -3,10 +3,8 @@ use async_trait::async_trait;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
-use deltalake::datafusion::common::DFSchema;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
-use deltalake::datafusion::logical_expr::expr::Expr;
 use deltalake::operations::delete::DeleteBuilder;
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::transaction::commit;
@@ -18,7 +16,6 @@ use deltalake::schema::Schema as DeltaSchema;
 use deltalake::storage::DeltaObjectStore;
 use deltalake::{DeltaOps, DeltaTable};
 use parking_lot::{Mutex, RwLock};
-use pgrx::pg_sys::print;
 use pgrx::*;
 use std::{
     any::Any, collections::HashMap, ffi::CStr, ffi::CString, fs::remove_dir_all, path::PathBuf,
@@ -313,42 +310,6 @@ impl ParadeSchemaProvider {
             self,
             table_name.to_string(),
             Arc::new(delta_table) as Arc<dyn TableProvider>,
-        )?;
-
-        Ok(())
-    }
-
-    pub async fn get_schema(&self, table_name: &str) -> Result<DFSchema, ParadeError> {
-        let old_table = Self::get_delta_table(self, table_name).await?;
-        Ok(DFSchema::try_from(
-            old_table.state.arrow_schema()?.as_ref().to_owned(),
-        )?)
-    }
-
-    // modeled after vacuum
-    pub async fn delete(
-        &self,
-        table_name: &str,
-        predicate: Option<Expr>,
-    ) -> Result<(), ParadeError> {
-        // Open the DeltaTable
-        let old_table = Self::get_delta_table(self, table_name).await?;
-        info!("DELETE FROM {} WHERE {:?}", table_name, predicate);
-
-        // Delete (deletebuilder can take a string predicate as long as it can be turned into a datafusion expr)
-        let delete_builder = DeleteBuilder::new(old_table.object_store(), old_table.state);
-        let deleted_table = match predicate {
-            Some(expr) => delete_builder.with_predicate(expr),
-            None => delete_builder,
-        }
-        .await?
-        .0;
-
-        // Commit the edited table
-        Self::register_table(
-            self,
-            table_name.to_string(),
-            Arc::new(deleted_table) as Arc<dyn TableProvider>,
         )?;
 
         Ok(())

@@ -1,0 +1,17 @@
+---
+title: 0.4.4
+---
+
+## pg_bm25
+
+### Introduce global background writer
+
+Overhauled the process in which data is written to the index, fixing several issues related to concurrency and insert performance.
+
+Fixes an issue with using the `prefix => ` parameter in fuzzy searches.
+
+Users must make the following change to their `postgresql.conf` configuration file when self-hosting. `pg_bm25` must be added to the list of `shared_preload_libraries` so the background process can be initialized:
+
+```c
+shared_preload_libraries = 'pg_bm25'
+```

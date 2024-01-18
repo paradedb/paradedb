@@ -18,3 +18,8 @@ SELECT id, description, rating, category FROM search_config.search('com', regex_
 SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics') as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description') as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics') as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;
 -- max_num_chars is set to 14 
 SELECT description, rating, category, highlight_bm25 FROM search_config.search('description:keyboard OR category:electronics', max_num_chars => 14) as s LEFT JOIN search_config.highlight('description:keyboard OR category:electronics', highlight_field => 'description', max_num_chars => 14) as h ON s.id = H.id LEFT JOIN search_config.rank('description:keyboard OR category:electronics', max_num_chars => 14) as r ON s.id = r.id ORDER BY rank_bm25 DESC LIMIT 5;
+--- With fuzzy field prefix disabled
+SELECT id, description, category, rating FROM search_config.search('key', fuzzy_fields => 'description,category', distance => 2, transpose_cost_one => false, prefix => false, limit_rows => 5);
+--- With fuzzy field prefix enabled
+SELECT id, description, category, rating FROM search_config.search('key', fuzzy_fields => 'description,category', distance => 2, transpose_cost_one => false, prefix => true, limit_rows => 5);
+

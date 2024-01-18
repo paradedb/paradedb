@@ -86,3 +86,23 @@ SELECT description, rating, category, highlight_bm25 FROM search_config.search('
  Bluetooth-enabled speaker   |      3 | Electronics | 
 (5 rows)
 
+--- With fuzzy field prefix disabled
+SELECT id, description, category, rating FROM search_config.search('key', fuzzy_fields => 'description,category', distance => 2, transpose_cost_one => false, prefix => false, limit_rows => 5);
+ id |    description     | category  | rating 
+----+--------------------+-----------+--------
+  8 | Organic green tea  | Groceries |      3
+ 10 | Colorful kids toy  | Toys      |      1
+ 30 | Robot building kit | Toys      |      4
+(3 rows)
+
+--- With fuzzy field prefix enabled
+SELECT id, description, category, rating FROM search_config.search('key', fuzzy_fields => 'description,category', distance => 2, transpose_cost_one => false, prefix => true, limit_rows => 5);
+ id |         description         |  category   | rating 
+----+-----------------------------+-------------+--------
+  1 | Ergonomic metal keyboard    | Electronics |      4
+  2 | Plastic Keyboard            | Electronics |      4
+ 10 | Colorful kids toy           | Toys        |      1
+ 40 | Plush teddy bear            | Toys        |      4
+ 12 | Innovative wireless earbuds | Electronics |      5
+(5 rows)
+

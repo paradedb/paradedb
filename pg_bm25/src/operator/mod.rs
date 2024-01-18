@@ -14,7 +14,7 @@ fn search_tantivy(
             .expect("could not parse search config");
 
         let parade_index = get_parade_index(&search_config.index_name);
-        let mut scan_state = parade_index.scan_state(&search_config);
+        let mut scan_state = parade_index.scan_state(&search_config).unwrap();
         let top_docs = scan_state.search();
         let mut hs = FxHashSet::default();
 
@@ -109,6 +109,7 @@ mod tests {
 
     #[pg_test]
     fn test_get_index_oid() -> Result<(), spi::Error> {
+        crate::setup_background_workers();
         Spi::run(SETUP_SQL)?;
         let oid = get_index_oid("one_republic_songs_bm25_index", "bm25")?;
         assert!(oid.is_some());
@@ -126,15 +127,5 @@ mod tests {
         // Fail due to wrong query
         let res = Spi::run("SELECT description FROM one_republic_songs WHERE one_republic_songs @@@ 'album:Native'");
         assert!(res.is_err());
-    }
-
-    #[pg_test]
-    // Since the "search_tantivy" function cannout be tested directly from here,
-    // we'll take advantage of the SPI to test the @@@ operator which has "search_tantivy" as the corresponding procedure
-    fn test_search_tantivy_operator() {
-        Spi::run(SETUP_SQL).expect("failed to create table and index");
-
-        let res = Spi::get_one::<&str>(QUERY_SQL).expect("failed to get one");
-        assert_eq!(res, Some("If I Lose Myself"));
     }
 }

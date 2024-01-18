@@ -81,7 +81,7 @@ pub fn executor_run(
 
             DatafusionContext::with_session_context(|context| {
                 DatafusionContext::with_schema_provider("converter", |provider| {
-                    let optimized_plan = context.optimize(&logical_plan)?;
+                    let optimized_plan = context.state().optimize(&logical_plan)?;
                     if let LogicalPlan::Dml(dml_statement) = optimized_plan {
                         let table_name = dml_statement.table_name.to_string();
                         if let LogicalPlan::Filter(filter) = dml_statement.input.as_ref() {

@@ -29,17 +29,11 @@ usage() {
   echo "                  - 'latest' Runs the full ClickBench benchmark the latest ParadeDB Docker image"
   echo "                  - 'local'  Runs the full ClickBench benchmark the current commit inside a local ParadeDB Docker build"
   echo "                  - 'pgrx'   Runs a minified ClickBench benchmark against the current commit inside the pg_analytics pgrx PostgreSQL instance"
-  echo " -s (optional),  Type of storage layout to benchmark:"
-  echo "                  - 'hot'                 Runs with in-memory storage using PostgreSQL's CREATE TEMP TABLE"
-  echo "                  - 'cold'                Runs with on-disk storage using PostgreSQL's CREATE TABLE"
-  echo "                  - 'parquet-single'      Runs with on-disk storage using PostgreSQL's CREATE EXTERNAL TABLE using a single Parquet file"
-  echo "                  - 'parquet-partitioned' Runs with on-disk storage using PostgreSQL's CREATE EXTERNAL TABLE using partitioned Parquet files"
   exit 1
 }
 
 # Instantiate vars
 FLAG_TAG="pgrx"
-FLAG_STORAGE="hot"
 
 # Assign flags to vars and check
 while getopts "ht:s:" flag
@@ -50,9 +44,6 @@ do
       ;;
     t)
       FLAG_TAG=$OPTARG
-      ;;
-    s)
-      FLAG_STORAGE=$OPTARG
       ;;
     *)
       usage
@@ -122,7 +113,7 @@ download_and_verify() {
 
 echo ""
 echo "*********************************************************************************"
-echo "* Benchmarking pg_analytics version '$FLAG_TAG' against ClickBench on '$FLAG_STORAGE' storage..."
+echo "* Benchmarking pg_analytics version '$FLAG_TAG' against ClickBench"
 echo "*********************************************************************************"
 echo ""
 
@@ -155,26 +146,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   echo ""
 
   # Run the benchmarking
-  if [ "$FLAG_STORAGE" = "hot" ]; then
-    # Table creation, data loading, and query execution are all done from `benchmark_hot.sql`
-    psql -h localhost -p 28815 -d pg_analytics -t < benchmark_hot.sql
-  elif [ "$FLAG_STORAGE" = "cold" ]; then
-    # Table creation and data loading are done from `benchmark_cold.sql`, and query execution
-    # is done via `run.sh`
-    psql -h localhost -p 28815 -d pg_analytics -t < benchmark_cold.sql
-    ./run.sh 2>&1 | tee log.txt
-
-    # Display results in the format expected by the ClickBench dashboard
-    echo ""
-    grep -Eo 'Time: \d+\.\d+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' | awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
-  elif [ "$FLAG_STORAGE" = "parquet-single" ]; then
-    echo "TODO: Implement pgrx + Parquet single storage benchmarking"
-  elif [ "$FLAG_STORAGE" = "parquet-partitioned" ]; then
-    echo "TODO: Implement pgrx + Parquet partitioned storage benchmarking"
-  else
-    echo "Invalid storage type: $FLAG_STORAGE"
-    usage
-  fi
+  psql -h localhost -p 28815 -d pg_analytics -t < benchmark.sql
   # For local benchmarking via pgrx, we don't print the disk usage or parse the results into
   # the format expected by the ClickBench dashboard
 else
@@ -211,20 +183,6 @@ else
   echo "Waiting for ParadeDB Docker image to spin up..."
   sleep 5
   echo "Done!"
-
-  # Run the benchmarking
-  if [ "$FLAG_STORAGE" = "hot" ]; then
-    echo "TODO: Implement Docker + hot storage benchmarking"
-  elif [ "$FLAG_STORAGE" = "cold" ]; then
-    echo "TODO: Implement Docker + cold storage benchmarking"
-  elif [ "$FLAG_STORAGE" = "parquet-single" ]; then
-    echo "TODO: Implement Docker + Parquet single storage benchmarking"
-  elif [ "$FLAG_STORAGE" = "parquet-partitioned" ]; then
-    echo "TODO: Implement Docker + Parquet partitioned storage benchmarking"
-  else
-    echo "Invalid storage type: $FLAG_STORAGE"
-    usage
-  fi
 fi
 
 echo ""

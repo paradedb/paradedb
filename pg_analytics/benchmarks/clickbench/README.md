@@ -9,7 +9,7 @@ ParadeDB is an alternative to ElasticSearch built on PostgreSQL.
 
 ### Local
 
-The benchmarks are configured to run locally via `cargo pgrx bench` within `pg_analytics`,
+The benchmarks are configured to run locally via `cargo clickbench` from the `pg_analytics/` directory,
 
 ### Official
 
@@ -20,9 +20,3 @@ export FQDN=ec2-127-0-0-1.compute-1.amazonaws.com
 scp -i ~/.ssh/aws.pem *.sh *.sql ubuntu@$FQDN:~
 ssh -i ~/.ssh/aws.pem ubuntu@$FQDN ./benchmark.sh
 ```
-
-List of things we can do to tune, based on postgresql-tuned and datafusion:
-
-- Check the datafusion one, and do the same ones onc we have them
-- Check the postgresql-tuned, and do the same one
-- Check the clickbench full README

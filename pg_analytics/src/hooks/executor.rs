@@ -4,6 +4,7 @@ use deltalake::datafusion::arrow::array::AsArray;
 use deltalake::datafusion::common::arrow::array::types::UInt64Type;
 use deltalake::datafusion::common::arrow::array::RecordBatch;
 use deltalake::datafusion::error::DataFusionError;
+use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::sql::parser;
 use deltalake::datafusion::sql::parser::DFParser;
 use deltalake::datafusion::sql::planner::SqlToRel;
@@ -72,6 +73,31 @@ pub fn executor_run(
             let ast = DFParser::parse_sql_with_dialect(query, &dialect)
                 .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
             let statement = &ast[0];
+            // Convert the AST into a logical plan
+            let context_provider = ParadeContextProvider::new()?;
+            let sql_to_rel = SqlToRel::new(&context_provider);
+            let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
+            info!("converted AST into logical plan");
+
+            DatafusionContext::with_provider_context(|provider, context| {
+                let optimized_plan = context.optimize(&logical_plan)?;
+                if let LogicalPlan::Dml(dml_statement) = optimized_plan {
+                    let table_name = dml_statement.table_name.to_string();
+                    if let LogicalPlan::Filter(filter) = dml_statement.input.as_ref() {
+                        info!("{:?}", filter.predicate.clone());
+                        task::block_on(
+                            provider.delete(table_name.as_str(), Some(filter.predicate.clone())),
+                        )
+                    } else {
+                        task::block_on(provider.delete(table_name.as_str(), None))
+                    }
+                } else {
+                    Ok(())
+                }
+                // let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
+                // task::block_on(dataframe.collect())
+            })??;
+            /*
             if let parser::Statement::Statement(sql_statement) = statement.clone() {
                 if let ast::Statement::Delete {
                     tables,
@@ -90,6 +116,7 @@ pub fn executor_run(
                         let schema = task::block_on(provider.get_schema(table_name.as_str()))?;
                         let df_expr = match selection {
                             Some(expr) => {
+                                info!("{}", schema);
                                 info!("{}", expr);
                                 Some(sql_to_rel.sql_to_expr(
                                     expr,
@@ -103,6 +130,7 @@ pub fn executor_run(
                     })??;
                 }
             }
+            */
             return Ok(());
         }
 

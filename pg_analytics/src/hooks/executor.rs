@@ -79,24 +79,27 @@ pub fn executor_run(
             let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
             info!("converted AST into logical plan");
 
-            DatafusionContext::with_session_context(|provider, context| {
-                let optimized_plan = context.optimize(&logical_plan)?;
-                if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-                    let table_name = dml_statement.table_name.to_string();
-                    if let LogicalPlan::Filter(filter) = dml_statement.input.as_ref() {
-                        info!("{:?}", filter.predicate.clone());
-                        task::block_on(
-                            provider.delete(table_name.as_str(), Some(filter.predicate.clone())),
-                        )
+            DatafusionContext::with_session_context(|context| {
+                DatafusionContext::with_schema_provider("converter", |provider| {
+                    let optimized_plan = context.optimize(&logical_plan)?;
+                    if let LogicalPlan::Dml(dml_statement) = optimized_plan {
+                        let table_name = dml_statement.table_name.to_string();
+                        if let LogicalPlan::Filter(filter) = dml_statement.input.as_ref() {
+                            info!("{:?}", filter.predicate.clone());
+                            task::block_on(
+                                provider
+                                    .delete(table_name.as_str(), Some(filter.predicate.clone())),
+                            )
+                        } else {
+                            task::block_on(provider.delete(table_name.as_str(), None))
+                        }
                     } else {
-                        task::block_on(provider.delete(table_name.as_str(), None))
+                        Ok(())
                     }
-                } else {
-                    Ok(())
-                }
-                // let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
-                // task::block_on(dataframe.collect())
-            })??;
+                    // let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
+                    // task::block_on(dataframe.collect())
+                })
+            })?;
             return Ok(());
         }
 

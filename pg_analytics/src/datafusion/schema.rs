@@ -340,6 +340,32 @@ impl ParadeSchemaProvider {
         Ok(())
     }
 
+    pub async fn delete(
+        &self,
+        table_name: &str,
+        predicate: Option<Expr>,
+    ) -> Result<(), ParadeError> {
+        // Open the DeltaTable
+        let old_table = Self::get_delta_table(self, table_name).await?;
+
+        let delete_builder = DeleteBuilder::new(old_table.object_store(), old_table.state);
+        let deleted_table = match predicate {
+            Some(expr) => delete_builder.with_predicate(expr),
+            None => delete_builder,
+        }
+        .await?
+        .0;
+
+        // Commit the vacuumed table
+        Self::register_table(
+            self,
+            table_name.to_string(),
+            Arc::new(deleted_table) as Arc<dyn TableProvider>,
+        )?;
+
+        Ok(())
+    }
+
     // SchemaProvider stores immutable TableProviders, whereas many DeltaOps methods
     // require a mutable DeltaTable. This function gets a mutable DeltaTable from
     // a TableProvider using the DeltaOps UpdateBuilder.

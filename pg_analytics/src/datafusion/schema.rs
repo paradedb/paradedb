@@ -22,8 +22,8 @@ use std::{
     sync::Arc,
 };
 
+use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::substrait::SubstraitTranslator;
 use crate::errors::ParadeError;
 use crate::guc::PARADE_GUC;
 
@@ -399,7 +399,7 @@ impl ParadeSchemaProvider {
 
             let field = Field::new(
                 attname,
-                DataType::from_substrait(base_oid.to_substrait()?)?,
+                DataType::from_sql_data_type(base_oid.to_sql_data_type(attribute.type_mod())?)?,
                 nullability,
             );
 

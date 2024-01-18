@@ -89,6 +89,8 @@ impl TantivyScanState {
                 // We can now define our actual scoring function
                 move |doc: DocId, original_score: Score| ParadeIndexScore {
                     bm25: original_score,
+                    // We want the results to be in ascending order by key.
+                    // So we invert the key index.
                     key: key_field_reader.get_val(doc),
                 }
             },

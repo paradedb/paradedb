@@ -2,26 +2,26 @@
 SELECT id, description, rating, category FROM search_config.search('category:electronics');
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
- 32 | Bluetooth-enabled speaker   |      3 | Electronics
- 22 | Fast charging power bank    |      4 | Electronics
- 12 | Innovative wireless earbuds |      5 | Electronics
-  2 | Plastic Keyboard            |      4 | Electronics
   1 | Ergonomic metal keyboard    |      4 | Electronics
+  2 | Plastic Keyboard            |      4 | Electronics
+ 12 | Innovative wireless earbuds |      5 | Electronics
+ 22 | Fast charging power bank    |      4 | Electronics
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics
 (5 rows)
 
 -- With limit
 SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2);
- id |        description        | rating |  category   
-----+---------------------------+--------+-------------
- 32 | Bluetooth-enabled speaker |      3 | Electronics
- 22 | Fast charging power bank  |      4 | Electronics
+ id |       description        | rating |  category   
+----+--------------------------+--------+-------------
+  1 | Ergonomic metal keyboard |      4 | Electronics
+  2 | Plastic Keyboard         |      4 | Electronics
 (2 rows)
 
 -- With limit and offset
 SELECT id, description, rating, category FROM search_config.search('category:electronics', limit_rows => 2, offset_rows => 1);
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
- 22 | Fast charging power bank    |      4 | Electronics
+  2 | Plastic Keyboard            |      4 | Electronics
  12 | Innovative wireless earbuds |      5 | Electronics
 (2 rows)
 
@@ -29,11 +29,11 @@ SELECT id, description, rating, category FROM search_config.search('category:ele
 SELECT id, description, rating, category FROM search_config.search('category:electornics', fuzzy_fields => 'category');
  id |         description         | rating |  category   
 ----+-----------------------------+--------+-------------
- 32 | Bluetooth-enabled speaker   |      3 | Electronics
- 22 | Fast charging power bank    |      4 | Electronics
- 12 | Innovative wireless earbuds |      5 | Electronics
-  2 | Plastic Keyboard            |      4 | Electronics
   1 | Ergonomic metal keyboard    |      4 | Electronics
+  2 | Plastic Keyboard            |      4 | Electronics
+ 12 | Innovative wireless earbuds |      5 | Electronics
+ 22 | Fast charging power bank    |      4 | Electronics
+ 32 | Bluetooth-enabled speaker   |      3 | Electronics
 (5 rows)
 
 -- Without fuzzy field
@@ -52,16 +52,16 @@ SELECT id, description, rating, category FROM search_config.search('description:
 SELECT id, description, rating, category FROM search_config.search('description:keybaord', fuzzy_fields => 'description', transpose_cost_one => true, distance => 1);
  id |       description        | rating |  category   
 ----+--------------------------+--------+-------------
-  2 | Plastic Keyboard         |      4 | Electronics
   1 | Ergonomic metal keyboard |      4 | Electronics
+  2 | Plastic Keyboard         |      4 | Electronics
 (2 rows)
 
 -- With regex field 
 SELECT id, description, rating, category FROM search_config.search('com', regex_fields => 'description');
  id |      description       | rating |  category   
 ----+------------------------+--------+-------------
- 23 | Comfortable slippers   |      3 | Footwear
   6 | Compact digital camera |      5 | Photography
+ 23 | Comfortable slippers   |      3 | Footwear
 (2 rows)
 
 -- Default highlighting without max_num_chars

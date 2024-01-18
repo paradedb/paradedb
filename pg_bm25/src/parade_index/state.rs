@@ -78,19 +78,18 @@ impl TantivyScanState {
         let key_field_name = self.key_field_name.clone();
         let top_docs_by_custom_score = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
             move |segment_reader: &SegmentReader| {
-                let key_field_value = segment_reader
+                let key_field_reader = segment_reader
                     .fast_fields()
-                    .u64(&key_field_name)
+                    .i64(&key_field_name)
                     .unwrap_or_else(|err| {
                         panic!("key field {} is not a u64: {err:?}", &key_field_name)
                     })
-                    .first(0)
-                    .unwrap_or_else(|| panic!("key field {} not present", &key_field_name));
+                    .first_or_default_col(0);
 
                 // We can now define our actual scoring function
-                move |_doc: DocId, original_score: Score| ParadeIndexScore {
+                move |doc: DocId, original_score: Score| ParadeIndexScore {
                     bm25: original_score,
-                    key: key_field_value,
+                    key: key_field_reader.get_val(doc),
                 }
             },
         );

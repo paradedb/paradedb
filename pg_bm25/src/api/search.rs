@@ -19,7 +19,7 @@ pub fn rank_bm25(
 
     let mut field_rows = Vec::new();
     for (score, _) in top_docs.into_iter() {
-        field_rows.push((score.key as i64, score.bm25));
+        field_rows.push((score.key, score.bm25));
     }
     TableIterator::new(field_rows)
 }

@@ -5,7 +5,7 @@ use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::substrait::{DatafusionMap, DatafusionMapProducer, SubstraitTranslator};
+use crate::datafusion::datatype::{DatafusionMapProducer, PostgresTypeTranslator};
 use crate::datafusion::table::ParadeTable;
 use crate::errors::ParadeError;
 
@@ -80,19 +80,16 @@ fn insert_tuples(
 ) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let tuple_desc = pg_relation.tuple_desc();
-    let oids = tuple_desc
-        .iter()
-        .map(|attr| PgOid::from(attr.atttypid))
-        .collect::<Vec<PgOid>>();
-
-    let natts = tuple_desc.len();
     let mut values: Vec<ArrayRef> = vec![];
 
     // Convert the TupleTableSlots into Datafusion arrays
-    for (col_idx, oid) in oids.iter().enumerate().take(natts) {
-        DatafusionMapProducer::map(oid.to_substrait()?, |df_map: DatafusionMap| {
-            values.push((df_map.array)(slots, nslots, col_idx));
-        })?;
+    for (col_idx, attr) in tuple_desc.iter().enumerate() {
+        values.push(DatafusionMapProducer::array(
+            attr.type_oid().to_sql_data_type(attr.type_mod())?,
+            slots,
+            nslots,
+            col_idx,
+        )?);
     }
 
     // Create a RecordBatch

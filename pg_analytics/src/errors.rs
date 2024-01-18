@@ -28,6 +28,9 @@ pub enum ParadeError {
     ContextNotInitialized(String),
 
     #[error("{0}")]
+    NotSupported(String),
+
+    #[error("{0}")]
     Generic(String),
 }
 

@@ -49,7 +49,7 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 - [ ] User-defined functions, aggregations, or types
 - [ ] Partitioned tables
 - [ ] Some Postgres types like arrays and JSON
-- [ ] Write-ahead-log (WAL) support
+- [ ] Write-ahead-log (WAL) support and `ROLLBACK`
 - [ ] Foreign keys
 - [ ] Index scans
 - [ ] `TEMP` tables

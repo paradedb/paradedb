@@ -4,6 +4,8 @@ use serde_json::json;
 use std::fs;
 use std::path::Path;
 
+use crate::constants::{PARADEDB_NAME, PG_BM25_NAME};
+
 #[derive(Deserialize, Debug)]
 struct Config {
     telemetry_handled: Option<String>, // Option because it won't be set if running the extension standalone
@@ -85,6 +87,59 @@ pub fn init(extension_name: &str) {
 
         if let Err(e) = response {
             info!("Error sending request: {}", e);
+        }
+    }
+}
+
+pub fn connection_start() {
+    // This function shares configuration with the `init` function on this file.
+    // The TELEMETRY environment variable controls both functions, allowing it to be used
+    // for opting out of all telemetry.
+    if let Some(config) = Config::from_env() {
+        if config.telemetry.as_deref() == Some("true") {
+            let uuid_dir = "/var/lib/postgresql/data";
+            let extension_name;
+            let file_content = if Path::new(uuid_dir)
+                .join(format!("{}_uuid", PARADEDB_NAME.to_lowercase()))
+                .exists()
+            {
+                extension_name = PARADEDB_NAME;
+                fs::read_to_string(
+                    Path::new(uuid_dir).join(format!("{}_uuid", PARADEDB_NAME.to_lowercase())),
+                )
+            } else {
+                extension_name = PG_BM25_NAME;
+                fs::read_to_string(Path::new(uuid_dir).join(format!("{}_uuid", PG_BM25_NAME)))
+            };
+
+            let distinct_id = match file_content {
+                Ok(uuid) => uuid,
+                Err(_) => {
+                    warning!("telemetry enabled but uuid file is empty!");
+                    return;
+                }
+            };
+
+            let endpoint = format!("{}/capture", config.posthog_host);
+            let data = json!({
+                "api_key": config.posthog_api_key,
+                "event": format!("{} Connection Started", extension_name),
+                "distinct_id": distinct_id,
+                "properties": {
+                    "commit_sha": config.commit_sha
+                }
+            });
+
+            let client = reqwest::blocking::Client::new();
+            let response = client
+                .post(endpoint)
+                .header("Content-Type", "application/json")
+                .body(data.to_string())
+                .send();
+
+            if let Err(e) = response {
+                warning!("Error sending telemetry request: {}", e);
+            }
         }
     }
 }

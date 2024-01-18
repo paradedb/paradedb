@@ -33,7 +33,8 @@ unsafe impl PGRXSharedMemory for WriterStatus {}
 
 // This is a flag that can be set by the user in a session to enable logs.
 // You need to initialize this in every extension that uses `plog!`.
-static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_bm25");
+static PARADE_LOGS_GLOBAL: ParadeLogsGlobal =
+    ParadeLogsGlobal::new(shared::constants::PG_BM25_NAME);
 
 // This is global shared state for the writer background worker.
 static WRITER_STATUS: PgLwLock<WriterStatus> = PgLwLock::new();
@@ -48,7 +49,7 @@ extension_sql_file!("../sql/_bootstrap.sql");
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
     index_access::options::init();
-    telemetry::posthog::init("pg_bm25");
+    telemetry::posthog::init(shared::constants::PG_BM25_NAME);
     PARADE_LOGS_GLOBAL.init();
 
     // Set up the writer bgworker shared state.
@@ -162,6 +163,6 @@ pub mod pg_test {
 mod tests {
     #[pgrx::pg_test]
     fn test_parade_logs() {
-        shared::test_plog!("pg_bm25");
+        shared::test_plog!(shared::constants::PG_BM25_NAME);
     }
 }

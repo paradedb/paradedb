@@ -236,7 +236,7 @@ BEGIN
             fuzzy_fields text DEFAULT NULL, -- Fields where fuzzy search is applied
             distance integer DEFAULT NULL, -- Distance parameter for fuzzy search
             transpose_cost_one boolean DEFAULT NULL, -- Transpose cost parameter for fuzzy search
-            prefix text DEFAULT NULL, -- Prefix parameter for searches
+            prefix boolean DEFAULT NULL, -- Prefix parameter for searches
             regex_fields text DEFAULT NULL, -- Fields where regex search is applied
             max_num_chars integer DEFAULT NULL, -- Maximum character limit for searches
             highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only)

@@ -65,7 +65,6 @@ CALL paradedb.create_bm25(
 );
 
 
-
 -- Amharic test table
 CREATE TABLE amharic (
     id SERIAL PRIMARY KEY,

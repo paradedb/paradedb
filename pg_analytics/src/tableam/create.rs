@@ -3,6 +3,7 @@ use core::ffi::c_char;
 use pgrx::*;
 
 use deltalake::datafusion::catalog::CatalogProvider;
+use deltalake::datafusion::sql::TableReference;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
@@ -19,7 +20,7 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    create_table(rel, persistence).expect("Failed to create table");
+    create_file_node(rel, persistence).expect("Failed to create table");
 }
 
 #[pg_guard]
@@ -31,11 +32,11 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    create_table(rel, persistence).expect("Failed to create table");
+    create_file_node(rel, persistence).expect("Failed to create table");
 }
 
 #[inline]
-fn create_table(rel: pg_sys::Relation, persistence: c_char) -> Result<(), ParadeError> {
+fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 
     match persistence as u8 {
@@ -46,23 +47,35 @@ fn create_table(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Parade
             "Temp tables are not yet supported".to_string(),
         )),
         pg_sys::RELPERSISTENCE_PERMANENT => {
-            let schema_name = pg_relation.namespace();
+            let table_name = pg_relation.name().to_string();
+            let schema_name = pg_relation.namespace().to_string();
             let schema_oid = pg_relation.namespace_oid();
 
+            let table_exists = DatafusionContext::with_session_context(|context| {
+                let reference = TableReference::partial(schema_name.clone(), table_name);
+                Ok(context.table_exist(reference)?)
+            })?;
+
+            // If the table already exists, then this function is being called as part of
+            // another operation like VACUUM FULL or TRUNCATE and we don't want to do anything
+            if table_exists {
+                return Ok(());
+            }
+
             DatafusionContext::with_catalog(|catalog| {
-                if catalog.schema(schema_name).is_none() {
+                if catalog.schema(&schema_name).is_none() {
                     let schema_provider = Arc::new(task::block_on(ParadeSchemaProvider::try_new(
-                        schema_name,
+                        &schema_name,
                         ParadeDirectory::schema_path(schema_oid)?,
                     ))?);
 
-                    catalog.register_schema(schema_name, schema_provider)?;
+                    catalog.register_schema(&schema_name, schema_provider)?;
                 }
 
                 Ok(())
             })?;
 
-            DatafusionContext::with_schema_provider(schema_name, |provider| {
+            DatafusionContext::with_schema_provider(&schema_name, |provider| {
                 task::block_on(provider.create_table(&pg_relation))
             })
         }

@@ -5,6 +5,7 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
+use deltalake::operations::delete::DeleteBuilder;
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::transaction::commit;
 use deltalake::operations::update::UpdateBuilder;
@@ -309,6 +310,40 @@ impl ParadeSchemaProvider {
             self,
             table_name.to_string(),
             Arc::new(delta_table) as Arc<dyn TableProvider>,
+        )?;
+
+        Ok(())
+    }
+
+    pub async fn rename(&self, old_name: &str, new_name: &str) -> Result<(), ParadeError> {
+        let mut tables = self.tables.write();
+        let mut writers = self.writers.lock();
+
+        if let Some(table) = tables.remove(old_name) {
+            tables.insert(new_name.to_string(), table);
+        }
+
+        if let Some(writer) = writers.remove(old_name) {
+            writers.insert(new_name.to_string(), writer);
+        }
+
+        Ok(())
+    }
+
+    pub async fn truncate(&self, table_name: &str) -> Result<(), ParadeError> {
+        // Open the DeltaTable
+        let delta_table = Self::get_delta_table(self, table_name).await?;
+
+        // Truncate the table
+        let truncated_table = DeleteBuilder::new(delta_table.object_store(), delta_table.state)
+            .await?
+            .0;
+
+        // Commit the vacuumed table
+        Self::register_table(
+            self,
+            table_name.to_string(),
+            Arc::new(truncated_table) as Arc<dyn TableProvider>,
         )?;
 
         Ok(())

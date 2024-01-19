@@ -7,7 +7,6 @@ use deltalake::datafusion::catalog::CatalogProvider;
 
 use crate::errors::ParadeError;
 use crate::hooks::handler::DeltaHandler;
-use crate::hooks::utils::relation_from_rangevar;
 
 #[derive(Debug)]
 struct VacuumOptions {
@@ -114,7 +113,15 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 }
 
                 // If the relation is null or not analytics, skip it
-                let relation = relation_from_rangevar((*vacuum_rel).relation);
+                let rangevar = (*vacuum_rel).relation;
+                let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
+                    rangevar,
+                    pg_sys::ShareUpdateExclusiveLock as i32,
+                    0,
+                    None,
+                    std::ptr::null_mut(),
+                );
+                let relation = pg_sys::RelationIdGetRelation(rangevar_oid);
 
                 if relation.is_null() {
                     continue;

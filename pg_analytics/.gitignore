@@ -6,7 +6,8 @@ Cargo.lock
 target/
 
 # Logs
-log.txt
+*.txt
+*.log
 
 # Benchmarks
 *.tsv

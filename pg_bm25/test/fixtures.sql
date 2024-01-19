@@ -52,4 +52,3 @@ CALL paradedb.create_bm25(
 	boolean_fields => '{"in_stock": {}}',
 	json_fields => '{"metadata": {}}'
 );
-

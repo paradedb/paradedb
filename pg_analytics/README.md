@@ -23,7 +23,7 @@ database — it's faster than many specialized OLAP systems. On Clickbench, Para
 <img src="../docs/images/clickbench_results.png" alt="Clickbench Results" width="1000px">
 
 For an apples-to-apples comparison, these benchmarks were run on a c6a.4xlarge with 500GB storage. None of the databases were tuned. The single Parquet Clickhouse 
-run was selected to align with ParadeDB's Parquet storage.
+run was selected because it most closely matches ParadeDB's Parquet storage.
 
 ParadeDB Clickbench results have not yet been published to the live Clickbench site but will be soon.
 

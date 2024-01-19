@@ -194,7 +194,7 @@ function run_tests() {
   else
     # Use cargo-pgx to install the extension for the specified version
     echo "Installing pg_bm25 extension onto the test database..."
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile dev > /dev/null
+    cargo pgrx install --features icu --pg-config="$PG_BIN_PATH/pg_config" --profile dev > /dev/null
   fi
 
   # Configure shared_preload_libraries to include pg_bm25

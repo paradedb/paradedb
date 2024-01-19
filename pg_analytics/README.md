@@ -22,7 +22,7 @@ database — it's faster than many specialized OLAP systems. On Clickbench, Para
 
 <img src="../docs/images/clickbench_results.png" alt="Clickbench Results" width="1000px">
 
-For an apples-to-apples comparison, these benchmarks were run on a c6a.4xlarge with 500GB storage. None of the databases were tuned. The (Parquet, single) Clickhouse 
+For an apples-to-apples comparison, these benchmarks were run on a c6a.4xlarge with 500GB storage. None of the databases were tuned. The (Parquet, single) Clickhouse
 variant was selected because it most closely matches ParadeDB's Parquet storage.
 
 ParadeDB Clickbench results have not yet been published to the live Clickbench site but will be soon.
@@ -61,7 +61,7 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 
 - [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
 - [ ] User-defined functions, aggregations, or types
-- [ ] Partitioned tables
+- [ ] Partitioning tables by column
 - [ ] Some Postgres types like arrays, JSON, time, and timestamp with time zone
 - [ ] Write-ahead-log (WAL) support and `ROLLBACK`
 - [ ] Foreign keys

@@ -5,6 +5,7 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
+use deltalake::operations::create::CreateBuilder;
 use deltalake::operations::delete::DeleteBuilder;
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::transaction::commit;
@@ -14,7 +15,7 @@ use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{Action, DeltaOperation, SaveMode};
 use deltalake::schema::Schema as DeltaSchema;
 use deltalake::storage::DeltaObjectStore;
-use deltalake::{DeltaOps, DeltaTable};
+use deltalake::DeltaTable;
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
 use std::{
@@ -140,15 +141,14 @@ impl ParadeSchemaProvider {
         // Create a DeltaTable
         ParadeDirectory::create_schema_path(schema_oid)?;
 
-        let mut delta_table = DeltaOps::try_from_uri(
-            &ParadeDirectory::table_path(schema_oid, table_oid)?
-                .to_str()
-                .ok_or_else(|| ParadeError::NotFound)?,
-        )
-        .await?
-        .create()
-        .with_columns(delta_schema.get_fields().to_vec())
-        .await?;
+        let mut delta_table = CreateBuilder::new()
+            .with_location(
+                ParadeDirectory::table_path(schema_oid, table_oid)?
+                    .to_str()
+                    .ok_or_else(|| ParadeError::NotFound)?,
+            )
+            .with_columns(delta_schema.get_fields().to_vec())
+            .await?;
 
         let mut writer = Self::create_writer(
             self,

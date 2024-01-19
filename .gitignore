@@ -22,3 +22,9 @@ docker/.docker_cache_dev/
 
 # Ruff
 .ruff_cache/
+
+# pgvector
+pgvector/
+
+# Env files
+pg_bm25/.env

@@ -6,7 +6,8 @@ edition = "2021"
 license = "AGPL-3.0"
 
 [lib]
-crate-type = ["cdylib"]
+# Must be cdylib for Postgres, and rlib for Rust tests.
+crate-type = ["cdylib", "rlib"]
 
 [features]
 default = ["pg16"]

@@ -36,16 +36,16 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Dense vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search
 - [ ] Analytics
-  - [x] Real-time aggregations
-  - [ ] Log ingestion
-  - [ ] Log monitoring
+  - [x] Real-time aggregations with [pg_analytics](<(https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)>)
+  - [x] Parquet-backed Postgres tables
+  - [ ] High volume log ingest
+  - [ ] Kafka ingest
+  - [ ] Apache Iceberg storage
 - [x] Self-hosted ParadeDB
   - [x] Docker image & [deployment instructions](https://docs.paradedb.com/deploy/aws)
   - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [ ] Cloud Database
-  - [ ] Managed cloud
   - [ ] Cloud Marketplace Images
-  - [ ] Web-based SQL Editor
 
 ## Creating a ParadeDB Instance
 

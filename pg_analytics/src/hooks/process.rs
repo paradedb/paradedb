@@ -4,6 +4,7 @@ use std::ffi::CStr;
 
 use crate::errors::ParadeError;
 use crate::hooks::alter::alter;
+use crate::hooks::drop::drop;
 use crate::hooks::rename::rename;
 use crate::hooks::truncate::truncate;
 use crate::hooks::vacuum::vacuum;
@@ -36,6 +37,9 @@ pub fn process_utility(
         NodeTag::T_AlterTableStmt => {
             alter(plan as *mut pg_sys::AlterTableStmt)?;
         }
+        NodeTag::T_DropStmt => unsafe {
+            drop(plan as *mut pg_sys::DropStmt)?;
+        },
         NodeTag::T_RenameStmt => unsafe {
             rename(plan as *mut pg_sys::RenameStmt)?;
         },

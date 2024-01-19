@@ -5,11 +5,18 @@ use std::ffi::CStr;
 use crate::datafusion::context::DatafusionContext;
 use crate::errors::ParadeError;
 use crate::hooks::handler::DeltaHandler;
-use crate::hooks::utils::relation_from_rangevar;
 
 pub unsafe fn rename(rename_stmt: *mut pg_sys::RenameStmt) -> Result<(), ParadeError> {
     let new_name = CStr::from_ptr((*rename_stmt).newname).to_str()?;
-    let relation = relation_from_rangevar((*rename_stmt).relation);
+    let rangevar = (*rename_stmt).relation;
+    let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
+        rangevar,
+        pg_sys::ShareUpdateExclusiveLock as i32,
+        0,
+        None,
+        std::ptr::null_mut(),
+    );
+    let relation = pg_sys::RelationIdGetRelation(rangevar_oid);
 
     if relation.is_null() {
         return Ok(());

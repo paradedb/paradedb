@@ -4,7 +4,6 @@ use pgrx::*;
 use crate::datafusion::context::DatafusionContext;
 use crate::errors::ParadeError;
 use crate::hooks::handler::DeltaHandler;
-use crate::hooks::utils::relation_from_rangevar;
 
 pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), ParadeError> {
     let rels = (*truncate_stmt).relations;
@@ -28,7 +27,14 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
             rangevar = (*elements.offset(i as isize)).ptr_value as *mut pg_sys::RangeVar;
         }
 
-        let relation = relation_from_rangevar(rangevar);
+        let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
+            rangevar,
+            pg_sys::ShareUpdateExclusiveLock as i32,
+            0,
+            None,
+            std::ptr::null_mut(),
+        );
+        let relation = pg_sys::RelationIdGetRelation(rangevar_oid);
 
         if relation.is_null() {
             continue;

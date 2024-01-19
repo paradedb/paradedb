@@ -69,7 +69,7 @@ jobs:
 
       - name: Package pg_bm25 Extension with pgrx
         working-directory: pg_bm25/
-        run: cargo pgrx package --features telemetry
+        run: cargo pgrx package --features icu telemetry
 
       - name: Create .deb Package
         run: |

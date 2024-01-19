@@ -36,4 +36,4 @@ CALL paradedb.create_bm25(
     numeric_fields => '{
         release_year: {},
     }'
-)
+);

@@ -180,6 +180,32 @@ cargo pgrx init --pg15=`which pg_config`
 
 Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 
+#### ICU Tokenizer
+
+`pg_bm25` comes with multiple tokenizers for different languages. The ICU tokenizer, which enables tokenization for Arabic, Amharic, and Greek, is not enabled by default in development due to the additional dependencies it requires. To develop with the ICU tokenizer enabled, first:
+
+Ensure that the `icu4c` library is installed. It should come preinstalled on most distros, but you can install it with your system package manager if it isn't:
+
+```bash
+# macOS
+brew install icu4c
+
+# Ubuntu
+sudo apt-get install libicu-dev
+```
+
+Additionally, on macOS you'll need to add the `icu-config` binary to your path before continuing:
+
+```bash
+# ARM macOS
+export PKG_CONFIG_PATH="/opt/homebrew/opt/icu4c/lib/pkgconfig"
+
+# Intel macOS
+export PKG_CONFIG_PATH="/usr/local/opt/icu4c/lib/pkgconfig"
+```
+
+Finally, to enable the ICU tokenizer in development, pass `--features icu` to the `cargo pgrx run` and `cargo pgrx test` commands.
+
 ### Running the Extension
 
 First, start pgrx:

@@ -17,6 +17,7 @@ pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
 pg_test = []
 telemetry = ["shared/telemetry"]
+icu = ["rust_icu_ubrk"]
 
 [dependencies]
 anyhow = { version = "1.0.79", features = ["backtrace"] }
@@ -53,3 +54,7 @@ utoipa = "3.5.0"
 
 [dev-dependencies]
 pgrx-tests = "=0.11.1"
+
+[dependencies.rust_icu_ubrk]
+version = "4.2.3"
+optional = true

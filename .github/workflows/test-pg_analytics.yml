@@ -101,11 +101,26 @@ jobs:
         working-directory: pg_analytics/
         run: cargo clean
 
-      # TODO: Extension upgrade test without pg_regress
-      - name: Initialize pgrx for Current PostgreSQL Version
+      # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
+      - name: Run pg_analytics Integration Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_analytics/
-        run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+        working-directory: pg_analytics/test/
+        run: |
+          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
+            # Retrieve the version to test upgrading to
+            if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
+              echo "New version not provided, assuming the next release is incrementing patch..."
+              NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
+              NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}
+            else
+              echo "Using the provided new version (likely a manual major or minor version increment)..."
+              NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
+              echo "$NEW_VERSION"
+            fi
+            ./runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION"
+          else
+            ./runtests.sh -p sequential -v "${{ matrix.pg_version }}"
+          fi
 
       - name: Run pg_analytics Unit Tests
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

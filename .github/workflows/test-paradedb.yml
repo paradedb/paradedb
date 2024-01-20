@@ -38,9 +38,10 @@ jobs:
         working-directory: docker/
         run: docker buildx create --use && docker compose -f docker-compose.dev.yml build
 
+      # We run in detached mode to avoid blocking the workflow
       - name: Run ParadeDB Docker Image
         working-directory: docker/
-        run: docker compose -f docker-compose.dev.yml up
+        run: docker compose -f docker-compose.dev.yml up pd
 
       # Execute the ParadeDB quickstart tutorial, to test basic functionalities
       - name: Execute ParadeDB Quickstart Tutorial

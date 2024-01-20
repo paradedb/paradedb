@@ -48,11 +48,11 @@ jobs:
 
       # The '-t local' tag is used for benchmark-paradedb.sh and ignored by other scripts
       - name: Run Benchmarking Script
-        working-directory: benchmarks/
+        working-directory: pg_bm25/benchmarks/
         run: ./benchmark-${{ steps.system.outputs.system_to_benchmark }}.sh -t local
 
       - name: Print Results
-        working-directory: benchmarks/out/
+        working-directory: pg_bm25/benchmarks/out/
         run: cat benchmark_${{ steps.system.outputs.system_to_benchmark }}.csv
 
       - name: Notify Slack on Failure

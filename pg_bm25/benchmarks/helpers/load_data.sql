@@ -2,7 +2,7 @@
 
 BEGIN;
 
-CREATE TABLE wikipedia_articles ( url TEXT, title TEXT, body TEXT );
+CREATE TABLE IF NOT EXISTS wikipedia_articles ( url TEXT, title TEXT, body TEXT );
 
 -- This is executed directly from the command line with the -c option
 -- CREATE TEMPORARY TABLE temp_json ( j JSONB ) ON COMMIT DROP;

@@ -14,13 +14,13 @@ declare -A extensions=(
   [pg_analytics]=${PG_ANALYTICS_VERSION:-}
   [svector]=${PG_SPARSE_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
+  [pg_cron]=${PG_CRON_VERSION:-}
 )
 
 # List of extensions that must be added to shared_preload_libraries to be installed. Extensions that
 # get added to shared_preload_libraries must also be listed in `extensions` above in order to get installed.
 #
 # The following extensions can be uncommented and added to the list below to pre-install:
-# [pg_cron]=pg_cron
 # [pg_net]=pg_net
 # [pgaudit]=pgaudit
 # [citus]=citus
@@ -30,6 +30,7 @@ declare -A extensions=(
 declare -A preload_names=(
   [pg_bm25]=pg_bm25
   [pg_analytics]=pg_analytics
+  [pg_cron]=pg_cron
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed

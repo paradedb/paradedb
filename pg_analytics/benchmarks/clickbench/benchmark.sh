@@ -34,6 +34,7 @@ usage() {
 
 # Instantiate vars
 FLAG_TAG="pgrx"
+DOCKER_PORT=5432
 
 # Assign flags to vars and check
 while getopts "ht:s:" flag
@@ -150,8 +151,11 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   # For local benchmarking via pgrx, we don't print the disk usage or parse the results into
   # the format expected by the ClickBench dashboard
 else
-  # For CI/official benchmarking via Docker, we download the full hits.csv dataset, which is ~100M rows (~75GB)
-  download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.csv.gz" "5ef60063da951e18ae3fa929c9f3aad4" "hits.tsv"
+  # For CI benchmarking via Docker, we have a few dataset options:
+  # - hits_5m.tsv.gz: 5M rows (~3.75GB)
+  download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/hits_5m_rows.tsv.gz" "0dd087f3b6c8262fb962bd262163d402" "hits.tsv"
+  # - hits.tsv.gz: 100M rows (~75GB) (full dataset)
+  # download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz" "5ef60063da951e18ae3fa929c9f3aad4" "hits.tsv"
 
   # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
   if [ "$FLAG_TAG" == "local" ]; then
@@ -161,8 +165,38 @@ else
       --build-arg PG_VERSION_MAJOR="15" \
       --build-arg PG_BM25_VERSION="0.0.0" \
       --build-arg PG_ANALYTICS_VERSION="0.0.0" \
+      --build-arg PG_ANALYTICS_VERSION="0.0.0" \
       --build-arg PG_SPARSE_VERSION="0.0.0" \
+      --build-arg PG_GRAPHQL_VERSION="1.3.0" \
+      --build-arg PG_JSONSCHEMA_VERSION="0.1.4" \
+      --build-arg PGSQL_HTTP_VERSION="1.6.0" \
+      --build-arg PG_NET_VERSION="0.7.2" \
       --build-arg PGVECTOR_VERSION="0.5.1" \
+      --build-arg PG_CRON_VERSION="1.6.2" \
+      --build-arg PG_IVM_VERSION="1.7" \
+      --build-arg PG_HASHIDS_VERSION="1.2.1" \
+      --build-arg PG_REPACK_VERSION="1.5.0" \
+      --build-arg PG_STAT_MONITOR_VERSION="2.0.3" \
+      --build-arg PG_HINT_PLAN_VERSION="1.5.1" \
+      --build-arg PG_ROARINGBITMAP_VERSION="0.5.4" \
+      --build-arg PGFACETING_VERSION="0.1.0" \
+      --build-arg PGTAP_VERSION="1.3.1" \
+      --build-arg PGAUDIT_VERSION="1.7.0" \
+      --build-arg POSTGIS_VERSION="3.4.1" \
+      --build-arg PGROUTING_VERSION="3.6.1" \
+      --build-arg HYPOPG_VERSION="1.4.0" \
+      --build-arg RUM_VERSION="1.3.13" \
+      --build-arg AGE_VERSION="1.4.0" \
+      --build-arg CITUS_VERSION="12.1.1" \
+      --build-arg PGSODIUM_VERSION="3.1.9" \
+      --build-arg PGFINCORE_VERSION="1.3.1" \
+      --build-arg PG_PARTMAN_VERSION="5.0.0" \
+      --build-arg PG_JOBMON_VERSION="1.4.1" \
+      --build-arg PG_AUTO_FAILOVER_VERSION="2.1" \
+      --build-arg PG_SHOW_PLANS_VERSION="2.0.2" \
+      --build-arg SQLITE_FDW_VERSION="2.4.0" \
+      --build-arg PGDDL_VERSION="0.27" \
+      --build-arg MYSQL_FDW_VERSION="2.9.1" \
       "../../../"
     echo ""
   fi
@@ -175,14 +209,33 @@ else
     -e POSTGRES_USER=myuser \
     -e POSTGRES_PASSWORD=mypassword \
     -e POSTGRES_DB=mydatabase \
-    -p "$PORT":5432 \
+    -p "$DOCKER_PORT":5432 \
     paradedb/paradedb:"$FLAG_TAG"
 
   # Wait for Docker container to spin up
   echo ""
   echo "Waiting for ParadeDB Docker image to spin up..."
-  sleep 5
+  sleep 10
   echo "Done!"
+
+  echo ""
+  echo "Loading dataset..."
+  export PGPASSWORD='mypassword'
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c 'CALL paradedb.init();' -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
+
+  echo ""
+  echo "Running queries..."
+  ./run.sh 2>&1 | tee log.txt
+
+  echo ""
+  echo "Printing disk usage..."
+  sudo docker exec paradedb du -bcs /var/lib/postgresql/data
+
+  echo ""
+  echo "Printing results..."
+  grep -oP 'Time: \d+\.\d+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
+  awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
 fi
 
 echo ""

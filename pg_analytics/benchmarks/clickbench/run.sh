@@ -1,29 +1,18 @@
 #!/bin/bash
 
-# This script is used to run the ClickBench benchmark suite over multiple iterations. We
-# only use it in the full-suite benchmarking run, which is run via Docker. For local
-# benchmarking via pgrx, we run the benchmark once, directly run the 'queries.sql' script.
-
 # Exit on subcommand errors
 set -Eeuo pipefail
 
 TRIES=3
-OS=$(uname)
+export PGPASSWORD='mypassword'
 
-while read -r query; do
+while IFS= read -r query; do
   sync
+  echo 3 | sudo tee /proc/sys/vm/drop_caches
 
-  if [[ "$OS" == "Linux" ]]; then
-    echo 3 | sudo tee /proc/sys/vm/drop_caches
-  fi
-
-  # TODO: Make this work with multiple storage types
   echo "$query";
-  for _ in $(seq 1 $TRIES); do
-    if [[ "$OS" == "Linux" ]]; then
-      sudo -u postgres psql pg_analytics -t -c "CALL paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
-    elif [[ "$OS" == "Darwin" ]]; then
-      psql -h localhost -p 28815 -d pg_analytics -t -c "CALL paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
-    fi
+  # shellcheck disable=SC2034
+  for i in $(seq 1 $TRIES); do
+    psql -h localhost -U myuser -d mydatabase -p 5432 -t -c "CALL paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
   done;
 done < queries.sql

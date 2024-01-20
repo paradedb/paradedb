@@ -89,7 +89,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
 elif [ "$FLAG_TAG" == "local" ]; then
   echo "Building ParadeDB Dockerfile from Source..."
   docker build -t paradedb/paradedb:"$FLAG_TAG" \
-    -f "../docker/Dockerfile" \
+    -f "../../docker/Dockerfile" \
     --build-arg PG_VERSION_MAJOR="15" \
     --build-arg PG_BM25_VERSION="0.0.0" \
     --build-arg PG_ANALYTICS_VERSION="0.0.0" \
@@ -124,7 +124,7 @@ elif [ "$FLAG_TAG" == "local" ]; then
     --build-arg SQLITE_FDW_VERSION="2.4.0" \
     --build-arg PGDDL_VERSION="0.27" \
     --build-arg MYSQL_FDW_VERSION="2.9.1" \
-    "../"
+    "../../"
   echo ""
 else
   echo "Pulling ParadeDB $FLAG_TAG from Docker Hub..."

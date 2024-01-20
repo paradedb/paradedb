@@ -46,6 +46,10 @@ jobs:
       # Execute the ParadeDB quickstart tutorial, to test basic functionalities
       - name: Execute ParadeDB Quickstart Tutorial
         run: |
+          # Sleep for 10 seconds to allow Postgres to start
+          sleep 10
+
+          # Run the quickstart tutorial
           export PGPASSWORD=mypassword
           psql -h localhost -U myuser -d mydatabase -p 5432 -t -c 'CALL paradedb.create_bm25_test_table(schema_name => "public", table_name => "mock_items");'
           psql -h localhost -U myuser -d mydatabase -p 5432 -t -c 'SELECT description, rating, category FROM mock_items LIMIT 3;'

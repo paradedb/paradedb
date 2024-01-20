@@ -125,7 +125,7 @@ docker run \
 # Wait for Docker container to spin up
 echo ""
 echo "Waiting for server to spin up..."
-sleep 5
+sleep 10
 echo "Done!"
 
 # Load data into database

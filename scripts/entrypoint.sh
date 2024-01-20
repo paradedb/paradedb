@@ -29,6 +29,11 @@ declare -A extensions=(
 declare -A preload_names=(
   [pg_cron]=pg_cron
   [pg_bm25]=pg_bm25
+<<<<<<< HEAD
+=======
+  [pg_analytics]=pg_analytics
+  [pg_cron]=pg_cron
+>>>>>>> c976a84e (feat: Workflow to run CB in ci (#130))
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed

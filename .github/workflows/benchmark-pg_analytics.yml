@@ -1,0 +1,42 @@
+# workflows/benchmark-pg_analytics.yml
+#
+# Benchmark pg_analytics
+# Benchmark ParadeDB's pg_analytics performance on a nightly basis. This workflow can also be triggered
+# manually to benchmark other systems on one-off basis, to compare against ParadeDB.
+
+name: Benchmark pg_analytics
+
+on:
+  schedule:
+    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - main
+    paths:
+      - "pg_analytics/benchmarks/**"
+      - ".github/workflows/benchmark-pg_analytics.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: benchmark-pg_analytics-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark-pg_analytics:
+    name: Benchmark pg_analytics
+    runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Run Official ClickBench Benchmark
+        working-directory: pg_analytics/benchmarks/clickbench/
+        run: ./benchmark.sh -t local
+
+      - name: Notify Slack on Failure
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_analytics Workflow failed on ${{ steps.system.outputs.system_to_benchmark }} -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -9,7 +9,10 @@ pub struct DeltaHandler;
 
 impl DeltaHandler {
     pub unsafe fn rtable_is_delta(rtable: *mut pg_sys::List) -> Result<bool, ParadeError> {
-        let oid = Self::oid()?;
+        let oid = match Self::oid() {
+            Ok(oid) => oid,
+            Err(_) => return Ok(false),
+        };
 
         #[cfg(feature = "pg12")]
         let mut current_cell = (*rtable).head;
@@ -72,7 +75,11 @@ impl DeltaHandler {
             return Ok(false);
         }
 
-        let oid = Self::oid()?;
+        let oid = match Self::oid() {
+            Ok(oid) => oid,
+            Err(_) => return Ok(false),
+        };
+
         let relation_handler_oid = (*relation).rd_amhandler;
 
         Ok(relation_handler_oid == oid)
@@ -85,9 +92,7 @@ impl DeltaHandler {
         let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
 
         if deltalake_oid == pg_sys::InvalidOid {
-            return Err(ParadeError::Generic(
-                "Deltalake handler not found".to_string(),
-            ));
+            return Err(ParadeError::NotFound);
         }
 
         let heap_tuple_data = pg_sys::SearchSysCache1(

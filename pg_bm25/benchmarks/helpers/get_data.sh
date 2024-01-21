@@ -28,6 +28,12 @@ db_query () {
     psql -h "$HOST" -p "$PORT" -d "$DATABASE" -c "$QUERY"
   else
     echo "using docker"
+    echo "$QUERY"
+    echo "$HOST"
+    echo "$PORT"
+    echo "$DATABASE"
+    echo "$USER"
+    echo "$PASSWORD"
     PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -c "$QUERY"
   fi
 }

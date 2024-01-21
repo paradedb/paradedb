@@ -59,4 +59,4 @@ jobs:
           sleep 10
 
           # Run the quickstart tutorial via pg_regress
-          pg_regress --use-existing --dbname=mydatabase --host=localhost --port=5432 --username=myuser --pasword=mypassword --inputdir=.github/workflows/helpers/ --outputdir=.github/workflows/helpers/
+          /usr/local/opt/postgresql@${{ matrix.pg_version }}/lib/postgresql/pgxs/src/test/regress/pg_regress --use-existing --dbname=mydatabase --host=localhost --port=5432 --username=myuser --pasword=mypassword --inputdir=.github/workflows/helpers/ --outputdir=.github/workflows/helpers/

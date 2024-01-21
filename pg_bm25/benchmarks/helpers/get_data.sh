@@ -24,8 +24,10 @@ WIKI_ARTICLES_FILE=wiki-articles.json
 db_query () {
   local QUERY=$1
   if $USING_PGRX; then
+    echo "using pgrx"
     psql -h "$HOST" -p "$PORT" -d "$DATABASE" -c "$QUERY"
   else
+    echo "using docker"
     PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -c "$QUERY"
   fi
 }

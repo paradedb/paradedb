@@ -138,7 +138,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   export DATABASE="pg_bm25"
   export USER=""
   export PASSWORD=""
-  export USING_PGRX="true"
+  export USING_PGRX=true
 else
   echo "Spinning up ParadeDB $FLAG_TAG Docker container..."
   docker run \

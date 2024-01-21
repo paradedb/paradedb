@@ -9,6 +9,7 @@ DEFAULT_PORT=5431
 DEFAULT_DATABASE=mydatabase
 DEFAULT_USER=myuser
 DEFAULT_PASSWORD=mypassword
+DEFAULT_USING_PGRX=false
 
 # Use environment variables if they are set, otherwise use defaults
 HOST=${HOST:-$DEFAULT_HOST}
@@ -16,6 +17,7 @@ PORT=${PORT:-$DEFAULT_PORT}
 DATABASE=${DATABASE:-$DEFAULT_DATABASE}
 USER=${USER:-$DEFAULT_USER}
 PASSWORD=${PASSWORD:-$DEFAULT_PASSWORD}
+USING_PGRX=${USING_PGRX:-$DEFAULT_USING_PGRX}
 WIKI_ARTICLES_FILE=wiki-articles.json
 
 # Helper function to run a query on the benchmarking database

@@ -33,15 +33,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      # This is needed to access pg_regress
-      - name: Install & Configure Supported PostgreSQL Version
-        run: |
-          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/
-          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
-
       # By using the docker-compose.dev.yml file, we also test that the build arguments are correct
       - name: Test Building ParadeDB Docker Image
         working-directory: docker/
@@ -58,5 +49,9 @@ jobs:
           # Sleep for 10 seconds to allow Postgres to start
           sleep 10
 
-          # Run the quickstart tutorial via pg_regress
-          /usr/lib/postgresql/${{ matrix.pg_version }}/lib/pgxs/src/test/regress/pg_regress --use-existing --dbname=mydatabase --host=localhost --port=5432 --username=myuser --pasword=mypassword --inputdir=.github/workflows/helpers/ --outputdir=.github/workflows/helpers/
+          # Load the quickstart tutorial files into the Docker container
+          docker cp .github/workflows/helpers/quickstart.sql docker-paradedb-dev-1:/tmp
+          docker cp .github/workflows/helpers/quickstart.out docker-paradedb-dev-1:/tmp
+
+          # Run the quickstart tutorial via pg_regress through Docker
+          docker exec -d docker-paradedb-dev-1 "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/pgxs/src/test/regress/pg_regress --use-existing --dbname=mydatabase --inputdir=/tmp/ quickstart"

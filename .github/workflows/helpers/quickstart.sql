@@ -1,0 +1,15 @@
+CALL paradedb.create_bm25_test_table(schema_name => "public", table_name => "mock_items");
+SELECT description, rating, category FROM mock_items LIMIT 3;
+CALL paradedb.create_bm25(index_name => "search_idx", schema_name => "public", table_name => "mock_items", key_field => "id", text_fields => "{description: {tokenizer: {type: "en_stem"}}, category: {}}");
+SELECT description, rating, category FROM search_idx.search("description:keyboard OR category:electronics") LIMIT 5;
+SELECT description, rating, category FROM search_idx.search('description:"bluetooth speaker"~1') LIMIT 5;
+CALL paradedb.create_bm25(index_name => "ngrams_idx", schema_name => "public", table_name => "mock_items", key_field => "id", text_fields => "{description: {tokenizer: {type: "ngram", min_gram: 4, max_gram: 4, prefix_only: false}}, category: {}}");
+SELECT description, rating, category FROM ngrams_idx.search('description:blue');
+SELECT s.description, h.highlight_bm25, r.rank_bm25 FROM ngrams_idx.search('description:blue') as s LEFT JOIN ngrams_idx.highlight('description:blue', highlight_field => 'description') as h ON s.id = h.id LEFT JOIN ngrams_idx.rank('description:blue') as r ON s.id = r.id;
+ALTER TABLE mock_items ADD COLUMN embedding vector(3);
+UPDATE mock_items m SET embedding = ('[' || ((m.id + 1) % 10 + 1)::integer || ',' || ((m.id + 2) % 10 + 1)::integer || ',' || ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+SELECT description, rating, category, embedding FROM mock_items LIMIT 3;
+CREATE INDEX on mock_items USING hnsw (embedding vector_l2_ops);
+SELECT description, category, rating, embedding FROM mock_items ORDER BY embedding <-> '[1,2,3]' LIMIT 3;
+SELECT * FROM search_idx.rank_hybrid(bm25_query => 'description:keyboard OR category:electronics', similarity_query => '''[1,2,3]'' <-> embedding', bm25_weight => 0.9, similarity_weight => 0.1) LIMIT 5;
+SELECT m.description, m.category, m.embedding, s.rank_hybrid FROM mock_items m LEFT JOIN (SELECT * FROM search_idx.rank_hybrid(bm25_query => 'description:keyboard OR category:electronics', similarity_query => '''[1,2,3]'' <-> embedding', bm25_weight => 0.9, similarity_weight => 0.1)) s ON m.id = s.id LIMIT 5;

@@ -4,19 +4,19 @@
 set -Eeuo pipefail
 
 # Set default values
-DEFAULT_HOST=localhost
-DEFAULT_PORT=5431
-DEFAULT_DATABASE=mydatabase
-DEFAULT_USER=myuser
-DEFAULT_PASSWORD=mypassword
+DEFAULT_PG_HOST=localhost
+DEFAULT_PG_PORT=5431
+DEFAULT_PG_DATABASE=mydatabase
+DEFAULT_PG_USER=myuser
+DEFAULT_PG_PASSWORD=mypassword
 DEFAULT_USING_PGRX=false
 
 # Use environment variables if they are set, otherwise use defaults
-HOST=${HOST:-$DEFAULT_HOST}
-PORT=${PORT:-$DEFAULT_PORT}
-DATABASE=${DATABASE:-$DEFAULT_DATABASE}
-USER=${USER:-$DEFAULT_USER}
-PASSWORD=${PASSWORD:-$DEFAULT_PASSWORD}
+PG_HOST=${PG_HOST:-$DEFAULT_PG_HOST}
+PG_PORT=${PG_PORT:-$DEFAULT_PG_PORT}
+PG_DATABASE=${PG_DATABASE:-$DEFAULT_PG_DATABASE}
+PG_USER=${PG_USER:-$DEFAULT_PG_USER}
+PG_PASSWORD=${PG_PASSWORD:-$DEFAULT_PG_PASSWORD}
 USING_PGRX=${USING_PGRX:-$DEFAULT_USING_PGRX}
 WIKI_ARTICLES_FILE=wiki-articles.json
 
@@ -25,16 +25,16 @@ db_query () {
   local QUERY=$1
   if $USING_PGRX; then
     echo "using pgrx"
-    psql -h "$HOST" -p "$PORT" -d "$DATABASE" -c "$QUERY"
+    psql -h "$PG_HOST" -p "$PG_PORT" -d "$PG_DATABASE" -c "$QUERY"
   else
     echo "using docker"
     echo "$QUERY"
-    echo "$HOST"
-    echo "$PORT"
-    echo "$DATABASE"
-    echo "$USER"
-    echo "$PASSWORD"
-    PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -c "$QUERY"
+    echo "$PG_HOST"
+    echo "$PG_PORT"
+    echo "$PG_DATABASE"
+    echo "$PG_USER"
+    echo "$PG_PASSWORD"
+    PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -d "$PG_DATABASE" -U "$PG_USER" -c "$QUERY"
   fi
 }
 
@@ -71,11 +71,11 @@ load_data () {
   if $USING_PGRX; then
     # When using pgrx, we only load 100,000 rows
     # sed "s/{{LIMIT}}/100000/g" load_data.sql > load_data.sql
-    psql -h "$HOST" -p "$PORT" -d "$DATABASE" -f helpers/load_data.sql
+    psql -h "$PG_HOST" -p "$PG_PORT" -d "$PG_DATABASE" -f helpers/load_data.sql
   else
     # When using Docker, we load the full dataset of 5M rows
     # sed "s/{{LIMIT}}/5000000/g" load_data.sql > load_data.sql
-    PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -f helpers/load_data.sql
+    PGPASSWORD="$PG_PASSWORD" psql -h "$PG_HOST" -p "$PG_PORT" -d "$PG_DATABASE" -U "$PG_USER" -f helpers/load_data.sql
   fi
 }
 

@@ -133,11 +133,11 @@ fi
 # If the tag is "pgrx", define the right parameters to run the benchmarks
 # against pgrx instead of Docker. Otherwise, spin up a Docker container in detached mode
 if [ "$FLAG_TAG" == "pgrx" ]; then
-  export HOST="localhost"
-  export PORT="28815"
-  export DATABASE="pg_bm25"
-  export USER=""
-  export PASSWORD=""
+  export PG_HOST="localhost"
+  export PG_PORT="28815"
+  export PG_DATABASE="pg_bm25"
+  export PG_USER=""
+  export PG_PASSWORD=""
   export USING_PGRX=true
 else
   echo "Spinning up ParadeDB $FLAG_TAG Docker container..."

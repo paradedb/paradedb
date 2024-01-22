@@ -1,5 +1,6 @@
 #include "postgres.h"
 
+#include <float.h>
 #include <math.h>
 
 #include "catalog/pg_type.h"
@@ -21,8 +22,6 @@
 #if PG_VERSION_NUM >= 120000
 #include "common/shortest_dec.h"
 #include "utils/float.h"
-#else
-#include <float.h>
 #endif
 
 #if PG_VERSION_NUM < 130000
@@ -519,9 +518,25 @@ array_to_svector(PG_FUNCTION_ARGS)
 	CheckDim(nelemsp);
 	CheckExpectedDim(typmod, nelemsp);
 	int32 n_elem = 0;
-	for (int i = 0; i < nelemsp; i++) {
-		if (elemsp[i] != 0) {
-			n_elem++;
+	if (ARR_ELEMTYPE(array) == INT4OID)
+	{
+		for (int i = 0; i < nelemsp; i++) {
+			if (elemsp[i] != 0)
+				n_elem++;
+		}
+	}
+	else if (ARR_ELEMTYPE(array) == FLOAT8OID || ARR_ELEMTYPE(array) == FLOAT4OID)
+	{
+		for (int i = 0; i < nelemsp; i++) {
+			if (fabs(elemsp[i]) >= FLT_EPSILON)
+				n_elem++;
+		}
+	}
+	else if (ARR_ELEMTYPE(array) == NUMERICOID)
+	{
+		for (int i = 0; i < nelemsp; i++) {
+			if (fabs(DirectFunctionCall1(numeric_float4, elemsp[i])) >= FLT_EPSILON)
+				n_elem++;
 		}
 	}
 
@@ -529,38 +544,46 @@ array_to_svector(PG_FUNCTION_ARGS)
 
 	if (ARR_ELEMTYPE(array) == INT4OID)
 	{
+		int curr_x_index = 0;
 		for (int i = 0; i < nelemsp; i++) {
 			if (elemsp[i] == 0)
 				continue;
-			result->x[i].index = i;
-			result->x[i].value = DatumGetInt32(elemsp[i]);
+			result->x[curr_x_index].index = i;
+			result->x[curr_x_index].value = DatumGetInt32(elemsp[i]);
+			curr_x_index++;
 		}
 	}
 	else if (ARR_ELEMTYPE(array) == FLOAT8OID)
 	{
+		int curr_x_index = 0;
 		for (int i = 0; i < nelemsp; i++) {
-			if (elemsp[i] == 0)
+			if (fabs(elemsp[i]) < FLT_EPSILON)
 				continue;
-			result->x[i].index = i;
-			result->x[i].value = DatumGetFloat8(elemsp[i]);
+			result->x[curr_x_index].index = i;
+			result->x[curr_x_index].value = DatumGetFloat8(elemsp[i]);
+			curr_x_index++;
 		}
 	}
 	else if (ARR_ELEMTYPE(array) == FLOAT4OID)
 	{
+		int curr_x_index = 0;
 		for (int i = 0; i < nelemsp; i++) {
-			if (elemsp[i] == 0)
+			if (fabs(elemsp[i]) < FLT_EPSILON)
 				continue;
-			result->x[i].index = i;
-			result->x[i].value = DatumGetFloat4(elemsp[i]);
+			result->x[curr_x_index].index = i;
+			result->x[curr_x_index].value = DatumGetFloat4(elemsp[i]);
+			curr_x_index++;
 		}
 	}
 	else if (ARR_ELEMTYPE(array) == NUMERICOID)
 	{
+		int curr_x_index = 0;
 		for (int i = 0; i < nelemsp; i++) {
-			if (elemsp[i] == 0)
+			if (fabs(DirectFunctionCall1(numeric_float4, elemsp[i])) < FLT_EPSILON)
 				continue;
-			result->x[i].index = i;
-			result->x[i].value = DatumGetFloat4(DirectFunctionCall1(numeric_float4, elemsp[i]));
+			result->x[curr_x_index].index = i;
+			result->x[curr_x_index].value = DatumGetFloat4(DirectFunctionCall1(numeric_float4, elemsp[i]));
+			curr_x_index++;
 		}
 	}
 	else

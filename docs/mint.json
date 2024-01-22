@@ -42,7 +42,6 @@
       "url": "changelog"
     }
   ],
-  "versions": ["Latest", "<v0.4"],
   "navigation": [
     {
       "group": "Documentation",
@@ -82,55 +81,7 @@
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         },
         "latest/upgrading"
-      ],
-      "version": "Latest"
-    },
-    {
-      "group": "Documentation",
-      "pages": [
-        "introduction",
-        "v0.4/quickstart",
-        "import",
-        {
-          "group": "Indexing",
-          "pages": [
-            "v0.4/indexing/overview",
-            "v0.4/indexing/bm25",
-            "v0.4/indexing/hnsw"
-          ]
-        },
-        {
-          "group": "Full Text Search",
-          "pages": [
-            "v0.4/search/bm25",
-            "v0.4/search/scoring",
-            "v0.4/search/highlighting",
-            "v0.4/search/fuzzy",
-            "v0.4/search/autocomplete"
-          ]
-        },
-        {
-          "group": "Similarity Search",
-          "pages": ["v0.4/search/hnsw"]
-        },
-        {
-          "group": "Hybrid Search",
-          "pages": ["v0.4/search/hybrid"]
-        },
-        {
-          "group": "Aggregations",
-          "pages": [
-            "v0.4/aggregations/overview",
-            "v0.4/aggregations/bucket",
-            "v0.4/aggregations/metrics"
-          ]
-        },
-        {
-          "group": "Deployment",
-          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
-        }
-      ],
-      "version": "<v0.4"
+      ]
     },
     {
       "group": "Blog",
@@ -143,6 +94,7 @@
     {
       "group": "Changelog",
       "pages": [
+        "changelog/0.4.4",
         "changelog/0.4.3",
         "changelog/0.4.2",
         "changelog/0.4.1",

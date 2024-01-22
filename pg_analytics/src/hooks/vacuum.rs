@@ -112,7 +112,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                         (*elements.offset(i as isize)).ptr_value as *mut pg_sys::VacuumRelation;
                 }
 
-                // If the relation is null or not analytics, skip it
+                // If the relation is null or not deltalake Table Access Method, skip it
                 let rangevar = (*vacuum_rel).relation;
                 let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
                     rangevar,

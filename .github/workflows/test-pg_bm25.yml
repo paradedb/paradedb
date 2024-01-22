@@ -52,6 +52,21 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
+      # This checks that the version in Cargo.toml is incremented to the next release
+      - name: Check version in Cargo.toml
+        if: github.base_ref == 'main' || github.base_ref == 'dev'
+        working-directory: pg_bm25/
+        run: |
+          CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
+          NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
+          NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}"
+          if [ "$CARGO_VERSION" != "$NEW_VERSION" ]; then
+            echo "Version in Cargo.toml does not match upcoming release version, did you forget to increment it?"
+            echo "Version in Cargo.toml is not 0.4.4"
+            exit 1
+          fi
+          echo "Version check passed!"
+
       - name: Install Rust
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: dtolnay/rust-toolchain@1.73.0

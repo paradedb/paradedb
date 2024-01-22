@@ -20,6 +20,7 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> 
     #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
     let elements = (*rels).elements;
 
+    // DROP can be called on multiple relations at once, so we need to iterate over all of them
     for i in 0..num_rels {
         let range_list: *mut pg_sys::List;
 
@@ -34,13 +35,22 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> 
         }
 
         let rangevar = pg_sys::makeRangeVarFromNameList(range_list);
+
+        // Determine the flags for RangeVarGetRelidExtended
+        let flags = if (*drop_stmt).missing_ok {
+            pg_sys::RVROption_RVR_MISSING_OK
+        } else {
+            0
+        };
+
         let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
             rangevar,
             pg_sys::ShareUpdateExclusiveLock as i32,
-            0,
+            flags,
             None,
             std::ptr::null_mut(),
         );
+
         let relation = pg_sys::RelationIdGetRelation(rangevar_oid);
 
         if relation.is_null() {

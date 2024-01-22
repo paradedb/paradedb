@@ -187,7 +187,7 @@ function run_tests() {
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_bm25 extension..."
     sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/"
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
+    cargo pgrx install --features icu --pg-config="$PG_BIN_PATH/pg_config" --release
 
     # Fourth, upgrade the extension installed on the test database to the current version
     "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_bm25 UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db

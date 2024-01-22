@@ -31,37 +31,39 @@ pub fn process_utility(
         completion_tag: *mut pg_sys::QueryCompletion,
     ) -> HookResult<()>,
 ) -> Result<(), ParadeError> {
-    let plan = pstmt.utilityStmt;
+    unsafe {
+        let plan = pstmt.utilityStmt;
 
-    match unsafe { (*plan).type_ } {
-        NodeTag::T_AlterTableStmt => {
-            alter(plan as *mut pg_sys::AlterTableStmt)?;
-        }
-        NodeTag::T_DropStmt => unsafe {
-            drop(plan as *mut pg_sys::DropStmt)?;
-        },
-        NodeTag::T_RenameStmt => unsafe {
-            rename(plan as *mut pg_sys::RenameStmt)?;
-        },
-        NodeTag::T_TruncateStmt => unsafe {
-            truncate(plan as *mut pg_sys::TruncateStmt)?;
-        },
-        NodeTag::T_VacuumStmt => unsafe {
-            vacuum(plan as *mut pg_sys::VacuumStmt)?;
-        },
-        _ => {}
-    };
+        match (*plan).type_ {
+            NodeTag::T_AlterTableStmt => {
+                alter(plan as *mut pg_sys::AlterTableStmt)?;
+            }
+            NodeTag::T_DropStmt => {
+                drop(plan as *mut pg_sys::DropStmt)?;
+            }
+            NodeTag::T_RenameStmt => {
+                rename(plan as *mut pg_sys::RenameStmt)?;
+            }
+            NodeTag::T_TruncateStmt => {
+                truncate(plan as *mut pg_sys::TruncateStmt)?;
+            }
+            NodeTag::T_VacuumStmt => {
+                vacuum(plan as *mut pg_sys::VacuumStmt)?;
+            }
+            _ => {}
+        };
 
-    let _ = prev_hook(
-        pstmt,
-        query_string,
-        read_only_tree,
-        context,
-        params,
-        query_env,
-        dest,
-        completion_tag,
-    );
+        let _ = prev_hook(
+            pstmt,
+            query_string,
+            read_only_tree,
+            context,
+            params,
+            query_env,
+            dest,
+            completion_tag,
+        );
 
-    Ok(())
+        Ok(())
+    }
 }

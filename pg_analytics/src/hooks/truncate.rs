@@ -14,6 +14,7 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
     #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
     let elements = (*rels).elements;
 
+    // TRUNCATE can be called on multiple relations at once, so we need to iterate over all of them
     for i in 0..num_rels {
         let rangevar: *mut pg_sys::RangeVar;
 

@@ -4,6 +4,7 @@ use std::ffi::CStr;
 
 use crate::errors::ParadeError;
 use crate::hooks::alter::alter;
+use crate::hooks::createfunction::createfunction;
 use crate::hooks::drop::drop;
 use crate::hooks::rename::rename;
 use crate::hooks::truncate::truncate;
@@ -63,6 +64,15 @@ pub fn process_utility(
             dest,
             completion_tag,
         );
+
+        // Create datafusion UDF this after function is created
+        match (*plan).type_ {
+            NodeTag::T_CreateFunctionStmt => {
+                let funcplan = plan as *mut pg_sys::CreateFunctionStmt;
+                createfunction(plan as *mut pg_sys::CreateFunctionStmt);
+            }
+            _ => {}
+        };
 
         Ok(())
     }

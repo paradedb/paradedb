@@ -25,7 +25,7 @@ static mut PARADE_HOOK: ParadeHook = ParadeHook;
 
 #[pg_guard]
 pub extern "C" fn _PG_init() {
-    telemetry::posthog::init("pg_analytics deployment");
+    telemetry::posthog::init("pg_analytics");
     PARADE_LOGS_GLOBAL.init();
     PARADE_GUC.init();
 

@@ -51,17 +51,18 @@ VACUUM FULL t;
 ### Features Supported
 
 - [x] `deltalake` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
-- [x] DML operations (i.e. update, delete, truncate)
 - [x] Vacuum and Parquet storage optimization
+- [x] `INSERT`, `TRUNCATE`, and `COPY`
 
 ### Known Limitations
 
 As `pg_analytics` becomes production-ready, many of these will be resolved.
 
-- [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
-- [ ] User-defined functions, aggregations, or types
+- [ ] `UPDATE` and `DELETE`
 - [ ] Partitioning tables by column
 - [ ] Some Postgres types like arrays, JSON, time, and timestamp with time zone
+- [ ] User-defined functions, aggregations, or types
+- [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
 - [ ] Write-ahead-log (WAL) support and `ROLLBACK`
 - [ ] Foreign keys
 - [ ] Index scans

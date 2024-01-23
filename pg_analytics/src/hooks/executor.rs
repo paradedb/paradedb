@@ -39,6 +39,19 @@ pub fn executor_run(
             return Ok(());
         }
 
+        // TODO: Support UPDATE and DELETE
+        if query_desc.operation == pg_sys::CmdType_CMD_UPDATE {
+            return Err(ParadeError::NotSupported(
+                "UPDATE is not yet supported for deltalake tables".to_string(),
+            ));
+        }
+
+        if query_desc.operation == pg_sys::CmdType_CMD_DELETE {
+            return Err(ParadeError::NotSupported(
+                "DELETE is not yet supported for deltalake tables".to_string(),
+            ));
+        }
+
         // Only use this hook for SELECT queries
         // INSERT/UPDATE/DELETE are handled by the table access method
         if query_desc.operation != pg_sys::CmdType_CMD_SELECT {

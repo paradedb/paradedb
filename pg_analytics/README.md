@@ -21,8 +21,7 @@ ParadeDB is the fastest Postgres-based analytical database and outperforms many 
 
 <img src="../docs/images/clickbench_results.png" alt="Clickbench Results" width="1000px">
 
-For an apples-to-apples comparison, these benchmarks were run on a c6a.4xlarge with 500GB storage. None of the databases were tuned. The (Parquet, single) Clickhouse
-variant was selected because it most closely matches ParadeDB's Parquet storage.
+For an apples-to-apples comparison, these benchmarks were run on a c6a.4xlarge with 500GB storage. None of the databases were tuned. The (Parquet, single) Clickhouse variant was selected because it most closely matches ParadeDB's Parquet storage.
 
 ParadeDB Clickbench results have not yet been published to the live Clickbench site but will be soon.
 
@@ -40,9 +39,24 @@ CREATE TABLE t (a int) USING deltalake;
 -- Postgres query run on a deltalake table
 INSERT INTO t VALUES (1), (2), (3);
 SELECT COUNT(*) FROM t;
--- This bin packs small Parquet files for optimal compression
-VACUUM FULL t;
 ```
+
+## Deltalake Tables
+
+You can interact with `deltalake` tables the same way as with normal Postgres tables. However, there are a few operations specific to `deltalake` tables.
+
+### Context Refresh
+
+If `deltalake` tables are created or modified in other Postgres connections, `CALL paradedb.init();` must be re-run for the changes to be received by the current connection.
+
+### Storage Optimization
+
+When `deltalake` tables are dropped, they remain on disk until `VACUUM` is run. This operation physically
+deletes the Parquet files of dropped tables.
+
+The `VACUUM FULL <table_name>` command is used to optimize a table's storage by bin-packing small Parquet
+files into larger files, which can significantly improve query time and compression. It also deletes
+Parquet files belonging to dropped data.
 
 ## Roadmap
 

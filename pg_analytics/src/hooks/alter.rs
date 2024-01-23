@@ -23,7 +23,7 @@ pub unsafe fn alter(alter_stmt: *mut pg_sys::AlterTableStmt) -> Result<(), Parad
         return Ok(());
     }
 
-    Err(ParadeError::Generic(
+    Err(ParadeError::NotSupported(
         "ALTER TABLE is not yet supported. Please DROP and CREATE the table instead.".to_string(),
     ))
 }

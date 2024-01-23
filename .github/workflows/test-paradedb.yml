@@ -54,4 +54,4 @@ jobs:
           docker cp .github/workflows/helpers/quickstart.out docker-paradedb-dev-1:/tmp
 
           # Run the quickstart tutorial via pg_regress through Docker
-          docker exec -d docker-paradedb-dev-1 "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/pgxs/src/test/regress/pg_regress --use-existing --dbname=mydatabase --inputdir=/tmp/ quickstart"
+          docker exec -d docker-paradedb-dev-1 "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/pgxs/src/test/regress/pg_regress --use-existing --dbname=mydatabase --inputdir=/tmp/"

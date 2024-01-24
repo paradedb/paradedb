@@ -30,9 +30,9 @@ jobs:
           - runner: ubuntu-latest
             pg_version: 15
             arch: amd64
-          # - runner: ubicloud-standard-8-ubuntu-2204-arm
-          #   pg_version: 15
-          #   arch: arm64
+          - runner: ubicloud-standard-8-ubuntu-2204-arm
+            pg_version: 15
+            arch: arm64
 
     steps:
       - name: Checkout Git Repository

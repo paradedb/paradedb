@@ -51,7 +51,41 @@ build_and_package_pg_extension() {
     ./configure
   fi
   make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
-  checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp -- make USE_PGXS=1 install
+
+  # Create installable package
+  mkdir archive
+  cp `find . -type f -name "$PG_EXTENSION_NAME*"` archive
+  package_dir="$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-ubuntu$UBUNTU_VERSION"
+
+  # Copy files into directory structure
+  mkdir -p ${package_dir}/usr/lib/postgresql/lib
+  mkdir -p ${package_dir}/var/lib/postgresql/extension
+  cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
+  cp archive/*.control ${package_dir}/var/lib/postgresql/extension
+  cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
+
+  # Symlinks to copy files into directory structure
+  mkdir -p ${package_dir}/usr/lib/postgresql/$PG_MAJOR_VERSION/lib
+  mkdir -p ${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension
+  cp archive/*.so ${package_dir}/usr/lib/postgresql/$PG_MAJOR_VERSION/lib
+  cp archive/*.control ${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension
+  cp archive/*.sql ${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension
+
+  # Create control file (package name cannot have underscore)
+  mkdir -p ${package_dir}/DEBIAN
+  touch ${package_dir}/DEBIAN/control
+  deb_version=$PG_EXTENSION_VERSION
+  CONTROL_FILE="${package_dir}/DEBIAN/control"
+  echo "Package: $PG_EXTENSION_NAME" >> $CONTROL_FILE
+  echo "Version: ${deb_version}" >> $CONTROL_FILE
+  echo "Architecture: $ARCH" >> $CONTROL_FILE
+  echo "Maintainer: ParadeDB <support@paradedb.com>" >> $CONTROL_FILE
+  echo "Description: ParadeDB Internal Compilation of $PG_EXTENSION_NAME" >> $CONTROL_FILE
+
+  # Create .deb package
+  sudo chown -R root:root ${package_dir}
+  sudo chmod -R 00755 ${package_dir}
+  sudo dpkg-deb --build --root-owner-group ${package_dir}
 }
 
 

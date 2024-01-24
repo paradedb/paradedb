@@ -165,7 +165,6 @@ else
       --build-arg PG_VERSION_MAJOR="15" \
       --build-arg PG_BM25_VERSION="0.0.0" \
       --build-arg PG_ANALYTICS_VERSION="0.0.0" \
-      --build-arg PG_ANALYTICS_VERSION="0.0.0" \
       --build-arg PG_SPARSE_VERSION="0.0.0" \
       --build-arg PG_GRAPHQL_VERSION="1.3.0" \
       --build-arg PG_JSONSCHEMA_VERSION="0.1.4" \

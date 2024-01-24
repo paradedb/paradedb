@@ -70,6 +70,17 @@ CALL paradedb.create_bm25(
 SELECT * from index_config.schema();
 CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
 
+-- Default boolean field
+CALL paradedb.create_bm25(
+	index_name => 'index_config',
+	table_name => 'index_config',
+	schema_name => 'paradedb',
+	key_field => 'id',
+	boolean_fields => '{"in_stock": {}}'
+);
+SELECT * from index_config.schema();
+CALL paradedb.drop_bm25('index_config', schema_name => 'paradedb');
+
 -- Boolean field with options
 CALL paradedb.create_bm25(
 	index_name => 'index_config',

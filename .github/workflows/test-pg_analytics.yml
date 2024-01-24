@@ -137,12 +137,11 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
-      # TODO: Uncomment this once we move to paradedb/paradedb repo, since the token is there
-      # - name: Upload Coverage Reports to Codecov
-      #   if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
-      #   uses: codecov/codecov-action@v3
-      #   with:
-      #     token: ${{ secrets.CODECOV_TOKEN }}
-      #     directory: ./target/coverage-report/
-      #     files: lcov
-      #     fail_ci_if_error: true
+      - name: Upload Coverage Reports to Codecov
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          directory: ./target/coverage-report/
+          files: lcov
+          fail_ci_if_error: true

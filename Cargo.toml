@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "pg_bm25",
+    "pg_analytics",
     "shared"
 ]
 
@@ -9,7 +10,7 @@ members = [
 panic = "unwind"
 
 [profile.release]
+lto = "fat"
 panic = "unwind"
 opt-level = 3
-lto = "fat"
 codegen-units = 1

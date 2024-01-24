@@ -11,3 +11,4 @@ rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
 # Enable Cargo-based benchmarks
 [alias]
 clickbench = "run --bin clickbench --"
+wikibench = "run --bin wikibench --"

@@ -11,7 +11,7 @@ usage() {
   echo "Usage: $0 [OPTIONS]"
   echo "Options:"
   echo " -h (optional),   Display this help message"
-  echo " -t (optional),   Docker tag to use for paradedb/paradedb:tag. Use 'local' to build from source. Default: 'latest'"
+  echo " -t (optional),   Docker tag to use for paradedb/paradedb:tag. Use 'local' to build from source. Use 'pgrx' to run against pgrx instead of Docker. Default: 'latest'"
   exit 1
 }
 
@@ -34,14 +34,16 @@ do
   esac
 done
 
+# Determine the base directory of the script
+BASEDIR=$(dirname "$0")
+cd "$BASEDIR/"
+
+# Vars
 PORT=5431
 OUTPUT_CSV=out/benchmark_paradedb.csv
 
 # Ensure the "out" directory exists
 mkdir -p out/
-
-# shellcheck disable=SC1091
-source "helpers/get_data.sh"
 
 # Cleanup function to stop and remove the Docker container
 cleanup() {
@@ -52,10 +54,17 @@ cleanup() {
   fi
   echo ""
   echo "Cleaning up benchmark environment..."
-  if docker ps -q --filter "name=paradedb" | grep -q .; then
-    docker kill paradedb > /dev/null 2>&1
+  if [ "$FLAG_TAG" == "pgrx" ]; then
+    db_query "DROP EXTENSION pg_bm25 CASCADE;"
+    cd ../pg_bm25/
+    cargo pgrx stop
+    cd ../benchmarks/
+  else
+    if docker ps -q --filter "name=paradedb" | grep -q .; then
+      docker kill paradedb > /dev/null 2>&1
+    fi
+    docker rm paradedb > /dev/null 2>&1
   fi
-  docker rm paradedb > /dev/null 2>&1
   rm -rf query_output.log
   echo "Done, goodbye!"
 }
@@ -69,31 +78,61 @@ echo "* Benchmarking ParadeDB version: $FLAG_TAG"
 echo "*******************************************************"
 echo ""
 
-# If the tag is "local", build ParadeDB from source to test the current commit
-if [ "$FLAG_TAG" == "local" ]; then
-  echo "Building ParadeDB From Source..."
+# If the tag is "pgrx", run the benchmark against pgrx instead of Docker. If the tag
+# is "local", build ParadeDB from source to test the current commit
+if [ "$FLAG_TAG" == "pgrx" ]; then
+  echo "Building pg_bm25 Extension from Source..."
+  cd ../pg_bm25/
+  cargo build
+  cargo pgrx start
+  cd ../benchmarks/
+elif [ "$FLAG_TAG" == "local" ]; then
+  echo "Building ParadeDB Dockerfile from Source..."
   docker build -t paradedb/paradedb:"$FLAG_TAG" \
-    -f "../docker/Dockerfile" \
-    "../"
+    -f "../../docker/Dockerfile" \
+    "../../"
   echo ""
+else
+  echo "Pulling ParadeDB $FLAG_TAG from Docker Hub..."
 fi
 
-# Install and run Docker container for ParadeDB in detached mode
-echo "Spinning up ParadeDB $FLAG_TAG server..."
-docker run \
-  -d \
-  --name paradedb \
-  -e POSTGRES_USER=myuser \
-  -e POSTGRES_PASSWORD=mypassword \
-  -e POSTGRES_DB=mydatabase \
-  -p $PORT:5432 \
-  paradedb/paradedb:"$FLAG_TAG"
+# If the tag is "pgrx", define the right parameters to run the benchmarks
+# against pgrx instead of Docker. Otherwise, spin up a Docker container in detached mode
+if [ "$FLAG_TAG" == "pgrx" ]; then
+  export PG_HOST="localhost"
+  export PG_PORT="28815"
+  export PG_DATABASE="pg_bm25"
+  export PG_USER=""
+  export PG_PASSWORD=""
+  export USING_PGRX=true
+else
+  echo "Spinning up ParadeDB $FLAG_TAG Docker container..."
+  docker run \
+    -d \
+    --name paradedb \
+    -e POSTGRES_USER=myuser \
+    -e POSTGRES_PASSWORD=mypassword \
+    -e POSTGRES_DB=mydatabase \
+    -p $PORT:5432 \
+    paradedb/paradedb:"$FLAG_TAG"
 
-# Wait for Docker container to spin up
-echo ""
-echo "Waiting for server to spin up..."
-sleep 10
-echo "Done!"
+  # Wait for Docker container to spin up
+  echo ""
+  echo "Waiting for Docker container to spin up..."
+  sleep 5
+  echo "Done!"
+fi
+
+# Source the script to load data into the database
+# shellcheck disable=SC1091
+source "helpers/get_data.sh"
+
+# If we're using pgrx, we need to manually create the pg_bm25 extension
+if [ "$FLAG_TAG" == "pgrx" ]; then
+  echo ""
+  echo "Creating pg_bm25 extension..."
+  db_query "CREATE EXTENSION pg_bm25;"
+fi
 
 # Load data into database
 echo ""
@@ -104,8 +143,14 @@ echo "Done!"
 # Output file for recording times
 echo "Table Size,Index Time,Search Time" > "$OUTPUT_CSV"
 
-# Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset
-TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 1500000 2000000 2500000 3000000 3500000 4000000 4500000 5000000)
+# If the tag is "pgrx", we only run a single test for 1M rows. Otherwise, we run the full list
+# of tests between 10,000 and 5M rows
+if [ "$FLAG_TAG" == "pgrx" ]; then
+  TABLE_SIZES=(100000)
+else
+  # Table sizes to be processed (in number of rows). The maximum is 5M rows with the Wikipedia dataset
+  TABLE_SIZES=(10000 50000 100000 200000 300000 400000 500000 600000 700000 800000 900000 1000000 1500000 2000000 2500000 3000000 3500000 4000000 4500000 5000000)
+fi
 
 for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""
@@ -115,8 +160,8 @@ for SIZE in "${TABLE_SIZES[@]}"; do
 
   # Create temporary table with limit
   echo "-- Creating temporary table with $SIZE rows..."
-  db_query "CREATE TABLE $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
-  db_query "ALTER TABLE $TABLE_NAME ADD COLUMN id SERIAL"
+  db_query "CREATE TABLE IF NOT EXISTS $TABLE_NAME AS SELECT * FROM wikipedia_articles LIMIT $SIZE;"
+  db_query "ALTER TABLE $TABLE_NAME ADD COLUMN IF NOT EXISTS id SERIAL"
 
   # Time indexing
   echo "-- Timing indexing..."

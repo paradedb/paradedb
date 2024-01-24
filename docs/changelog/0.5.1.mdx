@@ -1,0 +1,17 @@
+---
+title: 0.5.1
+---
+
+## pg_analytics
+
+### Introduce pg_analytics
+
+`pg_analytics` is an extension that transforms Postgres into a very fast analytical database. Query speeds are comparable to those of dedicated OLAP databases like ClickHouse — without the need to leave Postgres.
+
+Users must make the following change to their `postgresql.conf` configuration file when self-hosting. `pg_analytics` must be added to the list of `shared_preload_libraries` so the background process can be initialized:
+
+```c
+shared_preload_libraries = 'pg_analytics'
+```
+
+The easiest way to get started with `pg_analytics` is via the ParadeDB Docker image, which also comes with `pg_bm25`.

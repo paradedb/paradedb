@@ -11,11 +11,6 @@ services:
     build:
       context: ..
       dockerfile: ./docker/Dockerfile
-      args:
-        PG_VERSION_MAJOR: 15
-        PG_BM25_VERSION: 0.0.0
-        PG_ANALYTICS_VERSION: 0.0.0
-        PG_SPARSE_VERSION: 0.0.0
       cache_from:
         - type=local,src=./.docker_cache_dev
       cache_to:

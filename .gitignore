@@ -4,11 +4,12 @@
 # macOS
 .DS_Store
 
+# Cargo
+Cargo.lock
+target/
+
 # Docker
 docker/.docker_cache_dev/
-
-# Rust
-target/
 
 # SSH
 *.pem
@@ -21,7 +22,3 @@ target/
 
 # Ruff
 .ruff_cache/
-.vercel
-
-# pgvector
-pgvector/

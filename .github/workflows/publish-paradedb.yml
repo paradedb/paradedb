@@ -77,10 +77,6 @@ jobs:
         with:
           context: .
           build-args: |
-            PG_VERSION_MAJOR=${{ matrix.pg_version }}
-            PG_BM25_VERSION=${{ steps.version.outputs.version }}
-            PG_ANALYTICS_VERSION=${{ steps.version.outputs.version }}
-            PG_SPARSE_VERSION=${{ steps.version.outputs.version }}
             TELEMETRY=true
             POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}

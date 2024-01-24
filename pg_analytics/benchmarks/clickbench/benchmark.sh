@@ -162,10 +162,6 @@ else
     echo "Building ParadeDB Docker image from source..."
     docker build -t paradedb/paradedb:"$FLAG_TAG" \
       -f "../../../docker/Dockerfile" \
-      --build-arg PG_VERSION_MAJOR="15" \
-      --build-arg PG_BM25_VERSION="0.0.0" \
-      --build-arg PG_ANALYTICS_VERSION="0.0.0" \
-      --build-arg PG_SPARSE_VERSION="0.0.0" \
       "../../../"
     echo ""
   fi

@@ -1,4 +1,4 @@
-ARG PG_VERSION_MAJOR
+ARG PG_VERSION_MAJOR=15
 
 ###############################################
 # First Stage: Base
@@ -9,9 +9,6 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm as base
 # Declare all the build arguments and set them to
 # environment variables for use in build and runtime
 ARG PG_VERSION_MAJOR
-ARG PG_BM25_VERSION
-ARG PG_ANALYTICS_VERSION
-ARG PG_SPARSE_VERSION
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
@@ -19,9 +16,6 @@ ARG TELEMETRY
 ARG BUILD_DATE
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
-    PG_BM25_VERSION=${PG_BM25_VERSION} \
-    PG_ANALYTICS_VERSION=${PG_ANALYTICS_VERSION} \
-    PG_SPARSE_VERSION=${PG_SPARSE_VERSION} \
     POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
@@ -99,9 +93,7 @@ WORKDIR /tmp/pg_bm25
 COPY pg_bm25/ /tmp/pg_bm25
 COPY shared/ /tmp/shared
 
-# Use the build argument to update the version in Cargo.toml
-RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/;}" Cargo.toml && \
-    cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_analytics
@@ -119,7 +111,6 @@ COPY shared/ /tmp/shared
 RUN rustup update nightly && \
     rustup override set nightly && \
     cargo install --locked cargo-pgrx --version 0.11.1 --force && \
-    sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_ANALYTICS_VERSION}\"/;}" Cargo.toml && \
     cargo pgrx package --features simd --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ###############################################
@@ -140,8 +131,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     postgresql-16-pgvector \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the ParadeDB pgrx extensions from their builder stages
-# We order them by how unlikely they are to be modified, to reduce layer rebuilds
+# Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
@@ -151,9 +141,7 @@ COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-p
 # We set OPTFLAGS="" to disable the -march=native flag, which isn't supported on macOS ARM
 WORKDIR /tmp/pg_sparse
 COPY pg_sparse/ /tmp/pg_sparse
-RUN sed -i "s/default_version = .*/default_version = '${PG_SPARSE_VERSION}'/" svector.control && \
-    sed -i "s/^EXTVERSION = .*/EXTVERSION = ${PG_SPARSE_VERSION}/" Makefile && \
-    make clean && \
+RUN make clean && \
     make USE_PGXS=1 OPTFLAGS="" && \
     make install && \
     rm -rf /tmp/pg_sparse

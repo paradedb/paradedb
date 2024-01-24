@@ -3,49 +3,31 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# List of extensions to pre-install (if a version variable is set when building the Dockerfile).
-# Note that this is not an exhaustive list of extensions that can be installed, only the ones that
-# we pre-install. For the full list of extensions available on ParadeDB, see:
-# https://paradedb.notion.site/PostgreSQL-Extensions-Supported-on-ParadeDB-0aefcad16b6846ca9b3c7099cfc9e4f1?pvs=4
-#
-# The following extensions can be uncommented and added to the list below to pre-install:
-declare -A extensions=(
-  [pg_bm25]=${PG_BM25_VERSION:-}
-  [pg_analytics]=${PG_ANALYTICS_VERSION:-}
-  [svector]=${PG_SPARSE_VERSION:-}
-  [vector]=${PGVECTOR_VERSION:-}
+# List of extensions to pre-install in ParadeDB
+extensions=(
+  pg_bm25
+  pg_analytics
+  svector
+  vector
 )
 
 # List of extensions that must be added to shared_preload_libraries to be installed. Extensions that
 # get added to shared_preload_libraries must also be listed in `extensions` above in order to get installed.
-#
-# The following extensions can be uncommented and added to the list below to pre-install:
-# [pg_net]=pg_net
-# [pgaudit]=pgaudit
-# [citus]=citus
-# [pgsodium]=pgsodium
-# [pgautofailover]=pgautofailover
-# [pg_partman]=pg_partman_bgw
-declare -A preload_names=(
-  [pg_bm25]=pg_bm25
-  [pg_analytics]=pg_analytics
+preload_names=(
+  pg_bm25
+  pg_analytics
 )
 
-# Build the shared_preload_libraries list, only including extensions that are installed
-# and have a preload name specified
-for extension in "${!extensions[@]}"; do
-  version=${extensions[$extension]}
-  if [ -n "$version" ] && [[ -n "${preload_names[$extension]:-}" ]]; then
-    preload_name=${preload_names[$extension]}
-    shared_preload_list+="${preload_name},"
-  fi
+# Build the shared_preload_libraries list, only including extensions that have a preload name specified
+shared_preload_list=""
+for preload_name in "${preload_names[@]}"; do
+  shared_preload_list+="${preload_name},"
 done
 # Remove the trailing comma
 shared_preload_list=${shared_preload_list%,}
+echo "shared_preload_libraries = $shared_preload_list"
 
 # Update the PostgreSQL configuration
-# echo "pg_net.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
-# echo "cron.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
 
 # Setup the database role (the user passed via -e POSTGRES_USER to the Docker run command)
@@ -106,11 +88,8 @@ fi
 
 echo "PostgreSQL is up - installing extensions..."
 
-# Preinstall extensions for which a version is specified
+# Preinstall extensions
 for extension in "${!extensions[@]}"; do
-  version=${extensions[$extension]}
-  if [ -n "$version" ]; then
-    PGPASSWORD=$POSTGRES_PASSWORD psql -c "DROP EXTENSION IF EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" 2> /dev/null
-    PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
-  fi
+  PGPASSWORD=$POSTGRES_PASSWORD psql -c "DROP EXTENSION IF EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" 2> /dev/null
+  PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
 done

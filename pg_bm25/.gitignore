@@ -5,9 +5,8 @@
 .DS_Store
 
 # Cargo
+Cargo.lock
 target/
-debug/
-results/
 
 # Rustfmt
 **/*.rs.bk
@@ -15,8 +14,16 @@ results/
 # Code Coverage
 *.profraw
 
-# pg_regress
-test/results/
-test/test_logs.log
-regression.diffs
-regression.out
+# Logs
+*.txt
+*.log
+
+# Benchmarks
+*.tsv
+*.tsv.gz
+*.csv
+*.csv.gz
+
+# Tests
+regression.*
+results/

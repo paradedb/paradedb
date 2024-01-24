@@ -5,7 +5,7 @@
 
 ## Overview
 
-`pg_analytics` is an extension that transforms Postgres into a very fast analytical database. Query speeds are comparable to those of dedicated OLAP databases like Clickhouse — without the need to leave Postgres.
+`pg_analytics` is an extension that accelerates analytical query processing inside Postgres. The performance of analytical queries that leverage pg_analytics is comparable to the performance of dedicated OLAP databases like Clickhouse — without the need to extract, transform, and load (ETL) the data from your Postgres instance into another system. The purpose of `pg_analytics` is to be a drop-in solution for fast analytics in Postgres with zero ETL.
 
 The primary dependencies are:
 
@@ -90,7 +90,7 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 
 ### Column-Oriented Storage
 
-Regular Postgres tables, known as heap tables, organize data by row. While this makes sense for operational data, it means that analytics queries over large tables require separate reads of every row, which is expensive. As a result, most dedicated analytics (i.e. OLAP) databases organize data by column such that a single read can see many rows at once.
+Regular Postgres tables, known as heap tables, are row-oriented. While this makes sense for operational data, it is inefficient for analytical queries, which often scan a large amount of data from a subset of the columns in a table. As a result, most dedicated analytical (i.e. OLAP) database systems use a column-oriented layout so that scans only need to access the data from the relevant columns. Column-oriented systems have other advantages for analytics such as improved compression and are more amenable to vectorized execution.
 
 ### Vectorized Query Execution
 
@@ -98,7 +98,7 @@ Vectorized query execution is a technique that takes advantage of modern CPUs to
 
 ### Postgres Integration
 
-`pg_analytics` embeds Arrow, Parquet, and Datafusion inside Postgres via executor hooks and the table access method API. Executor hooks intercept queries to these tables and reroute them to Datafusion, which creates an optimal query plan, executes the query, and sends the results back to Postgres. The table access method persists Postgres tables as Parquet files and registers them with Postgres' system catalogs. The Parquet files are managed by Delta Lake, which provides ACID transactions.
+`pg_analytics` embeds Arrow, Parquet, and Datafusion inside Postgres via executor hooks and the table access method API. Executor hooks intercept queries to these tables and reroute them to Datafusion, which generates an optimized query plan, executes the query, and sends the results back to Postgres. The table access method persists Postgres tables as Parquet files and registers them with Postgres' system catalogs. The Parquet files are managed by Delta Lake, which provides ACID transactions.
 
 ## Development
 

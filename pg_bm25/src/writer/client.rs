@@ -43,9 +43,7 @@ impl<T: Serialize> Client<T> {
     }
 
     pub fn from_writer_addr() -> Self {
-        let lock = panic::catch_unwind(|| {
-            WRITER_STATUS.share()
-        });
+        let lock = panic::catch_unwind(|| WRITER_STATUS.share());
 
         let addr = match lock {
             Ok(lock) => lock.addr(),

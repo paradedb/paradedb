@@ -15,7 +15,7 @@ BASEDIR=$(pwd)
 
 # Vars
 OS_NAME=$(uname)
-PGVECTOR_VERSION=v$(jq -r '.extensions.pgvector.version' "$BASEDIR/../conf/third_party_pg_extensions.json")
+PGVECTOR_VERSION=v0.5.1
 
 # All pgrx-supported PostgreSQL versions to configure for
 if [ $# -eq 0 ]; then

@@ -17,7 +17,7 @@ The primary dependencies are:
 
 ## Benchmarks
 
-ParadeDB is the fastest Postgres-based analytical database and outperforms many specialized OLAP systems. On Clickbench, ParadeDB is 94x faster than regular Postgres, 8x faster than ElasticSearch, and almost ties Clickhouse.
+With `pg_analytics` installed, ParadeDB is the fastest Postgres-based analytical database and outperforms many specialized OLAP systems. On Clickbench, ParadeDB is 94x faster than regular Postgres, 8x faster than ElasticSearch, and almost ties Clickhouse.
 
 <img src="../docs/images/clickbench_results.png" alt="Clickbench Results" width="1000px">
 

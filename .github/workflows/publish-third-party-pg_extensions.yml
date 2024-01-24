@@ -30,9 +30,9 @@ jobs:
           - runner: ubuntu-latest
             pg_version: 16
             arch: amd64
-          - runner: ubicloud-standard-4-ubuntu-2204-arm
-            pg_version: 16
-            arch: arm64
+          # - runner: ubicloud-standard-4-ubuntu-2204-arm
+          #   pg_version: 16
+          #   arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -90,11 +90,6 @@ jobs:
             libxslt-dev \
             libpam0g-dev \
             libsodium-dev
-
-      # checkinstall=1.6.2+git20170426.d24a630-3ubuntu1 \
-
-      - name: Setup upterm session
-        uses: lhotari/action-upterm@v1
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases

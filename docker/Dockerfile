@@ -121,7 +121,6 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 # Install Rust (specific version) and other build dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     build-essential \
-    checkinstall \
     clang \
     git \
     cmake \

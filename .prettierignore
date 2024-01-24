@@ -1,4 +1,3 @@
-/benchmarks/*.json
 /benchmarks/out/
 /benchmarks/*_ts.json
 /benchmarks/wiki-articles.json
@@ -7,8 +6,6 @@
 /docs/latest/quickstart.mdx
 /docs/blog/introducing_bm25.mdx
 /docs/blog/introducing_sparse.mdx
-/docs/v0.4/search/autocomplete.mdx
-/docs/v0.4/search/fuzzy.mdx
 /docs/latest/search/autocomplete.mdx
 /docs/latest/search/fuzzy.mdx
-/docs/latest/upgrading.mdx
+/docs/latest/quickstart.mdx

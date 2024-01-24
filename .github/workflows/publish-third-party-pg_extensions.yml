@@ -99,6 +99,10 @@ jobs:
           PG_MAJOR_VERSION: ${{ matrix.pg_version }}
           ARCH: ${{ matrix.arch }}
         run: |
+          # Increase stack size to avoid "buffer overflow" errors
+          ulimit -s unlimited
+
+          # Compile and deploy third-party PostgreSQL extensions
           extensions=$(jq -r '.extensions | keys[]' conf/third_party_pg_extensions.json)
           for ext in $extensions; do
             version=$(jq -r ".extensions.\"$ext\".version" conf/third_party_pg_extensions.json)

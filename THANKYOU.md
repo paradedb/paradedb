@@ -54,10 +54,9 @@ processing.
 
 [Apache DataFusion](https://arrow.apache.org/datafusion/) is a very fast, extensible query engine for building high-quality data-centric systems in Rust, using the Apache Arrow in-memory format. ParadeDB uses Apache DataFusion to do vectorized query processing for columnar data.
 
-## Substrait
+## Delta Rust
 
-[Substrait](https://substrait.io/) is a format for describing compute operations on structured data. It is designed for interoperability across different languages and systems. ParadeDB uses Substrait to interoperate data between
-PostgreSQL and Apache DataFusion.
+[Delta Lake Rust](https://github.com/delta-io/delta-rs) is a Rust implementation of the Delta Lake transactional storage layer. ParadeDB uses Delta Rust implement ACID transactions over Parquet files.
 
 ## Docker
 

@@ -136,8 +136,6 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     pkg-config \
     liblz4-dev \
     libcurl4-openssl-dev \
-    libprotobuf-dev \
-    protobuf-compiler \
     && rm -rf /var/lib/apt/lists/* \
     && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && /root/.cargo/bin/rustup default 1.73.0
@@ -145,7 +143,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install -j "$(nproc)" --locked cargo-pgrx --version 0.11.1 && \
+RUN cargo install --locked cargo-pgrx --version 0.11.1 && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
@@ -161,7 +159,7 @@ COPY shared/ /tmp/shared
 
 # Use the build argument to update the version in Cargo.toml
 RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/;}" Cargo.toml && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+    cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_analytics

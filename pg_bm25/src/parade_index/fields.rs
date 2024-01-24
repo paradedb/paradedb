@@ -196,6 +196,11 @@ impl From<ParadeTokenizer> for TextAnalyzer {
                     .filter(LowerCaser)
                     .build()
             }
+            #[cfg(feature = "icu")]
+            ParadeTokenizer::ICUTokenizer => TextAnalyzer::builder(ICUTokenizer)
+                .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
+                .filter(LowerCaser)
+                .build(),
         }
     }
 }

@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-  <b>Postgres for Search and Analytics</b> <br />
+  <b>PostgreSQL for Search and Analytics</b> <br />
 </p>
 
 <h3 align="center">
@@ -44,7 +44,9 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Docker image & [deployment instructions](https://docs.paradedb.com/deploy/aws)
   - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [ ] Cloud Database
+  - [ ] Managed cloud
   - [ ] Cloud Marketplace Images
+  - [ ] Web-based SQL Editor
 
 ## Creating a ParadeDB Instance
 

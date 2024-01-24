@@ -1,9 +1,5 @@
 {
   "extensions": {
-    "age": {
-      "version": "1.5.0-rc0",
-      "url": "https://github.com/apache/age/archive/refs/tags/PG16/v1.5.0-rc0.tar.gz"
-    },
     "citus": {
       "version": "12.1.1",
       "url": "https://github.com/citusdata/citus/archive/refs/tags/v12.1.1.tar.gz"

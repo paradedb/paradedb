@@ -27,7 +27,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: ubuntu-latest
+          - runner: ubicloud-standard-4
             pg_version: 16
             arch: amd64
           - runner: ubicloud-standard-4-ubuntu-2204-arm

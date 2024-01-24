@@ -5,7 +5,7 @@
 
 ## Overview
 
-`pg_analytics` is an extension that accelerates analytical query processing inside Postgres. The performance of analytical queries that leverage pg_analytics is comparable to the performance of dedicated OLAP databases like Clickhouse — without the need to extract, transform, and load (ETL) the data from your Postgres instance into another system. The purpose of `pg_analytics` is to be a drop-in solution for fast analytics in Postgres with zero ETL.
+`pg_analytics` is an extension that accelerates analytical query processing inside Postgres. The performance of analytical queries that leverage `pg_analytics` is comparable to the performance of dedicated OLAP databases — without the need to extract, transform, and load (ETL) the data from your Postgres instance into another system. The purpose of `pg_analytics` is to be a drop-in solution for fast analytics in Postgres with zero ETL.
 
 The primary dependencies are:
 

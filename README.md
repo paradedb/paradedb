@@ -4,7 +4,7 @@
 </h1>
 
 <p align="center">
-  <b>PostgreSQL for Search and Analytics</b> <br />
+  <b>Postgres for Search and Analytics</b> <br />
 </p>
 
 <h3 align="center">
@@ -72,7 +72,7 @@ docker run \
   paradedb/paradedb:latest
 ```
 
-The `-v` flag is optional, but recommended. It will persist the ParadeDB PostgreSQL data across restarts. Alternatively, you can clone this repo and run our `docker-compose.yml` file. By default, this will start the ParadeDB database at `http://localhost:5432`. Use `psql` to connect:
+The `-v` flag is optional, but recommended. It will persist the data loaded into ParadeDB across restarts. Alternatively, you can clone this repo and run our `docker-compose.yml` file. By default, this will start the ParadeDB database at `http://localhost:5432`. Use `psql` to connect:
 
 ```bash
 psql -h <hostname> -U <user> -d <dbname> -p 5432 -W

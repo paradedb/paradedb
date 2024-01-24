@@ -27,7 +27,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+          - runner: ubuntu-latest
             pg_version: 16
             arch: amd64
           - runner: ubicloud-standard-4-ubuntu-2204-arm
@@ -69,7 +69,6 @@ jobs:
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-            checkinstall \
             systemtap-sdt-dev \
             libkrb5-dev \
             libgeos-dev \
@@ -91,6 +90,11 @@ jobs:
             libxslt-dev \
             libpam0g-dev \
             libsodium-dev
+
+      # checkinstall=1.6.2+git20170426.d24a630-3ubuntu1 \
+
+      - name: Setup upterm session
+        uses: lhotari/action-upterm@v1
 
       # We release third-party PostgreSQL extensions to a dedicated repository (paradedb/third-party-pg_extensions)
       - name: Build and Push Third-Party PostgreSQL Extensions to GitHub Releases

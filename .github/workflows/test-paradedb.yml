@@ -50,8 +50,8 @@ jobs:
           sleep 10
 
           # Load the quickstart tutorial files into the Docker container
-          docker cp .github/workflows/helpers/quickstart.sql docker-paradedb-dev-1:/tmp
-          docker cp .github/workflows/helpers/quickstart.out docker-paradedb-dev-1:/tmp
+          docker cp .github/workflows/helpers/quickstart.sql docker-paradedb-dev-1:$HOME
+          docker cp .github/workflows/helpers/quickstart.out docker-paradedb-dev-1:$HOME
 
           # Run the quickstart tutorial via pg_regress through Docker
-          docker exec -d docker-paradedb-dev-1 "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/pgxs/src/test/regress/pg_regress --use-existing --dbname=mydatabase --inputdir=/tmp/"
+          docker exec -d docker-paradedb-dev-1 "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/pgxs/src/test/regress/pg_regress --use-existing --dbname=mydatabase --inputdir=$HOME"

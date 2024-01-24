@@ -27,7 +27,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: ubuntu-latest
+          - runner: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
             pg_version: 16
             arch: amd64
           - runner: ubicloud-standard-4-ubuntu-2204-arm
@@ -50,9 +50,6 @@ jobs:
 
           # Create any necessary directories
           sudo mkdir -p /usr/share/postgresql/${{ matrix.pg_version }}/pgfincore/
-          sudo mkdir -p /usr/share/doc/
-          sudo mkdir -p /usr/local/share/doc/
-          sudo mkdir -p /usr/local/share/man
 
           # Update permissions for PostgreSQL directories for extensions installation
           sudo chown -R $(whoami) \

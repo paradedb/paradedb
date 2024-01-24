@@ -148,7 +148,7 @@ RUN make clean && \
 WORKDIR /
 
 # Copy entrypoint script, which will be handled by the official image initialization scipt
-COPY ./scripts/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
+COPY ./docker/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
 
 # Change the uid of postgres to 26
 RUN usermod -u 26 postgres \

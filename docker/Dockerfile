@@ -10,6 +10,7 @@ FROM postgres:${PG_VERSION_MAJOR}-bookworm as base
 # environment variables for use in build and runtime
 ARG PG_VERSION_MAJOR
 ARG PG_BM25_VERSION
+ARG PG_ANALYTICS_VERSION
 ARG PG_SPARSE_VERSION
 ARG PGVECTOR_VERSION
 ARG PG_CRON_VERSION
@@ -49,6 +50,7 @@ ARG BUILD_DATE
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     PG_BM25_VERSION=${PG_BM25_VERSION} \
+    PG_ANALYTICS_VERSION=${PG_ANALYTICS_VERSION} \
     PG_SPARSE_VERSION=${PG_SPARSE_VERSION} \
     PGVECTOR_VERSION=${PGVECTOR_VERSION} \
     PG_CRON_VERSION=${PG_CRON_VERSION} \
@@ -173,8 +175,12 @@ COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
 
 # Use the build argument to update the version in Cargo.toml
-RUN sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_BM25_VERSION}\"/;}" Cargo.toml && \
-    cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+# Note: We require Rust nightly to build pg_analytics with SIMD support
+RUN rustup update nightly && \
+    rustup override set nightly && \
+    cargo install --locked cargo-pgrx --version 0.11.1 --force && \
+    sed -i "/\[package\]/,/\[/{s/version = \"[0-9]*\.[0-9]*\.[0-9]*\"/version = \"${PG_ANALYTICS_VERSION}\"/;}" Cargo.toml && \
+    cargo pgrx package --features simd --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ###############################################
 # Third Stage: PostgreSQL
@@ -254,6 +260,8 @@ RUN curl -L "https://github.com/paradedb/third-party-pg_extensions/releases/down
 # We order them by how unlikely they are to be modified, to reduce layer rebuilds
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
+COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
 
 # Install the ParadeDB pg_sparse extension directly, since it's not as modular as pgrx extensions
 # We set OPTFLAGS="" to disable the -march=native flag, which isn't supported on macOS ARM

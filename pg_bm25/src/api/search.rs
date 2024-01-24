@@ -88,48 +88,20 @@ pub fn minmax_bm25(
         .iter()
         .map(|(score, _)| *score)
         .fold((f32::MAX, f32::MIN), |(min, max), score| {
-<<<<<<< HEAD
-<<<<<<< HEAD
-            (min.min(score.bm25), max.max(score.bm25))
-=======
-            (min.min(score), max.max(score))
-        });
-<<<<<<< HEAD
-=======
             (min.min(score.bm25), max.max(score.bm25))
         });
     let score_range = max_score - min_score;
     let mut field_rows = Vec::new();
 
->>>>>>> e7fb3d84 (chore: Rebase on paradedb/paradedb as of Jan 18, 2024 (#132))
     for (score, doc_address) in top_docs.into_iter() {
         let document = scan_state
             .doc(doc_address)
             .unwrap_or_else(|err| panic!("error retrieving document for rank_hybrid: {err:?}"));
         let key = parade_index.get_key_value(&document);
-<<<<<<< HEAD
-=======
-    let dedupe = DedupeResults::new(&scan_state, &parade_index, top_docs);
-    for DedupedDoc {
-        score, document, ..
-    } in dedupe.into_iter()
-    {
-        #[allow(unreachable_patterns)]
-        let key = match parade_index.get_key_value(&document) {
-            ParadeIndexKey::Number(k) => k,
-            _ => unimplemented!("non-integer index keys are not yet implemented"),
-        };
->>>>>>> dd802134 (chore: Rebase on `paradedb/paradedb` repository as of Jan 6, 2024 (#60))
-=======
->>>>>>> e7fb3d84 (chore: Rebase on paradedb/paradedb as of Jan 18, 2024 (#132))
 
         let normalized_score = if score_range == 0.0 {
             1.0
         } else {
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
->>>>>>> e7fb3d84 (chore: Rebase on paradedb/paradedb as of Jan 18, 2024 (#132))
             (score.bm25 - min_score) / score_range
         };
 

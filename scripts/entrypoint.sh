@@ -11,6 +11,7 @@ set -Eeuo pipefail
 # The following extensions can be uncommented and added to the list below to pre-install:
 declare -A extensions=(
   [pg_bm25]=${PG_BM25_VERSION:-}
+  [pg_analytics]=${PG_ANALYTICS_VERSION:-}
   [svector]=${PG_SPARSE_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
   [pg_cron]=${PG_CRON_VERSION:-}
@@ -27,8 +28,9 @@ declare -A extensions=(
 # [pgautofailover]=pgautofailover
 # [pg_partman]=pg_partman_bgw
 declare -A preload_names=(
-  [pg_cron]=pg_cron
   [pg_bm25]=pg_bm25
+  [pg_analytics]=pg_analytics
+  [pg_cron]=pg_cron
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed

@@ -79,6 +79,7 @@ jobs:
           build-args: |
             PG_VERSION_MAJOR=${{ matrix.pg_version }}
             PG_BM25_VERSION=${{ steps.version.outputs.version }}
+            PG_ANALYTICS_VERSION=${{ steps.version.outputs.version }}
             PG_SPARSE_VERSION=${{ steps.version.outputs.version }}
             PGVECTOR_VERSION=0.5.1
             PGAUDIT_VERSION=1.7.0

@@ -128,7 +128,7 @@ LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/bl
 
 # Install pgvector
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
-    postgresql-${PG_VERSION_MAJOR}-pgvector \
+    "postgresql-${PG_VERSION_MAJOR}-pgvector" \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the ParadeDB extensions from their builder stages

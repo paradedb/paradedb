@@ -53,23 +53,21 @@ build_and_package_pg_extension() {
   make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
 
   # Create installable package
-  mkdir archive
-  cp `find . -type f -name "$PG_EXTENSION_NAME*"` archive
   package_dir="$PG_EXTENSION_NAME-$PG_EXTENSION_VERSION-pg$PG_MAJOR_VERSION-$ARCH-ubuntu$UBUNTU_VERSION"
 
   # Copy files into directory structure
   mkdir -p ${package_dir}/usr/lib/postgresql/lib
   mkdir -p ${package_dir}/var/lib/postgresql/extension
-  cp archive/*.so ${package_dir}/usr/lib/postgresql/lib
-  cp archive/*.control ${package_dir}/var/lib/postgresql/extension
-  cp archive/*.sql ${package_dir}/var/lib/postgresql/extension
+  cp *.so ${package_dir}/usr/lib/postgresql/lib
+  cp *.control ${package_dir}/var/lib/postgresql/extension
+  cp *.sql ${package_dir}/var/lib/postgresql/extension
 
   # Symlinks to copy files into directory structure
   mkdir -p ${package_dir}/usr/lib/postgresql/$PG_MAJOR_VERSION/lib
   mkdir -p ${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension
-  cp archive/*.so ${package_dir}/usr/lib/postgresql/$PG_MAJOR_VERSION/lib
-  cp archive/*.control ${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension
-  cp archive/*.sql ${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension
+  cp *.so ${package_dir}/usr/lib/postgresql/$PG_MAJOR_VERSION/lib
+  cp *.control ${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension
+  cp *.sql ${package_dir}/usr/share/postgresql/$PG_MAJOR_VERSION/extension
 
   # Create control file (package name cannot have underscore)
   mkdir -p ${package_dir}/DEBIAN

@@ -78,7 +78,6 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg PG_BM25_VERSION="0.0.0" \
     --build-arg PG_ANALYTICS_VERSION="0.0.0" \
     --build-arg PG_SPARSE_VERSION="0.0.0" \
-    --build-arg PGVECTOR_VERSION="0.5.1" \
     "../"
   echo ""
 fi

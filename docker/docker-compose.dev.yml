@@ -16,7 +16,6 @@ services:
         PG_BM25_VERSION: 0.0.0
         PG_ANALYTICS_VERSION: 0.0.0
         PG_SPARSE_VERSION: 0.0.0
-        PGVECTOR_VERSION: 0.5.1
       cache_from:
         - type=local,src=./.docker_cache_dev
       cache_to:

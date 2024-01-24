@@ -14,7 +14,6 @@ declare -A extensions=(
   [pg_analytics]=${PG_ANALYTICS_VERSION:-}
   [svector]=${PG_SPARSE_VERSION:-}
   [vector]=${PGVECTOR_VERSION:-}
-  [pg_cron]=${PG_CRON_VERSION:-}
 )
 
 # List of extensions that must be added to shared_preload_libraries to be installed. Extensions that
@@ -30,7 +29,6 @@ declare -A extensions=(
 declare -A preload_names=(
   [pg_bm25]=pg_bm25
   [pg_analytics]=pg_analytics
-  [pg_cron]=pg_cron
 )
 
 # Build the shared_preload_libraries list, only including extensions that are installed
@@ -46,8 +44,8 @@ done
 shared_preload_list=${shared_preload_list%,}
 
 # Update the PostgreSQL configuration
-echo "pg_net.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
-echo "cron.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
+# echo "pg_net.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
+# echo "cron.database_name = '$POSTGRES_DB'" >> "${PGDATA}/postgresql.conf"
 sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
 
 # Setup the database role (the user passed via -e POSTGRES_USER to the Docker run command)

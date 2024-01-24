@@ -93,7 +93,6 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg POSTGIS_VERSION="3.4.1" \
     --build-arg PGROUTING_VERSION="3.6.1" \
     --build-arg RUM_VERSION="1.3.13" \
-    --build-arg AGE_VERSION="1.4.0" \
     --build-arg CITUS_VERSION="12.1.1" \
     --build-arg PGSODIUM_VERSION="3.1.9" \
     --build-arg PGFINCORE_VERSION="1.3.1" \

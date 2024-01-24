@@ -27,7 +27,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: ubicloud-standard-4
+          - runner: ubuntu-latest
             pg_version: 16
             arch: amd64
           - runner: ubicloud-standard-4-ubuntu-2204-arm
@@ -65,7 +65,7 @@ jobs:
           # Add PostgreSQL binaries to PATH
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      # Install requirements for: rum, pgaudit, postgis, pg_repack, AGE, pg_auto_failover, pgsodium
+      # Install requirements for: rum, pgaudit, postgis, pg_repack, pg_auto_failover, pgsodium
       - name: Install Third-Party PostgreSQL Extension Build Dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends \

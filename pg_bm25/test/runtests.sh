@@ -172,7 +172,7 @@ function run_tests() {
   if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
     # Don't send telemetry when running tests
-    export TELEMETRY=falsegit a
+    export TELEMETRY=false
 
     # First, download & install the first release at which we started supporting upgrades (v0.3.3)
     BASE_RELEASE="0.3.3"

@@ -39,9 +39,9 @@ impl ParadeCatalog {
                     .ok_or_else(|| ParadeError::NotFound)?
                     .to_str()
                     .ok_or_else(|| ParadeError::NotFound)?
-                    .parse()?;
+                    .parse::<u32>()?;
 
-                let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(schema_oid) };
+                let pg_oid = pg_sys::Oid::from(schema_oid);
 
                 let schema_name = unsafe {
                     let schema_name = pg_sys::get_namespace_name(pg_oid);

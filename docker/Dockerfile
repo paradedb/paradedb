@@ -81,7 +81,7 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install --locked cargo-pgrx --version 0.11.1 && \
+RUN cargo install --locked cargo-pgrx --version 0.11.2 && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
@@ -112,7 +112,7 @@ COPY shared/ /tmp/shared
 # Note: We require Rust nightly to build pg_analytics with SIMD support
 RUN rustup update nightly && \
     rustup override set nightly && \
-    cargo install --locked cargo-pgrx --version 0.11.1 --force && \
+    cargo install --locked cargo-pgrx --version 0.11.2 --force && \
     cargo pgrx package --features simd --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ###############################################

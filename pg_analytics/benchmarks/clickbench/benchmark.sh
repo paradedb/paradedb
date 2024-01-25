@@ -133,7 +133,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
     rustup default nightly
 
     echo "Reinstalling cargo-pgrx on Rust nightly toolchain..."
-    cargo install --locked cargo-pgrx --version 0.11.1 --force
+    cargo install --locked cargo-pgrx --version 0.11.2 --force
   else
     echo "Already on Rust nightly toolchain, skipping toolchain switch..."
   fi

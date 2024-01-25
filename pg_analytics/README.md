@@ -31,8 +31,6 @@ This toy example demonstrates how to get started.
 
 ```sql
 CREATE EXTENSION pg_analytics;
--- This needs to be run once per connection
-CALL paradedb.init();
 -- Create a deltalake table
 CREATE TABLE t (a int) USING deltalake;
 -- pg_analytics supercharges the performance of any
@@ -47,7 +45,7 @@ You can interact with `deltalake` tables the same way as with normal Postgres ta
 
 ### Context Refresh
 
-If `deltalake` tables are created or modified in other Postgres connections, `CALL paradedb.init();` must be re-run for the changes to be received by the current connection.
+If `deltalake` tables are created or modified in other Postgres connections, `CALL paradedb.init();` must be run for the changes to be received by the current connection.
 
 ### Storage Optimization
 

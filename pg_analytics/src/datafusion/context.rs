@@ -4,15 +4,17 @@ use deltalake::datafusion::common::arrow::datatypes::DataType;
 use deltalake::datafusion::common::config::ConfigOptions;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::datasource::provider_as_source;
+use deltalake::datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
-use deltalake::datafusion::prelude::SessionContext;
+use deltalake::datafusion::prelude::{SessionConfig, SessionContext};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
 use lazy_static::lazy_static;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use std::sync::Arc;
 
-use crate::datafusion::catalog::{ParadeCatalog, PARADE_CATALOG};
+use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList, PARADE_CATALOG};
+use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::errors::ParadeError;
 
@@ -29,15 +31,14 @@ impl<'a> DatafusionContext {
     {
         let context_lock = CONTEXT.read();
         let context = match context_lock.as_ref() {
-            Some(context) => context,
+            Some(context) => context.clone(),
             None => {
-                return Err(ParadeError::ContextNotInitialized(
-                    "Please run `CALL paradedb.init();` first".to_string(),
-                ))
+                drop(context_lock);
+                DatafusionContext::init()?
             }
         };
 
-        f(context)
+        f(&context)
     }
 
     pub fn with_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
@@ -46,11 +47,10 @@ impl<'a> DatafusionContext {
     {
         let context_lock = CONTEXT.read();
         let context = match context_lock.as_ref() {
-            Some(context) => context,
+            Some(context) => context.clone(),
             None => {
-                return Err(ParadeError::ContextNotInitialized(
-                    "Please run `CALL paradedb.init();` first".to_string(),
-                ))
+                drop(context_lock);
+                DatafusionContext::init()?
             }
         };
 
@@ -74,11 +74,10 @@ impl<'a> DatafusionContext {
     {
         let context_lock = CONTEXT.read();
         let context = match context_lock.as_ref() {
-            Some(context) => context,
+            Some(context) => context.clone(),
             None => {
-                return Err(ParadeError::ContextNotInitialized(
-                    "Please run `CALL paradedb.init();` first".to_string(),
-                ))
+                drop(context_lock);
+                DatafusionContext::init()?
             }
         };
 
@@ -100,6 +99,34 @@ impl<'a> DatafusionContext {
     {
         let context_lock = CONTEXT.write();
         f(context_lock)
+    }
+
+    pub fn init() -> Result<SessionContext, ParadeError> {
+        let session_config = SessionConfig::from_env()?.with_information_schema(true);
+
+        let rn_config = RuntimeConfig::new();
+        let runtime_env = RuntimeEnv::new(rn_config)?;
+
+        DatafusionContext::with_write_lock(|mut context_lock| {
+            let mut context =
+                SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
+
+            // Create schema directory if it doesn't exist
+            ParadeDirectory::create_delta_path()?;
+
+            // Register catalog list
+            context.register_catalog_list(Arc::new(ParadeCatalogList::try_new()?));
+
+            // Create and register catalog
+            let catalog = ParadeCatalog::try_new()?;
+            task::block_on(catalog.init())?;
+            context.register_catalog(PARADE_CATALOG, Arc::new(catalog));
+
+            // Set context
+            *context_lock = Some(context.clone());
+
+            Ok(context)
+        })
     }
 }
 

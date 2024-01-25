@@ -15,6 +15,7 @@ on:
       - staging
       - main
     paths:
+      - "pg_analytics/Cargo.toml"
       - "pg_analytics/benchmarks/**"
       - ".github/workflows/benchmark-pg_analytics.yml"
   workflow_dispatch:

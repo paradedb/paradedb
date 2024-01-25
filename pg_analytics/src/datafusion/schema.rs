@@ -18,6 +18,7 @@ use deltalake::storage::DeltaObjectStore;
 use deltalake::DeltaTable;
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
+use std::future::IntoFuture;
 use std::{
     any::Any, collections::HashMap, ffi::CStr, ffi::CString, fs::remove_dir_all, path::PathBuf,
     sync::Arc,
@@ -76,27 +77,10 @@ impl ParadeSchemaProvider {
                     CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()?
                 };
 
-                let schema_oid = unsafe {
-                    pg_sys::get_namespace_oid(
-                        CString::new(self.schema_name.clone())?.as_ptr(),
-                        true,
-                    )
-                };
-
                 // Create a DeltaTable
                 // This is the only place where deltalake::open_table should be called
                 // Calling deltalake::open_table multiple times on the same directory results in an error
-                let delta_table = match Self::table_exist(self, table_name) {
-                    true => Self::get_delta_table(self, table_name).await?,
-                    false => {
-                        deltalake::open_table(
-                            ParadeDirectory::table_path(schema_oid, pg_oid)?
-                                .to_str()
-                                .ok_or_else(|| ParadeError::NotFound)?,
-                        )
-                        .await?
-                    }
-                };
+                let delta_table = Self::get_delta_table(self, table_name).await?;
 
                 // Create a writer
                 let pg_relation = unsafe { PgRelation::from_pg(relation) };
@@ -352,20 +336,46 @@ impl ParadeSchemaProvider {
     // SchemaProvider stores immutable TableProviders, whereas many DeltaOps methods
     // require a mutable DeltaTable. This function gets a mutable DeltaTable from
     // a TableProvider using the DeltaOps UpdateBuilder.
-    async fn get_delta_table(&self, table_name: &str) -> Result<DeltaTable, ParadeError> {
-        let provider = Self::table(self, table_name)
-            .await
-            .ok_or_else(|| ParadeError::NotFound)?;
-        let old_table = provider
-            .as_any()
-            .downcast_ref::<DeltaTable>()
-            .ok_or_else(|| ParadeError::NotFound)?;
+    pub async fn get_delta_table(&self, name: &str) -> Result<DeltaTable, ParadeError> {
+        let mut delta_table = match Self::table_exist(self, name) {
+            true => {
+                let tables = self.tables.read();
+                let provider = tables.get(name).ok_or_else(|| ParadeError::NotFound)?;
 
-        Ok(
-            UpdateBuilder::new(old_table.object_store(), old_table.state.clone())
+                let old_table = provider
+                    .as_any()
+                    .downcast_ref::<DeltaTable>()
+                    .ok_or_else(|| ParadeError::NotFound)?;
+
+                task::block_on(
+                    UpdateBuilder::new(old_table.object_store(), old_table.state.clone())
+                        .into_future(),
+                )?
+                .0
+            }
+            false => {
+                let schema_oid = unsafe {
+                    pg_sys::get_namespace_oid(
+                        CString::new(self.schema_name.clone())?.as_ptr(),
+                        true,
+                    )
+                };
+
+                let table_oid =
+                    unsafe { pg_sys::get_relname_relid(CString::new(name)?.as_ptr(), schema_oid) };
+
+                deltalake::open_table(
+                    ParadeDirectory::table_path(schema_oid, table_oid)?
+                        .to_str()
+                        .ok_or_else(|| ParadeError::NotFound)?,
+                )
                 .await?
-                .0,
-        )
+            }
+        };
+
+        task::block_on(delta_table.load())?;
+
+        Ok(delta_table)
     }
 
     // Helper function to convert pg_relation attributes to a list of Datafusion Fields
@@ -447,8 +457,10 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
-        let tables = self.tables.read();
-        tables.get(name).cloned()
+        let delta_table = task::block_on(Self::get_delta_table(self, name)).ok()?;
+        let provider = Arc::new(delta_table) as Arc<dyn TableProvider>;
+
+        Self::register_table(self, name.to_string(), provider.clone()).ok()?
     }
 
     fn table_exist(&self, name: &str) -> bool {

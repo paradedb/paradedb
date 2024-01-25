@@ -13,6 +13,6 @@ while IFS= read -r query; do
   echo "$query";
   # shellcheck disable=SC2034
   for i in $(seq 1 $TRIES); do
-    psql -h localhost -U myuser -d mydatabase -p 5432 -t -c "CALL paradedb.init();" -c '\timing' -c "$query" | grep 'Time'
+    psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "$query" | grep 'Time'
   done;
 done < queries.sql

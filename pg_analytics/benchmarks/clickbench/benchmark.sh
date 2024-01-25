@@ -187,7 +187,7 @@ else
   echo "Loading dataset..."
   export PGPASSWORD='mypassword'
   psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
-  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c 'CALL paradedb.init();' -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
 
   echo ""
   echo "Running queries..."

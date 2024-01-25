@@ -6,7 +6,7 @@ use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionMapProducer, PostgresTypeTranslator};
-use crate::datafusion::table::ParadeTable;
+use crate::datafusion::table::DeltaTableProvider;
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -59,13 +59,12 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
 #[inline]
 fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let parade_table = ParadeTable::from_pg(&pg_relation)?;
-    let table_name = parade_table.table_name()?;
-    let schema_name = parade_table.schema_name()?;
-    let arrow_schema = parade_table.arrow_schema()?;
+    let table_name = pg_relation.name();
+    let schema_name = pg_relation.namespace();
+    let arrow_schema = pg_relation.arrow_schema()?;
 
-    DatafusionContext::with_schema_provider(&schema_name, |provider| {
-        task::block_on(provider.flush_and_commit(&table_name, arrow_schema))
+    DatafusionContext::with_schema_provider(schema_name, |provider| {
+        task::block_on(provider.flush_and_commit(table_name, arrow_schema))
     })?;
 
     Ok(())
@@ -93,18 +92,17 @@ fn insert_tuples(
     }
 
     // Create a RecordBatch
-    let parade_table = ParadeTable::from_pg(&pg_relation)?;
-    let table_name = parade_table.table_name()?;
-    let schema_name = parade_table.schema_name()?;
-    let arrow_schema = parade_table.arrow_schema()?;
+    let table_name = pg_relation.name();
+    let schema_name = pg_relation.namespace();
+    let arrow_schema = pg_relation.arrow_schema()?;
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
     // Write the RecordBatch to the Delta table
-    DatafusionContext::with_schema_provider(&schema_name, |provider| {
-        task::block_on(provider.write(&table_name, batch))?;
+    DatafusionContext::with_schema_provider(schema_name, |provider| {
+        task::block_on(provider.write(table_name, batch))?;
 
         if commit {
-            task::block_on(provider.flush_and_commit(&table_name, arrow_schema))?;
+            task::block_on(provider.flush_and_commit(table_name, arrow_schema))?;
         }
 
         Ok(())

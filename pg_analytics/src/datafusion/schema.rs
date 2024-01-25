@@ -18,6 +18,7 @@ use deltalake::storage::DeltaObjectStore;
 use deltalake::DeltaTable;
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
+use std::future::IntoFuture;
 use std::{
     any::Any, collections::HashMap, ffi::CStr, ffi::CString, fs::remove_dir_all, path::PathBuf,
     sync::Arc,
@@ -352,20 +353,23 @@ impl ParadeSchemaProvider {
     // SchemaProvider stores immutable TableProviders, whereas many DeltaOps methods
     // require a mutable DeltaTable. This function gets a mutable DeltaTable from
     // a TableProvider using the DeltaOps UpdateBuilder.
-    async fn get_delta_table(&self, table_name: &str) -> Result<DeltaTable, ParadeError> {
-        let provider = Self::table(self, table_name)
-            .await
-            .ok_or_else(|| ParadeError::NotFound)?;
+    async fn get_delta_table(&self, name: &str) -> Result<DeltaTable, ParadeError> {
+        let tables = self.tables.read();
+        let provider = tables.get(name).ok_or_else(|| ParadeError::NotFound)?;
+
         let old_table = provider
             .as_any()
             .downcast_ref::<DeltaTable>()
             .ok_or_else(|| ParadeError::NotFound)?;
 
-        Ok(
-            UpdateBuilder::new(old_table.object_store(), old_table.state.clone())
-                .await?
-                .0,
-        )
+        let mut delta_table = task::block_on(
+            UpdateBuilder::new(old_table.object_store(), old_table.state.clone()).into_future(),
+        )?
+        .0;
+
+        task::block_on(delta_table.load())?;
+
+        Ok(delta_table)
     }
 
     // Helper function to convert pg_relation attributes to a list of Datafusion Fields
@@ -447,8 +451,10 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
-        let tables = self.tables.read();
-        tables.get(name).cloned()
+        let delta_table = task::block_on(Self::get_delta_table(self, name)).ok()?;
+        let provider = Arc::new(delta_table) as Arc<dyn TableProvider>;
+
+        Self::register_table(self, name.to_string(), provider.clone()).ok()?
     }
 
     fn table_exist(&self, name: &str) -> bool {

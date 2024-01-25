@@ -1,4 +1,4 @@
-ARG PG_VERSION_MAJOR=15
+ARG PG_VERSION_MAJOR=16
 
 ###############################################
 # First Stage: Base

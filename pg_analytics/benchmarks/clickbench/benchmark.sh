@@ -64,7 +64,7 @@ cleanup() {
     # Check if PostgreSQL is in recovery mode. This can happen if one of the quer caused a crash. If
     # so, we need to wait for recovery to finish before we can drop the extension.
     for attempt in {1..5}; do
-      psql -h localhost -p 28815 -d pg_analytics -t -c 'DROP EXTENSION IF EXISTS pg_analytics CASCADE;' &> /dev/null && break
+      psql -h localhost -p 28816 -d pg_analytics -t -c 'DROP EXTENSION IF EXISTS pg_analytics CASCADE;' &> /dev/null && break
       echo "PostgreSQL is in recovery mode (likely due to a crash), waiting for recovery to finish..."
       sleep 5
     done
@@ -147,7 +147,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   echo ""
 
   # Run the benchmarking
-  psql -h localhost -p 28815 -d pg_analytics -t < benchmark.sql
+  psql -h localhost -p 28816 -d pg_analytics -t < benchmark.sql
   # For local benchmarking via pgrx, we don't print the disk usage or parse the results into
   # the format expected by the ClickBench dashboard
 else

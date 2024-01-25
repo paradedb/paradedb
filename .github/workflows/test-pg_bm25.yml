@@ -36,6 +36,8 @@ jobs:
     strategy:
       matrix:
         pg_version: [12, 13, 14, 15, 16]
+    env:
+      default_pg_version: 16
 
     steps:
       # For the Rust cache to get filled, we need to run the CI on the dev branch after every merge. This only
@@ -43,7 +45,7 @@ jobs:
       - name: Check if Skipping
         id: check_skip
         run: |
-          if [[ "${{ github.event_name }}" = "push" && "${{ matrix.pg_version }}" != "15" ]]; then
+          if [[ "${{ github.event_name }}" = "push" && "${{ matrix.pg_version }}" != "${{ env.default_pg_version }}" ]]; then
             echo "This is a push event to fill Rust cache. Skipping this job."
             echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
           fi
@@ -111,7 +113,7 @@ jobs:
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
       # clean any cached pg_bm25 & dependencies build artifacts before running the tests
       - name: Clean Cached Build Artifacts
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '${{ env.default_pg_version }}'
         working-directory: pg_bm25/
         run: cargo clean
 
@@ -120,7 +122,7 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_bm25/test/
         run: |
-          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "15" ]]; then
+          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             # Retrieve the version to test upgrading to
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
               echo "New version not provided, assuming the next release is incrementing patch..."
@@ -148,11 +150,11 @@ jobs:
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '${{ env.default_pg_version }}'
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
       - name: Upload Coverage Reports to Codecov
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '15'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '${{ env.default_pg_version }}'
         uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

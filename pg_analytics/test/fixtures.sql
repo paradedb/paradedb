@@ -1,8 +1,6 @@
 DROP EXTENSION IF EXISTS pg_analytics;
 CREATE EXTENSION IF NOT EXISTS pg_analytics;
 
-CALL paradedb.init();
-
 CREATE TABLE analytics_test (
     id SERIAL PRIMARY KEY,
     event_date DATE,

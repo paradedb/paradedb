@@ -43,10 +43,6 @@ SELECT COUNT(*) FROM t;
 
 You can interact with `deltalake` tables the same way as with normal Postgres tables. However, there are a few operations specific to `deltalake` tables.
 
-### Context Refresh
-
-If `deltalake` tables are created or modified in other Postgres connections, `CALL paradedb.init();` must be run for the changes to be received by the current connection.
-
 ### Storage Optimization
 
 When `deltalake` tables are dropped, they remain on disk until `VACUUM` is run. This operation physically

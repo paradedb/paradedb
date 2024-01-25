@@ -114,7 +114,7 @@ jobs:
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
       # clean any cached pg_analytics & dependencies build artifacts before running the tests
       - name: Clean Cached Build Artifacts
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '${{ env.default_pg_version }}'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
         working-directory: pg_analytics/
         run: cargo clean
 
@@ -151,11 +151,11 @@ jobs:
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '${{ env.default_pg_version }}'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
         run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
 
       - name: Upload Coverage Reports to Codecov
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == '${{ env.default_pg_version }}'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
         uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

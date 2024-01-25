@@ -1,6 +1,6 @@
 use async_std::task;
 use async_trait::async_trait;
-use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
@@ -24,8 +24,8 @@ use std::{
     sync::Arc,
 };
 
-use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
 use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::table::DeltaTableProvider;
 use crate::errors::ParadeError;
 use crate::guc::PARADE_GUC;
 
@@ -84,7 +84,7 @@ impl ParadeSchemaProvider {
 
                 // Create a writer
                 let pg_relation = unsafe { PgRelation::from_pg(relation) };
-                let fields = Self::fields(&pg_relation)?;
+                let fields = pg_relation.fields()?;
                 let writer = Self::create_writer(
                     self,
                     delta_table.object_store(),
@@ -117,7 +117,7 @@ impl ParadeSchemaProvider {
         let table_oid = pg_relation.oid();
         let schema_oid = pg_relation.namespace_oid();
         let table_name = pg_relation.name();
-        let fields = Self::fields(pg_relation)?;
+        let fields = pg_relation.fields()?;
         let arrow_schema = ArrowSchema::new(fields);
         let delta_schema = DeltaSchema::try_from(&arrow_schema)?;
         let batch = RecordBatch::new_empty(Arc::new(arrow_schema.clone()));
@@ -376,47 +376,6 @@ impl ParadeSchemaProvider {
         task::block_on(delta_table.load())?;
 
         Ok(delta_table)
-    }
-
-    // Helper function to convert pg_relation attributes to a list of Datafusion Fields
-    fn fields(pg_relation: &PgRelation) -> Result<Vec<Field>, ParadeError> {
-        let tupdesc = pg_relation.tuple_desc();
-        let mut fields = Vec::with_capacity(tupdesc.len());
-
-        for attribute in tupdesc.iter() {
-            if attribute.is_dropped() {
-                continue;
-            }
-
-            let attname = attribute.name();
-            let attribute_type_oid = attribute.type_oid();
-            // Setting it to true because of a likely bug in Datafusion where inserts
-            // fail on nullability = false fields
-            let nullability = true;
-
-            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-            let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
-                (PgOid::from(array_type), true)
-            } else {
-                (attribute_type_oid, false)
-            };
-
-            if is_array {
-                return Err(ParadeError::Generic(
-                    "Array types not yet supported".to_string(),
-                ));
-            }
-
-            let field = Field::new(
-                attname,
-                DataType::from_sql_data_type(base_oid.to_sql_data_type(attribute.type_mod())?)?,
-                nullability,
-            );
-
-            fields.push(field);
-        }
-
-        Ok(fields)
     }
 
     // Helper function to register a table writer

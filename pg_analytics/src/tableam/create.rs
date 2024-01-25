@@ -20,7 +20,9 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    create_file_node(rel, persistence).expect("Failed to create table");
+    create_file_node(rel, persistence).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }
 
 #[pg_guard]
@@ -32,7 +34,9 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    create_file_node(rel, persistence).expect("Failed to create table");
+    create_file_node(rel, persistence).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }
 
 #[inline]

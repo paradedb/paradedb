@@ -11,5 +11,7 @@ extension_sql!(
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn init() {
-    let _ = DatafusionContext::init().expect("Failed to initialize context");
+    let _ = DatafusionContext::init().unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }

@@ -7,7 +7,7 @@ title: Quickstart
 Regular Postgres tables, known as heap tables, organize data by row. While this makes sense for operational data,
 it is inefficient for analytical queries, which often scan a large amount of data from a subset of the columns
 in a table. As a result, ParadeDB introduces special tables called `deltalake` tables. These tables use a
-column-oriented layout via Apache Arrow and Parquet and leverage Apache Datafusion, a query engine 
+column-oriented layout via Apache Arrow and Parquet and leverage Apache Datafusion, a query engine
 optimized for column-oriented data.
 
 ## Create a Deltalake Table
@@ -22,14 +22,13 @@ SELECT AVG(rating) FROM movies;
 DROP TABLE movies;
 ```
 
-That's it! `deltalake` tables behave like normal Postgres tables and accept regular Postgres queries, 
-so there's nothing new to learn.
+That's it! `deltalake` tables behave like normal Postgres tables, so there's nothing new to learn.
 
 ## Use Cases
 
 `deltalake` tables have two primary advantages over regular tables:
 
-1. Significantly faster aggregate queries 
+1. Significantly faster aggregate queries
 2. Lower disk space, since data is stored as highly-compressed Parquet files
 
 They should be used for storing and querying large volumes of event or analytics data.
@@ -41,7 +40,7 @@ or deletes.
 
 ## Known Limitations
 
-`deltalake` tables are currently in beta. The following is a list of known limitations. Many of these 
+`deltalake` tables are currently in beta. The following is a list of known limitations. Many of these
 will become resolved as `deltalake` tables become production-ready.
 
 - [ ] `UPDATE` and `DELETE`

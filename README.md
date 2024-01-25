@@ -128,4 +128,4 @@ Thank you for helping us make ParadeDB better for everyone :heart:.
 
 ## License
 
-ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE). The `pg_sparse` extension is licensed under the [PostgreSQL License](pg_sparse/LICENSE).
+ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE) and as commercial software, with the exception of `pg_sparse` which is licensed under the [PostgreSQL License](pg_sparse/LICENSE). For commercial licensing, please contact us at [hello@paradedb.com](mailto:hello@paradedb.com).

@@ -3,12 +3,14 @@
 Welcome! We're excited that you're interested in contributing to ParadeDB and want
 to make the process as smooth as possible.
 
+## Technical Info
+
 Before submitting a pull request, please review this document, which outlines what
 conventions to follow when submitting changes. If you have any questions not covered
 in this document, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ)
 or via [email](support@paradedb.com).
 
-## Development Workflow
+### Development Workflow
 
 ParadeDB is structured as a monorepo containing all the projects, PostgreSQL extension(s), and other
 tools which together make ParadeDB. For development instructions regarding a specific project or Postgres extension,
@@ -21,7 +23,7 @@ All development of ParadeDB is done via Docker and Compose. Our Docker setup is 
 
 - The `docker-compose.yml` file pulls the latest published ParadeDB image from DockerHub. It is used for hobby production deployments. We recommend using it to deploy ParadeDB in your own infrastructure.
 
-## Pull Request Worfklow
+### Pull Request Worfklow
 
 All changes to ParadeDB happen through Github Pull Requests. Here is the recommended
 flow for making a change:
@@ -38,7 +40,7 @@ flow for making a change:
    and follows the [Conventional Commits spec](https://github.com/amannn/action-semantic-pull-request).
 7. Congratulations! Our team will review your pull request.
 
-## Documentation
+### Documentation
 
 ParadeDB's public-facing documentation is stored in the `docs` folder. If you are
 adding a new feature that requires new documentation, please open a separate pull
@@ -46,7 +48,18 @@ request containing changes to the documentation only. Once your main pull reques
 is merged, the ParadeDB team will review and eventually merge your documentation
 changes as well.
 
-## Licensing
+## Legal Info
 
-By contributing to ParadeDB, you agree that your contributions will be licensed
-under the [GNU Affero General Public License v3.0](LICENSE).
+### Contributor License Agreement
+
+In order for us, Retake, Inc. (dba ParadeDB) to accept patches and other contributions from you, you need to adopt our ParadeDB Contributor License Agreement (the "**CLA**"). The current version of the CLA can be found [here](https://cla-assistant.io/paradedb/paradedb).
+
+ParadeDB uses a tool called CLA Assistant to help us keep track of the CLA status of contributors. CLA Assistant will post a comment to your pull request, indicating whether you have signed the CLA or not. If you have not signed the CLA, you will need to do so before we can accept your contribution. Signing the CLA is a one-time process, is valid for all future contributions to ParadeDB, and can be done in under a minute by signing in with your GitHub account.
+
+As an alternative, you can provide a DCO instead of a CLA. You can find the text of the DCO [here](https://developercertificate.org/). If you'd like to provide a DCO, please read and copy it verbatim to your pull request.
+
+If you have any questions about the CLA or DCO, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ) or via email at [legal@paradedb.com](mailto:legal@paradedb.com).
+
+### License
+
+By contributing to ParadeDB, you agree that your contributions will be licensed under the [GNU Affero General Public License v3.0](LICENSE).

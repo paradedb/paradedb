@@ -63,8 +63,8 @@ impl ParadeSchemaProvider {
                 .ok_or_else(|| ParadeError::NotFound)?
                 .to_string();
 
-            if let Ok(oid) = table_oid.parse() {
-                let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(oid) };
+            if let Ok(oid) = table_oid.parse::<u32>() {
+                let pg_oid = pg_sys::Oid::from(oid);
                 let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
 
                 if relation.is_null() {
@@ -227,8 +227,8 @@ impl ParadeSchemaProvider {
                 .ok_or_else(|| ParadeError::NotFound)?
                 .to_string();
 
-            if let Ok(oid) = table_oid.parse() {
-                let pg_oid = unsafe { pg_sys::Oid::from_u32_unchecked(oid) };
+            if let Ok(oid) = table_oid.parse::<u32>() {
+                let pg_oid = pg_sys::Oid::from(oid);
                 let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
 
                 // If the relation is null, delete the directory

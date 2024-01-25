@@ -3918,9 +3918,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "74be28cdc96f9558e475cd4d47852cd49b255d6f896d4fa08d1c4f5c595ac6c8"
+checksum = "cb44171122605250e719ca2ae49afb357bdb2fce4b3c876fcf2225165237328a"
 dependencies = [
  "atomic-traits",
  "bitflags 2.4.2",
@@ -3943,9 +3943,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ae1d356149028852679e43d6c43fdd7886b5052ee9be3e02bea885433d49409"
+checksum = "a18ac8628b7de2f29a93d0abdbdcaee95a0e0ef4b59fd4de99cc117e166e843b"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -3955,9 +3955,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02bc8706534e081424e58c14d06b64ed8ba6bb92d79f19c10b13b50a67c4edef"
+checksum = "acd45ac6eb1142c5690df63c4e0bdfb74f27c9f93a7af84f064dc2c0a2c2d6f7"
 dependencies = [
  "cargo_toml",
  "dirs",
@@ -3973,9 +3973,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52dd0b8c611bbc4b6bd041711c9b9510f07fb62dc3e7965746ae7b5b12314a05"
+checksum = "81c6207939582934fc26fceb651cb5338e363c06ddc6b2d50ca71867f7c70ffe"
 dependencies = [
  "bindgen 0.68.1",
  "clang-sys",
@@ -3997,9 +3997,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f50bda0837d9ad915e60a3e8e958134881abf6f1aa6d4cf0878b681af098ba87"
+checksum = "a50083de83b1fac2484e8f2c2a7da5fed0193904e2578fa6c4ce02262c455c2b"
 dependencies = [
  "convert_case",
  "eyre",
@@ -4012,9 +4012,9 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.11.1"
+version = "0.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "177cb62f1050d2b52d8f59471c00d9320631329f7dfc6739a7a34ce7c0575a22"
+checksum = "6ba0115cd80d9e3ca1d5d2a8ab8b7320d6ed614a53d025b86152696a8b3caa75"
 dependencies = [
  "clap-cargo",
  "eyre",

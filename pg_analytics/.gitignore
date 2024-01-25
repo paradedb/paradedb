@@ -1,9 +1,18 @@
+# VS Code
+.vscode/
+
 # macOS
 .DS_Store
 
 # Cargo
 Cargo.lock
 target/
+
+# Rustfmt
+**/*.rs.bk
+
+# Code Coverage
+*.profraw
 
 # Logs
 *.txt
@@ -15,7 +24,6 @@ target/
 *.csv
 *.csv.gz
 
-# pg_regress
-results/
-test/test_logs.log
+# Tests
 regression.*
+results/

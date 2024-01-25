@@ -23,7 +23,7 @@ With `pg_analytics` installed, ParadeDB is the fastest Postgres-based analytical
 
 For an apples-to-apples comparison, these benchmarks were run on a c6a.4xlarge with 500GB storage. None of the databases were tuned. The (Parquet, single) Clickhouse variant was selected because it most closely matches ParadeDB's Parquet storage.
 
-ParadeDB Clickbench results have not yet been published to the live Clickbench site but will be soon.
+ParadeDB ClickBench results have not yet been published to the live Clickbench site but will be soon.
 
 ## Getting Started
 

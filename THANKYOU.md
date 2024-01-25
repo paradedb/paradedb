@@ -15,19 +15,15 @@ open-source relational database system. With more than three decades of active d
 it has proven architecture and a strong reputation for reliability, data integrity,
 and correctness. ParadeDB's core is built on PostgreSQL.
 
-## PostgreSQL Extensions
+## pgvector
 
-[PostgreSQL extensions](https://pgxn.org/) are a rich ecosystem of add-ons that extend
-the functionality of the core PostgreSQL database system. They enable a range of
-advanced capabilities, from performance monitoring to geospatial indexing. ParadeDB
-develops its own PostgreSQL extensions and integrates various open-source extensions
-in our product. Special mention goes to [pgvector](https://github.com/pgvector/pgvector),
-which we use to power part of our search capabilities. For a detailed list of the extensions we
-use in ParadeDB, please refer to our Dockerfile(s).
+[pgvector](https://github.com/pgvector/pgvector) is an open-source Postgres extension that enables
+similarity search for Postgres. ParadeDB uses `pgvector` to power the vector search part of our
+search capabilities.
 
-## PGRX
+## pgrx
 
-[PGRX](https://github.com/pgcentralfoundation/pgrx) is a powerful toolset for
+[pgrx](https://github.com/pgcentralfoundation/pgrx) is a powerful toolset for
 PostgreSQL extension development in Rust. It simplifies the process of creating,
 testing, and packaging extensions, enabling developers to harness the performance
 and safety guarantees of Rust within the PostgreSQL ecosystem. ParadeDB uses PGRX

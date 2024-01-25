@@ -3,11 +3,9 @@
 /.cargo/                                                       @philippemnoel
 /.github/                                                      @philippemnoel
 /benchmarks/                                                   @philippemnoel @sardination
-/conf/                                                         @philippemnoel
 /docker/                                                       @philippemnoel
-/docs/                                                         @rebasedming
+/docs/                                                         @rebasedming @neilyio
 /pg_analytics/                                                 @rebasedming @sardination
 /pg_bm25/                                                      @rebasedming @neilyio
 /pg_sparse/                                                    @rebasedming @sardination
-/scripts/                                                      @philippemnoel
 /shared/                                                       @rebasedming @neilyio

@@ -10,14 +10,14 @@ or via [email](support@paradedb.com).
 
 ## Development Workflow
 
-ParadeDB is structured as a monorepo containing all the projects, PostgreSQL extensions, and other
+ParadeDB is structured as a monorepo containing all the projects, PostgreSQL extension(s), and other
 tools which together make ParadeDB. For development instructions regarding a specific project or Postgres extension,
 please refer to the README in the project's subfolder. For developing ParadeDB itself as the combination
 of all its subprojects, please see below.
 
 All development of ParadeDB is done via Docker and Compose. Our Docker setup is split into three:
 
-- The `docker-compose.dev.yml` file builds our `Dockerfile`, the ParadeDB production image with all its features and extensions enabled. It is used to develop and test ParadeDB Postgres extensions and features as part of the full ParadeDB image. It is also used to develop and test new features and extensions outside of those actively developed by ParadeDB (for instance, installing a new open-source PostgreSQL extension). We recommend using it when developing new features beyond the ParadeDB extensions and subprojects.
+- The `docker-compose.dev.yml` file builds our `Dockerfile`, the ParadeDB production image with all its features and extensions enabled. It is used to develop and test ParadeDB Postgres extensions and features as part of the full ParadeDB image. It is also used to develop and test new features and extensions outside of those actively developed by ParadeDB (for instance, installing a new third-party open-source PostgreSQL extension). We recommend using it when developing new features beyond the ParadeDB extensions and subprojects.
 
 - The `docker-compose.yml` file pulls the latest published ParadeDB image from DockerHub. It is used for hobby production deployments. We recommend using it to deploy ParadeDB in your own infrastructure.
 

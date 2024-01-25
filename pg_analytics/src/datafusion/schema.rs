@@ -77,27 +77,10 @@ impl ParadeSchemaProvider {
                     CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()?
                 };
 
-                let schema_oid = unsafe {
-                    pg_sys::get_namespace_oid(
-                        CString::new(self.schema_name.clone())?.as_ptr(),
-                        true,
-                    )
-                };
-
                 // Create a DeltaTable
                 // This is the only place where deltalake::open_table should be called
                 // Calling deltalake::open_table multiple times on the same directory results in an error
-                let delta_table = match Self::table_exist(self, table_name) {
-                    true => Self::get_delta_table(self, table_name).await?,
-                    false => {
-                        deltalake::open_table(
-                            ParadeDirectory::table_path(schema_oid, pg_oid)?
-                                .to_str()
-                                .ok_or_else(|| ParadeError::NotFound)?,
-                        )
-                        .await?
-                    }
-                };
+                let delta_table = Self::get_delta_table(self, table_name).await?;
 
                 // Create a writer
                 let pg_relation = unsafe { PgRelation::from_pg(relation) };
@@ -353,19 +336,42 @@ impl ParadeSchemaProvider {
     // SchemaProvider stores immutable TableProviders, whereas many DeltaOps methods
     // require a mutable DeltaTable. This function gets a mutable DeltaTable from
     // a TableProvider using the DeltaOps UpdateBuilder.
-    async fn get_delta_table(&self, name: &str) -> Result<DeltaTable, ParadeError> {
-        let tables = self.tables.read();
-        let provider = tables.get(name).ok_or_else(|| ParadeError::NotFound)?;
+    pub async fn get_delta_table(&self, name: &str) -> Result<DeltaTable, ParadeError> {
+        let mut delta_table = match Self::table_exist(self, name) {
+            true => {
+                let tables = self.tables.read();
+                let provider = tables.get(name).ok_or_else(|| ParadeError::NotFound)?;
 
-        let old_table = provider
-            .as_any()
-            .downcast_ref::<DeltaTable>()
-            .ok_or_else(|| ParadeError::NotFound)?;
+                let old_table = provider
+                    .as_any()
+                    .downcast_ref::<DeltaTable>()
+                    .ok_or_else(|| ParadeError::NotFound)?;
 
-        let mut delta_table = task::block_on(
-            UpdateBuilder::new(old_table.object_store(), old_table.state.clone()).into_future(),
-        )?
-        .0;
+                task::block_on(
+                    UpdateBuilder::new(old_table.object_store(), old_table.state.clone())
+                        .into_future(),
+                )?
+                .0
+            }
+            false => {
+                let schema_oid = unsafe {
+                    pg_sys::get_namespace_oid(
+                        CString::new(self.schema_name.clone())?.as_ptr(),
+                        true,
+                    )
+                };
+
+                let table_oid =
+                    unsafe { pg_sys::get_relname_relid(CString::new(name)?.as_ptr(), schema_oid) };
+
+                deltalake::open_table(
+                    ParadeDirectory::table_path(schema_oid, table_oid)?
+                        .to_str()
+                        .ok_or_else(|| ParadeError::NotFound)?,
+                )
+                .await?
+            }
+        };
 
         task::block_on(delta_table.load())?;
 

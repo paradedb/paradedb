@@ -25,9 +25,6 @@ pub enum ParadeError {
     NotFound,
 
     #[error("{0}")]
-    ContextNotInitialized(String),
-
-    #[error("{0}")]
     NotSupported(String),
 
     #[error("{0}")]

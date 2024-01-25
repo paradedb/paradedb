@@ -1,4 +1,3 @@
-CALL paradedb.init();
 CREATE TABLE IF NOT EXISTS hits
 (
     WatchID BIGINT NOT NULL,

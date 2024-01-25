@@ -2,9 +2,6 @@
 DROP EXTENSION IF EXISTS pg_analytics CASCADE;
 CREATE EXTENSION pg_analytics;
 
-\echo Initialize ParadeDB context...
-CALL paradedb.init();
-
 \echo Creating persistent table...
 \i create.sql
 

@@ -37,7 +37,7 @@ If you are self-hosting Postgres and would like to use the extension within your
 
 #### Debian/Ubuntu
 
-We provide pre-built binaries for Debian-based Linux for PostgreSQL 15 (more versions coming soon). You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide pre-built binaries for Debian-based Linux for PostgreSQL 16. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 ParadeDB does not currently collect telemetry from self-hosted `pg_sparse`.
 

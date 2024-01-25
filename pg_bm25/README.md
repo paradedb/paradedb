@@ -62,7 +62,7 @@ This enables the extension to spawn a background worker process that performs wr
 
 #### Debian/Ubuntu
 
-We provide pre-built binaries for Debian-based Linux for PostgreSQL 15 (more versions coming soon). You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
+We provide pre-built binaries for Debian-based Linux for PostgreSQL 16. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
@@ -156,12 +156,12 @@ Then, install the PostgreSQL version of your choice using your system package ma
 
 ```bash
 # macOS
-brew install postgresql@15
+brew install postgresql@16
 
 # Ubuntu
 wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
 sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-sudo apt-get update && sudo apt-get install -y postgresql-$15 postgresql-server-dev-15
+sudo apt-get update && sudo apt-get install -y postgresql-16 postgresql-server-dev-16
 ```
 
 If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to add the `pg_config` binary to your path before continuing:
@@ -173,9 +173,9 @@ export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
 Then, install and initialize pgrx:
 
 ```bash
-# Note: Replace --pg15 with your version of Postgres, if different (i.e. --pg16, --pg14, etc.)
+# Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
 cargo install --locked cargo-pgrx --version 0.11.1
-cargo pgrx init --pg15=`which pg_config`
+cargo pgrx init --pg16=`which pg_config`
 ```
 
 Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.

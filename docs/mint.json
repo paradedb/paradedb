@@ -32,14 +32,24 @@
   },
   "anchors": [
     {
-      "name": "Blog",
-      "icon": "rss",
-      "url": "blog"
+      "name": "Search",
+      "icon": "magnifying-glass",
+      "url": "search"
+    },
+    {
+      "name": "Analytics",
+      "icon": "chart-column",
+      "url": "analytics"
     },
     {
       "name": "Changelog",
       "icon": "clock",
       "url": "changelog"
+    },
+    {
+      "name": "Blog",
+      "icon": "rss",
+      "url": "blog"
     }
   ],
   "navigation": [
@@ -47,45 +57,55 @@
       "group": "Documentation",
       "pages": [
         "introduction",
-        "latest/quickstart",
         "import",
+        {
+          "group": "Deployment",
+          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
+        },
+        "upgrading"
+      ]
+    },
+    {
+      "group": "Search",
+      "pages": [
+        "search/quickstart",
         {
           "group": "Indexing",
           "pages": [
-            "latest/indexing/overview",
-            "latest/indexing/bm25",
-            "latest/indexing/hnsw",
-            "latest/indexing/sparse"
+            "search/indexing/overview",
+            "search/indexing/bm25",
+            "search/indexing/hnsw",
+            "search/indexing/sparse"
           ]
         },
         {
           "group": "Full Text Search",
           "pages": [
-            "latest/search/bm25",
-            "latest/search/scoring",
-            "latest/search/highlighting",
-            "latest/search/fuzzy",
-            "latest/search/autocomplete"
+            "search/search/bm25",
+            "search/search/scoring",
+            "search/search/highlighting",
+            "search/search/fuzzy",
+            "search/search/autocomplete"
           ]
         },
         {
           "group": "Similarity Search",
-          "pages": ["latest/search/hnsw", "latest/search/sparse"]
+          "pages": ["search/search/hnsw", "search/search/sparse"]
         },
         {
           "group": "Hybrid Search",
-          "pages": ["latest/search/hybrid"]
-        },
-        {
-          "group": "Deployment",
-          "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
-        },
-        "latest/upgrading"
+          "pages": ["search/search/hybrid"]
+        }
       ]
+    },
+    {
+      "group": "Analytics",
+      "pages": ["analytics/quickstart", "analytics/storage"]
     },
     {
       "group": "Blog",
       "pages": [
+        "blog/introducing_analytics",
         "blog/introducing_sparse",
         "blog/introducing_bm25",
         "blog/introducing_paradedb"

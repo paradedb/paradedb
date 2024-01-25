@@ -4,45 +4,60 @@ title: Welcome to ParadeDB
 
 ## What is ParadeDB?
 
-ParadeDB is a Postgres-based ElasticSearch alternative, engineered for lightning-fast full text,
-similarity, and hybrid search.
-
-Today, developers implementing search face one of two options: adopt an external service like ElasticSearch,
-which is powerful but painful to run, tune, and sync, or use Postgres' native search features, which are pleasant to
-use but nowhere near as capable as a full search engine.
-
-ParadeDB aims to be the best of both worlds, providing developers with the simplicity of one Postgres
-database with the search capabilities of a world-class search engine.
+ParadeDB is an Elasticsearch alternative built on Postgres. We're building the features of Elasticsearch,
+starting with real-time search and analytics.
 
 ParadeDB is not a fork of Postgres, but regular Postgres with custom extensions installed. ParadeDB itself
 ships with Postgres 16.
 
 ## Why ParadeDB
 
-ParadeDB provides the most comprehensive search features of any Postgres database. ParadeDB is a good fit for you if:
+Today, developers implementing search and analytics over Postgres face one of two options: adopt an external
+service like ElasticSearch, which is powerful but painful to run, tune, and sync, or use Postgres’ native
+search and aggregations, which lack functionality and perform poorly over large datasets.
 
-- You want a single, Postgres-based source of truth and hate duplicating data across multiple services.
-- You want to perform full-text search over large volumes of documents stored in Postgres without compromising on performance or scalability.
-- You want to combine ANN/similarity search with full text search for improved semantic matching.
+ParadeDB aims to be the best of both worlds, providing developers with the familiarity of Postgres and the
+performance of ElasticSearch. It's a drop-in solution for fast search and analytics without the need to
+extract, transform, and load (ETL) data to a non-Postgres system.
 
-ParadeDB is **not** a good fit if:
+ParadeDB is a good fit for:
 
-- You are looking for an observability solution that ingests and monitors logs.
-  We currently don't support this use case.
+- Latency-sensitive applications that require real-time search or analytical queries
+- Full-text, similarity, or hybrid search over large volumes of Postgres data
+- Backends that store billions of event or analytics data points and are bottlenecked by Postgres' analytical performance
 
-## Current Status
+## Get Started
 
-We have released two products: `pg_bm25`, which enables full text search in Postgres, and `pg_sparse`,
-which enables sparse vector search using HNSW in Postgres.
+The fastest way to create an instance is by pulling the ParadeDB docker image and running it locally.
 
-ParadeDB Cloud is currently being revamped. To get notified when it becomes live, we invite you to join our
-[waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
+```bash
+docker run \
+  -e POSTGRES_USER=<user> \
+  -e POSTGRES_PASSWORD=<password> \
+  -e POSTGRES_DB=<dbname> \
+  -p 5432:5432 \
+  -d \
+  paradedb/paradedb:latest
+```
+
+You may set `user`, `password`, and `dbname` to whatever values you want — these will be your database
+connection credentials. By default, this will start a ParadeDB instance at `http://localhost:5432`.
+
+To connect to ParadeDB, install a Postgres client like `psql` and run
+
+```bash
+psql -h <hostname> -U <user> -d <dbname> -p <port> -W
+```
+
+## Next Steps
+
+Congratulations! You're now ready to jump into our search or analytics quickstart guides.
 
 <CardGroup cols={2}>
-  <Card title="Quickstart" icon="rocket" href="/latest/quickstart">
-    Get started with ParadeDB.
+  <Card title="Search" icon="magnifying-glass" href="/search/quickstart">
+    Quickstart for full text and hybrid search.
   </Card>
-  <Card title="Blog" icon="rss" href="/blog">
-    Read the ParadeDB blog for the latest updates.
+  <Card title="Analytics" icon="chart-column" href="/analytics/quickstart">
+    Quickstart for accelerated analytical queries.
   </Card>
 </CardGroup>

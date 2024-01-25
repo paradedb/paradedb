@@ -20,9 +20,7 @@ SELECT extversion FROM pg_extension WHERE extname = '<extension_name>';
 ```
 
 <Accordion title="Example Usage">
-  ```sql
-  SELECT extversion FROM pg_extension WHERE extname = 'pg_bm25';
-  ```
+  ```sql SELECT extversion FROM pg_extension WHERE extname = 'pg_bm25'; ```
 </Accordion>
 
 ## Updating to a New Version
@@ -44,9 +42,7 @@ ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
 ```
 
 <Accordion title="Example Usage">
-  ```sql
-  ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1';
-  ```
+  ```sql ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1'; ```
 </Accordion>
 
 ### From ParadeDB Docker Image
@@ -68,7 +64,5 @@ ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
 ```
 
 <Accordion title="Example Usage">
-  ```sql
-  ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1';
-  ```
+  ```sql ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1'; ```
 </Accordion>

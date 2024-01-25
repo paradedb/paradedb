@@ -81,8 +81,6 @@ this toy example.
 
 ```sql
 CREATE EXTENSION pg_analytics;
--- This needs to be run once per connection
-CALL paradedb.init();
 -- Create a deltalake table
 CREATE TABLE t (a int) USING deltalake;
 -- pg_analytics supercharges the performance of any

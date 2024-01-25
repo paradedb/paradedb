@@ -7,9 +7,10 @@ title: Updating ParadeDB
 ParadeDB ships all of its functionality via Postgres extensions. All updates to ParadeDB can be
 received by updating one or more of the following extensions:
 
-1. `pg_bm25` for full text search
-2. `pgvector` for dense vector search
-3. `pg_sparse` for sparse vector search
+1. `pg_analytics` for accelerated analytical queries
+2. `pg_bm25` for full text search
+3. `pgvector` for dense vector search
+4. `pg_sparse` for sparse vector search
 
 ## Getting the Current Version
 
@@ -20,7 +21,9 @@ SELECT extversion FROM pg_extension WHERE extname = '<extension_name>';
 ```
 
 <Accordion title="Example Usage">
-  ```sql SELECT extversion FROM pg_extension WHERE extname = 'pg_bm25'; ```
+  ```sql
+  SELECT extversion FROM pg_extension WHERE extname = 'pg_bm25';
+  ```
 </Accordion>
 
 ## Updating to a New Version
@@ -42,7 +45,9 @@ ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
 ```
 
 <Accordion title="Example Usage">
-  ```sql ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1'; ```
+  ```sql
+  ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1';
+  ```
 </Accordion>
 
 ### From ParadeDB Docker Image
@@ -64,5 +69,7 @@ ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
 ```
 
 <Accordion title="Example Usage">
-  ```sql ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1'; ```
+  ```sql
+  ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1';
+  ```
 </Accordion>

@@ -10,8 +10,7 @@ or pattern has been provided. This is especially useful for building search-as-y
 When using autocomplete, you should not include the field name in the search query.
 
 <Note>
-  BM25 scoring and highlighting are not yet available for results returned by
-  autocomplete.
+BM25 scoring and highlighting are not yet available for results returned by autocomplete.
 </Note>
 
 ## Basic Usage
@@ -27,8 +26,13 @@ FROM <index_name>.search(
 ```
 
 <Accordion title="Example Usage">
-  ```sql SELECT * FROM search_idx.search( 'key', regex_fields =>
-  'description,category' ); ```
+```sql
+SELECT *
+FROM search_idx.search(
+  'key',
+  regex_fields => 'description,category'
+);
+```
 </Accordion>
 
 <ParamField body="index_name" required>

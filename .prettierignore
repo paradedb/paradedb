@@ -2,11 +2,9 @@
 /benchmarks/*_ts.json
 /benchmarks/wiki-articles.json
 /docker/.docker_cache_dev/
-/docs/v0.4/quickstart.mdx
-/docs/latest/quickstart.mdx
+/docs/search/quickstart.mdx
 /docs/blog/introducing_bm25.mdx
 /docs/blog/introducing_sparse.mdx
-/docs/latest/search/autocomplete.mdx
-/docs/latest/search/fuzzy.mdx
-/docs/latest/quickstart.mdx
-/docs/latest/upgrading.mdx
+/docs/search/search/autocomplete.mdx
+/docs/search/search/fuzzy.mdx
+/docs/upgrading.mdx

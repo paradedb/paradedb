@@ -1,0 +1,19 @@
+---
+title: 0.5.2
+---
+
+## ParadeDB
+
+### Upgrade to PostgreSQL 16
+
+The ParadeDB Docker image now ships with PostgreSQL 16.
+
+### Reduced image size
+
+We have removed third-party PostgreSQL extensions from the ParadeDB Docker image, reducing the image size significantly. If you would like a specific third-party PostgreSQL extension supported on ParadeDB, please contact us at [hello@paradedb.com](mailto:hello@paradedb.com).
+
+## pg_analytics
+
+### Automatic initialization
+
+Previously, users of `pg_analytics` needed to run `CALL paradedb.init();` on every new database connection. This is no longer necessary. `pg_analytics` now automatically initializes itself on the first query.

@@ -198,9 +198,9 @@ function run_tests() {
 
     # First, download & install the first release at which we started supporting upgrades (v0.5.0)
     BASE_RELEASE="0.5.1"
-    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_analytics-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_analytics-v$BASE_RELEASE-pg15-amd64-linux-gnu.deb"
     curl -LOJ "$DOWNLOAD_URL"
-    sudo dpkg -i "pg_analytics-v$BASE_RELEASE-pg$PG_VERSION-amd64-linux-gnu.deb"
+    sudo dpkg -i "pg_analytics-v$BASE_RELEASE-pg15-amd64-linux-gnu.deb"
 
     # Second, load the extension into the test database
     echo "Loading pg_analytics extension version v$BASE_RELEASE into the test database..."

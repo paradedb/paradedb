@@ -172,13 +172,13 @@ function run_tests() {
   if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
     # Don't send telemetry when running tests
-    export TELEMETRY=false
+    export TELEMETRY=falsegit a
 
     # First, download & install the first release at which we started supporting upgrades (v0.3.3)
     BASE_RELEASE="0.3.3"
-    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg15-amd64-linux-gnu.deb"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
-    sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg15-amd64-linux-gnu.deb" > /dev/null
+    sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb" > /dev/null
 
     # Second, load the extension into the test database
     echo "Loading pg_bm25 extension version v$BASE_RELEASE into the test database..."

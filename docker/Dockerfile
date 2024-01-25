@@ -50,8 +50,10 @@ RUN /bin/bash -c "$(curl -sL https://git.io/vokNn)"
 RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
 
+# Install PostgreSQL development headers and pgvector
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     postgresql-server-dev-${PG_VERSION_MAJOR} \
+    "postgresql-${PG_VERSION_MAJOR}-pgvector" \
     && rm -rf /var/lib/apt/lists/*
 
 ###############################################
@@ -125,11 +127,6 @@ ARG TARGETARCH
 LABEL org.opencontainers.image.created="$BUILD_DATE"
 LABEL org.opencontainers.image.description="PostgreSQL for Search"
 LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
-
-# Install pgvector
-RUN apt-fast update && apt-fast install -y --no-install-recommends \
-    "postgresql-${PG_VERSION_MAJOR}-pgvector" \
-    && rm -rf /var/lib/apt/lists/*
 
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/

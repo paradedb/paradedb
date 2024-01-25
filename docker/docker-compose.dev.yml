@@ -1,7 +1,7 @@
 #
 # This docker-compose.dev.yml file is for development of the Parade DBMS only. It builds our
-# Dockerfile, which is the full ParadeDB image with all extensions, and all other ParadeDB services,
-# to allow for complete testing of the ParadeDB system. It is not intended for production use.
+# Dockerfile, which is the full ParadeDB image with all extensions, to allow for complete
+# testing of the ParadeDB system. It is not intended for production use.
 #
 
 version: "3.8"

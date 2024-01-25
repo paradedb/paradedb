@@ -89,7 +89,7 @@ fi
 echo "PostgreSQL is up - installing extensions..."
 
 # Preinstall extensions
-for extension in "${!extensions[@]}"; do
+for extension in "${extensions[@]}"; do
   PGPASSWORD=$POSTGRES_PASSWORD psql -c "DROP EXTENSION IF EXISTS $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" 2> /dev/null
   PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
 done

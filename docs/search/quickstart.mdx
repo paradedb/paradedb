@@ -3,47 +3,17 @@ title: Quickstart
 ---
 
 <Note>
-This quickstart covers the latest version of ParadeDB, which is a sigificant API refactor compared to versions of
-ParadeDB under v0.4. We strongly recommend existing users upgrade to the latest version but have preserved
-[documentation for the deprecated API](/v0.4/quickstart).
+  This quickstart covers the latest version of ParadeDB, which is a sigificant
+  API refactor compared to versions of ParadeDB below v0.4. Users below v0.4
+  must upgrade to the latest version, as the old documentation has been
+  deprecated.
 </Note>
 
-This guide will walk you through the following steps to get started with ParadeDB:
+This guide will walk you through the following steps to get started with ParadeDB for search:
 
-1. Create a ParadeDB instance
-2. Connect to ParadeDB
-3. Execute full text, similarity, and hybrid search with SQL
-
-## Create a ParadeDB Instance
-
-The fastest way to create an instance is by pulling the ParadeDB docker image and running it locally.
-
-```bash
-docker run \
-  -e POSTGRES_USER=<user> \
-  -e POSTGRES_PASSWORD=<password> \
-  -e POSTGRES_DB=<dbname> \
-  -p 5432:5432 \
-  -d \
-  paradedb/paradedb:latest
-```
-
-You may set `user`, `password`, and `dbname` to whatever values you want — these will be your database
-connection credentials. By default, this will start a ParadeDB instance at `http://localhost:5432`.
-
-## Connect to ParadeDB
-
-<Note>
-  **Prerequisite** Ensure that you have `psql` installed on your machine.
-</Note>
-
-To connect to ParadeDB, run
-
-```bash
-psql -h <hostname> -U <user> -d <dbname> -p <port> -W
-```
-
-If you are using ParadeDB Cloud, your connection credentials can be found in the cloud console.
+1. Full text search
+2. Similarity (i.e. vector) search
+3. Hybrid search
 
 ## Full Text Search
 

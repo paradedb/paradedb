@@ -1,0 +1,56 @@
+---
+title: Quickstart
+---
+
+## Overview
+
+Regular Postgres tables, known as heap tables, organize data by row. While this makes sense for operational data,
+it is inefficient for analytical queries, which often scan a large amount of data from a subset of the columns
+in a table. As a result, ParadeDB introduces special tables called `deltalake` tables. These tables use a
+column-oriented layout via Apache Arrow and Parquet and leverage Apache Datafusion, a query engine
+optimized for column-oriented data.
+
+## Create a Deltalake Table
+
+```sql
+-- USING deltalake must be provided
+CREATE TABLE movies (name text, rating int) USING deltalake;
+
+INSERT INTO movies VALUES ('Star Wars', 9), ('Indiana Jones', 8);
+SELECT AVG(rating) FROM movies;
+
+DROP TABLE movies;
+```
+
+That's it! `deltalake` tables behave like normal Postgres tables, so there's nothing new to learn.
+
+## Use Cases
+
+`deltalake` tables have two primary advantages over regular tables:
+
+1. Significantly faster aggregate queries
+2. Lower disk space, since data is stored as highly-compressed Parquet files
+
+They should be used for storing and querying large volumes of event or analytics data.
+
+## Non Use Cases
+
+Regular Postgres tables should be used for operational data that requires frequent updates
+or deletes.
+
+## Known Limitations
+
+`deltalake` tables are currently in beta. The following is a list of known limitations. Many of these
+will become resolved as `deltalake` tables become production-ready.
+
+- [ ] `UPDATE` and `DELETE`
+- [ ] Partitioning tables by column
+- [ ] Some Postgres types like arrays, JSON, time, and timestamp with time zone
+- [ ] User-defined functions, aggregations, or types
+- [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
+- [ ] Write-ahead-log (WAL) support and `ROLLBACK`
+- [ ] Foreign keys
+- [ ] Index scans
+- [ ] `TEMP` tables
+- [ ] Using an external data lake as a table storage provider
+- [ ] Full text search over `deltalake` tables with `pg_bm25`

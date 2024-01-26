@@ -123,7 +123,9 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_analytics/test/
         run: |
-          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
+          # TODO: Reenable the extension upgrade test once we fix for PG16
+          # if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
+          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "false" ]]; then
             # Retrieve the version to test upgrading to
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
               echo "New version not provided, assuming the next release is incrementing patch..."

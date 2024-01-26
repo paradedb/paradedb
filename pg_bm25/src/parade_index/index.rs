@@ -579,13 +579,10 @@ impl ParadeIndex {
                             })
                         }
                     }
-                    PgBuiltInOids::DATEOID
-                    | PgBuiltInOids::TIMEOID
-                    | PgBuiltInOids::TIMESTAMPOID => {
+                    PgBuiltInOids::TIMESTAMPOID | PgBuiltInOids::TIMESTAMPTZOID=> {
                         if is_key_field {
                             panic!("bm25 id column must be an integer type, received datetime")
                         } else {
-                            info!("Got a date or time, with attname: {}", attname);
                             date_fields.get(attname).map(|options| {
                                 let date_options: DateOptions = (*options).into();
                                 schema_builder.add_date_field(attname, date_options)

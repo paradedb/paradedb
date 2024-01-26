@@ -402,7 +402,7 @@ impl Default for ParadeDateOptions {
             stored: true,
             fieldnorms: true,
             // Default used by Tantivy
-            precision: DateTimePrecision::Nanoseconds,
+            precision: DateTimePrecision::Seconds,
         }
     }
 }
@@ -439,7 +439,7 @@ pub enum ParadeOption {
 
 pub type ParadeOptionMap = HashMap<String, ParadeOption>;
 
-// TODO: Enable DateTime and IP fields
+// TODO: Enable IP fields
 
 fn default_as_true() -> bool {
     true

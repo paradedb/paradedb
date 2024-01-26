@@ -15,6 +15,9 @@ ARG COMMIT_SHA
 ARG TELEMETRY
 ARG BUILD_DATE
 
+# This is used to checkout the correct branch on the pgvector repo
+ARG PGVECTOR_BRANCH=v0.5.1
+
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
@@ -24,37 +27,18 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
+ENV PGVECTOR_BRANCH=${PGVECTOR_BRANCH}
+
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install common dependencies to builder and runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    wget \
-    sudo \
-    gnupg \
-    gcc \
-    make \
-    uuid-runtime \
     software-properties-common \
     ca-certificates \
+    uuid-runtime \
     libssl-dev \
-    libopenblas-dev \
-    python3-dev \
-    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install apt-fast
-RUN /bin/bash -c "$(curl -sL https://git.io/vokNn)"
-
-# Add PostgreSQL's third party repository to get the latest versions
-RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
-
-# Install PostgreSQL development headers and pgvector
-RUN apt-fast update && apt-fast install -y --no-install-recommends \
-    postgresql-server-dev-${PG_VERSION_MAJOR} \
-    "postgresql-${PG_VERSION_MAJOR}-pgvector" \
-    && rm -rf /var/lib/apt/lists/*
 
 ###############################################
 # Second Stage: Builder
@@ -65,21 +49,39 @@ FROM base as builder
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install Rust (specific version) and other build dependencies
-RUN apt-fast update && apt-fast install -y --no-install-recommends \
+RUN apt update && apt install -y --no-install-recommends \
     build-essential \
+    checkinstall \
     clang \
     git \
     cmake \
     pkg-config \
     liblz4-dev \
     libcurl4-openssl-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    libopenblas-dev \
+    python3-dev \
+    python3-pip \
+    curl \
+    wget \
+    sudo \
+    gnupg \
+    gcc \
+    make
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && /root/.cargo/bin/rustup default 1.73.0
+
+# Add PostgreSQL's third party repository to get the latest versions
+RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
+RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
+
+RUN apt update && apt install -y postgresql-server-dev-${PG_VERSION_MAJOR} \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
+RUN cargo install cargo-get
 RUN cargo install --locked cargo-pgrx --version 0.11.2 && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
@@ -89,12 +91,20 @@ RUN cargo install --locked cargo-pgrx --version 0.11.2 && \
 
 FROM builder as builder-pg_bm25
 
-WORKDIR /tmp/pg_bm25
-
 COPY pg_bm25/ /tmp/pg_bm25
 COPY shared/ /tmp/shared
 
+WORKDIR /tmp/pg_bm25
+
+# Use the build argument to update the version in Cargo.toml
 RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+RUN checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp \
+   --exclude=/root/.cargo \
+   --pkgname $(cargo get package.name) \
+   --pkgversion $(cargo get package.version) \
+   --maintainer "ParadeDB <support@paradedb.com>" \
+   -- cargo pgrx install --release --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_analytics
@@ -112,7 +122,55 @@ COPY shared/ /tmp/shared
 RUN rustup update nightly && \
     rustup override set nightly && \
     cargo install --locked cargo-pgrx --version 0.11.2 --force && \
-    cargo pgrx package --features simd --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+# Use the build argument to update the version in Cargo.toml
+RUN cargo pgrx package --features simd --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+
+RUN checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp \
+    --exclude=/root/.cargo \
+    --pkgname $(cargo get package.name) \
+    --pkgversion $(cargo get package.version) \
+    --maintainer "ParadeDB <support@paradedb.com>" \
+    -- cargo pgrx install --release --features simd --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+######################
+# pg_sparse
+######################
+FROM builder as builder-pg_sparse
+
+WORKDIR /tmp/pg_sparse
+COPY pg_sparse/ /tmp/pg_sparse
+
+RUN make clean && \
+    make USE_PGXS=1 OPTFLAGS="" -j && \
+    checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp \
+    --pkgname pg-sparse \
+    --pkgversion $(awk -F "= '|\''" '/default_version/ {print $2}' svector.control) \
+    --maintainer "ParadeDB <support@paradedb.com>" \
+    -- make USE_PGXS=1 install -j
+
+######################
+# pgvector
+######################
+
+FROM builder as builder-pgvector
+
+RUN cd /tmp \
+ && git clone --branch ${PGVECTOR_BRANCH} https://github.com/pgvector/pgvector.git
+
+WORKDIR /tmp/pgvector
+ENV PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare"
+
+RUN echo "trusted = true" >> vector.control && \
+    make clean -j && \
+    make USE_PGXS=1 OPTFLAGS="" -j && \
+    checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp \
+    --pkgname pgvector \
+    --pkgversion $(awk -F "= '|\''" '/default_version/ {print $2}' vector.control) \
+    --maintainer "Andrew Kane <andrew@ankane.org>" \
+    -- make USE_PGXS=1 install -j
 
 ###############################################
 # Third Stage: PostgreSQL
@@ -128,20 +186,13 @@ LABEL org.opencontainers.image.description="PostgreSQL for Search"
 LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
 
 # Copy the ParadeDB extensions from their builder stages
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+COPY --from=builder-pg_sparse /tmp/pg-sparse*.deb /tmp/extensions-deb/
+COPY --from=builder-pg_bm25 /tmp/pg-bm25*.deb /tmp/extensions-deb/
+COPY --from=builder-pgvector /tmp/pgvector*.deb /tmp/extensions-deb/
+COPY --from=builder-pg_analytics /tmp/pg-analytics*.deb /tmp/extensions-deb/
 
-# Install the ParadeDB pg_sparse extension directly, since it's not as modular as pgrx extensions
-# We set OPTFLAGS="" to disable the -march=native flag, which isn't supported on macOS ARM
-WORKDIR /tmp/pg_sparse
-COPY pg_sparse/ /tmp/pg_sparse
-RUN make clean && \
-    make USE_PGXS=1 OPTFLAGS="" && \
-    make install && \
-    rm -rf /tmp/pg_sparse
-WORKDIR /
+RUN dpkg -i /tmp/extensions-deb/*.deb \
+    && rm -rf /tmp/extensions-deb
 
 # Copy entrypoint script, which will be handled by the official image initialization scipt
 COPY ./docker/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh

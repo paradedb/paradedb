@@ -5,6 +5,8 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
+use deltalake::kernel::Action;
+use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
 use deltalake::operations::delete::DeleteBuilder;
 use deltalake::operations::optimize::OptimizeBuilder;
@@ -12,9 +14,8 @@ use deltalake::operations::transaction::commit;
 use deltalake::operations::update::UpdateBuilder;
 use deltalake::operations::vacuum::VacuumBuilder;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
-use deltalake::protocol::{Action, DeltaOperation, SaveMode};
-use deltalake::schema::Schema as DeltaSchema;
-use deltalake::storage::DeltaObjectStore;
+use deltalake::protocol::{DeltaOperation, SaveMode};
+use deltalake::storage::ObjectStoreRef;
 use deltalake::DeltaTable;
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
@@ -131,7 +132,7 @@ impl ParadeSchemaProvider {
                     .to_str()
                     .ok_or_else(|| ParadeError::NotFound)?,
             )
-            .with_columns(delta_schema.get_fields().to_vec())
+            .with_columns(delta_schema.fields().to_vec())
             .await?;
 
         let mut writer = Self::create_writer(
@@ -171,23 +172,28 @@ impl ParadeSchemaProvider {
 
         // Optimize the table
         if optimize {
-            let optimized_table =
-                OptimizeBuilder::new(old_table.object_store(), old_table.state.clone())
-                    .with_target_size(PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB)
-                    .await?
-                    .0;
+            let optimized_table = OptimizeBuilder::new(
+                old_table.log_store(),
+                old_table.state.ok_or_else(|| ParadeError::NotFound)?,
+            )
+            .with_target_size(PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB)
+            .await?
+            .0;
 
             old_table = optimized_table;
         }
 
         // Vacuum the table
-        let vacuumed_table = VacuumBuilder::new(old_table.object_store(), old_table.state)
-            .with_retention_period(chrono::Duration::days(
-                PARADE_GUC.vacuum_retention_days.get() as i64,
-            ))
-            .with_enforce_retention_duration(PARADE_GUC.vacuum_enforce_retention.get())
-            .await?
-            .0;
+        let vacuumed_table = VacuumBuilder::new(
+            old_table.log_store(),
+            old_table.state.ok_or_else(|| ParadeError::NotFound)?,
+        )
+        .with_retention_period(chrono::Duration::days(
+            PARADE_GUC.vacuum_retention_days.get() as i64,
+        ))
+        .with_enforce_retention_duration(PARADE_GUC.vacuum_enforce_retention.get())
+        .await?
+        .0;
 
         // Commit the vacuumed table
         Self::register_table(
@@ -267,14 +273,14 @@ impl ParadeSchemaProvider {
         drop(writer_lock);
 
         task::block_on(commit(
-            delta_table.object_store().as_ref(),
-            &actions.iter().map(|a| Action::add(a.clone())).collect(),
+            delta_table.log_store().as_ref(),
+            &actions.iter().map(|a| Action::Add(a.clone())).collect(),
             DeltaOperation::Write {
                 mode: SaveMode::Append,
                 partition_by: None,
                 predicate: None,
             },
-            &delta_table.state,
+            delta_table.state.as_ref(),
             None,
         ))?;
 
@@ -319,9 +325,12 @@ impl ParadeSchemaProvider {
         let delta_table = Self::get_delta_table(self, table_name).await?;
 
         // Truncate the table
-        let truncated_table = DeleteBuilder::new(delta_table.object_store(), delta_table.state)
-            .await?
-            .0;
+        let truncated_table = DeleteBuilder::new(
+            delta_table.log_store(),
+            delta_table.state.ok_or_else(|| ParadeError::NotFound)?,
+        )
+        .await?
+        .0;
 
         // Commit the vacuumed table
         Self::register_table(
@@ -348,8 +357,14 @@ impl ParadeSchemaProvider {
                     .ok_or_else(|| ParadeError::NotFound)?;
 
                 task::block_on(
-                    UpdateBuilder::new(old_table.object_store(), old_table.state.clone())
-                        .into_future(),
+                    UpdateBuilder::new(
+                        old_table.log_store(),
+                        old_table
+                            .state
+                            .clone()
+                            .ok_or_else(|| ParadeError::NotFound)?,
+                    )
+                    .into_future(),
                 )?
                 .0
             }
@@ -389,7 +404,7 @@ impl ParadeSchemaProvider {
     // Helper function to create a table writer
     fn create_writer(
         &self,
-        object_store: Arc<DeltaObjectStore>,
+        object_store: ObjectStoreRef,
         arrow_schema: Arc<ArrowSchema>,
     ) -> Result<DeltaWriter, ParadeError> {
         let target_file_size = PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB;

@@ -29,9 +29,7 @@ impl DeltaTableProvider for PgRelation {
 
             let attname = attribute.name();
             let attribute_type_oid = attribute.type_oid();
-            // Setting it to true because of a likely bug in Datafusion where inserts
-            // fail on nullability = false fields
-            let nullability = true;
+            let nullability = !attribute.attnotnull;
 
             let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
             let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {

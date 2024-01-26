@@ -69,7 +69,7 @@ jobs:
           fi
           echo "Version check passed!"
 
-      # We need Rust nightly to build with SIMD
+      # We need Rust nightly for an optimized build
       - name: Install Rust
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: dtolnay/rust-toolchain@nightly
@@ -149,7 +149,7 @@ jobs:
           RUST_BACKTRACE: full
         run: |
           mkdir -p ../target/coverage ../target/coverage-report
-          cargo pgrx test --features simd --profile dev pg${{ matrix.pg_version }}
+          cargo pgrx test --profile dev pg${{ matrix.pg_version }}
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports

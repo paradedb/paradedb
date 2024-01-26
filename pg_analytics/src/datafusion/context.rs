@@ -143,7 +143,7 @@ impl ParadeContextProvider {
 }
 
 impl ContextProvider for ParadeContextProvider {
-    fn get_table_provider(
+    fn get_table_source(
         &self,
         reference: TableReference,
     ) -> Result<Arc<dyn TableSource>, DataFusionError> {

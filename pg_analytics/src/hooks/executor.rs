@@ -63,7 +63,7 @@ pub fn executor_run(
         let dialect = PostgreSqlDialect {};
         let query = CStr::from_ptr(query_desc.sourceText).to_str()?;
         let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
+            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
         let statement = &ast[0];
 
         // Convert the AST into a logical plan

@@ -137,8 +137,18 @@ Then, install and initialize `pgrx`:
 ```bash
 # Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
 cargo install --locked cargo-pgrx --version 0.11.2
-cargo pgrx init --pg16=`which pg_config`
+
+# macOS arm64
+cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config
+
+# macOS amd64
+cargo pgrx init --pg16=/usr/local/opt/postgresql@16/bin/pg_config
+
+# Ubuntu
+cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
 ```
+
+This assumes that `pg_config` is in your path and that Postgres 16 is your default version. If your `pg_config` mentions a different version of Postgres, 
 
 ### Configure Shared Preload Libraries
 

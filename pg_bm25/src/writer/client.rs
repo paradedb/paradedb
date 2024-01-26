@@ -2,7 +2,7 @@ use crate::WRITER_STATUS;
 
 use super::{transfer::WriterTransferProducer, IndexEntry, ServerRequest};
 use serde::Serialize;
-use std::{marker::PhantomData, net::SocketAddr};
+use std::{marker::PhantomData, net::SocketAddr, panic};
 use thiserror::Error;
 
 pub struct Client<T: Serialize> {
@@ -43,7 +43,15 @@ impl<T: Serialize> Client<T> {
     }
 
     pub fn from_writer_addr() -> Self {
-        let addr = WRITER_STATUS.share().addr();
+        let lock = panic::catch_unwind(|| WRITER_STATUS.share());
+
+        let addr = match lock {
+            Ok(lock) => lock.addr(),
+            Err(_) => {
+                panic!("Could not get lock on writer. Have you added the extension to the shared preload library list?");
+            }
+        };
+
         Self::new(addr)
     }
 

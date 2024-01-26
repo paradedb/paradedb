@@ -70,7 +70,7 @@ jobs:
 
       - name: Package pg_analytics Extension with pgrx
         working-directory: pg_analytics/
-        run: cargo pgrx package --features "telemetry"
+        run: cargo pgrx package --features telemetry
 
       - name: Create .deb Package
         run: |

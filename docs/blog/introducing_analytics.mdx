@@ -2,18 +2,19 @@
 title: "pg_analytics: Transforming Postgres into a Very Fast Analytical Database"
 ---
 
-## Introduction
+<Card title="Relative Query Time">
+  Scores measured by Clickbench. Lower scores are better.
+  <img
+    height="300"
+    src="/blog/images/clickbench_time.png"
+    noZoom
+    className="mt-1"
+  />
+</Card>
 
 ParadeDB’s latest extension, `pg_analytics`, makes ParadeDB the world’s fastest Postgres-based analytical
 database. With `pg_analytics` installed, ParadeDB is 94x faster than regular Postgres, 8x faster than
 Elasticsearch, and nearly ties ClickHouse on [analytical benchmarks](https://benchmark.clickhouse.com/#eyJzeXN0ZW0iOnsiQWxsb3lEQiI6dHJ1ZSwiQXRoZW5hIChwYXJ0aXRpb25lZCkiOnRydWUsIkF0aGVuYSAoc2luZ2xlKSI6dHJ1ZSwiQXVyb3JhIGZvciBNeVNRTCI6dHJ1ZSwiQXVyb3JhIGZvciBQb3N0Z3JlU1FMIjp0cnVlLCJCeUNvbml0eSI6dHJ1ZSwiQnl0ZUhvdXNlIjp0cnVlLCJjaERCIjp0cnVlLCJDaXR1cyI6dHJ1ZSwiQ2xpY2tIb3VzZSBDbG91ZCAoYXdzKSI6dHJ1ZSwiQ2xpY2tIb3VzZSBDbG91ZCAoZ2NwKSI6dHJ1ZSwiQ2xpY2tIb3VzZSAyMy4xMSAoZGF0YSBsYWtlLCBwYXJ0aXRpb25lZCkiOnRydWUsIkNsaWNrSG91c2UgMjMuMTEgKGRhdGEgbGFrZSwgc2luZ2xlKSI6dHJ1ZSwiQ2xpY2tIb3VzZSAyMy4xMSAoUGFycXVldCwgcGFydGl0aW9uZWQpIjp0cnVlLCJDbGlja0hvdXNlIDIzLjExIChQYXJxdWV0LCBzaW5nbGUpIjp0cnVlLCJDbGlja0hvdXNlIDIzLjExICh3ZWIpIjp0cnVlLCJDbGlja0hvdXNlIjp0cnVlLCJDbGlja0hvdXNlICh0dW5lZCkiOnRydWUsIkNsaWNrSG91c2UgMjMuMTEiOnRydWUsIkNsaWNrSG91c2UgKHpzdGQpIjp0cnVlLCJDcmF0ZURCIjp0cnVlLCJEYXRhYmVuZCI6dHJ1ZSwiRGF0YUZ1c2lvbiAoUGFycXVldCwgcGFydGl0aW9uZWQpIjp0cnVlLCJEYXRhRnVzaW9uIChQYXJxdWV0LCBzaW5nbGUpIjp0cnVlLCJBcGFjaGUgRG9yaXMiOnRydWUsIkRydWlkIjp0cnVlLCJEdWNrREIgKFBhcnF1ZXQsIHBhcnRpdGlvbmVkKSI6dHJ1ZSwiRHVja0RCIjp0cnVlLCJFbGFzdGljc2VhcmNoIjp0cnVlLCJFbGFzdGljc2VhcmNoICh0dW5lZCkiOnRydWUsIkdyZWVucGx1bSI6dHJ1ZSwiSGVhdnlBSSI6dHJ1ZSwiSHlkcmEiOnRydWUsIkluZm9icmlnaHQiOnRydWUsIktpbmV0aWNhIjp0cnVlLCJNYXJpYURCIENvbHVtblN0b3JlIjp0cnVlLCJNYXJpYURCIjp0cnVlLCJNb25ldERCIjp0cnVlLCJNb25nb0RCIjp0cnVlLCJNeVNRTCAoTXlJU0FNKSI6dHJ1ZSwiTXlTUUwiOnRydWUsIlBhcmFkZURCIjp0cnVlLCJQaW5vdCI6dHJ1ZSwiUG9zdGdyZVNRTCAodHVuZWQpIjp0cnVlLCJQb3N0Z3JlU1FMIjp0cnVlLCJRdWVzdERCIChwYXJ0aXRpb25lZCkiOnRydWUsIlF1ZXN0REIiOnRydWUsIlJlZHNoaWZ0Ijp0cnVlLCJTZWxlY3REQiI6dHJ1ZSwiU2luZ2xlU3RvcmUiOnRydWUsIlNub3dmbGFrZSI6dHJ1ZSwiU1FMaXRlIjp0cnVlLCJTdGFyUm9ja3MiOnRydWUsIlRpbWVzY2FsZURCIChjb21wcmVzc2lvbikiOnRydWUsIlRpbWVzY2FsZURCIjp0cnVlfSwidHlwZSI6eyJDIjpmYWxzZSwiY29sdW1uLW9yaWVudGVkIjpmYWxzZSwiUG9zdGdyZVNRTCBjb21wYXRpYmxlIjp0cnVlLCJtYW5hZ2VkIjpmYWxzZSwiZ2NwIjpmYWxzZSwic3RhdGVsZXNzIjpmYWxzZSwiSmF2YSI6ZmFsc2UsIkMrKyI6ZmFsc2UsIk15U1FMIGNvbXBhdGlibGUiOmZhbHNlLCJyb3ctb3JpZW50ZWQiOmZhbHNlLCJDbGlja0hvdXNlIGRlcml2YXRpdmUiOmZhbHNlLCJlbWJlZGRlZCI6ZmFsc2UsInNlcnZlcmxlc3MiOmZhbHNlLCJhd3MiOmZhbHNlLCJSdXN0IjpmYWxzZSwic2VhcmNoIjpmYWxzZSwiZG9jdW1lbnQiOmZhbHNlLCJ0aW1lLXNlcmllcyI6ZmFsc2V9LCJtYWNoaW5lIjp7IjE2IHZDUFUgMTI4R0IiOnRydWUsIjggdkNQVSA2NEdCIjp0cnVlLCJzZXJ2ZXJsZXNzIjp0cnVlLCIxNmFjdSI6dHJ1ZSwiYzZhLjR4bGFyZ2UsIDUwMGdiIGdwMiI6dHJ1ZSwiTCI6dHJ1ZSwiTSI6dHJ1ZSwiUyI6dHJ1ZSwiWFMiOnRydWUsImM2YS5tZXRhbCwgNTAwZ2IgZ3AyIjp0cnVlLCIxOTJHQiI6dHJ1ZSwiMjRHQiI6dHJ1ZSwiMzYwR0IiOnRydWUsIjQ4R0IiOnRydWUsIjcyMEdCIjp0cnVlLCI5NkdCIjp0cnVlLCIxNDMwR0IiOnRydWUsImRldiI6dHJ1ZSwiNzA4R0IiOnRydWUsImM1bi40eGxhcmdlLCA1MDBnYiBncDIiOnRydWUsImM1LjR4bGFyZ2UsIDUwMGdiIGdwMiI6dHJ1ZSwibTVkLjI0eGxhcmdlIjp0cnVlLCJtNmkuMzJ4bGFyZ2UiOnRydWUsImM2YS40eGxhcmdlLCAxNTAwZ2IgZ3AyIjp0cnVlLCJkYzIuOHhsYXJnZSI6dHJ1ZSwicmEzLjE2eGxhcmdlIjp0cnVlLCJyYTMuNHhsYXJnZSI6dHJ1ZSwicmEzLnhscGx1cyI6dHJ1ZSwiUzIiOnRydWUsIlMyNCI6dHJ1ZSwiMlhMIjp0cnVlLCIzWEwiOnRydWUsIjRYTCI6dHJ1ZSwiWEwiOnRydWV9LCJjbHVzdGVyX3NpemUiOnsiMSI6dHJ1ZSwiMiI6dHJ1ZSwiNCI6dHJ1ZSwiOCI6dHJ1ZSwiMTYiOnRydWUsIjMyIjp0cnVlLCI2NCI6dHJ1ZSwiMTI4Ijp0cnVlLCJzZXJ2ZXJsZXNzIjp0cnVlLCJkZWRpY2F0ZWQiOnRydWUsInVuZGVmaW5lZCI6dHJ1ZX0sIm1ldHJpYyI6ImhvdCIsInF1ZXJpZXMiOlt0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlLHRydWUsdHJ1ZSx0cnVlXX0=)<sup>1</sup>.
-
-<img
-  height="300"
-  src="/blog/images/clickbench_time.png"
-  noZoom
-  className="rounded-xl"
-/>
 
 Today, developers who store billions of data points in Postgres struggle with slow query times and poor
 data compression. Even with database tuning, complex analytical queries (e.g. counts, window functions,
@@ -41,12 +42,10 @@ query plan, executes it, and returns the results to Postgres.
 Data is persisted to disk with Parquet, a highly-compressed file format for column-oriented data. Thanks to
 Parquet, ParadeDB compacts data 5x more than both regular Postgres and Elasticsearch.
 
-<img
-  height="300"
-  src="/blog/images/clickbench_storage.png"
-  noZoom
-  className="rounded-xl"
-/>
+<Card title="Compresed Data Size">
+  Data size (GB) of a 75.56GB CSV file, loaded into the database.
+  <img height="300" src="/blog/images/clickbench_storage.png" noZoom />
+</Card>
 
 The final dependency is `delta-rs`, a Rust-based implementation of Delta Lake. This library adds ACID
 transactions, updates and deletes, and file compaction to Parquet storage. It also supports querying over data
@@ -66,7 +65,7 @@ query speed of many OLAP databases. Datafusion teases the idea of excellent anal
 performance from _any_ database — including Postgres.
 
 Andy Pavlo, professor of databases at Carnegie Mellon, [was right](https://youtu.be/Zx4caucPF7s?feature=shared&t=3006).
-Today, we’ve reached a point where it does not makes sense to build a query engine from scratch within a database.
+Today, we’ve reached a point where it does not make sense to build a query engine from scratch within a database.
 Instead, the next generation of analytical databases should integrate existing, embeddable query engines<sup>2</sup>
 like DataFusion that can continuously improve the database as the engine itself improves.
 
@@ -102,8 +101,8 @@ Finally, please don’t hesitate to show your support by [giving us a star](htt
 2. We also evaluated DuckDB, Polars, and Velox as candidates for an embedded query engine. DuckDB is a popular in-process
    OLAP database, Polars is a dataframe processing library built on Arrow, and Velox is a query execution
    library built by Meta. Datafusion was chosen for three reasons. First, it interoperates with a storage framework
-   like Delta Lake, which provides essential properties like ACID transactions. Secondly, it’s designed to be
-   embedded inside of another database, unlike standalone, in-process tools like Polars and DuckDB. Finally,
+   like Delta Lake, which provides essential properties like ACID transactions. Secondly, its API was intended to
+   be embedded inside another database, unlike standalone databases like Polars and DuckDB. Finally,
    it’s written in Rust and comes with a query parser and optimizer, unlike Velox.
 
 </Info>

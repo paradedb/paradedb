@@ -115,7 +115,7 @@ jobs:
           EOF
 
           # Build the package
-          dpkg-deb --build "$PKGDIR" "/tmp/pg_sparse_${{ steps.version.outputs.version }}_1_${{ matrix.arch }}.deb"
+          dpkg-deb --build "$PKGDIR" "/tmp/pg_sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb"
 
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL

@@ -108,11 +108,11 @@ COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
 
 # Use the build argument to update the version in Cargo.toml
-# Note: We require Rust nightly to build pg_analytics with SIMD support
+# Note: We require Rust nightly to build pg_analytics with SIMD
 RUN rustup update nightly && \
     rustup override set nightly && \
     cargo install --locked cargo-pgrx --version 0.11.2 --force && \
-    cargo pgrx package --features simd --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ###############################################
 # Third Stage: PostgreSQL

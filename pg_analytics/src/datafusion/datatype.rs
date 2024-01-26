@@ -1,4 +1,3 @@
-use datafusion::sql::sqlparser::ast::{DataType as SQLDataType, ExactNumberInfo, TimezoneInfo};
 use deltalake::datafusion::arrow::datatypes::{
     DataType, Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type,
     Int64Type, TimeUnit, TimestampMicrosecondType, UInt32Type, DECIMAL128_MAX_PRECISION,
@@ -8,6 +7,9 @@ use deltalake::datafusion::common::arrow::array::{
     Array, ArrayRef, AsArray, BooleanArray, Date32Array, Decimal128Array, Float32Array,
     Float64Array, Int16Array, Int32Array, Int64Array, StringArray, Time64MicrosecondArray,
     TimestampMicrosecondArray, UInt32Array,
+};
+use deltalake::datafusion::sql::sqlparser::ast::{
+    DataType as SQLDataType, ExactNumberInfo, TimezoneInfo,
 };
 use pgrx::pg_sys::{Datum, VARHDRSZ};
 use pgrx::*;

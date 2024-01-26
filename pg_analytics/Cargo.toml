@@ -17,7 +17,6 @@ pg15 = ["pgrx/pg15", "pgrx-tests/pg15" ]
 pg16 = ["pgrx/pg16", "pgrx-tests/pg16" ]
 pg_test = []
 telemetry = ["shared/telemetry"]
-simd = ["datafusion/simd"]
 
 [dependencies]
 pgrx = "=0.11.2"
@@ -25,11 +24,10 @@ serde = "1.0.193"
 serde_json = "1.0.107"
 shared = { version = "0.1.0", path = "../shared" }
 lazy_static = "1.4.0"
-datafusion = "34.0.0"
 async-std = { version = "1.12.0", features = ["tokio1"] }
 parking_lot = "0.12.1"
 async-trait = "0.1.77"
-deltalake = { version = "0.16.5", features = ["datafusion"] }
+deltalake = { git = "https://github.com/paradedb/delta-rs.git", branch = "main", features = ["datafusion"] }
 chrono = "0.4.33"
 thiserror = "1.0.56"
 

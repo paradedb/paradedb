@@ -178,7 +178,7 @@ cargo install --locked cargo-pgrx --version 0.11.2 --force
 Finally, run to build in release mode with SIMD:
 
 ```bash
-cargo pgrx run --features simd --release
+cargo pgrx run --release
 ```
 
 Note that this may take several minutes to execute.

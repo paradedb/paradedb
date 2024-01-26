@@ -127,7 +127,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   # it is a major performance boost
   CURRENT_RUST_TOOLCHAIN=$(rustup show active-toolchain)
   if [[ $CURRENT_RUST_TOOLCHAIN != *"nightly"* ]]; then
-    echo "Switching to Rust nightly toolchain for maximum performance via SIMD..."
+    echo "Switching to Rust nightly toolchain for SIMD..."
     rustup override unset
     rustup update nightly
     rustup default nightly
@@ -140,9 +140,9 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
 
   # Build pg_analytics and start its pgrx PostgreSQL instance
   echo ""
-  echo "Building pg_analytics in release mode with SIMD support..."
+  echo "Building pg_analytics in release mode with SIMD..."
   cargo pgrx stop
-  cargo pgrx install --features simd --release
+  cargo pgrx install --release
   cargo pgrx start
   echo ""
 

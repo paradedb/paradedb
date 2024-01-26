@@ -111,7 +111,7 @@ jobs:
           Architecture: ${{ matrix.arch }}
           Depends: postgresql-${{ matrix.pg_version }}
           Maintainer: ParadeDB <support@paradedb.com>
-          Description: pg_sparse: Sparse vector data type and sparse HNSW access methods
+          Description: Sparse vector data type and sparse HNSW access methods
           EOF
 
           # Build the package

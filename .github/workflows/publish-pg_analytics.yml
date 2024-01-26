@@ -100,7 +100,10 @@ jobs:
           CONTROL_FILE="${package_dir}/DEBIAN/control"
           echo 'Package: pg-analytics' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
+          echo 'Section: database' >> $CONTROL_FILE
+          echo 'Priority: optional' >> $CONTROL_FILE
           echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
+          echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
           echo 'Description: Real-time analytics for PostgreSQL using columnar storage and vectorized execution' >> $CONTROL_FILE
 

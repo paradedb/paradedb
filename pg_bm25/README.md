@@ -172,13 +172,23 @@ If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to ad
 export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
 ```
 
-Then, install and initialize pgrx:
+Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
 cargo install --locked cargo-pgrx --version 0.11.2
-cargo pgrx init --pg16=`which pg_config`
+
+# macOS arm64
+cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config
+
+# macOS amd64
+cargo pgrx init --pg16=/usr/local/opt/postgresql@16/bin/pg_config
+
+# Ubuntu
+cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
 ```
+
+If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
 
 Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 

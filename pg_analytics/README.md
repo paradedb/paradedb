@@ -148,7 +148,9 @@ cargo pgrx init --pg16=/usr/local/opt/postgresql@16/bin/pg_config
 cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
 ```
 
-This assumes that `pg_config` is in your path and that Postgres 16 is your default version. If your `pg_config` mentions a different version of Postgres, 
+If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
+
+Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 
 ### Configure Shared Preload Libraries
 

@@ -53,7 +53,7 @@ jobs:
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo tee /etc/apt/trusted.gpg.d/pgdg.asc &>/dev/null
-          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} checkinstall
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
 
           # Update permissions for PostgreSQL directories for extensions installation
           sudo chown -R $(whoami) \
@@ -89,9 +89,33 @@ jobs:
           # setting OPTFLAGS to an empty string
           OPTFLAGS=""
 
-          # Build & package pg_sparse
+          # Build pg_sparse
           make USE_PGXS=1 OPTFLAGS="$OPTFLAGS" "-j$(nproc)"
-          checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp -- make USE_PGXS=1 install
+
+          # Create a temporary directory for packaging
+          PKGDIR=/tmp/pg_sparse_pkg
+          mkdir -p "$PKGDIR"
+
+          # Install the built files to the package directory
+          make USE_PGXS=1 DESTDIR="$PKGDIR" install
+
+          # Create DEBIAN control directory
+          mkdir -p "$PKGDIR/DEBIAN"
+
+          # Create a control file with package information
+          cat <<EOF >"$PKGDIR/DEBIAN/control"
+          Package: pg-sparse
+          Version: ${{ steps.version.outputs.version }}
+          Section: database
+          Priority: optional
+          Architecture: ${{ matrix.arch }}
+          Depends: postgresql-${{ matrix.pg_version }}
+          Maintainer: ParadeDB <support@paradedb.com>
+          Description: Sparse vector data type and sparse HNSW access methods
+          EOF
+
+          # Build the package
+          dpkg-deb --build "$PKGDIR" "/tmp/pg-sparse_${{ steps.version.outputs.version }}-1_${{ matrix.arch }}.deb"
 
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL

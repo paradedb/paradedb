@@ -32,7 +32,7 @@ built and why now is an unprecedented time for building a Postgres-based analyti
 Regular Postgres tables, known as heap tables, organize data by row. While this makes sense for operational
 data, it is inefficient for analytical queries, which often scan a large amount of data from a subset of the
 columns in a table. `pg_analytics` solves this by integrating Apache Arrow, a column-oriented data format,
-and Apache Datafusion, an embeddable query engine for Arrow, within Postgres.
+and Apache DataFusion, an embeddable query engine for Arrow, within Postgres.
 
 The extension uses two features of the Postgres API — executor hooks and the table access method. The table
 access method is responsible for creating a new kind of table that can emit Arrow data batches and receive
@@ -51,7 +51,7 @@ The final dependency is `delta-rs`, a Rust-based implementation of Delta Lake. T
 transactions, updates and deletes, and file compaction to Parquet storage. It also supports querying over data
 lakes like S3, which introduces the future possibility connecting Postgres tables to cloud data lakes.
 
-## Why Datafusion
+## Why DataFusion
 
 The history of analytical databases in Postgres extends back to 2005 with a project called Greenplum. Since
 then, several companies like Citus and Timescale have released similar products.
@@ -60,8 +60,8 @@ Twenty years later, the performance gap between these databases and their non-Po
 is wide. This is one reason that systems like Elasticsearch are popular even among companies that prefer
 Postgres.
 
-Recently, embeddable query engines like Datafusion have changed the game by surpassing the
-query speed of many OLAP databases. Datafusion teases the idea of excellent analytical
+Recently, embeddable query engines like DataFusion have changed the game by surpassing the
+query speed of many OLAP databases. DataFusion teases the idea of excellent analytical
 performance from _any_ database — including Postgres.
 
 Andy Pavlo, professor of databases at Carnegie Mellon, [was right](https://youtu.be/Zx4caucPF7s?feature=shared&t=3006).
@@ -100,7 +100,7 @@ Finally, please don’t hesitate to show your support by [giving us a star](htt
 
 2. We also evaluated DuckDB, Polars, and Velox as candidates for an embedded query engine. DuckDB is a popular in-process
    OLAP database, Polars is a dataframe processing library built on Arrow, and Velox is a query execution
-   library built by Meta. Datafusion was chosen for three reasons. First, it interoperates with a storage framework
+   library built by Meta. DataFusion was chosen for three reasons. First, it interoperates with a storage framework
    like Delta Lake, which provides essential properties like ACID transactions. Secondly, its API was intended to
    be embedded inside another database, unlike standalone databases like Polars and DuckDB. Finally,
    it’s written in Rust and comes with a query parser and optimizer, unlike Velox.

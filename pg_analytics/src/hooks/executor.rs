@@ -113,7 +113,7 @@ unsafe fn send_tuples_if_necessary(
     let receive = (*dest).receiveSlot.ok_or_else(|| ParadeError::NotFound)?;
 
     for (row_number, recordbatch) in batches.iter().enumerate() {
-        // Convert the tuple_desc target types to the ones corresponding to the Datafusion column types
+        // Convert the tuple_desc target types to the ones corresponding to the DataFusion column types
         let tuple_attrs = (*(*query_desc).tupDesc).attrs.as_mut_ptr();
         for (col_index, _attr) in tuple_desc.iter().enumerate() {
             let dt = recordbatch.column(col_index).data_type();

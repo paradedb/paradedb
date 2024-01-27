@@ -81,7 +81,7 @@ fn insert_tuples(
     let tuple_desc = pg_relation.tuple_desc();
     let mut values: Vec<ArrayRef> = vec![];
 
-    // Convert the TupleTableSlots into Datafusion arrays
+    // Convert the TupleTableSlots into DataFusion arrays
     for (col_idx, attr) in tuple_desc.iter().enumerate() {
         values.push(DatafusionMapProducer::array(
             attr.type_oid().to_sql_data_type(attr.type_mod())?,

@@ -4,7 +4,7 @@ This folder contains the results and scripts for benchmarking ParadeDB against o
 
 - [x] ParadeDB
 - [x] PostgreSQL tsquery/tsvector
-- [x] ElasticSearch
+- [x] Elasticsearch
 
 If you'd like to see benchmarks against another system, please open an issue or a pull request.
 
@@ -58,7 +58,7 @@ The versions of the systems used for benchmarking are:
 
 - ParadeDB: 0.2.18
 - PostgreSQL: 15.4
-- ElasticSearch: 8.9.2
+- Elasticsearch: 8.9.2
 
 For any questions, clarifications, or suggestions regarding our benchmarking experimental setup, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
 

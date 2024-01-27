@@ -5,12 +5,12 @@ title: Introducing ParadeDB
 <img height="300" src="/blog/images/paradedb.png" noZoom />
 
 We’re excited to announce ParadeDB: a PostgreSQL database optimized for search.
-ParadeDB is the first Postgres database built to be an ElasticSearch alternative, engineered for lightning-fast full
+ParadeDB is the first Postgres database built to be an Elasticsearch alternative, engineered for lightning-fast full
 text, semantic, and hybrid search over Postgres tables.
 
 ## Why We Built ParadeDB
 
-For many organizations, search remains an unsolved problem. Despite the existence of giants like ElasticSearch, most developers who have worked with ElasticSearch know how incredibly painful it is to run, tune, and manage. While alternative search engines exist, gluing these external services on top of an existing database introduces the headache and costs of reindexing and duplicating data.
+For many organizations, search remains an unsolved problem. Despite the existence of giants like Elasticsearch, most developers who have worked with Elasticsearch know how incredibly painful it is to run, tune, and manage. While alternative search engines exist, gluing these external services on top of an existing database introduces the headache and costs of reindexing and duplicating data.
 
 Many developers seeking a unified source of truth and search engine turn towards Postgres, which offers basic full text search via `tsvector` and semantic search via `pgvector`. These tools may work for simple use cases and medium-sized datasets, but break down when tables get large or queries become complex:
 
@@ -20,14 +20,14 @@ Many developers seeking a unified source of truth and search engine turn towards
 4. No real-time search — data must manually be re-indexed or re-embedded
 5. Limited support for complex queries like faceting or relevance tuning
 
-By now, we’ve witnessed dozens of engineering teams who have begrudgingly stitched ElasticSearch on top of Postgres,
+By now, we’ve witnessed dozens of engineering teams who have begrudgingly stitched Elasticsearch on top of Postgres,
 only to ditch it later because it was too bloated, expensive, or convoluted. We asked ourselves: what if Postgres
 itself was built for Elastic-quality search? What if developers didn’t need to choose between one unified Postgres database
 with limited search capabilities or two separate services, one as the source of truth and one as the search engine?
 
 ## Who ParadeDB is For
 
-ElasticSearch has many use cases, and we aren’t trying to tackle all of them — at least not yet. Instead, we’re focused
+Elasticsearch has many use cases, and we aren’t trying to tackle all of them — at least not yet. Instead, we’re focused
 on nailing a core set of use cases for Postgres users that want to search over their database. ParadeDB is a good fit
 for you if:
 

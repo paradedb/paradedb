@@ -74,14 +74,9 @@ cleanup() {
     cargo pgrx stop
   else
     if docker ps -q --filter "name=paradedb" | grep -q .; then
-      docker kill paradedb > /dev/null 2>&1
+      docker kill paradedb
     fi
-    docker rm paradedb > /dev/null 2>&1
-  fi
-
-  # Delete the log.txt file, if it exists
-  if [ -f "log.txt" ]; then
-    rm -rf "log.txt"
+    docker rm paradedb
   fi
   echo "Done, goodbye!"
 }
@@ -183,10 +178,10 @@ else
     docker build -t paradedb/paradedb:"$FLAG_TAG" \
       -f "../../../docker/Dockerfile" \
       "../../../"
-    echo ""
   fi
 
   # Install and run Docker container for ParadeDB in detached mode
+  echo ""
   echo "Spinning up ParadeDB $FLAG_TAG Docker image..."
   docker run \
     -d \

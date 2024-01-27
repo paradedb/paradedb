@@ -1,13 +1,15 @@
 #!/bin/bash
 
+
+# This script benchmarks the performance of pg_analytics using the TPC-H benchmark
+# suite. It is supported on both Ubuntu and macOS, for local development via `cargo` as
+# well as in CI testing via Docker.
+#
+# The local development versions runs the smaller dataset
 # TODO: Write description
 
 # Exit on subcommand errors
 set -Eeuo pipefail
-
-
-
-
 
 # Handle params
 usage() {
@@ -64,14 +66,9 @@ cleanup() {
     cargo pgrx stop
   else
     if docker ps -q --filter "name=paradedb" | grep -q .; then
-      docker kill paradedb > /dev/null 2>&1
+      docker kill paradedb
     fi
-    docker rm paradedb > /dev/null 2>&1
-  fi
-
-  # Delete the log.txt file, if it exists
-  if [ -f "log.txt" ]; then
-    rm -rf "log.txt"
+    docker rm paradedb
   fi
   echo "Done, goodbye!"
 }
@@ -79,27 +76,21 @@ cleanup() {
 # Register the cleanup function to run when the script exits
 trap cleanup EXIT
 
-# Download function to retrieve the dataset and verify its checksum
-download_and_verify() {
+# Download function to retrieve the dataset
+download_dataset() {
   local url=$1
-  local checksum=$2
-  local filename=$3
+  local filename=$2
 
-  # Check if the file already exists and verify its checksum
+  # Check if the file already exists
   if [ -e "$filename" ]; then
-    if echo "$checksum  $filename" | md5sum -c --status; then
-      echo "Dataset '$filename' already exists and is verified, skipping download..."
-      return
-    else
-      echo "Checksum mismatch. Re-downloading '$filename'..."
-    fi
+    echo "Dataset '$filename' already exists, skipping download..."
+    return
   fi
 
-  # Downloading the file
+  # Downloading the TPC-H folder
   echo "Downloading $filename dataset..."
-  wget --no-verbose --continue -O "$filename.gz" "$url"
-  gzip -d "$filename.gz"
-  chmod 666 "$filename"
+  wget --no-verbose --continue -O "$filename" "$url"
+  unzip "$filename"
 }
 
 echo ""
@@ -109,15 +100,65 @@ echo "**************************************************************************
 echo ""
 
 if [ "$FLAG_TAG" == "pgrx" ]; then
-
-
-    # TODO
-
-
+  # TODO
+  echo "TODO"
 else
+  # TODO: Make the various dataset sizes compatible here
+  download_dataset "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "TPC-H_V3.0.1.zip"
 
-    # TODO
+  # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
+  if [ "$FLAG_TAG" == "local" ]; then
+    echo "Building ParadeDB Docker image from source..."
+    docker build -t paradedb/paradedb:"$FLAG_TAG" \
+      -f "../../../docker/Dockerfile" \
+      "../../../"
+    echo ""
+  fi
 
+  # Install and run Docker container for ParadeDB in detached mode
+  echo ""
+  echo "Spinning up ParadeDB $FLAG_TAG Docker image..."
+  docker run \
+    -d \
+    --name paradedb \
+    -e POSTGRES_USER=myuser \
+    -e POSTGRES_PASSWORD=mypassword \
+    -e POSTGRES_DB=mydatabase \
+    -p "$DOCKER_PORT":5432 \
+    paradedb/paradedb:"$FLAG_TAG"
+
+  # Wait for Docker container to spin up
+  echo ""
+  echo "Waiting for ParadeDB Docker image to spin up..."
+  sleep 10
+  echo "Done!"
+
+  echo ""
+  echo "Loading dataset..."
+  export PGPASSWORD='mypassword'
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
+
+  # TODO: Handle the data generation + loading, this here is broken
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c "CALL paradedb.init();" -c '\timing' -c "\\COPY nation FROM 'TPC-H_V3.0.1/ref_data/1/nation.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c "CALL paradedb.init();" -c '\timing' -c "\\COPY customer FROM 'TPC-H_V3.0.1/ref_data/1/customer.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c "CALL paradedb.init();" -c '\timing' -c "\\COPY supplier FROM 'TPC-H_V3.0.1/ref_data/1/supplier.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c "CALL paradedb.init();" -c '\timing' -c "\\COPY part FROM 'TPC-H_V3.0.1/ref_data/1/part.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c "CALL paradedb.init();" -c '\timing' -c "\\COPY partsupp FROM 'TPC-H_V3.0.1/ref_data/1/partsupp.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c "CALL paradedb.init();" -c '\timing' -c "\\COPY orders FROM 'TPC-H_V3.0.1/ref_data/1/orders.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t -c "CALL paradedb.init();" -c '\timing' -c "\\COPY lineitem FROM 'TPC-H_V3.0.1/ref_data/1/lineitem.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+
+  echo ""
+  echo "Running queries..."
+  ./run.sh 2>&1 | tee log.txt
+
+  echo ""
+  echo "Printing disk usage..."
+  sudo docker exec paradedb du -bcs /var/lib/postgresql/data
+
+  echo ""
+  echo "Printing results..."
+  grep -oP 'Time: \d+\.\d+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
+  awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
 fi
 
 echo ""

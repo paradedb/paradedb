@@ -1,3 +1,8 @@
+-- Initialize the database
+CALL paradedb.init();
+CREATE SCHEMA IF NOT EXISTS tpch1g;
+SET search_path TO tpch1g;
+
 -- nation
 CREATE TABLE IF NOT EXISTS "nation" (
   "n_nationkey"  INT,

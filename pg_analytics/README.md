@@ -10,14 +10,14 @@
 The primary dependencies are:
 
 - [x] [Apache Arrow](https://github.com/apache/arrow) for column-oriented memory format
-- [x] [Apache Datafusion](https://github.com/apache/arrow-datafusion) for vectorized query execution with SIMD
+- [x] [Apache DataFusion](https://github.com/apache/arrow-datafusion) for vectorized query execution with SIMD
 - [x] [Apache Parquet](https://github.com/apache/parquet-mr/) for persistence
 - [x] [Delta Lake](https://github.com/delta-io/delta-rs) as a storage framework with ACID properties
 - [x] [pgrx](https://github.com/pgcentralfoundation/pgrx), the framework for creating Postgres extensions in Rust
 
 ## Benchmarks
 
-With `pg_analytics` installed, ParadeDB is the fastest Postgres-based analytical database and outperforms many specialized OLAP systems. On Clickbench, ParadeDB is 94x faster than regular Postgres, 8x faster than ElasticSearch, and almost ties Clickhouse.
+With `pg_analytics` installed, ParadeDB is the fastest Postgres-based analytical database and outperforms many specialized OLAP systems. On Clickbench, ParadeDB is 94x faster than regular Postgres, 8x faster than Elasticsearch, and almost ties Clickhouse.
 
 <img src="../docs/images/clickbench_results.png" alt="Clickbench Results" width="1000px">
 
@@ -80,7 +80,7 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 
 ## How It Works
 
-`pg_analytics` introduces column-oriented storage and vectorized query execution to Postgres via Apache Parquet, Arrow, and Datafusion. These libraries are the building blocks of many modern analytical databases.
+`pg_analytics` introduces column-oriented storage and vectorized query execution to Postgres via Apache Parquet, Arrow, and DataFusion. These libraries are the building blocks of many modern analytical databases.
 
 ### Column-Oriented Storage
 
@@ -92,7 +92,7 @@ Vectorized query execution is a technique that takes advantage of modern CPUs to
 
 ### Postgres Integration
 
-`pg_analytics` embeds Arrow, Parquet, and Datafusion inside Postgres via executor hooks and the table access method API. Executor hooks intercept queries to these tables and reroute them to Datafusion, which generates an optimized query plan, executes the query, and sends the results back to Postgres. The table access method persists Postgres tables as Parquet files and registers them with Postgres' system catalogs. The Parquet files are managed by Delta Lake, which provides ACID transactions.
+`pg_analytics` embeds Arrow, Parquet, and DataFusion inside Postgres via executor hooks and the table access method API. Executor hooks intercept queries to these tables and reroute them to DataFusion, which generates an optimized query plan, executes the query, and sends the results back to Postgres. The table access method persists Postgres tables as Parquet files and registers them with Postgres' system catalogs. The Parquet files are managed by Delta Lake, which provides ACID transactions.
 
 ## Development
 

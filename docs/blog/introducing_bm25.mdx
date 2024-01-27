@@ -15,8 +15,8 @@ Today, Postgres' native full text search, which uses the `tsvector` type, has tw
 2. **Functionality**: Postgres has no support for operations like fuzzy search, relevance tuning, or
    BM25 relevance scoring, which are the bread and butter of modern search engines.
 
-`pg_bm25` aims to bridge the gap between the native capabilities of Postgres’ full text search and those of a specialized search engine like ElasticSearch.
-The goal is to eliminate the need to bring a cumbersome service like ElasticSearch into the data stack.
+`pg_bm25` aims to bridge the gap between the native capabilities of Postgres’ full text search and those of a specialized search engine like Elasticsearch.
+The goal is to eliminate the need to bring a cumbersome service like Elasticsearch into the data stack.
 
 Some features of `pg_bm25` include:
 
@@ -24,7 +24,7 @@ Some features of `pg_bm25` include:
 - Built on top of Tantivy, a Rust-based alternative to the Apache Lucene search library
 - Query times over 1M rows are 20x faster compared to `tsquery` and `ts_rank`, Postgres' built-in full text search and sort functions
 - Support for fuzzy search, aggregations, highlighting, and relevance tuning
-- Relevance scoring uses BM25, the same algorithm used by ElasticSearch
+- Relevance scoring uses BM25, the same algorithm used by Elasticsearch
 - Real-time search — new data is immediately searchable without manual reindexing
 
 `pg_bm25` stands on the shoulders of several open-source giants. The goal of this blog post is to recognize these projects
@@ -33,12 +33,12 @@ and to share how `pg_bm25` was built.
 ## The Shoulders of Giants
 
 Putting a search engine inside of Postgres is hard. A few projects have attempted it, but with one caveat: every
-single one has relied on an external ElasticSearch instance. This means introducing a
+single one has relied on an external Elasticsearch instance. This means introducing a
 complex and expensive piece of infrastructure into the data stack. Perhaps the best-known example of this kind of design
 is a Postgres extension called [ZomboDB](https://github.com/zombodb/zombodb).
 
 In 2016, an open source search library called [Tantivy](https://github.com/quickwit-oss/tantivy) emerged. Tantivy
-was designed as a Rust-based alternative to Apache Lucene, the search library that powers ElasticSearch.
+was designed as a Rust-based alternative to Apache Lucene, the search library that powers Elasticsearch.
 Three years later, a library called [pgrx](https://github.com/pgcentralfoundation/pgrx) — built by the same
 author of ZomboDB — made it possible to build Postgres extensions in Rust.
 Combined, these projects laid the groundwork for a Postgres extension that could create Elastic-quality
@@ -46,7 +46,7 @@ search experiences within Postgres.
 
 ## Creating the Inverted Index
 
-Like ElasticSearch, the backbone of Tantivy's search engine is a data structure called the inverted index,
+Like Elasticsearch, the backbone of Tantivy's search engine is a data structure called the inverted index,
 which stores a mapping from words to their locations in a set of documents. An inverted index
 is like the table of contents of a book — without it, you might have to examine every page to find
 a specific chapter.
@@ -86,8 +86,8 @@ WHERE my_table @@@ 'description:keyboard^2 OR electronics:::fuzzy_fields=descrip
 ## Performance Benchmarks
 
 On a table with one million rows, `pg_bm25` indexes 50 seconds faster than `tsvector` and ranks results
-20x faster. Indexing and search times are nearly identical to those of a dedicated ElasticSearch instance.
-With further optimizations, we're aiming to reduce the query times compared to ElasticSearch
+20x faster. Indexing and search times are nearly identical to those of a dedicated Elasticsearch instance.
+With further optimizations, we're aiming to reduce the query times compared to Elasticsearch
 by an additional 2x.
 
 More detailed benchmark results can be found in the [README](https://github.com/paradedb/paradedb/blob/dev/benchmarks/README.md).

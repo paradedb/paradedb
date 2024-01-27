@@ -198,7 +198,7 @@ function run_tests() {
 
     # First, download & install the first release at which we started supporting upgrades for Postgres 16 (v0.5.2)
     BASE_RELEASE="0.5.2"
-    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_analytics-v$BASE_RELEASE-pg$PG_VERSION-ubuntu2204.deb"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_analytics-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"    
     curl -LOJ "$DOWNLOAD_URL"
     sudo dpkg -i "pg_analytics-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
 

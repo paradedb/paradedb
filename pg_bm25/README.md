@@ -148,7 +148,7 @@ To develop the extension, first install Rust v1.73.0 using `rustup`. We will soo
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup install 1.73.0
 
-# We recommend setting the default version for consistency
+# We recommend setting the default version to 1.73.0 for consistency across your system
 rustup default 1.73.0
 ```
 

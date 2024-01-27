@@ -9,7 +9,7 @@ Cargo.lock
 target/
 
 # Rustfmt
-**/*.rs.bk
+*.rs.bk
 
 # Code Coverage
 *.profraw

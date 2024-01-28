@@ -16,6 +16,7 @@ use deltalake::operations::vacuum::VacuumBuilder;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::storage::ObjectStoreRef;
+use deltalake::table::state::DeltaTableState;
 use deltalake::DeltaTable;
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
@@ -166,7 +167,9 @@ impl ParadeSchemaProvider {
         if optimize {
             let optimized_table = OptimizeBuilder::new(
                 old_table.log_store(),
-                old_table.state.ok_or_else(|| ParadeError::NotFound)?,
+                old_table.state.ok_or(ParadeError::NoneError(
+                    type_name::<DeltaTableState>().to_string(),
+                ))?,
             )
             .with_target_size(PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB)
             .await?
@@ -178,7 +181,9 @@ impl ParadeSchemaProvider {
         // Vacuum the table
         let vacuumed_table = VacuumBuilder::new(
             old_table.log_store(),
-            old_table.state.ok_or_else(|| ParadeError::NotFound)?,
+            old_table.state.ok_or(ParadeError::NoneError(
+                type_name::<DeltaTableState>().to_string(),
+            ))?,
         )
         .with_retention_period(chrono::Duration::days(
             PARADE_GUC.vacuum_retention_days.get() as i64,
@@ -316,7 +321,9 @@ impl ParadeSchemaProvider {
         // Truncate the table
         let truncated_table = DeleteBuilder::new(
             delta_table.log_store(),
-            delta_table.state.ok_or_else(|| ParadeError::NotFound)?,
+            delta_table.state.ok_or(ParadeError::NoneError(
+                type_name::<DeltaTableState>().to_string(),
+            ))?,
         )
         .await?
         .0;
@@ -349,10 +356,9 @@ impl ParadeSchemaProvider {
                 task::block_on(
                     UpdateBuilder::new(
                         old_table.log_store(),
-                        old_table
-                            .state
-                            .clone()
-                            .ok_or_else(|| ParadeError::NotFound)?,
+                        old_table.state.clone().ok_or(ParadeError::NoneError(
+                            type_name::<DeltaTableState>().to_string(),
+                        ))?,
                     )
                     .into_future(),
                 )?

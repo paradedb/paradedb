@@ -68,7 +68,8 @@ impl DeltaTableProvider for PgRelation {
             )?)
         })?;
 
-        let source = provider_as_source(provider.ok_or(ParadeError::NotFound)?);
+        let source =
+            provider_as_source(provider.ok_or(ParadeError::TableNotFound(table_name.to_string()))?);
         let reference = TableReference::partial(schema_name, table_name);
         let df_schema = DFSchema::try_from_qualified_schema(reference, source.schema().as_ref())?;
 

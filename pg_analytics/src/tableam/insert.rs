@@ -25,7 +25,9 @@ pub extern "C" fn deltalake_tuple_insert(
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
     let mut mut_slot = slot;
-    insert_tuples(rel, &mut mut_slot, 1, true).expect("Failed to insert tuple");
+    insert_tuples(rel, &mut mut_slot, 1, true).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }
 
 #[pg_guard]
@@ -37,12 +39,16 @@ pub extern "C" fn deltalake_multi_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
-    insert_tuples(rel, slots, nslots as usize, false).expect("Failed to insert tuples");
+    insert_tuples(rel, slots, nslots as usize, false).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }
 
 #[pg_guard]
 pub extern "C" fn deltalake_finish_bulk_insert(rel: pg_sys::Relation, _options: c_int) {
-    flush_and_commit(rel).expect("Failed to commit tuples");
+    flush_and_commit(rel).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }
 
 #[pg_guard]

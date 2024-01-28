@@ -92,7 +92,7 @@ impl DeltaHandler {
         let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
 
         if deltalake_oid == pg_sys::InvalidOid {
-            return Err(ParadeError::NotFound);
+            return Err(ParadeError::InvalidHandlerOid);
         }
 
         let heap_tuple_data = pg_sys::SearchSysCache1(

@@ -1,7 +1,8 @@
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
-use std::ffi::NulError;
+use pgrx::*;
+use std::ffi::{NulError, OsString};
 use std::num::ParseIntError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
@@ -21,8 +22,26 @@ pub enum ParadeError {
     #[error(transparent)]
     IO(#[from] std::io::Error),
 
-    #[error("Value not found")]
-    NotFound,
+    #[error("No catalog registered with name {0}")]
+    CatalogNotFound(String),
+
+    #[error("No schema registered with name {0}")]
+    SchemaNotFound(String),
+
+    #[error("No table registered with name {0}")]
+    TableNotFound(String),
+
+    #[error("Failed to convert to datum {0}")]
+    DatumNotFound(String),
+
+    #[error("Data type {0} not supported")]
+    DataTypeNotSupported(String),
+
+    #[error("Invalid deltalake handler oid")]
+    InvalidHandlerOid,
+
+    #[error("Expected value of type {0} but found None")]
+    NoneError(String),
 
     #[error("{0}")]
     NotSupported(String),
@@ -58,5 +77,17 @@ impl From<FromUtf8Error> for ParadeError {
 impl From<NulError> for ParadeError {
     fn from(err: NulError) -> Self {
         ParadeError::Generic(err.to_string())
+    }
+}
+
+impl From<numeric::Error> for ParadeError {
+    fn from(err: numeric::Error) -> Self {
+        ParadeError::Generic(err.to_string())
+    }
+}
+
+impl From<OsString> for ParadeError {
+    fn from(err: OsString) -> Self {
+        ParadeError::Generic(err.to_string_lossy().to_string())
     }
 }

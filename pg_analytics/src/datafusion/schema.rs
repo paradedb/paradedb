@@ -16,13 +16,14 @@ use deltalake::operations::vacuum::VacuumBuilder;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::storage::ObjectStoreRef;
+use deltalake::table::state::DeltaTableState;
 use deltalake::DeltaTable;
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
 use std::future::IntoFuture;
 use std::{
-    any::Any, collections::HashMap, ffi::CStr, ffi::CString, fs::remove_dir_all, path::PathBuf,
-    sync::Arc,
+    any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::CString, fs::remove_dir_all,
+    path::PathBuf, sync::Arc,
 };
 
 use crate::datafusion::directory::ParadeDirectory;
@@ -59,11 +60,7 @@ impl ParadeSchemaProvider {
 
         for res in listdir {
             // Get the table OID from the file name
-            let table_oid = res?
-                .file_name()
-                .to_str()
-                .ok_or_else(|| ParadeError::NotFound)?
-                .to_string();
+            let table_oid = res?.file_name().into_string()?;
 
             if let Ok(oid) = table_oid.parse::<u32>() {
                 let pg_oid = pg_sys::Oid::from(oid);
@@ -127,11 +124,7 @@ impl ParadeSchemaProvider {
         ParadeDirectory::create_schema_path(schema_oid)?;
 
         let mut delta_table = CreateBuilder::new()
-            .with_location(
-                ParadeDirectory::table_path(schema_oid, table_oid)?
-                    .to_str()
-                    .ok_or_else(|| ParadeError::NotFound)?,
-            )
+            .with_location(ParadeDirectory::table_path(schema_oid, table_oid)?.to_string_lossy())
             .with_columns(delta_schema.fields().to_vec())
             .await?;
 
@@ -174,7 +167,9 @@ impl ParadeSchemaProvider {
         if optimize {
             let optimized_table = OptimizeBuilder::new(
                 old_table.log_store(),
-                old_table.state.ok_or_else(|| ParadeError::NotFound)?,
+                old_table.state.ok_or(ParadeError::NoneError(
+                    type_name::<DeltaTableState>().to_string(),
+                ))?,
             )
             .with_target_size(PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB)
             .await?
@@ -186,7 +181,9 @@ impl ParadeSchemaProvider {
         // Vacuum the table
         let vacuumed_table = VacuumBuilder::new(
             old_table.log_store(),
-            old_table.state.ok_or_else(|| ParadeError::NotFound)?,
+            old_table.state.ok_or(ParadeError::NoneError(
+                type_name::<DeltaTableState>().to_string(),
+            ))?,
         )
         .with_retention_period(chrono::Duration::days(
             PARADE_GUC.vacuum_retention_days.get() as i64,
@@ -211,11 +208,7 @@ impl ParadeSchemaProvider {
 
         // Iterate over all tables in the directory
         for res in listdir {
-            let table_oid = res?
-                .file_name()
-                .to_str()
-                .ok_or_else(|| ParadeError::NotFound)?
-                .to_string();
+            let table_oid = res?.file_name().into_string()?;
 
             if let Ok(oid) = table_oid.parse::<u32>() {
                 let pg_oid = pg_sys::Oid::from(oid);
@@ -247,9 +240,10 @@ impl ParadeSchemaProvider {
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
             .get_mut(table_name)
-            .ok_or_else(|| ParadeError::NotFound)?;
+            .ok_or(ParadeError::TableNotFound(table_name.to_string()))?;
 
         task::block_on(writer.write(&batch))?;
+
         Ok(())
     }
 
@@ -266,7 +260,7 @@ impl ParadeSchemaProvider {
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
             .remove(table_name)
-            .ok_or_else(|| ParadeError::NotFound)?;
+            .ok_or(ParadeError::TableNotFound(table_name.to_string()))?;
 
         // Generate commit actions by closing the writer and commit to delta logs
         let actions = task::block_on(writer.close())?;
@@ -327,7 +321,9 @@ impl ParadeSchemaProvider {
         // Truncate the table
         let truncated_table = DeleteBuilder::new(
             delta_table.log_store(),
-            delta_table.state.ok_or_else(|| ParadeError::NotFound)?,
+            delta_table.state.ok_or(ParadeError::NoneError(
+                type_name::<DeltaTableState>().to_string(),
+            ))?,
         )
         .await?
         .0;
@@ -349,20 +345,20 @@ impl ParadeSchemaProvider {
         let mut delta_table = match Self::table_exist(self, name) {
             true => {
                 let tables = self.tables.read();
-                let provider = tables.get(name).ok_or_else(|| ParadeError::NotFound)?;
+                let provider = tables
+                    .get(name)
+                    .ok_or(ParadeError::TableNotFound(name.to_string()))?;
 
-                let old_table = provider
-                    .as_any()
-                    .downcast_ref::<DeltaTable>()
-                    .ok_or_else(|| ParadeError::NotFound)?;
+                let old_table = provider.as_any().downcast_ref::<DeltaTable>().ok_or(
+                    ParadeError::NoneError(type_name::<DeltaTable>().to_string()),
+                )?;
 
                 task::block_on(
                     UpdateBuilder::new(
                         old_table.log_store(),
-                        old_table
-                            .state
-                            .clone()
-                            .ok_or_else(|| ParadeError::NotFound)?,
+                        old_table.state.clone().ok_or(ParadeError::NoneError(
+                            type_name::<DeltaTableState>().to_string(),
+                        ))?,
                     )
                     .into_future(),
                 )?
@@ -380,9 +376,7 @@ impl ParadeSchemaProvider {
                     unsafe { pg_sys::get_relname_relid(CString::new(name)?.as_ptr(), schema_oid) };
 
                 deltalake::open_table(
-                    ParadeDirectory::table_path(schema_oid, table_oid)?
-                        .to_str()
-                        .ok_or_else(|| ParadeError::NotFound)?,
+                    ParadeDirectory::table_path(schema_oid, table_oid)?.to_string_lossy(),
                 )
                 .await?
             }

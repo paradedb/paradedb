@@ -105,12 +105,16 @@ unsafe fn send_tuples_if_necessary(
     }
 
     let dest = (*query_desc).dest;
-    let startup = (*dest).rStartup.ok_or_else(|| ParadeError::NotFound)?;
+    let startup = (*dest)
+        .rStartup
+        .ok_or(ParadeError::NoneError("rStartup".to_string()))?;
 
     startup(dest, (*query_desc).operation as i32, (*query_desc).tupDesc);
 
     let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
-    let receive = (*dest).receiveSlot.ok_or_else(|| ParadeError::NotFound)?;
+    let receive = (*dest)
+        .receiveSlot
+        .ok_or(ParadeError::NoneError("receive".to_string()))?;
 
     for (row_number, recordbatch) in batches.iter().enumerate() {
         // Convert the tuple_desc target types to the ones corresponding to the DataFusion column types
@@ -147,7 +151,9 @@ unsafe fn send_tuples_if_necessary(
         }
     }
 
-    let shutdown = (*dest).rShutdown.ok_or_else(|| ParadeError::NotFound)?;
+    let shutdown = (*dest)
+        .rShutdown
+        .ok_or(ParadeError::NoneError("rShutdown".to_string()))?;
     shutdown(dest);
 
     Ok(())

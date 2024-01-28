@@ -104,6 +104,7 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   echo "TODO"
 else
   # TODO: Make the various dataset sizes compatible here
+  # Actually, I'm using pre-generated datasets because dbgen doesn't work on macOS. Need to update here
   download_dataset "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "TPC-H_V3.0.1.zip"
 
   # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit

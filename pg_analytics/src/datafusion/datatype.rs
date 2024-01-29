@@ -171,6 +171,7 @@ impl PostgresTypeTranslator for PgOid {
                         "timestamp with time zone range".to_string(),
                     ))
                 }
+                PgBuiltInOids::UUIDOID => SQLDataType::Uuid,
                 PgBuiltInOids::BOOLARRAYOID => sql_array_type(PgBuiltInOids::BOOLOID, typmod)?,
                 PgBuiltInOids::BYTEAARRAYOID => sql_array_type(PgBuiltInOids::BYTEAOID, typmod)?,
                 PgBuiltInOids::TEXTARRAYOID => sql_array_type(PgBuiltInOids::TEXTOID, typmod)?,
@@ -181,7 +182,18 @@ impl PostgresTypeTranslator for PgOid {
                 PgBuiltInOids::INT2ARRAYOID => sql_array_type(PgBuiltInOids::INT2OID, typmod)?,
                 PgBuiltInOids::INT4ARRAYOID => sql_array_type(PgBuiltInOids::INT4OID, typmod)?,
                 PgBuiltInOids::INT8ARRAYOID => sql_array_type(PgBuiltInOids::INT8OID, typmod)?,
-                PgBuiltInOids::UUIDOID => SQLDataType::Uuid,
+                PgBuiltInOids::OIDARRAYOID => sql_array_type(PgBuiltInOids::OIDOID, typmod)?,
+                PgBuiltInOids::XIDARRAYOID => sql_array_type(PgBuiltInOids::XIDOID, typmod)?,
+                PgBuiltInOids::FLOAT4ARRAYOID => sql_array_type(PgBuiltInOids::FLOAT4OID, typmod)?,
+                PgBuiltInOids::FLOAT8ARRAYOID => sql_array_type(PgBuiltInOids::FLOAT8OID, typmod)?,
+                PgBuiltInOids::TIMESTAMPARRAYOID => {
+                    sql_array_type(PgBuiltInOids::TIMESTAMPOID, typmod)?
+                }
+                PgBuiltInOids::DATEARRAYOID => sql_array_type(PgBuiltInOids::DATEOID, typmod)?,
+                PgBuiltInOids::NUMERICARRAYOID => {
+                    sql_array_type(PgBuiltInOids::NUMERICOID, typmod)?
+                }
+                PgBuiltInOids::UUIDARRAYOID => sql_array_type(PgBuiltInOids::UUIDOID, typmod)?,
                 _ => return Err(ParadeError::DataTypeNotSupported("unknown".to_string())),
             },
             PgOid::Invalid => return Err(NotSupported::InvalidPostgresType.into()),

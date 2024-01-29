@@ -15,9 +15,6 @@ ARG COMMIT_SHA
 ARG TELEMETRY
 ARG BUILD_DATE
 
-# This is used to checkout the correct branch on the pgvector repo
-ARG PGVECTOR_BRANCH=v0.5.1
-
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
@@ -26,8 +23,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     BUILD_DATE=${BUILD_DATE} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
-
-ENV PGVECTOR_BRANCH=${PGVECTOR_BRANCH}
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
@@ -49,7 +44,7 @@ FROM base as builder
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install Rust (specific version) and other build dependencies
-RUN apt update && apt install -y --no-install-recommends \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     checkinstall \
     clang \
@@ -75,7 +70,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
 
-RUN apt update && apt install -y postgresql-server-dev-${PG_VERSION_MAJOR} \
+RUN apt-get update && apt-get install -y postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/root/.cargo/bin:$PATH" \
@@ -157,20 +152,8 @@ RUN make clean && \
 
 FROM builder as builder-pgvector
 
-RUN cd /tmp \
- && git clone --branch ${PGVECTOR_BRANCH} https://github.com/pgvector/pgvector.git
-
-WORKDIR /tmp/pgvector
-ENV PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare"
-
-RUN echo "trusted = true" >> vector.control && \
-    make clean -j && \
-    make USE_PGXS=1 OPTFLAGS="" -j && \
-    checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp \
-    --pkgname pgvector \
-    --pkgversion $(awk -F "= '|\''" '/default_version/ {print $2}' vector.control) \
-    --maintainer "Andrew Kane <andrew@ankane.org>" \
-    -- make USE_PGXS=1 install -j
+WORKDIR /tmp/extensions-deb
+RUN apt-get download postgresql-${PG_VERSION_MAJOR}-pgvector
 
 ###############################################
 # Third Stage: PostgreSQL
@@ -204,3 +187,5 @@ RUN usermod -u 26 postgres \
     && chmod -R 700 /var/lib/postgresql
 
 USER 26
+
+FROM builder-pgvector as bb

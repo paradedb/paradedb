@@ -173,6 +173,14 @@ impl PostgresTypeTranslator for PgOid {
                 }
                 PgBuiltInOids::BOOLARRAYOID => sql_array_type(PgBuiltInOids::BOOLOID, typmod)?,
                 PgBuiltInOids::BYTEAARRAYOID => sql_array_type(PgBuiltInOids::BYTEAOID, typmod)?,
+                PgBuiltInOids::TEXTARRAYOID => sql_array_type(PgBuiltInOids::TEXTOID, typmod)?,
+                PgBuiltInOids::VARCHARARRAYOID => {
+                    sql_array_type(PgBuiltInOids::VARCHAROID, typmod)?
+                }
+                PgBuiltInOids::BPCHARARRAYOID => sql_array_type(PgBuiltInOids::BPCHAROID, typmod)?,
+                PgBuiltInOids::INT2ARRAYOID => sql_array_type(PgBuiltInOids::INT2OID, typmod)?,
+                PgBuiltInOids::INT4ARRAYOID => sql_array_type(PgBuiltInOids::INT4OID, typmod)?,
+                PgBuiltInOids::INT8ARRAYOID => sql_array_type(PgBuiltInOids::INT8OID, typmod)?,
                 PgBuiltInOids::UUIDOID => SQLDataType::Uuid,
                 _ => return Err(ParadeError::DataTypeNotSupported("unknown".to_string())),
             },

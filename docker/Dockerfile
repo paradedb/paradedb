@@ -14,8 +14,12 @@ ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG TELEMETRY
 ARG BUILD_DATE
+ARG RUST_VERSION=1.73.0
+ARG PGRX_VERSION=0.11.2
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
+    RUST_VERSION=${RUST_VERSION} \
+    PGRX_VERSION=${PGRX_VERSION} \
     POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
@@ -64,11 +68,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && /root/.cargo/bin/rustup default 1.73.0
-
-# Add PostgreSQL's third party repository to get the latest versions
-RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
+    && /root/.cargo/bin/rustup default ${RUST_VERSION}
 
 RUN apt-get update && apt-get install -y postgresql-server-dev-${PG_VERSION_MAJOR} \
     && rm -rf /var/lib/apt/lists/*
@@ -77,7 +77,7 @@ ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
 RUN cargo install cargo-get
-RUN cargo install --locked cargo-pgrx --version 0.11.2 && \
+RUN cargo install --locked cargo-pgrx --version ${PGRX_VERSION} && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################

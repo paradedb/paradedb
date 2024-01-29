@@ -9,7 +9,7 @@ use deltalake::datafusion::common::arrow::array::{
     TimestampMicrosecondArray, UInt32Array,
 };
 use deltalake::datafusion::sql::sqlparser::ast::{
-    DataType as SQLDataType, ExactNumberInfo, TimezoneInfo,
+    ArrayElemTypeDef, DataType as SQLDataType, ExactNumberInfo, TimezoneInfo,
 };
 use pgrx::pg_sys::{Datum, VARHDRSZ};
 use pgrx::*;
@@ -46,7 +46,11 @@ impl DatafusionTypeTranslator for DataType {
                 },
             ),
             DataType::Date32 => SQLDataType::Date,
-            _ => return Err(NotSupported::DataType(self.clone()).into()),
+            DataType::List(field) => {
+                let member_type = field.data_type().to_sql_data_type()?;
+                SQLDataType::Array(ArrayElemTypeDef::SquareBracket(Box::new(member_type)))
+            }
+            _ => return Err(ParadeError::DataTypeNotSupported(self.to_string())),
         };
 
         Ok(result)
@@ -85,7 +89,14 @@ impl DatafusionTypeTranslator for DataType {
                 DataType::Timestamp(TimeUnit::Microsecond, None)
             }
             SQLDataType::Date => DataType::Date32,
-            _ => return Err(NotSupported::SQLDataType(sql_data_type).into()),
+            SQLDataType::Array(typedef) => match typedef {
+                ArrayElemTypeDef::AngleBracket(datatype)
+                | ArrayElemTypeDef::SquareBracket(datatype) => {
+                    DataType::new_list(Self::from_sql_data_type(*datatype)?, false)
+                }
+                _ => return Err(ParadeError::NotSupported("array with no type".into())),
+            },
+            _ => return Err(ParadeError::DataTypeNotSupported(sql_data_type.to_string())),
         };
 
         Ok(result)

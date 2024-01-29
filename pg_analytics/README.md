@@ -10,14 +10,14 @@
 The primary dependencies are:
 
 - [x] [Apache Arrow](https://github.com/apache/arrow) for column-oriented memory format
-- [x] [Apache Datafusion](https://github.com/apache/arrow-datafusion) for vectorized query execution with SIMD
+- [x] [Apache DataFusion](https://github.com/apache/arrow-datafusion) for vectorized query execution with SIMD
 - [x] [Apache Parquet](https://github.com/apache/parquet-mr/) for persistence
 - [x] [Delta Lake](https://github.com/delta-io/delta-rs) as a storage framework with ACID properties
 - [x] [pgrx](https://github.com/pgcentralfoundation/pgrx), the framework for creating Postgres extensions in Rust
 
 ## Benchmarks
 
-With `pg_analytics` installed, ParadeDB is the fastest Postgres-based analytical database and outperforms many specialized OLAP systems. On Clickbench, ParadeDB is 94x faster than regular Postgres, 8x faster than ElasticSearch, and almost ties Clickhouse.
+With `pg_analytics` installed, ParadeDB is the fastest Postgres-based analytical database and outperforms many specialized OLAP systems. On Clickbench, ParadeDB is 94x faster than regular Postgres, 8x faster than Elasticsearch, and almost ties Clickhouse.
 
 <img src="../docs/images/clickbench_results.png" alt="Clickbench Results" width="1000px">
 
@@ -80,7 +80,7 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 
 ## How It Works
 
-`pg_analytics` introduces column-oriented storage and vectorized query execution to Postgres via Apache Parquet, Arrow, and Datafusion. These libraries are the building blocks of many modern analytical databases.
+`pg_analytics` introduces column-oriented storage and vectorized query execution to Postgres via Apache Parquet, Arrow, and DataFusion. These libraries are the building blocks of many modern analytical databases.
 
 ### Column-Oriented Storage
 
@@ -92,7 +92,7 @@ Vectorized query execution is a technique that takes advantage of modern CPUs to
 
 ### Postgres Integration
 
-`pg_analytics` embeds Arrow, Parquet, and Datafusion inside Postgres via executor hooks and the table access method API. Executor hooks intercept queries to these tables and reroute them to Datafusion, which generates an optimized query plan, executes the query, and sends the results back to Postgres. The table access method persists Postgres tables as Parquet files and registers them with Postgres' system catalogs. The Parquet files are managed by Delta Lake, which provides ACID transactions.
+`pg_analytics` embeds Arrow, Parquet, and DataFusion inside Postgres via executor hooks and the table access method API. Executor hooks intercept queries to these tables and reroute them to DataFusion, which generates an optimized query plan, executes the query, and sends the results back to Postgres. The table access method persists Postgres tables as Parquet files and registers them with Postgres' system catalogs. The Parquet files are managed by Delta Lake, which provides ACID transactions.
 
 ## Development
 
@@ -104,7 +104,7 @@ To develop the extension, first install Rust v1.73.0 using `rustup`. We will soo
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup install 1.73.0
 
-# We recommend setting the default version for consistency
+# We recommend setting the default version to 1.73.0 for consistency across your system
 rustup default 1.73.0
 ```
 
@@ -137,8 +137,20 @@ Then, install and initialize `pgrx`:
 ```bash
 # Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
 cargo install --locked cargo-pgrx --version 0.11.2
-cargo pgrx init --pg16=`which pg_config`
+
+# macOS arm64
+cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config
+
+# macOS amd64
+cargo pgrx init --pg16=/usr/local/opt/postgresql@16/bin/pg_config
+
+# Ubuntu
+cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
 ```
+
+If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
+
+Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 
 ### Configure Shared Preload Libraries
 
@@ -178,7 +190,7 @@ cargo install --locked cargo-pgrx --version 0.11.2 --force
 Finally, run to build in release mode with SIMD:
 
 ```bash
-cargo pgrx run --features simd --release
+cargo pgrx run --release
 ```
 
 Note that this may take several minutes to execute.

@@ -38,7 +38,7 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      # We need Rust nightly to build with SIMD
+      # We need Rust nightly for an optimized build
       - name: Install Rust
         uses: dtolnay/rust-toolchain@nightly
 
@@ -70,7 +70,7 @@ jobs:
 
       - name: Package pg_analytics Extension with pgrx
         working-directory: pg_analytics/
-        run: cargo pgrx package --features "telemetry simd"
+        run: cargo pgrx package --features telemetry
 
       - name: Create .deb Package
         run: |

@@ -1,4 +1,3 @@
-use datafusion::sql::sqlparser::ast::{DataType as SQLDataType, ExactNumberInfo, TimezoneInfo};
 use deltalake::datafusion::arrow::datatypes::{
     DataType, Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type,
     Int64Type, TimeUnit, TimestampMicrosecondType, UInt32Type, DECIMAL128_MAX_PRECISION,
@@ -9,8 +8,12 @@ use deltalake::datafusion::common::arrow::array::{
     Float64Array, Int16Array, Int32Array, Int64Array, StringArray, Time64MicrosecondArray,
     TimestampMicrosecondArray, UInt32Array,
 };
+use deltalake::datafusion::sql::sqlparser::ast::{
+    DataType as SQLDataType, ExactNumberInfo, TimezoneInfo,
+};
 use pgrx::pg_sys::{Datum, VARHDRSZ};
 use pgrx::*;
+use std::any::type_name;
 use std::sync::Arc;
 
 use crate::errors::ParadeError;
@@ -37,19 +40,21 @@ impl DatafusionTypeTranslator for DataType {
                 ExactNumberInfo::PrecisionAndScale(*precision as u64, *scale as u64),
             ),
             DataType::Time64(TimeUnit::Microsecond) => {
-                return Err(ParadeError::NotSupported("time not supported".into()))
+                return Err(ParadeError::NotSupported("time not supported".to_string()))
             }
             DataType::Timestamp(TimeUnit::Microsecond, timestamp) => SQLDataType::Timestamp(
                 None,
                 match timestamp {
                     None => TimezoneInfo::WithoutTimeZone,
                     Some(_) => {
-                        return Err(ParadeError::NotSupported("timestamp with time zone".into()))
+                        return Err(ParadeError::NotSupported(
+                            "timestamp with time zone".to_string(),
+                        ))
                     }
                 },
             ),
             DataType::Date32 => SQLDataType::Date,
-            _ => return Err(ParadeError::NotFound),
+            _ => return Err(ParadeError::DataTypeNotSupported(self.to_string())),
         };
 
         Ok(result)
@@ -88,15 +93,17 @@ impl DatafusionTypeTranslator for DataType {
 
                 DataType::Decimal128(casted_precision, casted_scale)
             }
-            SQLDataType::Time(_, _) => return Err(ParadeError::NotSupported("time".into())),
+            SQLDataType::Time(_, _) => return Err(ParadeError::NotSupported("time".to_string())),
             SQLDataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => {
                 DataType::Timestamp(TimeUnit::Microsecond, None)
             }
             SQLDataType::Timestamp(_, TimezoneInfo::WithTimeZone) => {
-                return Err(ParadeError::NotSupported("timestamp with time zone".into()))
+                return Err(ParadeError::NotSupported(
+                    "timestamp with time zone".to_string(),
+                ))
             }
             SQLDataType::Date => DataType::Date32,
-            _ => return Err(ParadeError::NotFound),
+            _ => return Err(ParadeError::DataTypeNotSupported(sql_data_type.to_string())),
         };
 
         Ok(result)
@@ -124,26 +131,38 @@ impl PostgresTypeTranslator for PgOid {
                 PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => SQLDataType::UnsignedInt4(None),
                 PgBuiltInOids::FLOAT4OID => SQLDataType::Float4,
                 PgBuiltInOids::FLOAT8OID => SQLDataType::Float8,
-                PgBuiltInOids::TIMEOID => return Err(ParadeError::NotSupported("time".into())),
+                PgBuiltInOids::TIMEOID => {
+                    return Err(ParadeError::NotSupported("time".to_string()))
+                }
                 PgBuiltInOids::TIMESTAMPOID => {
                     SQLDataType::Timestamp(None, TimezoneInfo::WithoutTimeZone)
                 }
                 PgBuiltInOids::DATEOID => SQLDataType::Date,
                 PgBuiltInOids::TIMETZOID => {
-                    return Err(ParadeError::NotSupported("time with time zone".into()))
+                    return Err(ParadeError::NotSupported("time with time zone".to_string()))
                 }
                 PgBuiltInOids::TIMESTAMPTZOID => {
-                    return Err(ParadeError::NotSupported("timestamp with time zone".into()))
+                    return Err(ParadeError::NotSupported(
+                        "timestamp with time zone".to_string(),
+                    ))
                 }
-                PgBuiltInOids::JSONOID => return Err(ParadeError::NotSupported("json".into())),
-                PgBuiltInOids::JSONBOID => return Err(ParadeError::NotSupported("jsonb".into())),
-                PgBuiltInOids::BOXOID => return Err(ParadeError::NotSupported("box".into())),
-                PgBuiltInOids::POINTOID => return Err(ParadeError::NotSupported("point".into())),
-                PgBuiltInOids::TIDOID => return Err(ParadeError::NotSupported("tid".into())),
+                PgBuiltInOids::JSONOID => {
+                    return Err(ParadeError::NotSupported("json".to_string()))
+                }
+                PgBuiltInOids::JSONBOID => {
+                    return Err(ParadeError::NotSupported("jsonb".to_string()))
+                }
+                PgBuiltInOids::BOXOID => return Err(ParadeError::NotSupported("box".to_string())),
+                PgBuiltInOids::POINTOID => {
+                    return Err(ParadeError::NotSupported("point".to_string()))
+                }
+                PgBuiltInOids::TIDOID => return Err(ParadeError::NotSupported("tid".to_string())),
                 PgBuiltInOids::CSTRINGOID => {
-                    return Err(ParadeError::NotSupported("cstring".into()))
+                    return Err(ParadeError::NotSupported("cstring".to_string()))
                 }
-                PgBuiltInOids::INETOID => return Err(ParadeError::NotSupported("inet".into())),
+                PgBuiltInOids::INETOID => {
+                    return Err(ParadeError::NotSupported("inet".to_string()))
+                }
                 PgBuiltInOids::NUMERICOID => {
                     let scale: i32 = (((typmod - VARHDRSZ as i32) & 0x7ff) ^ 1024) - 1024;
                     let precision: i32 = ((typmod - VARHDRSZ as i32) >> 16) & 0xffff;
@@ -166,31 +185,36 @@ impl PostgresTypeTranslator for PgOid {
                         scale as u64,
                     ))
                 }
-                PgBuiltInOids::VOIDOID => return Err(ParadeError::NotSupported("void".into())),
+                PgBuiltInOids::VOIDOID => {
+                    return Err(ParadeError::NotSupported("void".to_string()))
+                }
                 PgBuiltInOids::INT4RANGEOID => {
-                    return Err(ParadeError::NotSupported("int4 range".into()))
+                    return Err(ParadeError::NotSupported("int4 range".to_string()))
                 }
                 PgBuiltInOids::INT8RANGEOID => {
-                    return Err(ParadeError::NotSupported("int8 range".into()))
+                    return Err(ParadeError::NotSupported("int8 range".to_string()))
                 }
                 PgBuiltInOids::NUMRANGEOID => {
-                    return Err(ParadeError::NotSupported("numeric range".into()))
+                    return Err(ParadeError::NotSupported("numeric range".to_string()))
                 }
                 PgBuiltInOids::DATERANGEOID => {
-                    return Err(ParadeError::NotSupported("date range".into()))
+                    return Err(ParadeError::NotSupported("date range".to_string()))
                 }
                 PgBuiltInOids::TSRANGEOID => {
-                    return Err(ParadeError::NotSupported("timestamp range".into()))
+                    return Err(ParadeError::NotSupported("timestamp range".to_string()))
                 }
                 PgBuiltInOids::TSTZRANGEOID => {
                     return Err(ParadeError::NotSupported(
-                        "timestamp with time zone range".into(),
+                        "timestamp with time zone range".to_string(),
                     ))
                 }
                 PgBuiltInOids::UUIDOID => SQLDataType::Uuid,
-                _ => return Err(ParadeError::NotFound),
+                _ => return Err(ParadeError::DataTypeNotSupported("unknown".to_string())),
             },
-            _ => return Err(ParadeError::NotFound),
+            PgOid::Invalid => return Err(ParadeError::DataTypeNotSupported("invalid".to_string())),
+            PgOid::Custom(_) => {
+                return Err(ParadeError::DataTypeNotSupported("custom".to_string()))
+            }
         };
 
         Ok(result)
@@ -210,13 +234,15 @@ impl PostgresTypeTranslator for PgOid {
             SQLDataType::Numeric(ExactNumberInfo::PrecisionAndScale(_precision, _scale)) => {
                 PgBuiltInOids::NUMERICOID
             }
-            SQLDataType::Time(_, _) => return Err(ParadeError::NotSupported("time".into())),
+            SQLDataType::Time(_, _) => return Err(ParadeError::NotSupported("time".to_string())),
             SQLDataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => PgBuiltInOids::TIMESTAMPOID,
             SQLDataType::Date => PgBuiltInOids::DATEOID,
             SQLDataType::Timestamp(_, TimezoneInfo::WithTimeZone) => {
-                return Err(ParadeError::NotSupported("timestamp with time zone".into()))
+                return Err(ParadeError::NotSupported(
+                    "timestamp with time zone".to_string(),
+                ))
             }
-            _ => return Err(ParadeError::NotFound),
+            _ => return Err(ParadeError::DataTypeNotSupported(sql_data_type.to_string())),
         };
 
         let typmod: i32 = match sql_data_type {
@@ -246,7 +272,7 @@ fn scale_anynumeric(
             pg_sys::numeric,
             &[anynumeric.into_datum(), original_typmod.into_datum()],
         )
-        .ok_or_else(|| ParadeError::Generic("numeric direct function call failed".into()))?
+        .ok_or_else(|| ParadeError::Generic("numeric direct function call failed".to_string()))?
     };
 
     // Scale the anynumeric up or down
@@ -269,7 +295,7 @@ fn scale_anynumeric(
             pg_sys::numeric,
             &[scaled_anynumeric.into_datum(), target_typmod.into_datum()],
         )
-        .ok_or_else(|| ParadeError::Generic("numeric direct function call failed".into()))
+        .ok_or_else(|| ParadeError::Generic("numeric direct function call failed".to_string()))
     }
 }
 
@@ -408,24 +434,13 @@ impl DatafusionMapProducer {
                     if is_null {
                         vec.push(None);
                     } else {
-                        vec.push(unsafe {
-                            match AnyNumeric::from_datum(*datum, false) {
-                                Some(numeric) => {
-                                    let ret = scale_anynumeric(
-                                        numeric,
-                                        precision as i32,
-                                        scale as i32,
-                                        true,
-                                    )?;
-                                    let val = i128::try_from(ret);
-                                    match val {
-                                        Ok(val) => Some(val),
-                                        Err(e) => return Err(ParadeError::Generic(e.to_string())),
-                                    }
-                                }
-                                None => return Err(ParadeError::NotFound),
-                            }
-                        });
+                        let numeric = unsafe {
+                            AnyNumeric::from_datum(*datum, false)
+                                .ok_or(ParadeError::DatumNotFound("numeric".to_string()))?
+                        };
+                        let numeric_with_scale =
+                            scale_anynumeric(numeric, precision as i32, scale as i32, true)?;
+                        vec.push(Some(i128::try_from(numeric_with_scale)?));
                     }
                 }
                 Ok(Arc::new(
@@ -478,7 +493,9 @@ impl DatafusionMapProducer {
                 }
                 Ok(Arc::new(Date32Array::from(vec)))
             }
-            _ => Err(ParadeError::NotFound),
+            _ => Err(ParadeError::DataTypeNotSupported(
+                datafusion_type.to_string(),
+            )),
         }
     }
 
@@ -493,13 +510,17 @@ impl DatafusionMapProducer {
             DataType::Boolean => array
                 .as_any()
                 .downcast_ref::<BooleanArray>()
-                .ok_or_else(|| ParadeError::NotFound)?
+                .ok_or(ParadeError::NoneError(
+                    type_name::<BooleanArray>().to_string(),
+                ))?
                 .value(index)
                 .into_datum(),
             DataType::Utf8 => array
                 .as_any()
                 .downcast_ref::<StringArray>()
-                .ok_or_else(|| ParadeError::NotFound)?
+                .ok_or(ParadeError::NoneError(
+                    type_name::<StringArray>().to_string(),
+                ))?
                 .value(index)
                 .into_datum(),
             DataType::Int16 => array.as_primitive::<Int16Type>().value(index).into_datum(),
@@ -521,18 +542,24 @@ impl DatafusionMapProducer {
                 ret.into_datum()
             }
             DataType::Time64(TimeUnit::Microsecond) => {
-                return Err(ParadeError::NotSupported("time".into()));
+                return Err(ParadeError::NotSupported("time".to_string()));
             }
             DataType::Timestamp(TimeUnit::Microsecond, None) => array
                 .as_primitive::<TimestampMicrosecondType>()
                 .value(index)
                 .into_datum(),
             DataType::Timestamp(TimeUnit::Microsecond, Some(_)) => {
-                return Err(ParadeError::NotSupported("timestamp with time zone".into()));
+                return Err(ParadeError::NotSupported(
+                    "timestamp with time zone".to_string(),
+                ));
             }
             DataType::Date32 => array.as_primitive::<Date32Type>().value(index).into_datum(),
-            _ => return Err(ParadeError::NotFound),
+            _ => {
+                return Err(ParadeError::DataTypeNotSupported(
+                    datafusion_type.to_string(),
+                ))
+            }
         }
-        .ok_or_else(|| ParadeError::NotFound)
+        .ok_or(ParadeError::DatumNotFound(datafusion_type.to_string()))
     }
 }

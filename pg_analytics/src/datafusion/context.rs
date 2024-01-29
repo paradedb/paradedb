@@ -11,6 +11,7 @@ use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
 use lazy_static::lazy_static;
 use parking_lot::{RwLock, RwLockWriteGuard};
+use std::any::type_name;
 use std::sync::Arc;
 
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList, PARADE_CATALOG};
@@ -56,14 +57,16 @@ impl<'a> DatafusionContext {
 
         let schema_provider = context
             .catalog(PARADE_CATALOG)
-            .ok_or_else(|| ParadeError::NotFound)?
+            .ok_or(ParadeError::CatalogNotFound(PARADE_CATALOG.to_string()))?
             .schema(schema_name)
-            .ok_or_else(|| ParadeError::NotFound)?;
+            .ok_or(ParadeError::SchemaNotFound(schema_name.to_string()))?;
 
         let parade_provider = schema_provider
             .as_any()
             .downcast_ref::<ParadeSchemaProvider>()
-            .ok_or_else(|| ParadeError::NotFound)?;
+            .ok_or(ParadeError::NoneError(
+                type_name::<ParadeSchemaProvider>().to_string(),
+            ))?;
 
         f(parade_provider)
     }
@@ -83,12 +86,14 @@ impl<'a> DatafusionContext {
 
         let catalog_provider = context
             .catalog(PARADE_CATALOG)
-            .ok_or_else(|| ParadeError::NotFound)?;
+            .ok_or(ParadeError::CatalogNotFound(PARADE_CATALOG.to_string()))?;
 
         let parade_catalog = catalog_provider
             .as_any()
             .downcast_ref::<ParadeCatalog>()
-            .ok_or_else(|| ParadeError::NotFound)?;
+            .ok_or(ParadeError::NoneError(
+                type_name::<ParadeCatalog>().to_string(),
+            ))?;
 
         f(parade_catalog)
     }
@@ -143,7 +148,7 @@ impl ParadeContextProvider {
 }
 
 impl ContextProvider for ParadeContextProvider {
-    fn get_table_provider(
+    fn get_table_source(
         &self,
         reference: TableReference,
     ) -> Result<Arc<dyn TableSource>, DataFusionError> {
@@ -151,8 +156,8 @@ impl ContextProvider for ParadeContextProvider {
         let schema_name = reference.schema().unwrap_or("public");
 
         DatafusionContext::with_schema_provider(schema_name, |provider| {
-            let table =
-                task::block_on(provider.table(table_name)).ok_or_else(|| ParadeError::NotFound)?;
+            let table = task::block_on(provider.table(table_name))
+                .ok_or(ParadeError::TableNotFound(table_name.to_string()))?;
 
             Ok(provider_as_source(table))
         })

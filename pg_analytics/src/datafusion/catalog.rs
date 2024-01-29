@@ -3,7 +3,7 @@ use deltalake::datafusion::catalog::{CatalogList, CatalogProvider};
 use deltalake::datafusion::common::DataFusionError;
 use parking_lot::RwLock;
 use pgrx::*;
-use std::{any::Any, collections::HashMap, ffi::CStr, sync::Arc};
+use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr, sync::Arc};
 
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
@@ -36,9 +36,9 @@ impl ParadeCatalog {
             if path.is_dir() {
                 let schema_oid = path
                     .file_name()
-                    .ok_or_else(|| ParadeError::NotFound)?
+                    .ok_or(ParadeError::NoneError(type_name::<OsStr>().to_string()))?
                     .to_str()
-                    .ok_or_else(|| ParadeError::NotFound)?
+                    .ok_or(ParadeError::NoneError(type_name::<str>().to_string()))?
                     .parse::<u32>()?;
 
                 let pg_oid = pg_sys::Oid::from(schema_oid);

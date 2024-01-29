@@ -64,7 +64,7 @@ This enables the extension to spawn a background worker process that performs wr
 
 We provide pre-built binaries for Debian-based Linux for PostgreSQL 16. You can download the latest version for your architecture from the [releases page](https://github.com/paradedb/paradedb/releases).
 
-Our pre-built binaries come with the ICU tokenizer enable, which requires the `libicu-dev` library. If you don't have it installed, you can do so with `sudo apt-get install libicu-dev -y`, or compile the extension from source without `--features icu` to build without the ICU tokenizer.
+Our pre-built binaries come with the ICU tokenizer enable, which requires the `libicu70` library. If you don't have it installed, you can do so with `sudo apt-get install libicu70 -y`, or compile the extension from source without `--features icu` to build without the ICU tokenizer.
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
@@ -148,7 +148,7 @@ To develop the extension, first install Rust v1.73.0 using `rustup`. We will soo
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup install 1.73.0
 
-# We recommend setting the default version for consistency
+# We recommend setting the default version to 1.73.0 for consistency across your system
 rustup default 1.73.0
 ```
 
@@ -172,13 +172,23 @@ If you are using Postgres.app to manage your macOS PostgreSQL, you'll need to ad
 export PATH="$PATH:/Applications/Postgres.app/Contents/Versions/latest/bin"
 ```
 
-Then, install and initialize pgrx:
+Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
 cargo install --locked cargo-pgrx --version 0.11.2
-cargo pgrx init --pg16=`which pg_config`
+
+# macOS arm64
+cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config
+
+# macOS amd64
+cargo pgrx init --pg16=/usr/local/opt/postgresql@16/bin/pg_config
+
+# Ubuntu
+cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
 ```
+
+If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
 
 Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
 
@@ -193,7 +203,7 @@ Ensure that the `icu4c` library is installed. It should come preinstalled on mos
 brew install icu4c
 
 # Ubuntu
-sudo apt-get install libicu-dev
+sudo apt-get install libicu70 -y
 ```
 
 Additionally, on macOS you'll need to add the `icu-config` binary to your path before continuing:

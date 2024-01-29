@@ -1,5 +1,5 @@
 /*
-    Storage and plan cost estimates are handled by Datafusion.
+    Storage and plan cost estimates are handled by DataFusion.
     These functions should never be called.
 */
 

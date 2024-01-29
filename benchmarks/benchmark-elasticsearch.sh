@@ -32,12 +32,12 @@ trap cleanup EXIT
 
 echo ""
 echo "*******************************************************"
-echo "* Benchmarking ElasticSearch version: $ES_VERSION"
+echo "* Benchmarking Elasticsearch version: $ES_VERSION"
 echo "*******************************************************"
 echo ""
 
-# Download and run docker container for ElasticSearch
-echo "Creating ElasticSearch $ES_VERSION node..."
+# Download and run docker container for Elasticsearch
+echo "Creating Elasticsearch $ES_VERSION node..."
 docker network create elastic
 docker run \
   -d \
@@ -61,7 +61,7 @@ echo "Done!"
 
 # Produce and save password
 echo ""
-echo "Producing and saving new ElasticSearch password..."
+echo "Producing and saving new Elasticsearch password..."
 ELASTIC_PASSWORD=$(docker exec es01 /usr/share/elasticsearch/bin/elasticsearch-reset-password --batch -u elastic | grep "New value:" | awk '{print $3}')
 docker cp es01:/usr/share/elasticsearch/config/certs/http_ca.crt .
 echo "Done!"
@@ -76,8 +76,8 @@ for SIZE in "${TABLE_SIZES[@]}"; do
   echo ""
   echo "Running benchmarking suite on index with $SIZE documents..."
 
-  # Convert data to be consumed by ElasticSearch
-  echo "-- Converting data to bulk format consumable by ElasticSearch..."
+  # Convert data to be consumed by Elasticsearch
+  echo "-- Converting data to bulk format consumable by Elasticsearch..."
   python3 helpers/elastify_data.py $WIKI_ARTICLES_FILE $ELASTIC_BULK_FOLDER "$SIZE"
 
   # Time indexing

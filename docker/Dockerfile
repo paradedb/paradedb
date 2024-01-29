@@ -133,7 +133,11 @@ COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
 
 # Use the build argument to update the version in Cargo.toml
-RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
+# Note: We require Rust nightly to build pg_analytics with SIMD
+RUN rustup update nightly && \
+    rustup override set nightly && \
+    cargo install --locked cargo-pgrx --version 0.11.2 --force && \
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
 
 RUN cd $PKGDIR && debmake \
     -p $(cargo get package.name | sed 's/_/-/g') \
@@ -183,7 +187,7 @@ ARG TARGETARCH
 
 # Needed for publishing to ArtifactHub
 LABEL org.opencontainers.image.created="$BUILD_DATE"
-LABEL org.opencontainers.image.description="PostgreSQL for Search"
+LABEL org.opencontainers.image.description="PostgreSQL for search and analaytics"
 LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
 
 # Copy the ParadeDB extensions from their builder stages

@@ -63,7 +63,7 @@ pub fn executor_run(
         let dialect = PostgreSqlDialect {};
         let query = CStr::from_ptr(query_desc.sourceText).to_str()?;
         let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
+            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
         let statement = &ast[0];
 
         // Convert the AST into a logical plan
@@ -105,15 +105,19 @@ unsafe fn send_tuples_if_necessary(
     }
 
     let dest = (*query_desc).dest;
-    let startup = (*dest).rStartup.ok_or_else(|| ParadeError::NotFound)?;
+    let startup = (*dest)
+        .rStartup
+        .ok_or(ParadeError::NoneError("rStartup".to_string()))?;
 
     startup(dest, (*query_desc).operation as i32, (*query_desc).tupDesc);
 
     let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
-    let receive = (*dest).receiveSlot.ok_or_else(|| ParadeError::NotFound)?;
+    let receive = (*dest)
+        .receiveSlot
+        .ok_or(ParadeError::NoneError("receive".to_string()))?;
 
     for (row_number, recordbatch) in batches.iter().enumerate() {
-        // Convert the tuple_desc target types to the ones corresponding to the Datafusion column types
+        // Convert the tuple_desc target types to the ones corresponding to the DataFusion column types
         let tuple_attrs = (*(*query_desc).tupDesc).attrs.as_mut_ptr();
         for (col_index, _attr) in tuple_desc.iter().enumerate() {
             let dt = recordbatch.column(col_index).data_type();
@@ -147,7 +151,9 @@ unsafe fn send_tuples_if_necessary(
         }
     }
 
-    let shutdown = (*dest).rShutdown.ok_or_else(|| ParadeError::NotFound)?;
+    let shutdown = (*dest)
+        .rShutdown
+        .ok_or(ParadeError::NoneError("rShutdown".to_string()))?;
     shutdown(dest);
 
     Ok(())

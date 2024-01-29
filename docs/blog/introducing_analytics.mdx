@@ -35,8 +35,7 @@ columns in a table.
 
 ParadeDB introduces a new kind of table called the `deltalake` table. `deltalake` tables behave like regular Postgres tables
 but use a column-oriented layout via Apache Arrow and leverage Apache DataFusion, a query engine
-optimized for column-oriented data. Users can decide whether a table should be row or column-oriented based on
-their use case.
+optimized for column-oriented data. At table creation time, users can choose between row and column-oriented tables.
 
 Arrow and Datafusion are integrated with Postgres through two features of the Postgres API — the table access method and
 executor hooks. The table access method registers `deltalake` tables with the Postgres catalog and handles data

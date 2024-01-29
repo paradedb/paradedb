@@ -11,5 +11,8 @@ SELECT * FROM s;
 
 SELECT * FROM t;
 ERROR:  relation "t" does not exist
-
+LINE 1: SELECT * FROM t;
+                      ^
 DROP TABLE t;
+ERROR:  relation "t" does not exist
+DROP TABLE s;

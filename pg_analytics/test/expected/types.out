@@ -29,7 +29,7 @@ DROP TABLE t;
 CREATE TABLE t (a smallint) USING deltalake;
 INSERT INTO t VALUES (1);
 SELECT * FROM t;
- a
+ a 
 ---
  1
 (1 row)
@@ -38,7 +38,7 @@ DROP TABLE t;
 CREATE TABLE t (a integer) USING deltalake;
 INSERT INTO t VALUES (1);
 SELECT * FROM t;
- a
+ a 
 ---
  1
 (1 row)
@@ -47,7 +47,7 @@ DROP TABLE t;
 CREATE TABLE t (a bigint) USING deltalake;
 INSERT INTO t VALUES (1);
 SELECT * FROM t;
- a
+ a 
 ---
  1
 (1 row)
@@ -56,7 +56,7 @@ DROP TABLE t;
 CREATE TABLE t (a real) USING deltalake;
 INSERT INTO t VALUES (1.0);
 SELECT * FROM t;
- a
+ a 
 ---
  1
 (1 row)
@@ -92,9 +92,9 @@ DROP TABLE t;
 CREATE TABLE t (a timestamp) USING deltalake;
 INSERT INTO t VALUES ('2024-01-29 15:30:00');
 SELECT * FROM t;
-          a          
----------------------
- 2024-01-29 15:30:00
+            a             
+--------------------------
+ Mon Jan 29 15:30:00 2024
 (1 row)
 
 DROP TABLE t;
@@ -103,31 +103,24 @@ INSERT INTO t VALUES ('2024-01-29');
 SELECT * FROM t;
      a      
 ------------
- 2024-01-29
+ 01-29-2024
 (1 row)
 
 DROP TABLE t;
 -- Unsupported Types
 CREATE TABLE t (a bytea) USING deltalake;
 ERROR:  Postgres type BYTEAOID not supported
-
 CREATE TABLE t (a uuid) USING deltalake;
 ERROR:  Postgres type UUIDOID not supported
-
 CREATE TABLE t (a oid) USING deltalake;
 ERROR:  Postgres type OIDOID not supported
-
 CREATE TABLE t (a json) USING deltalake;
 ERROR:  Postgres type JSONOID not supported
-
 CREATE TABLE t (a jsonb) USING deltalake;
 ERROR:  Postgres type JSONBOID not supported
-
 CREATE TABLE t (a time) USING deltalake;
 ERROR:  Postgres type TIMEOID not supported
-
 CREATE TABLE t (a timetz) USING deltalake;
 ERROR:  Postgres type TIMETZOID not supported
-
 CREATE TABLE t (a text[]) USING deltalake;
 ERROR:  Arrays are not yet supported

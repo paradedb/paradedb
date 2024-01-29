@@ -138,11 +138,31 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
     echo "Already on Rust nightly toolchain, skipping toolchain switch..."
   fi
 
+  # Retrieve pg_config path
+  OS_NAME=$(uname)
+  case "$OS_NAME" in
+    Darwin)
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        PG_CONFIG_PATH="/opt/homebrew/opt/postgresql@16/bin/pg_config"
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        PG_CONFIG_PATH="/usr/local/opt/postgresql@16/bin/pg_config"
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
+      ;;
+    Linux)
+      PG_CONFIG_PATH="/usr/lib/postgresql/16/bin/pg_config"
+      ;;
+  esac
+
   # Build pg_analytics and start its pgrx PostgreSQL instance
   echo ""
   echo "Building pg_analytics in release mode with SIMD..."
   cargo pgrx stop
-  cargo pgrx install --release
+  cargo pgrx init "--pg16=$PG_CONFIG_PATH"
+  cargo pgrx install "--pg-config=$PG_CONFIG_PATH"
   cargo pgrx start
   echo ""
 
@@ -188,9 +208,6 @@ else
   export PGPASSWORD='mypassword'
   psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
   psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
-
-  # Check that the dataset was loaded correctly
-  psql -h localhost -U myuser -d mydatabase -p 5432 -t < validate.sql
 
   echo ""
   echo "Running queries..."

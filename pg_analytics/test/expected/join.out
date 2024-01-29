@@ -1,3 +1,4 @@
+-- JOIN two deltalake tables
 CREATE TABLE t (
     id INT PRIMARY KEY,
     name VARCHAR(50),
@@ -19,6 +20,7 @@ INSERT INTO s (id, department_name) VALUES
 SELECT COUNT(*)
 FROM t
 JOIN s ON t.department_id = s.id;
+ count 
 -------
      4
 (1 row)
@@ -46,6 +48,5 @@ SELECT COUNT(*)
 FROM u
 JOIN v ON u.department_id = v.id;
 ERROR:  Heap and deltalake tables in the same query is not yet supported
-
 -- Cleanup
 DROP TABLE s, t, u, v;

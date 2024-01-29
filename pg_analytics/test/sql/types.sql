@@ -44,18 +44,18 @@ INSERT INTO t VALUES (true);
 SELECT * FROM t;
 DROP TABLE t;
 
-CREATE TABLE t (a numeric) USING deltalake;
-INSERT INTO t VALUES (1.0);
+CREATE TABLE t (a numeric(5, 2)) USING deltalake;
+INSERT INTO t VALUES (1.01);
 SELECT * FROM t;
 DROP TABLE t;
 
 CREATE TABLE t (a timestamp) USING deltalake;
-INSERT INTO t VALUES (now());
+INSERT INTO t VALUES ('2024-01-29 15:30:00');
 SELECT * FROM t;
 DROP TABLE t;
 
 CREATE TABLE t (a date) USING deltalake;
-INSERT INTO t VALUES (now()::date);
+INSERT INTO t VALUES ('2024-01-29');
 SELECT * FROM t;
 DROP TABLE t;
 

@@ -1,3 +1,4 @@
 CREATE TABLE t (a int, b text) USING deltalake;
 ALTER TABLE t ADD COLUMN c int;
 ERROR:  ALTER TABLE is not yet supported. Please DROP and CREATE the table instead.
+DROP TABLE t;

@@ -64,7 +64,6 @@ FROM analytics_test;
      381.5000000000000000
 (1 row)
 
--- Count of events by event name
 SELECT event_name, COUNT(*) AS event_count
 FROM analytics_test
 GROUP BY event_name

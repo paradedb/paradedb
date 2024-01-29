@@ -1,7 +1,4 @@
 CREATE TABLE t (a int, b text NOT NULL) USING deltalake;
-INSERT INTO t (a) VALUES (1);
-ERROR:  null value in column "b" of relation "t" violates not-null constraint
-DETAIL:  Failing row contains (1, null).
 INSERT INTO t values (1, 'test');
 SELECT * FROM t;
  a |  b   

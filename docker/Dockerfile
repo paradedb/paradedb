@@ -36,6 +36,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     uuid-runtime \
     libssl-dev \
+    curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
 
@@ -47,8 +49,18 @@ FROM base as builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# Add PostgreSQL's third party repository to get the latest versions
+RUN curl -o /usr/share/keyrings/postgresql.asc -s https://www.postgresql.org/media/keys/ACCC4CF8.asc
+RUN echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
+
+# Add apt-fast repo
+RUN curl -o /usr/share/keyrings/apt-fast.asc -s https://keyserver.ubuntu.com/pks/lookup?op=get\&search=0xA2166B8DE8BDC3367D1901C11EE2FF37CA8DA16B
+RUN echo "deb [signed-by=/usr/share/keyrings/apt-fast.asc] http://ppa.launchpad.net/apt-fast/stable/ubuntu jammy main" | tee /etc/apt/sources.list.d/apt-fast.list
+
+RUN apt-get update && apt-get install apt-fast -y
+
 # Install Rust (specific version) and other build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-fast update && apt-fast install -y --no-install-recommends \
     build-essential \
     checkinstall \
     clang \
@@ -62,9 +74,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     curl \
     wget \
-    sudo \
+    apt-fast \
     gnupg \
     gcc \
+    debmake \
+    debhelper \
     make
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
@@ -80,6 +94,10 @@ RUN cargo install cargo-get
 RUN cargo install --locked cargo-pgrx --version ${PGRX_VERSION} && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
+# debmake needs these to be set
+ENV DEBEMAIL="support@paradedb.com"
+ENV DEBFULLNAME="ParadeDB"
+
 ######################
 # pg_bm25
 ######################
@@ -90,16 +108,17 @@ COPY pg_bm25/ /tmp/pg_bm25
 COPY shared/ /tmp/shared
 
 WORKDIR /tmp/pg_bm25
+ENV PKGDIR=/tmp/pg_bm25/deb-pkg
 
 # Use the build argument to update the version in Cargo.toml
-RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
 
-RUN checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp \
-   --exclude=/root/.cargo \
-   --pkgname $(cargo get package.name) \
-   --pkgversion $(cargo get package.version) \
-   --maintainer "ParadeDB <support@paradedb.com>" \
-   -- cargo pgrx install --release --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cd $PKGDIR && debmake \
+    -p $(cargo get package.name | sed 's/_/-/g') \
+    -u $(cargo get package.version) \
+    --native -x0 -i debuild
+
+RUN cp $PKGDIR/../*.deb /tmp
 
 ######################
 # pg_analytics
@@ -108,27 +127,20 @@ RUN checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pa
 FROM builder as builder-pg_analytics
 
 WORKDIR /tmp/pg_analytics
+ENV PKGDIR=/tmp/pg_analytics/deb-pkg
 
 COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
 
 # Use the build argument to update the version in Cargo.toml
-# Note: We require Rust nightly to build pg_analytics with SIMD support
-RUN rustup update nightly && \
-    rustup override set nightly && \
-    cargo install --locked cargo-pgrx --version 0.11.2 --force && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
 
-# Use the build argument to update the version in Cargo.toml
-RUN cargo pgrx package --features simd --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cd $PKGDIR && debmake \
+    -p $(cargo get package.name | sed 's/_/-/g') \
+    -u $(cargo get package.version) \
+    --native -x0 -i debuild
 
-
-RUN checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp \
-    --exclude=/root/.cargo \
-    --pkgname $(cargo get package.name) \
-    --pkgversion $(cargo get package.version) \
-    --maintainer "ParadeDB <support@paradedb.com>" \
-    -- cargo pgrx install --release --features simd --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cp $PKGDIR/../*.deb /tmp
 
 ######################
 # pg_sparse
@@ -138,22 +150,28 @@ FROM builder as builder-pg_sparse
 WORKDIR /tmp/pg_sparse
 COPY pg_sparse/ /tmp/pg_sparse
 
+ENV PKGDIR=/tmp/pg_sparse/deb-pkg
+ENV PKGNAME=pg-sparse
+
 RUN make clean && \
     make USE_PGXS=1 OPTFLAGS="" -j && \
-    checkinstall --default -D --nodoc --install=no --fstrans=no --backup=no --pakdir=/tmp \
-    --pkgname pg-sparse \
-    --pkgversion $(awk -F "= '|\''" '/default_version/ {print $2}' svector.control) \
-    --maintainer "ParadeDB <support@paradedb.com>" \
-    -- make USE_PGXS=1 install -j
+    make USE_PGXS=1 DESTDIR="$PKGDIR" install -j
+
+RUN cd $PKGDIR && debmake \
+    -p pg-sparse \
+    -u $(awk -F "= '|\'" '/default_version/ {print $2}' ../svector.control) \
+    --native -x0 -i debuild
+
+RUN cp $PKGDIR/../*.deb /tmp
 
 ######################
-# pgvector
+# additional extensions
 ######################
 
-FROM builder as builder-pgvector
+FROM builder as builder-ext-misc
 
-WORKDIR /tmp/extensions-deb
-RUN apt-get download postgresql-${PG_VERSION_MAJOR}-pgvector
+WORKDIR /tmp
+RUN apt-get update && apt-get download postgresql-${PG_VERSION_MAJOR}-pgvector
 
 ###############################################
 # Third Stage: PostgreSQL
@@ -171,7 +189,7 @@ LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/bl
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_sparse /tmp/pg-sparse*.deb /tmp/extensions-deb/
 COPY --from=builder-pg_bm25 /tmp/pg-bm25*.deb /tmp/extensions-deb/
-COPY --from=builder-pgvector /tmp/pgvector*.deb /tmp/extensions-deb/
+COPY --from=builder-ext-misc /tmp/*.deb /tmp/extensions-deb/
 COPY --from=builder-pg_analytics /tmp/pg-analytics*.deb /tmp/extensions-deb/
 
 RUN dpkg -i /tmp/extensions-deb/*.deb \
@@ -187,5 +205,3 @@ RUN usermod -u 26 postgres \
     && chmod -R 700 /var/lib/postgresql
 
 USER 26
-
-FROM builder-pgvector as bb

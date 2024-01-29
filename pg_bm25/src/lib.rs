@@ -1,49 +1,28 @@
 mod api;
 mod env;
+mod globals;
 mod index_access;
 mod operator;
 mod parade_index;
+mod schema;
 mod tokenizers;
 mod writer;
 
+#[cfg(test)]
+pub mod fixtures;
+
+use crate::globals::{PARADE_LOGS_GLOBAL, WRITER_STATUS};
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
-use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
-use std::net::SocketAddr;
 use std::process;
 use std::time::Duration;
-
-#[derive(Copy, Clone, Default)]
-pub struct WriterStatus {
-    pub addr: Option<SocketAddr>,
-}
-
-impl WriterStatus {
-    pub fn addr(&self) -> SocketAddr {
-        self.addr
-            .expect("could not access writer status, writer server may not have started.")
-    }
-    pub fn set_addr(&mut self, addr: SocketAddr) {
-        self.addr = Some(addr);
-    }
-}
-
-unsafe impl PGRXSharedMemory for WriterStatus {}
-
-// This is a flag that can be set by the user in a session to enable logs.
-// You need to initialize this in every extension that uses `plog!`.
-static PARADE_LOGS_GLOBAL: ParadeLogsGlobal =
-    ParadeLogsGlobal::new(shared::constants::PG_BM25_NAME);
-
-// This is global shared state for the writer background worker.
-static WRITER_STATUS: PgLwLock<WriterStatus> = PgLwLock::new();
 
 pgrx::pg_module_magic!();
 
 extension_sql_file!("../sql/_bootstrap.sql");
 
-// Initializes option parsing and telemetry
+/// Initializes option parsing and telemetry
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
 #[pg_guard]
@@ -121,7 +100,9 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
         return;
     }
 
-    server.start().expect("writer server crashed");
+    server
+        .start()
+        .unwrap_or_else(|err| panic!("writer server crashed: {err}"));
 }
 
 #[pg_guard]
@@ -155,14 +136,5 @@ pub mod pg_test {
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         // return any postgresql.conf settings that are required for your tests
         vec!["shared_preload_libraries='pg_bm25.so'"]
-    }
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    #[pgrx::pg_test]
-    fn test_parade_logs() {
-        shared::test_plog!(shared::constants::PG_BM25_NAME);
     }
 }

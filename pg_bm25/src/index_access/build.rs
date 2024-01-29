@@ -1,6 +1,12 @@
+use crate::env::register_commit_callback;
+use crate::globals::WriterGlobal;
 use crate::index_access::options::ParadeOptions;
-use crate::index_access::utils::{create_parade_index, get_parade_index, lookup_index_tupdesc};
+use crate::index_access::utils::{get_parade_index, lookup_index_tupdesc};
+use crate::parade_index::index::ParadeIndex;
+use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
+use crate::writer::WriterDirectory;
 use pgrx::*;
+use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 
 // For now just pass the count and parade
@@ -26,7 +32,6 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
 
-    // rdopts are passed on to create_parade_index
     let rdopts: PgBox<ParadeOptions> = if !index_relation.rd_options.is_null() {
         unsafe { PgBox::from_pg(index_relation.rd_options as *mut ParadeOptions) }
     } else {
@@ -34,7 +39,97 @@ pub extern "C" fn ambuild(
         ops.into_pg_boxed()
     };
 
-    create_parade_index(index_name.clone(), &heap_relation, rdopts).unwrap();
+    let name_type_map: HashMap<SearchFieldName, SearchFieldType> = heap_relation
+        .tuple_desc()
+        .into_iter()
+        .map(|attribute| {
+            let attname = attribute.name();
+            let attribute_type_oid = attribute.type_oid();
+            let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
+            let base_oid = if array_type != pg_sys::InvalidOid {
+                PgOid::from(array_type)
+            } else {
+                attribute_type_oid
+            };
+            let search_field_type =
+                SearchFieldType::try_from(&base_oid).expect("unrecognized field type");
+
+            (SearchFieldName(attname.into()), search_field_type)
+        })
+        .collect();
+
+    let text_fields = rdopts.get_text_fields().into_iter().map(|(name, options)| {
+        let search_name = SearchFieldName(name.clone());
+        match name_type_map.get(&search_name) {
+            Some(SearchFieldType::Text) => (search_name, SearchFieldConfig::Text(options)),
+            Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
+            None => panic!("no field named '{name}'"),
+        }
+    });
+
+    let numeric_fields = rdopts
+        .get_numeric_fields()
+        .into_iter()
+        .map(|(name, options)| {
+            let search_name = SearchFieldName(name.clone());
+            match name_type_map.get(&search_name) {
+                Some(SearchFieldType::I64) | Some(SearchFieldType::F64) => {
+                    (search_name, SearchFieldConfig::Numeric(options))
+                }
+                Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
+                None => panic!("no field named '{name}'"),
+            }
+        });
+
+    let boolean_fields = rdopts
+        .get_boolean_fields()
+        .into_iter()
+        .map(|(name, options)| {
+            let search_name = SearchFieldName(name.clone());
+            match name_type_map.get(&search_name) {
+                Some(SearchFieldType::Bool) => (search_name, SearchFieldConfig::Boolean(options)),
+                Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
+                None => panic!("no field named '{name}'"),
+            }
+        });
+
+    let json_fields = rdopts.get_json_fields().into_iter().map(|(name, options)| {
+        let search_name = SearchFieldName(name.clone());
+        match name_type_map.get(&search_name) {
+            Some(SearchFieldType::Json) => (search_name, SearchFieldConfig::Json(options)),
+            Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
+            None => panic!("no field named '{name}'"),
+        }
+    });
+
+    let key_field_name = SearchFieldName(rdopts.get_key_field().expect("must specify key field"));
+    match name_type_map.get(&key_field_name) {
+        Some(SearchFieldType::I64) => {}
+        None => panic!("key field does not exist"),
+        _ => panic!("key field must be an integer"),
+    };
+
+    let fields: Vec<_> = text_fields
+        .chain(numeric_fields)
+        .chain(boolean_fields)
+        .chain(json_fields)
+        .chain(std::iter::once((key_field_name, SearchFieldConfig::Key)))
+        .chain(std::iter::once((
+            // "ctid" is a reserved column name in Postgres, so we don't need to worry about
+            // creating a name conflict with a user-named column.
+            SearchFieldName("ctid".to_string()),
+            SearchFieldConfig::Ctid,
+        )))
+        .collect();
+
+    // If there's only two fields in the vector, then those are just the Key and Ctid fields,
+    // which we added above, and the user has not specified any fields to index.
+    if fields.len() == 2 {
+        panic!("no fields specified")
+    }
+
+    let directory = WriterDirectory::from_index_name(&index_name);
+    ParadeIndex::new(directory, fields).expect("could not build parade index");
 
     let state = do_heap_scan(index_info, &heap_relation, &index_relation);
 
@@ -107,13 +202,18 @@ unsafe fn build_callback_internal(
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);
     let index_name = index_relation_ref.name();
     let parade_index = get_parade_index(index_name);
-    let index_entries = parade_index
-        .row_to_index_entries(ctid, &tupdesc, values)
+    let search_document = parade_index
+        .row_to_search_document(ctid, &tupdesc, values)
         .unwrap_or_else(|err| {
             panic!("error creating index entries for index '{index_name}': {err:?}",)
         });
 
-    parade_index.insert(index_entries).unwrap_or_else(|err| {
-        panic!("error inserting json builder during index build callback: {err:?}")
-    });
+    let writer_client = WriterGlobal::client();
+
+    parade_index
+        .insert(&writer_client, search_document)
+        .unwrap_or_else(|err| panic!("error inserting document during build callback: {err:?}"));
+
+    register_commit_callback(&writer_client)
+        .expect("could not register commit callbacks for build operation");
 }

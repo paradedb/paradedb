@@ -1,5 +1,4 @@
 use serde::*;
-use std::collections::HashMap;
 use tantivy::{
     schema::*,
     tokenizer::{
@@ -219,8 +218,8 @@ impl Default for ParadeTextOptions {
     }
 }
 
-impl From<ParadeTextOptions> for TextOptions {
-    fn from(parade_options: ParadeTextOptions) -> Self {
+impl From<&ParadeTextOptions> for TextOptions {
+    fn from(parade_options: &ParadeTextOptions) -> Self {
         let mut text_options = TextOptions::default();
 
         if parade_options.stored {
@@ -263,8 +262,8 @@ impl Default for ParadeNumericOptions {
     }
 }
 
-impl From<ParadeNumericOptions> for NumericOptions {
-    fn from(parade_options: ParadeNumericOptions) -> Self {
+impl From<&ParadeNumericOptions> for NumericOptions {
+    fn from(parade_options: &ParadeNumericOptions) -> Self {
         let mut numeric_options = NumericOptions::default();
 
         if parade_options.stored {
@@ -302,8 +301,8 @@ impl Default for ParadeBooleanOptions {
 }
 
 // Following the example of Quickwit, which uses NumericOptions for boolean options
-impl From<ParadeBooleanOptions> for NumericOptions {
-    fn from(parade_options: ParadeBooleanOptions) -> Self {
+impl From<&ParadeBooleanOptions> for NumericOptions {
+    fn from(parade_options: &ParadeBooleanOptions) -> Self {
         let mut boolean_options = NumericOptions::default();
 
         if parade_options.stored {
@@ -354,8 +353,8 @@ impl Default for ParadeJsonOptions {
     }
 }
 
-impl From<ParadeJsonOptions> for JsonObjectOptions {
-    fn from(parade_options: ParadeJsonOptions) -> Self {
+impl From<&ParadeJsonOptions> for JsonObjectOptions {
+    fn from(parade_options: &ParadeJsonOptions) -> Self {
         let mut json_options = JsonObjectOptions::default();
 
         if parade_options.stored {
@@ -387,8 +386,6 @@ pub enum ParadeOption {
     Boolean(ParadeBooleanOptions),
 }
 
-pub type ParadeOptionMap = HashMap<String, ParadeOption>;
-
 // TODO: Enable DateTime and IP fields
 
 fn default_as_true() -> bool {
@@ -399,18 +396,13 @@ fn default_as_freqs_and_positions() -> IndexRecordOption {
     IndexRecordOption::WithFreqsAndPositions
 }
 
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
+#[cfg(test)]
 mod tests {
-
+    use super::*;
+    use rstest::*;
     use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
 
-    use super::{
-        default_as_true, ParadeBooleanOptions, ParadeJsonOptions, ParadeNormalizer,
-        ParadeNumericOptions, ParadeTextOptions, ParadeTokenizer,
-    };
-
-    #[pgrx::pg_test]
+    #[rstest]
     fn test_parade_tokenizer() {
         let tokenizer = ParadeTokenizer::Default;
         assert_eq!(tokenizer.name(), "default".to_string());
@@ -435,13 +427,13 @@ mod tests {
         );
     }
 
-    #[pgrx::pg_test]
+    #[rstest]
     fn test_parade_normalizer() {
         assert_eq!(ParadeNormalizer::Lowercase.name(), "lowercase");
         assert_ne!(ParadeNormalizer::Raw, ParadeNormalizer::Lowercase);
     }
 
-    #[pgrx::pg_test]
+    #[rstest]
     fn test_parade_text_options() {
         let json = r#"{
             "indexed": true,
@@ -453,9 +445,9 @@ mod tests {
             "normalizer": "raw"
         }"#;
         let parade_text_option: ParadeTextOptions = serde_json::from_str(json).unwrap();
-        let expected = TextOptions::from(parade_text_option);
+        let expected = TextOptions::from(&parade_text_option);
 
-        let text_options = TextOptions::from(ParadeTextOptions::default());
+        let text_options = TextOptions::from(&ParadeTextOptions::default());
         assert_eq!(expected.is_stored(), text_options.is_stored());
         assert_eq!(
             expected.get_fast_field_tokenizer_name(),
@@ -466,7 +458,7 @@ mod tests {
         assert_ne!(expected.is_fast(), text_options.is_fast());
     }
 
-    #[pgrx::pg_test]
+    #[rstest]
     fn test_parade_numeric_options() {
         let json = r#"{
             "indexed": true,
@@ -475,12 +467,12 @@ mod tests {
             "fast": false
         }"#;
         let expected: NumericOptions = serde_json::from_str(json).unwrap();
-        let int_options = NumericOptions::from(ParadeNumericOptions::default());
+        let int_options = NumericOptions::from(&ParadeNumericOptions::default());
 
         assert_eq!(int_options, expected);
     }
 
-    #[pgrx::pg_test]
+    #[rstest]
     fn test_parade_boolean_options() {
         let json = r#"{
             "indexed": true,
@@ -489,12 +481,12 @@ mod tests {
             "fast": false
         }"#;
         let expected: NumericOptions = serde_json::from_str(json).unwrap();
-        let int_options = NumericOptions::from(ParadeBooleanOptions::default());
+        let int_options = NumericOptions::from(&ParadeBooleanOptions::default());
 
         assert_eq!(int_options, expected);
     }
 
-    #[pgrx::pg_test]
+    #[rstest]
     fn test_parade_jsonobject_options() {
         let json = r#"{
             "indexed": true,
@@ -506,9 +498,9 @@ mod tests {
             "normalizer": "raw"
         }"#;
         let parade_json_option: ParadeJsonOptions = serde_json::from_str(json).unwrap();
-        let expected = JsonObjectOptions::from(parade_json_option);
+        let expected = JsonObjectOptions::from(&parade_json_option);
 
-        let json_object_options = JsonObjectOptions::from(ParadeJsonOptions::default());
+        let json_object_options = JsonObjectOptions::from(&ParadeJsonOptions::default());
         assert_eq!(expected.is_stored(), json_object_options.is_stored());
         assert_eq!(
             expected.get_fast_field_tokenizer_name(),
@@ -523,7 +515,7 @@ mod tests {
         assert_ne!(expected.is_fast(), text_options.is_fast());
     }
 
-    #[pgrx::pg_test]
+    #[rstest]
     fn test_default_as_true() {
         assert!(default_as_true())
     }

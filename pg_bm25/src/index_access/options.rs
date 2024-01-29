@@ -5,7 +5,7 @@ use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::CStr;
 
-use crate::parade_index::fields::{
+use crate::schema::{
     ParadeBooleanOptions, ParadeJsonOptions, ParadeNumericOptions, ParadeTextOptions,
 };
 
@@ -235,12 +235,13 @@ impl ParadeOptions {
             .expect("failed to parse json_fields")
     }
 
-    pub fn get_key_field(&self) -> String {
+    pub fn get_key_field(&self) -> Option<String> {
         let key_field = self.get_str(self.key_field_offset, "".to_string());
         if key_field.is_empty() {
-            panic!("no key_field supplied for bm25 index")
+            None
+        } else {
+            key_field.into()
         }
-        key_field
     }
 
     fn get_str(&self, offset: i32, default: String) -> String {

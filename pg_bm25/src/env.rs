@@ -8,15 +8,28 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
 };
 use thiserror::Error;
+use tracing::error;
+
+use crate::writer::{WriterClient, WriterRequest};
+
+const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_index";
+
+static TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
+
+static TRANSACTION_CALL_ONCE_ON_ABORT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
 /// We use this global variable to cache any values that can be re-used
 /// after initialization.
 static PARADE_ENV: Lazy<ParadeEnv> = Lazy::new(|| ParadeEnv {
     postgres_data_dir: Mutex::new(None),
+    postgres_database_oid: Mutex::new(None),
 });
 
 struct ParadeEnv {
     postgres_data_dir: Mutex<Option<PathBuf>>,
+    postgres_database_oid: Mutex<Option<u32>>,
 }
 
 pub fn postgres_data_dir_path() -> PathBuf {
@@ -33,31 +46,14 @@ pub fn postgres_data_dir_path() -> PathBuf {
         .clone()
 }
 
-pub fn paradedb_data_dir_path() -> PathBuf {
-    postgres_data_dir_path().join("paradedb")
+pub fn postgres_database_oid() -> u32 {
+    PARADE_ENV
+        .postgres_database_oid
+        .lock()
+        .expect("Failed to lock mutex")
+        .get_or_insert_with(|| unsafe { pgrx::pg_sys::MyDatabaseId.as_u32() })
+        .clone()
 }
-
-pub fn paradedb_transfer_pipe_path() -> PathBuf {
-    paradedb_data_dir_path().join("writer_transfer")
-}
-
-#[derive(Error, Debug)]
-pub enum TransactionError {
-    #[error("could not acquire lock in transaction callback")]
-    AcquireLock,
-}
-
-impl<T> From<PoisonError<T>> for TransactionError {
-    fn from(_: PoisonError<T>) -> Self {
-        TransactionError::AcquireLock
-    }
-}
-
-static TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
-
-static TRANSACTION_CALL_ONCE_ON_ABORT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
 
 pub struct Transaction {}
 
@@ -81,7 +77,7 @@ impl Transaction {
                 // Clear the cache so callbacks can be registered on next transaction.
                 match cache_clone.lock() {
                     Ok(mut cache) => cache.clear(),
-                    Err(err) => pgrx::log!(
+                    Err(err) => error!(
                         "could not acquire lock in register transaction commit callback: {err:?}"
                     ),
                 }
@@ -110,7 +106,7 @@ impl Transaction {
                 // Clear the cache so callbacks can be registered on next transaction.
                 match cache_clone.lock() {
                     Ok(mut cache) => cache.clear(),
-                    Err(err) => pgrx::log!(
+                    Err(err) => error!(
                         "could not acquire lock in register transaction abort callback: {err:?}"
                     ),
                 }
@@ -123,5 +119,53 @@ impl Transaction {
         }
 
         Ok(())
+    }
+}
+
+pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
+    writer: &Arc<Mutex<W>>,
+) -> Result<(), TransactionError> {
+    let writer_client = writer.clone();
+    Transaction::call_once_on_precommit(
+        TRANSACTION_CALLBACK_CACHE_ID,
+        move || match writer_client.lock() {
+            Err(err) => {
+                pgrx::log!("could not lock  client in commit callback: {err}");
+            }
+            Ok(mut client) => client.request(WriterRequest::Commit).unwrap_or_else(|err| {
+                pgrx::log!("error sending commit request in callback: {err}")
+            }),
+        },
+    )?;
+
+    let writer_client = writer.clone();
+    Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID, move || {
+        match writer_client.lock() {
+            Err(err) => {
+                pgrx::log!("could not lock  client in abort callback: {err}");
+            }
+            Ok(mut client) => client
+                .request(WriterRequest::Abort)
+                .unwrap_or_else(|err| pgrx::log!("error sending abort request in callback: {err}")),
+        }
+    })?;
+
+    Ok(())
+}
+
+pub fn needs_commit() -> bool {
+    Transaction::needs_commit(TRANSACTION_CALLBACK_CACHE_ID)
+        .expect("error performing commit check in transaction cache")
+}
+
+#[derive(Error, Debug)]
+pub enum TransactionError {
+    #[error("could not acquire lock in transaction callback")]
+    AcquireLock,
+}
+
+impl<T> From<PoisonError<T>> for TransactionError {
+    fn from(_: PoisonError<T>) -> Self {
+        TransactionError::AcquireLock
     }
 }

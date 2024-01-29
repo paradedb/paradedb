@@ -1,6 +1,9 @@
 use pgrx::*;
 
-use crate::parade_index::index::ParadeIndex;
+use crate::{
+    env::register_commit_callback, globals::WriterGlobal, parade_index::index::ParadeIndex,
+    writer::WriterDirectory,
+};
 
 #[pg_guard]
 pub extern "C" fn ambulkdelete(
@@ -14,7 +17,9 @@ pub extern "C" fn ambulkdelete(
     let index_rel: pg_sys::Relation = info.index;
     let index_relation = unsafe { PgRelation::from_pg(index_rel) };
     let index_name = index_relation.name();
-    let parade_index = ParadeIndex::from_index_name(index_name);
+    let directory = WriterDirectory::from_index_name(&index_name);
+    let parade_index = ParadeIndex::from_cache(&directory)
+        .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
     if stats.is_null() {
         stats = unsafe {
@@ -24,8 +29,14 @@ pub extern "C" fn ambulkdelete(
         };
     }
 
+    let writer_client = WriterGlobal::client();
+    register_commit_callback(&writer_client)
+        .expect("could not register commit callbacks for delete operation");
+
     if let Some(actual_callback) = callback {
-        match parade_index.delete(|ctid| unsafe { actual_callback(ctid, callback_state) }) {
+        match parade_index.delete(&writer_client, |ctid| unsafe {
+            actual_callback(ctid, callback_state)
+        }) {
             Ok((deleted, not_deleted)) => {
                 stats.pages_deleted += deleted;
                 stats.num_pages += not_deleted;
@@ -37,76 +48,4 @@ pub extern "C" fn ambulkdelete(
     }
 
     stats.into_pg()
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15",))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::ambulkdelete;
-    use pgrx::*;
-    use shared::testing::SETUP_SQL;
-
-    use crate::operator::get_index_oid;
-
-    #[pg_test]
-    #[ignore = "causing subsequent tests to fail unexpectedly"]
-    fn test_ambulkdelete() {
-        crate::setup_background_workers();
-        Spi::run(SETUP_SQL).expect("failed to create index and table");
-        let oid = get_index_oid("one_republic_songs_bm25_index", "bm25")
-            .expect("could not find oid for one_republic")
-            .unwrap();
-
-        let index = unsafe { pg_sys::index_open(oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE) };
-        let info = {
-            let mut vacuum_info = pg_sys::IndexVacuumInfo {
-                index,
-                analyze_only: false,
-                report_progress: true,
-                estimated_count: true,
-                message_level: 0,
-                num_heap_tuples: 1.0,
-                strategy: unsafe { pg_sys::GetAccessStrategy(pg_sys::ReadBufferMode_RBM_NORMAL) },
-            };
-            &mut vacuum_info as *mut pg_sys::IndexVacuumInfo
-        };
-
-        let stats = {
-            let mut stat = pg_sys::IndexBulkDeleteResult {
-                num_pages: 7,
-                estimated_count: true,
-                num_index_tuples: 1.0,
-                tuples_removed: 0.0,
-                #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
-                pages_newly_deleted: 2,
-                #[cfg(any(feature = "pg12", feature = "pg13",))]
-                pages_removed: 2,
-
-                pages_deleted: 1,
-                pages_free: 0,
-            };
-            &mut stat as *mut pg_sys::IndexBulkDeleteResult
-        };
-        let state = {
-            let mut data: i32 = 42;
-            &mut data as *mut _ as *mut ::std::os::raw::c_void
-        };
-
-        let callback = {
-            pub extern "C" fn callback(
-                _itemptr: pg_sys::ItemPointer,
-                _state: *mut ::std::os::raw::c_void,
-            ) -> bool {
-                true
-            }
-            callback
-        };
-
-        let res = ambulkdelete(info, stats, Some(callback), state);
-        let stats_res = unsafe { PgBox::from_pg(res) };
-
-        assert_eq!(stats_res.num_pages, 7);
-        assert_eq!(stats_res.pages_free, 0);
-    }
 }

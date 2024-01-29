@@ -1,8 +1,8 @@
-use pgrx::*;
 use serde::Deserialize;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
+use tracing::{info, warn};
 
 use crate::constants::{PARADEDB_NAME, PG_BM25_NAME};
 
@@ -115,7 +115,7 @@ pub fn connection_start() {
             let distinct_id = match file_content {
                 Ok(uuid) => uuid,
                 Err(_) => {
-                    warning!("telemetry enabled but uuid file is empty!");
+                    warn!("telemetry enabled but uuid file is empty!");
                     return;
                 }
             };
@@ -138,7 +138,7 @@ pub fn connection_start() {
                 .send();
 
             if let Err(e) = response {
-                warning!("Error sending telemetry request: {}", e);
+                warn!("Error sending telemetry request: {}", e);
             }
         }
     }

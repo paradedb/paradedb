@@ -2,7 +2,7 @@ use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
 use crate::index_access::utils::get_parade_index;
-use crate::parade_index::fields::ToString;
+use crate::schema::ToString;
 
 #[allow(clippy::type_complexity)]
 #[pg_extern]
@@ -22,7 +22,7 @@ pub fn schema_bm25(
 )> {
     let bm25_index_name = format!("{}_bm25_index", index_name);
     let parade_index = get_parade_index(&bm25_index_name);
-    let schema = parade_index.schema();
+    let schema = parade_index.schema.schema.clone();
 
     let mut field_rows = Vec::new();
 
@@ -81,38 +81,4 @@ pub fn schema_bm25(
     }
 
     TableIterator::new(field_rows)
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::schema_bm25;
-    use pgrx::*;
-    use shared::testing::SETUP_SQL;
-
-    #[pg_test]
-    fn test_schema_bm25() {
-        crate::setup_background_workers();
-        Spi::run(SETUP_SQL).expect("failed to setup index");
-        let schemas = schema_bm25("one_republic_songs").collect::<Vec<_>>();
-        let names = schemas
-            .iter()
-            .map(|schema| schema.0.as_str())
-            .collect::<Vec<_>>();
-
-        assert_eq!(schemas.len(), 8);
-        assert_eq!(
-            names,
-            vec![
-                "song_id",
-                "title",
-                "album",
-                "release_year",
-                "genre",
-                "description",
-                "lyrics",
-                "ctid",
-            ]
-        );
-    }
 }

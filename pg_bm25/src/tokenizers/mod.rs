@@ -4,36 +4,35 @@ pub(crate) mod code;
 pub(crate) mod icu;
 pub(crate) mod lindera;
 
-use crate::parade_index::fields::{ParadeOption, ParadeOptionMap, ParadeTokenizer};
+use crate::schema::ParadeTokenizer;
+use crate::schema::{SearchFieldConfig, SearchFieldName, SearchIndexSchema};
 use crate::tokenizers::cjk::ChineseTokenizer;
 use crate::tokenizers::code::CodeTokenizer;
 use crate::tokenizers::lindera::{
     LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer,
 };
-use serde_json::json;
-use shared::plog;
 use tantivy::tokenizer::{
     AsciiFoldingFilter, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter, TextAnalyzer,
     TokenizerManager,
 };
+use tracing::info;
 
 #[cfg(feature = "icu")]
 use crate::tokenizers::icu::ICUTokenizer;
 
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 
-pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManager {
+pub fn create_tokenizer_manager(schema: &SearchIndexSchema) -> TokenizerManager {
     let tokenizer_manager = TokenizerManager::default();
 
-    for (field_name, field_options) in option_map.iter() {
-        plog!(
-            "attempting to create tokenizer",
-            json!({ "field_name": field_name, "field_options": field_options })
-        );
+    for search_field in &schema.fields {
+        let SearchFieldName(field_name) = &search_field.name;
+        let field_config = &search_field.config;
+        info!(field_name, "attempting to create tokenizer");
 
-        let parade_tokenizer = match field_options {
-            ParadeOption::Text(text_options) => text_options.tokenizer,
-            ParadeOption::Json(json_options) => json_options.tokenizer,
+        let parade_tokenizer = match field_config {
+            SearchFieldConfig::Text(text_options) => text_options.tokenizer,
+            SearchFieldConfig::Json(json_options) => json_options.tokenizer,
             _ => continue,
         };
 
@@ -97,12 +96,10 @@ pub fn create_tokenizer_manager(option_map: &ParadeOptionMap) -> TokenizerManage
         };
 
         if let Some(text_analyzer) = tokenizer_option {
-            plog!(
+            info!(
+                field_name,
+                tokenizer_name = &parade_tokenizer.name(),
                 "registering tokenizer",
-                json!({
-                    "field_name": field_name,
-                    "tokenizer_name": &parade_tokenizer.name()
-                })
             );
             tokenizer_manager.register(&parade_tokenizer.name(), text_analyzer);
         }

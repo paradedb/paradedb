@@ -1,6 +1,7 @@
+use crate::env::needs_commit;
+use crate::schema::SearchConfig;
 use crate::{
-    index_access::utils::{get_parade_index, SearchConfig},
-    parade_index::state::TantivyScanState,
+    globals::WriterGlobal, index_access::utils::get_parade_index, parade_index::state::SearchState,
 };
 use pgrx::*;
 
@@ -50,7 +51,10 @@ pub extern "C" fn amrescan(
 
     // Create the index and scan state
     let parade_index = get_parade_index(index_name);
-    let mut state = parade_index.scan_state(&query_config).unwrap();
+    let writer_client = WriterGlobal::client();
+    let mut state = parade_index
+        .search_state(&writer_client, &query_config, needs_commit())
+        .unwrap();
 
     let top_docs = state.search();
 
@@ -75,8 +79,7 @@ pub extern "C" fn amgettuple(
     _direction: pg_sys::ScanDirection,
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
-    let state =
-        unsafe { (scan.opaque as *mut TantivyScanState).as_mut() }.expect("no scandesc state");
+    let state = unsafe { (scan.opaque as *mut SearchState).as_mut() }.expect("no scandesc state");
 
     scan.xs_recheck = false;
 
@@ -98,7 +101,7 @@ pub extern "C" fn amgettuple(
             let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
 
             let ctid_name = "ctid";
-            let ctid_field = schema.get_field(ctid_name).unwrap_or_else(|err| {
+            let ctid_field = schema.schema.get_field(ctid_name).unwrap_or_else(|err| {
                 panic!("error retrieving {ctid_name} field from schema: {err:?}")
             });
             let ctid_field_value = retrieved_doc
@@ -118,31 +121,5 @@ pub extern "C" fn amgettuple(
             true
         }
         None => false,
-    }
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::ambeginscan;
-    use pgrx::*;
-    use shared::testing::SETUP_SQL;
-
-    use crate::operator::get_index_oid;
-
-    #[pg_test]
-    fn test_ambeginscan() {
-        crate::setup_background_workers();
-        Spi::run(SETUP_SQL).expect("failed to create index and table");
-        let oid = get_index_oid("one_republic_songs_bm25_index", "bm25")
-            .expect("could not find oid for one_republic")
-            .unwrap();
-
-        let index = unsafe { pg_sys::index_open(oid, pg_sys::AccessShareLock as pg_sys::LOCKMODE) };
-        let index_scan = ambeginscan(index, 3 as std::os::raw::c_int, 1 as std::os::raw::c_int);
-        let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(index_scan) };
-
-        assert_eq!(scan.numberOfKeys, 3 as std::os::raw::c_int);
-        assert!(!scan.is_null());
     }
 }

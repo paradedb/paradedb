@@ -1,6 +1,7 @@
+use crate::env::needs_commit;
+use crate::schema::SearchConfig;
 use crate::{
-    index_access::utils::{get_parade_index, SearchConfig},
-    parade_index::index::ParadeIndex,
+    globals::WriterGlobal, index_access::utils::get_parade_index, parade_index::index::ParadeIndex,
 };
 use pgrx::{prelude::TableIterator, *};
 use tantivy::{schema::FieldType, SnippetGenerator};
@@ -14,7 +15,10 @@ pub fn rank_bm25(
         serde_json::from_value(search_config_json).expect("could not parse search config");
     let parade_index = get_parade_index(&search_config.index_name);
 
-    let mut scan_state = parade_index.scan_state(&search_config).unwrap();
+    let writer_client = WriterGlobal::client();
+    let mut scan_state = parade_index
+        .search_state(&writer_client, &search_config, needs_commit())
+        .unwrap();
     let top_docs = scan_state.search();
 
     let mut field_rows = Vec::new();
@@ -32,12 +36,15 @@ pub fn highlight_bm25(
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json).expect("could not parse search config");
     let parade_index = get_parade_index(&search_config.index_name);
-    let schema = parade_index.schema();
-    let function_schema = &search_config.schema_name;
-    let field_name = search_config.highlight_field.as_ref().unwrap_or_else(|| {
-        panic!("highlight_field parameter required for {function_schema}.highlight function")
-    });
-    let mut scan_state = parade_index.scan_state(&search_config).unwrap();
+    let schema = parade_index.schema.schema.clone();
+    let field_name = search_config
+        .highlight_field
+        .as_ref()
+        .unwrap_or_else(|| panic!("highlight_field parameter required for highlight function"));
+    let writer_client = WriterGlobal::client();
+    let mut scan_state = parade_index
+        .search_state(&writer_client, &search_config, needs_commit())
+        .unwrap();
     let top_docs = scan_state.search();
 
     let highlight_field = schema
@@ -82,7 +89,10 @@ pub fn minmax_bm25(
         serde_json::from_value(search_config_json).expect("could not parse search config");
     let parade_index = get_parade_index(&search_config.index_name);
 
-    let mut scan_state = parade_index.scan_state(&search_config).unwrap();
+    let writer_client = WriterGlobal::client();
+    let mut scan_state = parade_index
+        .search_state(&writer_client, &search_config, needs_commit())
+        .unwrap();
     let top_docs = scan_state.search();
     let (min_score, max_score) = top_docs
         .iter()
@@ -113,52 +123,7 @@ pub fn minmax_bm25(
 #[pg_extern]
 fn drop_bm25_internal(index_name: &str) {
     // Drop the Tantivy data directory.
-    ParadeIndex::drop_index(index_name)
+    let writer_client = WriterGlobal::client();
+    ParadeIndex::drop_index(&writer_client, index_name)
         .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err}"));
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use pgrx::*;
-    use shared::testing::SETUP_SQL;
-
-    #[pg_test]
-    fn test_rank_bm25() {
-        crate::setup_background_workers();
-        Spi::run(SETUP_SQL).expect("failed to create index and table");
-        let ctid = Spi::get_one::<pg_sys::ItemPointerData>(
-            "SELECT ctid FROM one_republic_songs WHERE title = 'If I Lose Myself'",
-        )
-        .expect("could not get ctid");
-
-        assert!(ctid.is_some());
-        let ctid = ctid.unwrap();
-        assert_eq!(ctid.ip_posid, 3);
-
-        let query = r#"
-            SELECT rank_bm25 FROM one_republic_songs.rank('lyrics:im AND description:song')
-        "#;
-
-        let rank = Spi::get_one::<f32>(query)
-            .expect("failed to rank query")
-            .unwrap();
-        assert!(rank > 1.0);
-    }
-
-    #[pg_test]
-    fn test_highlight() {
-        crate::setup_background_workers();
-        Spi::run(SETUP_SQL).expect("failed to create index and table");
-
-        let query = r#"
-            SELECT highlight_bm25
-            FROM one_republic_songs.highlight('lyrics:im', highlight_field => 'lyrics', max_num_chars => 10);
-        "#;
-
-        let highlight = Spi::get_one::<&str>(query)
-            .expect("failed to highlight lyrics")
-            .unwrap();
-        assert_eq!(highlight, "<b>Im</b> holding");
-    }
 }

@@ -1,25 +1,15 @@
-use super::{
-    entry::{IndexEntry, IndexKey},
-    Handler, IndexError, ServerError, WriterRequest,
+use super::{Handler, IndexError, SearchFs, ServerError, WriterDirectory, WriterRequest};
+use crate::{parade_index::index::ParadeIndex, schema::SearchDocument};
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    HashMap,
 };
-use crate::parade_index::index::ParadeIndex;
-use std::{
-    collections::{
-        hash_map::Entry::{Occupied, Vacant},
-        HashMap,
-    },
-    fs,
-    path::Path,
-};
-use tantivy::{
-    schema::{Field, Value},
-    Document, IndexWriter,
-};
+use tantivy::{schema::Field, IndexWriter};
 
 /// The entity that interfaces with Tantivy indexes.
 pub struct Writer {
     /// Map of index directory path to Tantivy writer instance.
-    tantivy_writers: HashMap<String, tantivy::IndexWriter>,
+    tantivy_writers: HashMap<WriterDirectory, tantivy::IndexWriter>,
 }
 
 impl Writer {
@@ -31,58 +21,38 @@ impl Writer {
 
     /// Check the writer server cache for an existing IndexWriter. If it does not exist,
     /// then retrieve the ParadeIndex and use it to create a new IndexWriter, caching it.
-    fn get_writer(&mut self, index_directory_path: &str) -> Result<&mut IndexWriter, IndexError> {
-        match self.tantivy_writers.entry(index_directory_path.to_string()) {
-            Vacant(entry) => Ok(
-                entry.insert(ParadeIndex::writer(index_directory_path).map_err(|err| {
-                    IndexError::GetWriterFailed(index_directory_path.to_string(), err.to_string())
-                })?),
-            ),
+    fn get_writer(&mut self, directory: WriterDirectory) -> Result<&mut IndexWriter, IndexError> {
+        match self.tantivy_writers.entry(directory.clone()) {
+            Vacant(entry) => {
+                Ok(entry.insert(ParadeIndex::writer(&directory).map_err(|err| {
+                    IndexError::GetWriterFailed(directory.clone(), err.to_string())
+                })?))
+            }
             Occupied(entry) => Ok(entry.into_mut()),
         }
     }
 
     fn insert(
         &mut self,
-        index_directory_path: &str,
-        index_entries: Vec<IndexEntry>,
-        _key_field: IndexKey,
+        directory: WriterDirectory,
+        document: SearchDocument,
     ) -> Result<(), IndexError> {
-        let writer = self.get_writer(index_directory_path)?;
-
-        // Add each of the fields to the Tantivy document.
-        let mut doc: Document = Document::new();
-        for entry in index_entries {
-            // The below search was intended to remove entries with the
-            // same key from the index, but has been the source of
-            // memory problems.
-            //
-            // TODO investigate whether this actually improves our
-            // concurrency situation. If it can be removed, we can also
-            // lose the key_field => parameter to create_bm25().
-            //
-            // Delete any exiting documents with the same key.
-            // if entry.key == key_field {
-            //     writer.delete_term(entry.clone().into());
-            // }
-
-            let tantivy_value: Value = entry.value.try_into()?;
-            doc.add_field_value(entry.key, tantivy_value);
-        }
+        let writer = self.get_writer(directory)?;
+        // pgrx::log!("INSERTING DOCUMENT: {document:#?}");
 
         // Add the Tantivy document to the index.
-        writer.add_document(doc)?;
+        writer.add_document(document.into())?;
 
         Ok(())
     }
 
     fn delete(
         &mut self,
-        index_directory_path: &str,
+        directory: WriterDirectory,
         ctid_field: &Field,
         ctid_values: &[u64],
     ) -> Result<(), IndexError> {
-        let writer = self.get_writer(index_directory_path)?;
+        let writer = self.get_writer(directory)?;
         for ctid in ctid_values {
             let ctid_term = tantivy::Term::from_field_u64(*ctid_field, *ctid);
             writer.delete_term(ctid_term);
@@ -105,51 +75,26 @@ impl Writer {
         Ok(())
     }
 
-    fn vacuum(&mut self, index_directory_path: &str) -> Result<(), IndexError> {
-        let writer = self.get_writer(index_directory_path)?;
+    fn vacuum(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+        let writer = self.get_writer(directory)?;
         writer.garbage_collect_files().wait()?;
         Ok(())
     }
 
-    fn drop_index<T: AsRef<str>>(
-        &mut self,
-        index_directory_path: &str,
-        paths_to_delete: &[T],
-    ) -> Result<(), IndexError> {
-        if let Ok(writer) = self.get_writer(index_directory_path) {
-            if std::path::Path::new(&index_directory_path).exists() {
-                writer.delete_all_documents()?;
-                self.commit()?;
-            }
+    fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+        if let Ok(writer) = self.get_writer(directory.clone()) {
+            writer.delete_all_documents()?;
+            self.commit()?;
 
             // Remove the writer from the cache so that it is dropped.
             // We want to do this first so that the lockfile is released before deleting.
             // We'll manually call drop to make sure the lockfile is cleaned up.
-            if let Some(writer) = self.tantivy_writers.remove(index_directory_path) {
+            if let Some(writer) = self.tantivy_writers.remove(&directory) {
                 std::mem::drop(writer);
             };
-
-            // Filter out non-existent paths and sort: files first, then directories.
-            let mut paths_to_delete: Vec<&str> =
-                paths_to_delete.iter().map(|p| p.as_ref()).collect();
-            paths_to_delete.retain(|path| Path::new(path).exists());
-            paths_to_delete.sort_by_key(|path| !Path::new(path).is_file());
-
-            // Iterate through the sorted list and delete each path.
-            for path in paths_to_delete {
-                // Even though we've filtered out the files that supposedly don't exist above,
-                // we can still see errors around files existing/not existing unexpectedly.
-                // we'll just check again here to be safe.
-                let path_ref = Path::new(&path);
-                if path_ref.try_exists()? {
-                    if path_ref.is_file() {
-                        fs::remove_file(path_ref)?;
-                    } else {
-                        fs::remove_dir_all(path_ref)?;
-                    }
-                }
-            }
         }
+
+        directory.remove()?;
 
         Ok(())
     }
@@ -159,32 +104,24 @@ impl Handler<WriterRequest> for Writer {
     fn handle(&mut self, request: WriterRequest) -> Result<(), ServerError> {
         match request {
             WriterRequest::Insert {
-                index_directory_path,
-                index_entries,
-                key_field,
-            } => self
-                .insert(&index_directory_path, index_entries, key_field)
-                .map_err(ServerError::from),
+                directory,
+                document,
+            } => self.insert(directory, document).map_err(ServerError::from),
             WriterRequest::Delete {
-                index_directory_path,
+                directory,
                 field,
                 ctids,
             } => self
-                .delete(&index_directory_path, &field, &ctids)
+                .delete(directory, &field, &ctids)
                 .map_err(ServerError::from),
-            WriterRequest::DropIndex {
-                index_directory_path,
-                paths_to_delete,
-            } => self
-                .drop_index(&index_directory_path, &paths_to_delete)
-                .map_err(ServerError::from),
+            WriterRequest::DropIndex { directory } => {
+                self.drop_index(directory).map_err(ServerError::from)
+            }
             WriterRequest::Commit => self.commit().map_err(ServerError::from),
             WriterRequest::Abort => self.abort().map_err(ServerError::from),
-            WriterRequest::Vacuum {
-                index_directory_path,
-            } => self
-                .vacuum(&index_directory_path)
-                .map_err(ServerError::from),
+            WriterRequest::Vacuum { directory } => {
+                self.vacuum(directory).map_err(ServerError::from)
+            }
         }
     }
 }

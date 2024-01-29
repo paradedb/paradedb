@@ -11,7 +11,7 @@ use deltalake::datafusion::common::arrow::array::{
 use deltalake::datafusion::sql::sqlparser::ast::{
     ArrayElemTypeDef, DataType as SQLDataType, ExactNumberInfo, TimezoneInfo,
 };
-use pgrx::pg_sys::{Datum, VARHDRSZ};
+use pgrx::pg_sys::{BuiltinOid, Datum, VARHDRSZ};
 use pgrx::*;
 use std::any::type_name;
 use std::sync::Arc;
@@ -148,7 +148,33 @@ impl PostgresTypeTranslator for PgOid {
                         scale as u64,
                     ))
                 }
-                _ => return Err(NotSupported::BuiltinPostgresType(*builtin).into()),
+                PgBuiltInOids::VOIDOID => {
+                    return Err(ParadeError::NotSupported("void".to_string()))
+                }
+                PgBuiltInOids::INT4RANGEOID => {
+                    return Err(ParadeError::NotSupported("int4 range".to_string()))
+                }
+                PgBuiltInOids::INT8RANGEOID => {
+                    return Err(ParadeError::NotSupported("int8 range".to_string()))
+                }
+                PgBuiltInOids::NUMRANGEOID => {
+                    return Err(ParadeError::NotSupported("numeric range".to_string()))
+                }
+                PgBuiltInOids::DATERANGEOID => {
+                    return Err(ParadeError::NotSupported("date range".to_string()))
+                }
+                PgBuiltInOids::TSRANGEOID => {
+                    return Err(ParadeError::NotSupported("timestamp range".to_string()))
+                }
+                PgBuiltInOids::TSTZRANGEOID => {
+                    return Err(ParadeError::NotSupported(
+                        "timestamp with time zone range".to_string(),
+                    ))
+                }
+                PgBuiltInOids::BOOLARRAYOID => sql_array_type(PgBuiltInOids::BOOLOID, typmod)?,
+                PgBuiltInOids::BYTEAARRAYOID => sql_array_type(PgBuiltInOids::BYTEAOID, typmod)?,
+                PgBuiltInOids::UUIDOID => SQLDataType::Uuid,
+                _ => return Err(ParadeError::DataTypeNotSupported("unknown".to_string())),
             },
             PgOid::Invalid => return Err(NotSupported::InvalidPostgresType.into()),
             PgOid::Custom(_) => return Err(NotSupported::CustomPostgresType.into()),
@@ -183,6 +209,13 @@ impl PostgresTypeTranslator for PgOid {
 
         Ok((pgrx::PgOid::BuiltIn(oid), typmod))
     }
+}
+
+fn sql_array_type(oid: BuiltinOid, typmod: i32) -> Result<SQLDataType, ParadeError> {
+    let sql_type = PgOid::BuiltIn(oid).to_sql_data_type(typmod)?;
+    Ok(SQLDataType::Array(ArrayElemTypeDef::SquareBracket(
+        Box::new(sql_type),
+    )))
 }
 
 fn scale_anynumeric(

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
-use crate::errors::ParadeError;
+use crate::errors::{NotFound, NotSupported, ParadeError};
 
 pub trait DeltaTableProvider {
     fn fields(&self) -> Result<Vec<Field>, ParadeError>;
@@ -39,9 +39,7 @@ impl DeltaTableProvider for PgRelation {
             };
 
             if is_array {
-                return Err(ParadeError::Generic(
-                    "Array types not yet supported".to_string(),
-                ));
+                return Err(NotSupported::Array.into());
             }
 
             let field = Field::new(
@@ -68,8 +66,7 @@ impl DeltaTableProvider for PgRelation {
             )?)
         })?;
 
-        let source =
-            provider_as_source(provider.ok_or(ParadeError::TableNotFound(table_name.to_string()))?);
+        let source = provider_as_source(provider.ok_or(NotFound::Table(table_name.to_string()))?);
         let reference = TableReference::partial(schema_name, table_name);
         let df_schema = DFSchema::try_from_qualified_schema(reference, source.schema().as_ref())?;
 

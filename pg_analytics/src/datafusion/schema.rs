@@ -28,7 +28,7 @@ use std::{
 
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::table::DeltaTableProvider;
-use crate::errors::ParadeError;
+use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 
 const BYTES_IN_MB: i64 = 1_048_576;
@@ -167,9 +167,9 @@ impl ParadeSchemaProvider {
         if optimize {
             let optimized_table = OptimizeBuilder::new(
                 old_table.log_store(),
-                old_table.state.ok_or(ParadeError::NoneError(
-                    type_name::<DeltaTableState>().to_string(),
-                ))?,
+                old_table
+                    .state
+                    .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
             )
             .with_target_size(PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB)
             .await?
@@ -181,9 +181,9 @@ impl ParadeSchemaProvider {
         // Vacuum the table
         let vacuumed_table = VacuumBuilder::new(
             old_table.log_store(),
-            old_table.state.ok_or(ParadeError::NoneError(
-                type_name::<DeltaTableState>().to_string(),
-            ))?,
+            old_table
+                .state
+                .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
         )
         .with_retention_period(chrono::Duration::days(
             PARADE_GUC.vacuum_retention_days.get() as i64,
@@ -240,7 +240,7 @@ impl ParadeSchemaProvider {
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
             .get_mut(table_name)
-            .ok_or(ParadeError::TableNotFound(table_name.to_string()))?;
+            .ok_or(NotFound::Table(table_name.to_string()))?;
 
         task::block_on(writer.write(&batch))?;
 
@@ -260,7 +260,7 @@ impl ParadeSchemaProvider {
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
             .remove(table_name)
-            .ok_or(ParadeError::TableNotFound(table_name.to_string()))?;
+            .ok_or(NotFound::Table(table_name.to_string()))?;
 
         // Generate commit actions by closing the writer and commit to delta logs
         let actions = task::block_on(writer.close())?;
@@ -321,9 +321,9 @@ impl ParadeSchemaProvider {
         // Truncate the table
         let truncated_table = DeleteBuilder::new(
             delta_table.log_store(),
-            delta_table.state.ok_or(ParadeError::NoneError(
-                type_name::<DeltaTableState>().to_string(),
-            ))?,
+            delta_table
+                .state
+                .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
         )
         .await?
         .0;
@@ -345,20 +345,20 @@ impl ParadeSchemaProvider {
         let mut delta_table = match Self::table_exist(self, name) {
             true => {
                 let tables = self.tables.read();
-                let provider = tables
-                    .get(name)
-                    .ok_or(ParadeError::TableNotFound(name.to_string()))?;
+                let provider = tables.get(name).ok_or(NotFound::Table(name.to_string()))?;
 
-                let old_table = provider.as_any().downcast_ref::<DeltaTable>().ok_or(
-                    ParadeError::NoneError(type_name::<DeltaTable>().to_string()),
-                )?;
+                let old_table = provider
+                    .as_any()
+                    .downcast_ref::<DeltaTable>()
+                    .ok_or(NotFound::Value(type_name::<DeltaTable>().to_string()))?;
 
                 task::block_on(
                     UpdateBuilder::new(
                         old_table.log_store(),
-                        old_table.state.clone().ok_or(ParadeError::NoneError(
-                            type_name::<DeltaTableState>().to_string(),
-                        ))?,
+                        old_table
+                            .state
+                            .clone()
+                            .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
                     )
                     .into_future(),
                 )?

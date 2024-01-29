@@ -1,7 +1,7 @@
 use pgrx::*;
 use std::ffi::{c_char, CString};
 
-use crate::errors::ParadeError;
+use crate::errors::{NotFound, ParadeError};
 
 static DELTALAKE_HANDLER: &str = "deltalake";
 
@@ -92,7 +92,7 @@ impl DeltaHandler {
         let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
 
         if deltalake_oid == pg_sys::InvalidOid {
-            return Err(ParadeError::InvalidHandlerOid);
+            return Err(NotFound::Handler.into());
         }
 
         let heap_tuple_data = pg_sys::SearchSysCache1(

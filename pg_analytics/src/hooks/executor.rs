@@ -14,7 +14,7 @@ use crate::datafusion::context::{DatafusionContext, ParadeContextProvider};
 use crate::datafusion::datatype::{
     DatafusionMapProducer, DatafusionTypeTranslator, PostgresTypeTranslator,
 };
-use crate::errors::ParadeError;
+use crate::errors::{NotFound, NotSupported, ParadeError};
 use crate::hooks::handler::DeltaHandler;
 
 pub fn executor_run(
@@ -41,15 +41,11 @@ pub fn executor_run(
 
         // TODO: Support UPDATE and DELETE
         if query_desc.operation == pg_sys::CmdType_CMD_UPDATE {
-            return Err(ParadeError::NotSupported(
-                "UPDATE is not yet supported for deltalake tables".to_string(),
-            ));
+            return Err(NotSupported::Update.into());
         }
 
         if query_desc.operation == pg_sys::CmdType_CMD_DELETE {
-            return Err(ParadeError::NotSupported(
-                "DELETE is not yet supported for deltalake tables".to_string(),
-            ));
+            return Err(NotSupported::Delete.into());
         }
 
         // Only use this hook for SELECT queries
@@ -107,14 +103,14 @@ unsafe fn send_tuples_if_necessary(
     let dest = (*query_desc).dest;
     let startup = (*dest)
         .rStartup
-        .ok_or(ParadeError::NoneError("rStartup".to_string()))?;
+        .ok_or(NotFound::Value("rStartup".to_string()))?;
 
     startup(dest, (*query_desc).operation as i32, (*query_desc).tupDesc);
 
     let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
     let receive = (*dest)
         .receiveSlot
-        .ok_or(ParadeError::NoneError("receive".to_string()))?;
+        .ok_or(NotFound::Value("receive".to_string()))?;
 
     for (row_number, recordbatch) in batches.iter().enumerate() {
         // Convert the tuple_desc target types to the ones corresponding to the DataFusion column types
@@ -153,7 +149,7 @@ unsafe fn send_tuples_if_necessary(
 
     let shutdown = (*dest)
         .rShutdown
-        .ok_or(ParadeError::NoneError("rShutdown".to_string()))?;
+        .ok_or(NotFound::Value("rShutdown".to_string()))?;
     shutdown(dest);
 
     Ok(())

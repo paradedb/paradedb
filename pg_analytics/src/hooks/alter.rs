@@ -1,6 +1,6 @@
 use pgrx::*;
 
-use crate::errors::ParadeError;
+use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::DeltaHandler;
 
 pub unsafe fn alter(alter_stmt: *mut pg_sys::AlterTableStmt) -> Result<(), ParadeError> {
@@ -23,7 +23,5 @@ pub unsafe fn alter(alter_stmt: *mut pg_sys::AlterTableStmt) -> Result<(), Parad
         return Ok(());
     }
 
-    Err(ParadeError::NotSupported(
-        "ALTER TABLE is not yet supported. Please DROP and CREATE the table instead.".to_string(),
-    ))
+    Err(NotSupported::AlterTable.into())
 }

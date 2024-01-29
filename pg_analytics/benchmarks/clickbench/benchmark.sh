@@ -189,6 +189,9 @@ else
   psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
   psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
 
+  # Check that the dataset was loaded correctly
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t < validate.sql
+
   echo ""
   echo "Running queries..."
   ./run.sh 2>&1 | tee log.txt

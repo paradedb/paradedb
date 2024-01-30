@@ -60,80 +60,59 @@ pub fn executor_run(
         // Parse the query into an AST
         let dialect = PostgreSqlDialect {};
         let query = CStr::from_ptr(query_desc.sourceText).to_str()?;
-        if is_delete {
-            info!("{}", query);
-            // find the first WHERE and take everything afterwards...
-            // better: parse
-            let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-                .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
-            let statement = &ast[0];
-            // Convert the AST into a logical plan
-            let context_provider = ParadeContextProvider::new()?;
-            let sql_to_rel = SqlToRel::new(&context_provider);
-            let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
-            info!("converted AST into logical plan");
-
-            let elements = (*rtable).elements;
-            let rte = (*elements.offset(0)).ptr_value as *mut pg_sys::RangeTblEntry;
-            let relation = pg_sys::RelationIdGetRelation((*rte).relid);
-            let pg_relation = PgRelation::from_pg_owned(relation);
-            let schema_name = pg_relation.namespace();
-
-            DatafusionContext::with_session_context(|context| {
-                info!("{:?}", logical_plan);
-                let optimized_plan = context.state().optimize(&logical_plan)?;
-                if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-                    info!("{:?}", dml_statement.table_name);
-                    let table_name = dml_statement.table_name.to_string();
-                    DatafusionContext::with_schema_provider(schema_name.as_str(), |provider| {
-                        if let LogicalPlan::Filter(filter) = dml_statement.input.as_ref() {
-                            info!("{:?}", filter.predicate.clone());
-                            task::block_on(
-                                provider
-                                    .delete(table_name.as_str(), Some(filter.predicate.clone())),
-                            )
-                        } else {
-                            task::block_on(provider.delete(table_name.as_str(), None))
-                        }
-                    })
-                } else {
-                    Ok(())
-                }
-                // let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
-                // task::block_on(dataframe.collect())
-            })?;
-            return Ok(());
-        }
 
         let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err)))?;
+            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
         let statement = &ast[0];
-        info!("query parsed into AST");
 
         // Convert the AST into a logical plan
         let context_provider = ParadeContextProvider::new()?;
         let sql_to_rel = SqlToRel::new(&context_provider);
         let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
-        info!("converted AST into logical plan");
 
-        // Execute the logical plan
-        let batches = DatafusionContext::with_session_context(|context| {
-            let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
-            Ok(task::block_on(dataframe.collect())?)
-        })?;
+        if is_delete {
+            let elements = (*rtable).elements;
+            let rte = (*elements.offset(0)).ptr_value as *mut pg_sys::RangeTblEntry;
+            let relation = pg_sys::RelationIdGetRelation((*rte).relid);
+            let pg_relation = PgRelation::from_pg_owned(relation);
+            let table_name = pg_relation.name();
+            let schema_name = pg_relation.namespace();
 
-        // This is for any node types that need to do additional processing on estate
-        let plan: *mut pg_sys::Plan = (*ps).planTree;
-        let node = plan as *mut pg_sys::Node;
-        if (*node).type_ == pg_sys::NodeTag::T_ModifyTable {
-            let num_updated = batches[0].column(0).as_primitive::<UInt64Type>().value(0);
-            (*(*query_desc.clone().into_pg()).estate).es_processed = num_updated;
+            let optimized_plan = DatafusionContext::with_session_context(|context| {
+                Ok(context.state().optimize(&logical_plan)?)
+            })?;
+
+            if let LogicalPlan::Dml(dml_statement) = optimized_plan {
+                DatafusionContext::with_schema_provider(schema_name, |provider| {
+                    if let LogicalPlan::Filter(filter) = dml_statement.input.as_ref() {
+                        task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))
+                    } else {
+                        task::block_on(provider.delete(table_name, None))
+                    }
+                });
+            }
+
+            Ok(())
+        } else {
+            // Execute the logical plan
+            let batches = DatafusionContext::with_session_context(|context| {
+                let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
+                Ok(task::block_on(dataframe.collect())?)
+            })?;
+
+            // This is for any node types that need to do additional processing on estate
+            let plan: *mut pg_sys::Plan = (*ps).planTree;
+            let node = plan as *mut pg_sys::Node;
+            if (*node).type_ == pg_sys::NodeTag::T_ModifyTable {
+                let num_updated = batches[0].column(0).as_primitive::<UInt64Type>().value(0);
+                (*(*query_desc.clone().into_pg()).estate).es_processed = num_updated;
+            }
+
+            // Return result tuples
+            send_tuples_if_necessary(query_desc.into_pg(), batches)?;
+
+            Ok(())
         }
-
-        // Return result tuples
-        send_tuples_if_necessary(query_desc.into_pg(), batches)?;
-
-        Ok(())
     }
 }
 

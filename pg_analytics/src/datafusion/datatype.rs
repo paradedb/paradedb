@@ -11,6 +11,7 @@ use deltalake::datafusion::common::arrow::array::{
 use deltalake::datafusion::sql::sqlparser::ast::{
     ArrayElemTypeDef, DataType as SQLDataType, ExactNumberInfo, TimezoneInfo,
 };
+use pgrx::datum::Array as PGArray;
 use pgrx::pg_sys::{BuiltinOid, Datum, VARHDRSZ};
 use pgrx::*;
 use std::any::type_name;
@@ -300,6 +301,7 @@ impl DatafusionMapProducer {
 
     pub fn array(
         sql_data_type: SQLDataType,
+        is_array: bool,
         slots: *mut *mut pg_sys::TupleTableSlot,
         nslots: usize,
         col_idx: usize,
@@ -315,9 +317,17 @@ impl DatafusionMapProducer {
                     if is_null {
                         vec.push(None);
                     } else {
-                        vec.push(unsafe { bool::from_datum(*datum, false) })
+                        if is_array {
+                            vec.push(unsafe {
+                                let array = PGArray::<bool>::from_datum(*datum, false);
+                                BooleanArray::from(array.iter())
+                            })
+                        } else {
+                            vec.push(unsafe { bool::from_datum(*datum, false) })
+                        }
                     }
                 }
+                // TODO: figure out how to create a listarray or genericlistarray or whatever
                 Ok(Arc::new(BooleanArray::from(vec)))
             }
             DataType::Utf8 => {

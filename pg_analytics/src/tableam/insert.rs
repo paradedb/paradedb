@@ -89,8 +89,17 @@ fn insert_tuples(
 
     // Convert the TupleTableSlots into DataFusion arrays
     for (col_idx, attr) in tuple_desc.iter().enumerate() {
+        let attribute_type_oid = attr.type_oid();
+
+        let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
+        let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
+            (PgOid::from(array_type), true)
+        } else {
+            (attribute_type_oid, false)
+        };
         values.push(DatafusionMapProducer::array(
-            attr.type_oid().to_sql_data_type(attr.type_mod())?,
+            base_oid.to_sql_data_type(attr.type_mod())?,
+            is_array,
             slots,
             nslots,
             col_idx,

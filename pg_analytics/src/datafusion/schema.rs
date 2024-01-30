@@ -5,7 +5,7 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
-use deltalake::datafusion::logical_expr::{lit, Expr};
+use deltalake::datafusion::logical_expr::Expr;
 use deltalake::kernel::Action;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
@@ -333,8 +333,6 @@ impl ParadeSchemaProvider {
 
         if let Some(predicate) = predicate {
             delete_builder = delete_builder.with_predicate(predicate);
-        } else {
-            delete_builder = delete_builder.with_predicate(lit(true));
         }
 
         let (new_table, metrics) = delete_builder.await?;

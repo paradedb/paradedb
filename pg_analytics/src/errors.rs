@@ -86,6 +86,12 @@ pub enum NotSupported {
 
     #[error("Heap and deltalake tables in the same query is not yet supported")]
     MixedTables,
+
+    #[error("Nested DELETE queries are not yet supported for deltalake tables")]
+    NestedDelete,
+
+    #[error("Run TRUNCATE <table_name> to delete all rows from a table")]
+    ScanDelete,
 }
 
 impl From<&str> for ParadeError {

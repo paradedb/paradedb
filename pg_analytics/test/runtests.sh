@@ -99,25 +99,23 @@ cleanup() {
   # Once the tests are done, we reset the pgrx environment to use the project's default, since we
   # can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time (for local development)
   default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
-  if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
-    echo "Resetting pgrx environment to use default version: $default_pg_version..."
-    case "$OS_NAME" in
-      Darwin)
-        # Check arch to set proper pg_config path
-        if [ "$(uname -m)" = "arm64" ]; then
-          cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config"
-        elif [ "$(uname -m)" = "x86_64" ]; then
-          cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config"
-        else
-          echo "Unknown arch, exiting..."
-          exit 1
-        fi
-        ;;
-      Linux)
-        cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config"
-        ;;
-    esac
-  fi
+  echo "Resetting pgrx environment to use default version: $default_pg_version..."
+  case "$OS_NAME" in
+    Darwin)
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config"
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config"
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
+      ;;
+    Linux)
+      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config"
+      ;;
+  esac
   echo "Done, goodbye!"
 }
 
@@ -260,27 +258,3 @@ done
 
 # Wait for all child processes to finish
 wait
-
-# Once the tests are done, we reset the pgrx environment to use the project's default, since we
-# can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time (for local development)
-default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
-if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
-  echo "Tests completed. Resetting pgrx environment to use default version: $default_pg_version..."
-  case "$OS_NAME" in
-    Darwin)
-      # Check arch to set proper pg_config path
-      if [ "$(uname -m)" = "arm64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
-      elif [ "$(uname -m)" = "x86_64" ]; then
-        cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config" > /dev/null
-      else
-        echo "Unknown arch, exiting..."
-        exit 1
-      fi
-      ;;
-    Linux)
-      cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config" > /dev/null
-      ;;
-  esac
-  echo "Done, goodbye!"
-fi

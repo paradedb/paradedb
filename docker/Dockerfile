@@ -50,21 +50,22 @@ FROM base as builder
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Add PostgreSQL's third party repository to get the latest versions
-RUN curl -o /usr/share/keyrings/postgresql.asc -s https://www.postgresql.org/media/keys/ACCC4CF8.asc
-RUN echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
+# also add apt-fast repository to speed up the build
+RUN <<EOF
+curl -o /usr/share/keyrings/postgresql.asc -s https://www.postgresql.org/media/keys/ACCC4CF8.asc
+echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
 
-# Add apt-fast repo
-RUN curl -o /usr/share/keyrings/apt-fast.asc -s https://keyserver.ubuntu.com/pks/lookup?op=get\&search=0xA2166B8DE8BDC3367D1901C11EE2FF37CA8DA16B
-RUN echo "deb [signed-by=/usr/share/keyrings/apt-fast.asc] http://ppa.launchpad.net/apt-fast/stable/ubuntu jammy main" | tee /etc/apt/sources.list.d/apt-fast.list
+curl -o /usr/share/keyrings/apt-fast.asc -s https://keyserver.ubuntu.com/pks/lookup?op=get\&search=0xA2166B8DE8BDC3367D1901C11EE2FF37CA8DA16B
+echo "deb [signed-by=/usr/share/keyrings/apt-fast.asc] http://ppa.launchpad.net/apt-fast/stable/ubuntu jammy main" | tee /etc/apt/sources.list.d/apt-fast.list
+EOF
 
-RUN apt-get update \
-    && apt-get install --no-install-recommends apt-fast -y \
-    && rm -rf /var/lib/apt/lists/*
+RUN <<EOF
+apt-get update
+apt-get install --no-install-recommends apt-fast -y
 
-# Install Rust (specific version) and other build dependencies
-RUN apt-fast update && apt-fast install -y --no-install-recommends \
+apt-fast update
+apt-fast install -y --no-install-recommends \
     build-essential \
-    checkinstall \
     clang \
     git \
     cmake \
@@ -74,20 +75,16 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     libopenblas-dev \
     python3-dev \
     python3-pip \
-    curl \
-    wget \
-    apt-fast \
     gnupg \
     gcc \
-    debmake \
-    debhelper \
-    make
+    make \
+    "postgresql-server-dev-${PG_VERSION_MAJOR}"
+
+rm -rf /var/lib/apt/lists/*
+EOF
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
     && /root/.cargo/bin/rustup default "${RUST_VERSION}"
-
-RUN apt-get update && apt-get install --no-install-recommends -y "postgresql-server-dev-${PG_VERSION_MAJOR}" \
-    && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
@@ -117,15 +114,19 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 
 WORKDIR $PKGDIR
 
-RUN mkdir -p DEBIAN && tee DEBIAN/control <<EOF
-Package: $(cargo get package.name | sed 's/_/-/g')
-Description: $(cargo get package.description)
-Maintainer: $DEBFULLNAME <$DEBEMAIL>
-Version: $(cargo get package.version)
-Architecture: $(dpkg --print-architecture)
-EOF
+RUN <<EOF
+mkdir -p DEBIAN
 
-RUN dpkg-deb --build $PKGDIR /tmp/pg-bm25.deb
+cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
+    Package: $(cargo get package.name | sed 's/_/-/g')
+    Description: $(cargo get package.description)
+    Maintainer: $DEBFULLNAME <$DEBEMAIL>
+    Version: $(cargo get package.version)
+    Architecture: $(dpkg --print-architecture)
+EOT
+
+dpkg-deb --build $PKGDIR /tmp/pg-bm25.deb
+EOF
 
 ######################
 # pg_analytics
@@ -148,15 +149,18 @@ RUN rustup update nightly && \
 
 WORKDIR $PKGDIR
 
-RUN mkdir -p DEBIAN && tee DEBIAN/control <<EOF
-Package: $(cargo get package.name | sed 's/_/-/g')
-Description: $(cargo get package.description)
-Maintainer: $DEBFULLNAME <$DEBEMAIL>
-Version: $(cargo get package.version)
-Architecture: $(dpkg --print-architecture)
-EOF
+RUN <<EOF
+mkdir -p DEBIAN
+cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
+    Package: $(cargo get package.name | sed 's/_/-/g')
+    Description: $(cargo get package.description)
+    Maintainer: $DEBFULLNAME <$DEBEMAIL>
+    Version: $(cargo get package.version)
+    Architecture: $(dpkg --print-architecture)
+EOT
 
-RUN dpkg-deb --build $PKGDIR /tmp/pg-analytics.deb
+dpkg-deb --build $PKGDIR /tmp/pg-analytics.deb
+EOF
 
 ######################
 # pg_sparse
@@ -175,14 +179,18 @@ RUN make clean && \
 
 WORKDIR $PKGDIR
 
-RUN mkdir -p DEBIAN && tee DEBIAN/control <<EOF
-Package: pg-sparse
-Maintainer: $DEBFULLNAME <$DEBEMAIL>
-Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../svector.control)
-Architecture: $(dpkg --print-architecture)
-EOF
+RUN <<EOF
+mkdir -p DEBIAN
 
-RUN dpkg-deb --build $PKGDIR /tmp/pg-sparse.deb
+cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
+    Package: pg-sparse
+    Maintainer: $DEBFULLNAME <$DEBEMAIL>
+    Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../svector.control)
+    Architecture: $(dpkg --print-architecture)
+EOT
+
+dpkg-deb --build $PKGDIR /tmp/pg-sparse.deb
+EOF
 
 ######################
 # additional extensions
@@ -227,3 +235,5 @@ RUN usermod -u 26 postgres \
     && chmod -R 700 /var/lib/postgresql
 
 USER 26
+
+FROM builder-pg_bm25 as pg_bm25

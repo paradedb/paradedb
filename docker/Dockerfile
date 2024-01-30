@@ -47,7 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 FROM base as builder
 
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Add PostgreSQL's third party repository to get the latest versions
 # also add apt-fast repository to speed up the build

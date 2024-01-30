@@ -113,12 +113,18 @@ ENV PKGDIR=/tmp/pg_bm25/deb-pkg
 # Use the build argument to update the version in Cargo.toml
 RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
 
-RUN cd $PKGDIR && debmake \
-    -p $(cargo get package.name | sed 's/_/-/g') \
-    -u $(cargo get package.version) \
-    --native -x0 -i debuild
+WORKDIR $PKGDIR
 
-RUN cp $PKGDIR/../*.deb /tmp
+RUN mkdir -p DEBIAN \
+    && tee DEBIAN/control <<EOF
+Package: $(cargo get package.name | sed 's/_/-/g')
+Description: $(cargo get package.description)
+Maintainer: $DEBFULLNAME <$DEBEMAIL>
+Version: $(cargo get package.version)
+Architecture: $(dpkg --print-architecture)
+EOF
+
+RUN dpkg-deb --build $PKGDIR /tmp/pg-bm25.deb
 
 ######################
 # pg_analytics
@@ -139,12 +145,18 @@ RUN rustup update nightly && \
     cargo install --locked cargo-pgrx --version 0.11.2 --force && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
 
-RUN cd $PKGDIR && debmake \
-    -p $(cargo get package.name | sed 's/_/-/g') \
-    -u $(cargo get package.version) \
-    --native -x0 -i debuild
+WORKDIR $PKGDIR
 
-RUN cp $PKGDIR/../*.deb /tmp
+RUN mkdir -p DEBIAN \
+    && tee DEBIAN/control <<EOF
+Package: $(cargo get package.name | sed 's/_/-/g')
+Description: $(cargo get package.description)
+Maintainer: $DEBFULLNAME <$DEBEMAIL>
+Version: $(cargo get package.version)
+Architecture: $(dpkg --print-architecture)
+EOF
+
+RUN dpkg-deb --build $PKGDIR /tmp/pg-analytics.deb
 
 ######################
 # pg_sparse
@@ -161,12 +173,17 @@ RUN make clean && \
     make USE_PGXS=1 OPTFLAGS="" -j && \
     make USE_PGXS=1 DESTDIR="$PKGDIR" install -j
 
-RUN cd $PKGDIR && debmake \
-    -p pg-sparse \
-    -u $(awk -F "= '|\'" '/default_version/ {print $2}' ../svector.control) \
-    --native -x0 -i debuild
+WORKDIR $PKGDIR
 
-RUN cp $PKGDIR/../*.deb /tmp
+RUN mkdir -p DEBIAN \
+    && tee DEBIAN/control <<EOF
+Package: pg-sparse
+Maintainer: $DEBFULLNAME <$DEBEMAIL>
+Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../svector.control)
+Architecture: $(dpkg --print-architecture)
+EOF
+
+RUN dpkg-deb --build $PKGDIR /tmp/pg-sparse.deb
 
 ######################
 # additional extensions
@@ -190,10 +207,12 @@ LABEL org.opencontainers.image.created="$BUILD_DATE"
 LABEL org.opencontainers.image.description="PostgreSQL for search and analaytics"
 LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
 
+# Copy third party extensions
+COPY --from=builder-ext-misc /tmp/*.deb /tmp/extensions-deb/
+
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_sparse /tmp/pg-sparse*.deb /tmp/extensions-deb/
 COPY --from=builder-pg_bm25 /tmp/pg-bm25*.deb /tmp/extensions-deb/
-COPY --from=builder-ext-misc /tmp/*.deb /tmp/extensions-deb/
 COPY --from=builder-pg_analytics /tmp/pg-analytics*.deb /tmp/extensions-deb/
 
 RUN dpkg -i /tmp/extensions-deb/*.deb \

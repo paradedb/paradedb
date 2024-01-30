@@ -14,8 +14,12 @@ ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG TELEMETRY
 ARG BUILD_DATE
+ARG RUST_VERSION=1.73.0
+ARG PGRX_VERSION=0.11.2
 
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
+    RUST_VERSION=${RUST_VERSION} \
+    PGRX_VERSION=${PGRX_VERSION} \
     POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
@@ -28,33 +32,14 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Install common dependencies to builder and runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    wget \
-    sudo \
-    gnupg \
-    gcc \
-    make \
-    uuid-runtime \
     software-properties-common \
     ca-certificates \
+    uuid-runtime \
     libssl-dev \
-    libopenblas-dev \
-    python3-dev \
-    python3-pip \
+    curl \
+    wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install apt-fast
-RUN /bin/bash -c "$(curl -sL https://git.io/vokNn)"
-
-# Add PostgreSQL's third party repository to get the latest versions
-RUN curl -s https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add -
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
-
-# Install PostgreSQL development headers and pgvector
-RUN apt-fast update && apt-fast install -y --no-install-recommends \
-    postgresql-server-dev-${PG_VERSION_MAJOR} \
-    "postgresql-${PG_VERSION_MAJOR}-pgvector" \
-    && rm -rf /var/lib/apt/lists/*
 
 ###############################################
 # Second Stage: Builder
@@ -64,24 +49,56 @@ FROM base as builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# Add PostgreSQL's third party repository to get the latest versions
+RUN curl -o /usr/share/keyrings/postgresql.asc -s https://www.postgresql.org/media/keys/ACCC4CF8.asc
+RUN echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" | tee /etc/apt/sources.list.d/pgdg.list
+
+# Add apt-fast repo
+RUN curl -o /usr/share/keyrings/apt-fast.asc -s https://keyserver.ubuntu.com/pks/lookup?op=get\&search=0xA2166B8DE8BDC3367D1901C11EE2FF37CA8DA16B
+RUN echo "deb [signed-by=/usr/share/keyrings/apt-fast.asc] http://ppa.launchpad.net/apt-fast/stable/ubuntu jammy main" | tee /etc/apt/sources.list.d/apt-fast.list
+
+RUN apt-get update \
+    && apt-get install --no-install-recommends apt-fast -y \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Rust (specific version) and other build dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \
     build-essential \
+    checkinstall \
     clang \
     git \
     cmake \
     pkg-config \
     liblz4-dev \
     libcurl4-openssl-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && /root/.cargo/bin/rustup default 1.73.0
+    libopenblas-dev \
+    python3-dev \
+    python3-pip \
+    curl \
+    wget \
+    apt-fast \
+    gnupg \
+    gcc \
+    debmake \
+    debhelper \
+    make
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && /root/.cargo/bin/rustup default "${RUST_VERSION}"
+
+RUN apt-get update && apt-get install --no-install-recommends -y "postgresql-server-dev-${PG_VERSION_MAJOR}" \
+    && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install --locked cargo-pgrx --version 0.11.2 && \
+RUN cargo install cargo-get
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+# debmake needs these to be set
+ENV DEBEMAIL="support@paradedb.com"
+ENV DEBFULLNAME="ParadeDB"
 
 ######################
 # pg_bm25
@@ -89,12 +106,26 @@ RUN cargo install --locked cargo-pgrx --version 0.11.2 && \
 
 FROM builder as builder-pg_bm25
 
-WORKDIR /tmp/pg_bm25
-
 COPY pg_bm25/ /tmp/pg_bm25
 COPY shared/ /tmp/shared
 
-RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+WORKDIR /tmp/pg_bm25
+ENV PKGDIR=/tmp/pg_bm25/deb-pkg
+
+# Use the build argument to update the version in Cargo.toml
+RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
+
+WORKDIR $PKGDIR
+
+RUN mkdir -p DEBIAN && tee DEBIAN/control <<EOF
+Package: $(cargo get package.name | sed 's/_/-/g')
+Description: $(cargo get package.description)
+Maintainer: $DEBFULLNAME <$DEBEMAIL>
+Version: $(cargo get package.version)
+Architecture: $(dpkg --print-architecture)
+EOF
+
+RUN dpkg-deb --build $PKGDIR /tmp/pg-bm25.deb
 
 ######################
 # pg_analytics
@@ -103,6 +134,7 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 FROM builder as builder-pg_analytics
 
 WORKDIR /tmp/pg_analytics
+ENV PKGDIR=/tmp/pg_analytics/deb-pkg
 
 COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
@@ -112,7 +144,54 @@ COPY shared/ /tmp/shared
 RUN rustup update nightly && \
     rustup override set nightly && \
     cargo install --locked cargo-pgrx --version 0.11.2 --force && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
+
+WORKDIR $PKGDIR
+
+RUN mkdir -p DEBIAN && tee DEBIAN/control <<EOF
+Package: $(cargo get package.name | sed 's/_/-/g')
+Description: $(cargo get package.description)
+Maintainer: $DEBFULLNAME <$DEBEMAIL>
+Version: $(cargo get package.version)
+Architecture: $(dpkg --print-architecture)
+EOF
+
+RUN dpkg-deb --build $PKGDIR /tmp/pg-analytics.deb
+
+######################
+# pg_sparse
+######################
+FROM builder as builder-pg_sparse
+
+WORKDIR /tmp/pg_sparse
+COPY pg_sparse/ /tmp/pg_sparse
+
+ENV PKGDIR=/tmp/pg_sparse/deb-pkg
+ENV PKGNAME=pg-sparse
+
+RUN make clean && \
+    make USE_PGXS=1 OPTFLAGS="" -j && \
+    make USE_PGXS=1 DESTDIR="$PKGDIR" install -j
+
+WORKDIR $PKGDIR
+
+RUN mkdir -p DEBIAN && tee DEBIAN/control <<EOF
+Package: pg-sparse
+Maintainer: $DEBFULLNAME <$DEBEMAIL>
+Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../svector.control)
+Architecture: $(dpkg --print-architecture)
+EOF
+
+RUN dpkg-deb --build $PKGDIR /tmp/pg-sparse.deb
+
+######################
+# additional extensions
+######################
+
+FROM builder as builder-ext-misc
+
+WORKDIR /tmp
+RUN apt-get update && apt-get download "postgresql-${PG_VERSION_MAJOR}-pgvector"
 
 ###############################################
 # Third Stage: PostgreSQL
@@ -124,24 +203,19 @@ ARG TARGETARCH
 
 # Needed for publishing to ArtifactHub
 LABEL org.opencontainers.image.created="$BUILD_DATE"
-LABEL org.opencontainers.image.description="PostgreSQL for Search"
+LABEL org.opencontainers.image.description="PostgreSQL for search and analaytics"
 LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
 
-# Copy the ParadeDB extensions from their builder stages
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
-COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /usr/share/postgresql/${PG_VERSION_MAJOR}/extension/
-COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/
+# Copy third party extensions
+COPY --from=builder-ext-misc /tmp/*.deb /tmp/extensions-deb/
 
-# Install the ParadeDB pg_sparse extension directly, since it's not as modular as pgrx extensions
-# We set OPTFLAGS="" to disable the -march=native flag, which isn't supported on macOS ARM
-WORKDIR /tmp/pg_sparse
-COPY pg_sparse/ /tmp/pg_sparse
-RUN make clean && \
-    make USE_PGXS=1 OPTFLAGS="" && \
-    make install && \
-    rm -rf /tmp/pg_sparse
-WORKDIR /
+# Copy the ParadeDB extensions from their builder stages
+COPY --from=builder-pg_sparse /tmp/pg-sparse*.deb /tmp/extensions-deb/
+COPY --from=builder-pg_bm25 /tmp/pg-bm25*.deb /tmp/extensions-deb/
+COPY --from=builder-pg_analytics /tmp/pg-analytics*.deb /tmp/extensions-deb/
+
+RUN dpkg -i /tmp/extensions-deb/*.deb \
+    && rm -rf /tmp/extensions-deb
 
 # Copy entrypoint script, which will be handled by the official image initialization scipt
 COPY ./docker/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh

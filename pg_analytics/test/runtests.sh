@@ -124,6 +124,7 @@ cleanup() {
 # Register the cleanup function to run when the script exits
 trap cleanup EXIT
 
+
 function run_tests() {
   TMPDIR="$(mktemp -d)"
   export PGDATA="$TMPDIR"

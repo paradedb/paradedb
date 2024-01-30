@@ -1,31 +1,31 @@
-SELECT ARRAY[1,2,3]::svector;
-  array  
----------
- [1,2,3]
+SELECT ARRAY[0,1,2,3]::svector;
+   array   
+-----------
+ [0,1,2,3]
 (1 row)
 
-SELECT ARRAY[1.0,2.0,3.0]::svector;
-  array  
----------
- [1,2,3]
+SELECT ARRAY[0.0,1.0,2.0,3.0]::svector;
+   array   
+-----------
+ [0,1,2,3]
 (1 row)
 
-SELECT ARRAY[1,2,3]::float4[]::svector;
-  array  
----------
- [1,2,3]
+SELECT ARRAY[0,1,2,3]::float4[]::svector;
+   array   
+-----------
+ [0,1,2,3]
 (1 row)
 
-SELECT ARRAY[1,2,3]::float8[]::svector;
-  array  
----------
- [1,2,3]
+SELECT ARRAY[0,1,2,3]::float8[]::svector;
+   array   
+-----------
+ [0,1,2,3]
 (1 row)
 
-SELECT ARRAY[1,2,3]::numeric[]::svector;
-  array  
----------
- [1,2,3]
+SELECT ARRAY[0,1,2,3]::numeric[]::svector;
+   array   
+-----------
+ [0,1,2,3]
 (1 row)
 
 SELECT '{NULL}'::real[]::svector;

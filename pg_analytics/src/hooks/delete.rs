@@ -14,7 +14,7 @@ pub fn delete(
 
     #[cfg(feature = "pg12")]
     {
-        let mut current_cell = unsafe { (*rtable).head };
+        let current_cell = unsafe { (*rtable).head };
         rte = unsafe { (*current_cell).data.ptr_value as *mut pg_sys::RangeTblEntry };
     }
     #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]

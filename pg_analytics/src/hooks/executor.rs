@@ -41,13 +41,7 @@ pub fn executor_run(
         match query_desc.operation {
             pg_sys::CmdType_CMD_DELETE => {
                 let logical_plan = create_logical_plan(query_desc.clone())?;
-                let delete_metrics = delete(rtable, logical_plan)?;
-
-                if let Some(num_deleted) = delete_metrics.num_deleted_rows {
-                    (*(*query_desc.clone().into_pg()).estate).es_processed = num_deleted as u64;
-                }
-
-                Ok(())
+                delete(rtable, query_desc, logical_plan)
             }
             pg_sys::CmdType_CMD_SELECT => {
                 let logical_plan = create_logical_plan(query_desc.clone())?;

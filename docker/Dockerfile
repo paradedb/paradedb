@@ -235,5 +235,3 @@ RUN usermod -u 26 postgres \
     && chmod -R 700 /var/lib/postgresql
 
 USER 26
-
-FROM builder-pg_bm25 as pg_bm25

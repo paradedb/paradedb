@@ -5,10 +5,11 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
+use deltalake::datafusion::logical_expr::Expr;
 use deltalake::kernel::Action;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
-use deltalake::operations::delete::DeleteBuilder;
+use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::transaction::commit;
 use deltalake::operations::update::UpdateBuilder;
@@ -314,28 +315,36 @@ impl ParadeSchemaProvider {
         Ok(())
     }
 
-    pub async fn truncate(&self, table_name: &str) -> Result<(), ParadeError> {
+    pub async fn delete(
+        &self,
+        table_name: &str,
+        predicate: Option<Expr>,
+    ) -> Result<DeleteMetrics, ParadeError> {
         // Open the DeltaTable
         let delta_table = Self::get_delta_table(self, table_name).await?;
 
         // Truncate the table
-        let truncated_table = DeleteBuilder::new(
+        let mut delete_builder = DeleteBuilder::new(
             delta_table.log_store(),
             delta_table
                 .state
                 .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
-        )
-        .await?
-        .0;
+        );
 
-        // Commit the vacuumed table
+        if let Some(predicate) = predicate {
+            delete_builder = delete_builder.with_predicate(predicate);
+        }
+
+        let (new_table, metrics) = delete_builder.await?;
+
+        // Commit the table
         Self::register_table(
             self,
             table_name.to_string(),
-            Arc::new(truncated_table) as Arc<dyn TableProvider>,
+            Arc::new(new_table) as Arc<dyn TableProvider>,
         )?;
 
-        Ok(())
+        Ok(metrics)
     }
 
     // SchemaProvider stores immutable TableProviders, whereas many DeltaOps methods

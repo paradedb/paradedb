@@ -29,6 +29,7 @@ pub extern "C" fn _PG_init() {
     PARADE_LOGS_GLOBAL.init();
     PARADE_GUC.init();
 
+    #[allow(unknown_lints)]
     #[allow(static_mut_ref)]
     unsafe {
         register_hook(&mut PARADE_HOOK)

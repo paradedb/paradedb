@@ -66,6 +66,9 @@ pub enum NotSupported {
     #[error("Postgres type {0:?} not supported")]
     BuiltinPostgresType(pg_sys::BuiltinOid),
 
+    #[error("TEMP tables are not yet supported")]
+    TempTable,
+
     #[error("Invalid Postgres type not supported")]
     InvalidPostgresType,
 

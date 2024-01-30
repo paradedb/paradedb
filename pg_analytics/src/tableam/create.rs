@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
-use crate::errors::ParadeError;
+use crate::errors::{NotSupported, ParadeError};
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
@@ -44,13 +44,8 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 
     match persistence as u8 {
-        pg_sys::RELPERSISTENCE_UNLOGGED => Err(ParadeError::Generic(
-            "Unlogged tables are not yet supported".to_string(),
-        )),
-        pg_sys::RELPERSISTENCE_TEMP => Err(ParadeError::Generic(
-            "Temp tables are not yet supported".to_string(),
-        )),
-        pg_sys::RELPERSISTENCE_PERMANENT => {
+        pg_sys::RELPERSISTENCE_TEMP => Err(NotSupported::TempTable.into()),
+        _ => {
             let table_name = pg_relation.name().to_string();
             let schema_name = pg_relation.namespace().to_string();
             let schema_oid = pg_relation.namespace_oid();
@@ -83,6 +78,5 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
                 task::block_on(provider.create_table(&pg_relation))
             })
         }
-        _ => Err(ParadeError::Generic("Unknown persistence type".to_string())),
     }
 }

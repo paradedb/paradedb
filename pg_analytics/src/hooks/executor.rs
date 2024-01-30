@@ -14,7 +14,6 @@ use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::delete::delete;
 use crate::hooks::handler::DeltaHandler;
 use crate::hooks::select::select;
-use crate::hooks::update::update;
 
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
@@ -48,10 +47,7 @@ pub fn executor_run(
                 let logical_plan = create_logical_plan(query_desc.clone())?;
                 select(query_desc, logical_plan)
             }
-            pg_sys::CmdType_CMD_UPDATE => {
-                let logical_plan = create_logical_plan(query_desc.clone())?;
-                update(rtable, query_desc, logical_plan)
-            }
+            pg_sys::CmdType_CMD_UPDATE => Err(NotSupported::Update.into()),
             _ => {
                 prev_hook(query_desc, direction, count, execute_once);
                 Ok(())

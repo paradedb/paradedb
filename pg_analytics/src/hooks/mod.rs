@@ -7,7 +7,6 @@ mod process;
 mod rename;
 mod select;
 mod truncate;
-mod update;
 mod vacuum;
 
 use pgrx::hooks::PgHooks;

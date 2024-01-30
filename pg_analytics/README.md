@@ -60,13 +60,14 @@ Parquet files belonging to dropped data.
 
 - [x] `deltalake` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
 - [x] Vacuum and Parquet storage optimization
-- [x] `INSERT`, `TRUNCATE`, and `COPY`
+- [x] `INSERT`, `TRUNCATE`, `DELETE`, `COPY`
 
 ### Known Limitations
 
 As `pg_analytics` becomes production-ready, many of these will be resolved.
 
-- [ ] `UPDATE` and `DELETE`
+- [ ] `UPDATE` statements
+- [ ] Nested `DELETE` statements
 - [ ] Partitioning tables by column
 - [ ] Some Postgres types like arrays, JSON, time, and timestamp with time zone
 - [ ] User-defined functions, aggregations, or types

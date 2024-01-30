@@ -49,7 +49,7 @@
     {
       "name": "Blog",
       "icon": "rss",
-      "url": "blog"
+      "url": "https://blog.paradedb.com"
     }
   ],
   "navigation": [
@@ -101,15 +101,6 @@
     {
       "group": "Analytics",
       "pages": ["analytics/quickstart", "analytics/storage"]
-    },
-    {
-      "group": "Blog",
-      "pages": [
-        "blog/introducing_analytics",
-        "blog/introducing_sparse",
-        "blog/introducing_bm25",
-        "blog/introducing_paradedb"
-      ]
     },
     {
       "group": "Changelog",

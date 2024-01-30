@@ -42,26 +42,20 @@ pub fn executor_run(
             return Ok(());
         }
 
-        // TODO: Support UPDATE and DELETE
+        // TODO: Support UPDATE
         if query_desc.operation == pg_sys::CmdType_CMD_UPDATE {
             return Err(NotSupported::Update.into());
         }
 
-        if query_desc.operation == pg_sys::CmdType_CMD_DELETE {
-            return Err(NotSupported::Delete.into());
-        }
+        let is_select = query_desc.operation == pg_sys::CmdType_CMD_SELECT;
+        let is_delete = query_desc.operation == pg_sys::CmdType_CMD_DELETE;
 
         // Only use this hook for SELECT queries
         // INSERT/UPDATE/DELETE are handled by the table access method
-        if query_desc.operation != pg_sys::CmdType_CMD_SELECT
-            && query_desc.operation != pg_sys::CmdType_CMD_DELETE
-        {
+        if !is_select && !is_delete {
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }
-
-        let is_select = query_desc.operation == pg_sys::CmdType_CMD_SELECT;
-        let is_delete = query_desc.operation == pg_sys::CmdType_CMD_DELETE;
 
         // Parse the query into an AST
         let dialect = PostgreSqlDialect {};
@@ -83,7 +77,7 @@ pub fn executor_run(
             let rte = (*elements.offset(0)).ptr_value as *mut pg_sys::RangeTblEntry;
             let relation = pg_sys::RelationIdGetRelation((*rte).relid);
             let pg_relation = PgRelation::from_pg_owned(relation);
-            let schema_name = pgrelation.namespace();
+            let schema_name = pg_relation.namespace();
 
             DatafusionContext::with_session_context(|context| {
                 info!("{:?}", logical_plan);

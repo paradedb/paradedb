@@ -28,7 +28,7 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     DEBIAN_FRONTEND=noninteractive \
     TZ=UTC
 
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Install common dependencies to builder and runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -103,6 +103,8 @@ ENV DEBFULLNAME="ParadeDB"
 
 FROM builder as builder-pg_bm25
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
 COPY pg_bm25/ /tmp/pg_bm25
 COPY shared/ /tmp/shared
 
@@ -133,6 +135,8 @@ EOF
 ######################
 
 FROM builder as builder-pg_analytics
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 WORKDIR /tmp/pg_analytics
 ENV PKGDIR=/tmp/pg_analytics/deb-pkg
@@ -166,6 +170,8 @@ EOF
 # pg_sparse
 ######################
 FROM builder as builder-pg_sparse
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 WORKDIR /tmp/pg_sparse
 COPY pg_sparse/ /tmp/pg_sparse

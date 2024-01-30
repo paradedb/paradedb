@@ -82,16 +82,16 @@ RUN apt-fast update && apt-fast install -y --no-install-recommends \
     make
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && /root/.cargo/bin/rustup default ${RUST_VERSION}
+    && /root/.cargo/bin/rustup default "${RUST_VERSION}"
 
-RUN apt-get update && apt-get install -y postgresql-server-dev-${PG_VERSION_MAJOR} \
+RUN apt-get update && apt-get install --no-install-recommends -y "postgresql-server-dev-${PG_VERSION_MAJOR}" \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
 RUN cargo install cargo-get
-RUN cargo install --locked cargo-pgrx --version ${PGRX_VERSION} && \
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 # debmake needs these to be set
@@ -115,8 +115,7 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 
 WORKDIR $PKGDIR
 
-RUN mkdir -p DEBIAN \
-    && tee DEBIAN/control <<EOF
+RUN mkdir -p DEBIAN && tee DEBIAN/control <<EOF
 Package: $(cargo get package.name | sed 's/_/-/g')
 Description: $(cargo get package.description)
 Maintainer: $DEBFULLNAME <$DEBEMAIL>
@@ -147,8 +146,7 @@ RUN rustup update nightly && \
 
 WORKDIR $PKGDIR
 
-RUN mkdir -p DEBIAN \
-    && tee DEBIAN/control <<EOF
+RUN mkdir -p DEBIAN && tee DEBIAN/control <<EOF
 Package: $(cargo get package.name | sed 's/_/-/g')
 Description: $(cargo get package.description)
 Maintainer: $DEBFULLNAME <$DEBEMAIL>
@@ -175,8 +173,7 @@ RUN make clean && \
 
 WORKDIR $PKGDIR
 
-RUN mkdir -p DEBIAN \
-    && tee DEBIAN/control <<EOF
+RUN mkdir -p DEBIAN && tee DEBIAN/control <<EOF
 Package: pg-sparse
 Maintainer: $DEBFULLNAME <$DEBEMAIL>
 Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../svector.control)
@@ -192,7 +189,7 @@ RUN dpkg-deb --build $PKGDIR /tmp/pg-sparse.deb
 FROM builder as builder-ext-misc
 
 WORKDIR /tmp
-RUN apt-get update && apt-get download postgresql-${PG_VERSION_MAJOR}-pgvector
+RUN apt-get update && apt-get download "postgresql-${PG_VERSION_MAJOR}-pgvector"
 
 ###############################################
 # Third Stage: PostgreSQL

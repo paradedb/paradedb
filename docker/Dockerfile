@@ -57,7 +57,9 @@ RUN echo "deb [signed-by=/usr/share/keyrings/postgresql.asc] http://apt.postgres
 RUN curl -o /usr/share/keyrings/apt-fast.asc -s https://keyserver.ubuntu.com/pks/lookup?op=get\&search=0xA2166B8DE8BDC3367D1901C11EE2FF37CA8DA16B
 RUN echo "deb [signed-by=/usr/share/keyrings/apt-fast.asc] http://ppa.launchpad.net/apt-fast/stable/ubuntu jammy main" | tee /etc/apt/sources.list.d/apt-fast.list
 
-RUN apt-get update && apt-get install apt-fast -y
+RUN apt-get update \
+    && apt-get install --no-install-recommends apt-fast -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Rust (specific version) and other build dependencies
 RUN apt-fast update && apt-fast install -y --no-install-recommends \

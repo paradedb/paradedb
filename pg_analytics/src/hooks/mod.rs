@@ -1,9 +1,11 @@
 mod alter;
+mod delete;
 mod drop;
 mod executor;
 mod handler;
 mod process;
 mod rename;
+mod select;
 mod truncate;
 mod vacuum;
 

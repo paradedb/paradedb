@@ -1,24 +1,19 @@
-use async_std::task;
-use deltalake::datafusion::arrow::array::AsArray;
-
-use deltalake::datafusion::common::arrow::array::types::UInt64Type;
-use deltalake::datafusion::common::arrow::array::RecordBatch;
 use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::logical_expr::LogicalPlan;
-use deltalake::datafusion::sql::parser;
+
 use deltalake::datafusion::sql::parser::DFParser;
 use deltalake::datafusion::sql::planner::SqlToRel;
-use deltalake::datafusion::sql::sqlparser::ast;
+
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::context::{DatafusionContext, ParadeContextProvider};
-use crate::datafusion::datatype::{
-    DatafusionMapProducer, DatafusionTypeTranslator, PostgresTypeTranslator,
-};
-use crate::errors::{NotFound, NotSupported, ParadeError};
+use crate::datafusion::context::ParadeContextProvider;
+
+use crate::errors::{NotSupported, ParadeError};
+use crate::hooks::delete::delete;
 use crate::hooks::handler::DeltaHandler;
+use crate::hooks::select::select;
 
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
@@ -42,143 +37,42 @@ pub fn executor_run(
             return Ok(());
         }
 
-        // TODO: Support UPDATE
-        if query_desc.operation == pg_sys::CmdType_CMD_UPDATE {
-            return Err(NotSupported::Update.into());
-        }
+        // Execute SELECT, DELETE, UPDATE
+        match query_desc.operation {
+            pg_sys::CmdType_CMD_DELETE => {
+                let logical_plan = create_logical_plan(query_desc.clone())?;
+                let delete_metrics = delete(rtable, logical_plan)?;
 
-        let is_select = query_desc.operation == pg_sys::CmdType_CMD_SELECT;
-        let is_delete = query_desc.operation == pg_sys::CmdType_CMD_DELETE;
+                if let Some(num_deleted) = delete_metrics.num_deleted_rows {
+                    (*(*query_desc.clone().into_pg()).estate).es_processed = num_deleted as u64;
+                }
 
-        // Only use this hook for SELECT queries
-        // INSERT/UPDATE/DELETE are handled by the table access method
-        if !is_select && !is_delete {
-            prev_hook(query_desc, direction, count, execute_once);
-            return Ok(());
-        }
-
-        // Parse the query into an AST
-        let dialect = PostgreSqlDialect {};
-        let query = CStr::from_ptr(query_desc.sourceText).to_str()?;
-
-        let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
-        let statement = &ast[0];
-
-        // Convert the AST into a logical plan
-        let context_provider = ParadeContextProvider::new()?;
-        let sql_to_rel = SqlToRel::new(&context_provider);
-        let logical_plan = sql_to_rel.statement_to_plan(statement.clone())?;
-
-        if is_delete {
-            let elements = (*rtable).elements;
-            let rte = (*elements.offset(0)).ptr_value as *mut pg_sys::RangeTblEntry;
-            let relation = pg_sys::RelationIdGetRelation((*rte).relid);
-            let pg_relation = PgRelation::from_pg_owned(relation);
-            let table_name = pg_relation.name();
-            let schema_name = pg_relation.namespace();
-
-            let optimized_plan = DatafusionContext::with_session_context(|context| {
-                Ok(context.state().optimize(&logical_plan)?)
-            })?;
-
-            if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-                DatafusionContext::with_schema_provider(schema_name, |provider| {
-                    if let LogicalPlan::Filter(filter) = dml_statement.input.as_ref() {
-                        task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))
-                    } else {
-                        task::block_on(provider.delete(table_name, None))
-                    }
-                });
+                Ok(())
             }
-
-            Ok(())
-        } else {
-            // Execute the logical plan
-            let batches = DatafusionContext::with_session_context(|context| {
-                let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
-                Ok(task::block_on(dataframe.collect())?)
-            })?;
-
-            // This is for any node types that need to do additional processing on estate
-            let plan: *mut pg_sys::Plan = (*ps).planTree;
-            let node = plan as *mut pg_sys::Node;
-            if (*node).type_ == pg_sys::NodeTag::T_ModifyTable {
-                let num_updated = batches[0].column(0).as_primitive::<UInt64Type>().value(0);
-                (*(*query_desc.clone().into_pg()).estate).es_processed = num_updated;
+            pg_sys::CmdType_CMD_SELECT => {
+                let logical_plan = create_logical_plan(query_desc.clone())?;
+                select(query_desc, logical_plan)
             }
-
-            // Return result tuples
-            send_tuples_if_necessary(query_desc.into_pg(), batches)?;
-
-            Ok(())
+            pg_sys::CmdType_CMD_UPDATE => Err(NotSupported::Update.into()),
+            _ => {
+                prev_hook(query_desc, direction, count, execute_once);
+                Ok(())
+            }
         }
     }
 }
 
 #[inline]
-unsafe fn send_tuples_if_necessary(
-    query_desc: *mut pg_sys::QueryDesc,
-    batches: Vec<RecordBatch>,
-) -> Result<(), ParadeError> {
-    let send_tuples = (*query_desc).operation == pg_sys::CmdType_CMD_SELECT
-        || (*(*query_desc).plannedstmt).hasReturning;
+fn create_logical_plan(query_desc: PgBox<pg_sys::QueryDesc>) -> Result<LogicalPlan, ParadeError> {
+    let dialect = PostgreSqlDialect {};
+    let query = unsafe { CStr::from_ptr(query_desc.sourceText).to_str()? };
+    let ast = DFParser::parse_sql_with_dialect(query, &dialect)
+        .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
+    let statement = &ast[0];
 
-    if !send_tuples {
-        return Ok(());
-    }
+    // Convert the AST into a logical plan
+    let context_provider = ParadeContextProvider::new()?;
+    let sql_to_rel = SqlToRel::new(&context_provider);
 
-    let dest = (*query_desc).dest;
-    let startup = (*dest)
-        .rStartup
-        .ok_or(NotFound::Value("rStartup".to_string()))?;
-
-    startup(dest, (*query_desc).operation as i32, (*query_desc).tupDesc);
-
-    let tuple_desc = PgTupleDesc::from_pg_unchecked((*query_desc).tupDesc);
-    let receive = (*dest)
-        .receiveSlot
-        .ok_or(NotFound::Value("receive".to_string()))?;
-
-    for (row_number, recordbatch) in batches.iter().enumerate() {
-        // Convert the tuple_desc target types to the ones corresponding to the DataFusion column types
-        let tuple_attrs = (*(*query_desc).tupDesc).attrs.as_mut_ptr();
-        for (col_index, _attr) in tuple_desc.iter().enumerate() {
-            let dt = recordbatch.column(col_index).data_type();
-            let (typid, typmod) = PgOid::from_sql_data_type(dt.to_sql_data_type()?)?;
-            let tuple_attr = tuple_attrs.add(col_index);
-            (*tuple_attr).atttypid = typid.value();
-            (*tuple_attr).atttypmod = typmod;
-        }
-
-        for row_index in 0..recordbatch.num_rows() {
-            let tuple_table_slot =
-                pg_sys::MakeTupleTableSlot((*query_desc).tupDesc, &pg_sys::TTSOpsVirtual);
-
-            pg_sys::ExecStoreVirtualTuple(tuple_table_slot);
-
-            // Assign TID to the tuple table slot
-            let mut tid = pg_sys::ItemPointerData::default();
-            u64_to_item_pointer(row_number as u64, &mut tid);
-            (*tuple_table_slot).tts_tid = tid;
-
-            for (col_index, _attr) in tuple_desc.iter().enumerate() {
-                let column = recordbatch.column(col_index);
-                let dt = column.data_type();
-                let tts_value = (*tuple_table_slot).tts_values.add(col_index);
-                *tts_value =
-                    DatafusionMapProducer::index_datum(dt.to_sql_data_type()?, column, row_index)?
-            }
-
-            receive(tuple_table_slot, dest);
-            pg_sys::ExecDropSingleTupleTableSlot(tuple_table_slot);
-        }
-    }
-
-    let shutdown = (*dest)
-        .rShutdown
-        .ok_or(NotFound::Value("rShutdown".to_string()))?;
-    shutdown(dest);
-
-    Ok(())
+    Ok(sql_to_rel.statement_to_plan(statement.clone())?)
 }

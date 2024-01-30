@@ -9,7 +9,7 @@ use deltalake::datafusion::logical_expr::Expr;
 use deltalake::kernel::Action;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
-use deltalake::operations::delete::DeleteBuilder;
+use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::transaction::commit;
 use deltalake::operations::update::UpdateBuilder;
@@ -319,7 +319,7 @@ impl ParadeSchemaProvider {
         &self,
         table_name: &str,
         predicate: Option<Expr>,
-    ) -> Result<(), ParadeError> {
+    ) -> Result<DeleteMetrics, ParadeError> {
         // Open the DeltaTable
         let delta_table = Self::get_delta_table(self, table_name).await?;
 
@@ -335,7 +335,7 @@ impl ParadeSchemaProvider {
             delete_builder = delete_builder.with_predicate(predicate);
         }
 
-        let new_table = delete_builder.await?.0;
+        let (new_table, metrics) = delete_builder.await?;
 
         // Commit the table
         Self::register_table(
@@ -344,7 +344,7 @@ impl ParadeSchemaProvider {
             Arc::new(new_table) as Arc<dyn TableProvider>,
         )?;
 
-        Ok(())
+        Ok(metrics)
     }
 
     // SchemaProvider stores immutable TableProviders, whereas many DeltaOps methods

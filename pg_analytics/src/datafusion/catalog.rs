@@ -7,7 +7,7 @@ use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr,
 
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
-use crate::errors::ParadeError;
+use crate::errors::{NotFound, ParadeError};
 
 pub static PARADE_CATALOG: &str = "datafusion";
 
@@ -36,9 +36,9 @@ impl ParadeCatalog {
             if path.is_dir() {
                 let schema_oid = path
                     .file_name()
-                    .ok_or(ParadeError::NoneError(type_name::<OsStr>().to_string()))?
+                    .ok_or(NotFound::Value(type_name::<OsStr>().to_string()))?
                     .to_str()
-                    .ok_or(ParadeError::NoneError(type_name::<str>().to_string()))?
+                    .ok_or(NotFound::Value(type_name::<str>().to_string()))?
                     .parse::<u32>()?;
 
                 let pg_oid = pg_sys::Oid::from(schema_oid);

@@ -1,7 +1,7 @@
 use pgrx::*;
 use std::ffi::{c_char, CString};
 
-use crate::errors::ParadeError;
+use crate::errors::{NotFound, NotSupported, ParadeError};
 
 static DELTALAKE_HANDLER: &str = "deltalake";
 
@@ -60,9 +60,7 @@ impl DeltaHandler {
         }
 
         if using_col && using_noncol {
-            return Err(ParadeError::Generic(
-                "Heap and deltalake tables in the same query is not yet supported".to_string(),
-            ));
+            return Err(NotSupported::MixedTables.into());
         }
 
         Ok(using_col)
@@ -92,7 +90,7 @@ impl DeltaHandler {
         let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
 
         if deltalake_oid == pg_sys::InvalidOid {
-            return Err(ParadeError::InvalidHandlerOid);
+            return Err(NotFound::Handler.into());
         }
 
         let heap_tuple_data = pg_sys::SearchSysCache1(

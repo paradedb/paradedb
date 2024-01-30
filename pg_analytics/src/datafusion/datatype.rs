@@ -16,7 +16,7 @@ use pgrx::*;
 use std::any::type_name;
 use std::sync::Arc;
 
-use crate::errors::ParadeError;
+use crate::errors::{NotFound, NotSupported, ParadeError};
 
 pub trait DatafusionTypeTranslator {
     fn to_sql_data_type(&self) -> Result<SQLDataType, ParadeError>;
@@ -29,32 +29,24 @@ impl DatafusionTypeTranslator for DataType {
         let result = match self {
             DataType::Boolean => SQLDataType::Boolean,
             DataType::Utf8 => SQLDataType::Text,
-            DataType::Binary => SQLDataType::Binary(None),
             DataType::Int16 => SQLDataType::Int2(None),
             DataType::Int32 => SQLDataType::Int4(None),
             DataType::Int64 => SQLDataType::Int8(None),
             DataType::UInt32 => SQLDataType::UnsignedInt4(None),
             DataType::Float32 => SQLDataType::Float4,
             DataType::Float64 => SQLDataType::Float8,
-            DataType::Decimal128(precision /*u8*/, scale /*i8*/) => SQLDataType::Numeric(
+            DataType::Decimal128(precision, scale) => SQLDataType::Numeric(
                 ExactNumberInfo::PrecisionAndScale(*precision as u64, *scale as u64),
             ),
-            DataType::Time64(TimeUnit::Microsecond) => {
-                return Err(ParadeError::NotSupported("time not supported".to_string()))
-            }
             DataType::Timestamp(TimeUnit::Microsecond, timestamp) => SQLDataType::Timestamp(
                 None,
                 match timestamp {
                     None => TimezoneInfo::WithoutTimeZone,
-                    Some(_) => {
-                        return Err(ParadeError::NotSupported(
-                            "timestamp with time zone".to_string(),
-                        ))
-                    }
+                    Some(_) => return Err(NotSupported::DataType(self.clone()).into()),
                 },
             ),
             DataType::Date32 => SQLDataType::Date,
-            _ => return Err(ParadeError::DataTypeNotSupported(self.to_string())),
+            _ => return Err(NotSupported::DataType(self.clone()).into()),
         };
 
         Ok(result)
@@ -64,17 +56,13 @@ impl DatafusionTypeTranslator for DataType {
         let result = match sql_data_type {
             SQLDataType::Boolean => DataType::Boolean,
             SQLDataType::Text => DataType::Utf8,
-            SQLDataType::Binary(_) => DataType::Binary,
             SQLDataType::Int2(_) => DataType::Int16,
             SQLDataType::Int4(_) => DataType::Int32,
             SQLDataType::Int8(_) => DataType::Int64,
             SQLDataType::UnsignedInt4(_) => DataType::UInt32,
             SQLDataType::Float4 => DataType::Float32,
             SQLDataType::Float8 => DataType::Float64,
-            SQLDataType::Numeric(ExactNumberInfo::PrecisionAndScale(
-                precision, /*u64*/
-                scale,     /*u64*/
-            )) => {
+            SQLDataType::Numeric(ExactNumberInfo::PrecisionAndScale(precision, scale)) => {
                 let casted_precision = precision as u8;
                 let casted_scale = scale as i8;
 
@@ -93,17 +81,11 @@ impl DatafusionTypeTranslator for DataType {
 
                 DataType::Decimal128(casted_precision, casted_scale)
             }
-            SQLDataType::Time(_, _) => return Err(ParadeError::NotSupported("time".to_string())),
             SQLDataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => {
                 DataType::Timestamp(TimeUnit::Microsecond, None)
             }
-            SQLDataType::Timestamp(_, TimezoneInfo::WithTimeZone) => {
-                return Err(ParadeError::NotSupported(
-                    "timestamp with time zone".to_string(),
-                ))
-            }
             SQLDataType::Date => DataType::Date32,
-            _ => return Err(ParadeError::DataTypeNotSupported(sql_data_type.to_string())),
+            _ => return Err(NotSupported::SQLDataType(sql_data_type).into()),
         };
 
         Ok(result)
@@ -121,48 +103,18 @@ impl PostgresTypeTranslator for PgOid {
         let result = match self {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::BOOLOID => SQLDataType::Boolean,
-                PgBuiltInOids::BYTEAOID => SQLDataType::Binary(None),
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID | PgBuiltInOids::BPCHAROID => {
                     SQLDataType::Text
                 }
                 PgBuiltInOids::INT2OID => SQLDataType::Int2(None),
                 PgBuiltInOids::INT4OID => SQLDataType::Int4(None),
                 PgBuiltInOids::INT8OID => SQLDataType::Int8(None),
-                PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => SQLDataType::UnsignedInt4(None),
                 PgBuiltInOids::FLOAT4OID => SQLDataType::Float4,
                 PgBuiltInOids::FLOAT8OID => SQLDataType::Float8,
-                PgBuiltInOids::TIMEOID => {
-                    return Err(ParadeError::NotSupported("time".to_string()))
-                }
                 PgBuiltInOids::TIMESTAMPOID => {
                     SQLDataType::Timestamp(None, TimezoneInfo::WithoutTimeZone)
                 }
                 PgBuiltInOids::DATEOID => SQLDataType::Date,
-                PgBuiltInOids::TIMETZOID => {
-                    return Err(ParadeError::NotSupported("time with time zone".to_string()))
-                }
-                PgBuiltInOids::TIMESTAMPTZOID => {
-                    return Err(ParadeError::NotSupported(
-                        "timestamp with time zone".to_string(),
-                    ))
-                }
-                PgBuiltInOids::JSONOID => {
-                    return Err(ParadeError::NotSupported("json".to_string()))
-                }
-                PgBuiltInOids::JSONBOID => {
-                    return Err(ParadeError::NotSupported("jsonb".to_string()))
-                }
-                PgBuiltInOids::BOXOID => return Err(ParadeError::NotSupported("box".to_string())),
-                PgBuiltInOids::POINTOID => {
-                    return Err(ParadeError::NotSupported("point".to_string()))
-                }
-                PgBuiltInOids::TIDOID => return Err(ParadeError::NotSupported("tid".to_string())),
-                PgBuiltInOids::CSTRINGOID => {
-                    return Err(ParadeError::NotSupported("cstring".to_string()))
-                }
-                PgBuiltInOids::INETOID => {
-                    return Err(ParadeError::NotSupported("inet".to_string()))
-                }
                 PgBuiltInOids::NUMERICOID => {
                     let scale: i32 = (((typmod - VARHDRSZ as i32) & 0x7ff) ^ 1024) - 1024;
                     let precision: i32 = ((typmod - VARHDRSZ as i32) >> 16) & 0xffff;
@@ -185,36 +137,10 @@ impl PostgresTypeTranslator for PgOid {
                         scale as u64,
                     ))
                 }
-                PgBuiltInOids::VOIDOID => {
-                    return Err(ParadeError::NotSupported("void".to_string()))
-                }
-                PgBuiltInOids::INT4RANGEOID => {
-                    return Err(ParadeError::NotSupported("int4 range".to_string()))
-                }
-                PgBuiltInOids::INT8RANGEOID => {
-                    return Err(ParadeError::NotSupported("int8 range".to_string()))
-                }
-                PgBuiltInOids::NUMRANGEOID => {
-                    return Err(ParadeError::NotSupported("numeric range".to_string()))
-                }
-                PgBuiltInOids::DATERANGEOID => {
-                    return Err(ParadeError::NotSupported("date range".to_string()))
-                }
-                PgBuiltInOids::TSRANGEOID => {
-                    return Err(ParadeError::NotSupported("timestamp range".to_string()))
-                }
-                PgBuiltInOids::TSTZRANGEOID => {
-                    return Err(ParadeError::NotSupported(
-                        "timestamp with time zone range".to_string(),
-                    ))
-                }
-                PgBuiltInOids::UUIDOID => SQLDataType::Uuid,
-                _ => return Err(ParadeError::DataTypeNotSupported("unknown".to_string())),
+                _ => return Err(NotSupported::BuiltinPostgresType(*builtin).into()),
             },
-            PgOid::Invalid => return Err(ParadeError::DataTypeNotSupported("invalid".to_string())),
-            PgOid::Custom(_) => {
-                return Err(ParadeError::DataTypeNotSupported("custom".to_string()))
-            }
+            PgOid::Invalid => return Err(NotSupported::InvalidPostgresType.into()),
+            PgOid::Custom(_) => return Err(NotSupported::CustomPostgresType.into()),
         };
 
         Ok(result)
@@ -224,25 +150,17 @@ impl PostgresTypeTranslator for PgOid {
         let oid = match sql_data_type {
             SQLDataType::Boolean => PgBuiltInOids::BOOLOID,
             SQLDataType::Text => PgBuiltInOids::TEXTOID,
-            SQLDataType::Binary(_) => PgBuiltInOids::BYTEAOID,
             SQLDataType::Int2(_) => PgBuiltInOids::INT2OID,
             SQLDataType::Int4(_) => PgBuiltInOids::INT4OID,
             SQLDataType::Int8(_) => PgBuiltInOids::INT8OID,
-            SQLDataType::UnsignedInt4(_) => PgBuiltInOids::OIDOID,
             SQLDataType::Float4 => PgBuiltInOids::FLOAT4OID,
             SQLDataType::Float8 => PgBuiltInOids::FLOAT8OID,
             SQLDataType::Numeric(ExactNumberInfo::PrecisionAndScale(_precision, _scale)) => {
                 PgBuiltInOids::NUMERICOID
             }
-            SQLDataType::Time(_, _) => return Err(ParadeError::NotSupported("time".to_string())),
             SQLDataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => PgBuiltInOids::TIMESTAMPOID,
             SQLDataType::Date => PgBuiltInOids::DATEOID,
-            SQLDataType::Timestamp(_, TimezoneInfo::WithTimeZone) => {
-                return Err(ParadeError::NotSupported(
-                    "timestamp with time zone".to_string(),
-                ))
-            }
-            _ => return Err(ParadeError::DataTypeNotSupported(sql_data_type.to_string())),
+            _ => return Err(NotSupported::SQLDataType(sql_data_type).into()),
         };
 
         let typmod: i32 = match sql_data_type {
@@ -270,9 +188,12 @@ fn scale_anynumeric(
     let original_anynumeric: AnyNumeric = unsafe {
         direct_function_call(
             pg_sys::numeric,
-            &[anynumeric.into_datum(), original_typmod.into_datum()],
+            &[
+                anynumeric.clone().into_datum(),
+                original_typmod.into_datum(),
+            ],
         )
-        .ok_or_else(|| ParadeError::Generic("numeric direct function call failed".to_string()))?
+        .ok_or(NotFound::Datum(anynumeric.to_string()))?
     };
 
     // Scale the anynumeric up or down
@@ -295,7 +216,7 @@ fn scale_anynumeric(
             pg_sys::numeric,
             &[scaled_anynumeric.into_datum(), target_typmod.into_datum()],
         )
-        .ok_or_else(|| ParadeError::Generic("numeric direct function call failed".to_string()))
+        .ok_or(NotFound::Datum(anynumeric.to_string()).into())
     }
 }
 
@@ -436,7 +357,7 @@ impl DatafusionMapProducer {
                     } else {
                         let numeric = unsafe {
                             AnyNumeric::from_datum(*datum, false)
-                                .ok_or(ParadeError::DatumNotFound("numeric".to_string()))?
+                                .ok_or(NotFound::Datum("numeric".to_string()))?
                         };
                         let numeric_with_scale =
                             scale_anynumeric(numeric, precision as i32, scale as i32, true)?;
@@ -493,9 +414,7 @@ impl DatafusionMapProducer {
                 }
                 Ok(Arc::new(Date32Array::from(vec)))
             }
-            _ => Err(ParadeError::DataTypeNotSupported(
-                datafusion_type.to_string(),
-            )),
+            _ => Err(NotSupported::DataType(datafusion_type).into()),
         }
     }
 
@@ -510,17 +429,13 @@ impl DatafusionMapProducer {
             DataType::Boolean => array
                 .as_any()
                 .downcast_ref::<BooleanArray>()
-                .ok_or(ParadeError::NoneError(
-                    type_name::<BooleanArray>().to_string(),
-                ))?
+                .ok_or(NotFound::Value(type_name::<BooleanArray>().to_string()))?
                 .value(index)
                 .into_datum(),
             DataType::Utf8 => array
                 .as_any()
                 .downcast_ref::<StringArray>()
-                .ok_or(ParadeError::NoneError(
-                    type_name::<StringArray>().to_string(),
-                ))?
+                .ok_or(NotFound::Value(type_name::<StringArray>().to_string()))?
                 .value(index)
                 .into_datum(),
             DataType::Int16 => array.as_primitive::<Int16Type>().value(index).into_datum(),
@@ -541,25 +456,13 @@ impl DatafusionMapProducer {
                 let ret = scale_anynumeric(numeric, precision as i32, scale as i32, false)?;
                 ret.into_datum()
             }
-            DataType::Time64(TimeUnit::Microsecond) => {
-                return Err(ParadeError::NotSupported("time".to_string()));
-            }
             DataType::Timestamp(TimeUnit::Microsecond, None) => array
                 .as_primitive::<TimestampMicrosecondType>()
                 .value(index)
                 .into_datum(),
-            DataType::Timestamp(TimeUnit::Microsecond, Some(_)) => {
-                return Err(ParadeError::NotSupported(
-                    "timestamp with time zone".to_string(),
-                ));
-            }
             DataType::Date32 => array.as_primitive::<Date32Type>().value(index).into_datum(),
-            _ => {
-                return Err(ParadeError::DataTypeNotSupported(
-                    datafusion_type.to_string(),
-                ))
-            }
+            _ => return Err(NotSupported::DataType(datafusion_type).into()),
         }
-        .ok_or(ParadeError::DatumNotFound(datafusion_type.to_string()))
+        .ok_or(NotFound::Datum(datafusion_type.to_string()).into())
     }
 }

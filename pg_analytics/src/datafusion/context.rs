@@ -17,7 +17,7 @@ use std::sync::Arc;
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList, PARADE_CATALOG};
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
-use crate::errors::ParadeError;
+use crate::errors::{NotFound, ParadeError};
 
 lazy_static! {
     pub static ref CONTEXT: RwLock<Option<SessionContext>> = RwLock::new(None);
@@ -57,14 +57,14 @@ impl<'a> DatafusionContext {
 
         let schema_provider = context
             .catalog(PARADE_CATALOG)
-            .ok_or(ParadeError::CatalogNotFound(PARADE_CATALOG.to_string()))?
+            .ok_or(NotFound::Catalog(PARADE_CATALOG.to_string()))?
             .schema(schema_name)
-            .ok_or(ParadeError::SchemaNotFound(schema_name.to_string()))?;
+            .ok_or(NotFound::Schema(schema_name.to_string()))?;
 
         let parade_provider = schema_provider
             .as_any()
             .downcast_ref::<ParadeSchemaProvider>()
-            .ok_or(ParadeError::NoneError(
+            .ok_or(NotFound::Value(
                 type_name::<ParadeSchemaProvider>().to_string(),
             ))?;
 
@@ -86,14 +86,12 @@ impl<'a> DatafusionContext {
 
         let catalog_provider = context
             .catalog(PARADE_CATALOG)
-            .ok_or(ParadeError::CatalogNotFound(PARADE_CATALOG.to_string()))?;
+            .ok_or(NotFound::Catalog(PARADE_CATALOG.to_string()))?;
 
         let parade_catalog = catalog_provider
             .as_any()
             .downcast_ref::<ParadeCatalog>()
-            .ok_or(ParadeError::NoneError(
-                type_name::<ParadeCatalog>().to_string(),
-            ))?;
+            .ok_or(NotFound::Value(type_name::<ParadeCatalog>().to_string()))?;
 
         f(parade_catalog)
     }
@@ -157,7 +155,7 @@ impl ContextProvider for ParadeContextProvider {
 
         DatafusionContext::with_schema_provider(schema_name, |provider| {
             let table = task::block_on(provider.table(table_name))
-                .ok_or(ParadeError::TableNotFound(table_name.to_string()))?;
+                .ok_or(NotFound::Table(table_name.to_string()))?;
 
             Ok(provider_as_source(table))
         })

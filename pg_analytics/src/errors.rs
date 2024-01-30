@@ -86,6 +86,9 @@ pub enum NotSupported {
 
     #[error("DELETE is not yet supported for deltalake tables")]
     Delete,
+
+    #[error("Heap and deltalake tables in the same query is not yet supported")]
+    MixedTables,
 }
 
 impl From<&str> for ParadeError {

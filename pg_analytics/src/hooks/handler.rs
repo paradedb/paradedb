@@ -1,7 +1,7 @@
 use pgrx::*;
 use std::ffi::{c_char, CString};
 
-use crate::errors::{NotFound, ParadeError};
+use crate::errors::{NotFound, NotSupported, ParadeError};
 
 static DELTALAKE_HANDLER: &str = "deltalake";
 
@@ -60,9 +60,7 @@ impl DeltaHandler {
         }
 
         if using_col && using_noncol {
-            return Err(ParadeError::Generic(
-                "Heap and deltalake tables in the same query is not yet supported".to_string(),
-            ));
+            return Err(NotSupported::MixedTables.into());
         }
 
         Ok(using_col)

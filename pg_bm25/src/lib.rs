@@ -10,7 +10,7 @@ mod writer;
 #[cfg(test)]
 pub mod fixtures;
 
-use crate::globals::{PARADE_LOGS_GLOBAL, WRITER_STATUS};
+use crate::globals::{PARADE_LOGS_GLOBAL, WRITER_GLOBAL};
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
 use shared::telemetry;
@@ -31,7 +31,7 @@ pub unsafe extern "C" fn _PG_init() {
     PARADE_LOGS_GLOBAL.init();
 
     // Set up the writer bgworker shared state.
-    pg_shmem_init!(WRITER_STATUS);
+    pg_shmem_init!(WRITER_GLOBAL);
 
     // We call this in a helper function to the bgworker initialization
     // can be used in test suites.
@@ -87,7 +87,7 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
     // We also acquire its lock with `.exclusive` inside an enclosing block to ensure that
     // it is dropped after we are done with it.
     {
-        WRITER_STATUS.exclusive().set_addr(server.addr());
+        WRITER_GLOBAL.exclusive().set_addr(server.addr());
     }
 
     // Handle an edge case where Postgres has been shut down very quickly. In this case, the
@@ -117,7 +117,7 @@ pub extern "C" fn pg_bm25_shutdown_worker(_arg: pg_sys::Datum) {
 
     // We've received SIGTERM. Send a shutdown message to the HTTP server.
     let mut writer_client: writer::Client<writer::WriterRequest> =
-        writer::Client::new(WRITER_STATUS.share().addr());
+        writer::Client::new(WRITER_GLOBAL.share().addr());
 
     writer_client
         .stop_server()

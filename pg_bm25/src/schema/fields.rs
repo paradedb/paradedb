@@ -62,11 +62,11 @@ impl SearchTokenizer {
                 max_gram,
                 prefix_only,
             } => format!("ngram_mingram:{min_gram}_maxgram:{max_gram}_prefixonly:{prefix_only}"),
-            ParadeTokenizer::ChineseLindera => "chinese_lindera".into(),
-            ParadeTokenizer::JapaneseLindera => "japanese_lindera".into(),
-            ParadeTokenizer::KoreanLindera => "korean_lindera".into(),
+            SearchTokenizer::ChineseLindera => "chinese_lindera".into(),
+            SearchTokenizer::JapaneseLindera => "japanese_lindera".into(),
+            SearchTokenizer::KoreanLindera => "korean_lindera".into(),
             #[cfg(feature = "icu")]
-            ParadeTokenizer::ICUTokenizer => "icu".into(),
+            SearchTokenizer::ICUTokenizer => "icu".into(),
         }
     }
 }

@@ -1,6 +1,8 @@
+use crate::globals::WRITER_GLOBAL;
+
 use super::{transfer::WriterTransferProducer, ServerRequest, WriterClient};
 use serde::Serialize;
-use std::{marker::PhantomData, net::SocketAddr, path::Path, panic};
+use std::{marker::PhantomData, net::SocketAddr, panic, path::Path};
 use thiserror::Error;
 
 pub struct Client<T: Serialize> {
@@ -40,8 +42,8 @@ impl<T: Serialize> Client<T> {
         }
     }
 
-    pub fn from_writer_addr() -> Self {
-        let lock = panic::catch_unwind(|| WRITER_STATUS.share());
+    pub fn from_global() -> Self {
+        let lock = panic::catch_unwind(|| WRITER_GLOBAL.share());
 
         let addr = match lock {
             Ok(lock) => lock.addr(),

@@ -207,6 +207,42 @@ FROM builder as builder-ext-misc
 WORKDIR /tmp
 RUN apt-get update && apt-get download "postgresql-${PG_VERSION_MAJOR}-pgvector"
 
+######################
+# pgvector
+######################
+
+FROM builder as builder-pgvector
+ENV PKGDIR=/tmp/pgvector/deb-pkg
+ENV PKGNAME=pgvector
+
+RUN <<EOF
+cd /tmp
+git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git
+
+export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare"
+
+cd /tmp/pgvector
+echo "trusted = true" >> vector.control
+make clean -j
+make USE_PGXS=1 OPTFLAGS="" -j
+make USE_PGXS=1 DESTDIR="$PKGDIR" install -j
+EOF
+
+WORKDIR $PKGDIR
+
+RUN <<EOF
+mkdir -p DEBIAN
+
+cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
+    Package: pgvector
+    Maintainer: "Andrew Kane <andrew@ankane.org>"
+    Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../vector.control)
+    Architecture: $(dpkg --print-architecture)
+EOT
+
+dpkg-deb --build $PKGDIR /tmp/pgvector.deb
+EOF
+
 ###############################################
 # Third Stage: PostgreSQL
 ###############################################
@@ -221,7 +257,10 @@ LABEL org.opencontainers.image.description="PostgreSQL for search and analaytics
 LABEL io.artifacthub.package.readme-url="https://github.com/paradedb/paradedb/blob/main/README.md"
 
 # Copy third party extensions
-COPY --from=builder-ext-misc /tmp/*.deb /tmp/extensions-deb/
+#COPY --from=builder-ext-misc /tmp/*.deb /tmp/extensions-deb/
+
+# Copy manually built `pgvector` extension
+COPY --from=builder-pgvector /tmp/pgvector*.deb /tmp/extensions-deb/
 
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_sparse /tmp/pg-sparse*.deb /tmp/extensions-deb/

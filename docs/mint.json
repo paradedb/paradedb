@@ -16,10 +16,32 @@
     "default": "dark",
     "isHidden": true
   },
+  "redirects": [
+    {
+      "source": "/blog/introducing_analytics",
+      "destination": "https://blog.paradedb.com/pages/introducing_analytics"
+    },
+    {
+      "source": "/blog/introducing_sparse",
+      "destination": "https://blog.paradedb.com/pages/introducing_sparse"
+    },
+    {
+      "source": "/blog/introducing_bm25",
+      "destination": "https://blog.paradedb.com/pages/introducing_bm25"
+    },
+    {
+      "source": "/blog/introducing_paradedb",
+      "destination": "https://blog.paradedb.com/pages/introducing_paradedb"
+    }
+  ],
   "topbarLinks": [
     {
       "name": "Community",
       "url": "https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ"
+    },
+    {
+      "name": "Blog",
+      "url": "https://blog.paradedb.com"
     }
   ],
   "topbarCtaButton": {
@@ -45,11 +67,6 @@
       "name": "Changelog",
       "icon": "clock",
       "url": "changelog"
-    },
-    {
-      "name": "Blog",
-      "icon": "rss",
-      "url": "https://blog.paradedb.com"
     }
   ],
   "navigation": [

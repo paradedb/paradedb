@@ -1,10 +1,7 @@
 use serde::*;
-use tantivy::{
-    schema::*,
-    tokenizer::{
-        AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter,
-        SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
-    },
+use tantivy::tokenizer::{
+    AsciiFoldingFilter, Language, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter,
+    SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
 };
 
 use crate::tokenizers::code::CodeTokenizer;
@@ -15,12 +12,12 @@ use crate::tokenizers::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer}
 
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 // Tokenizers
-// Serde will pick a ParadeTokenizer variant based on the value of the
+// Serde will pick a SearchTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.
 // The "type" field will not be present on the deserialized value.
 #[derive(Default, Copy, Clone, Deserialize, Debug, Serialize, PartialEq, Eq)]
 #[serde(tag = "type")]
-pub enum ParadeTokenizer {
+pub enum SearchTokenizer {
     #[serde(rename = "default")]
     #[default]
     Default,
@@ -51,16 +48,16 @@ pub enum ParadeTokenizer {
     ICUTokenizer,
 }
 
-impl ParadeTokenizer {
+impl SearchTokenizer {
     pub fn name(&self) -> String {
         match self {
-            ParadeTokenizer::Default => "default".into(),
-            ParadeTokenizer::Raw => "raw".into(),
-            ParadeTokenizer::EnStem => "en_stem".into(),
-            ParadeTokenizer::WhiteSpace => "whitespace".into(),
-            ParadeTokenizer::ChineseCompatible => "chinese_compatible".into(),
-            ParadeTokenizer::SourceCode => "source_code".into(),
-            ParadeTokenizer::Ngram {
+            SearchTokenizer::Default => "default".into(),
+            SearchTokenizer::Raw => "raw".into(),
+            SearchTokenizer::EnStem => "en_stem".into(),
+            SearchTokenizer::WhiteSpace => "whitespace".into(),
+            SearchTokenizer::ChineseCompatible => "chinese_compatible".into(),
+            SearchTokenizer::SourceCode => "source_code".into(),
+            SearchTokenizer::Ngram {
                 min_gram,
                 max_gram,
                 prefix_only,
@@ -74,35 +71,35 @@ impl ParadeTokenizer {
     }
 }
 
-impl From<ParadeTokenizer> for TextAnalyzer {
-    fn from(val: ParadeTokenizer) -> Self {
+impl From<SearchTokenizer> for TextAnalyzer {
+    fn from(val: SearchTokenizer) -> Self {
         match val {
-            ParadeTokenizer::Default => TextAnalyzer::builder(SimpleTokenizer::default())
+            SearchTokenizer::Default => TextAnalyzer::builder(SimpleTokenizer::default())
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)
                 .build(),
-            ParadeTokenizer::WhiteSpace => TextAnalyzer::builder(WhitespaceTokenizer::default())
+            SearchTokenizer::WhiteSpace => TextAnalyzer::builder(WhitespaceTokenizer::default())
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)
                 .build(),
-            ParadeTokenizer::EnStem => TextAnalyzer::builder(SimpleTokenizer::default())
+            SearchTokenizer::EnStem => TextAnalyzer::builder(SimpleTokenizer::default())
                 .filter(RemoveLongFilter::limit(40))
                 .filter(LowerCaser)
                 .filter(Stemmer::new(Language::English))
                 .build(),
-            ParadeTokenizer::Raw => TextAnalyzer::builder(RawTokenizer::default())
+            SearchTokenizer::Raw => TextAnalyzer::builder(RawTokenizer::default())
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .build(),
-            ParadeTokenizer::ChineseCompatible => TextAnalyzer::builder(ChineseTokenizer)
+            SearchTokenizer::ChineseCompatible => TextAnalyzer::builder(ChineseTokenizer)
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)
                 .build(),
-            ParadeTokenizer::SourceCode => TextAnalyzer::builder(CodeTokenizer::default())
+            SearchTokenizer::SourceCode => TextAnalyzer::builder(CodeTokenizer::default())
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)
                 .filter(AsciiFoldingFilter)
                 .build(),
-            ParadeTokenizer::Ngram {
+            SearchTokenizer::Ngram {
                 min_gram,
                 max_gram,
                 prefix_only,
@@ -112,19 +109,19 @@ impl From<ParadeTokenizer> for TextAnalyzer {
                     .filter(LowerCaser)
                     .build()
             }
-            ParadeTokenizer::ChineseLindera => {
+            SearchTokenizer::ChineseLindera => {
                 TextAnalyzer::builder(LinderaChineseTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
                     .build()
             }
-            ParadeTokenizer::JapaneseLindera => {
+            SearchTokenizer::JapaneseLindera => {
                 TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
                     .build()
             }
-            ParadeTokenizer::KoreanLindera => {
+            SearchTokenizer::KoreanLindera => {
                 TextAnalyzer::builder(LinderaKoreanTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
@@ -141,7 +138,7 @@ impl From<ParadeTokenizer> for TextAnalyzer {
 
 // Normalizers for fast fields
 #[derive(Default, Copy, Clone, Deserialize, Serialize, Debug, PartialEq, Eq)]
-pub enum ParadeNormalizer {
+pub enum SearchNormalizer {
     #[serde(rename = "raw")]
     #[default]
     Raw,
@@ -149,265 +146,29 @@ pub enum ParadeNormalizer {
     Lowercase,
 }
 
-impl ParadeNormalizer {
+impl SearchNormalizer {
     pub fn name(&self) -> &str {
         match self {
-            ParadeNormalizer::Raw => "raw",
-            ParadeNormalizer::Lowercase => "lowercase",
+            SearchNormalizer::Raw => "raw",
+            SearchNormalizer::Lowercase => "lowercase",
         }
     }
-}
-
-// Index record schema
-#[allow(unused)]
-#[derive(utoipa::ToSchema)]
-pub enum IndexRecordOptionSchema {
-    #[schema(rename = "basic")]
-    Basic,
-    #[schema(rename = "freq")]
-    WithFreqs,
-    #[schema(rename = "position")]
-    WithFreqsAndPositions,
-}
-
-pub trait ToString {
-    fn to_string(&self) -> String;
-}
-
-impl ToString for IndexRecordOption {
-    fn to_string(&self) -> String {
-        match self {
-            IndexRecordOption::Basic => "basic".to_string(),
-            IndexRecordOption::WithFreqs => "freq".to_string(),
-            IndexRecordOption::WithFreqsAndPositions => "position".to_string(),
-        }
-    }
-}
-
-// Text options
-#[derive(Copy, Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct ParadeTextOptions {
-    #[serde(default = "default_as_true")]
-    indexed: bool,
-    #[serde(default)]
-    fast: bool,
-    #[serde(default = "default_as_true")]
-    stored: bool,
-    #[serde(default = "default_as_true")]
-    fieldnorms: bool,
-    #[serde(default)]
-    pub tokenizer: ParadeTokenizer,
-    #[schema(value_type = IndexRecordOptionSchema)]
-    #[serde(default = "default_as_freqs_and_positions")]
-    record: IndexRecordOption,
-    #[serde(default)]
-    normalizer: ParadeNormalizer,
-}
-
-impl Default for ParadeTextOptions {
-    fn default() -> Self {
-        Self {
-            indexed: true,
-            fast: false,
-            stored: true,
-            fieldnorms: true,
-            tokenizer: ParadeTokenizer::Default,
-            record: IndexRecordOption::Basic,
-            normalizer: ParadeNormalizer::Raw,
-        }
-    }
-}
-
-impl From<&ParadeTextOptions> for TextOptions {
-    fn from(parade_options: &ParadeTextOptions) -> Self {
-        let mut text_options = TextOptions::default();
-
-        if parade_options.stored {
-            text_options = text_options.set_stored();
-        }
-        if parade_options.fast {
-            text_options = text_options.set_fast(Some(parade_options.normalizer.name()));
-        }
-        if parade_options.indexed {
-            let text_field_indexing = TextFieldIndexing::default()
-                .set_index_option(parade_options.record)
-                .set_fieldnorms(parade_options.fieldnorms)
-                .set_tokenizer(&parade_options.tokenizer.name());
-
-            text_options = text_options.set_indexing_options(text_field_indexing);
-        }
-
-        text_options
-    }
-}
-
-// Numeric options
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
-pub struct ParadeNumericOptions {
-    #[serde(default = "default_as_true")]
-    indexed: bool,
-    #[serde(default = "default_as_true")]
-    fast: bool,
-    #[serde(default = "default_as_true")]
-    stored: bool,
-}
-
-impl Default for ParadeNumericOptions {
-    fn default() -> Self {
-        Self {
-            indexed: true,
-            fast: false,
-            stored: true,
-        }
-    }
-}
-
-impl From<&ParadeNumericOptions> for NumericOptions {
-    fn from(parade_options: &ParadeNumericOptions) -> Self {
-        let mut numeric_options = NumericOptions::default();
-
-        if parade_options.stored {
-            numeric_options = numeric_options.set_stored();
-        }
-        if parade_options.fast {
-            numeric_options = numeric_options.set_fast();
-        }
-        if parade_options.indexed {
-            numeric_options = numeric_options.set_indexed();
-        }
-
-        numeric_options
-    }
-}
-
-#[derive(Copy, Clone, Debug, Deserialize, Serialize)]
-pub struct ParadeBooleanOptions {
-    #[serde(default = "default_as_true")]
-    indexed: bool,
-    #[serde(default = "default_as_true")]
-    fast: bool,
-    #[serde(default = "default_as_true")]
-    stored: bool,
-}
-
-impl Default for ParadeBooleanOptions {
-    fn default() -> Self {
-        Self {
-            indexed: true,
-            fast: false,
-            stored: true,
-        }
-    }
-}
-
-// Following the example of Quickwit, which uses NumericOptions for boolean options
-impl From<&ParadeBooleanOptions> for NumericOptions {
-    fn from(parade_options: &ParadeBooleanOptions) -> Self {
-        let mut boolean_options = NumericOptions::default();
-
-        if parade_options.stored {
-            boolean_options = boolean_options.set_stored();
-        }
-        if parade_options.fast {
-            boolean_options = boolean_options.set_fast();
-        }
-        if parade_options.indexed {
-            boolean_options = boolean_options.set_indexed();
-        }
-
-        boolean_options
-    }
-}
-
-// Json options
-#[derive(Copy, Clone, Debug, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct ParadeJsonOptions {
-    #[serde(default = "default_as_true")]
-    indexed: bool,
-    #[serde(default)]
-    fast: bool,
-    #[serde(default = "default_as_true")]
-    stored: bool,
-    #[serde(default = "default_as_true")]
-    expand_dots: bool,
-    #[serde(default)]
-    pub tokenizer: ParadeTokenizer,
-    #[schema(value_type = IndexRecordOptionSchema)]
-    #[serde(default = "default_as_freqs_and_positions")]
-    record: IndexRecordOption,
-    #[serde(default)]
-    normalizer: ParadeNormalizer,
-}
-
-impl Default for ParadeJsonOptions {
-    fn default() -> Self {
-        Self {
-            indexed: true,
-            fast: false,
-            stored: true,
-            expand_dots: true,
-            tokenizer: ParadeTokenizer::Default,
-            record: IndexRecordOption::Basic,
-            normalizer: ParadeNormalizer::Raw,
-        }
-    }
-}
-
-impl From<&ParadeJsonOptions> for JsonObjectOptions {
-    fn from(parade_options: &ParadeJsonOptions) -> Self {
-        let mut json_options = JsonObjectOptions::default();
-
-        if parade_options.stored {
-            json_options = json_options.set_stored();
-        }
-        if parade_options.fast {
-            json_options = json_options.set_fast(Some(parade_options.normalizer.name()));
-        }
-        if parade_options.expand_dots {
-            json_options = json_options.set_expand_dots_enabled();
-        }
-        if parade_options.indexed {
-            let text_field_indexing = TextFieldIndexing::default()
-                .set_index_option(parade_options.record)
-                .set_tokenizer(&parade_options.tokenizer.name());
-
-            json_options = json_options.set_indexing_options(text_field_indexing);
-        }
-
-        json_options
-    }
-}
-
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub enum ParadeOption {
-    Text(ParadeTextOptions),
-    Json(ParadeJsonOptions),
-    Numeric(ParadeNumericOptions),
-    Boolean(ParadeBooleanOptions),
-}
-
-// TODO: Enable DateTime and IP fields
-
-fn default_as_true() -> bool {
-    true
-}
-
-fn default_as_freqs_and_positions() -> IndexRecordOption {
-    IndexRecordOption::WithFreqsAndPositions
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::schema::SearchFieldConfig;
+
     use super::*;
     use rstest::*;
     use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
 
     #[rstest]
-    fn test_parade_tokenizer() {
-        let tokenizer = ParadeTokenizer::Default;
+    fn test_search_tokenizer() {
+        let tokenizer = SearchTokenizer::Default;
         assert_eq!(tokenizer.name(), "default".to_string());
 
-        let tokenizer = ParadeTokenizer::EnStem;
+        let tokenizer = SearchTokenizer::EnStem;
         assert_eq!(tokenizer.name(), "en_stem".to_string());
 
         let json = r#"{
@@ -416,10 +177,10 @@ mod tests {
             "max_gram": 60,
             "prefix_only": true
         }"#;
-        let tokenizer: ParadeTokenizer = serde_json::from_str(json).unwrap();
+        let tokenizer: SearchTokenizer = serde_json::from_str(json).unwrap();
         assert_eq!(
             tokenizer,
-            ParadeTokenizer::Ngram {
+            SearchTokenizer::Ngram {
                 min_gram: 20,
                 max_gram: 60,
                 prefix_only: true
@@ -428,13 +189,13 @@ mod tests {
     }
 
     #[rstest]
-    fn test_parade_normalizer() {
-        assert_eq!(ParadeNormalizer::Lowercase.name(), "lowercase");
-        assert_ne!(ParadeNormalizer::Raw, ParadeNormalizer::Lowercase);
+    fn test_search_normalizer() {
+        assert_eq!(SearchNormalizer::Lowercase.name(), "lowercase");
+        assert_ne!(SearchNormalizer::Raw, SearchNormalizer::Lowercase);
     }
 
     #[rstest]
-    fn test_parade_text_options() {
+    fn test_search_text_options() {
         let json = r#"{
             "indexed": true,
             "fast": false,
@@ -444,10 +205,12 @@ mod tests {
             "record": "basic",
             "normalizer": "raw"
         }"#;
-        let parade_text_option: ParadeTextOptions = serde_json::from_str(json).unwrap();
-        let expected = TextOptions::from(&parade_text_option);
+        let config: serde_json::Value = serde_json::from_str(json).unwrap();
+        let search_text_option: SearchFieldConfig =
+            serde_json::from_value(serde_json::json!({"Text": config})).unwrap();
+        let expected: TextOptions = search_text_option.into();
 
-        let text_options = TextOptions::from(&ParadeTextOptions::default());
+        let text_options: TextOptions = SearchFieldConfig::default_text().into();
         assert_eq!(expected.is_stored(), text_options.is_stored());
         assert_eq!(
             expected.get_fast_field_tokenizer_name(),
@@ -459,35 +222,39 @@ mod tests {
     }
 
     #[rstest]
-    fn test_parade_numeric_options() {
+    fn test_search_numeric_options() {
         let json = r#"{
             "indexed": true,
             "stored": true,
             "fieldnorms": false,
-            "fast": false
+            "fast": true
         }"#;
-        let expected: NumericOptions = serde_json::from_str(json).unwrap();
-        let int_options = NumericOptions::from(&ParadeNumericOptions::default());
+        let config: serde_json::Value = serde_json::from_str(json).unwrap();
+        let expected: SearchFieldConfig =
+            serde_json::from_value(serde_json::json!({"Numeric": config})).unwrap();
+        let int_options: NumericOptions = SearchFieldConfig::default_numeric().into();
 
-        assert_eq!(int_options, expected);
+        assert_eq!(int_options, expected.into());
     }
 
     #[rstest]
-    fn test_parade_boolean_options() {
+    fn test_search_boolean_options() {
         let json = r#"{
             "indexed": true,
             "stored": true,
             "fieldnorms": false,
-            "fast": false
+            "fast": true
         }"#;
-        let expected: NumericOptions = serde_json::from_str(json).unwrap();
-        let int_options = NumericOptions::from(&ParadeBooleanOptions::default());
+        let config: serde_json::Value = serde_json::from_str(json).unwrap();
+        let expected: SearchFieldConfig =
+            serde_json::from_value(serde_json::json!({"Boolean": config})).unwrap();
+        let int_options: NumericOptions = SearchFieldConfig::default_numeric().into();
 
-        assert_eq!(int_options, expected);
+        assert_eq!(int_options, expected.into());
     }
 
     #[rstest]
-    fn test_parade_jsonobject_options() {
+    fn test_search_jsonobject_options() {
         let json = r#"{
             "indexed": true,
             "fast": false,
@@ -497,10 +264,12 @@ mod tests {
             "record": "basic",
             "normalizer": "raw"
         }"#;
-        let parade_json_option: ParadeJsonOptions = serde_json::from_str(json).unwrap();
-        let expected = JsonObjectOptions::from(&parade_json_option);
+        let config: serde_json::Value = serde_json::from_str(json).unwrap();
+        let search_json_option: SearchFieldConfig =
+            serde_json::from_value(serde_json::json!({"Json": config})).unwrap();
+        let expected: JsonObjectOptions = search_json_option.into();
 
-        let json_object_options = JsonObjectOptions::from(&ParadeJsonOptions::default());
+        let json_object_options: JsonObjectOptions = SearchFieldConfig::default_json().into();
         assert_eq!(expected.is_stored(), json_object_options.is_stored());
         assert_eq!(
             expected.get_fast_field_tokenizer_name(),
@@ -513,10 +282,5 @@ mod tests {
 
         let text_options = json_object_options.set_fast(Some("index"));
         assert_ne!(expected.is_fast(), text_options.is_fast());
-    }
-
-    #[rstest]
-    fn test_default_as_true() {
-        assert!(default_as_true())
     }
 }

@@ -8,8 +8,8 @@ use tantivy::{
 };
 use tantivy::{DocId, SegmentReader};
 
-use super::index::ParadeIndex;
-use super::score::ParadeIndexScore;
+use super::score::SearchIndexScore;
+use super::SearchIndex;
 use crate::schema::{SearchConfig, SearchIndexSchema};
 
 pub struct SearchState {
@@ -17,15 +17,15 @@ pub struct SearchState {
     pub query: Box<dyn Query>,
     pub parser: QueryParser,
     pub searcher: Searcher,
-    pub iterator: *mut std::vec::IntoIter<(ParadeIndexScore, DocAddress)>,
+    pub iterator: *mut std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
     pub config: SearchConfig,
     pub key_field_name: String,
 }
 
 impl SearchState {
-    pub fn new(parade_index: &ParadeIndex, config: &SearchConfig) -> Self {
-        let schema = parade_index.schema.clone();
-        let mut parser = parade_index.query_parser();
+    pub fn new(search_index: &SearchIndex, config: &SearchConfig) -> Self {
+        let schema = search_index.schema.clone();
+        let mut parser = search_index.query_parser();
         let query = Self::query(config, &schema, &mut parser);
         let key_field_name = schema.key_field().name.0;
         SearchState {
@@ -33,7 +33,7 @@ impl SearchState {
             query,
             parser,
             config: config.clone(),
-            searcher: parade_index.searcher(),
+            searcher: search_index.searcher(),
             iterator: std::ptr::null_mut(),
             key_field_name,
         }
@@ -62,7 +62,7 @@ impl SearchState {
         }
     }
 
-    pub fn search(&mut self) -> Vec<(ParadeIndexScore, DocAddress)> {
+    pub fn search(&mut self) -> Vec<(SearchIndexScore, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
             // We use unwrap_or_else here so this block doesn't run unless
@@ -91,7 +91,7 @@ impl SearchState {
                     })
                     .first_or_default_col(0);
 
-                move |doc: DocId, original_score: Score| ParadeIndexScore {
+                move |doc: DocId, original_score: Score| SearchIndexScore {
                     bm25: original_score,
                     key: key_field_reader.get_val(doc),
                 }

@@ -87,7 +87,7 @@ pub enum IndexError {
     SerdeJsonError(#[from] serde_json::Error),
 
     #[error("couldn't remove index files on drop_index: {0}")]
-    DeleteDirectory(#[from] ParadeDirectoryError),
+    DeleteDirectory(#[from] SearchDirectoryError),
 }
 
 #[cfg(test)]
@@ -99,7 +99,7 @@ mod tests {
 
     #[rstest]
     fn test_writer_request_serialization(
-        #[from(json_doc)] document: SearchDocument,
+        #[from(simple_doc)] document: SearchDocument,
         mock_dir: MockWriterDirectory,
     ) {
         // Setup insert writer request.

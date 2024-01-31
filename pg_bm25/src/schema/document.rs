@@ -68,10 +68,10 @@ mod tests {
     use rstest::*;
 
     #[rstest]
-    fn test_search_document_serialization(json_doc: SearchDocument) {
-        let ser = bincode::serialize(&json_doc).unwrap();
+    fn test_search_document_serialization(simple_doc: SearchDocument) {
+        let ser = bincode::serialize(&simple_doc).unwrap();
         let de: SearchDocument = bincode::deserialize(&ser).unwrap();
 
-        assert_eq!(de, json_doc);
+        assert_eq!(de, simple_doc);
     }
 }

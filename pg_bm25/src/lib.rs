@@ -1,9 +1,8 @@
 mod api;
 mod env;
 mod globals;
-mod index_access;
-mod operator;
-mod parade_index;
+mod index;
+mod postgres;
 mod schema;
 mod tokenizers;
 mod writer;
@@ -27,7 +26,7 @@ extension_sql_file!("../sql/_bootstrap.sql");
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
-    index_access::options::init();
+    postgres::options::init();
     telemetry::posthog::init(shared::constants::PG_BM25_NAME);
     PARADE_LOGS_GLOBAL.init();
 

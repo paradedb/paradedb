@@ -1,6 +1,6 @@
 use crate::env::needs_commit;
 use crate::schema::SearchConfig;
-use crate::{globals::WriterGlobal, index_access::utils::get_parade_index};
+use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
 use pgrx::{prelude::PgHeapTuple, *};
 use rustc_hash::FxHashSet;
 
@@ -16,8 +16,8 @@ fn search_tantivy(
             .expect("could not parse search config");
 
         let writer_client = WriterGlobal::client();
-        let parade_index = get_parade_index(&search_config.index_name);
-        let mut scan_state = parade_index
+        let search_index = get_search_index(&search_config.index_name);
+        let mut scan_state = search_index
             .search_state(&writer_client, &search_config, needs_commit())
             .unwrap();
         let top_docs = scan_state.search();

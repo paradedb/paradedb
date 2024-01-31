@@ -1,4 +1,5 @@
 use crate::env;
+use derive_more::AsRef;
 use fs2::{self, FileExt};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
@@ -9,32 +10,40 @@ use std::{
 use thiserror::Error;
 
 static PARADE_DATA_DIR_NAME: &str = "paradedb";
-static PARADE_BM25_DIR_NAME: &str = "bm25";
-static PARADE_INDEX_CONFIG_FILE_NAME: &str = "parade-index.json";
+static SEARCH_DIR_NAME: &str = "pg_search";
+static SEARCH_INDEX_CONFIG_FILE_NAME: &str = "search-index.json";
 static TANTIVY_DIR_NAME: &str = "tantivy";
 static WRITER_TRANSFER_DIR_NAME: &str = "writer_transfer";
 
 /// The top-level folder name for ParadeDB extension inside the Postgres data directory.
-pub struct ParadeIndexDirPath(pub PathBuf);
+#[derive(AsRef)]
+#[as_ref(forward)]
+pub struct SearchIndexDirPath(pub PathBuf);
 /// The name of the index-specfic configuration file, enabling loading an index across connections.
-pub struct ParadeIndexConfigFilePath(pub PathBuf);
+#[derive(AsRef)]
+#[as_ref(forward)]
+pub struct SearchIndexConfigFilePath(pub PathBuf);
 /// The name of the directory where the Tantivy index will be created.
+#[derive(AsRef)]
+#[as_ref(forward)]
 pub struct TantivyDirPath(pub PathBuf);
 /// The name of the directory where pipe files will be created for transfer to the writer process.
+#[derive(AsRef)]
+#[as_ref(forward)]
 pub struct WriterTransferPipeFilePath(pub PathBuf);
 
 pub trait SearchFs {
     /// Load a persisted index from disk, so it can be reused between connections.
-    fn load_index<T: DeserializeOwned>(&self) -> Result<T, ParadeDirectoryError>;
+    fn load_index<T: DeserializeOwned>(&self) -> Result<T, SearchDirectoryError>;
     /// Save a serialize index to disk, so it can be persisted between connections.
-    fn save_index<T: Serialize>(&self, index: &T) -> Result<(), ParadeDirectoryError>;
+    fn save_index<T: Serialize>(&self, index: &T) -> Result<(), SearchDirectoryError>;
     // Remove the root directory from disk, blocking while file locks are released.
-    fn remove(&self) -> Result<(), ParadeDirectoryError>;
+    fn remove(&self) -> Result<(), SearchDirectoryError>;
     // Return and ensure the existence of the Tantivy index path.
-    fn tantivy_dir_path(&self) -> Result<TantivyDirPath, ParadeDirectoryError>;
+    fn tantivy_dir_path(&self) -> Result<TantivyDirPath, SearchDirectoryError>;
     // Return and ensure the existence of the writer pipe file path.
     fn writer_transfer_pipe_path(&self)
-        -> Result<WriterTransferPipeFilePath, ParadeDirectoryError>;
+        -> Result<WriterTransferPipeFilePath, SearchDirectoryError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
@@ -67,79 +76,78 @@ impl WriterDirectory {
         }
     }
 
-    fn parade_index_dir_path(&self) -> Result<ParadeIndexDirPath, ParadeDirectoryError> {
+    fn search_index_dir_path(&self) -> Result<SearchIndexDirPath, SearchDirectoryError> {
         let database_oid = &self.database_oid;
         let index_name = &self.index_name;
         let unique_index_dir_name = format!("{database_oid}_{index_name}");
-        let parade_index_dir_path = &self
+        let search_index_dir_path = &self
             .postgres_data_dir_path
             .join(PARADE_DATA_DIR_NAME)
-            .join(PARADE_BM25_DIR_NAME)
+            .join(SEARCH_DIR_NAME)
             .join(unique_index_dir_name);
 
-        Self::ensure_dir(&parade_index_dir_path)?;
-        Ok(ParadeIndexDirPath(parade_index_dir_path.to_path_buf()))
+        Self::ensure_dir(search_index_dir_path)?;
+        Ok(SearchIndexDirPath(search_index_dir_path.to_path_buf()))
     }
 
-    fn parade_index_config_file_path(
+    fn search_index_config_file_path(
         &self,
-    ) -> Result<ParadeIndexConfigFilePath, ParadeDirectoryError> {
-        let ParadeIndexDirPath(index_path) = self.parade_index_dir_path()?;
-        let parade_index_config_file_path = index_path.join(PARADE_INDEX_CONFIG_FILE_NAME);
+    ) -> Result<SearchIndexConfigFilePath, SearchDirectoryError> {
+        let SearchIndexDirPath(index_path) = self.search_index_dir_path()?;
+        let search_index_config_file_path = index_path.join(SEARCH_INDEX_CONFIG_FILE_NAME);
 
-        Ok(ParadeIndexConfigFilePath(parade_index_config_file_path))
+        Ok(SearchIndexConfigFilePath(search_index_config_file_path))
     }
 
-    fn ensure_dir(path: &Path) -> Result<(), ParadeDirectoryError> {
+    fn ensure_dir(path: &Path) -> Result<(), SearchDirectoryError> {
         if !path.exists() {
-            Self::create_dir_all(&path)?
+            Self::create_dir_all(path)?
         }
         Ok(())
     }
 
-    fn create_dir_all(path: &Path) -> Result<(), ParadeDirectoryError> {
-        fs::create_dir_all(&path)
-            .map_err(|err| ParadeDirectoryError::CreateDirectory(path.to_path_buf(), err))
+    fn create_dir_all(path: &Path) -> Result<(), SearchDirectoryError> {
+        fs::create_dir_all(path)
+            .map_err(|err| SearchDirectoryError::CreateDirectory(path.to_path_buf(), err))
     }
 
-    fn remove_dir_all_recursive(path: &Path) -> Result<(), ParadeDirectoryError> {
-        // pgrx::log!("REMOVING PATH: {}", path.display().to_string());
+    fn remove_dir_all_recursive(path: &Path) -> Result<(), SearchDirectoryError> {
         for child in fs::read_dir(path)
-            .map_err(|err| ParadeDirectoryError::ReadDirectoryEntry(path.to_path_buf(), err))?
+            .map_err(|err| SearchDirectoryError::ReadDirectoryEntry(path.to_path_buf(), err))?
         {
             let child_path = child
-                .map_err(|err| ParadeDirectoryError::ReadDirectoryEntry(path.to_path_buf(), err))?
+                .map_err(|err| SearchDirectoryError::ReadDirectoryEntry(path.to_path_buf(), err))?
                 .path();
 
             if child_path.is_dir() {
                 Self::remove_dir_all_recursive(&child_path)?;
             } else {
                 let file = File::open(&child_path).map_err(|err| {
-                    ParadeDirectoryError::OpenFileForRemoval(child_path.to_path_buf(), err)
+                    SearchDirectoryError::OpenFileForRemoval(child_path.to_path_buf(), err)
                 })?;
 
                 // Tantivy can sometimes hold an OS file lock on files in its index, so we
                 // should wait for the lock to be released before we try to delete.
                 file.lock_exclusive().map_err(|err| {
-                    ParadeDirectoryError::LockFileForRemoval(child_path.to_path_buf(), err)
+                    SearchDirectoryError::LockFileForRemoval(child_path.to_path_buf(), err)
                 })?;
 
                 match fs::remove_file(&child_path) {
                     Ok(()) => Ok(()),
                     // The file already doesn't exist, proceed.
                     Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-                    Err(err) => Err(ParadeDirectoryError::RemoveFile(
+                    Err(err) => Err(SearchDirectoryError::RemoveFile(
                         child_path.to_path_buf(),
                         err,
                     )),
                 }?;
             }
         }
-        match fs::remove_dir(&path) {
+        match fs::remove_dir(path) {
             Ok(()) => Ok(()),
             // The directory already doesn't exist, proceed.
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(err) => Err(ParadeDirectoryError::RemoveDirectory(
+            Err(err) => Err(SearchDirectoryError::RemoveDirectory(
                 path.to_path_buf(),
                 err,
             )),
@@ -148,47 +156,47 @@ impl WriterDirectory {
 }
 
 impl SearchFs for WriterDirectory {
-    fn load_index<T: DeserializeOwned>(&self) -> Result<T, ParadeDirectoryError> {
-        let ParadeIndexConfigFilePath(config_path) = self.parade_index_config_file_path()?;
-        let serialized_data = fs::read_to_string(&config_path)
-            .map_err(|err| ParadeDirectoryError::IndexFileRead(self.clone(), err))?;
+    fn load_index<T: DeserializeOwned>(&self) -> Result<T, SearchDirectoryError> {
+        let SearchIndexConfigFilePath(config_path) = self.search_index_config_file_path()?;
+        let serialized_data = fs::read_to_string(config_path)
+            .map_err(|err| SearchDirectoryError::IndexFileRead(self.clone(), err))?;
 
         let new_self = serde_json::from_str(&serialized_data)
-            .map_err(|err| ParadeDirectoryError::IndexDeserialize(self.clone(), err))?;
+            .map_err(|err| SearchDirectoryError::IndexDeserialize(self.clone(), err))?;
         Ok(new_self)
     }
 
-    fn save_index<T: Serialize>(&self, index: &T) -> Result<(), ParadeDirectoryError> {
-        let ParadeIndexConfigFilePath(config_path) = self.parade_index_config_file_path()?;
+    fn save_index<T: Serialize>(&self, index: &T) -> Result<(), SearchDirectoryError> {
+        let SearchIndexConfigFilePath(config_path) = self.search_index_config_file_path()?;
 
         let serialized_data = serde_json::to_string(index)
-            .map_err(|err| ParadeDirectoryError::IndexSerialize(self.clone(), err))?;
+            .map_err(|err| SearchDirectoryError::IndexSerialize(self.clone(), err))?;
 
-        let mut file = File::create(&config_path)
-            .map_err(|err| ParadeDirectoryError::IndexFileCreate(self.clone(), err))?;
+        let mut file = File::create(config_path)
+            .map_err(|err| SearchDirectoryError::IndexFileCreate(self.clone(), err))?;
 
         file.write_all(serialized_data.as_bytes())
-            .map_err(|err| ParadeDirectoryError::IndexFileWrite(self.clone(), err))?;
+            .map_err(|err| SearchDirectoryError::IndexFileWrite(self.clone(), err))?;
 
         // Rust automatically flushes data to disk at the end of the scope,
         // so this call to "flush()" isn't strictly necessary.
         // We're doing it explicitly as a reminder in case we extend this method.
         file.flush()
-            .map_err(|err| ParadeDirectoryError::IndexFileFlush(self.clone(), err))?;
+            .map_err(|err| SearchDirectoryError::IndexFileFlush(self.clone(), err))?;
 
         Ok(())
     }
 
-    fn remove(&self) -> Result<(), ParadeDirectoryError> {
-        let ParadeIndexDirPath(index_path) = self.parade_index_dir_path()?;
+    fn remove(&self) -> Result<(), SearchDirectoryError> {
+        let SearchIndexDirPath(index_path) = self.search_index_dir_path()?;
         if index_path.exists() {
             Self::remove_dir_all_recursive(&index_path)?
         }
         Ok(())
     }
 
-    fn tantivy_dir_path(&self) -> Result<TantivyDirPath, ParadeDirectoryError> {
-        let ParadeIndexDirPath(index_path) = self.parade_index_dir_path()?;
+    fn tantivy_dir_path(&self) -> Result<TantivyDirPath, SearchDirectoryError> {
+        let SearchIndexDirPath(index_path) = self.search_index_dir_path()?;
         let tantivy_dir_path = index_path.join(TANTIVY_DIR_NAME);
 
         Self::ensure_dir(&tantivy_dir_path)?;
@@ -197,23 +205,23 @@ impl SearchFs for WriterDirectory {
 
     fn writer_transfer_pipe_path(
         &self,
-    ) -> Result<WriterTransferPipeFilePath, ParadeDirectoryError> {
+    ) -> Result<WriterTransferPipeFilePath, SearchDirectoryError> {
         let pid = std::process::id();
         let transfer_pipe_dir = &self
             .postgres_data_dir_path
             .join(PARADE_DATA_DIR_NAME)
-            .join(PARADE_BM25_DIR_NAME)
+            .join(SEARCH_DIR_NAME)
             .join(WRITER_TRANSFER_DIR_NAME);
         let transfer_pipe_file = transfer_pipe_dir.join(pid.to_string());
 
-        Self::ensure_dir(&transfer_pipe_dir)?;
+        Self::ensure_dir(transfer_pipe_dir)?;
 
         Ok(WriterTransferPipeFilePath(transfer_pipe_file.to_path_buf()))
     }
 }
 
 #[derive(Debug, Error)]
-pub enum ParadeDirectoryError {
+pub enum SearchDirectoryError {
     #[error("could not read directory entry {0:?}: {1}")]
     ReadDirectoryEntry(PathBuf, #[source] std::io::Error),
 
@@ -286,18 +294,18 @@ mod tests {
 
     #[rstest]
     fn test_remove_directory(mock_dir: MockWriterDirectory) -> Result<()> {
-        let ParadeIndexDirPath(root) = mock_dir.writer_dir.parade_index_dir_path()?;
+        let SearchIndexDirPath(root) = mock_dir.writer_dir.search_index_dir_path()?;
 
-        let tantivy_path = root.join("tantivy");
+        let tantivy_path = root.join(TANTIVY_DIR_NAME);
 
         std::fs::create_dir_all(&tantivy_path)?;
-        File::create(&tantivy_path.join("meta.json"))?;
-        File::create(root.join("parade-index.json"))?;
+        File::create(tantivy_path.join("meta.json"))?;
+        File::create(root.join(SEARCH_INDEX_CONFIG_FILE_NAME))?;
 
         mock_dir.writer_dir.remove()?;
 
         // There should be nothing in the parent folder.
-        assert!(is_directory_empty(&root.parent().unwrap())?);
+        assert!(is_directory_empty(root.parent().unwrap())?);
 
         Ok(())
     }

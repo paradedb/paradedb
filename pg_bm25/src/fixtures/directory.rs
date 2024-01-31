@@ -1,6 +1,6 @@
 pub use crate::writer::SearchFs;
 use crate::writer::{
-    ParadeDirectoryError, TantivyDirPath, WriterDirectory, WriterTransferPipeFilePath,
+    SearchDirectoryError, TantivyDirPath, WriterDirectory, WriterTransferPipeFilePath,
 };
 use serde::{de::DeserializeOwned, Serialize};
 
@@ -30,21 +30,21 @@ impl MockWriterDirectory {
 }
 
 impl SearchFs for MockWriterDirectory {
-    fn load_index<T: DeserializeOwned>(&self) -> Result<T, ParadeDirectoryError> {
+    fn load_index<T: DeserializeOwned>(&self) -> Result<T, SearchDirectoryError> {
         self.writer_dir.load_index()
     }
-    fn save_index<T: Serialize>(&self, index: &T) -> Result<(), ParadeDirectoryError> {
+    fn save_index<T: Serialize>(&self, index: &T) -> Result<(), SearchDirectoryError> {
         self.writer_dir.save_index(index)
     }
-    fn remove(&self) -> Result<(), ParadeDirectoryError> {
+    fn remove(&self) -> Result<(), SearchDirectoryError> {
         self.writer_dir.remove()
     }
-    fn tantivy_dir_path(&self) -> Result<TantivyDirPath, ParadeDirectoryError> {
+    fn tantivy_dir_path(&self) -> Result<TantivyDirPath, SearchDirectoryError> {
         self.writer_dir.tantivy_dir_path()
     }
     fn writer_transfer_pipe_path(
         &self,
-    ) -> Result<WriterTransferPipeFilePath, ParadeDirectoryError> {
+    ) -> Result<WriterTransferPipeFilePath, SearchDirectoryError> {
         self.writer_dir.writer_transfer_pipe_path()
     }
 }

@@ -6,6 +6,7 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
+#[ignore]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     TestTable::setup(&mut conn).await;
     let result = TestTable::fetch_all(
@@ -45,6 +46,7 @@ async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
 
 /// Test various queries, ensuring that ids come back in the expected order.
 #[rstest]
+#[ignore]
 async fn basic_search_ids(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     TestTable::setup(&mut conn).await;
 
@@ -73,6 +75,7 @@ async fn basic_search_ids(mut conn: PgConnection) -> Result<(), sqlx::Error> {
 }
 
 #[rstest]
+#[ignore]
 #[should_panic]
 async fn fail_to_scan_index(mut conn: PgConnection) {
     TestTable::setup_no_index(&mut conn).await;

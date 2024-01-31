@@ -24,6 +24,7 @@ icu = ["rust_icu_ubrk"]
 anyhow = { version = "1.0.79", features = ["backtrace"] }
 chrono = "0.4.33"
 csv = "1.2.2"
+derive_more = "0.99.17"
 fs2 = "0.4.3"
 heapless = "0.8.0"
 indexmap = "2.1.0"

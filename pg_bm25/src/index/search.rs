@@ -13,14 +13,14 @@ use thiserror::Error;
 use tracing::error;
 
 use super::state::SearchState;
-use crate::index_access::utils::row_to_search_document;
+use crate::postgres::utils::row_to_search_document;
 use crate::schema::{
     SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchIndexSchema,
     SearchIndexSchemaError,
 };
 use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use crate::writer::{
-    self, ParadeDirectoryError, SearchFs, TantivyDirPath, WriterClient, WriterDirectory,
+    self, SearchDirectoryError, SearchFs, TantivyDirPath, WriterClient, WriterDirectory,
     WriterRequest, WriterTransferPipeFilePath,
 };
 
@@ -31,7 +31,7 @@ const CACHE_NUM_BLOCKS: usize = 10;
 /// PostgreSQL operates in a process-per-client model, meaning every client connection
 /// to PostgreSQL results in a new backend process being spawned on the PostgreSQL server.
 ///
-/// `PARADE_INDEX_MEMORY` is designed to act as a cache that persists for the lifetime of a
+/// `SEARCH_INDEX_MEMORY` is designed to act as a cache that persists for the lifetime of a
 /// single backend process. When a client connects to PostgreSQL and triggers the extension's
 /// functionality, this cache is initialized the first time it's accessed in that specific process.
 ///
@@ -43,11 +43,11 @@ const CACHE_NUM_BLOCKS: usize = 10;
 /// It's also crucial to remember that this cache is NOT shared across different backend
 /// processes. Each PostgreSQL backend process will have its own separate instance of
 /// this cache, tied to its own lifecycle.
-pub static mut PARADE_INDEX_MEMORY: Lazy<HashMap<WriterDirectory, ParadeIndex>> =
+pub static mut SEARCH_INDEX_MEMORY: Lazy<HashMap<WriterDirectory, SearchIndex>> =
     Lazy::new(HashMap::new);
 
 #[derive(Serialize)]
-pub struct ParadeIndex {
+pub struct SearchIndex {
     pub schema: SearchIndexSchema,
     pub directory: WriterDirectory,
     #[serde(skip_serializing)]
@@ -56,18 +56,17 @@ pub struct ParadeIndex {
     underlying_index: Index,
 }
 
-impl ParadeIndex {
+impl SearchIndex {
     pub fn new(
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig)>,
-    ) -> Result<&'static mut Self, ParadeIndexError> {
+    ) -> Result<&'static mut Self, SearchIndexError> {
         let schema = SearchIndexSchema::new(fields)?;
-        let SearchFieldName(key_field_name) = schema.key_field().name;
         let settings = IndexSettings {
             // Fields should be returned in the order of their key_field (if their bm25 scores match).
             // Pre-sorting these fields at insert time saves work at query time.
             sort_by_field: Some(IndexSortByField {
-                field: key_field_name.to_string(),
+                field: schema.key_field().name.as_ref().into(),
                 order: Order::Asc,
             }),
             // docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
@@ -90,12 +89,12 @@ impl ParadeIndex {
             schema,
         };
 
-        // Serialize ParadeIndex to disk so it can be initialized by other connections.
+        // Serialize SearchIndex to disk so it can be initialized by other connections.
         new_self.directory.save_index(&new_self)?;
 
-        // Save a reference to this ParadeIndex so it can be re-used by this connection.
+        // Save a reference to this SearchIndex so it can be re-used by this connection.
         unsafe {
-            new_self.to_cache();
+            new_self.into_cache();
         }
 
         // Send a telemetry event on each new connection. Since the reference to the index
@@ -121,13 +120,13 @@ impl ParadeIndex {
             .try_into()
     }
 
-    unsafe fn to_cache(self) {
-        PARADE_INDEX_MEMORY.insert(self.directory.clone(), self);
+    unsafe fn into_cache(self) {
+        SEARCH_INDEX_MEMORY.insert(self.directory.clone(), self);
     }
 
-    pub fn from_cache<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, ParadeIndexError> {
+    pub fn from_cache<'a>(directory: &WriterDirectory) -> Result<&'a mut Self, SearchIndexError> {
         unsafe {
-            if let Some(new_self) = PARADE_INDEX_MEMORY.get_mut(directory) {
+            if let Some(new_self) = SEARCH_INDEX_MEMORY.get_mut(directory) {
                 return Ok(new_self);
             }
         }
@@ -136,10 +135,10 @@ impl ParadeIndex {
 
         // Since we've re-fetched the index, save it to the cache.
         unsafe {
-            new_self.to_cache();
+            new_self.into_cache();
         }
 
-        Self::from_cache(&directory)
+        Self::from_cache(directory)
     }
 
     pub fn get_key_value(&self, document: &Document) -> i64 {
@@ -150,7 +149,7 @@ impl ParadeIndex {
         match value {
             tantivy::schema::Value::U64(val) => *val as i64,
             tantivy::schema::Value::I64(val) => *val,
-            _ => panic!("invalid type for parade index key in document"),
+            _ => panic!("invalid type for search index key in document"),
         }
     }
 
@@ -170,7 +169,7 @@ impl ParadeIndex {
         writer: &Arc<Mutex<W>>,
         config: &SearchConfig,
         needs_commit: bool,
-    ) -> Result<SearchState, ParadeIndexError> {
+    ) -> Result<SearchState, SearchIndexError> {
         // Commit any inserts or deletes that have occured during this transaction.
         if needs_commit {
             writer.lock()?.request(WriterRequest::Commit)?
@@ -191,9 +190,9 @@ impl ParadeIndex {
     /// Retrieve an owned writer for a given index. This is a static method, as
     /// we expect to be called from the writer process. The return type needs to
     /// be entirely owned by the new process, with no references.
-    pub fn writer(directory: &WriterDirectory) -> Result<IndexWriter, ParadeIndexError> {
-        let parade_index: Self = directory.load_index()?;
-        let index_writer = parade_index
+    pub fn writer(directory: &WriterDirectory) -> Result<IndexWriter, SearchIndexError> {
+        let search_index: Self = directory.load_index()?;
+        let index_writer = search_index
             .underlying_index
             .writer(INDEX_TANTIVY_MEMORY_BUDGET)?;
         Ok(index_writer)
@@ -203,7 +202,7 @@ impl ParadeIndex {
         &mut self,
         writer: &Arc<Mutex<W>>,
         document: SearchDocument,
-    ) -> Result<(), ParadeIndexError> {
+    ) -> Result<(), SearchIndexError> {
         // Send the insert requests to the writer server.
         let request = WriterRequest::Insert {
             directory: self.directory.clone(),
@@ -220,7 +219,7 @@ impl ParadeIndex {
         &mut self,
         writer: &Arc<Mutex<W>>,
         should_delete: impl Fn(*mut ItemPointerData) -> bool,
-    ) -> Result<(u32, u32), ParadeIndexError> {
+    ) -> Result<(u32, u32), SearchIndexError> {
         let mut deleted: u32 = 0;
         let mut not_deleted: u32 = 0;
         let mut ctids_to_delete: Vec<u64> = vec![];
@@ -265,7 +264,7 @@ impl ParadeIndex {
     pub fn drop_index<W: WriterClient<WriterRequest>>(
         writer: &Arc<Mutex<W>>,
         index_name: &str,
-    ) -> Result<(), ParadeIndexError> {
+    ) -> Result<(), SearchIndexError> {
         let directory = WriterDirectory::from_index_name(index_name);
         let request = WriterRequest::DropIndex { directory };
 
@@ -277,7 +276,7 @@ impl ParadeIndex {
     pub fn vacuum<W: WriterClient<WriterRequest>>(
         &mut self,
         writer: &Arc<Mutex<W>>,
-    ) -> Result<(), ParadeIndexError> {
+    ) -> Result<(), SearchIndexError> {
         let request = WriterRequest::Vacuum {
             directory: self.directory.clone(),
         };
@@ -290,7 +289,7 @@ impl ParadeIndex {
         ctid: ItemPointerData,
         tupdesc: &PgTupleDesc,
         values: *mut Datum,
-    ) -> Result<SearchDocument, ParadeIndexError> {
+    ) -> Result<SearchDocument, SearchIndexError> {
         // Create a vector of index entries from the postgres row.
         let mut search_document = unsafe { row_to_search_document(tupdesc, values, &self.schema) }?;
 
@@ -302,25 +301,25 @@ impl ParadeIndex {
     }
 }
 
-impl<'de> Deserialize<'de> for ParadeIndex {
+impl<'de> Deserialize<'de> for SearchIndex {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
         // A helper struct that lets us use the default serialization for most fields.
         #[derive(Deserialize)]
-        struct ParadeIndexHelper {
+        struct SearchIndexHelper {
             schema: SearchIndexSchema,
             directory: WriterDirectory,
         }
 
         // Deserialize into the struct with automatic handling for most fields
-        let ParadeIndexHelper { schema, directory } = ParadeIndexHelper::deserialize(deserializer)?;
+        let SearchIndexHelper { schema, directory } = SearchIndexHelper::deserialize(deserializer)?;
 
         let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path().unwrap();
 
         let mut underlying_index =
-            Index::open_in_dir(&tantivy_dir_path).expect("failed to open index");
+            Index::open_in_dir(tantivy_dir_path).expect("failed to open index");
 
         // We need to setup tokenizers again after retrieving an index from disk.
         Self::setup_tokenizers(&mut underlying_index, &schema);
@@ -328,8 +327,8 @@ impl<'de> Deserialize<'de> for ParadeIndex {
         let reader = Self::reader(&underlying_index)
             .unwrap_or_else(|_| panic!("failed to create index reader while retrieving index"));
 
-        // Construct the ParadeIndex.
-        Ok(ParadeIndex {
+        // Construct the SearchIndex.
+        Ok(SearchIndex {
             reader,
             underlying_index,
             directory,
@@ -339,7 +338,7 @@ impl<'de> Deserialize<'de> for ParadeIndex {
 }
 
 #[derive(Error, Debug)]
-pub enum ParadeIndexError {
+pub enum SearchIndexError {
     #[error(transparent)]
     SchemaError(#[from] SearchIndexSchemaError),
 
@@ -362,39 +361,35 @@ pub enum ParadeIndexError {
     SerdeError(#[from] serde_json::Error),
 
     #[error(transparent)]
-    WriterDirectoryError(#[from] ParadeDirectoryError),
+    WriterDirectoryError(#[from] SearchDirectoryError),
 
     #[error("mutex lock on writer client failed: {0}")]
     WriterClientRace(String),
 }
 
-impl<T> From<PoisonError<T>> for ParadeIndexError {
+impl<T> From<PoisonError<T>> for SearchIndexError {
     fn from(err: PoisonError<T>) -> Self {
-        ParadeIndexError::WriterClientRace(format!("{}", err))
+        SearchIndexError::WriterClientRace(format!("{}", err))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{
-        fixtures::*,
-        schema::{SearchConfig, SearchFieldName},
-        writer::SearchFs,
-    };
+    use crate::{fixtures::*, schema::SearchConfig, writer::SearchFs};
     use rstest::*;
     use tantivy::schema::Value;
 
-    use super::ParadeIndex;
+    use super::SearchIndex;
 
     /// Expected to panic because no index has been created in the directory.
     #[rstest]
     #[should_panic]
     fn test_index_from_disk_panics(mock_dir: MockWriterDirectory) {
-        mock_dir.load_index::<ParadeIndex>().unwrap();
+        mock_dir.load_index::<SearchIndex>().unwrap();
     }
 
     #[rstest]
-    fn test_chinese_compatible_tokenizer(mut chinese_index: MockParadeIndex) {
+    fn test_chinese_compatible_tokenizer(mut chinese_index: MockSearchIndex) {
         let client = TestClient::new_arc();
 
         let index = &mut chinese_index.index;
@@ -403,9 +398,7 @@ mod tests {
         // Insert fields into document.
         let mut doc = schema.new_document();
         let id_field = schema.key_field();
-        let author_field = schema
-            .get_search_field(&SearchFieldName("author".into()))
-            .unwrap();
+        let author_field = schema.get_search_field(&"author".into()).unwrap();
         doc.insert(id_field.id, Value::I64(0));
         doc.insert(author_field.id, Value::Str("张伟".into()));
 
@@ -413,15 +406,17 @@ mod tests {
         index.insert(&client, doc.clone()).unwrap();
 
         // Search in index
-        let mut search_config = SearchConfig::default();
-        search_config.query = "author:张".into();
+        let search_config = SearchConfig {
+            query: "author:张".into(),
+            ..Default::default()
+        };
         let mut state = index.search_state(&client, &search_config, true).unwrap();
 
         let first = state
             .search()
             .iter()
             .map(|(_, addr)| state.doc(*addr))
-            .nth(0)
+            .next()
             .expect("query returned no results")
             .expect("query returned an error");
 

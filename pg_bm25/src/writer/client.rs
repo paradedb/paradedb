@@ -149,7 +149,7 @@ mod tests {
     #[rstest]
     #[case::insert_request(WriterRequest::Insert {
         directory: mock_dir().writer_dir,
-        document: json_doc(),
+        document: simple_doc(simple_schema(default_fields())),
     })]
     #[case::commit_request(WriterRequest::Commit)]
     #[case::abort_request(WriterRequest::Abort)]

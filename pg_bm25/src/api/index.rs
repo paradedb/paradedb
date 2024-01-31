@@ -1,7 +1,7 @@
 use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
-use crate::index_access::utils::get_parade_index;
+use crate::postgres::utils::get_search_index;
 use crate::schema::ToString;
 
 #[allow(clippy::type_complexity)]
@@ -21,8 +21,8 @@ pub fn schema_bm25(
     name!(normalizer, Option<String>),
 )> {
     let bm25_index_name = format!("{}_bm25_index", index_name);
-    let parade_index = get_parade_index(&bm25_index_name);
-    let schema = parade_index.schema.schema.clone();
+    let search_index = get_search_index(&bm25_index_name);
+    let schema = search_index.schema.schema.clone();
 
     let mut field_rows = Vec::new();
 

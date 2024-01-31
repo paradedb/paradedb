@@ -1,6 +1,6 @@
-use super::utils::get_parade_index;
+use super::utils::get_search_index;
 use crate::{
-    env::register_commit_callback, globals::WriterGlobal, index_access::utils::lookup_index_tupdesc,
+    env::register_commit_callback, globals::WriterGlobal, postgres::utils::lookup_index_tupdesc,
 };
 use pgrx::*;
 
@@ -43,8 +43,8 @@ unsafe fn aminsert_internal(
     let index_relation_ref: PgRelation = PgRelation::from_pg(index_relation);
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);
     let index_name = index_relation_ref.name();
-    let parade_index = get_parade_index(index_name);
-    let search_document = parade_index
+    let search_index = get_search_index(index_name);
+    let search_document = search_index
         .row_to_search_document(*ctid, &tupdesc, values)
         .unwrap_or_else(|err| {
             panic!("error creating index entries for index '{index_name}': {err:?}",)
@@ -54,7 +54,7 @@ unsafe fn aminsert_internal(
     register_commit_callback(&writer_client)
         .expect("could not register commit callbacks for insert operation");
 
-    parade_index
+    search_index
         .insert(&writer_client, search_document)
         .unwrap_or_else(|err| panic!("error inserting document during insert callback: {err:?}"));
 

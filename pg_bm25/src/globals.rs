@@ -20,7 +20,7 @@ pub static WRITER_STATUS: PgLwLock<WriterGlobal> = PgLwLock::new();
 /// The client is agnotistic to which index we're writing to, so keeping a global one
 /// ensures that the instance can be re-used if a single transaction needs to write to
 /// multiple indexes. Note this must NOT be accesssed before the server is started.
-pub static mut PARADE_INDEX_WRITER_CLIENT: Lazy<Arc<Mutex<writer::Client<writer::WriterRequest>>>> =
+pub static mut SEARCH_INDEX_WRITER_CLIENT: Lazy<Arc<Mutex<writer::Client<writer::WriterRequest>>>> =
     Lazy::new(|| {
         Arc::new(Mutex::new(writer::Client::new(
             WRITER_STATUS.share().addr(),
@@ -43,7 +43,7 @@ impl WriterGlobal {
     }
 
     pub fn client() -> Arc<Mutex<writer::Client<WriterRequest>>> {
-        unsafe { PARADE_INDEX_WRITER_CLIENT.clone() }
+        unsafe { SEARCH_INDEX_WRITER_CLIENT.clone() }
     }
 }
 

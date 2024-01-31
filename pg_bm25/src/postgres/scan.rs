@@ -1,8 +1,6 @@
 use crate::env::needs_commit;
 use crate::schema::SearchConfig;
-use crate::{
-    globals::WriterGlobal, index_access::utils::get_parade_index, parade_index::state::SearchState,
-};
+use crate::{globals::WriterGlobal, index::state::SearchState, postgres::utils::get_search_index};
 use pgrx::*;
 
 #[pg_guard]
@@ -50,9 +48,9 @@ pub extern "C" fn amrescan(
     let index_name = &query_config.index_name;
 
     // Create the index and scan state
-    let parade_index = get_parade_index(index_name);
+    let search_index = get_search_index(index_name);
     let writer_client = WriterGlobal::client();
-    let mut state = parade_index
+    let mut state = search_index
         .search_state(&writer_client, &query_config, needs_commit())
         .unwrap();
 

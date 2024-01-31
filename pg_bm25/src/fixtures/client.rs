@@ -5,6 +5,12 @@ pub struct TestClient {
     writer: Writer,
 }
 
+impl Default for TestClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestClient {
     pub fn new() -> Self {
         Self {

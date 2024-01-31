@@ -2,22 +2,30 @@ mod config;
 mod document;
 mod fields;
 
-use std::collections::HashMap;
-
 pub use config::*;
+use derive_more::{From, Into, AsRef, Display};
 pub use document::*;
 pub use fields::*;
 use pgrx::{PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
-use tantivy::schema::{Field, Schema, FAST, INDEXED, STORED};
+use serde_json::json;
+use std::collections::HashMap;
+use tantivy::schema::{
+    Field, IndexRecordOption, NumericOptions, Schema, TextFieldIndexing, TextOptions, FAST,
+    INDEXED, STORED, JsonObjectOptions,
+};
 use thiserror::Error;
 
 /// The id of a field, stored in the index.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[derive(Debug, Clone, Display, From, AsRef, PartialEq, Eq, Serialize, Deserialize, Hash)]
+#[from(forward)]
 pub struct SearchFieldName(pub String);
+
 /// The name of a field, as it appears to Postgres.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, From, PartialEq, Eq, Serialize, Deserialize)]
+#[from(forward)]
 pub struct SearchFieldId(pub Field);
+
 /// The name of the index, as it appears to Postgres.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SearchIndexName(pub String);
@@ -47,21 +55,187 @@ impl TryFrom<&PgOid> for SearchFieldType {
                 }
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool),
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => Ok(SearchFieldType::Json),
-                _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid.clone())),
+                _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
             },
-            _ => Err(SearchIndexSchemaError::InvalidPgOid(pg_oid.clone())),
+            _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
         }
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug, utoipa::ToSchema)]
 pub enum SearchFieldConfig {
-    Text(ParadeTextOptions),
-    Json(ParadeJsonOptions),
-    Numeric(ParadeNumericOptions),
-    Boolean(ParadeBooleanOptions),
+    Text {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default)]
+        fast: bool,
+        #[serde(default = "default_as_true")]
+        stored: bool,
+        #[serde(default = "default_as_true")]
+        fieldnorms: bool,
+        #[serde(default)]
+        tokenizer: SearchTokenizer,
+        #[schema(value_type = IndexRecordOptionSchema)]
+        #[serde(default = "default_as_freqs_and_positions")]
+        record: IndexRecordOption,
+        #[serde(default)]
+        normalizer: SearchNormalizer,
+    },
+    Json {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default)]
+        fast: bool,
+        #[serde(default = "default_as_true")]
+        stored: bool,
+        #[serde(default = "default_as_true")]
+        expand_dots: bool,
+        #[serde(default)]
+        tokenizer: SearchTokenizer,
+        #[schema(value_type = IndexRecordOptionSchema)]
+        #[serde(default = "default_as_freqs_and_positions")]
+        record: IndexRecordOption,
+        #[serde(default)]
+        normalizer: SearchNormalizer,
+    },
+    Numeric {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+        #[serde(default = "default_as_true")]
+        stored: bool,
+    },
+    Boolean {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+        #[serde(default = "default_as_true")]
+        stored: bool,
+    },
     Key,
     Ctid,
+}
+
+impl SearchFieldConfig {
+    pub fn from_json(value: serde_json::Value) -> Self {
+        serde_json::from_value(value).unwrap()
+    }
+
+    pub fn default_text() -> Self {
+        Self::from_json(json!({"Text": {}}))
+    }
+
+    pub fn default_numeric() -> Self {
+        Self::from_json(json!({"Numeric": {}}))
+    }
+
+    pub fn default_boolean() -> Self {
+        Self::from_json(json!({"Boolean": {}}))
+    }
+
+    pub fn default_json() -> Self {
+        Self::from_json(json!({"Json": {}}))
+    }
+}
+
+impl From<SearchFieldConfig> for TextOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut text_options = TextOptions::default();
+        match config {
+            SearchFieldConfig::Text {
+                indexed,
+                fast,
+                stored,
+                fieldnorms,
+                tokenizer,
+                record,
+                normalizer,
+            } => {
+                if stored {
+                    text_options = text_options.set_stored();
+                }
+                if fast {
+                    text_options = text_options.set_fast(Some(normalizer.name()));
+                }
+                if indexed {
+                    let text_field_indexing = TextFieldIndexing::default()
+                        .set_index_option(record)
+                        .set_fieldnorms(fieldnorms)
+                        .set_tokenizer(&tokenizer.name());
+
+                    text_options = text_options.set_indexing_options(text_field_indexing);
+                }
+            }
+            _ => panic!("attemped to convert non-text search field config to tantivy text config"),
+        }
+        text_options
+    }
+}
+
+impl From<SearchFieldConfig> for NumericOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut numeric_options = NumericOptions::default();
+        match config {
+            SearchFieldConfig::Numeric {
+                indexed,
+                fast,
+                stored,
+            } 
+            // Following the example of Quickwit, which uses NumericOptions for boolean options.
+            | SearchFieldConfig::Boolean { indexed, fast, stored } => {
+                if stored {
+                    numeric_options = numeric_options.set_stored();
+                }
+                if fast {
+                    numeric_options = numeric_options.set_fast();
+                }
+                if indexed {
+                    numeric_options = numeric_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!(
+                    "attemped to convert non-numeric search field config to tantivy numeric config"
+                )
+            }
+        }
+        numeric_options
+    }
+}
+
+impl From<SearchFieldConfig> for JsonObjectOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut json_options = JsonObjectOptions::default();
+        match config {
+            SearchFieldConfig::Json { indexed, fast, stored, expand_dots, tokenizer, record, normalizer } => {
+        if stored {
+            json_options = json_options.set_stored();
+        }
+        if fast {
+            json_options = json_options.set_fast(Some(normalizer.name()));
+        }
+        if expand_dots {
+            json_options = json_options.set_expand_dots_enabled();
+        }
+        if indexed {
+            let text_field_indexing = TextFieldIndexing::default()
+                .set_index_option(record)
+                .set_tokenizer(&tokenizer.name());
+
+            json_options = json_options.set_indexing_options(text_field_indexing);
+        }
+            }
+            _ => {
+                panic!(
+                    "attemped to convert non-json search field config to tantivy json config"
+                )
+            }
+        }
+        
+        json_options
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -74,7 +248,7 @@ pub struct SearchField {
     pub config: SearchFieldConfig,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Into)]
 pub struct SearchIndexSchema {
     /// The fields that are stored in the index.
     pub fields: Vec<SearchField>,
@@ -83,6 +257,7 @@ pub struct SearchIndexSchema {
     /// The index of the ctid field in the fields vector.
     pub ctid: usize,
     /// The underlying tantivy schema
+    #[into]
     pub schema: Schema,
     /// A lookup cache for retrieving search fields.
     #[serde(skip_serializing)]
@@ -96,66 +271,29 @@ impl SearchIndexSchema {
         let mut builder = Schema::builder();
         let mut search_fields = vec![];
 
-        for (field_name, field_config) in fields {
-            let search_field = match &field_config {
-                SearchFieldConfig::Text(config) => SearchField {
-                    id: SearchFieldId(builder.add_text_field(&field_name.0, config)),
-                    name: field_name,
-                    config: SearchFieldConfig::Text(*config),
-                },
-                SearchFieldConfig::Numeric(config) => SearchField {
-                    id: SearchFieldId(builder.add_i64_field(&field_name.0, config)),
-                    name: field_name,
-                    config: SearchFieldConfig::Numeric(*config),
-                },
-                SearchFieldConfig::Boolean(config) => SearchField {
-                    id: SearchFieldId(builder.add_bool_field(&field_name.0, config)),
-                    name: field_name,
-                    config: SearchFieldConfig::Boolean(*config),
-                },
-                SearchFieldConfig::Json(config) => SearchField {
-                    id: SearchFieldId(builder.add_json_field(&field_name.0, config)),
-                    name: field_name,
-                    config: SearchFieldConfig::Json(*config),
-                },
-                SearchFieldConfig::Key => SearchField {
-                    id: SearchFieldId(
-                        builder.add_i64_field(&field_name.0, INDEXED | STORED | FAST),
-                    ),
-                    name: field_name,
-                    config: SearchFieldConfig::Key,
-                },
-                SearchFieldConfig::Ctid => SearchField {
-                    id: SearchFieldId(
-                        builder.add_u64_field(&field_name.0, INDEXED | STORED | FAST),
-                    ),
-                    name: field_name,
-                    config: SearchFieldConfig::Ctid,
-                },
-            };
+        let mut key_index = 0;
+        let mut ctid_index = 0;
+        for (index, (name, config)) in fields.into_iter().enumerate() {
+            match &config {
+                SearchFieldConfig::Key => key_index = index,
+                SearchFieldConfig::Ctid => ctid_index = index,
+                _ => {}
+            }
 
-            search_fields.push(search_field);
+            let id: SearchFieldId = match &config {
+                SearchFieldConfig::Text {..} => builder.add_text_field(name.as_ref(), config.clone()),
+                SearchFieldConfig::Numeric {..} => builder.add_i64_field(name.as_ref(), config.clone()),
+                SearchFieldConfig::Boolean {..} => builder.add_bool_field(name.as_ref(), config.clone()),
+                SearchFieldConfig::Json {..} => builder.add_json_field(name.as_ref(), config.clone()),
+                SearchFieldConfig::Key {..} => builder.add_i64_field(name.as_ref(), INDEXED | STORED | FAST),
+                SearchFieldConfig::Ctid {..} => builder.add_u64_field(name.as_ref(), INDEXED | STORED | FAST),
+            }.into();
+
+
+            search_fields.push(SearchField{id, name, config});
         }
 
-        let key_index = search_fields
-            .iter()
-            .position(|field| match field.config {
-                SearchFieldConfig::Key => true,
-                _ => false,
-            })
-            .ok_or(SearchIndexSchemaError::NoKeyFieldSpecified)?;
-
-        let ctid_index = search_fields
-            .iter()
-            .position(|field| match field.config {
-                SearchFieldConfig::Key => true,
-                _ => false,
-            })
-            .ok_or(SearchIndexSchemaError::NoCtidFieldSpecified)?;
-
         let schema = builder.build();
-
-        // pgrx::log!("SCHEMA {:#?}", serde_json::to_string(&schema));
 
         Ok(Self {
             key: key_index,
@@ -166,7 +304,7 @@ impl SearchIndexSchema {
         })
     }
 
-    fn build_lookup(search_fields: &Vec<SearchField>) -> HashMap<SearchFieldName, usize> {
+    fn build_lookup(search_fields: &[SearchField]) -> HashMap<SearchFieldName, usize> {
         let mut lookup = HashMap::new();
         search_fields
             .iter()
@@ -209,6 +347,33 @@ impl SearchIndexSchema {
     }
 }
 
+
+// Index record schema
+#[allow(unused)]
+#[derive(utoipa::ToSchema)]
+pub enum IndexRecordOptionSchema {
+    #[schema(rename = "basic")]
+    Basic,
+    #[schema(rename = "freq")]
+    WithFreqs,
+    #[schema(rename = "position")]
+    WithFreqsAndPositions,
+}
+
+pub trait ToString {
+    fn to_string(&self) -> String;
+}
+
+impl ToString for IndexRecordOption {
+    fn to_string(&self) -> String {
+        match self {
+            IndexRecordOption::Basic => "basic".to_string(),
+            IndexRecordOption::WithFreqs => "freq".to_string(),
+            IndexRecordOption::WithFreqsAndPositions => "position".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Error)]
 pub enum SearchIndexSchemaError {
     #[error("invalid postgres oid passed to search index schema: {0:?}")]
@@ -217,4 +382,12 @@ pub enum SearchIndexSchemaError {
     NoKeyFieldSpecified,
     #[error("no ctid field specified for search index")]
     NoCtidFieldSpecified,
+}
+
+fn default_as_true() -> bool {
+    true
+}
+
+fn default_as_freqs_and_positions() -> IndexRecordOption {
+    IndexRecordOption::WithFreqsAndPositions
 }

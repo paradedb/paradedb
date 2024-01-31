@@ -12,7 +12,7 @@ use tracing::error;
 
 use crate::writer::{WriterClient, WriterRequest};
 
-const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_index";
+const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_search_index";
 
 static TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
@@ -22,18 +22,18 @@ static TRANSACTION_CALL_ONCE_ON_ABORT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
 
 /// We use this global variable to cache any values that can be re-used
 /// after initialization.
-static PARADE_ENV: Lazy<ParadeEnv> = Lazy::new(|| ParadeEnv {
+static SEARCH_ENV: Lazy<SearchEnv> = Lazy::new(|| SearchEnv {
     postgres_data_dir: Mutex::new(None),
     postgres_database_oid: Mutex::new(None),
 });
 
-struct ParadeEnv {
+struct SearchEnv {
     postgres_data_dir: Mutex<Option<PathBuf>>,
     postgres_database_oid: Mutex<Option<u32>>,
 }
 
 pub fn postgres_data_dir_path() -> PathBuf {
-    PARADE_ENV
+    SEARCH_ENV
         .postgres_data_dir
         .lock()
         .expect("Failed to lock mutex")
@@ -47,12 +47,11 @@ pub fn postgres_data_dir_path() -> PathBuf {
 }
 
 pub fn postgres_database_oid() -> u32 {
-    PARADE_ENV
+    *SEARCH_ENV
         .postgres_database_oid
         .lock()
         .expect("Failed to lock mutex")
         .get_or_insert_with(|| unsafe { pgrx::pg_sys::MyDatabaseId.as_u32() })
-        .clone()
 }
 
 pub struct Transaction {}

@@ -4,8 +4,8 @@ pub(crate) mod code;
 pub(crate) mod icu;
 pub(crate) mod lindera;
 
-use crate::schema::ParadeTokenizer;
-use crate::schema::{SearchFieldConfig, SearchFieldName, SearchIndexSchema};
+use crate::schema::SearchTokenizer;
+use crate::schema::{SearchFieldConfig, SearchIndexSchema};
 use crate::tokenizers::cjk::ChineseTokenizer;
 use crate::tokenizers::code::CodeTokenizer;
 use crate::tokenizers::lindera::{
@@ -26,60 +26,60 @@ pub fn create_tokenizer_manager(schema: &SearchIndexSchema) -> TokenizerManager 
     let tokenizer_manager = TokenizerManager::default();
 
     for search_field in &schema.fields {
-        let SearchFieldName(field_name) = &search_field.name;
         let field_config = &search_field.config;
+        let field_name: &str = search_field.name.as_ref();
         info!(field_name, "attempting to create tokenizer");
 
-        let parade_tokenizer = match field_config {
-            SearchFieldConfig::Text(text_options) => text_options.tokenizer,
-            SearchFieldConfig::Json(json_options) => json_options.tokenizer,
+        let search_tokenizer = match field_config {
+            SearchFieldConfig::Text { tokenizer, .. }
+            | SearchFieldConfig::Json { tokenizer, .. } => tokenizer,
             _ => continue,
         };
 
-        let tokenizer_option = match parade_tokenizer {
-            ParadeTokenizer::Raw => Some(
+        let tokenizer_option = match search_tokenizer {
+            SearchTokenizer::Raw => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .build(),
             ),
-            ParadeTokenizer::ChineseCompatible => Some(
+            SearchTokenizer::ChineseCompatible => Some(
                 TextAnalyzer::builder(ChineseTokenizer)
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
                     .build(),
             ),
-            ParadeTokenizer::SourceCode => Some(
+            SearchTokenizer::SourceCode => Some(
                 TextAnalyzer::builder(CodeTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
                     .filter(AsciiFoldingFilter)
                     .build(),
             ),
-            ParadeTokenizer::Ngram {
+            SearchTokenizer::Ngram {
                 min_gram,
                 max_gram,
                 prefix_only,
             } => Some(
                 TextAnalyzer::builder(
-                    NgramTokenizer::new(min_gram, max_gram, prefix_only).unwrap(),
+                    NgramTokenizer::new(*min_gram, *max_gram, *prefix_only).unwrap(),
                 )
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)
                 .build(),
             ),
-            ParadeTokenizer::ChineseLindera => Some(
+            SearchTokenizer::ChineseLindera => Some(
                 TextAnalyzer::builder(LinderaChineseTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
                     .build(),
             ),
-            ParadeTokenizer::JapaneseLindera => Some(
+            SearchTokenizer::JapaneseLindera => Some(
                 TextAnalyzer::builder(LinderaJapaneseTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
                     .build(),
             ),
-            ParadeTokenizer::KoreanLindera => Some(
+            SearchTokenizer::KoreanLindera => Some(
                 TextAnalyzer::builder(LinderaKoreanTokenizer::default())
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)
@@ -98,10 +98,10 @@ pub fn create_tokenizer_manager(schema: &SearchIndexSchema) -> TokenizerManager 
         if let Some(text_analyzer) = tokenizer_option {
             info!(
                 field_name,
-                tokenizer_name = &parade_tokenizer.name(),
+                tokenizer_name = &search_tokenizer.name(),
                 "registering tokenizer",
             );
-            tokenizer_manager.register(&parade_tokenizer.name(), text_analyzer);
+            tokenizer_manager.register(&search_tokenizer.name(), text_analyzer);
         }
     }
 

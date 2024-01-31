@@ -1,5 +1,5 @@
 use super::{Handler, IndexError, SearchFs, ServerError, WriterDirectory, WriterRequest};
-use crate::{parade_index::index::ParadeIndex, schema::SearchDocument};
+use crate::{index::SearchIndex, schema::SearchDocument};
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
@@ -20,11 +20,11 @@ impl Writer {
     }
 
     /// Check the writer server cache for an existing IndexWriter. If it does not exist,
-    /// then retrieve the ParadeIndex and use it to create a new IndexWriter, caching it.
+    /// then retrieve the SearchIndex and use it to create a new IndexWriter, caching it.
     fn get_writer(&mut self, directory: WriterDirectory) -> Result<&mut IndexWriter, IndexError> {
         match self.tantivy_writers.entry(directory.clone()) {
             Vacant(entry) => {
-                Ok(entry.insert(ParadeIndex::writer(&directory).map_err(|err| {
+                Ok(entry.insert(SearchIndex::writer(&directory).map_err(|err| {
                     IndexError::GetWriterFailed(directory.clone(), err.to_string())
                 })?))
             }
@@ -38,7 +38,6 @@ impl Writer {
         document: SearchDocument,
     ) -> Result<(), IndexError> {
         let writer = self.get_writer(directory)?;
-        // pgrx::log!("INSERTING DOCUMENT: {document:#?}");
 
         // Add the Tantivy document to the index.
         writer.add_document(document.into())?;

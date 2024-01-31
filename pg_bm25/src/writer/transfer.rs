@@ -61,8 +61,8 @@ impl<T: Serialize> WriterTransferProducer<T> {
         // It's important that this process is the "owner" of the named pipe file path.
         // We'll remove any existing pipe_path, and connect to the first producer
         // process who creates a new one.
-        Self::delete_named_pipe_file(&pipe_path.as_ref())?;
-        let pipe = Self::create_named_pipe_file(&pipe_path.as_ref())?;
+        Self::delete_named_pipe_file(pipe_path.as_ref())?;
+        let pipe = Self::create_named_pipe_file(pipe_path.as_ref())?;
         Ok(Self {
             pipe,
             pipe_path: pipe_path.as_ref().to_path_buf(),
@@ -165,12 +165,15 @@ mod tests {
     use std::{path::Path, thread};
 
     #[rstest]
-    fn test_producer_consumer_read_write(mock_dir: MockWriterDirectory, json_doc: SearchDocument) {
+    fn test_producer_consumer_read_write(
+        mock_dir: MockWriterDirectory,
+        simple_doc: SearchDocument,
+    ) {
         let WriterTransferPipeFilePath(pipe_path) = mock_dir.writer_transfer_pipe_path().unwrap();
 
         let writer_request = WriterRequest::Insert {
             directory: mock_dir.writer_dir,
-            document: json_doc,
+            document: simple_doc,
         };
 
         // The producer will block until we read from with with read_stream, so we run it

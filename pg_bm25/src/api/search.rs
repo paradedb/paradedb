@@ -1,8 +1,6 @@
 use crate::env::needs_commit;
 use crate::schema::SearchConfig;
-use crate::{
-    globals::WriterGlobal, index_access::utils::get_parade_index, parade_index::index::ParadeIndex,
-};
+use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
 use tantivy::{schema::FieldType, SnippetGenerator};
 
@@ -13,10 +11,10 @@ pub fn rank_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json).expect("could not parse search config");
-    let parade_index = get_parade_index(&search_config.index_name);
+    let search_index = get_search_index(&search_config.index_name);
 
     let writer_client = WriterGlobal::client();
-    let mut scan_state = parade_index
+    let mut scan_state = search_index
         .search_state(&writer_client, &search_config, needs_commit())
         .unwrap();
     let top_docs = scan_state.search();
@@ -35,14 +33,14 @@ pub fn highlight_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json).expect("could not parse search config");
-    let parade_index = get_parade_index(&search_config.index_name);
-    let schema = parade_index.schema.schema.clone();
+    let search_index = get_search_index(&search_config.index_name);
+    let schema = search_index.schema.schema.clone();
     let field_name = search_config
         .highlight_field
         .as_ref()
         .unwrap_or_else(|| panic!("highlight_field parameter required for highlight function"));
     let writer_client = WriterGlobal::client();
-    let mut scan_state = parade_index
+    let mut scan_state = search_index
         .search_state(&writer_client, &search_config, needs_commit())
         .unwrap();
     let top_docs = scan_state.search();
@@ -53,7 +51,7 @@ pub fn highlight_bm25(
     let highlight_field_entry = schema.get_field_entry(highlight_field);
 
     let mut snippet_generator = if let FieldType::Str(_) = highlight_field_entry.field_type() {
-        SnippetGenerator::create(&parade_index.searcher(), &scan_state.query, highlight_field)
+        SnippetGenerator::create(&search_index.searcher(), &scan_state.query, highlight_field)
             .unwrap_or_else(|err| {
                 panic!("failed to create snippet generator for field: {field_name}... {err}")
             })
@@ -72,7 +70,7 @@ pub fn highlight_bm25(
             .unwrap_or_else(|err| panic!("error retrieving document for highlight: {err:?}"));
         let snippet = snippet_generator.snippet_from_doc(&document);
         let html = snippet.to_html();
-        let key = parade_index.get_key_value(&document);
+        let key = search_index.get_key_value(&document);
         field_rows.push((key, html));
     }
 
@@ -87,10 +85,10 @@ pub fn minmax_bm25(
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json).expect("could not parse search config");
-    let parade_index = get_parade_index(&search_config.index_name);
+    let search_index = get_search_index(&search_config.index_name);
 
     let writer_client = WriterGlobal::client();
-    let mut scan_state = parade_index
+    let mut scan_state = search_index
         .search_state(&writer_client, &search_config, needs_commit())
         .unwrap();
     let top_docs = scan_state.search();
@@ -107,7 +105,7 @@ pub fn minmax_bm25(
         let document = scan_state
             .doc(doc_address)
             .unwrap_or_else(|err| panic!("error retrieving document for rank_hybrid: {err:?}"));
-        let key = parade_index.get_key_value(&document);
+        let key = search_index.get_key_value(&document);
 
         let normalized_score = if score_range == 0.0 {
             1.0
@@ -124,6 +122,6 @@ pub fn minmax_bm25(
 fn drop_bm25_internal(index_name: &str) {
     // Drop the Tantivy data directory.
     let writer_client = WriterGlobal::client();
-    ParadeIndex::drop_index(&writer_client, index_name)
+    SearchIndex::drop_index(&writer_client, index_name)
         .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err}"));
 }

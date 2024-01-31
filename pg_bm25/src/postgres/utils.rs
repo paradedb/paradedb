@@ -1,5 +1,5 @@
-use crate::parade_index::index::ParadeIndex;
-use crate::schema::{SearchDocument, SearchFieldName, SearchIndexSchema};
+use crate::index::SearchIndex;
+use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
 use pgrx::{
     pg_sys, varsize, Array, FromDatum, JsonB, JsonString, PgBuiltInOids, PgMemoryContexts, PgOid,
@@ -8,9 +8,9 @@ use pgrx::{
 use serde_json::Map;
 use std::default::Default;
 
-pub fn get_parade_index(index_name: &str) -> &'static mut ParadeIndex {
-    let directory = WriterDirectory::from_index_name(&index_name);
-    ParadeIndex::from_cache(&directory)
+pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
+    let directory = WriterDirectory::from_index_name(index_name);
+    SearchIndex::from_cache(&directory)
         .unwrap_or_else(|err| panic!("error loading index from directory: {err}"))
 }
 
@@ -82,12 +82,11 @@ pub unsafe fn row_to_search_document(
 
         // If we can't lookup the attribute name in the field_lookup parameter,
         // it means that this field is not part of the index. We should skip it.
-        let search_field =
-            if let Some(index_field) = schema.get_search_field(&SearchFieldName(attname)) {
-                index_field
-            } else {
-                continue;
-            };
+        let search_field = if let Some(index_field) = schema.get_search_field(&attname.into()) {
+            index_field
+        } else {
+            continue;
+        };
 
         let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
         let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
@@ -102,31 +101,31 @@ pub unsafe fn row_to_search_document(
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::BOOLOID => {
                     let value = bool::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id.clone(), value.into());
+                    document.insert(search_field.id, value.into());
                 }
                 PgBuiltInOids::INT2OID => {
                     let value = i16::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id.clone(), (value as i64).into());
+                    document.insert(search_field.id, (value as i64).into());
                 }
                 PgBuiltInOids::INT4OID => {
                     let value = i32::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id.clone(), (value as i64).into());
+                    document.insert(search_field.id, (value as i64).into());
                 }
                 PgBuiltInOids::INT8OID => {
                     let value = i64::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id.clone(), value.into());
+                    document.insert(search_field.id, value.into());
                 }
                 PgBuiltInOids::OIDOID => {
                     let value = u32::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id.clone(), (value as u64).into());
+                    document.insert(search_field.id, (value as u64).into());
                 }
                 PgBuiltInOids::FLOAT4OID => {
                     let value = f32::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id.clone(), (value as f64).into());
+                    document.insert(search_field.id, (value as f64).into());
                 }
                 PgBuiltInOids::FLOAT8OID => {
                     let value = f64::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                    document.insert(search_field.id.clone(), value.into());
+                    document.insert(search_field.id, value.into());
                 }
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
                     if is_array {
@@ -135,19 +134,19 @@ pub unsafe fn row_to_search_document(
                         for element_datum in array.iter().flatten() {
                             let value = String::from_datum(element_datum, false)
                                 .ok_or(IndexError::DatumDeref)?;
-                            document.insert(search_field.id.clone(), value.into())
+                            document.insert(search_field.id, value.into())
                         }
                     } else {
                         let value =
                             String::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
-                        document.insert(search_field.id.clone(), value.into())
+                        document.insert(search_field.id, value.into())
                     }
                 }
                 PgBuiltInOids::JSONOID => {
                     let JsonString(value) =
                         JsonString::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
                     document.insert(
-                        search_field.id.clone(),
+                        search_field.id,
                         serde_json::from_str::<Map<String, serde_json::Value>>(&value)?.into(),
                     );
                 }
@@ -156,7 +155,7 @@ pub unsafe fn row_to_search_document(
                         JsonB::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
                     let value = serde_json::to_vec(&serde_value)?;
                     document.insert(
-                        search_field.id.clone(),
+                        search_field.id,
                         serde_json::from_slice::<Map<String, serde_json::Value>>(&value)?.into(),
                     );
                 }

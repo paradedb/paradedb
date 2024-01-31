@@ -1,16 +1,15 @@
 use crate::env::register_commit_callback;
 use crate::globals::WriterGlobal;
-use crate::index_access::options::ParadeOptions;
-use crate::index_access::utils::{get_parade_index, lookup_index_tupdesc};
-use crate::parade_index::index::ParadeIndex;
+use crate::index::SearchIndex;
+use crate::postgres::options::SearchIndexCreateOptions;
+use crate::postgres::utils::{get_search_index, lookup_index_tupdesc};
 use crate::schema::{SearchFieldConfig, SearchFieldName, SearchFieldType};
 use crate::writer::WriterDirectory;
 use pgrx::*;
 use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 
-// For now just pass the count and parade
-// index on the build callback state
+// For now just pass the count on the build callback state
 struct BuildState {
     count: usize,
 }
@@ -32,13 +31,15 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
 
-    let rdopts: PgBox<ParadeOptions> = if !index_relation.rd_options.is_null() {
-        unsafe { PgBox::from_pg(index_relation.rd_options as *mut ParadeOptions) }
+    let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
+        unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
     } else {
-        let ops = unsafe { PgBox::<ParadeOptions>::alloc0() };
+        let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
         ops.into_pg_boxed()
     };
 
+    // Create a map from column name to column type. We'll use this to verify that index
+    // configurations passed by the user reference the correct types for each column.
     let name_type_map: HashMap<SearchFieldName, SearchFieldType> = heap_relation
         .tuple_desc()
         .into_iter()
@@ -54,72 +55,69 @@ pub extern "C" fn ambuild(
             let search_field_type =
                 SearchFieldType::try_from(&base_oid).expect("unrecognized field type");
 
-            (SearchFieldName(attname.into()), search_field_type)
+            (attname.into(), search_field_type)
         })
         .collect();
 
-    let text_fields = rdopts.get_text_fields().into_iter().map(|(name, options)| {
-        let search_name = SearchFieldName(name.clone());
-        match name_type_map.get(&search_name) {
-            Some(SearchFieldType::Text) => (search_name, SearchFieldConfig::Text(options)),
-            Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
-            None => panic!("no field named '{name}'"),
-        }
-    });
+    // Parse and validate the index configurations for each column.
+
+    let text_fields =
+        rdopts
+            .get_text_fields()
+            .into_iter()
+            .map(|(name, config)| match name_type_map.get(&name) {
+                Some(SearchFieldType::Text) => (name, config),
+                Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
+                None => panic!("no field named '{name}'"),
+            });
 
     let numeric_fields = rdopts
         .get_numeric_fields()
         .into_iter()
-        .map(|(name, options)| {
-            let search_name = SearchFieldName(name.clone());
-            match name_type_map.get(&search_name) {
-                Some(SearchFieldType::I64) | Some(SearchFieldType::F64) => {
-                    (search_name, SearchFieldConfig::Numeric(options))
-                }
-                Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
-                None => panic!("no field named '{name}'"),
-            }
+        .map(|(name, config)| match name_type_map.get(&name) {
+            Some(SearchFieldType::I64) | Some(SearchFieldType::F64) => (name, config),
+            Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
+            None => panic!("no field named '{name}'"),
         });
 
     let boolean_fields = rdopts
         .get_boolean_fields()
         .into_iter()
-        .map(|(name, options)| {
-            let search_name = SearchFieldName(name.clone());
-            match name_type_map.get(&search_name) {
-                Some(SearchFieldType::Bool) => (search_name, SearchFieldConfig::Boolean(options)),
-                Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
-                None => panic!("no field named '{name}'"),
-            }
-        });
-
-    let json_fields = rdopts.get_json_fields().into_iter().map(|(name, options)| {
-        let search_name = SearchFieldName(name.clone());
-        match name_type_map.get(&search_name) {
-            Some(SearchFieldType::Json) => (search_name, SearchFieldConfig::Json(options)),
+        .map(|(name, config)| match name_type_map.get(&name) {
+            Some(SearchFieldType::Bool) => (name, config),
             Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
             None => panic!("no field named '{name}'"),
-        }
-    });
+        });
 
-    let key_field_name = SearchFieldName(rdopts.get_key_field().expect("must specify key field"));
-    match name_type_map.get(&key_field_name) {
+    let json_fields =
+        rdopts
+            .get_json_fields()
+            .into_iter()
+            .map(|(name, config)| match name_type_map.get(&name) {
+                Some(SearchFieldType::Json) => (name, config),
+                Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
+                None => panic!("no field named '{name}'"),
+            });
+
+    let key_field = rdopts
+        .get_key_field()
+        .expect("must specify key field");
+
+    match name_type_map.get(&key_field) {
         Some(SearchFieldType::I64) => {}
         None => panic!("key field does not exist"),
         _ => panic!("key field must be an integer"),
     };
 
+    // Concatenate the separate lists of fields.
     let fields: Vec<_> = text_fields
         .chain(numeric_fields)
         .chain(boolean_fields)
         .chain(json_fields)
-        .chain(std::iter::once((key_field_name, SearchFieldConfig::Key)))
-        .chain(std::iter::once((
-            // "ctid" is a reserved column name in Postgres, so we don't need to worry about
-            // creating a name conflict with a user-named column.
-            SearchFieldName("ctid".to_string()),
-            SearchFieldConfig::Ctid,
-        )))
+        .chain(std::iter::once((key_field, SearchFieldConfig::Key)))
+        // "ctid" is a reserved column name in Postgres, so we don't need to worry about
+        // creating a name conflict with a user-named column.
+        .chain(std::iter::once(("ctid".into(), SearchFieldConfig::Ctid)))
         .collect();
 
     // If there's only two fields in the vector, then those are just the Key and Ctid fields,
@@ -129,7 +127,7 @@ pub extern "C" fn ambuild(
     }
 
     let directory = WriterDirectory::from_index_name(&index_name);
-    ParadeIndex::new(directory, fields).expect("could not build parade index");
+    SearchIndex::new(directory, fields).expect("could not build search index");
 
     let state = do_heap_scan(index_info, &heap_relation, &index_relation);
 
@@ -201,8 +199,8 @@ unsafe fn build_callback_internal(
     let index_relation_ref: PgRelation = PgRelation::from_pg(index);
     let tupdesc = lookup_index_tupdesc(&index_relation_ref);
     let index_name = index_relation_ref.name();
-    let parade_index = get_parade_index(index_name);
-    let search_document = parade_index
+    let search_index = get_search_index(index_name);
+    let search_document = search_index
         .row_to_search_document(ctid, &tupdesc, values)
         .unwrap_or_else(|err| {
             panic!("error creating index entries for index '{index_name}': {err:?}",)
@@ -210,7 +208,7 @@ unsafe fn build_callback_internal(
 
     let writer_client = WriterGlobal::client();
 
-    parade_index
+    search_index
         .insert(&writer_client, search_document)
         .unwrap_or_else(|err| panic!("error inserting document during build callback: {err:?}"));
 

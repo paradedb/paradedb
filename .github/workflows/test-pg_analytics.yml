@@ -161,4 +161,4 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./target/coverage-report/
           files: lcov
-          fail_ci_if_error: true
+          fail_ci_if_error: false # Don't fail on error, it's usually due to a Codecov network issue

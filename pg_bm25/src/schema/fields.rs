@@ -128,7 +128,7 @@ impl From<SearchTokenizer> for TextAnalyzer {
                     .build()
             }
             #[cfg(feature = "icu")]
-            ParadeTokenizer::ICUTokenizer => TextAnalyzer::builder(ICUTokenizer)
+            SearchTokenizer::ICUTokenizer => TextAnalyzer::builder(ICUTokenizer)
                 .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                 .filter(LowerCaser)
                 .build(),

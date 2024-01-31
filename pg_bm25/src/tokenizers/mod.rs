@@ -86,7 +86,7 @@ pub fn create_tokenizer_manager(schema: &SearchIndexSchema) -> TokenizerManager 
                     .build(),
             ),
             #[cfg(feature = "icu")]
-            ParadeTokenizer::ICUTokenizer => Some(
+            SearchTokenizer::ICUTokenizer => Some(
                 TextAnalyzer::builder(ICUTokenizer)
                     .filter(RemoveLongFilter::limit(DEFAULT_REMOVE_TOKEN_LENGTH))
                     .filter(LowerCaser)

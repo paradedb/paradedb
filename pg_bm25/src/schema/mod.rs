@@ -3,7 +3,7 @@ mod document;
 mod fields;
 
 pub use config::*;
-use derive_more::{From, Into, AsRef, Display};
+use derive_more::{AsRef, Display, From, Into};
 pub use document::*;
 pub use fields::*;
 use pgrx::{PgBuiltInOids, PgOid};
@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use tantivy::schema::{
-    Field, IndexRecordOption, NumericOptions, Schema, TextFieldIndexing, TextOptions, FAST,
-    INDEXED, STORED, JsonObjectOptions,
+    Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing,
+    TextOptions, FAST, INDEXED, STORED,
 };
 use thiserror::Error;
 
@@ -182,7 +182,7 @@ impl From<SearchFieldConfig> for NumericOptions {
                 indexed,
                 fast,
                 stored,
-            } 
+            }
             // Following the example of Quickwit, which uses NumericOptions for boolean options.
             | SearchFieldConfig::Boolean { indexed, fast, stored } => {
                 if stored {
@@ -209,31 +209,37 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
     fn from(config: SearchFieldConfig) -> Self {
         let mut json_options = JsonObjectOptions::default();
         match config {
-            SearchFieldConfig::Json { indexed, fast, stored, expand_dots, tokenizer, record, normalizer } => {
-        if stored {
-            json_options = json_options.set_stored();
-        }
-        if fast {
-            json_options = json_options.set_fast(Some(normalizer.name()));
-        }
-        if expand_dots {
-            json_options = json_options.set_expand_dots_enabled();
-        }
-        if indexed {
-            let text_field_indexing = TextFieldIndexing::default()
-                .set_index_option(record)
-                .set_tokenizer(&tokenizer.name());
+            SearchFieldConfig::Json {
+                indexed,
+                fast,
+                stored,
+                expand_dots,
+                tokenizer,
+                record,
+                normalizer,
+            } => {
+                if stored {
+                    json_options = json_options.set_stored();
+                }
+                if fast {
+                    json_options = json_options.set_fast(Some(normalizer.name()));
+                }
+                if expand_dots {
+                    json_options = json_options.set_expand_dots_enabled();
+                }
+                if indexed {
+                    let text_field_indexing = TextFieldIndexing::default()
+                        .set_index_option(record)
+                        .set_tokenizer(&tokenizer.name());
 
-            json_options = json_options.set_indexing_options(text_field_indexing);
-        }
+                    json_options = json_options.set_indexing_options(text_field_indexing);
+                }
             }
             _ => {
-                panic!(
-                    "attemped to convert non-json search field config to tantivy json config"
-                )
+                panic!("attemped to convert non-json search field config to tantivy json config")
             }
         }
-        
+
         json_options
     }
 }
@@ -281,16 +287,28 @@ impl SearchIndexSchema {
             }
 
             let id: SearchFieldId = match &config {
-                SearchFieldConfig::Text {..} => builder.add_text_field(name.as_ref(), config.clone()),
-                SearchFieldConfig::Numeric {..} => builder.add_i64_field(name.as_ref(), config.clone()),
-                SearchFieldConfig::Boolean {..} => builder.add_bool_field(name.as_ref(), config.clone()),
-                SearchFieldConfig::Json {..} => builder.add_json_field(name.as_ref(), config.clone()),
-                SearchFieldConfig::Key {..} => builder.add_i64_field(name.as_ref(), INDEXED | STORED | FAST),
-                SearchFieldConfig::Ctid {..} => builder.add_u64_field(name.as_ref(), INDEXED | STORED | FAST),
-            }.into();
+                SearchFieldConfig::Text { .. } => {
+                    builder.add_text_field(name.as_ref(), config.clone())
+                }
+                SearchFieldConfig::Numeric { .. } => {
+                    builder.add_i64_field(name.as_ref(), config.clone())
+                }
+                SearchFieldConfig::Boolean { .. } => {
+                    builder.add_bool_field(name.as_ref(), config.clone())
+                }
+                SearchFieldConfig::Json { .. } => {
+                    builder.add_json_field(name.as_ref(), config.clone())
+                }
+                SearchFieldConfig::Key { .. } => {
+                    builder.add_i64_field(name.as_ref(), INDEXED | STORED | FAST)
+                }
+                SearchFieldConfig::Ctid { .. } => {
+                    builder.add_u64_field(name.as_ref(), INDEXED | STORED | FAST)
+                }
+            }
+            .into();
 
-
-            search_fields.push(SearchField{id, name, config});
+            search_fields.push(SearchField { id, name, config });
         }
 
         let schema = builder.build();
@@ -346,7 +364,6 @@ impl SearchIndexSchema {
         }
     }
 }
-
 
 // Index record schema
 #[allow(unused)]

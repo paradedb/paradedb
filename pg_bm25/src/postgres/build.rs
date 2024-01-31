@@ -99,9 +99,7 @@ pub extern "C" fn ambuild(
                 None => panic!("no field named '{name}'"),
             });
 
-    let key_field = rdopts
-        .get_key_field()
-        .expect("must specify key field");
+    let key_field = rdopts.get_key_field().expect("must specify key field");
 
     match name_type_map.get(&key_field) {
         Some(SearchFieldType::I64) => {}

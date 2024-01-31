@@ -217,7 +217,7 @@ ENV PKGNAME=pgvector
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
-# hadolint disable=DL3003
+# hadolint ignore=DL3003,SC2164
 RUN <<EOF
 cd /tmp
 git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git

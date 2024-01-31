@@ -1,7 +1,7 @@
 [package]
 name = "pg_bm25"
 description = "Full text search for PostgreSQL using BM25"
-version = "0.5.3"
+version = "0.5.4"
 edition = "2021"
 license = "AGPL-3.0"
 

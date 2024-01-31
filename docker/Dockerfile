@@ -215,6 +215,9 @@ FROM builder as builder-pgvector
 ENV PKGDIR=/tmp/pgvector/deb-pkg
 ENV PKGNAME=pgvector
 
+SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
+
+# hadolint disable=DL3003
 RUN <<EOF
 cd /tmp
 git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git

@@ -23,10 +23,14 @@ pub fn schema_bm25(
     let bm25_index_name = format!("{}_bm25_index", index_name);
     let search_index = get_search_index(&bm25_index_name);
     let schema = search_index.schema.schema.clone();
+    let mut field_entries: Vec<_> = schema.fields().collect();
+
+    // To ensure consistent ordering of outputs, we'll sort the results by field name.
+    field_entries.sort_by_key(|(field, _)| schema.get_field_name(field.clone()).to_string());
 
     let mut field_rows = Vec::new();
 
-    for field in schema.fields() {
+    for field in field_entries {
         let (field, field_entry) = field;
         let name = schema.get_field_name(field).to_string();
 

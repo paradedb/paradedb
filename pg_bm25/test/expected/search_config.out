@@ -102,7 +102,7 @@ SELECT id, description, category, rating FROM search_config.search('key', fuzzy_
   1 | Ergonomic metal keyboard    | Electronics |      4
   2 | Plastic Keyboard            | Electronics |      4
  10 | Colorful kids toy           | Toys        |      1
+ 40 | Plush teddy bear            | Toys        |      4
  12 | Innovative wireless earbuds | Electronics |      5
- 15 | Refreshing face wash        | Beauty      |      2
 (5 rows)
 

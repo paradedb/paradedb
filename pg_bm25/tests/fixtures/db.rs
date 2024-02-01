@@ -46,6 +46,9 @@ impl Db {
 
 impl Drop for Db {
     fn drop(&mut self) {
-        Postgres::cleanup_test(&self.context.db_name);
+        let db_name = self.context.db_name.to_string();
+        async_std::task::spawn(async move {
+            Postgres::cleanup_test(db_name.as_str()).await.unwrap();
+        });
     }
 }

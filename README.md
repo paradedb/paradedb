@@ -48,6 +48,10 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [ ] Cloud Marketplace Images
   - [ ] Web-based SQL Editor
 
+## Get Started
+
+To get started, please visit our [documentation](https://docs.paradedb.com).
+
 ## Creating a ParadeDB Instance
 
 ### ParadeDB Cloud
@@ -91,14 +95,6 @@ see the extension(s)' README. We strongly recommend using the ParadeDB Docker im
 which is optimized for running search in Postgres.
 
 If you are self-hosting Postgres and are interested in ParadeDB, please [contact the ParadeDB team](mailto:hello@paradedb.com) and we'll be happy to help!
-
-## Getting Started
-
-To get started using ParadeDB, please follow the [quickstart guide](https://docs.paradedb.com/quickstart)!
-
-## Documentation
-
-You can find the complete documentation for ParadeDB at [docs.paradedb.com](https://docs.paradedb.com).
 
 ## Support
 

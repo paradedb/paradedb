@@ -26,7 +26,7 @@ pub fn schema_bm25(
     let mut field_entries: Vec<_> = schema.fields().collect();
 
     // To ensure consistent ordering of outputs, we'll sort the results by field name.
-    field_entries.sort_by_key(|(field, _)| schema.get_field_name(field.clone()).to_string());
+    field_entries.sort_by_key(|(field, _)| schema.get_field_name(*field).to_string());
 
     let mut field_rows = Vec::new();
 

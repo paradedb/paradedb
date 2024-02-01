@@ -1,4 +1,3 @@
-use crate::index_access::utils::SearchConfig;
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, RegexQuery};
 use tantivy::query_grammar::Occur;
@@ -9,32 +8,34 @@ use tantivy::{
 };
 use tantivy::{DocId, SegmentReader};
 
-use super::index::ParadeIndex;
-use super::score::ParadeIndexScore;
+use super::score::SearchIndexScore;
+use super::SearchIndex;
+use crate::schema::{SearchConfig, SearchIndexSchema};
 
-pub struct TantivyScanState {
-    pub schema: Schema,
+pub struct SearchState {
+    pub schema: SearchIndexSchema,
     pub query: Box<dyn Query>,
     pub parser: QueryParser,
     pub searcher: Searcher,
-    pub iterator: *mut std::vec::IntoIter<(ParadeIndexScore, DocAddress)>,
+    pub iterator: *mut std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
     pub config: SearchConfig,
     pub key_field_name: String,
 }
 
-impl TantivyScanState {
-    pub fn new(parade_index: &ParadeIndex, config: &SearchConfig) -> Self {
-        let schema = parade_index.schema();
-        let mut parser = parade_index.query_parser();
+impl SearchState {
+    pub fn new(search_index: &SearchIndex, config: &SearchConfig) -> Self {
+        let schema = search_index.schema.clone();
+        let mut parser = search_index.query_parser();
         let query = Self::query(config, &schema, &mut parser);
-        TantivyScanState {
+        let key_field_name = schema.key_field().name.0;
+        SearchState {
             schema,
             query,
             parser,
             config: config.clone(),
-            searcher: parade_index.searcher(),
+            searcher: search_index.searcher(),
             iterator: std::ptr::null_mut(),
-            key_field_name: parade_index.key_field_name.clone(),
+            key_field_name,
         }
     }
 
@@ -42,6 +43,7 @@ impl TantivyScanState {
         let retrieved_doc = self.searcher.doc(doc_address).expect("could not find doc");
 
         let key_field = self
+            .schema
             .schema
             .get_field(&self.key_field_name)
             .expect("field '{key_field_name}' not found in schema");
@@ -60,7 +62,7 @@ impl TantivyScanState {
         }
     }
 
-    pub fn search(&mut self) -> Vec<(ParadeIndexScore, DocAddress)> {
+    pub fn search(&mut self) -> Vec<(SearchIndexScore, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
             // We use unwrap_or_else here so this block doesn't run unless
@@ -89,7 +91,7 @@ impl TantivyScanState {
                     })
                     .first_or_default_col(0);
 
-                move |doc: DocId, original_score: Score| ParadeIndexScore {
+                move |doc: DocId, original_score: Score| SearchIndexScore {
                     bm25: original_score,
                     key: key_field_reader.get_val(doc),
                 }
@@ -107,7 +109,7 @@ impl TantivyScanState {
 
     fn query(
         query_config: &SearchConfig,
-        schema: &Schema,
+        schema: &SearchIndexSchema,
         parser: &mut QueryParser,
     ) -> Box<dyn Query> {
         let fuzzy_fields = &query_config.fuzzy_fields;
@@ -128,7 +130,7 @@ impl TantivyScanState {
 
             // Build a regex query for each specified regex field.
             for field_name in &mut regex_fields.iter() {
-                if let Ok(field) = schema.get_field(field_name) {
+                if let Ok(field) = schema.schema.get_field(field_name) {
                     let regex_query =
                         Box::new(RegexQuery::from_pattern(&regex_pattern, field).unwrap());
                     queries.push(regex_query);
@@ -149,7 +151,7 @@ impl TantivyScanState {
             let max_distance = query_config.distance.unwrap_or(2);
 
             for field_name in &mut fuzzy_fields.iter() {
-                if let Ok(field) = schema.get_field(field_name) {
+                if let Ok(field) = schema.schema.get_field(field_name) {
                     parser.set_field_fuzzy(field, require_prefix, max_distance, transpose_cost_one);
                 }
             }

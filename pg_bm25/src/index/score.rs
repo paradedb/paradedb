@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use serde::{Deserialize, Serialize};
 
 #[derive(Copy, Clone, Serialize, Deserialize)]
-pub struct ParadeIndexScore {
+pub struct SearchIndexScore {
     pub bm25: f32,
     pub key: i64,
 }
@@ -12,13 +12,13 @@ pub struct ParadeIndexScore {
 // - they're ordered descending by bm25 score.
 // - in case of a tie, they're ordered by ascending key.
 
-impl PartialEq for ParadeIndexScore {
+impl PartialEq for SearchIndexScore {
     fn eq(&self, other: &Self) -> bool {
         self.bm25 == other.bm25 && self.key == other.key
     }
 }
 
-impl PartialOrd for ParadeIndexScore {
+impl PartialOrd for SearchIndexScore {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.bm25 == other.bm25 {
             other.key.partial_cmp(&self.key)

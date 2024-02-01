@@ -14,6 +14,7 @@ pgrx = "0.11.2"
 reqwest = { version = "0.11.22", features = ["blocking"] }
 serde = "1.0.189"
 serde_json = "1.0.107"
+tracing = "0.1.40"
 uuid = "1.5.0"
 
 [dev-dependencies]

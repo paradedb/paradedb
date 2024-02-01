@@ -1,21 +1,31 @@
-use crate::writer::transfer;
-
 use super::{Handler, IndexError, ServerRequest};
-use serde::{de::DeserializeOwned, Serialize};
-use std::cell::RefCell;
+use crate::writer::transfer;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use std::io;
 use std::marker::PhantomData;
 use std::path::Path;
+use std::{cell::RefCell, io::Cursor};
 use thiserror::Error;
+use tracing::{error, info};
 
 /// A generic server for receiving requests and transfers from a client.
-pub struct Server<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> {
+pub struct Server<'a, T, H>
+where
+    T: DeserializeOwned,
+    H: Handler<T>,
+{
     addr: std::net::SocketAddr,
     http: tiny_http::Server,
     handler: RefCell<H>,
     marker: PhantomData<&'a T>,
 }
 
-impl<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> Server<'a, T, H> {
+impl<'a, T, H> Server<'a, T, H>
+where
+    T: Serialize + DeserializeOwned + 'a,
+    H: Handler<T>,
+{
     pub fn new(handler: H) -> Result<Self, ServerError> {
         let http = tiny_http::Server::http("0.0.0.0:0")
             .map_err(|err| ServerError::AddressBindFailed(err.to_string()))?;
@@ -48,52 +58,59 @@ impl<'a, T: Serialize + DeserializeOwned + 'a, H: Handler<T>> Server<'a, T, H> {
 
     fn listen_transfer<P: AsRef<Path>>(&self, pipe_path: P) -> Result<(), ServerError> {
         // Our consumer will receive messages suitable for our handler.
-        for incoming in transfer::read_stream(pipe_path)? {
+        for incoming in transfer::read_stream::<T, P>(pipe_path)? {
             self.handler.borrow_mut().handle(incoming?)?;
         }
         Ok(())
     }
 
+    fn response_ok() -> tiny_http::Response<io::Empty> {
+        tiny_http::Response::empty(200)
+    }
+
+    fn response_err(err: ServerError) -> tiny_http::Response<Cursor<Vec<u8>>> {
+        tiny_http::Response::from_string(err.to_string()).with_status_code(500)
+    }
+
     fn listen_request(&mut self) -> Result<(), ServerError> {
-        pgrx::log!("listening to incoming requests at {:?}", self.addr);
+        info!("listening to incoming requests at {:?}", self.addr);
         for mut incoming in self.http.incoming_requests() {
             let reader = incoming.as_reader();
-            let request: Result<ServerRequest<T>, ServerError> =
-                serde_json::from_reader(reader).map_err(ServerError::SerdeJsonError);
+            let request: Result<ServerRequest<T>, ServerError> = bincode::deserialize_from(reader)
+                .map_err(|err| ServerError::Unexpected(err.into()));
 
-            // A flag to tell us after we've sent the response that the client has
-            // a data transfer to send us. The response must be returned before the transfer.
-            let mut transfer_pipe_path: Option<String> = None;
-
-            let response = match request {
+            match request {
                 Ok(req) => match req {
-                    ServerRequest::Shutdown => return Ok(()),
-                    ServerRequest::Transfer(pipe_path) => {
-                        transfer_pipe_path.replace(pipe_path);
-                        Ok(()) // We must respond with OK before initiating the transfer.
+                    ServerRequest::Shutdown => {
+                        if let Err(err) = incoming.respond(Self::response_ok()) {
+                            error!("server error responding to shutdown: {err}");
+                        }
+                        return Ok(());
                     }
-                    ServerRequest::Request(writer_request) => {
-                        self.handler.borrow_mut().handle(writer_request)
+                    ServerRequest::Transfer(pipe_path) => {
+                        // We must respond with OK before initiating the transfer.
+                        if let Err(err) = incoming.respond(Self::response_ok()) {
+                            error!("server error responding to transfer: {err}");
+                        } else if let Err(err) = self.listen_transfer(pipe_path) {
+                            error!("error listening to transfer: {err}")
+                        }
+                    }
+                    ServerRequest::Request(req) => {
+                        if let Err(err) = self.handler.borrow_mut().handle(req) {
+                            if let Err(err) = incoming.respond(Self::response_err(err)) {
+                                error!("server error responding to handler error: {err}");
+                            }
+                        } else if let Err(err) = incoming.respond(Self::response_ok()) {
+                            error!("server error responding to handler success: {err}")
+                        }
                     }
                 },
-                Err(err) => Err(err),
+                Err(err) => {
+                    if let Err(err) = incoming.respond(Self::response_err(err)) {
+                        error!("server error responding to client on deserialize error: {err}");
+                    }
+                }
             };
-
-            // Try to respond to the client. This could fail if the client has disconnected.
-            if let Err(err) = match response {
-                Ok(()) => incoming.respond(tiny_http::Response::empty(200)),
-                Err(err) => incoming.respond(
-                    tiny_http::Response::from_string(err.to_string()).with_status_code(500),
-                ),
-            } {
-                pgrx::log!("writer server failed to respond to client: {err:?}");
-                continue; // Ignore any pending transfer initiation if the client is broken.
-            }
-
-            // If this was a transfer request, we'll start listening for data.
-            if let Some(pipe_path) = transfer_pipe_path {
-                self.listen_transfer(pipe_path)?
-            }
         }
 
         unreachable!("server should never stop listening");
@@ -121,5 +138,41 @@ pub enum ServerError {
     ReqwestError(#[from] reqwest::Error),
 
     #[error(transparent)]
-    SerdeJsonError(#[from] serde_json::Error),
+    SerdeJson(#[from] serde_json::Error),
+
+    #[error(transparent)]
+    Bincode(#[from] bincode::Error),
+
+    #[error("unexpected error: {0}")]
+    Unexpected(#[from] Box<dyn std::error::Error>),
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        fixtures::*,
+        schema::{SearchDocument, SearchIndexSchema},
+    };
+    use anyhow::Result;
+    use rstest::*;
+    use tantivy::Index;
+
+    #[rstest]
+    fn test_index_commit(
+        simple_schema: SearchIndexSchema,
+        simple_doc: SearchDocument,
+        mock_dir: MockWriterDirectory,
+    ) -> Result<()> {
+        let tantivy_path = mock_dir.tantivy_dir_path()?;
+        let index = Index::builder()
+            .schema(simple_schema.into())
+            .create_in_dir(tantivy_path)
+            .unwrap();
+
+        let mut writer = index.writer(500_000_000).unwrap();
+        writer.add_document(simple_doc.into()).unwrap();
+        writer.commit().unwrap();
+
+        Ok(())
+    }
 }

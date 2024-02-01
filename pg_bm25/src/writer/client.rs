@@ -1,8 +1,8 @@
-use crate::WRITER_STATUS;
+use crate::globals::WRITER_GLOBAL;
 
-use super::{transfer::WriterTransferProducer, IndexEntry, ServerRequest};
+use super::{transfer::WriterTransferProducer, ServerRequest, WriterClient};
 use serde::Serialize;
-use std::{marker::PhantomData, net::SocketAddr, panic};
+use std::{marker::PhantomData, net::SocketAddr, panic, path::Path};
 use thiserror::Error;
 
 pub struct Client<T: Serialize> {
@@ -42,8 +42,8 @@ impl<T: Serialize> Client<T> {
         }
     }
 
-    pub fn from_writer_addr() -> Self {
-        let lock = panic::catch_unwind(|| WRITER_STATUS.share());
+    pub fn from_global() -> Self {
+        let lock = panic::catch_unwind(|| WRITER_GLOBAL.share());
 
         let addr = match lock {
             Ok(lock) => lock.addr(),
@@ -59,19 +59,11 @@ impl<T: Serialize> Client<T> {
         format!("http://{}", self.addr)
     }
 
-    pub fn request(&mut self, request: T) -> Result<(), ClientError> {
-        self.send_request(ServerRequest::Request(request))
-    }
-
-    pub fn transfer(&mut self, request: T) -> Result<(), ClientError> {
-        self.send_transfer(request)
-    }
-
     fn send_request(&mut self, request: ServerRequest<T>) -> Result<(), ClientError> {
         // If there is an open pending transfer, stop it so that we can continue
         // with more requests.
         self.stop_transfer();
-        let bytes = serde_json::to_vec(&request)?;
+        let bytes = bincode::serialize(&request).unwrap();
         let response = self.http.post(self.url()).body::<Vec<u8>>(bytes).send()?;
 
         match response.status() {
@@ -83,14 +75,22 @@ impl<T: Serialize> Client<T> {
         }
     }
 
-    fn send_transfer(&mut self, request: T) -> Result<(), ClientError> {
+    fn send_transfer<P: AsRef<Path>>(
+        &mut self,
+        pipe_path: P,
+        request: T,
+    ) -> Result<(), ClientError> {
         if self.producer.is_none() {
-            let pipe_path = WriterTransferProducer::<IndexEntry>::pipe_path()?
-                .display()
-                .to_string();
-            self.send_request(ServerRequest::Transfer(pipe_path))?;
-            self.producer.replace(WriterTransferProducer::new()?);
+            // Send a request to open a transfer to the server.
+            self.send_request(ServerRequest::Transfer(
+                pipe_path.as_ref().display().to_string(),
+            ))?;
+            // Store a new transfer producer in the client state.
+            self.producer
+                .replace(WriterTransferProducer::new(pipe_path)?);
         }
+
+        // There is an existing producer in client state, use it to send the request.
         self.producer.as_mut().unwrap().write_message(&request)?;
         Ok(())
     }
@@ -113,6 +113,16 @@ impl<T: Serialize> Client<T> {
     }
 }
 
+impl<T: Serialize> WriterClient<T> for Client<T> {
+    fn request(&mut self, request: T) -> Result<(), ClientError> {
+        self.send_request(ServerRequest::Request(request))
+    }
+
+    fn transfer<P: AsRef<Path>>(&mut self, pipe_path: P, request: T) -> Result<(), ClientError> {
+        self.send_transfer(pipe_path, request)
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ClientError {
     #[error("could not parse response from writer server: {0}")]
@@ -129,4 +139,41 @@ pub enum ClientError {
 
     #[error(transparent)]
     SerdeError(#[from] serde_json::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::fixtures::*;
+    use crate::writer::{Client, Server, WriterClient, WriterRequest};
+    use rstest::*;
+    use std::thread;
+
+    #[rstest]
+    #[case::insert_request(WriterRequest::Insert {
+        directory: mock_dir().writer_dir,
+        document: simple_doc(simple_schema(default_fields())),
+    })]
+    #[case::commit_request(WriterRequest::Commit)]
+    #[case::abort_request(WriterRequest::Abort)]
+    #[case::vacuum_request(WriterRequest::Vacuum { directory: mock_dir().writer_dir })]
+    #[case::drop_index_request(WriterRequest::DropIndex { directory: mock_dir().writer_dir })]
+    /// Test request serialization and transfer between client and server.
+    fn test_client_request(#[case] request: WriterRequest) {
+        // Create a handler that will test that the received request is the same as sent.
+        let request_clone = request.clone();
+        let handler = TestHandler::new(move |req: WriterRequest| assert_eq!(&req, &request_clone));
+        let mut server = Server::new(handler).unwrap();
+        let addr = server.addr();
+
+        // Start the server in a new thread, as it blocks once started.
+        thread::spawn(move || {
+            server.start().unwrap();
+        });
+
+        let mut client: Client<WriterRequest> = Client::new(addr);
+        client.request(request.clone()).unwrap();
+
+        // The server must be stopped, or this test will not finish.
+        client.stop_server().unwrap();
+    }
 }

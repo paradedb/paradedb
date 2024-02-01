@@ -1,59 +1,37 @@
 mod api;
 mod env;
-mod index_access;
-mod operator;
-mod parade_index;
+mod globals;
+mod index;
+mod postgres;
+mod schema;
 mod tokenizers;
 mod writer;
 
+#[cfg(test)]
+pub mod fixtures;
+
+use crate::globals::{PARADE_LOGS_GLOBAL, WRITER_GLOBAL};
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
-use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
-use std::net::SocketAddr;
 use std::process;
 use std::time::Duration;
-
-#[derive(Copy, Clone, Default)]
-pub struct WriterStatus {
-    pub addr: Option<SocketAddr>,
-}
-
-impl WriterStatus {
-    pub fn addr(&self) -> SocketAddr {
-        self.addr
-            .expect("could not access writer status, writer server may not have started.")
-    }
-    pub fn set_addr(&mut self, addr: SocketAddr) {
-        self.addr = Some(addr);
-    }
-}
-
-unsafe impl PGRXSharedMemory for WriterStatus {}
-
-// This is a flag that can be set by the user in a session to enable logs.
-// You need to initialize this in every extension that uses `plog!`.
-static PARADE_LOGS_GLOBAL: ParadeLogsGlobal =
-    ParadeLogsGlobal::new(shared::constants::PG_BM25_NAME);
-
-// This is global shared state for the writer background worker.
-static WRITER_STATUS: PgLwLock<WriterStatus> = PgLwLock::new();
 
 pgrx::pg_module_magic!();
 
 extension_sql_file!("../sql/_bootstrap.sql");
 
-// Initializes option parsing and telemetry
+/// Initializes option parsing and telemetry
 #[allow(clippy::missing_safety_doc)]
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
-    index_access::options::init();
+    postgres::options::init();
     telemetry::posthog::init(shared::constants::PG_BM25_NAME);
     PARADE_LOGS_GLOBAL.init();
 
     // Set up the writer bgworker shared state.
-    pg_shmem_init!(WRITER_STATUS);
+    pg_shmem_init!(WRITER_GLOBAL);
 
     // We call this in a helper function to the bgworker initialization
     // can be used in test suites.
@@ -109,7 +87,7 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
     // We also acquire its lock with `.exclusive` inside an enclosing block to ensure that
     // it is dropped after we are done with it.
     {
-        WRITER_STATUS.exclusive().set_addr(server.addr());
+        WRITER_GLOBAL.exclusive().set_addr(server.addr());
     }
 
     // Handle an edge case where Postgres has been shut down very quickly. In this case, the
@@ -121,7 +99,9 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
         return;
     }
 
-    server.start().expect("writer server crashed");
+    server
+        .start()
+        .unwrap_or_else(|err| panic!("writer server crashed: {err}"));
 }
 
 #[pg_guard]
@@ -137,7 +117,7 @@ pub extern "C" fn pg_bm25_shutdown_worker(_arg: pg_sys::Datum) {
 
     // We've received SIGTERM. Send a shutdown message to the HTTP server.
     let mut writer_client: writer::Client<writer::WriterRequest> =
-        writer::Client::new(WRITER_STATUS.share().addr());
+        writer::Client::new(WRITER_GLOBAL.share().addr());
 
     writer_client
         .stop_server()
@@ -155,14 +135,5 @@ pub mod pg_test {
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         // return any postgresql.conf settings that are required for your tests
         vec!["shared_preload_libraries='pg_bm25.so'"]
-    }
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    #[pgrx::pg_test]
-    fn test_parade_logs() {
-        shared::test_plog!(shared::constants::PG_BM25_NAME);
     }
 }

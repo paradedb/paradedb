@@ -1,8 +1,8 @@
 use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
-use crate::index_access::utils::get_parade_index;
-use crate::parade_index::fields::ToString;
+use crate::postgres::utils::get_search_index;
+use crate::schema::ToString;
 
 #[allow(clippy::type_complexity)]
 #[pg_extern]
@@ -21,12 +21,16 @@ pub fn schema_bm25(
     name!(normalizer, Option<String>),
 )> {
     let bm25_index_name = format!("{}_bm25_index", index_name);
-    let parade_index = get_parade_index(&bm25_index_name);
-    let schema = parade_index.schema();
+    let search_index = get_search_index(&bm25_index_name);
+    let schema = search_index.schema.schema.clone();
+    let mut field_entries: Vec<_> = schema.fields().collect();
+
+    // To ensure consistent ordering of outputs, we'll sort the results by field name.
+    field_entries.sort_by_key(|(field, _)| schema.get_field_name(*field).to_string());
 
     let mut field_rows = Vec::new();
 
-    for field in schema.fields() {
+    for field in field_entries {
         let (field, field_entry) = field;
         let name = schema.get_field_name(field).to_string();
 
@@ -81,38 +85,4 @@ pub fn schema_bm25(
     }
 
     TableIterator::new(field_rows)
-}
-
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
-mod tests {
-    use super::schema_bm25;
-    use pgrx::*;
-    use shared::testing::SETUP_SQL;
-
-    #[pg_test]
-    fn test_schema_bm25() {
-        crate::setup_background_workers();
-        Spi::run(SETUP_SQL).expect("failed to setup index");
-        let schemas = schema_bm25("one_republic_songs").collect::<Vec<_>>();
-        let names = schemas
-            .iter()
-            .map(|schema| schema.0.as_str())
-            .collect::<Vec<_>>();
-
-        assert_eq!(schemas.len(), 8);
-        assert_eq!(
-            names,
-            vec![
-                "song_id",
-                "title",
-                "album",
-                "release_year",
-                "genre",
-                "description",
-                "lyrics",
-                "ctid",
-            ]
-        );
-    }
 }

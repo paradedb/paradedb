@@ -1,17 +1,15 @@
-use json5::from_str;
 use memoffset::*;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
+use serde_json::json;
 use std::collections::HashMap;
 use std::ffi::CStr;
 
-use crate::parade_index::fields::{
-    ParadeBooleanOptions, ParadeJsonOptions, ParadeNumericOptions, ParadeTextOptions,
-};
+use crate::schema::{SearchFieldConfig, SearchFieldName};
 
 /* ADDING OPTIONS
  * in init(), call pg_sys::add_{type}_reloption (check postgres docs for what args you need)
- * add the corresponding entries to ParadeOptions struct definition
+ * add the corresponding entries to SearchIndexCreateOptions struct definition
  * in amoptions(), add a relopt_parse_elt entry to the options array and change NUM_REL_OPTS
  * Note that for string options, postgres will give you the offset of the string, and you have to read the string
  * yourself (see get_tokenizer)
@@ -19,8 +17,8 @@ use crate::parade_index::fields::{
 
 /* READING OPTIONS
  * options are placed in relation.rd_options
- * As in ambuild(), cast relation.rd_options into ParadeOptions using PgBox (because ParadeOptions
- * is a postgres-allocated object) and use getters and setters
+ * As in ambuild(), cast relation.rd_options into SearchIndexCreateOptions using PgBox
+ * (because SearchIndexCreateOptions is a postgres-allocated object) and use getters and setters
 */
 
 static mut RELOPT_KIND_PDB: pg_sys::relopt_kind = 0;
@@ -28,7 +26,7 @@ static mut RELOPT_KIND_PDB: pg_sys::relopt_kind = 0;
 // Postgres handles string options by placing each option offset bytes from the start of rdopts and
 // plops the offset in the struct
 #[repr(C)]
-pub struct ParadeOptions {
+pub struct SearchIndexCreateOptions {
     // varlena header (needed bc postgres treats this as bytea)
     vl_len_: i32,
     text_fields_offset: i32,
@@ -41,49 +39,37 @@ pub struct ParadeOptions {
 #[pg_guard]
 extern "C" fn validate_text_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
-
     if json_str.is_empty() {
         return;
     }
-
-    let _options: HashMap<String, ParadeTextOptions> =
-        from_str(&json_str).expect("failed to validate text_fields");
+    SearchIndexCreateOptions::deserialize_config_fields("Text".into(), json_str);
 }
 
 #[pg_guard]
 extern "C" fn validate_numeric_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
-
     if json_str.is_empty() {
         return;
     }
-
-    let _options: HashMap<String, ParadeNumericOptions> =
-        from_str(&json_str).expect("failed to validate numeric_fields");
+    SearchIndexCreateOptions::deserialize_config_fields("Numeric".into(), json_str);
 }
 
 #[pg_guard]
 extern "C" fn validate_boolean_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
-
     if json_str.is_empty() {
         return;
     }
-
-    let _options: HashMap<String, ParadeBooleanOptions> =
-        from_str(&json_str).expect("failed to validate boolean_fields");
+    SearchIndexCreateOptions::deserialize_config_fields("Boolean".into(), json_str);
 }
 
 #[pg_guard]
 extern "C" fn validate_json_fields(value: *const std::os::raw::c_char) {
     let json_str = cstr_to_rust_str(value);
-
     if json_str.is_empty() {
         return;
     }
-
-    let _options: HashMap<String, ParadeJsonOptions> =
-        from_str(&json_str).expect("failed to validate boolean_fields");
+    SearchIndexCreateOptions::deserialize_config_fields("Json".into(), json_str);
 }
 
 #[pg_guard]
@@ -114,27 +100,27 @@ pub unsafe extern "C" fn amoptions(
         pg_sys::relopt_parse_elt {
             optname: "text_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
-            offset: offset_of!(ParadeOptions, text_fields_offset) as i32,
+            offset: offset_of!(SearchIndexCreateOptions, text_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "numeric_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
-            offset: offset_of!(ParadeOptions, numeric_fields_offset) as i32,
+            offset: offset_of!(SearchIndexCreateOptions, numeric_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "boolean_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
-            offset: offset_of!(ParadeOptions, boolean_fields_offset) as i32,
+            offset: offset_of!(SearchIndexCreateOptions, boolean_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "json_fields".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
-            offset: offset_of!(ParadeOptions, json_fields_offset) as i32,
+            offset: offset_of!(SearchIndexCreateOptions, json_fields_offset) as i32,
         },
         pg_sys::relopt_parse_elt {
             optname: "key_field".as_pg_cstr(),
             opttype: pg_sys::relopt_type_RELOPT_TYPE_STRING,
-            offset: offset_of!(ParadeOptions, key_field_offset) as i32,
+            offset: offset_of!(SearchIndexCreateOptions, key_field_offset) as i32,
         },
     ];
     build_relopts(reloptions, validate, options)
@@ -150,7 +136,7 @@ unsafe fn build_relopts(
         reloptions,
         validate,
         RELOPT_KIND_PDB,
-        std::mem::size_of::<ParadeOptions>(), // TODO: proper size calculator
+        std::mem::size_of::<SearchIndexCreateOptions>(), // TODO: proper size calculator
         options.as_ptr(),
         NUM_REL_OPTS as i32,
     );
@@ -175,11 +161,14 @@ unsafe fn build_relopts(
         relopt.gen.as_mut().unwrap().lockmode = pg_sys::AccessExclusiveLock as pg_sys::LOCKMODE;
     }
 
-    let rdopts =
-        pg_sys::allocateReloptStruct(std::mem::size_of::<ParadeOptions>(), p_options, n_options);
+    let rdopts = pg_sys::allocateReloptStruct(
+        std::mem::size_of::<SearchIndexCreateOptions>(),
+        p_options,
+        n_options,
+    );
     pg_sys::fillRelOptions(
         rdopts,
-        std::mem::size_of::<ParadeOptions>(),
+        std::mem::size_of::<SearchIndexCreateOptions>(),
         p_options,
         n_options,
         validate,
@@ -191,56 +180,71 @@ unsafe fn build_relopts(
     rdopts as *mut pg_sys::bytea
 }
 
-impl ParadeOptions {
-    pub fn get_text_fields(&self) -> HashMap<String, ParadeTextOptions> {
-        let fields = self.get_str(self.text_fields_offset, "".to_string());
+impl SearchIndexCreateOptions {
+    /// As a SearchFieldConfig is an enum, for it to be correctly serialized the variant needs
+    /// to be present on the json object. This helper method will "wrap" the json object in
+    /// another object with the variant key, which is passed into the function. For example:
+    ///
+    /// {"Text": { <actual_config> }}
+    ///
+    /// This way, serde will know to deserialize the config as SearchFieldConfig::Text.
+    fn deserialize_config_fields(
+        variant: String,
+        serialized: String,
+    ) -> Vec<(SearchFieldName, SearchFieldConfig)> {
+        let config_map: HashMap<String, serde_json::Value> = json5::from_str(&serialized)
+            .unwrap_or_else(|err| panic!("failed to deserialize {variant} field config: {err:?}"));
 
-        if fields.is_empty() {
-            return HashMap::new();
-        }
-
-        from_str::<HashMap<String, ParadeTextOptions>>(&fields).expect("failed to get text_fields")
+        config_map
+            .into_iter()
+            .map(|(field_name, field_config)| {
+                (
+                    field_name.into(),
+                    serde_json::from_value(json!({variant.clone(): field_config})).unwrap(),
+                )
+            })
+            .collect()
     }
 
-    pub fn get_numeric_fields(&self) -> HashMap<String, ParadeNumericOptions> {
-        let fields = self.get_str(self.numeric_fields_offset, "".to_string());
-
-        if fields.is_empty() {
-            return HashMap::new();
+    pub fn get_text_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
+        let config = self.get_str(self.text_fields_offset, "".to_string());
+        if config.is_empty() {
+            return Vec::new();
         }
-
-        from_str::<HashMap<String, ParadeNumericOptions>>(&fields)
-            .expect("failed to parse numeric_fields")
+        Self::deserialize_config_fields("Text".into(), config)
     }
 
-    pub fn get_boolean_fields(&self) -> HashMap<String, ParadeBooleanOptions> {
-        let fields = self.get_str(self.boolean_fields_offset, "".to_string());
-
-        if fields.is_empty() {
-            return HashMap::new();
+    pub fn get_numeric_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
+        let config = self.get_str(self.numeric_fields_offset, "".to_string());
+        if config.is_empty() {
+            return Vec::new();
         }
-
-        from_str::<HashMap<String, ParadeBooleanOptions>>(&fields)
-            .expect("failed to parse boolean_fields")
+        Self::deserialize_config_fields("Numeric".into(), config)
     }
 
-    pub fn get_json_fields(&self) -> HashMap<String, ParadeJsonOptions> {
-        let fields = self.get_str(self.json_fields_offset, "".to_string());
-
-        if fields.is_empty() {
-            return HashMap::new();
+    pub fn get_boolean_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
+        let config = self.get_str(self.boolean_fields_offset, "".to_string());
+        if config.is_empty() {
+            return Vec::new();
         }
-
-        from_str::<HashMap<String, ParadeJsonOptions>>(&fields)
-            .expect("failed to parse json_fields")
+        Self::deserialize_config_fields("Boolean".into(), config)
     }
 
-    pub fn get_key_field(&self) -> String {
+    pub fn get_json_fields(&self) -> Vec<(SearchFieldName, SearchFieldConfig)> {
+        let config = self.get_str(self.json_fields_offset, "".to_string());
+        if config.is_empty() {
+            return Vec::new();
+        }
+        Self::deserialize_config_fields("Json".into(), config)
+    }
+
+    pub fn get_key_field(&self) -> Option<SearchFieldName> {
         let key_field = self.get_str(self.key_field_offset, "".to_string());
         if key_field.is_empty() {
-            panic!("no key_field supplied for bm25 index")
+            None
+        } else {
+            Some(key_field.into())
         }
-        key_field
     }
 
     fn get_str(&self, offset: i32, default: String) -> String {

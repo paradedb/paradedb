@@ -1,7 +1,7 @@
 DROP EXTENSION IF EXISTS pg_bm25;
 CREATE EXTENSION IF NOT EXISTS pg_bm25;
 
-CALL paradedb.create_bm25_test_table(); -- creates table named "paradeb.bm25_test_table" by default
+CALL paradedb.create_bm25_test_table(); -- creates table named "paradedb.bm25_test_table" by default
 
 CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb');
 CALL paradedb.create_bm25_test_table(table_name => 'search_config', schema_name => 'paradedb');

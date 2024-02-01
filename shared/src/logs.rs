@@ -1,5 +1,5 @@
 #![allow(clippy::crate_in_macro_def)]
-use pgrx::*;
+use pgrx::{extension_sql, GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 

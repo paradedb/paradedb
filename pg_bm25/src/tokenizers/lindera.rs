@@ -176,11 +176,10 @@ impl<'a> TokenStream for LinderaTokenStream<'a> {
     }
 }
 
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
+#[cfg(test)]
 mod tests {
     use super::*;
-    use pgrx::*;
+    use rstest::*;
     use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
     fn test_helper<T: Tokenizer>(tokenizer: &mut T, text: &str) -> Vec<Token> {
@@ -192,7 +191,7 @@ mod tests {
         tokens
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_lindera_chinese_tokenizer() {
         let mut tokenizer = LinderaChineseTokenizer::default();
         let tokens = test_helper(
@@ -210,7 +209,7 @@ mod tests {
         }
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_japanese_tokenizer() {
         let mut tokenizer = LinderaJapaneseTokenizer::default();
         {
@@ -227,7 +226,7 @@ mod tests {
         }
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_korean_tokenizer() {
         let mut tokenizer = LinderaKoreanTokenizer::default();
         {
@@ -244,7 +243,7 @@ mod tests {
         }
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_lindera_chinese_tokenizer_with_empty_string() {
         let mut tokenizer = LinderaChineseTokenizer::default();
         {
@@ -257,7 +256,7 @@ mod tests {
         }
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_japanese_tokenizer_with_empty_string() {
         let mut tokenizer = LinderaJapaneseTokenizer::default();
         {
@@ -270,7 +269,7 @@ mod tests {
         }
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_korean_tokenizer_with_empty_string() {
         let mut tokenizer = LinderaKoreanTokenizer::default();
         {

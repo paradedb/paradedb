@@ -227,15 +227,13 @@ enum CharType {
     Delimiter,
 }
 
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
+#[cfg(test)]
 mod tests {
-    use pgrx::*;
+    use super::*;
+    use rstest::*;
     use tantivy::tokenizer::{Token, TokenStream, Tokenizer};
 
-    use super::CodeTokenizer;
-
-    #[pg_test]
+    #[rstest]
     fn test_code_tokenizer() {
         let mut tokenizer = CodeTokenizer::default();
         {

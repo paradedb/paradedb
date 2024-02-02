@@ -144,6 +144,7 @@ jobs:
         env:
           LLVM_PROFILE_FILE: target/coverage/pg_bm25-%p-%m.profraw
           RUST_BACKTRACE: full
+          RUSTFLAGS: "-Clink-arg=-Wl,-undefined,dynamic_lookup -Ctarget-cpu=native -Cinstrument-coverage" # Enable code coverage
         run: |
           mkdir -p ../target/coverage ../target/coverage-report
           cargo pgrx test --features icu pg${{ matrix.pg_version }} --profile dev
@@ -155,7 +156,7 @@ jobs:
 
       - name: Upload Coverage Reports to Codecov
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           directory: ./target/coverage-report/

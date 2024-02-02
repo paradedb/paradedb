@@ -5,7 +5,7 @@ use time::Date;
 use super::Table;
 
 #[derive(Debug, PartialEq, FromRow, StructOfArray)]
-pub struct AnalyticsTestTable {
+pub struct UserSessionLogTable {
     pub id: i32,
     pub event_date: Date,
     pub user_id: i32,
@@ -15,15 +15,14 @@ pub struct AnalyticsTestTable {
     pub revenue: Decimal,
 }
 
-impl Table<AnalyticsTestTable> for AnalyticsTestTable {
+impl Table<UserSessionLogTable> for UserSessionLogTable {
     fn with() -> &'static str {
-        ANALYTICS_TEST_TABLE_SETUP
+        USER_SESSION_LOG_TABLE_SETUP
     }
 }
 
-static ANALYTICS_TEST_TABLE_SETUP: &str = r#"
-
-CREATE TABLE analytics_test (
+static USER_SESSION_LOG_TABLE_SETUP: &str = r#"
+CREATE TABLE user_session_log_table (
     id SERIAL PRIMARY KEY,
     event_date DATE,
     user_id INT,
@@ -33,7 +32,8 @@ CREATE TABLE analytics_test (
     revenue DECIMAL(10, 2)
 ) USING deltalake;
 
-INSERT INTO analytics_test (event_date, user_id, event_name, session_duration, page_views, revenue)
+INSERT INTO user_session_log_table
+(event_date, user_id, event_name, session_duration, page_views, revenue)
 VALUES
 ('2024-01-01', 1, 'Login', 300, 5, 20.00),
 ('2024-01-02', 2, 'Purchase', 450, 8, 150.50),
@@ -55,5 +55,4 @@ VALUES
 ('2024-01-18', 8, 'Checkout', 430, 6, 175.50),
 ('2024-01-19', 9, 'Payment', 560, 12, 250.00),
 ('2024-01-20', 10, 'Review', 610, 10, 60.00);
-
 "#;

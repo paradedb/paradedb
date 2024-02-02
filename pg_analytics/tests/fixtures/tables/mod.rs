@@ -1,8 +1,10 @@
+mod research_project_arrays;
 mod user_session_log;
 
 use async_trait::async_trait;
 use sqlx::{Executor, FromRow, PgConnection, Postgres};
 
+pub use research_project_arrays::*;
 pub use user_session_log::*;
 
 #[async_trait]

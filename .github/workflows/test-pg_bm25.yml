@@ -144,8 +144,11 @@ jobs:
         env:
           LLVM_PROFILE_FILE: target/coverage/pg_bm25-%p-%m.profraw
           RUST_BACKTRACE: full
-          RUSTFLAGS: "-Clink-arg=-Wl,-undefined,dynamic_lookup -Ctarget-cpu=native -Cinstrument-coverage" # Enable code coverage
         run: |
+          # Add the code coverage flags to the config.toml file
+          echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
+
+          # Run tests with coverage
           mkdir -p ../target/coverage ../target/coverage-report
           cargo pgrx test --features icu pg${{ matrix.pg_version }} --profile dev
 

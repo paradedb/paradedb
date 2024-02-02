@@ -1,33 +1,8 @@
-use async_trait::async_trait;
 use soa_derive::StructOfArray;
-use sqlx::{types::Decimal, Executor, FromRow, PgConnection, Postgres};
+use sqlx::{types::Decimal, FromRow};
 use time::Date;
 
-#[async_trait]
-pub trait Table<T>
-where
-    T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
-{
-    fn with() -> &'static str;
-
-    async fn setup(conn: &mut PgConnection) -> Result<(), sqlx::Error> {
-        let setup_query = Self::with();
-        conn.execute(setup_query).await.unwrap();
-        Ok(())
-    }
-
-    async fn execute(conn: &mut PgConnection, query_str: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(query_str).execute(conn).await.unwrap();
-        Ok(())
-    }
-
-    async fn fetch_all(conn: &mut PgConnection, query_str: &str) -> Result<Vec<T>, sqlx::Error> {
-        Ok(sqlx::query_as::<_, T>(query_str)
-            .fetch_all(conn)
-            .await
-            .unwrap())
-    }
-}
+use super::Table;
 
 #[derive(Debug, PartialEq, FromRow, StructOfArray)]
 pub struct AnalyticsTestTable {
@@ -47,6 +22,7 @@ impl Table<AnalyticsTestTable> for AnalyticsTestTable {
 }
 
 static ANALYTICS_TEST_TABLE_SETUP: &str = r#"
+
 CREATE TABLE analytics_test (
     id SERIAL PRIMARY KEY,
     event_date DATE,
@@ -79,4 +55,5 @@ VALUES
 ('2024-01-18', 8, 'Checkout', 430, 6, 175.50),
 ('2024-01-19', 9, 'Payment', 560, 12, 250.00),
 ('2024-01-20', 10, 'Review', 610, 10, 60.00);
+
 "#;

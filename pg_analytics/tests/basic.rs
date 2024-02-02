@@ -6,7 +6,7 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
-async fn basic_search_query(mut conn: PgConnection) -> Result<()> {
+async fn basic_select(mut conn: PgConnection) -> Result<()> {
     AnalyticsTestTable::setup(&mut conn).await?;
     let query = r#"
         SELECT * FROM analytics_test ORDER BY id

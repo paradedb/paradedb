@@ -5,6 +5,7 @@ use async_std::task::block_on;
 pub use db::*;
 use rstest::*;
 use sqlx::PgConnection;
+
 pub use tables::*;
 
 #[fixture]

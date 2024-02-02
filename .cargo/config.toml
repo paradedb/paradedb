@@ -8,10 +8,6 @@ rustflags = ["-Ctarget-cpu=native"]
 [target.'cfg(target_os="macos")']
 rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
 
-# Enable code coverage on Linux only, for CI builds
-[target.'cfg(target_os="linux")']
-rustflags = ["-Cinstrument-coverage"]
-
 # Enable Cargo-based benchmarks
 [alias]
 clickbench = "run --bin clickbench --"

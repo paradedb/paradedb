@@ -1,5 +1,5 @@
 use soa_derive::StructOfArray;
-use sqlx::{types::Decimal, FromRow};
+use sqlx::{types::BigDecimal, FromRow};
 use time::Date;
 
 use super::Table;
@@ -12,7 +12,7 @@ pub struct UserSessionLogTable {
     pub event_name: String,
     pub session_duration: i32,
     pub page_views: i32,
-    pub revenue: Decimal,
+    pub revenue: BigDecimal,
 }
 
 impl Table<UserSessionLogTable> for UserSessionLogTable {

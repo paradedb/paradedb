@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
-use crate::errors::{NotFound, NotSupported, ParadeError};
+use crate::errors::{NotFound, ParadeError};
 
 pub trait DeltaTableProvider {
     fn fields(&self) -> Result<Vec<Field>, ParadeError>;

@@ -1,6 +1,6 @@
 use soa_derive::StructOfArray;
 use sqlx::{
-    types::{Decimal, Uuid},
+    types::{BigDecimal, Uuid},
     FromRow,
 };
 use time::{Date, PrimitiveDateTime};
@@ -23,7 +23,7 @@ pub struct ResearchProjectArraysTable {
     pub precise_measurements: Vec<f64>,
     pub observation_timestamps: Vec<PrimitiveDateTime>,
     pub observation_dates: Vec<Date>,
-    pub budget_allocations: Vec<Decimal>,
+    pub budget_allocations: Vec<BigDecimal>,
     pub participant_uuids: Vec<Uuid>,
 }
 

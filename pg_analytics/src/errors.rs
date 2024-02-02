@@ -75,9 +75,6 @@ pub enum NotSupported {
     #[error("Custom Postgres types are not supported")]
     CustomPostgresType,
 
-    #[error("Arrays are not yet supported")]
-    Array,
-
     #[error("ALTER TABLE is not yet supported. Please DROP and CREATE the table instead.")]
     AlterTable,
 

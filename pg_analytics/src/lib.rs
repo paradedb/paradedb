@@ -5,6 +5,7 @@ mod datafusion;
 mod errors;
 mod guc;
 mod hooks;
+mod indexam;
 mod tableam;
 
 use pgrx::*;

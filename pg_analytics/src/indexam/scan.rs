@@ -15,9 +15,9 @@ pub extern "C" fn ambeginscan(
 // An annotation to guard the function for PostgreSQL's threading model.
 #[pg_guard]
 pub extern "C" fn amrescan(
-    scan: pg_sys::IndexScanDesc,
-    keys: pg_sys::ScanKey,
-    nkeys: ::std::os::raw::c_int,
+    _scan: pg_sys::IndexScanDesc,
+    _keys: pg_sys::ScanKey,
+    _nkeys: ::std::os::raw::c_int,
     _orderbys: pg_sys::ScanKey,
     _norderbys: ::std::os::raw::c_int,
 ) {
@@ -28,7 +28,7 @@ pub extern "C" fn amendscan(_scan: pg_sys::IndexScanDesc) {}
 
 #[pg_guard]
 pub extern "C" fn amgettuple(
-    scan: pg_sys::IndexScanDesc,
+    _scan: pg_sys::IndexScanDesc,
     _direction: pg_sys::ScanDirection,
 ) -> bool {
     false

@@ -26,7 +26,7 @@ pub extern "C" fn ambuild(
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let schema_name = pg_relation.namespace();
 
-    DatafusionContext::with_schema_provider(schema_name, |provider| {
+    let _ = DatafusionContext::with_schema_provider(schema_name, |provider| {
         task::block_on(provider.create_table(&pg_relation))
     });
 
@@ -90,8 +90,8 @@ unsafe extern "C" fn build_callback(
 
 #[inline(always)]
 unsafe fn build_callback_internal(
-    ctid: pg_sys::ItemPointerData,
-    values: *mut pg_sys::Datum,
+    _ctid: pg_sys::ItemPointerData,
+    _values: *mut pg_sys::Datum,
     _state: *mut std::os::raw::c_void,
     index: pg_sys::Relation,
 ) {

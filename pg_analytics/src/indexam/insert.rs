@@ -4,10 +4,10 @@ use pgrx::*;
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 #[pg_guard]
 pub unsafe extern "C" fn aminsert(
-    index_relation: pg_sys::Relation,
-    values: *mut pg_sys::Datum,
+    _index_relation: pg_sys::Relation,
+    _values: *mut pg_sys::Datum,
     _isnull: *mut bool,
-    heap_tid: pg_sys::ItemPointer,
+    _heap_tid: pg_sys::ItemPointer,
     _heap_relation: pg_sys::Relation,
     _check_unique: pg_sys::IndexUniqueCheck,
     _index_unchanged: bool,

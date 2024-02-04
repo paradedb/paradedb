@@ -56,9 +56,7 @@ In order for us, Retake, Inc. (dba ParadeDB) to accept patches and other contrib
 
 ParadeDB uses a tool called CLA Assistant to help us keep track of the CLA status of contributors. CLA Assistant will post a comment to your pull request, indicating whether you have signed the CLA or not. If you have not signed the CLA, you will need to do so before we can accept your contribution. Signing the CLA is a one-time process, is valid for all future contributions to ParadeDB, and can be done in under a minute by signing in with your GitHub account.
 
-As an alternative, you can provide a DCO instead of a CLA. You can find the text of the DCO [here](https://developercertificate.org/). If you'd like to provide a DCO, please read and copy it verbatim to your pull request.
-
-If you have any questions about the CLA or DCO, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ) or via email at [legal@paradedb.com](mailto:legal@paradedb.com).
+If you have any questions about the CLA, please reach out to us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ) or via email at [legal@paradedb.com](mailto:legal@paradedb.com).
 
 ### License
 

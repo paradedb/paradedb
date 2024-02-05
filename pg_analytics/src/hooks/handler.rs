@@ -19,7 +19,6 @@ impl DeltaHandler {
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         let elements = (*rtable).elements;
 
-        let mut using_noncol: bool = false;
         let mut using_col: bool = false;
 
         for i in 0..(*rtable).length {
@@ -45,22 +44,9 @@ impl DeltaHandler {
 
             let relation_handler_oid = (*relation).rd_amhandler;
 
-            // If any table uses the Table AM handler, then return true.
-            // TODO: If we support more operations, this will be more complex.
-            //       for example, if to support joins, some of the nodes will use
-            //       table AM for the nodes while others won't. In this case,
-            //       we'll have to process in postgres plan for part of it and
-            //       datafusion for the other part. For now, we'll simply
-            //       fail if we encounter an unsupported node, so this won't happen.
             if relation_handler_oid == oid {
                 using_col = true;
-            } else {
-                using_noncol = true;
             }
-        }
-
-        if using_col && using_noncol {
-            return Err(NotSupported::MixedTables.into());
         }
 
         Ok(using_col)

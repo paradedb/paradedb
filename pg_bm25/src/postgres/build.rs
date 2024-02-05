@@ -21,7 +21,6 @@ impl BuildState {
 }
 
 #[pg_guard]
-// TODO: remove the unsafe
 pub extern "C" fn ambuild(
     heaprel: pg_sys::Relation,
     indexrel: pg_sys::Relation,
@@ -30,13 +29,6 @@ pub extern "C" fn ambuild(
     let heap_relation = unsafe { PgRelation::from_pg(heaprel) };
     let index_relation = unsafe { PgRelation::from_pg(indexrel) };
     let index_name = index_relation.name().to_string();
-
-    let rdopts: PgBox<SearchIndexCreateOptions> = if !index_relation.rd_options.is_null() {
-        unsafe { PgBox::from_pg(index_relation.rd_options as *mut SearchIndexCreateOptions) }
-    } else {
-        let ops = unsafe { PgBox::<SearchIndexCreateOptions>::alloc0() };
-        ops.into_pg_boxed()
-    };
 
     // Create a map from column name to column type. We'll use this to verify that index
     // configurations passed by the user reference the correct types for each column.

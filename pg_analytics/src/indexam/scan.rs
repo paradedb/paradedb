@@ -12,7 +12,6 @@ pub extern "C" fn ambeginscan(
     scandesc.into_pg()
 }
 
-// An annotation to guard the function for PostgreSQL's threading model.
 #[pg_guard]
 pub extern "C" fn amrescan(
     _scan: pg_sys::IndexScanDesc,

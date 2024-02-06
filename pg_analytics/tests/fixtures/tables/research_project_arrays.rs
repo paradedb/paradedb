@@ -24,7 +24,6 @@ pub struct ResearchProjectArraysTable {
     #[sqlx(skip)]
     pub related_project_o_ids: Vec<Oid>,
     pub measurement_errors: Vec<f32>,
-    #[sqlx(skip)]
     pub precise_measurements: Vec<f64>,
     #[sqlx(skip)]
     pub observation_timestamps: Vec<PrimitiveDateTime>,

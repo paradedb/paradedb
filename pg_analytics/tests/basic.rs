@@ -1,43 +1,28 @@
 mod fixtures;
 
-use anyhow::Result;
 use fixtures::*;
 use rstest::*;
-use sqlx::PgConnection;
 
 #[rstest]
-async fn basic_select(mut conn: PgConnection) -> Result<()> {
-    UserSessionLogTable::setup(&mut conn).await?;
-    let query = r#"
-        SELECT * FROM user_session_log_table ORDER BY id
-    "#;
-    let result: UserSessionLogTableVec = UserSessionLogTable::fetch_all(&mut conn, query)
-        .await?
-        .into_iter()
-        .collect();
+fn basic_select(mut user_session_log_table: TableConnection<UserSessionLogTable>) {
+    let columns: UserSessionLogTableVec =
+        user_session_log_table.fetch_collect("SELECT * FROM user_session_log_table ORDER BY id");
 
     // Check that the first ten ids are in order.
     let ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    assert_eq!(&result.id[0..10], ids, "ids are in expected order");
+    assert_eq!(&columns.id[0..10], ids, "ids are in expected order");
+    let event_names =
+        "Login,Purchase,Logout,Signup,ViewProduct,AddToCart,RemoveFromCart,Checkout,Payment,Review";
 
-    Ok(())
+    assert_eq!(
+        &columns.event_name[0..10],
+        event_names.split(",").collect::<Vec<_>>(),
+        "event names are in expected order"
+    );
 }
 
 #[rstest]
-async fn array(mut conn: PgConnection) -> Result<()> {
-    ResearchProjectArraysTable::setup(&mut conn).await?;
-    let query = r#"
-        SELECT * FROM research_project_arrays_table ORDER BY project_id
-    "#;
-    let _result: ResearchProjectArraysTableVec =
-        ResearchProjectArraysTable::fetch_all(&mut conn, query)
-            .await?
-            .into_iter()
-            .collect();
-
-    // // Check that the first ten ids are in order.
-    // let ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    // assert_eq!(&result.id[0..10], ids, "ids are in expected order");
-
-    Ok(())
+fn array(mut research_project_arrays_table: TableConnection<ResearchProjectArraysTable>) {
+    let _columns: ResearchProjectArraysTableVec = research_project_arrays_table
+        .fetch_collect("SELECT * FROM research_project_arrays_table ORDER BY project_id");
 }

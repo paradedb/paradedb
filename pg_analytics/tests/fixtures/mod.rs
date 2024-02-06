@@ -17,3 +17,15 @@ pub fn database() -> Db {
 pub fn conn(database: Db) -> PgConnection {
     block_on(async { database.connection().await })
 }
+
+#[fixture]
+pub fn user_session_log_table(conn: PgConnection) -> TableConnection<UserSessionLogTable> {
+    TableConnection::setup_new(conn)
+}
+
+#[fixture]
+pub fn research_project_arrays_table(
+    conn: PgConnection,
+) -> TableConnection<ResearchProjectArraysTable> {
+    TableConnection::setup_new(conn)
+}

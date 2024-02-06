@@ -34,7 +34,7 @@ impl Db {
             .await
             .unwrap_or_else(|err| panic!("failed to connect to test database: {err:#?}"));
 
-        // Create pg_bm25 extension
+        // Create analytics extension
         sqlx::query(DB_SETUP_SQL)
             .execute(&mut conn)
             .await

@@ -30,6 +30,9 @@ pub enum ParadeError {
     #[error(transparent)]
     NotSupported(#[from] NotSupported),
 
+    #[error("Could not downcast generic arrow array: {0}")]
+    DowncastGenericArray(DataType),
+
     #[error("{0}")]
     Generic(String),
 }

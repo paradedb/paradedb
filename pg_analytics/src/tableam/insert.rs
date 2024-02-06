@@ -92,13 +92,16 @@ fn insert_tuples(
         let attribute_type_oid = attr.type_oid();
 
         let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
-        let (base_oid, is_array) = if array_type != pg_sys::InvalidOid {
-            (PgOid::from(array_type), true)
+        let is_array = array_type != pg_sys::InvalidOid;
+
+        let sql_data_type = if is_array {
+            PgOid::from(array_type).to_sql_data_type(attr.type_mod())?
         } else {
-            (attribute_type_oid, false)
+            attribute_type_oid.to_sql_data_type(attr.type_mod())?
         };
+
         values.push(DatafusionMapProducer::array(
-            base_oid.to_sql_data_type(attr.type_mod())?,
+            sql_data_type,
             is_array,
             slots,
             nslots,

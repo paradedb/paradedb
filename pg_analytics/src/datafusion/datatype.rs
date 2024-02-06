@@ -259,8 +259,8 @@ impl PostgresTypeTranslator for PgOid {
                     SQLDataType::Int2(_) => PgBuiltInOids::INT2ARRAYOID,
                     SQLDataType::Int4(_) => PgBuiltInOids::INT4ARRAYOID,
                     SQLDataType::Int8(_) => PgBuiltInOids::INT8ARRAYOID,
-                    SQLDataType::Float4 => PgBuiltInOids::FLOAT4OID,
-                    SQLDataType::Float8 => PgBuiltInOids::FLOAT8OID,
+                    SQLDataType::Float4 => PgBuiltInOids::FLOAT4ARRAYOID,
+                    SQLDataType::Float8 => PgBuiltInOids::FLOAT8ARRAYOID,
                     SQLDataType::Numeric(ExactNumberInfo::PrecisionAndScale(
                         _precision,
                         _scale,

@@ -23,6 +23,6 @@ fn basic_select(mut user_session_log_table: TableConnection<UserSessionLogsTable
 
 #[rstest]
 fn array(mut research_project_arrays_table: TableConnection<ResearchProjectArraysTable>) {
-    let _columns: ResearchProjectArraysTableVec = research_project_arrays_table
-        .fetch_collect("SELECT * FROM research_project_arrays ORDER BY notes");
+    let _columns: ResearchProjectArraysTableVec =
+        research_project_arrays_table.fetch_collect("SELECT * FROM research_project_arrays");
 }

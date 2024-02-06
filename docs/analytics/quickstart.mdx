@@ -26,6 +26,22 @@ DROP TABLE movies;
 
 That's it! `deltalake` tables accept standard Postgres queries, so there's nothing new to learn.
 
+## Copying into a Deltalake Table
+
+This example demonstrates how to copy data from an existing heap table into a `deltalake` table.
+
+```sql
+-- Create heap table
+CREATE TABLE heap (a int, b int);
+INSERT INTO heap VALUES (1, 2);
+
+-- Create deltalake table with the same schema
+CREATE TABLE delta (a int, b int) USING deltalake;
+
+-- Copy data into deltalake table
+INSERT INTO delta SELECT * FROM heap;
+```
+
 ## Use Cases
 
 `deltalake` tables have two primary advantages over regular tables:

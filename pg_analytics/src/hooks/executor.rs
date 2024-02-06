@@ -32,7 +32,11 @@ pub fn executor_run(
         let rtable = (*ps).rtable;
 
         // Only use this hook for deltalake tables
-        if rtable.is_null() || !DeltaHandler::rtable_is_delta(rtable)? {
+        // Allow INSERTs to go through
+        if rtable.is_null()
+            || query_desc.operation == pg_sys::CmdType_CMD_INSERT
+            || !DeltaHandler::rtable_is_delta(rtable)?
+        {
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }

@@ -338,7 +338,6 @@ fn scale_anynumeric(
         .ok_or(NotFound::Datum(anynumeric.to_string()).into())
     }
 }
-#[allow(dead_code)]
 unsafe fn tuple_info(
     slots: *mut *mut pg_sys::TupleTableSlot,
     row_idx: usize,
@@ -351,7 +350,6 @@ unsafe fn tuple_info(
     (datum, is_null)
 }
 
-#[allow(dead_code)]
 fn tuple_data<T: FromDatum>(
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
@@ -406,9 +404,11 @@ impl DatafusionMapProducer {
             DataType::Int64 if !is_array => Ok(Arc::new(
                 tuple_data::<i64>(slots, nslots, col_idx).into_array(),
             )),
-            DataType::Int64 if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<i64>>>(slots, nslots, col_idx).into_array(),
-            )),
+            DataType::Int64 if is_array => {
+                Ok(Arc::new(IntoPrimitiveListArray::<Int64Type>::into_array(
+                    tuple_data::<Vec<Option<i64>>>(slots, nslots, col_idx),
+                )))
+            }
             DataType::UInt32 if !is_array => Ok(Arc::new(
                 tuple_data::<u32>(slots, nslots, col_idx).into_array(),
             )),
@@ -484,37 +484,43 @@ impl DatafusionMapProducer {
                 Time64MicrosecondArray::from(tuple_data::<i64>(slots, nslots, col_idx)),
             )),
             DataType::Time64(TimeUnit::Microsecond) if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<i64>>>(slots, nslots, col_idx)
-                    .into_array()
-                    .as_any()
-                    .downcast_ref::<Time64MicrosecondArray>()
-                    .cloned()
-                    .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
+                IntoPrimitiveListArray::<Int64Type>::into_array(tuple_data::<Vec<Option<i64>>>(
+                    slots, nslots, col_idx,
+                ))
+                .as_any()
+                .downcast_ref::<Time64MicrosecondArray>()
+                .cloned()
+                .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
             )),
             DataType::Timestamp(TimeUnit::Microsecond, tz) if !is_array => Ok(Arc::new(
                 TimestampMicrosecondArray::from(tuple_data::<i64>(slots, nslots, col_idx))
                     .with_timezone_opt(tz),
             )),
-            DataType::Timestamp(TimeUnit::Microsecond, ref tz) if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<i64>>>(slots, nslots, col_idx)
-                    .into_array()
-                    .as_any()
-                    .downcast_ref::<TimestampMicrosecondArray>()
-                    .cloned()
-                    .ok_or(ParadeError::DowncastGenericArray(datafusion_type.clone()))?
-                    .with_timezone_opt(tz.clone()),
-            )),
+            // TODO: Timestamp arrays are throwing a ParadeError::DowncastGenericArray.
+            // DataType::Timestamp(TimeUnit::Microsecond, ref tz) if is_array => Ok(Arc::new(
+            //     IntoPrimitiveListArray::<TimestampMicrosecondType>::into_array(tuple_data::<
+            //         Vec<Option<i64>>,
+            //     >(
+            //         slots, nslots, col_idx,
+            //     ))
+            //     .as_any()
+            //     .downcast_ref::<TimestampMicrosecondArray>()
+            //     .cloned()
+            //     .ok_or(ParadeError::DowncastGenericArray(datafusion_type.clone()))?
+            //     .with_timezone_opt(tz.clone()),
+            // )),
             DataType::Date32 if !is_array => Ok(Arc::new(Date32Array::from(tuple_data::<i32>(
                 slots, nslots, col_idx,
             )))),
-            DataType::Date32 if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<i32>>>(slots, nslots, col_idx)
-                    .into_array()
-                    .as_any()
-                    .downcast_ref::<Date32Array>()
-                    .cloned()
-                    .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
-            )),
+            // TODO: Timestamp arrays are throwing a ParadeError::DowncastGenericArray.
+            // DataType::Date32 if is_array => Ok(Arc::new(
+            //     tuple_data::<Vec<Option<i32>>>(slots, nslots, col_idx)
+            //         .into_array()
+            //         .as_any()
+            //         .downcast_ref::<Date32Array>()
+            //         .cloned()
+            //         .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
+            // )),
             _ => Err(NotSupported::DataType(datafusion_type).into()),
         }
     }

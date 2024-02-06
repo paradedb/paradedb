@@ -6,7 +6,7 @@ use deltalake::arrow::{
     },
     datatypes::{
         ArrowPrimitiveType, ByteArrayType, Decimal128Type, Float32Type, Float64Type,
-        GenericStringType, Int16Type, Int32Type, Int64Type, UInt32Type,
+        GenericStringType, Int16Type, Int32Type, Int64Type, TimestampMicrosecondType, UInt32Type,
     },
 };
 
@@ -112,3 +112,5 @@ impl IntoPrimitiveListArray<Float64Type> for ColumnNested<f64> {}
 
 impl IntoArray<i128, Decimal128Array> for Column<i128> {}
 impl IntoPrimitiveListArray<Decimal128Type> for ColumnNested<i128> {}
+
+impl IntoPrimitiveListArray<TimestampMicrosecondType> for ColumnNested<i64> {}

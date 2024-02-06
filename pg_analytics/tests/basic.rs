@@ -4,9 +4,9 @@ use fixtures::*;
 use rstest::*;
 
 #[rstest]
-fn basic_select(mut user_session_log_table: TableConnection<UserSessionLogTable>) {
-    let columns: UserSessionLogTableVec =
-        user_session_log_table.fetch_collect("SELECT * FROM user_session_log_table ORDER BY id");
+fn basic_select(mut user_session_log_table: TableConnection<UserSessionLogsTable>) {
+    let columns: UserSessionLogsTableVec =
+        user_session_log_table.fetch_collect("SELECT * FROM user_session_logs ORDER BY id");
 
     // Check that the first ten ids are in order.
     let ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
@@ -24,5 +24,5 @@ fn basic_select(mut user_session_log_table: TableConnection<UserSessionLogTable>
 #[rstest]
 fn array(mut research_project_arrays_table: TableConnection<ResearchProjectArraysTable>) {
     let _columns: ResearchProjectArraysTableVec = research_project_arrays_table
-        .fetch_collect("SELECT * FROM research_project_arrays_table ORDER BY project_id");
+        .fetch_collect("SELECT * FROM research_project_arrays ORDER BY notes");
 }

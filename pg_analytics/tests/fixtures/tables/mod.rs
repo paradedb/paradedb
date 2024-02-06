@@ -1,5 +1,5 @@
 mod research_project_arrays;
-mod user_session_log;
+mod user_session_logs;
 
 use std::marker::PhantomData;
 
@@ -7,19 +7,19 @@ use async_std::task::block_on;
 use sqlx::{Executor, FromRow, PgConnection, Postgres};
 
 pub use research_project_arrays::*;
-pub use user_session_log::*;
+pub use user_session_logs::*;
 
 /// A consistent interace for setting up a Table.
-/// with() should return a SQL string for creating the table and inserting rows.
-pub trait Table<T>
+/// setup_with() should return a SQL string for creating the table and inserting rows.
+pub trait Table
 where
-    T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
+    Self: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
 {
-    fn with() -> &'static str;
+    fn setup_with() -> &'static str;
 }
 
 // A generic struct that owns a connection and performs queries for a table.
-pub struct TableConnection<T: Table<T>>
+pub struct TableConnection<T: Table>
 where
     T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
 {
@@ -27,11 +27,7 @@ where
     marker: PhantomData<T>,
 }
 
-#[allow(dead_code)]
-impl<T> TableConnection<T>
-where
-    T: Table<T> + for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin + 'static,
-{
+impl<T: Table> TableConnection<T> {
     pub fn new(connection: PgConnection) -> Self {
         Self {
             connection,
@@ -47,11 +43,12 @@ where
 
     pub fn setup(&mut self) {
         block_on(async {
-            let setup_query = T::with();
+            let setup_query = T::setup_with();
             self.connection.execute(setup_query).await.unwrap();
         })
     }
 
+    #[allow(dead_code)]
     pub fn execute(&mut self, query_str: &str) {
         block_on(async {
             sqlx::query(query_str)

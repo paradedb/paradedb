@@ -19,7 +19,7 @@ pub fn conn(database: Db) -> PgConnection {
 }
 
 #[fixture]
-pub fn user_session_log_table(conn: PgConnection) -> TableConnection<UserSessionLogTable> {
+pub fn user_session_log_table(conn: PgConnection) -> TableConnection<UserSessionLogsTable> {
     TableConnection::setup_new(conn)
 }
 

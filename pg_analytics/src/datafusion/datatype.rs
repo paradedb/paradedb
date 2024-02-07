@@ -422,7 +422,7 @@ impl DatafusionMapProducer {
         sql_data_type: SQLDataType,
         array: &Arc<dyn Array>,
         index: usize,
-    ) -> Result<Datum, ParadeError> {
+    ) -> Result<Option<Datum>, ParadeError> {
         let datafusion_type = DatafusionTypeTranslator::from_sql_data_type(sql_data_type)?;
 
         match datafusion_type {
@@ -430,37 +430,69 @@ impl DatafusionMapProducer {
                 .as_any()
                 .downcast_ref::<BooleanArray>()
                 .ok_or(NotFound::Value(type_name::<BooleanArray>().to_string()))?
-                .value(index)
-                .into_datum(),
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
             DataType::Utf8 => array
                 .as_any()
                 .downcast_ref::<StringArray>()
                 .ok_or(NotFound::Value(type_name::<StringArray>().to_string()))?
-                .value(index)
-                .into_datum(),
-            DataType::Int16 => array.as_primitive::<Int16Type>().value(index).into_datum(),
-            DataType::Int32 => array.as_primitive::<Int32Type>().value(index).into_datum(),
-            DataType::Int64 => array.as_primitive::<Int64Type>().value(index).into_datum(),
-            DataType::UInt32 => array.as_primitive::<UInt32Type>().value(index).into_datum(),
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
+            DataType::Int16 => array
+                .as_primitive::<Int16Type>()
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
+            DataType::Int32 => array
+                .as_primitive::<Int32Type>()
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
+            DataType::Int64 => array
+                .as_primitive::<Int64Type>()
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
+            DataType::UInt32 => array
+                .as_primitive::<UInt32Type>()
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
             DataType::Float32 => array
                 .as_primitive::<Float32Type>()
-                .value(index)
-                .into_datum(),
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
             DataType::Float64 => array
                 .as_primitive::<Float64Type>()
-                .value(index)
-                .into_datum(),
-            DataType::Decimal128(precision, scale) => {
-                let prim = array.as_primitive::<Decimal128Type>().value(index);
-                let numeric = AnyNumeric::from(prim);
-                let ret = scale_anynumeric(numeric, precision as i32, scale as i32, false)?;
-                ret.into_datum()
-            }
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
+            DataType::Decimal128(precision, scale) => array
+                .as_primitive::<Decimal128Type>()
+                .iter()
+                .nth(index)
+                .map(|nth| match nth {
+                    Some(nth) => {
+                        let numeric = AnyNumeric::from(nth);
+                        let ret = scale_anynumeric(numeric, precision as i32, scale as i32, false)
+                            .ok()?;
+                        ret.into_datum()
+                    }
+                    None => None,
+                }),
             DataType::Timestamp(TimeUnit::Microsecond, None) => array
                 .as_primitive::<TimestampMicrosecondType>()
-                .value(index)
-                .into_datum(),
-            DataType::Date32 => array.as_primitive::<Date32Type>().value(index).into_datum(),
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
+            DataType::Date32 => array
+                .as_primitive::<Date32Type>()
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
             _ => return Err(NotSupported::DataType(datafusion_type).into()),
         }
         .ok_or(NotFound::Datum(datafusion_type.to_string()).into())

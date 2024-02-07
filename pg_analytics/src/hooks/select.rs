@@ -58,11 +58,20 @@ pub fn select(
                     let column = recordbatch.column(col_index);
                     let dt = column.data_type();
                     let tts_value = (*tuple_table_slot).tts_values.add(col_index);
-                    *tts_value = DatafusionMapProducer::index_datum(
+                    let tts_isnull = (*tuple_table_slot).tts_isnull.add(col_index);
+
+                    match DatafusionMapProducer::index_datum(
                         dt.to_sql_data_type()?,
                         column,
                         row_index,
-                    )?
+                    )? {
+                        Some(datum) => {
+                            *tts_value = datum;
+                        }
+                        None => {
+                            *tts_isnull = true;
+                        }
+                    };
                 }
 
                 receive(tuple_table_slot, dest);

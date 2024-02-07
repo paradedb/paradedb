@@ -46,7 +46,7 @@ jobs:
       # and need a very specific format
       - name: Check for Trailing Whitespaces
         run: |
-          FILES=$(git grep -Ilr '[[:blank:]]$' -- ':(exclude)*.out' ':(exclude)*.sql' || true)
+          FILES=$(git grep -Ilr '[[:blank:]]$' -- ':(exclude)*.out' ':(exclude)*.sql' ':(exclude)*.rs' || true)
           if [[ ! -z "$FILES" ]]; then
             echo "The following files have trailing whitespaces:"
             echo "$FILES"

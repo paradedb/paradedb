@@ -1,17 +1,28 @@
-mod db;
-mod tables;
-
-pub use db::*;
+use async_std::task::block_on;
 use rstest::*;
-use sqlx::PgConnection;
-pub use tables::*;
+use shared::sqlx::{self, PgConnection};
+
+pub use shared::fixtures::db::*;
+pub use shared::fixtures::tables::*;
 
 #[fixture]
-pub async fn database() -> Db {
-    Db::new().await
+pub fn database() -> Db {
+    block_on(async { Db::new().await })
 }
 
 #[fixture]
-pub fn conn(#[future] database: Db) -> PgConnection {
-    async_std::task::block_on(async { database.await.connection().await })
+pub fn conn(database: Db) -> PgConnection {
+    block_on(async {
+        let mut conn = database.connection().await;
+        sqlx::query("CREATE EXTENSION pg_bm25;")
+            .execute(&mut conn)
+            .await
+            .expect("could not create extension pg_bm25");
+        conn
+    })
+}
+
+#[fixture]
+pub fn simple_products_table(conn: PgConnection) -> TableConnection<SimpleProductsTable> {
+    TableConnection::setup_new(conn)
 }

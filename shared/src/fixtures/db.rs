@@ -9,6 +9,10 @@ pub struct Db {
     context: TestContext<Postgres>,
 }
 
+trait Database {
+    async fn setup_with() -> &'static str;
+}
+
 impl Db {
     pub async fn new() -> Self {
         // Use a timestamp as a unique identifier.
@@ -27,20 +31,11 @@ impl Db {
     }
 
     pub async fn connection(&self) -> PgConnection {
-        let mut conn = self
-            .context
+        self.context
             .connect_opts
             .connect()
             .await
-            .unwrap_or_else(|err| panic!("failed to connect to test database: {err:#?}"));
-
-        // Create pg_bm25 extension
-        sqlx::query(include_str!("sql/create_extension_pg_bm25.sql"))
-            .execute(&mut conn)
-            .await
-            .unwrap_or_else(|err| panic!("could not create extension pg_bm25: {err:#?}"));
-
-        conn
+            .unwrap_or_else(|err| panic!("failed to connect to test database: {err:#?}"))
     }
 }
 

@@ -7,6 +7,7 @@ license = "AGPL-3.0"
 
 [features]
 telemetry = []
+fixtures = ["async-std", "rstest", "soa_derive", "sqlx"]
 
 [dependencies]
 envy = "0.4.2"
@@ -14,8 +15,19 @@ pgrx = "0.11.2"
 reqwest = { version = "0.11.22", features = ["blocking"] }
 serde = "1.0.189"
 serde_json = "1.0.107"
+time = "0.3.34"
 tracing = "0.1.40"
 uuid = "1.5.0"
+async-std = { version = "1.12.0", features = ["attributes"], optional = true }
+rstest = { version = "0.18.2", optional = true }
+soa_derive = { version = "0.13.0", optional = true }
+sqlx = { version = "0.7.3", features = [
+  "postgres",
+  "runtime-async-std",
+  "time",
+  "bigdecimal",
+  "uuid",
+], optional = true }
 
 [dev-dependencies]
 pgrx-tests = "0.11.2"

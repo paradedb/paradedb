@@ -3688,8 +3688,6 @@ dependencies = [
  "serde",
  "serde_json",
  "shared",
- "soa_derive",
- "sqlx",
  "thiserror",
  "time",
 ]
@@ -3727,7 +3725,6 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "shared",
- "sqlx",
  "tantivy-common",
  "tempfile",
  "thiserror",
@@ -4731,12 +4728,17 @@ dependencies = [
 name = "shared"
 version = "0.1.0"
 dependencies = [
+ "async-std",
  "envy",
  "pgrx",
  "pgrx-tests",
  "reqwest",
+ "rstest",
  "serde",
  "serde_json",
+ "soa_derive",
+ "sqlx",
+ "time",
  "tracing",
  "uuid",
 ]
@@ -5424,9 +5426,9 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.32"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe80ced77cbfb4cb91a94bf72b378b4b6791a0d9b7f09d0be747d1bdff4e68bd"
+checksum = "c8248b6521bb14bc45b4067159b9b6ad792e2d6d754d6c41fb50e29fefe38749"
 dependencies = [
  "deranged",
  "itoa",

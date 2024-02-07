@@ -1,12 +1,13 @@
 mod research_project_arrays;
+mod simple_products;
 mod user_session_logs;
-
-use std::marker::PhantomData;
 
 use async_std::task::block_on;
 use sqlx::{Executor, FromRow, PgConnection, Postgres};
+use std::marker::PhantomData;
 
 pub use research_project_arrays::*;
+pub use simple_products::*;
 pub use user_session_logs::*;
 
 /// A consistent interace for setting up a Table.

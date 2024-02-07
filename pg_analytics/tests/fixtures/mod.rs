@@ -1,12 +1,9 @@
-mod db;
-mod tables;
-
 use async_std::task::block_on;
-pub use db::*;
 use rstest::*;
-use sqlx::PgConnection;
+use shared::sqlx::{self, PgConnection};
 
-pub use tables::*;
+pub use shared::fixtures::db::*;
+pub use shared::fixtures::tables::*;
 
 #[fixture]
 pub fn database() -> Db {
@@ -15,7 +12,14 @@ pub fn database() -> Db {
 
 #[fixture]
 pub fn conn(database: Db) -> PgConnection {
-    block_on(async { database.connection().await })
+    block_on(async {
+        let mut conn = database.connection().await;
+        sqlx::query("CREATE EXTENSION pg_analytics;")
+            .execute(&mut conn)
+            .await
+            .expect("could not create extension pg_analytics");
+        conn
+    })
 }
 
 #[fixture]

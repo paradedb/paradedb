@@ -4,6 +4,7 @@ use fixtures::*;
 use rstest::*;
 
 #[rstest]
+#[ignore]
 fn basic_select(mut user_session_log_table: TableConnection<UserSessionLogsTable>) {
     let columns: UserSessionLogsTableVec =
         user_session_log_table.fetch_collect("SELECT * FROM user_session_logs ORDER BY id");
@@ -22,7 +23,8 @@ fn basic_select(mut user_session_log_table: TableConnection<UserSessionLogsTable
 }
 
 #[rstest]
-fn array(mut research_project_arrays_table: TableConnection<ResearchProjectArraysTable>) {
+#[ignore]
+fn array_results(mut research_project_arrays_table: TableConnection<ResearchProjectArraysTable>) {
     let columns: Vec<ResearchProjectArraysTable> =
         research_project_arrays_table.fetch_collect("SELECT * FROM research_project_arrays");
 

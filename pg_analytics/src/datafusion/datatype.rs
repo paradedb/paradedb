@@ -368,66 +368,131 @@ fn tuple_data<T: FromDatum>(
 pub struct DatafusionMapProducer;
 impl DatafusionMapProducer {
     pub fn array(
-        sql_data_type: SQLDataType,
-        is_array: bool,
+        datafusion_type: DataType,
         slots: *mut *mut pg_sys::TupleTableSlot,
         nslots: usize,
         col_idx: usize,
     ) -> Result<ArrayRef, ParadeError> {
-        let datafusion_type = DatafusionTypeTranslator::from_sql_data_type(sql_data_type)?;
-
         match datafusion_type {
-            DataType::Boolean if !is_array => Ok(Arc::new(
+            DataType::List(ref inner_type) => match inner_type.data_type() {
+                DataType::Boolean => Ok(Arc::new(
+                    tuple_data::<Vec<Option<bool>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Utf8 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<String>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Int16 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<i16>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Int32 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<i32>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Int64 => Ok(Arc::new(IntoPrimitiveListArray::<Int64Type>::into_array(
+                    tuple_data::<Vec<Option<i64>>>(slots, nslots, col_idx),
+                ))),
+                DataType::UInt32 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<u32>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Float32 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<f32>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Float64 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<f64>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Decimal128(precision, scale) => {
+                    let mut vectors = vec![];
+                    for vec_opt in tuple_data::<Vec<Option<AnyNumeric>>>(slots, nslots, col_idx) {
+                        if let Some(vec) = vec_opt {
+                            let mut values = vec![];
+                            for numeric_opt in vec {
+                                if let Some(numeric) = numeric_opt {
+                                    let with_scale = scale_anynumeric(
+                                        numeric,
+                                        precision.clone() as i32,
+                                        scale.clone() as i32,
+                                        true,
+                                    )?;
+                                    let new_int = i128::try_from(with_scale)?;
+                                    values.push(Some(new_int));
+                                } else {
+                                    values.push(None)
+                                }
+                            }
+                            vectors.push(Some(values))
+                        } else {
+                            vectors.push(None);
+                        }
+                    }
+                    Ok(Arc::new(
+                        vectors
+                            .into_array()
+                            .as_any()
+                            .downcast_ref::<Decimal128Array>()
+                            .cloned()
+                            .ok_or_else(|| {
+                                ParadeError::DowncastGenericArray(datafusion_type.clone())
+                            })?
+                            .with_precision_and_scale(precision.clone(), scale.clone())?,
+                    ))
+                }
+                DataType::Time64(TimeUnit::Microsecond) => Ok(Arc::new(
+                    IntoPrimitiveListArray::<Int64Type>::into_array(
+                        tuple_data::<Vec<Option<i64>>>(slots, nslots, col_idx),
+                    )
+                    .as_any()
+                    .downcast_ref::<Time64MicrosecondArray>()
+                    .cloned()
+                    .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
+                )),
+                // TODO: Timestamp arrays are throwing a ParadeError::DowncastGenericArray.
+                // DataType::Timestamp(TimeUnit::Microsecond, ref tz) => Ok(Arc::new(
+                //     IntoPrimitiveListArray::<TimestampMicrosecondType>::into_array(tuple_data::<
+                //         Vec<Option<i64>>,
+                //     >(
+                //         slots, nslots, col_idx,
+                //     ))
+                //     .as_any()
+                //     .downcast_ref::<TimestampMicrosecondArray>()
+                //     .cloned()
+                //     .ok_or(ParadeError::DowncastGenericArray(datafusion_type.clone()))?
+                //     .with_timezone_opt(tz.clone()),
+                // )),
+                // TODO: Date arrays are throwing a ParadeError::DowncastGenericArray.
+                // DataType::Date32 => Ok(Arc::new(
+                //     tuple_data::<Vec<Option<i32>>>(slots, nslots, col_idx)
+                //         .into_array()
+                //         .as_any()
+                //         .downcast_ref::<Date32Array>()
+                //         .cloned()
+                //         .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
+                // )),
+                _ => Err(NotSupported::DataType(datafusion_type).into()),
+            },
+            DataType::Boolean => Ok(Arc::new(
                 tuple_data::<bool>(slots, nslots, col_idx).into_array(),
             )),
-            DataType::Boolean if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<bool>>>(slots, nslots, col_idx).into_array(),
-            )),
-            DataType::Utf8 if !is_array => Ok(Arc::new(
+            DataType::Utf8 => Ok(Arc::new(
                 tuple_data::<String>(slots, nslots, col_idx).into_array(),
             )),
-            DataType::Utf8 if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<String>>>(slots, nslots, col_idx).into_array(),
-            )),
-            DataType::Int16 if !is_array => Ok(Arc::new(
+            DataType::Int16 => Ok(Arc::new(
                 tuple_data::<i16>(slots, nslots, col_idx).into_array(),
             )),
-            DataType::Int16 if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<i16>>>(slots, nslots, col_idx).into_array(),
-            )),
-            DataType::Int32 if !is_array => Ok(Arc::new(
+            DataType::Int32 => Ok(Arc::new(
                 tuple_data::<i32>(slots, nslots, col_idx).into_array(),
             )),
-            DataType::Int32 if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<i32>>>(slots, nslots, col_idx).into_array(),
-            )),
-            DataType::Int64 if !is_array => Ok(Arc::new(
+            DataType::Int64 => Ok(Arc::new(
                 tuple_data::<i64>(slots, nslots, col_idx).into_array(),
             )),
-            DataType::Int64 if is_array => {
-                Ok(Arc::new(IntoPrimitiveListArray::<Int64Type>::into_array(
-                    tuple_data::<Vec<Option<i64>>>(slots, nslots, col_idx),
-                )))
-            }
-            DataType::UInt32 if !is_array => Ok(Arc::new(
+            DataType::UInt32 => Ok(Arc::new(
                 tuple_data::<u32>(slots, nslots, col_idx).into_array(),
             )),
-            DataType::UInt32 if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<u32>>>(slots, nslots, col_idx).into_array(),
-            )),
-            DataType::Float32 if !is_array => Ok(Arc::new(
+            DataType::Float32 => Ok(Arc::new(
                 tuple_data::<f32>(slots, nslots, col_idx).into_array(),
             )),
-            DataType::Float32 if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<f32>>>(slots, nslots, col_idx).into_array(),
-            )),
-            DataType::Float64 if !is_array => Ok(Arc::new(
+            DataType::Float64 => Ok(Arc::new(
                 tuple_data::<f64>(slots, nslots, col_idx).into_array(),
             )),
-            DataType::Float64 if is_array => Ok(Arc::new(
-                tuple_data::<Vec<Option<f64>>>(slots, nslots, col_idx).into_array(),
-            )),
-            DataType::Decimal128(precision, scale) if !is_array => {
+            DataType::Decimal128(precision, scale) => {
                 let mut values = vec![];
                 for numeric_opt in tuple_data::<AnyNumeric>(slots, nslots, col_idx) {
                     if let Some(numeric) = numeric_opt {
@@ -445,82 +510,17 @@ impl DatafusionMapProducer {
                         .with_precision_and_scale(precision, scale)?,
                 ))
             }
-            DataType::Decimal128(precision, scale) if is_array => {
-                let mut vectors = vec![];
-                for vec_opt in tuple_data::<Vec<Option<AnyNumeric>>>(slots, nslots, col_idx) {
-                    if let Some(vec) = vec_opt {
-                        let mut values = vec![];
-                        for numeric_opt in vec {
-                            if let Some(numeric) = numeric_opt {
-                                let with_scale = scale_anynumeric(
-                                    numeric,
-                                    precision as i32,
-                                    scale as i32,
-                                    true,
-                                )?;
-                                let new_int = i128::try_from(with_scale)?;
-                                values.push(Some(new_int));
-                            } else {
-                                values.push(None)
-                            }
-                        }
-                        vectors.push(Some(values))
-                    } else {
-                        vectors.push(None);
-                    }
-                }
-                Ok(Arc::new(
-                    vectors
-                        .into_array()
-                        .as_any()
-                        .downcast_ref::<Decimal128Array>()
-                        .cloned()
-                        .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?
-                        .with_precision_and_scale(precision, scale)?,
-                ))
-            }
             // NOTE: should never reach here becaues deltalake schema does not support time
-            DataType::Time64(TimeUnit::Microsecond) if !is_array => Ok(Arc::new(
-                Time64MicrosecondArray::from(tuple_data::<i64>(slots, nslots, col_idx)),
-            )),
-            DataType::Time64(TimeUnit::Microsecond) if is_array => Ok(Arc::new(
-                IntoPrimitiveListArray::<Int64Type>::into_array(tuple_data::<Vec<Option<i64>>>(
-                    slots, nslots, col_idx,
-                ))
-                .as_any()
-                .downcast_ref::<Time64MicrosecondArray>()
-                .cloned()
-                .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
-            )),
-            DataType::Timestamp(TimeUnit::Microsecond, tz) if !is_array => Ok(Arc::new(
+            DataType::Time64(TimeUnit::Microsecond) => Ok(Arc::new(Time64MicrosecondArray::from(
+                tuple_data::<i64>(slots, nslots, col_idx),
+            ))),
+            DataType::Timestamp(TimeUnit::Microsecond, tz) => Ok(Arc::new(
                 TimestampMicrosecondArray::from(tuple_data::<i64>(slots, nslots, col_idx))
                     .with_timezone_opt(tz),
             )),
-            // TODO: Timestamp arrays are throwing a ParadeError::DowncastGenericArray.
-            // DataType::Timestamp(TimeUnit::Microsecond, ref tz) if is_array => Ok(Arc::new(
-            //     IntoPrimitiveListArray::<TimestampMicrosecondType>::into_array(tuple_data::<
-            //         Vec<Option<i64>>,
-            //     >(
-            //         slots, nslots, col_idx,
-            //     ))
-            //     .as_any()
-            //     .downcast_ref::<TimestampMicrosecondArray>()
-            //     .cloned()
-            //     .ok_or(ParadeError::DowncastGenericArray(datafusion_type.clone()))?
-            //     .with_timezone_opt(tz.clone()),
-            // )),
-            DataType::Date32 if !is_array => Ok(Arc::new(Date32Array::from(tuple_data::<i32>(
+            DataType::Date32 => Ok(Arc::new(Date32Array::from(tuple_data::<i32>(
                 slots, nslots, col_idx,
             )))),
-            // TODO: Timestamp arrays are throwing a ParadeError::DowncastGenericArray.
-            // DataType::Date32 if is_array => Ok(Arc::new(
-            //     tuple_data::<Vec<Option<i32>>>(slots, nslots, col_idx)
-            //         .into_array()
-            //         .as_any()
-            //         .downcast_ref::<Date32Array>()
-            //         .cloned()
-            //         .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
-            // )),
             _ => Err(NotSupported::DataType(datafusion_type).into()),
         }
     }

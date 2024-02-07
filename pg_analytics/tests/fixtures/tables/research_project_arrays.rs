@@ -8,7 +8,7 @@ use time::{Date, PrimitiveDateTime};
 
 use super::Table;
 
-#[derive(Debug, PartialEq, FromRow, StructOfArray)]
+#[derive(Debug, PartialEq, FromRow, StructOfArray, Default)]
 pub struct ResearchProjectArraysTable {
     #[sqlx(skip)]
     pub project_id: Uuid,

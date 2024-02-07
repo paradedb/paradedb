@@ -20,14 +20,14 @@ async fn basic_search_query(
             "Plastic Keyboard,Ergonomic metal keyboard,Innovative wireless earbuds,",
             "Fast charging power bank,Bluetooth-enabled speaker"
         )
-        .split(",")
+        .split(',')
         .collect::<Vec<_>>()
     );
 
     assert_eq!(
         columns.category,
         "Electronics,Electronics,Electronics,Electronics,Electronics"
-            .split(",")
+            .split(',')
             .collect::<Vec<_>>()
     );
 

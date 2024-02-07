@@ -17,7 +17,7 @@ fn basic_select(mut user_session_log_table: TableConnection<UserSessionLogsTable
 
     assert_eq!(
         &columns.event_name[0..10],
-        event_names.split(",").collect::<Vec<_>>(),
+        event_names.split(',').collect::<Vec<_>>(),
         "event names are in expected order"
     );
 }

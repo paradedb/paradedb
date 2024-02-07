@@ -227,7 +227,7 @@ impl PostgresTypeTranslator for PgOid {
                 PgBuiltInOids::UUIDARRAYOID => sql_array_type(PgBuiltInOids::UUIDOID, typmod)?,
                 unsupported => {
                     return Err(ParadeError::NotSupported(
-                        NotSupported::BuiltinPostgresType(unsupported.clone()),
+                        NotSupported::BuiltinPostgresType(*unsupported),
                     ))
                 }
             },
@@ -408,8 +408,8 @@ impl DatafusionMapProducer {
                                 if let Some(numeric) = numeric_opt {
                                     let with_scale = scale_anynumeric(
                                         numeric,
-                                        precision.clone() as i32,
-                                        scale.clone() as i32,
+                                        *precision as i32,
+                                        *scale as i32,
                                         true,
                                     )?;
                                     let new_int = i128::try_from(with_scale)?;
@@ -432,7 +432,7 @@ impl DatafusionMapProducer {
                             .ok_or_else(|| {
                                 ParadeError::DowncastGenericArray(datafusion_type.clone())
                             })?
-                            .with_precision_and_scale(precision.clone(), scale.clone())?,
+                            .with_precision_and_scale(*precision, *scale)?,
                     ))
                 }
                 DataType::Time64(TimeUnit::Microsecond) => Ok(Arc::new(
@@ -660,6 +660,7 @@ impl DatafusionMapProducer {
                             .into_iter()
                             .collect::<Vec<_>>()
                             .into_datum(),
+
                         DataType::Decimal128(precision, scale) => {
                             let mut values = vec![];
                             for numeric_opt in list
@@ -673,11 +674,13 @@ impl DatafusionMapProducer {
                                 if let Some(numeric) = numeric_opt {
                                     let scaled = scale_anynumeric(
                                         AnyNumeric::from(numeric),
-                                        precision.clone() as i32,
-                                        scale.clone() as i32,
+                                        *precision as i32,
+                                        *scale as i32,
                                         false,
                                     )?;
-                                    values.push(scaled)
+                                    values.push(Some(scaled))
+                                } else {
+                                    values.push(None)
                                 }
                             }
                             values.into_datum()

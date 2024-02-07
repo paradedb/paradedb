@@ -9,10 +9,6 @@ pub struct Db {
     context: TestContext<Postgres>,
 }
 
-trait Database {
-    async fn setup_with() -> &'static str;
-}
-
 impl Db {
     pub async fn new() -> Self {
         // Use a timestamp as a unique identifier.

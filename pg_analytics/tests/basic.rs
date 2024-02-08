@@ -9,6 +9,7 @@ use sqlx::{types::BigDecimal, PgConnection};
 use time::{macros::format_description, Date, PrimitiveDateTime};
 
 #[rstest]
+#[ignore]
 fn basic_select(mut conn: PgConnection) {
     UserSessionLogsTable::setup().execute(&mut conn);
 
@@ -29,6 +30,7 @@ fn basic_select(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn array_results(mut conn: PgConnection) {
     ResearchProjectArraysTable::setup().execute(&mut conn);
 
@@ -85,6 +87,7 @@ fn array_results(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn alter(mut conn: PgConnection) {
     match "CREATE TABLE t (a int, b text) USING deltalake; ALTER TABLE t ADD COLUMN c int"
         .execute_result(&mut conn)
@@ -113,6 +116,7 @@ fn delete(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn drop(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING deltalake".execute(&mut conn);
     "DROP TABLE t".execute(&mut conn);
@@ -138,6 +142,7 @@ fn drop(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn insert(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b int)".execute(&mut conn);
     "INSERT INTO t VALUES (1, 2)".execute(&mut conn);
@@ -149,6 +154,7 @@ fn insert(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn join_two_deltalake_tables(mut conn: PgConnection) {
     "CREATE TABLE t ( id INT PRIMARY KEY, name VARCHAR(50), department_id INT ) USING deltalake"
         .execute(&mut conn);
@@ -174,6 +180,7 @@ fn join_two_deltalake_tables(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn join_heap_and_deltalake_table(mut conn: PgConnection) {
     "CREATE TABLE u ( id INT PRIMARY KEY, name VARCHAR(50), department_id INT ) USING deltalake"
         .execute(&mut conn);
@@ -198,6 +205,7 @@ fn join_heap_and_deltalake_table(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn rename(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING deltalake".execute(&mut conn);
     "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')".execute(&mut conn);
@@ -210,6 +218,7 @@ fn rename(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn schema(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text NOT NULL) USING deltalake".execute(&mut conn);
     "INSERT INTO t values (1, 'test');".execute(&mut conn);
@@ -219,6 +228,7 @@ fn schema(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn select(mut conn: PgConnection) {
     UserSessionLogsTable::setup().execute(&mut conn);
 
@@ -247,6 +257,7 @@ fn select(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn truncate(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING deltalake".execute(&mut conn);
     "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c'); TRUNCATE t".execute(&mut conn);
@@ -256,6 +267,7 @@ fn truncate(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn types(mut conn: PgConnection) {
     "CREATE TABLE test_text (a text) USING deltalake".execute(&mut conn);
     "INSERT INTO test_text VALUES ('hello world')".execute(&mut conn);

@@ -37,7 +37,7 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init(unsafe { pg_sys::MyDatabaseId })?
+                DatafusionContext::init(Self::catalog_oid()?)?
             }
         };
 
@@ -53,7 +53,7 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init(unsafe { pg_sys::MyDatabaseId })?
+                DatafusionContext::init(Self::catalog_oid()?)?
             }
         };
 
@@ -82,7 +82,7 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init(unsafe { pg_sys::MyDatabaseId })?
+                DatafusionContext::init(Self::catalog_oid()?)?
             }
         };
 
@@ -135,14 +135,16 @@ impl<'a> DatafusionContext {
     }
 
     pub fn catalog_name() -> Result<String, ParadeError> {
-        let database_name = unsafe { pg_sys::get_database_name(pg_sys::MyDatabaseId) };
+        let database_name = unsafe { pg_sys::get_database_name(Self::catalog_oid()?) };
         if database_name.is_null() {
-            return Err(
-                NotFound::Database(unsafe { pg_sys::MyDatabaseId }.as_u32().to_string()).into(),
-            );
+            return Err(NotFound::Database(Self::catalog_oid()?.as_u32().to_string()).into());
         }
 
         Ok(unsafe { CStr::from_ptr(database_name).to_str()?.to_owned() })
+    }
+
+    pub fn catalog_oid() -> Result<pg_sys::Oid, ParadeError> {
+        Ok(unsafe { pg_sys::MyDatabaseId })
     }
 }
 

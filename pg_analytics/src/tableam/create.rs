@@ -55,7 +55,10 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
                 if catalog.schema(&schema_name).is_none() {
                     let schema_provider = Arc::new(task::block_on(ParadeSchemaProvider::try_new(
                         &schema_name,
-                        ParadeDirectory::schema_path(unsafe { pg_sys::MyDatabaseId }, schema_oid)?,
+                        ParadeDirectory::schema_path(
+                            DatafusionContext::catalog_oid()?,
+                            schema_oid,
+                        )?,
                     ))?);
 
                     catalog.register_schema(&schema_name, schema_provider)?;

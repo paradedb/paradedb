@@ -27,6 +27,7 @@ use std::{
     path::PathBuf, sync::Arc,
 };
 
+use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::table::DeltaTableProvider;
 use crate::errors::{NotFound, ParadeError};
@@ -123,12 +124,12 @@ impl ParadeSchemaProvider {
 
         // Create a DeltaTable
 
-        ParadeDirectory::create_schema_path(unsafe { pg_sys::MyDatabaseId }, schema_oid)?;
+        ParadeDirectory::create_schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
 
         let mut delta_table = CreateBuilder::new()
             .with_location(
                 ParadeDirectory::table_path(
-                    unsafe { pg_sys::MyDatabaseId },
+                    DatafusionContext::catalog_oid()?,
                     schema_oid,
                     table_oid,
                 )?
@@ -394,7 +395,7 @@ impl ParadeSchemaProvider {
 
                 deltalake::open_table(
                     ParadeDirectory::table_path(
-                        unsafe { pg_sys::MyDatabaseId },
+                        DatafusionContext::catalog_oid()?,
                         schema_oid,
                         table_oid,
                     )?

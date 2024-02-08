@@ -5,6 +5,7 @@ use parking_lot::RwLock;
 use pgrx::*;
 use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr, sync::Arc};
 
+use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
@@ -25,7 +26,7 @@ impl ParadeCatalog {
     }
 
     pub async fn init(&self) -> Result<(), ParadeError> {
-        let delta_dir = ParadeDirectory::catalog_path(unsafe { pg_sys::MyDatabaseId })?;
+        let delta_dir = ParadeDirectory::catalog_path(DatafusionContext::catalog_oid()?)?;
 
         for entry in std::fs::read_dir(delta_dir)? {
             let entry = entry?;
@@ -53,7 +54,7 @@ impl ParadeCatalog {
                 let schema_provider = Arc::new(
                     ParadeSchemaProvider::try_new(
                         schema_name.as_str(),
-                        ParadeDirectory::schema_path(unsafe { pg_sys::MyDatabaseId }, pg_oid)?,
+                        ParadeDirectory::schema_path(DatafusionContext::catalog_oid()?, pg_oid)?,
                     )
                     .await?,
                 );

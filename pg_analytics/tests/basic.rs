@@ -95,7 +95,7 @@ fn alter(mut conn: PgConnection) {
         Err(err) => assert!(
             err.to_string().contains("ALTER TABLE is not yet supported"),
             "alter table error message not present in '{}'",
-            err.to_string()
+            err
         ),
         _ => panic!("alter table should be unsupported"),
     }
@@ -243,13 +243,13 @@ fn select(mut conn: PgConnection) {
         2024-01-01,2024-01-02,2024-01-03,2024-01-04,2024-01-05,2024-01-06,2024-01-07,
         2024-01-08,2024-01-09,2024-01-10,2024-01-11,2024-01-12,2024-01-13,2024-01-14,
         2024-01-15,2024-01-16,2024-01-17,2024-01-18,2024-01-19,2024-01-20"
-        .split(",")
+        .split(',')
         .map(|s| Date::parse(s.trim(), format_description!("[year]-[month]-[day]")).unwrap());
 
     let expected_revenues = "
         20.00,150.50,0.00,0.00,30.75,75.00,0.00,200.25,300.00,50.00,0.00,125.30,0.00,
         0.00,45.00,80.00,0.00,175.50,250.00,60.00"
-        .split(",")
+        .split(',')
         .map(|s| BigDecimal::from_str(s.trim()).unwrap());
 
     assert!(rows.iter().map(|r| r.0).eq(expected_dates));

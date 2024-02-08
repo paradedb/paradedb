@@ -699,7 +699,7 @@ impl DatafusionMapProducer {
                             .into_datum(),
                         _ => return Err(NotSupported::DataType(data_type).into()),
                     }
-                    .map(|datum| Some(datum)),
+                    .map(Some),
                     _ => None,
                 }
             }

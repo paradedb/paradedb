@@ -1,3 +1,7 @@
+use deltalake::datafusion::error::DataFusionError;
+use deltalake::datafusion::sql::parser::DFParser;
+use deltalake::datafusion::sql::planner::SqlToRel;
+use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
 
 use crate::errors::{NotSupported, ParadeError};
@@ -21,6 +25,17 @@ pub unsafe fn alter(alter_stmt: *mut pg_sys::AlterTableStmt) -> Result<(), Parad
     if !DeltaHandler::relation_is_delta(relation)? {
         pg_sys::RelationClose(relation);
         return Ok(());
+    }
+
+    let pg_relation = PgRelation::from_pg(relation);
+    let tupdesc = pg_relation.tuple_desc();
+    for attribute in tupdesc.iter() {
+        if attribute.is_dropped() {
+            continue;
+        }
+
+        let attname = attribute.name();
+        info!("Attribute name: {}", attname);
     }
 
     Err(NotSupported::AlterTable.into())

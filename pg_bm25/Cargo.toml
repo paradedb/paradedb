@@ -65,6 +65,7 @@ pgrx-tests = "=0.11.2"
 pretty_assertions = "1.4.0"
 rstest = "0.18.2"
 shared = { path = "../shared", features = ["fixtures"] }
+sqlx = { version = "0.7.3", features = ["postgres", "runtime-async-std", "time", "bigdecimal", "uuid"] }
 tempfile = "3.9.0"
 
 [dependencies.rust_icu_ubrk]

@@ -635,6 +635,7 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -3688,6 +3689,7 @@ dependencies = [
  "serde",
  "serde_json",
  "shared",
+ "sqlx",
  "thiserror",
  "time",
 ]
@@ -3725,6 +3727,7 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "shared",
+ "sqlx",
  "tantivy-common",
  "tempfile",
  "thiserror",
@@ -4729,6 +4732,7 @@ name = "shared"
 version = "0.1.0"
 dependencies = [
  "async-std",
+ "bigdecimal",
  "envy",
  "pgrx",
  "pgrx-tests",

@@ -1,8 +1,6 @@
 use soa_derive::StructOfArray;
 use sqlx::FromRow;
 
-use super::Table;
-
 #[derive(Debug, PartialEq, FromRow, StructOfArray, Default)]
 pub struct SimpleProductsTable {
     pub id: i32,
@@ -13,8 +11,8 @@ pub struct SimpleProductsTable {
     pub metadata: serde_json::Value,
 }
 
-impl Table for SimpleProductsTable {
-    fn setup_with() -> &'static str {
+impl SimpleProductsTable {
+    pub fn setup() -> &'static str {
         SIMPLE_PRODUCTS_TABLE_SETUP
     }
 }
@@ -22,7 +20,7 @@ impl Table for SimpleProductsTable {
 static SIMPLE_PRODUCTS_TABLE_SETUP: &str = r#"
 BEGIN;
     CALL paradedb.create_bm25_test_table(table_name => 'bm25_search', schema_name => 'paradedb');
-    
+
     CALL paradedb.create_bm25(
     	index_name => 'bm25_search',
         table_name => 'bm25_search',

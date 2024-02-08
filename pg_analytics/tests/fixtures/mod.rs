@@ -1,6 +1,6 @@
 use async_std::task::block_on;
 use rstest::*;
-use shared::sqlx::{self, PgConnection};
+use sqlx::{self, PgConnection};
 
 pub use shared::fixtures::db::*;
 pub use shared::fixtures::tables::*;
@@ -20,16 +20,4 @@ pub fn conn(database: Db) -> PgConnection {
             .expect("could not create extension pg_analytics");
         conn
     })
-}
-
-#[fixture]
-pub fn user_session_log_table(conn: PgConnection) -> TableConnection<UserSessionLogsTable> {
-    TableConnection::setup_new(conn)
-}
-
-#[fixture]
-pub fn research_project_arrays_table(
-    conn: PgConnection,
-) -> TableConnection<ResearchProjectArraysTable> {
-    TableConnection::setup_new(conn)
 }

@@ -1,6 +1,6 @@
 use async_std::task::block_on;
 use rstest::*;
-use shared::sqlx::{self, PgConnection};
+use sqlx::{self, PgConnection};
 
 pub use shared::fixtures::db::*;
 pub use shared::fixtures::tables::*;
@@ -20,9 +20,4 @@ pub fn conn(database: Db) -> PgConnection {
             .expect("could not create extension pg_bm25");
         conn
     })
-}
-
-#[fixture]
-pub fn simple_products_table(conn: PgConnection) -> TableConnection<SimpleProductsTable> {
-    TableConnection::setup_new(conn)
 }

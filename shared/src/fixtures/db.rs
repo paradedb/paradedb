@@ -1,8 +1,9 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use async_std::task::block_on;
 use sqlx::{
     testing::{TestArgs, TestContext, TestSupport},
-    ConnectOptions, PgConnection, Postgres,
+    ConnectOptions, Executor, FromRow, PgConnection, Postgres,
 };
 
 pub struct Db {
@@ -43,3 +44,66 @@ impl Drop for Db {
         });
     }
 }
+
+pub trait Query
+where
+    Self: AsRef<str> + Sized,
+{
+    fn execute(self, connection: &mut PgConnection) {
+        block_on(async {
+            connection.execute(self.as_ref()).await.unwrap();
+        })
+    }
+
+    fn execute_result(self, connection: &mut PgConnection) -> Result<(), sqlx::Error> {
+        block_on(async { connection.execute(self.as_ref()).await })?;
+        Ok(())
+    }
+
+    fn fetch<T>(self, connection: &mut PgConnection) -> Vec<T>
+    where
+        T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+    {
+        block_on(async {
+            sqlx::query_as::<_, T>(self.as_ref())
+                .fetch_all(connection)
+                .await
+                .unwrap()
+        })
+    }
+
+    fn fetch_one<T>(self, connection: &mut PgConnection) -> T
+    where
+        T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+    {
+        block_on(async {
+            sqlx::query_as::<_, T>(self.as_ref())
+                .fetch_one(connection)
+                .await
+                .unwrap()
+        })
+    }
+
+    fn fetch_result<T>(self, connection: &mut PgConnection) -> Result<Vec<T>, sqlx::Error>
+    where
+        T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+    {
+        block_on(async {
+            sqlx::query_as::<_, T>(self.as_ref())
+                .fetch_all(connection)
+                .await
+        })
+    }
+
+    fn fetch_collect<T, B>(self, connection: &mut PgConnection) -> B
+    where
+        T: for<'r> FromRow<'r, <Postgres as sqlx::Database>::Row> + Send + Unpin,
+        B: FromIterator<T>,
+    {
+        self.fetch(connection).into_iter().collect::<B>()
+    }
+}
+
+impl Query for String {}
+impl Query for &String {}
+impl Query for &str {}

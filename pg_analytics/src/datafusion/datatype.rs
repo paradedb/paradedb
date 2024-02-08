@@ -144,7 +144,6 @@ impl PostgresTypeTranslator for PgOid {
                     SQLDataType::Timestamp(None, TimezoneInfo::WithoutTimeZone)
                 }
                 PgBuiltInOids::DATEOID => SQLDataType::Date,
-                PgBuiltInOids::BYTEAOID => SQLDataType::Bytea,
                 PgBuiltInOids::NUMERICOID => {
                     let scale: i32 = (((typmod - VARHDRSZ as i32) & 0x7ff) ^ 1024) - 1024;
                     let precision: i32 = ((typmod - VARHDRSZ as i32) >> 16) & 0xffff;
@@ -204,7 +203,6 @@ impl PostgresTypeTranslator for PgOid {
                 }
                 PgBuiltInOids::UUIDOID => SQLDataType::Uuid,
                 PgBuiltInOids::BOOLARRAYOID => sql_array_type(PgBuiltInOids::BOOLOID, typmod)?,
-                PgBuiltInOids::BYTEAARRAYOID => sql_array_type(PgBuiltInOids::BYTEAOID, typmod)?,
                 PgBuiltInOids::TEXTARRAYOID => sql_array_type(PgBuiltInOids::TEXTOID, typmod)?,
                 PgBuiltInOids::VARCHARARRAYOID => {
                     sql_array_type(PgBuiltInOids::VARCHAROID, typmod)?

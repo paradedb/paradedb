@@ -1,12 +1,8 @@
+use bigdecimal::BigDecimal;
 use pgrx::pg_sys::Oid;
 use soa_derive::StructOfArray;
-use sqlx::{
-    types::{BigDecimal, Uuid},
-    FromRow,
-};
+use sqlx::{types::Uuid, FromRow};
 use time::{Date, PrimitiveDateTime};
-
-use super::Table;
 
 #[derive(Debug, PartialEq, FromRow, StructOfArray, Default)]
 pub struct ResearchProjectArraysTable {
@@ -35,8 +31,8 @@ pub struct ResearchProjectArraysTable {
     pub participant_uuids: Vec<Uuid>,
 }
 
-impl Table for ResearchProjectArraysTable {
-    fn setup_with() -> &'static str {
+impl ResearchProjectArraysTable {
+    pub fn setup() -> &'static str {
         RESEARCH_PROJECT_ARRAYS_TABLE_SETUP
     }
 }
@@ -83,38 +79,38 @@ VALUES
 (
  -- 'a0ec8c90-9032-4f8f-87d3-6b76b4fadb02',
  ARRAY[true, false, true],
- --  ARRAY['\\xDEADBEEF'::bytea], 
+ --  ARRAY['\\xDEADBEEF'::bytea],
  ARRAY['Initial setup complete', 'Preliminary results promising'],
  ARRAY['climate change', 'coral reefs'],
  ARRAY['CRLRST    ', 'OCEAN1    '],
- ARRAY[28, 34, 29], 
- ARRAY[101, 102, 103], 
- ARRAY[150, 120, 130], 
+ ARRAY[28, 34, 29],
+ ARRAY[101, 102, 103],
+ ARRAY[150, 120, 130],
  -- ARRAY[1643, 1644, 1645]
- ARRAY[0.02, 0.03, 0.015], 
+ ARRAY[0.02, 0.03, 0.015],
  ARRAY[1.5, 1.6, 1.7]
- -- ARRAY['2023-01-01 10:00:00', '2023-01-02 11:00:00', '2023-01-03 09:30:00']::timestamp[], 
+ -- ARRAY['2023-01-01 10:00:00', '2023-01-02 11:00:00', '2023-01-03 09:30:00']::timestamp[],
  -- ARRAY['2023-01-01', '2023-01-02', '2023-01-03']::date[]
- -- ARRAY[10000.00, 5000.00, 7500.00], 
+ -- ARRAY[10000.00, 5000.00, 7500.00],
  -- ARRAY['d1ec8c90-9032-4f8f-87d3-6b76b4fa0001', 'd1ec8c90-9032-4f8f-87d3-6b76b4fa0002']::uuid[]
  ),
 
 (
  -- 'b1fd9d22-2e5c-4af2-bf09-88f567abc123',
  ARRAY[false, true, false],
- -- ARRAY['\\xCAFEF00D'::bytea], 
+ -- ARRAY['\\xCAFEF00D'::bytea],
  ARRAY['Need to re-evaluate methodology', 'Unexpected results in phase 2'],
  ARRAY['sustainable farming', 'soil health'],
- ARRAY['FARMEX    ', 'SOILQ2    '], 
- ARRAY[22, 27, 32], 
- ARRAY[201, 202, 203], 
- ARRAY[160, 140, 135], 
+ ARRAY['FARMEX    ', 'SOILQ2    '],
+ ARRAY[22, 27, 32],
+ ARRAY[201, 202, 203],
+ ARRAY[160, 140, 135],
  -- ARRAY[2643, 2644, 2645],
- ARRAY[0.025, 0.02, 0.01], 
+ ARRAY[0.025, 0.02, 0.01],
  ARRAY[2.0, 2.1, 2.2]
  -- ARRAY['2023-02-15 14:00:00', '2023-02-16 15:30:00', '2023-02-17 14:45:00']::timestamp[],
  -- ARRAY['2023-02-15', '2023-02-16', '2023-02-17']::date[],
- -- ARRAY[20000.00, 25000.00, 20000.00], 
+ -- ARRAY[20000.00, 25000.00, 20000.00],
  -- ARRAY['c2fd9d22-2e5c-4af2-bf09-88f567ab0003', 'c2fd9d22-2e5c-4af2-bf09-88f567ab0004']::uuid[]
 );
 "#;

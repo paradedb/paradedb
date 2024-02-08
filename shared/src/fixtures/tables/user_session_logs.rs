@@ -1,10 +1,10 @@
+use bigdecimal::BigDecimal;
+use serde::{Deserialize, Serialize};
 use soa_derive::StructOfArray;
-use sqlx::{types::BigDecimal, FromRow};
+use sqlx::FromRow;
 use time::Date;
 
-use super::Table;
-
-#[derive(Debug, PartialEq, FromRow, StructOfArray)]
+#[derive(Debug, PartialEq, FromRow, StructOfArray, Serialize, Deserialize)]
 pub struct UserSessionLogsTable {
     pub id: i32,
     pub event_date: Date,
@@ -15,8 +15,8 @@ pub struct UserSessionLogsTable {
     pub revenue: BigDecimal,
 }
 
-impl Table for UserSessionLogsTable {
-    fn setup_with() -> &'static str {
+impl UserSessionLogsTable {
+    pub fn setup() -> &'static str {
         USER_SESSION_LOGS_TABLE_SETUP
     }
 }

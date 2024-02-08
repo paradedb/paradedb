@@ -3,16 +3,16 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use shared::sqlx::{self};
+use sqlx::PgConnection;
 
 #[rstest]
 #[ignore]
-async fn basic_search_query(
-    mut simple_products_table: TableConnection<SimpleProductsTable>,
-) -> Result<(), sqlx::Error> {
-    let columns: SimpleProductsTableVec = simple_products_table.fetch_collect(
-        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')",
-    );
+async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')"
+            .fetch_collect(&mut conn);
 
     assert_eq!(
         columns.description,
@@ -37,13 +37,15 @@ async fn basic_search_query(
 /// Test various queries, ensuring that ids come back in the expected order.
 #[rstest]
 #[ignore]
-async fn basic_search_ids(mut simple_products_table: TableConnection<SimpleProductsTable>) {
-    let columns: SimpleProductsTableVec = simple_products_table.fetch_collect(
-        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')",
-    );
+async fn basic_search_ids(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')"
+            .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 1, 12, 22, 32]);
 
-    let columns: SimpleProductsTableVec = simple_products_table
-        .fetch_collect("SELECT * FROM bm25_search.search('description:keyboard')");
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('description:keyboard')".fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 1]);
 }

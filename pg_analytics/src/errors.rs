@@ -39,7 +39,7 @@ pub enum ParadeError {
 
 #[derive(Error, Debug)]
 pub enum NotFound {
-    #[error("Database {0} does not have a name")]
+    #[error("Database {0} not found")]
     Database(String),
 
     #[error("No catalog registered with name {0}")]

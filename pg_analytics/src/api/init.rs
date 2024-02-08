@@ -11,7 +11,7 @@ extension_sql!(
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn init() {
-    let _ = DatafusionContext::init().unwrap_or_else(|err| {
+    let _ = DatafusionContext::init(unsafe { pg_sys::MyDatabaseId }).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }

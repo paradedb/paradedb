@@ -9,8 +9,6 @@ use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
 
-pub static PARADE_CATALOG: &str = "datafusion";
-
 pub struct ParadeCatalog {
     schemas: RwLock<HashMap<String, Arc<dyn SchemaProvider>>>,
 }
@@ -27,7 +25,7 @@ impl ParadeCatalog {
     }
 
     pub async fn init(&self) -> Result<(), ParadeError> {
-        let delta_dir = ParadeDirectory::delta_path()?;
+        let delta_dir = ParadeDirectory::catalog_path(unsafe { pg_sys::MyDatabaseId })?;
 
         for entry in std::fs::read_dir(delta_dir)? {
             let entry = entry?;
@@ -55,7 +53,7 @@ impl ParadeCatalog {
                 let schema_provider = Arc::new(
                     ParadeSchemaProvider::try_new(
                         schema_name.as_str(),
-                        ParadeDirectory::schema_path(pg_oid)?,
+                        ParadeDirectory::schema_path(unsafe { pg_sys::MyDatabaseId }, pg_oid)?,
                     )
                     .await?,
                 );

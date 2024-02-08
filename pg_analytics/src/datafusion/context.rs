@@ -11,10 +11,12 @@ use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
 use lazy_static::lazy_static;
 use parking_lot::{RwLock, RwLockWriteGuard};
+use pgrx::*;
 use std::any::type_name;
+use std::ffi::CStr;
 use std::sync::Arc;
 
-use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList, PARADE_CATALOG};
+use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
@@ -35,7 +37,7 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init()?
+                DatafusionContext::init(unsafe { pg_sys::MyDatabaseId })?
             }
         };
 
@@ -51,13 +53,13 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init()?
+                DatafusionContext::init(unsafe { pg_sys::MyDatabaseId })?
             }
         };
 
         let schema_provider = context
-            .catalog(PARADE_CATALOG)
-            .ok_or(NotFound::Catalog(PARADE_CATALOG.to_string()))?
+            .catalog(&Self::catalog_name()?)
+            .ok_or(NotFound::Catalog(Self::catalog_name()?.to_string()))?
             .schema(schema_name)
             .ok_or(NotFound::Schema(schema_name.to_string()))?;
 
@@ -80,13 +82,13 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init()?
+                DatafusionContext::init(unsafe { pg_sys::MyDatabaseId })?
             }
         };
 
         let catalog_provider = context
-            .catalog(PARADE_CATALOG)
-            .ok_or(NotFound::Catalog(PARADE_CATALOG.to_string()))?;
+            .catalog(&Self::catalog_name()?)
+            .ok_or(NotFound::Catalog(Self::catalog_name()?.to_string()))?;
 
         let parade_catalog = catalog_provider
             .as_any()
@@ -104,7 +106,7 @@ impl<'a> DatafusionContext {
         f(context_lock)
     }
 
-    pub fn init() -> Result<SessionContext, ParadeError> {
+    pub fn init(catalog_oid: pg_sys::Oid) -> Result<SessionContext, ParadeError> {
         let session_config = SessionConfig::from_env()?.with_information_schema(true);
 
         let rn_config = RuntimeConfig::new();
@@ -115,7 +117,7 @@ impl<'a> DatafusionContext {
                 SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
 
             // Create schema directory if it doesn't exist
-            ParadeDirectory::create_delta_path()?;
+            ParadeDirectory::create_catalog_path(catalog_oid)?;
 
             // Register catalog list
             context.register_catalog_list(Arc::new(ParadeCatalogList::try_new()?));
@@ -123,13 +125,24 @@ impl<'a> DatafusionContext {
             // Create and register catalog
             let catalog = ParadeCatalog::try_new()?;
             task::block_on(catalog.init())?;
-            context.register_catalog(PARADE_CATALOG, Arc::new(catalog));
+            context.register_catalog(&Self::catalog_name()?, Arc::new(catalog));
 
             // Set context
             *context_lock = Some(context.clone());
 
             Ok(context)
         })
+    }
+
+    pub fn catalog_name() -> Result<String, ParadeError> {
+        let database_name = unsafe { pg_sys::get_database_name(pg_sys::MyDatabaseId) };
+        if database_name.is_null() {
+            return Err(
+                NotFound::Database(unsafe { pg_sys::MyDatabaseId }.as_u32().to_string()).into(),
+            );
+        }
+
+        Ok(unsafe { CStr::from_ptr(database_name).to_str()?.to_owned() })
     }
 }
 

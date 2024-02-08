@@ -142,14 +142,14 @@ Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy sear
 
 ### Prerequisites
 
-To develop the extension, first install Rust v1.73.0 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
+To develop the extension, first install Rust v1.76.0 using `rustup`:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup install 1.73.0
+rustup install 1.76.0
 
-# We recommend setting the default version to 1.73.0 for consistency across your system
-rustup default 1.73.0
+# We recommend setting the default version to 1.76.0 for consistency across your system
+rustup default 1.76.0
 ```
 
 Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconcistencies with Homebrew's Rust installation on macOS.

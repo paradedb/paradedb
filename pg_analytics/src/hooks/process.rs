@@ -35,8 +35,8 @@ pub fn process_utility(
         let plan = pstmt.utilityStmt;
 
         match (*plan).type_ {
-            NodeTag::T_AlterTableStmt => {
-                alter(plan as *mut pg_sys::AlterTableStmt)?;
+            NodeTag::T_AlterTableStmt => {                
+                alter(plan as *mut pg_sys::AlterTableStmt, query_string.to_str()?)?;
             }
             NodeTag::T_DropStmt => {
                 drop(plan as *mut pg_sys::DropStmt)?;

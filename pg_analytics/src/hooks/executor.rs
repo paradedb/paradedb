@@ -1,9 +1,7 @@
 use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::logical_expr::LogicalPlan;
-
 use deltalake::datafusion::sql::parser::DFParser;
 use deltalake::datafusion::sql::planner::SqlToRel;
-
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
 use std::ffi::CStr;

@@ -11,7 +11,9 @@ extension_sql!(
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn init() {
-    let _ = DatafusionContext::init().unwrap_or_else(|err| {
-        panic!("{}", err);
-    });
+    let _ =
+        DatafusionContext::init(DatafusionContext::catalog_oid().expect("Catalog OID not found"))
+            .unwrap_or_else(|err| {
+                panic!("{}", err);
+            });
 }

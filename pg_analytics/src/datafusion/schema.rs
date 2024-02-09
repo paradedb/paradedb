@@ -27,6 +27,7 @@ use std::{
     path::PathBuf, sync::Arc,
 };
 
+use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::table::DeltaTableProvider;
 use crate::errors::{NotFound, ParadeError};
@@ -122,10 +123,18 @@ impl ParadeSchemaProvider {
         let batch = RecordBatch::new_empty(Arc::new(arrow_schema.clone()));
 
         // Create a DeltaTable
-        ParadeDirectory::create_schema_path(schema_oid)?;
+
+        ParadeDirectory::create_schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
 
         let mut delta_table = CreateBuilder::new()
-            .with_location(ParadeDirectory::table_path(schema_oid, table_oid)?.to_string_lossy())
+            .with_location(
+                ParadeDirectory::table_path(
+                    DatafusionContext::catalog_oid()?,
+                    schema_oid,
+                    table_oid,
+                )?
+                .to_string_lossy(),
+            )
             .with_columns(delta_schema.fields().to_vec())
             .await?;
 
@@ -385,7 +394,12 @@ impl ParadeSchemaProvider {
                     unsafe { pg_sys::get_relname_relid(CString::new(name)?.as_ptr(), schema_oid) };
 
                 deltalake::open_table(
-                    ParadeDirectory::table_path(schema_oid, table_oid)?.to_string_lossy(),
+                    ParadeDirectory::table_path(
+                        DatafusionContext::catalog_oid()?,
+                        schema_oid,
+                        table_oid,
+                    )?
+                    .to_string_lossy(),
                 )
                 .await?
             }

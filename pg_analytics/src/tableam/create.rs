@@ -48,13 +48,17 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
         _ => {
             let table_name = pg_relation.name().to_string();
             let schema_name = pg_relation.namespace().to_string();
+            let catalog_name = DatafusionContext::catalog_name()?;
             let schema_oid = pg_relation.namespace_oid();
 
             DatafusionContext::with_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
                     let schema_provider = Arc::new(task::block_on(ParadeSchemaProvider::try_new(
                         &schema_name,
-                        ParadeDirectory::schema_path(schema_oid)?,
+                        ParadeDirectory::schema_path(
+                            DatafusionContext::catalog_oid()?,
+                            schema_oid,
+                        )?,
                     ))?);
 
                     catalog.register_schema(&schema_name, schema_provider)?;
@@ -64,7 +68,7 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
             })?;
 
             let table_exists = DatafusionContext::with_session_context(|context| {
-                let reference = TableReference::partial(schema_name.clone(), table_name);
+                let reference = TableReference::full(catalog_name, schema_name.clone(), table_name);
                 Ok(context.table_exist(reference)?)
             })?;
 

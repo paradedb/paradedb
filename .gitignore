@@ -27,4 +27,4 @@ docker/.docker_cache_dev/
 pgvector/
 
 # Env files
-pg_bm25/.env
+.env

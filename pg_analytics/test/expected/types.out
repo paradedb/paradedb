@@ -111,7 +111,7 @@ DROP TABLE t;
 CREATE TABLE t (a bytea) USING deltalake;
 ERROR:  Postgres type BYTEAOID not supported
 CREATE TABLE t (a uuid) USING deltalake;
-ERROR:  Postgres type UUIDOID not supported
+ERROR:  SQLDataType UUID not supported
 CREATE TABLE t (a oid) USING deltalake;
 ERROR:  Postgres type OIDOID not supported
 CREATE TABLE t (a json) USING deltalake;
@@ -123,4 +123,3 @@ ERROR:  Postgres type TIMEOID not supported
 CREATE TABLE t (a timetz) USING deltalake;
 ERROR:  Postgres type TIMETZOID not supported
 CREATE TABLE t (a text[]) USING deltalake;
-ERROR:  Arrays are not yet supported

@@ -627,6 +627,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
+name = "bigdecimal"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6773ddc0eafc0e509fb60e48dff7f450f8e674a0686ae8605e8d9901bd5eefa"
+dependencies = [
+ "num-bigint",
+ "num-integer",
+ "num-traits",
+ "serde",
+]
+
+[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3231,6 +3243,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "num-conv"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51d515d32fb182ee37cda2ccdcb92950d6a3c2893aa280e540671c2cd0f3b1d9"
+
+[[package]]
 name = "num-integer"
 version = "0.1.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3396,7 +3414,7 @@ checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 [[package]]
 name = "ownedbytes"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
 dependencies = [
  "stable_deref_trait",
 ]
@@ -3406,57 +3424,6 @@ name = "owo-colors"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1b04fb49957986fdce4d6ee7a65027d55d4b6d2265e5848bbb507b58ccfdb6f"
-
-[[package]]
-name = "paradedb-tantivy"
-version = "0.21.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
-dependencies = [
- "aho-corasick",
- "arc-swap",
- "async-trait",
- "base64",
- "bitpacking",
- "byteorder",
- "census",
- "crc32fast",
- "crossbeam-channel",
- "downcast-rs",
- "fastdivide",
- "fs4",
- "htmlescape",
- "itertools 0.11.0",
- "levenshtein_automata",
- "log",
- "lru",
- "lz4_flex",
- "measure_time",
- "memmap2",
- "murmurhash32",
- "num_cpus",
- "once_cell",
- "oneshot",
- "rayon",
- "regex",
- "rust-stemmers",
- "rustc-hash",
- "serde",
- "serde_json",
- "sketches-ddsketch",
- "smallvec",
- "tantivy-bitpacker",
- "tantivy-columnar",
- "tantivy-common",
- "tantivy-fst",
- "tantivy-query-grammar",
- "tantivy-stacker",
- "tantivy-tokenizer-api",
- "tempfile",
- "thiserror",
- "time",
- "uuid",
- "winapi",
-]
 
 [[package]]
 name = "parking"
@@ -3592,6 +3559,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
+name = "permutation"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df202b0b0f5b8e389955afd5f27b007b00fb948162953f1db9c70d2c7e3157d7"
+
+[[package]]
 name = "pest"
 version = "2.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3650,18 +3623,24 @@ dependencies = [
 name = "pg_analytics"
 version = "0.5.4"
 dependencies = [
+ "anyhow",
  "async-std",
  "async-trait",
  "chrono",
  "deltalake",
+ "futures-util",
  "lazy_static",
  "parking_lot",
  "pgrx",
  "pgrx-tests",
+ "pretty_assertions",
+ "rstest",
  "serde",
  "serde_json",
  "shared",
+ "sqlx",
  "thiserror",
+ "time",
 ]
 
 [[package]]
@@ -3685,7 +3664,6 @@ dependencies = [
  "lindera-tokenizer",
  "memoffset",
  "once_cell",
- "paradedb-tantivy",
  "pgrx",
  "pgrx-tests",
  "pretty_assertions",
@@ -3698,6 +3676,7 @@ dependencies = [
  "serde_path_to_error",
  "shared",
  "sqlx",
+ "tantivy",
  "tantivy-common",
  "tempfile",
  "thiserror",
@@ -4701,12 +4680,18 @@ dependencies = [
 name = "shared"
 version = "0.1.0"
 dependencies = [
+ "async-std",
+ "bigdecimal",
  "envy",
  "pgrx",
  "pgrx-tests",
  "reqwest",
+ "rstest",
  "serde",
  "serde_json",
+ "soa_derive",
+ "sqlx",
+ "time",
  "tracing",
  "uuid",
 ]
@@ -4784,6 +4769,27 @@ name = "snap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
+
+[[package]]
+name = "soa_derive"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe62159e5b5e7d6baa8674deaccce633e3d57c3196287530af1908e1e429ba57"
+dependencies = [
+ "permutation",
+ "soa_derive_internal",
+]
+
+[[package]]
+name = "soa_derive_internal"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ad5df6c43b985955d0f2e4f794f5789c427dd11be361509c22bb8e84fa8452dc"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.48",
+]
 
 [[package]]
 name = "socket2"
@@ -4900,6 +4906,7 @@ dependencies = [
  "async-io 1.13.0",
  "async-std",
  "atoi",
+ "bigdecimal",
  "byteorder",
  "bytes",
  "crc",
@@ -4926,8 +4933,10 @@ dependencies = [
  "smallvec",
  "sqlformat",
  "thiserror",
+ "time",
  "tracing",
  "url",
+ "uuid",
 ]
 
 [[package]]
@@ -4978,6 +4987,7 @@ checksum = "e37195395df71fd068f6e2082247891bc11e3289624bbc776a0cdfa1ca7f1ea4"
 dependencies = [
  "atoi",
  "base64",
+ "bigdecimal",
  "bitflags 2.4.2",
  "byteorder",
  "bytes",
@@ -5008,7 +5018,9 @@ dependencies = [
  "sqlx-core",
  "stringprep",
  "thiserror",
+ "time",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -5020,6 +5032,7 @@ checksum = "d6ac0ac3b7ccd10cc96c7ab29791a7dd236bd94021f31eec7ba3d46a74aa1c24"
 dependencies = [
  "atoi",
  "base64",
+ "bigdecimal",
  "bitflags 2.4.2",
  "byteorder",
  "crc",
@@ -5037,6 +5050,7 @@ dependencies = [
  "log",
  "md-5",
  "memchr",
+ "num-bigint",
  "once_cell",
  "rand",
  "serde",
@@ -5047,7 +5061,9 @@ dependencies = [
  "sqlx-core",
  "stringprep",
  "thiserror",
+ "time",
  "tracing",
+ "uuid",
  "whoami",
 ]
 
@@ -5069,9 +5085,11 @@ dependencies = [
  "percent-encoding",
  "serde",
  "sqlx-core",
+ "time",
  "tracing",
  "url",
  "urlencoding",
+ "uuid",
 ]
 
 [[package]]
@@ -5190,9 +5208,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "tantivy"
+version = "0.21.1"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
+dependencies = [
+ "aho-corasick",
+ "arc-swap",
+ "async-trait",
+ "base64",
+ "bitpacking",
+ "byteorder",
+ "census",
+ "crc32fast",
+ "crossbeam-channel",
+ "downcast-rs",
+ "fastdivide",
+ "fs4",
+ "htmlescape",
+ "itertools 0.11.0",
+ "levenshtein_automata",
+ "log",
+ "lru",
+ "lz4_flex",
+ "measure_time",
+ "memmap2",
+ "murmurhash32",
+ "num_cpus",
+ "once_cell",
+ "oneshot",
+ "rayon",
+ "regex",
+ "rust-stemmers",
+ "rustc-hash",
+ "serde",
+ "serde_json",
+ "sketches-ddsketch",
+ "smallvec",
+ "tantivy-bitpacker",
+ "tantivy-columnar",
+ "tantivy-common",
+ "tantivy-fst",
+ "tantivy-query-grammar",
+ "tantivy-stacker",
+ "tantivy-tokenizer-api",
+ "tempfile",
+ "thiserror",
+ "time",
+ "uuid",
+ "winapi",
+]
+
+[[package]]
 name = "tantivy-bitpacker"
 version = "0.5.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
 dependencies = [
  "bitpacking",
 ]
@@ -5200,7 +5269,7 @@ dependencies = [
 [[package]]
 name = "tantivy-columnar"
 version = "0.2.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
 dependencies = [
  "fastdivide",
  "fnv",
@@ -5215,7 +5284,7 @@ dependencies = [
 [[package]]
 name = "tantivy-common"
 version = "0.6.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -5238,7 +5307,7 @@ dependencies = [
 [[package]]
 name = "tantivy-query-grammar"
 version = "0.21.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
 dependencies = [
  "nom",
 ]
@@ -5246,7 +5315,7 @@ dependencies = [
 [[package]]
 name = "tantivy-sstable"
 version = "0.2.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
 dependencies = [
  "tantivy-common",
  "tantivy-fst",
@@ -5256,7 +5325,7 @@ dependencies = [
 [[package]]
 name = "tantivy-stacker"
 version = "0.2.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
 dependencies = [
  "murmurhash32",
  "tantivy-common",
@@ -5265,7 +5334,7 @@ dependencies = [
 [[package]]
 name = "tantivy-tokenizer-api"
 version = "0.2.0"
-source = "git+https://github.com/paradedb/tantivy.git?rev=f4972d3a#f4972d3ad3345f508d6eaa95f1675f65373712fd"
+source = "git+https://github.com/paradedb/tantivy.git?rev=e678820#e67882028b172f13afbe40f888cb27cf71d968c4"
 dependencies = [
  "serde",
 ]
@@ -5361,12 +5430,13 @@ dependencies = [
 
 [[package]]
 name = "time"
-version = "0.3.31"
+version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f657ba42c3f86e7680e53c8cd3af8abbe56b5491790b46e22e19c0d57463583e"
+checksum = "c8248b6521bb14bc45b4067159b9b6ad792e2d6d754d6c41fb50e29fefe38749"
 dependencies = [
  "deranged",
  "itoa",
+ "num-conv",
  "powerfmt",
  "serde",
  "time-core",
@@ -5381,10 +5451,11 @@ checksum = "ef927ca75afb808a4d64dd374f00a2adf8d0fcff8e7b184af886c3c87ec4a3f3"
 
 [[package]]
 name = "time-macros"
-version = "0.2.16"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26197e33420244aeb70c3e8c78376ca46571bc4e701e4791c2cd9f57dcb3a43f"
+checksum = "7ba3a3ef41e6672a2f0f001392bb5dcd3ff0a9992d618ca761a11c3121547774"
 dependencies = [
+ "num-conv",
  "time-core",
 ]
 

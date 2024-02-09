@@ -9,9 +9,9 @@ repos:
         args: ["--branch", "main", "--branch", "staging", "--branch", "dev"]
       - id: mixed-line-ending
       - id: end-of-file-fixer
-        exclude: '(\.sql|\.out)$' # These need te be formatted very particularly for pg_regress
+        exclude: '(\.sql|\.out|\.rs)$'
       - id: trailing-whitespace
-        exclude: '(\.sql|\.out)$' # These need te be formatted very particularly for pg_regress
+        exclude: '(\.sql|\.out|\.rs)$'
       - id: check-added-large-files
       - id: check-merge-conflict
       - id: check-case-conflict

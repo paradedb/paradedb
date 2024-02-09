@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
-use crate::errors::{NotFound, NotSupported, ParadeError};
+use crate::errors::{NotFound, ParadeError};
 
 pub trait DeltaTableProvider {
     fn fields(&self) -> Result<Vec<Field>, ParadeError>;
@@ -37,16 +37,26 @@ impl DeltaTableProvider for PgRelation {
             } else {
                 (attribute_type_oid, false)
             };
+            // Note: even if you have an int[][], the attribute-type is INT4ARRAYOID and the base is INT4OID
 
-            if is_array {
-                return Err(NotSupported::Array.into());
-            }
-
-            let field = Field::new(
-                attname,
-                DataType::from_sql_data_type(base_oid.to_sql_data_type(attribute.type_mod())?)?,
-                nullability,
-            );
+            let field = if is_array {
+                Field::new_list(
+                    attname,
+                    Field::new_list_field(
+                        DataType::from_sql_data_type(
+                            base_oid.to_sql_data_type(attribute.type_mod())?,
+                        )?,
+                        true, // TODO: i think postgres always allows array constants to be null
+                    ),
+                    nullability,
+                )
+            } else {
+                Field::new(
+                    attname,
+                    DataType::from_sql_data_type(base_oid.to_sql_data_type(attribute.type_mod())?)?,
+                    nullability,
+                )
+            };
 
             fields.push(field);
         }

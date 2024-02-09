@@ -14,10 +14,10 @@ pub fn database() -> Db {
 pub fn conn(database: Db) -> PgConnection {
     block_on(async {
         let mut conn = database.connection().await;
-        sqlx::query("CREATE EXTENSION pg_bm25;")
+        sqlx::query("CREATE EXTENSION pg_analytics;")
             .execute(&mut conn)
             .await
-            .expect("could not create extension pg_bm25");
+            .expect("could not create extension pg_analytics");
         conn
     })
 }

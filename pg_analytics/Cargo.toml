@@ -32,7 +32,15 @@ chrono = "0.4.33"
 thiserror = "1.0.56"
 
 [dev-dependencies]
+anyhow = "1.0.79"
+async-std = { version = "1.12.0", features = ["attributes"] }
+futures-util = "0.3.30"
 pgrx-tests = "=0.11.2"
+pretty_assertions = "1.4.0"
+rstest = "0.18.2"
+shared = { path = "../shared", features = ["fixtures"] }
+sqlx = { version = "0.7.3", features = ["postgres", "runtime-async-std", "time", "bigdecimal", "uuid"] }
+time = "0.3.32"
 
 [package.metadata.pgrx]
 pg_sys_includes = ["pg_query_parse.h", "pg_plan.h"]

@@ -1,22 +1,28 @@
+use deltalake::arrow::array::{
+    Decimal128Array, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, UInt32Array,
+};
 use deltalake::datafusion::arrow::datatypes::{
     DataType, Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type,
     Int64Type, TimeUnit, TimestampMicrosecondType, UInt32Type, DECIMAL128_MAX_PRECISION,
     DECIMAL128_MAX_SCALE,
 };
 use deltalake::datafusion::common::arrow::array::{
-    Array, ArrayRef, AsArray, BooleanArray, Date32Array, Decimal128Array, Float32Array,
-    Float64Array, Int16Array, Int32Array, Int64Array, StringArray, Time64MicrosecondArray,
-    TimestampMicrosecondArray, UInt32Array,
+    Array, ArrayRef, AsArray, BooleanArray, Date32Array, StringArray, Time64MicrosecondArray,
+    TimestampMicrosecondArray,
 };
 use deltalake::datafusion::sql::sqlparser::ast::{
-    DataType as SQLDataType, ExactNumberInfo, TimezoneInfo,
+    ArrayElemTypeDef, DataType as SQLDataType, ExactNumberInfo, TimezoneInfo,
 };
-use pgrx::pg_sys::{Datum, VARHDRSZ};
+use pgrx::pg_sys::{BuiltinOid, Datum, VARHDRSZ};
 use pgrx::*;
 use std::any::type_name;
 use std::sync::Arc;
 
 use crate::errors::{NotFound, NotSupported, ParadeError};
+
+use super::array::{
+    IntoArray, IntoBooleanListArray, IntoGenericBytesListArray, IntoPrimitiveListArray,
+};
 
 pub trait DatafusionTypeTranslator {
     fn to_sql_data_type(&self) -> Result<SQLDataType, ParadeError>;
@@ -46,7 +52,15 @@ impl DatafusionTypeTranslator for DataType {
                 },
             ),
             DataType::Date32 => SQLDataType::Date,
-            _ => return Err(NotSupported::DataType(self.clone()).into()),
+            DataType::List(field) => {
+                let member_type = field.data_type().to_sql_data_type()?;
+                SQLDataType::Array(ArrayElemTypeDef::SquareBracket(Box::new(member_type)))
+            }
+            unsupported => {
+                return Err(ParadeError::NotSupported(NotSupported::DataType(
+                    unsupported.clone(),
+                )))
+            }
         };
 
         Ok(result)
@@ -62,6 +76,7 @@ impl DatafusionTypeTranslator for DataType {
             SQLDataType::UnsignedInt4(_) => DataType::UInt32,
             SQLDataType::Float4 => DataType::Float32,
             SQLDataType::Float8 => DataType::Float64,
+            SQLDataType::Bytea => DataType::Binary,
             SQLDataType::Numeric(ExactNumberInfo::PrecisionAndScale(precision, scale)) => {
                 let casted_precision = precision as u8;
                 let casted_scale = scale as i8;
@@ -78,14 +93,28 @@ impl DatafusionTypeTranslator for DataType {
                         casted_scale, DECIMAL128_MAX_SCALE
                     )));
                 }
-
                 DataType::Decimal128(casted_precision, casted_scale)
             }
             SQLDataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => {
                 DataType::Timestamp(TimeUnit::Microsecond, None)
             }
             SQLDataType::Date => DataType::Date32,
-            _ => return Err(NotSupported::SQLDataType(sql_data_type).into()),
+            SQLDataType::Array(typedef) => match typedef {
+                ArrayElemTypeDef::AngleBracket(datatype)
+                | ArrayElemTypeDef::SquareBracket(datatype) => {
+                    DataType::new_list(Self::from_sql_data_type(*datatype)?, false)
+                }
+                _none_type => {
+                    return Err(ParadeError::Generic(
+                        "Unexpected ARRAY 'none' type for SqlDataType::Array".into(),
+                    ))
+                }
+            },
+            unsupported => {
+                return Err(ParadeError::NotSupported(NotSupported::SQLDataType(
+                    unsupported,
+                )))
+            }
         };
 
         Ok(result)
@@ -137,7 +166,68 @@ impl PostgresTypeTranslator for PgOid {
                         scale as u64,
                     ))
                 }
-                _ => return Err(NotSupported::BuiltinPostgresType(*builtin).into()),
+                PgBuiltInOids::VOIDOID => {
+                    return Err(ParadeError::NotSupported(
+                        NotSupported::BuiltinPostgresType(PgBuiltInOids::VOIDOID),
+                    ))
+                }
+                PgBuiltInOids::INT4RANGEOID => {
+                    return Err(ParadeError::NotSupported(
+                        NotSupported::BuiltinPostgresType(PgBuiltInOids::INT4RANGEOID),
+                    ))
+                }
+                PgBuiltInOids::INT8RANGEOID => {
+                    return Err(ParadeError::NotSupported(
+                        NotSupported::BuiltinPostgresType(PgBuiltInOids::INT8RANGEOID),
+                    ))
+                }
+                PgBuiltInOids::NUMRANGEOID => {
+                    return Err(ParadeError::NotSupported(
+                        NotSupported::BuiltinPostgresType(PgBuiltInOids::NUMRANGEOID),
+                    ))
+                }
+                PgBuiltInOids::DATERANGEOID => {
+                    return Err(ParadeError::NotSupported(
+                        NotSupported::BuiltinPostgresType(PgBuiltInOids::DATERANGEOID),
+                    ))
+                }
+                PgBuiltInOids::TSRANGEOID => {
+                    return Err(ParadeError::NotSupported(
+                        NotSupported::BuiltinPostgresType(PgBuiltInOids::TSRANGEOID),
+                    ))
+                }
+                PgBuiltInOids::TSTZRANGEOID => {
+                    return Err(ParadeError::NotSupported(
+                        NotSupported::BuiltinPostgresType(PgBuiltInOids::TSTZRANGEOID),
+                    ))
+                }
+                PgBuiltInOids::UUIDOID => SQLDataType::Uuid,
+                PgBuiltInOids::BOOLARRAYOID => sql_array_type(PgBuiltInOids::BOOLOID, typmod)?,
+                PgBuiltInOids::TEXTARRAYOID => sql_array_type(PgBuiltInOids::TEXTOID, typmod)?,
+                PgBuiltInOids::VARCHARARRAYOID => {
+                    sql_array_type(PgBuiltInOids::VARCHAROID, typmod)?
+                }
+                PgBuiltInOids::BPCHARARRAYOID => sql_array_type(PgBuiltInOids::BPCHAROID, typmod)?,
+                PgBuiltInOids::INT2ARRAYOID => sql_array_type(PgBuiltInOids::INT2OID, typmod)?,
+                PgBuiltInOids::INT4ARRAYOID => sql_array_type(PgBuiltInOids::INT4OID, typmod)?,
+                PgBuiltInOids::INT8ARRAYOID => sql_array_type(PgBuiltInOids::INT8OID, typmod)?,
+                PgBuiltInOids::OIDARRAYOID => sql_array_type(PgBuiltInOids::OIDOID, typmod)?,
+                PgBuiltInOids::XIDARRAYOID => sql_array_type(PgBuiltInOids::XIDOID, typmod)?,
+                PgBuiltInOids::FLOAT4ARRAYOID => sql_array_type(PgBuiltInOids::FLOAT4OID, typmod)?,
+                PgBuiltInOids::FLOAT8ARRAYOID => sql_array_type(PgBuiltInOids::FLOAT8OID, typmod)?,
+                PgBuiltInOids::TIMESTAMPARRAYOID => {
+                    sql_array_type(PgBuiltInOids::TIMESTAMPOID, typmod)?
+                }
+                PgBuiltInOids::DATEARRAYOID => sql_array_type(PgBuiltInOids::DATEOID, typmod)?,
+                PgBuiltInOids::NUMERICARRAYOID => {
+                    sql_array_type(PgBuiltInOids::NUMERICOID, typmod)?
+                }
+                PgBuiltInOids::UUIDARRAYOID => sql_array_type(PgBuiltInOids::UUIDOID, typmod)?,
+                unsupported => {
+                    return Err(ParadeError::NotSupported(
+                        NotSupported::BuiltinPostgresType(*unsupported),
+                    ))
+                }
             },
             PgOid::Invalid => return Err(NotSupported::InvalidPostgresType.into()),
             PgOid::Custom(_) => return Err(NotSupported::CustomPostgresType.into()),
@@ -160,6 +250,26 @@ impl PostgresTypeTranslator for PgOid {
             }
             SQLDataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => PgBuiltInOids::TIMESTAMPOID,
             SQLDataType::Date => PgBuiltInOids::DATEOID,
+            SQLDataType::Array(ArrayElemTypeDef::SquareBracket(ref array_data_type)) => {
+                match **array_data_type {
+                    SQLDataType::Boolean => PgBuiltInOids::BOOLARRAYOID,
+                    SQLDataType::Text => PgBuiltInOids::TEXTARRAYOID,
+                    SQLDataType::Int2(_) => PgBuiltInOids::INT2ARRAYOID,
+                    SQLDataType::Int4(_) => PgBuiltInOids::INT4ARRAYOID,
+                    SQLDataType::Int8(_) => PgBuiltInOids::INT8ARRAYOID,
+                    SQLDataType::Float4 => PgBuiltInOids::FLOAT4ARRAYOID,
+                    SQLDataType::Float8 => PgBuiltInOids::FLOAT8ARRAYOID,
+                    SQLDataType::Numeric(ExactNumberInfo::PrecisionAndScale(
+                        _precision,
+                        _scale,
+                    )) => PgBuiltInOids::NUMERICARRAYOID,
+                    SQLDataType::Timestamp(_, TimezoneInfo::WithoutTimeZone) => {
+                        PgBuiltInOids::TIMESTAMPARRAYOID
+                    }
+                    SQLDataType::Date => PgBuiltInOids::DATEARRAYOID,
+                    _ => return Err(NotSupported::SQLDataType(sql_data_type).into()),
+                }
+            }
             _ => return Err(NotSupported::SQLDataType(sql_data_type).into()),
         };
 
@@ -172,6 +282,13 @@ impl PostgresTypeTranslator for PgOid {
 
         Ok((pgrx::PgOid::BuiltIn(oid), typmod))
     }
+}
+
+fn sql_array_type(oid: BuiltinOid, typmod: i32) -> Result<SQLDataType, ParadeError> {
+    let sql_type = PgOid::BuiltIn(oid).to_sql_data_type(typmod)?;
+    Ok(SQLDataType::Array(ArrayElemTypeDef::SquareBracket(
+        Box::new(sql_type),
+    )))
 }
 
 fn scale_anynumeric(
@@ -219,201 +336,189 @@ fn scale_anynumeric(
         .ok_or(NotFound::Datum(anynumeric.to_string()).into())
     }
 }
+unsafe fn tuple_info(
+    slots: *mut *mut pg_sys::TupleTableSlot,
+    row_idx: usize,
+    col_idx: usize,
+) -> (*mut Datum, bool) {
+    let tuple_table_slot = *slots.add(row_idx);
+    let datum = (*tuple_table_slot).tts_values.add(col_idx);
+    let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
+
+    (datum, is_null)
+}
+
+fn tuple_data<T: FromDatum>(
+    slots: *mut *mut pg_sys::TupleTableSlot,
+    nslots: usize,
+    col_idx: usize,
+) -> Vec<Option<T>> {
+    (0..nslots)
+        .map(move |row_idx| unsafe { tuple_info(slots, row_idx, col_idx) })
+        .map(|(datum, is_null)| {
+            (!is_null)
+                .then_some(datum)
+                .and_then(|datum| unsafe { T::from_datum(*datum, false) })
+        })
+        .collect()
+}
 
 pub struct DatafusionMapProducer;
 impl DatafusionMapProducer {
-    unsafe fn tuple_info(
-        slots: *mut *mut pg_sys::TupleTableSlot,
-        row_idx: usize,
-        col_idx: usize,
-    ) -> (*mut Datum, bool) {
-        let tuple_table_slot = *slots.add(row_idx);
-        let datum = (*tuple_table_slot).tts_values.add(col_idx);
-        let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
-
-        (datum, is_null)
-    }
-
     pub fn array(
-        sql_data_type: SQLDataType,
+        datafusion_type: DataType,
         slots: *mut *mut pg_sys::TupleTableSlot,
         nslots: usize,
         col_idx: usize,
     ) -> Result<ArrayRef, ParadeError> {
-        let datafusion_type = DatafusionTypeTranslator::from_sql_data_type(sql_data_type)?;
-
         match datafusion_type {
-            DataType::Boolean => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { bool::from_datum(*datum, false) })
+            DataType::List(ref inner_type) => match inner_type.data_type() {
+                DataType::Boolean => Ok(Arc::new(
+                    tuple_data::<Vec<Option<bool>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Utf8 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<String>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Int16 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<i16>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Int32 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<i32>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Int64 => Ok(Arc::new(IntoPrimitiveListArray::<Int64Type>::into_array(
+                    tuple_data::<Vec<Option<i64>>>(slots, nslots, col_idx),
+                ))),
+                DataType::UInt32 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<u32>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Float32 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<f32>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Float64 => Ok(Arc::new(
+                    tuple_data::<Vec<Option<f64>>>(slots, nslots, col_idx).into_array(),
+                )),
+                DataType::Decimal128(precision, scale) => {
+                    let mut vectors = vec![];
+                    for vec_opt in tuple_data::<Vec<Option<AnyNumeric>>>(slots, nslots, col_idx) {
+                        if let Some(vec) = vec_opt {
+                            let mut values = vec![];
+                            for numeric_opt in vec {
+                                if let Some(numeric) = numeric_opt {
+                                    let with_scale = scale_anynumeric(
+                                        numeric,
+                                        *precision as i32,
+                                        *scale as i32,
+                                        true,
+                                    )?;
+                                    let new_int = i128::try_from(with_scale)?;
+                                    values.push(Some(new_int));
+                                } else {
+                                    values.push(None)
+                                }
+                            }
+                            vectors.push(Some(values))
+                        } else {
+                            vectors.push(None);
+                        }
                     }
+                    Ok(Arc::new(
+                        vectors
+                            .into_array()
+                            .as_any()
+                            .downcast_ref::<Decimal128Array>()
+                            .cloned()
+                            .ok_or_else(|| {
+                                ParadeError::DowncastGenericArray(datafusion_type.clone())
+                            })?
+                            .with_precision_and_scale(*precision, *scale)?,
+                    ))
                 }
-                Ok(Arc::new(BooleanArray::from(vec)))
-            }
-            DataType::Utf8 => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { String::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(StringArray::from(vec)))
-            }
-            DataType::Int16 => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { i16::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(Int16Array::from(vec)))
-            }
-            DataType::Int32 => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { i32::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(Int32Array::from(vec)))
-            }
-            DataType::Int64 => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { i64::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(Int64Array::from(vec)))
-            }
-            DataType::UInt32 => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { u32::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(UInt32Array::from(vec)))
-            }
-            DataType::Float32 => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { f32::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(Float32Array::from(vec)))
-            }
-            DataType::Float64 => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { f64::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(Float64Array::from(vec)))
-            }
+                DataType::Time64(TimeUnit::Microsecond) => Ok(Arc::new(
+                    IntoPrimitiveListArray::<Int64Type>::into_array(
+                        tuple_data::<Vec<Option<i64>>>(slots, nslots, col_idx),
+                    )
+                    .as_any()
+                    .downcast_ref::<Time64MicrosecondArray>()
+                    .cloned()
+                    .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
+                )),
+                // TODO: Timestamp arrays are throwing a ParadeError::DowncastGenericArray.
+                // DataType::Timestamp(TimeUnit::Microsecond, ref tz) => Ok(Arc::new(
+                //     IntoPrimitiveListArray::<TimestampMicrosecondType>::into_array(tuple_data::<
+                //         Vec<Option<i64>>,
+                //     >(
+                //         slots, nslots, col_idx,
+                //     ))
+                //     .as_any()
+                //     .downcast_ref::<TimestampMicrosecondArray>()
+                //     .cloned()
+                //     .ok_or(ParadeError::DowncastGenericArray(datafusion_type.clone()))?
+                //     .with_timezone_opt(tz.clone()),
+                // )),
+                // TODO: Date arrays are throwing a ParadeError::DowncastGenericArray.
+                // DataType::Date32 => Ok(Arc::new(
+                //     tuple_data::<Vec<Option<i32>>>(slots, nslots, col_idx)
+                //         .into_array()
+                //         .as_any()
+                //         .downcast_ref::<Date32Array>()
+                //         .cloned()
+                //         .ok_or(ParadeError::DowncastGenericArray(datafusion_type))?,
+                // )),
+                _ => Err(NotSupported::DataType(datafusion_type).into()),
+            },
+            DataType::Boolean => Ok(Arc::new(
+                tuple_data::<bool>(slots, nslots, col_idx).into_array(),
+            )),
+            DataType::Utf8 => Ok(Arc::new(
+                tuple_data::<String>(slots, nslots, col_idx).into_array(),
+            )),
+            DataType::Int16 => Ok(Arc::new(
+                tuple_data::<i16>(slots, nslots, col_idx).into_array(),
+            )),
+            DataType::Int32 => Ok(Arc::new(
+                tuple_data::<i32>(slots, nslots, col_idx).into_array(),
+            )),
+            DataType::Int64 => Ok(Arc::new(
+                tuple_data::<i64>(slots, nslots, col_idx).into_array(),
+            )),
+            DataType::UInt32 => Ok(Arc::new(
+                tuple_data::<u32>(slots, nslots, col_idx).into_array(),
+            )),
+            DataType::Float32 => Ok(Arc::new(
+                tuple_data::<f32>(slots, nslots, col_idx).into_array(),
+            )),
+            DataType::Float64 => Ok(Arc::new(
+                tuple_data::<f64>(slots, nslots, col_idx).into_array(),
+            )),
             DataType::Decimal128(precision, scale) => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        let numeric = unsafe {
-                            AnyNumeric::from_datum(*datum, false)
-                                .ok_or(NotFound::Datum("numeric".to_string()))?
-                        };
-                        let numeric_with_scale =
+                let mut values = vec![];
+                for numeric_opt in tuple_data::<AnyNumeric>(slots, nslots, col_idx) {
+                    if let Some(numeric) = numeric_opt {
+                        let with_scale =
                             scale_anynumeric(numeric, precision as i32, scale as i32, true)?;
-                        vec.push(Some(i128::try_from(numeric_with_scale)?));
+                        let new_int = i128::try_from(with_scale)?;
+                        values.push(Some(new_int));
+                    } else {
+                        values.push(None)
                     }
                 }
                 Ok(Arc::new(
-                    match Decimal128Array::from(vec).with_precision_and_scale(precision, scale) {
-                        Ok(arr) => arr,
-                        Err(e) => return Err(ParadeError::Arrow(e)),
-                    },
+                    values
+                        .into_array()
+                        .with_precision_and_scale(precision, scale)?,
                 ))
             }
-            DataType::Time64(TimeUnit::Microsecond) => {
-                // NOTE: should never reach here becaues deltalake schema does not support time
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { i64::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(Time64MicrosecondArray::from(vec)))
-            }
-            DataType::Timestamp(TimeUnit::Microsecond, tz) => {
-                // NOTE: tz should always be None because deltalake schema does not support time zone
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { i64::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(
-                    TimestampMicrosecondArray::from(vec).with_timezone_opt(tz),
-                ))
-            }
-            DataType::Date32 => {
-                let mut vec = Vec::with_capacity(nslots);
-
-                for row_idx in 0..nslots {
-                    let (datum, is_null) = unsafe { Self::tuple_info(slots, row_idx, col_idx) };
-                    if is_null {
-                        vec.push(None);
-                    } else {
-                        vec.push(unsafe { i32::from_datum(*datum, false) })
-                    }
-                }
-                Ok(Arc::new(Date32Array::from(vec)))
-            }
+            // NOTE: should never reach here becaues deltalake schema does not support time
+            DataType::Time64(TimeUnit::Microsecond) => Ok(Arc::new(Time64MicrosecondArray::from(
+                tuple_data::<i64>(slots, nslots, col_idx),
+            ))),
+            DataType::Timestamp(TimeUnit::Microsecond, tz) => Ok(Arc::new(
+                TimestampMicrosecondArray::from(tuple_data::<i64>(slots, nslots, col_idx))
+                    .with_timezone_opt(tz),
+            )),
+            DataType::Date32 => Ok(Arc::new(Date32Array::from(tuple_data::<i32>(
+                slots, nslots, col_idx,
+            )))),
             _ => Err(NotSupported::DataType(datafusion_type).into()),
         }
     }
@@ -493,6 +598,111 @@ impl DatafusionMapProducer {
                 .iter()
                 .nth(index)
                 .map(|nth| nth.into_datum()),
+            DataType::List(ref field) => {
+                let data_type = field.data_type().clone();
+                match array.as_list::<i32>().iter().nth(index) {
+                    Some(Some(list)) => match &data_type {
+                        DataType::Boolean => list
+                            .as_any()
+                            .downcast_ref::<BooleanArray>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+                        DataType::Utf8 => list
+                            .as_any()
+                            .downcast_ref::<StringArray>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+                        DataType::Int16 => list
+                            .as_any()
+                            .downcast_ref::<Int16Array>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+                        DataType::Int32 => list
+                            .as_any()
+                            .downcast_ref::<Int32Array>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+                        DataType::Int64 => list
+                            .as_any()
+                            .downcast_ref::<Int64Array>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+                        DataType::UInt32 => list
+                            .as_any()
+                            .downcast_ref::<UInt32Array>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+                        DataType::Float32 => list
+                            .as_any()
+                            .downcast_ref::<Float32Array>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+                        DataType::Float64 => list
+                            .as_any()
+                            .downcast_ref::<Float64Array>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+
+                        DataType::Decimal128(precision, scale) => {
+                            let mut values = vec![];
+                            for numeric_opt in list
+                                .as_any()
+                                .downcast_ref::<Decimal128Array>()
+                                .ok_or_else(|| {
+                                    ParadeError::DowncastGenericArray(data_type.clone())
+                                })?
+                                .into_iter()
+                            {
+                                if let Some(numeric) = numeric_opt {
+                                    let scaled = scale_anynumeric(
+                                        AnyNumeric::from(numeric),
+                                        *precision as i32,
+                                        *scale as i32,
+                                        false,
+                                    )?;
+                                    values.push(Some(scaled))
+                                } else {
+                                    values.push(None)
+                                }
+                            }
+                            values.into_datum()
+                        }
+                        DataType::Timestamp(TimeUnit::Microsecond, None) => list
+                            .as_any()
+                            .downcast_ref::<TimestampMicrosecondArray>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+                        DataType::Date32 => list
+                            .as_any()
+                            .downcast_ref::<Date32Array>()
+                            .ok_or(ParadeError::DowncastGenericArray(data_type))?
+                            .into_iter()
+                            .collect::<Vec<_>>()
+                            .into_datum(),
+                        _ => return Err(NotSupported::DataType(data_type).into()),
+                    }
+                    .map(Some),
+                    _ => None,
+                }
+            }
             _ => return Err(NotSupported::DataType(datafusion_type).into()),
         }
         .ok_or(NotFound::Datum(datafusion_type.to_string()).into())

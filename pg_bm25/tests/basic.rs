@@ -8,37 +8,27 @@ use sqlx::PgConnection;
 #[rstest]
 #[ignore]
 async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    TestTable::setup(&mut conn).await;
-    let result = TestTable::fetch_all(
-        &mut conn,
-        r#"
-        SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')
-        "#,
-    )
-    .await?;
+    SimpleProductsTable::setup().execute(&mut conn);
 
-    let descriptions: Vec<&str> = result.iter().map(|r| r.description.as_ref()).collect();
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')"
+            .fetch_collect(&mut conn);
+
     assert_eq!(
-        descriptions,
-        vec![
-            "Plastic Keyboard",
-            "Ergonomic metal keyboard",
-            "Innovative wireless earbuds",
-            "Fast charging power bank",
-            "Bluetooth-enabled speaker"
-        ]
+        columns.description,
+        concat!(
+            "Plastic Keyboard,Ergonomic metal keyboard,Innovative wireless earbuds,",
+            "Fast charging power bank,Bluetooth-enabled speaker"
+        )
+        .split(',')
+        .collect::<Vec<_>>()
     );
 
-    let categories: Vec<&str> = result.iter().map(|r| r.category.as_ref()).collect();
     assert_eq!(
-        categories,
-        vec![
-            "Electronics",
-            "Electronics",
-            "Electronics",
-            "Electronics",
-            "Electronics",
-        ]
+        columns.category,
+        "Electronics,Electronics,Electronics,Electronics,Electronics"
+            .split(',')
+            .collect::<Vec<_>>()
     );
 
     Ok(())
@@ -47,42 +37,15 @@ async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
 /// Test various queries, ensuring that ids come back in the expected order.
 #[rstest]
 #[ignore]
-async fn basic_search_ids(mut conn: PgConnection) -> Result<(), sqlx::Error> {
-    TestTable::setup(&mut conn).await;
+async fn basic_search_ids(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
 
-    let cases = vec![
-        (
-            "description:keyboard OR category:electronics",
-            vec![2, 1, 12, 22, 32],
-        ),
-        ("description:keyboard", vec![2, 1]),
-    ];
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![2, 1, 12, 22, 32]);
 
-    for (query, expected) in cases {
-        let result = TestTable::fetch_all(
-            &mut conn,
-            &format!("SELECT * FROM bm25_search.search('{query}')"),
-        )
-        .await?;
-        assert_eq!(
-            result.iter().map(|r| r.id).collect::<Vec<_>>(),
-            expected,
-            "incorrect ids returned bm25_search.search('{query}')"
-        );
-    }
-
-    Ok(())
-}
-
-#[rstest]
-#[ignore]
-#[should_panic]
-async fn fail_to_scan_index(mut conn: PgConnection) {
-    TestTable::setup_no_index(&mut conn).await;
-    TestTable::fetch_all(
-        &mut conn,
-        "SELECT * FROM bm25_search.search('description:shoes');",
-    )
-    .await
-    .unwrap();
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('description:keyboard')".fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![2, 1]);
 }

@@ -5,7 +5,9 @@ use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::datatype::{DatafusionMapProducer, PostgresTypeTranslator};
+use crate::datafusion::datatype::DatafusionMapProducer;
+use crate::datafusion::datatype::DatafusionTypeTranslator;
+use crate::datafusion::datatype::PostgresTypeTranslator;
 use crate::datafusion::table::DeltaTableProvider;
 use crate::errors::ParadeError;
 
@@ -89,8 +91,11 @@ fn insert_tuples(
 
     // Convert the TupleTableSlots into DataFusion arrays
     for (col_idx, attr) in tuple_desc.iter().enumerate() {
+        let sql_data_type = attr.type_oid().to_sql_data_type(attr.type_mod())?;
+        let datafusion_type = DatafusionTypeTranslator::from_sql_data_type(sql_data_type)?;
+
         values.push(DatafusionMapProducer::array(
-            attr.type_oid().to_sql_data_type(attr.type_mod())?,
+            datafusion_type,
             slots,
             nslots,
             col_idx,

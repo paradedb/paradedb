@@ -30,6 +30,9 @@ pub enum ParadeError {
     #[error(transparent)]
     NotSupported(#[from] NotSupported),
 
+    #[error("Could not downcast generic arrow array: {0}")]
+    DowncastGenericArray(DataType),
+
     #[error("{0}")]
     Generic(String),
 }
@@ -74,9 +77,6 @@ pub enum NotSupported {
 
     #[error("Custom Postgres types are not supported")]
     CustomPostgresType,
-
-    #[error("Arrays are not yet supported")]
-    Array,
 
     #[error("ALTER TABLE is not yet supported. Please DROP and CREATE the table instead.")]
     AlterTable,

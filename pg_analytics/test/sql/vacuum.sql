@@ -1,3 +1,5 @@
+DROP TABLE IF EXISTS t;
+DROP TABLE IF EXISTS s;
 CREATE TABLE t (a int) USING deltalake;
 CREATE TABLE s (a int);
 INSERT INTO t VALUES (1), (2), (3);

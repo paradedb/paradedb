@@ -44,6 +44,8 @@ pub unsafe fn alter(
     let ast = DFParser::parse_sql_with_dialect(query_string, &dialect)
         .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
 
+    let mut fields_to_add = vec![];
+
     if let parser::Statement::Statement(statement) = &ast[0] {
         if let Statement::AlterTable { operations, .. } = statement.as_ref() {
             for operation in operations {
@@ -53,16 +55,11 @@ pub unsafe fn alter(
                         let nullability = options
                             .iter()
                             .any(|opt| matches!(opt.option, ColumnOption::Null));
-                        let schema = Arc::new(ArrowSchema::new(vec![Field::new(
+                        fields_to_add.push(Field::new(
                             column_def.name.value.clone(),
                             DataType::from_sql_data_type(column_def.data_type.clone())?,
                             !nullability,
-                        )]));
-                        let batch = RecordBatch::new_empty(schema);
-
-                        DatafusionContext::with_schema_provider(schema_name, |provider| {
-                            task::block_on(provider.merge_schema(table_name, batch))
-                        })?;
+                        ));
                     }
                     DropColumn { .. } => {
                         return Err(NotSupported::DropColumn.into());
@@ -77,6 +74,15 @@ pub unsafe fn alter(
                 }
             }
         }
+    }
+
+    if !fields_to_add.is_empty() {
+        let schema = Arc::new(ArrowSchema::new(fields_to_add));
+        let batch = RecordBatch::new_empty(schema);
+
+        DatafusionContext::with_schema_provider(schema_name, |provider| {
+            task::block_on(provider.merge_schema(table_name, batch))
+        })?;
     }
 
     Ok(())

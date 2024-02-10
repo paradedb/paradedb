@@ -68,14 +68,25 @@ impl DatafusionTypeTranslator for DataType {
 
     fn from_sql_data_type(sql_data_type: SQLDataType) -> Result<DataType, ParadeError> {
         let result = match sql_data_type {
-            SQLDataType::Boolean => DataType::Boolean,
-            SQLDataType::Text => DataType::Utf8,
-            SQLDataType::Int2(_) => DataType::Int16,
-            SQLDataType::Int4(_) => DataType::Int32,
-            SQLDataType::Int8(_) => DataType::Int64,
-            SQLDataType::UnsignedInt4(_) => DataType::UInt32,
-            SQLDataType::Float4 => DataType::Float32,
-            SQLDataType::Float8 => DataType::Float64,
+            SQLDataType::Boolean | SQLDataType::Bool => DataType::Boolean,
+            SQLDataType::Text
+            | SQLDataType::Char(_)
+            | SQLDataType::Varchar(_)
+            | SQLDataType::String(_) => DataType::Utf8,
+            SQLDataType::TinyInt(_) => DataType::Int8,
+            SQLDataType::SmallInt(_) | SQLDataType::Int2(_) => DataType::Int16,
+            SQLDataType::Int(_) | SQLDataType::Integer(_) | SQLDataType::Int4(_) => DataType::Int32,
+            SQLDataType::BigInt(_) | SQLDataType::Int8(_) => DataType::Int64,
+            SQLDataType::UnsignedTinyInt(_) => DataType::UInt8,
+            SQLDataType::UnsignedSmallInt(_) | SQLDataType::UnsignedInt2(_) => DataType::UInt16,
+            SQLDataType::UnsignedInt(_)
+            | SQLDataType::UnsignedInteger(_)
+            | SQLDataType::UnsignedInt4(_) => DataType::UInt32,
+            SQLDataType::UnsignedBigInt(_) | SQLDataType::UnsignedInt8(_) => DataType::UInt64,
+            SQLDataType::Float4 | SQLDataType::Float(_) => DataType::Float32,
+            SQLDataType::Double | SQLDataType::DoublePrecision | SQLDataType::Float8 => {
+                DataType::Float64
+            }
             SQLDataType::Bytea => DataType::Binary,
             SQLDataType::Numeric(ExactNumberInfo::PrecisionAndScale(precision, scale)) => {
                 let casted_precision = precision as u8;

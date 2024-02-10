@@ -18,6 +18,8 @@ use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::storage::ObjectStoreRef;
 use deltalake::table::state::DeltaTableState;
+use deltalake::writer::record_batch::RecordBatchWriter;
+use deltalake::writer::{DeltaWriter as DeltaWriterTrait, WriteMode};
 use deltalake::DeltaTable;
 use parking_lot::{Mutex, RwLock};
 use pgrx::*;
@@ -354,6 +356,41 @@ impl ParadeSchemaProvider {
         )?;
 
         Ok(metrics)
+    }
+
+    pub async fn merge_schema(
+        &self,
+        table_name: &str,
+        batch: RecordBatch,
+    ) -> Result<(), ParadeError> {
+        // Open the DeltaTable
+        let mut delta_table = Self::get_delta_table(self, table_name).await?;
+
+        // Write the RecordBatch to the DeltaTable
+        let mut writer = RecordBatchWriter::for_table(&delta_table)?;
+        writer
+            .write_with_mode(batch, WriteMode::MergeSchema)
+            .await?;
+        writer.flush_and_commit(&mut delta_table).await?;
+
+        // Update the DeltaTable
+        delta_table.load().await?;
+
+        // Create and register a new writer
+        Self::register_writer(
+            self,
+            table_name,
+            Self::create_writer(self, delta_table.object_store(), writer.arrow_schema())?,
+        )?;
+
+        // Commit the table
+        Self::register_table(
+            self,
+            table_name.to_string(),
+            Arc::new(delta_table) as Arc<dyn TableProvider>,
+        )?;
+
+        Ok(())
     }
 
     // SchemaProvider stores immutable TableProviders, whereas many DeltaOps methods

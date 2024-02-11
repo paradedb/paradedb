@@ -7,7 +7,7 @@ use rstest::*;
 use sqlx::PgConnection;
 
 fn fmt_err<T: std::error::Error>(err: T) -> String {
-    format!("unexpected error, received: {}", err.to_string())
+    format!("unexpected error, received: {}", err)
 }
 
 #[rstest]

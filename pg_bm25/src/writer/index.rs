@@ -62,7 +62,7 @@ impl Writer {
     fn commit(&mut self) -> Result<(), IndexError> {
         let mut to_commit = vec![];
         let mut to_drop = vec![];
-        for (directory, _) in &self.tantivy_writers {
+        for directory in self.tantivy_writers.keys() {
             if directory.exists()? {
                 to_commit.push(directory.clone());
             } else {

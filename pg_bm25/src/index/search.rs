@@ -73,7 +73,7 @@ impl SearchIndex {
             ..Default::default()
         };
 
-        let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path()?;
+        let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path(true)?;
         let mut underlying_index = Index::builder()
             .schema(schema.schema.clone())
             .settings(settings.clone())
@@ -209,7 +209,8 @@ impl SearchIndex {
             document,
         };
 
-        let WriterTransferPipeFilePath(pipe_path) = self.directory.writer_transfer_pipe_path()?;
+        let WriterTransferPipeFilePath(pipe_path) =
+            self.directory.writer_transfer_pipe_path(true)?;
         writer.lock()?.transfer(pipe_path, request)?;
 
         Ok(())
@@ -316,7 +317,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
         // Deserialize into the struct with automatic handling for most fields
         let SearchIndexHelper { schema, directory } = SearchIndexHelper::deserialize(deserializer)?;
 
-        let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path().unwrap();
+        let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path(true).unwrap();
 
         let mut underlying_index =
             Index::open_in_dir(tantivy_dir_path).expect("failed to open index");

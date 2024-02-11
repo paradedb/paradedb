@@ -5,6 +5,7 @@ use async_std::stream::StreamExt;
 use async_std::task::block_on;
 use bytes::Bytes;
 use sqlx::{
+    postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
     ConnectOptions, Executor, FromRow, PgConnection, Postgres,
 };
@@ -70,6 +71,15 @@ where
     {
         block_on(async {
             sqlx::query_as::<_, T>(self.as_ref())
+                .fetch_all(connection)
+                .await
+                .unwrap()
+        })
+    }
+
+    fn fetch_dynamic(self, connection: &mut PgConnection) -> Vec<PgRow> {
+        block_on(async {
+            sqlx::query(self.as_ref())
                 .fetch_all(connection)
                 .await
                 .unwrap()

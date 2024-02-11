@@ -131,7 +131,6 @@ mod tests {
     /// Same tests as Lucene ICU tokenizer might be enough
     use super::*;
     use pgrx::*;
-    use shared::testing::SETUP_SQL;
     use tantivy::tokenizer::{Token, TokenStream};
 
     impl<'a> Iterator for ICUTokenizerTokenStream<'a> {

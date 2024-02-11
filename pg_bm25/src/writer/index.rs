@@ -60,10 +60,34 @@ impl Writer {
     }
 
     fn commit(&mut self) -> Result<(), IndexError> {
-        for writer in self.tantivy_writers.values_mut() {
+        let mut to_commit = vec![];
+        let mut to_drop = vec![];
+        for (directory, _) in &self.tantivy_writers {
+            if directory.exists()? {
+                to_commit.push(directory.clone());
+            } else {
+                to_drop.push(directory.clone())
+            }
+        }
+
+        // If the directory doesn't exist, then the index doesn't exist anymore.
+        // Rare, but possible if a previous delete failed. Drop it to free the space.
+        for directory in to_drop {
+            self.drop_index(directory)?;
+        }
+
+        for directory in to_commit {
+            let writer = self
+                .tantivy_writers
+                .get_mut(&directory)
+                .expect("writer exists");
             writer.prepare_commit()?;
             writer.commit()?;
         }
+
+        // Drain the writers after every commit. We need to do this, because with many
+        // indexe lots of open writes causes a "too many open files" error.
+        self.tantivy_writers.drain();
         Ok(())
     }
 

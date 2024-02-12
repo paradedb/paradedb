@@ -391,8 +391,6 @@ async fn copy_out(mut conn: PgConnection) {
         .await
         .unwrap();
 
-    // assert_eq!(copy.next().await.unwrap().unwrap(), "experiment_flags,notes,keywords,short_descriptions,participant_ages,participant_ids,observation_counts,measurement_errors,precise_measurements\n");
-
     let mut chunks = 0;
     while let Some(_blockno) = copy.try_next().await.unwrap() {
         chunks += 1;

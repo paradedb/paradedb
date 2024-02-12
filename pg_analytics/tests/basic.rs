@@ -382,19 +382,17 @@ fn vacuum(mut conn: PgConnection) {
 
 #[rstest]
 async fn copy_out(mut conn: PgConnection) {
-    // ResearchProjectArraysTable::setup().execute(&mut conn);
-    "CREATE TABLE t (a int) using deltalake".execute(&mut conn);
-    "INSERT INTO t VALUES (1), (2), (3)".execute(&mut conn);
+    ResearchProjectArraysTable::setup().execute(&mut conn);
 
     let mut copy = conn
-        .copy_out_raw("COPY (SELECT * FROM t) TO STDOUT WITH (FORMAT CSV)")
+        .copy_out_raw(
+            "COPY (SELECT * FROM research_project_arrays) TO STDOUT WITH (FORMAT CSV, HEADER)",
+        )
         .await
         .unwrap();
 
-    let mut chunks = 0;
-    while let Some(_blockno) = copy.try_next().await.unwrap() {
-        chunks += 1;
-    }
-
-    assert_eq!(chunks, 3);
+    assert_eq!(copy.next().await.unwrap().unwrap(), "experiment_flags,notes,keywords,short_descriptions,participant_ages,participant_ids,observation_counts,measurement_errors,precise_measurements\n");
+    assert_eq!(String::from_utf8_lossy(&copy.next().await.unwrap().unwrap()), "\"{f,t,f}\",\"{\"\"Need to re-evaluate methodology\"\",\"\"Unexpected results in phase 2\"\"}\",\"{\"\"sustainable farming\"\",\"\"soil health\"\"}\",\"{\"\"FARMEX    \"\",\"\"SOILQ2    \"\"}\",\"{22,27,32}\",\"{201,202,203}\",\"{160,140,135}\",\"{0.025,0.02,0.01}\",\"{2,2.1,2.2}\"\n");
+    assert_eq!(String::from_utf8_lossy(&copy.next().await.unwrap().unwrap()), "\"{t,f,t}\",\"{\"\"Initial setup complete\"\",\"\"Preliminary results promising\"\"}\",\"{\"\"climate change\"\",\"\"coral reefs\"\"}\",\"{\"\"CRLRST    \"\",\"\"OCEAN1    \"\"}\",\"{28,34,29}\",\"{101,102,103}\",\"{150,120,130}\",\"{0.02,0.03,0.015}\",\"{1.5,1.6,1.7}\"\n");
+    assert_eq!(copy.next().await.is_some(), false);
 }

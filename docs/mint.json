@@ -98,20 +98,20 @@
         {
           "group": "Full Text Search",
           "pages": [
-            "search/search/bm25",
-            "search/search/scoring",
-            "search/search/highlighting",
-            "search/search/fuzzy",
-            "search/search/autocomplete"
+            "search/full-text/bm25",
+            "search/full-text/scoring",
+            "search/full-text/highlighting",
+            "search/full-text/fuzzy",
+            "search/full-text/autocomplete"
           ]
         },
         {
           "group": "Similarity Search",
-          "pages": ["search/search/hnsw", "search/search/sparse"]
+          "pages": ["search/similarity/hnsw", "search/similarity/sparse"]
         },
         {
           "group": "Hybrid Search",
-          "pages": ["search/search/hybrid"]
+          "pages": ["search/hybrid/basic"]
         }
       ]
     },

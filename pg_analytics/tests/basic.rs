@@ -381,7 +381,7 @@ fn vacuum(mut conn: PgConnection) {
 }
 
 #[rstest]
-async fn copy_out(mut conn: PgConnection) {
+async fn copy_out_arrays(mut conn: PgConnection) {
     ResearchProjectArraysTable::setup().execute(&mut conn);
 
     let mut copy = conn
@@ -395,4 +395,37 @@ async fn copy_out(mut conn: PgConnection) {
     assert_eq!(String::from_utf8_lossy(&copy.next().await.unwrap().unwrap()), "\"{f,t,f}\",\"{\"\"Need to re-evaluate methodology\"\",\"\"Unexpected results in phase 2\"\"}\",\"{\"\"sustainable farming\"\",\"\"soil health\"\"}\",\"{\"\"FARMEX    \"\",\"\"SOILQ2    \"\"}\",\"{22,27,32}\",\"{201,202,203}\",\"{160,140,135}\",\"{0.025,0.02,0.01}\",\"{2,2.1,2.2}\"\n");
     assert_eq!(String::from_utf8_lossy(&copy.next().await.unwrap().unwrap()), "\"{t,f,t}\",\"{\"\"Initial setup complete\"\",\"\"Preliminary results promising\"\"}\",\"{\"\"climate change\"\",\"\"coral reefs\"\"}\",\"{\"\"CRLRST    \"\",\"\"OCEAN1    \"\"}\",\"{28,34,29}\",\"{101,102,103}\",\"{150,120,130}\",\"{0.02,0.03,0.015}\",\"{1.5,1.6,1.7}\"\n");
     assert_eq!(copy.next().await.is_some(), false);
+}
+
+#[rstest]
+async fn copy_out_basic(mut conn: PgConnection) {
+    UserSessionLogsTable::setup().execute(&mut conn);
+
+    let mut copy = conn
+        .copy_out_raw(
+            "COPY (SELECT * FROM user_session_logs ORDER BY id) TO STDOUT WITH (FORMAT CSV, HEADER)",
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        copy.next().await.unwrap().unwrap(),
+        "id,event_date,user_id,event_name,session_duration,page_views,revenue\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&copy.next().await.unwrap().unwrap()),
+        "1,2024-01-01,1,Login,300,5,20.00\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&copy.next().await.unwrap().unwrap()),
+        "2,2024-01-02,2,Purchase,450,8,150.50\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&copy.next().await.unwrap().unwrap()),
+        "3,2024-01-03,3,Logout,100,2,0.00\n"
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&copy.next().await.unwrap().unwrap()),
+        "4,2024-01-04,4,Signup,200,3,0.00\n"
+    );
 }

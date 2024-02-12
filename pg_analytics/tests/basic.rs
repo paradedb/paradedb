@@ -1,11 +1,12 @@
 mod fixtures;
 
-use std::str::FromStr;
-
+use async_std::stream::StreamExt;
 use fixtures::*;
+use futures_util::TryStreamExt;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
+use std::str::FromStr;
 use time::{macros::format_description, Date, PrimitiveDateTime};
 
 #[rstest]
@@ -377,4 +378,25 @@ fn vacuum(mut conn: PgConnection) {
     "VACUUM FULL t".execute(&mut conn);
     "DROP TABLE t, s".execute(&mut conn);
     "VACUUM".execute(&mut conn);
+}
+
+#[rstest]
+async fn copy_out(mut conn: PgConnection) {
+    // ResearchProjectArraysTable::setup().execute(&mut conn);
+    "CREATE TABLE t (a int) using deltalake".execute(&mut conn);
+    "INSERT INTO t VALUES (1), (2), (3)".execute(&mut conn);
+
+    let mut copy = conn
+        .copy_out_raw("COPY (SELECT * FROM t) TO STDOUT WITH (FORMAT CSV)")
+        .await
+        .unwrap();
+
+    // assert_eq!(copy.next().await.unwrap().unwrap(), "experiment_flags,notes,keywords,short_descriptions,participant_ages,participant_ids,observation_counts,measurement_errors,precise_measurements\n");
+
+    let mut chunks = 0;
+    while let Some(_blockno) = copy.try_next().await.unwrap() {
+        chunks += 1;
+    }
+
+    assert_eq!(chunks, 3);
 }

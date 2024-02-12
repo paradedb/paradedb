@@ -28,12 +28,15 @@ pub fn executor_run(
     unsafe {
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;
+        let query = CStr::from_ptr(query_desc.sourceText).to_str()?;
 
         // Only use this hook for deltalake tables
         // Allow INSERTs to go through
         if rtable.is_null()
             || query_desc.operation == pg_sys::CmdType_CMD_INSERT
             || !DeltaHandler::rtable_is_delta(rtable)?
+            // Tech Debt: Find a less hacky way to let COPY go through
+            || query.to_lowercase().starts_with("copy")
         {
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
@@ -42,11 +45,11 @@ pub fn executor_run(
         // Execute SELECT, DELETE, UPDATE
         match query_desc.operation {
             pg_sys::CmdType_CMD_DELETE => {
-                let logical_plan = create_logical_plan(query_desc.clone())?;
+                let logical_plan = create_logical_plan(query)?;
                 delete(rtable, query_desc, logical_plan)
             }
             pg_sys::CmdType_CMD_SELECT => {
-                let logical_plan = create_logical_plan(query_desc.clone())?;
+                let logical_plan = create_logical_plan(query)?;
                 select(query_desc, logical_plan)
             }
             pg_sys::CmdType_CMD_UPDATE => Err(NotSupported::Update.into()),
@@ -59,9 +62,8 @@ pub fn executor_run(
 }
 
 #[inline]
-fn create_logical_plan(query_desc: PgBox<pg_sys::QueryDesc>) -> Result<LogicalPlan, ParadeError> {
+fn create_logical_plan(query: &str) -> Result<LogicalPlan, ParadeError> {
     let dialect = PostgreSqlDialect {};
-    let query = unsafe { CStr::from_ptr(query_desc.sourceText).to_str()? };
     let ast = DFParser::parse_sql_with_dialect(query, &dialect)
         .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
     let statement = &ast[0];

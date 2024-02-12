@@ -1,3 +1,4 @@
+use async_std::stream::StreamExt;
 use async_std::task;
 use async_trait::async_trait;
 use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
@@ -5,7 +6,10 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
+use deltalake::datafusion::execution::context::SessionState;
+use deltalake::datafusion::execution::TaskContext;
 use deltalake::datafusion::logical_expr::Expr;
+use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
 use deltalake::kernel::Action;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
@@ -41,6 +45,7 @@ pub struct ParadeSchemaProvider {
     schema_name: String,
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
     writers: Mutex<HashMap<String, DeltaWriter>>,
+    streams: Mutex<HashMap<String, SendableRecordBatchStream>>,
     dir: PathBuf,
 }
 
@@ -51,6 +56,7 @@ impl ParadeSchemaProvider {
             schema_name: schema_name.to_string(),
             tables: RwLock::new(HashMap::new()),
             writers: Mutex::new(HashMap::new()),
+            streams: Mutex::new(HashMap::new()),
             dir,
         })
     }
@@ -252,7 +258,7 @@ impl ParadeSchemaProvider {
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
             .get_mut(table_name)
-            .ok_or(NotFound::Table(table_name.to_string()))?;
+            .ok_or(NotFound::Writer(table_name.to_string()))?;
 
         task::block_on(writer.write(&batch))?;
 
@@ -272,7 +278,7 @@ impl ParadeSchemaProvider {
         let mut writer_lock = self.writers.lock();
         let writer = writer_lock
             .remove(table_name)
-            .ok_or(NotFound::Table(table_name.to_string()))?;
+            .ok_or(NotFound::Writer(table_name.to_string()))?;
 
         // Generate commit actions by closing the writer and commit to delta logs
         let actions = task::block_on(writer.close())?;
@@ -445,6 +451,49 @@ impl ParadeSchemaProvider {
         task::block_on(delta_table.load())?;
 
         Ok(delta_table)
+    }
+
+    pub fn register_stream(
+        &self,
+        name: &str,
+        stream: SendableRecordBatchStream,
+    ) -> Result<(), ParadeError> {
+        let mut streams = self.streams.lock();
+        streams.insert(name.to_string(), stream);
+
+        Ok(())
+    }
+
+    pub async fn create_stream(
+        &self,
+        name: &str,
+        state: &SessionState,
+        task_context: Arc<TaskContext>,
+    ) -> Result<SendableRecordBatchStream, ParadeError> {
+        let delta_table = Self::get_delta_table(self, name).await?;
+
+        Ok(delta_table
+            .scan(state, None, &[], None)
+            .await
+            .map(|plan| plan.execute(0, task_context))??)
+    }
+
+    pub fn get_next_streamed_batch(&self, name: &str) -> Result<Option<RecordBatch>, ParadeError> {
+        let mut streams = self.streams.lock();
+        let stream = streams
+            .get_mut(name)
+            .ok_or(NotFound::Stream(name.to_string()))?;
+
+        let batch = task::block_on(stream.next());
+
+        match batch {
+            Some(Ok(b)) => Ok(Some(b)),
+            None => {
+                streams.remove(name);
+                Ok(None)
+            }
+            Some(Err(err)) => Err(ParadeError::DataFusion(err)),
+        }
     }
 
     // Helper function to register a table writer

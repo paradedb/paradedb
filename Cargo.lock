@@ -3629,7 +3629,6 @@ dependencies = [
  "anyhow",
  "async-std",
  "async-trait",
- "bytes",
  "chrono",
  "deltalake",
  "futures-util",

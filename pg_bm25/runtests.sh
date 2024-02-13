@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script runs integration tests on the pg_analytics extension using pg_regress. To add new tests, add
+# This script runs integration tests on the pg_analytics extension using cargo test. To add new tests, add
 # a new .sql file to the test/sql directory and add the corresponding .out file to the test/expected
 # directory, and it will automatically get executed by this script. To run unit tests, use `cargo pgrx test`.
 
@@ -77,89 +77,10 @@ else
   IFS=',' read -ra PG_VERSIONS <<< "$FLAG_PG_VER"  # Split the argument by comma into an array
 fi
 
-
-# Cleanup function
-cleanup() {
-  # Check if regression.diffs exists and print if present
-  if [ -f "$BASEDIR/regression.diffs" ]; then
-    echo "Some test(s) failed! Printing the diff between the expected and actual test results..."
-    cat "$BASEDIR/regression.diffs"
-  fi
-
-  # Clean up the test database and temporary files
-  echo "Cleaning up..."
-  "$PG_BIN_PATH/dropdb" test_db
-  "$PG_BIN_PATH/pg_ctl" stop -m i
-  rm -rf "$PWFILE"
-  rm -rf "$TMPDIR"
-  rm -rf "$BASEDIR/test/test_logs.log"
-  rm -rf "$BASEDIR/regression.diffs"
-  rm -rf "$BASEDIR/regression.out"
-
-  # Once the tests are done, we reset the pgrx environment to use the project's default, since we
-  # can only keep one "version" of `cargo pgrx init` in the pgrx environment at a time (for local development)
-  default_pg_version="$(grep 'default' Cargo.toml | cut -d'[' -f2 | tr -d '[]" ' | grep -o '[0-9]\+')"
-  if [[ ${PG_VERSIONS[*]} =~ $default_pg_version ]]; then
-    echo "Resetting pgrx environment to use default version: $default_pg_version..."
-    case "$OS_NAME" in
-      Darwin)
-        # Check arch to set proper pg_config path
-        if [ "$(uname -m)" = "arm64" ]; then
-          cargo pgrx init "--pg$default_pg_version=/opt/homebrew/opt/postgresql@$default_pg_version/bin/pg_config"
-        elif [ "$(uname -m)" = "x86_64" ]; then
-          cargo pgrx init "--pg$default_pg_version=/usr/local/opt/postgresql@$default_pg_version/bin/pg_config"
-        else
-          echo "Unknown arch, exiting..."
-          exit 1
-        fi
-        ;;
-      Linux)
-        cargo pgrx init "--pg$default_pg_version=/usr/lib/postgresql/$default_pg_version/bin/pg_config"
-        ;;
-    esac
-  fi
-  echo "Done, goodbye!"
-}
-
-# Register the cleanup function to run when the script exits
-trap cleanup EXIT
-
-
 function run_tests() {
   TMPDIR="$(mktemp -d)"
   export PGDATA="$TMPDIR"
   export PGHOST="$TMPDIR"
-
-  # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
-  case "$OS_NAME" in
-    Darwin)
-      # Check arch to set proper pg_config path
-      if [ "$(uname -m)" = "arm64" ]; then
-        PG_BIN_PATH="/opt/homebrew/opt/postgresql@$PG_VERSION/bin"
-        # For some reason, the path structure is different specifically for PostgreSQL 14 on macOS
-        if [ "$PG_VERSION" = "14" ]; then
-          REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql@$PG_VERSION/pgxs/src/test/regress/pg_regress"
-        else
-          REGRESS="/opt/homebrew/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
-        fi
-      elif [ "$(uname -m)" = "x86_64" ]; then
-        PG_BIN_PATH="/usr/local/opt/postgresql@$PG_VERSION/bin"
-        # For some reason, the path structure is different specifically for PostgreSQL 14 on macOS
-        if [ "$PG_VERSION" = "14" ]; then
-          REGRESS="/usr/local/opt/postgresql@$PG_VERSION/lib/postgresql@$PG_VERSION/pgxs/src/test/regress/pg_regress"
-        else
-          REGRESS="/usr/local/opt/postgresql@$PG_VERSION/lib/postgresql/pgxs/src/test/regress/pg_regress"
-        fi
-      else
-        echo "Unknown arch, exiting..."
-        exit 1
-      fi
-      ;;
-    Linux)
-      PG_BIN_PATH="/usr/lib/postgresql/$PG_VERSION/bin"
-      REGRESS="/usr/lib/postgresql/$PG_VERSION/lib/pgxs/src/test/regress/pg_regress"
-      ;;
-  esac
 
   # Create a temporary password file
   PWFILE=$(mktemp)
@@ -245,9 +166,10 @@ function run_tests() {
   echo "Loading test data..."
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${BASEDIR}/test/fixtures.sql" -d test_db
 
-  # Execute tests using pg_regress
+  # Execute tests using cargo
   echo "Running tests..."
-  ${REGRESS} --use-existing --dbname=test_db --inputdir="${BASEDIR}/test/" "${TESTS[@]}"
+  export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@/${PGDATABASE}?host=${PGHOST}"
+  cargo test
 }
 
 # Loop over PostgreSQL versions

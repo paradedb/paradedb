@@ -1,2 +1,0 @@
-DROP EXTENSION IF EXISTS pg_analytics;
-CREATE EXTENSION IF NOT EXISTS pg_analytics;

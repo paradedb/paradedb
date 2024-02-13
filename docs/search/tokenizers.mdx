@@ -1,0 +1,76 @@
+
+### Limitations
+
+The CJK tokenizer may not fully support all dialects or slang.
+
+### Example
+
+```rust
+let tokenizer = TextAnalyzer::builder(ChineseTokenizer).build();
+```
+
+## Code Tokenizer
+
+The Code tokenizer is tailored for source code and technical documents, recognizing language-specific syntax and keywords.
+
+### Configuration
+
+To use the Code tokenizer, specify `SearchTokenizer::SourceCode` in your schema.
+
+```rust
+use crate::tokenizers::code::CodeTokenizer;
+```
+
+### Limitations
+
+May not recognize all programming languages equally.
+
+### Example
+
+```rust
+let tokenizer = TextAnalyzer::builder(CodeTokenizer::default()).build();
+```
+
+## ICU Tokenizer
+
+The ICU tokenizer provides advanced linguistic analysis, supporting a wide range of languages and scripts.
+
+### Configuration
+
+Enable ICU with the `SearchTokenizer::ICUTokenizer` flag.
+
+```rust
+#[cfg(feature = "icu")]
+use crate::tokenizers::icu::ICUTokenizer;
+```
+
+### Limitations
+
+Requires additional dependencies. Refer to `pg_bm25/README.md` for setup instructions.
+
+### Example
+
+```rust
+let tokenizer = TextAnalyzer::builder(ICUTokenizer).build();
+```
+
+## Lindera Tokenizer
+
+Lindera offers morphological analysis for East Asian languages, combining accuracy with performance.
+
+### Configuration
+
+Activate Lindera by choosing the appropriate `SearchTokenizer` variant for your language.
+
+```rust
+use crate::tokenizers::lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
+```
+
+### Limitations
+
+Best performance is achieved with proper dictionary configuration.
+
+### Example
+
+```rust
+let tokenizer = TextAnalyzer::builder(LinderaJapaneseTokenizer::default()).build();

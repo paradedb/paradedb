@@ -153,12 +153,9 @@ function run_tests() {
   else
     # Use cargo-pgrx to install the extension for the specified version
     echo "Installing pg_bm25 extension onto the test database..."
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile dev
+    cargo pgrx install --features icu --pg-config="$PG_BIN_PATH/pg_config" --profile dev
   fi
 
-  DATABASE_PORT=$(psql -c "SHOW port;" -t -A)
-  DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@localhost:${DATABASE_PORT}/${PGDATABASE}?host=${PGHOST}"
-  export DATABASE_URL
 
   # Configure shared_preload_libraries to include pg_bm25
   echo "Setting test database shared_preload_libraries..."
@@ -175,9 +172,14 @@ function run_tests() {
   echo "Reloading PostgreSQL configuration..."
   "$PG_BIN_PATH/pg_ctl" restart
 
+  DATABASE_PORT=$(psql -c "SHOW port;" -t -A)
+  DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@localhost:${DATABASE_PORT}/${PGDATABASE}?host=${PGHOST}"
+  export DATABASE_URL
+  export PG_VERSION
+
   # Execute tests using cargo
   echo "Running tests..."
-  cargo pgrx test "pg$PG_VERSION" --features icu
+  cargo test "pg$PG_VERSION" --features icu
 }
 
 # Loop over PostgreSQL versions

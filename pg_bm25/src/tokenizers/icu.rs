@@ -125,12 +125,11 @@ impl<'a> TokenStream for ICUTokenizerTokenStream<'a> {
     }
 }
 
-#[cfg(any(test, feature = "pg_test"))]
-#[pgrx::pg_schema]
+#[cfg(test)]
 mod tests {
     /// Same tests as Lucene ICU tokenizer might be enough
     use super::*;
-    use pgrx::*;
+    use rstest::*;
     use tantivy::tokenizer::{Token, TokenStream};
 
     impl<'a> Iterator for ICUTokenizerTokenStream<'a> {
@@ -145,7 +144,7 @@ mod tests {
         }
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_huge_doc() {
         let mut huge_doc = " ".repeat(4094);
         huge_doc.push_str("testing 1234");
@@ -170,7 +169,7 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_armenian() {
         let tokenizer = &mut ICUTokenizerTokenStream::new("Վիքիպեդիայի 13 միլիոն հոդվածները (4,600` հայերեն վիքիպեդիայում) գրվել են կամավորների կողմից ու համարյա բոլոր հոդվածները կարող է խմբագրել ցանկաց մարդ ով կարող է բացել Վիքիպեդիայի կայքը։");
         let result: Vec<Token> = tokenizer.collect();
@@ -361,7 +360,7 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_amharic() {
         let tokenizer = &mut ICUTokenizerTokenStream::new(
             "ዊኪፔድያ የባለ ብዙ ቋንቋ የተሟላ ትክክለኛና ነጻ መዝገበ ዕውቀት (ኢንሳይክሎፒዲያ) ነው። ማንኛውም",
@@ -456,7 +455,7 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_arabic() {
         let tokenizer = &mut ICUTokenizerTokenStream::new("الفيلم الوثائقي الأول عن ويكيبيديا يسمى \"الحقيقة بالأرقام: قصة ويكيبيديا\" (بالإنجليزية: Truth in Numbers: The Wikipedia Story)، سيتم إطلاقه في 2008.");
         let result: Vec<Token> = tokenizer.collect();
@@ -612,7 +611,7 @@ mod tests {
         assert_eq!(result, expected);
     }
 
-    #[pg_test]
+    #[rstest]
     fn test_aramaic() {
         let tokenizer = &mut ICUTokenizerTokenStream::new("ܘܝܩܝܦܕܝܐ (ܐܢܓܠܝܐ: Wikipedia) ܗܘ ܐܝܢܣܩܠܘܦܕܝܐ ܚܐܪܬܐ ܕܐܢܛܪܢܛ ܒܠܫܢ̈ܐ ܣܓܝܐ̈ܐ܂ ܫܡܗ ܐܬܐ ܡܢ ܡ̈ܠܬܐ ܕ\"ܘܝܩܝ\" ܘ\"ܐܝܢܣܩܠܘܦܕܝܐ\"܀");
         let result: Vec<Token> = tokenizer.collect();

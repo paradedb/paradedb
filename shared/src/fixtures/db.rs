@@ -118,7 +118,7 @@ pub trait DisplayAsync: Stream<Item = Result<Bytes, sqlx::Error>> + Sized {
         let mut stream = Box::pin(self);
 
         while let Some(chunk) = block_on(stream.as_mut().next()) {
-            let chunk = chunk.expect("Failed to read chunk");
+            let chunk = chunk.unwrap();
             csv_str.push_str(&String::from_utf8_lossy(&chunk));
         }
 

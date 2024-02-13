@@ -81,7 +81,8 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 - [ ] Foreign keys
 - [ ] Index scans
 - [ ] Collations
-- [ ] Using an external data lake as a table storage provider
+- [ ] External object store integrations (S3/Azure/GCS/HDFS)
+- [ ] External Apache Iceberg and Delta Lake support
 - [ ] Full text search over `parquet` tables with `pg_bm25`
 
 ## Development

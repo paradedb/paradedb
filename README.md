@@ -38,7 +38,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 - [ ] Analytics
   - [x] Acclerated analytical queries and column-oriented storage with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
   - [ ] External object store integrations (S3/Azure/GCS/HDFS)
-  - [ ] Apache Iceberg and Delta Lake support
+  - [ ] External Apache Iceberg and Delta Lake support
   - [ ] High volume data/Kafka ingest
   - [ ] Non-Parquet file formats (Avro/ORC)
 - [x] Self-hosted ParadeDB

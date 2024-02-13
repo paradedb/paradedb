@@ -183,6 +183,7 @@ impl From<SearchFieldConfig> for NumericOptions {
                 fast,
                 stored,
             }
+
             // Following the example of Quickwit, which uses NumericOptions for boolean options.
             | SearchFieldConfig::Boolean { indexed, fast, stored } => {
                 if stored {

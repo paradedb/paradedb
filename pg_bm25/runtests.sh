@@ -127,7 +127,7 @@ function run_tests() {
   echo "Initializing pgrx environment..."
   cargo pgrx init "--pg$PG_VERSION=$PG_BIN_PATH/pg_config"
 
-  # This block runs a test whether our extension can upgrade to the current version, and then runs our integrationg tests
+  # This block runs a test whether our extension can upgrade to the current version, and then runs our integration tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
     # Don't send telemetry when running tests

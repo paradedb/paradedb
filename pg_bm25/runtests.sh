@@ -179,7 +179,7 @@ function run_tests() {
 
   # Execute tests using cargo
   echo "Running tests..."
-  cargo test "pg$PG_VERSION" --features icu
+  cargo pgrx test "pg$PG_VERSION" --features icu
 }
 
 # Loop over PostgreSQL versions

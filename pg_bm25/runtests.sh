@@ -77,7 +77,6 @@ fi
 function run_tests() {
   TMPDIR="$(mktemp -d)"
   export PGDATA="$TMPDIR"
-  export PGHOST="$TMPDIR"
 
   # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
   case "$OS_NAME" in
@@ -156,6 +155,10 @@ function run_tests() {
     cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile dev
   fi
 
+  DATABASE_PORT=$(psql -c "SHOW port;" -t -A)
+  DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@localhost:${DATABASE_PORT}/${PGDATABASE}?host=${PGHOST}"
+  export DATABASE_URL
+
   # Configure shared_preload_libraries to include pg_analytics
   echo "Setting test database shared_preload_libraries..."
   case "$OS_NAME" in
@@ -166,20 +169,13 @@ function run_tests() {
       sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_analytics'  # (change requires restart)/" "$PGDATA/postgresql.conf"
       ;;
   esac
-  # cat "$PGDATA/postgresql.conf"
 
   # Reload PostgreSQL configuration
   echo "Reloading PostgreSQL configuration..."
   "$PG_BIN_PATH/pg_ctl" restart
 
-  # Get a list of all tests
-  while IFS= read -r line; do
-    TESTS+=("$line")
-  done < <(find "${BASEDIR}/test/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
-
   # Execute tests using cargo
   echo "Running tests..."
-  export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@/${PGDATABASE}?host=${PGHOST}"
   cargo pgrx test "pg$PG_VERSION" --features icu
 }
 

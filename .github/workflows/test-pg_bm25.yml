@@ -148,9 +148,9 @@ jobs:
           # Add the code coverage flags to the config.toml file
           echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
 
-          # Run tests with coverage
+          # Run unit tests with coverage (--libs + --bins flags for unit tests only)
           mkdir -p ../target/coverage ../target/coverage-report
-          cargo pgrx test --features icu pg${{ matrix.pg_version }} --profile dev
+          cargo test --lib --bins --features icu --profile dev
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports

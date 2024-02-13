@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script runs integration tests on the pg_analytics extension using cargo test. To add new tests, add
+# This script runs integration tests on the pg_bm25 extension using cargo test. To add new tests, add
 # a new .sql file to the test/sql directory and add the corresponding .out file to the test/expected
 # directory, and it will automatically get executed by this script. To run unit tests, use `cargo pgrx test`.
 
@@ -138,24 +138,24 @@ function run_tests() {
 
     # First, download & install the first release at which we started supporting upgrades for Postgres 16 (v0.5.2)
     BASE_RELEASE="0.5.2"
-    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_analytics-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
-    curl -LOJ "$DOWNLOAD_URL"
-    sudo dpkg -i "pg_analytics-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
+    curl -LOJ "$DOWNLOAD_URL" > /dev/null
+    sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb" > /dev/null
 
     # Second, load the extension into the test database
-    echo "Loading pg_analytics extension version v$BASE_RELEASE into the test database..."
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_analytics VERSION '$BASE_RELEASE';" -d test_db
+    echo "Loading pg_bm25 extension version v$BASE_RELEASE into the test database..."
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_bm25 VERSION '$BASE_RELEASE';" -d test_db
 
     # Third, build & install the current version of the extension
-    echo "Building & installing the current version of the pg_analytics extension..."
+    echo "Building & installing the current version of the pg_bm25 extension..."
     sudo chown -R "$(whoami)" "/usr/share/postgresql/$PG_VERSION/extension/" "/usr/lib/postgresql/$PG_VERSION/lib/"
-    cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --release
+    cargo pgrx install --features icu --pg-config="$PG_BIN_PATH/pg_config" --release
 
     # Fourth, upgrade the extension installed on the test database to the current version
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_analytics UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_bm25 UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
   else
-    # Use cargo-pgx to install the extension for the specified version
-    echo "Installing pg_analytics extension onto the test database..."
+    # Use cargo-pgrx to install the extension for the specified version
+    echo "Installing pg_bm25 extension onto the test database..."
     cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile dev
   fi
 

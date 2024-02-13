@@ -91,8 +91,8 @@ extension_sql!(
     r#"
     CREATE FUNCTION deltalake_tableam_handler(internal)
     RETURNS table_am_handler AS 'MODULE_PATHNAME', 'deltalake_tableam_handler' LANGUAGE C STRICT;
-    CREATE ACCESS METHOD deltalake TYPE TABLE HANDLER deltalake_tableam_handler;
-    COMMENT ON ACCESS METHOD deltalake IS 'ParadeDB deltalake table access method';
+    CREATE ACCESS METHOD parquet TYPE TABLE HANDLER deltalake_tableam_handler;
+    COMMENT ON ACCESS METHOD parquet IS 'ParadeDB parquet table access method';
     "#,
     name = "deltalake_tableam_handler"
 );

@@ -55,7 +55,7 @@ CREATE TABLE research_project_arrays (
     -- observation_dates DATE[],
     -- budget_allocations NUMERIC[],
     -- participant_uuids UUID[]
-) USING deltalake;
+) USING parquet;
 
 INSERT INTO research_project_arrays (
     -- project_id,

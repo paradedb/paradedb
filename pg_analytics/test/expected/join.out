@@ -3,11 +3,11 @@ CREATE TABLE t (
     id INT PRIMARY KEY,
     name VARCHAR(50),
     department_id INT
-) USING deltalake;
+) USING parquet;
 CREATE TABLE s (
     id INT PRIMARY KEY,
     department_name VARCHAR(50)
-) USING deltalake;
+) USING parquet;
 INSERT INTO t (id, name, department_id) VALUES
 (1, 'Alice', 101),
 (2, 'Bob', 102),
@@ -30,7 +30,7 @@ CREATE TABLE u (
     id INT PRIMARY KEY,
     name VARCHAR(50),
     department_id INT
-) USING deltalake;
+) USING parquet;
 CREATE TABLE v (
     id INT PRIMARY KEY,
     department_name VARCHAR(50)
@@ -47,6 +47,6 @@ INSERT INTO v (id, department_name) VALUES
 SELECT COUNT(*)
 FROM u
 JOIN v ON u.department_id = v.id;
-ERROR:  Heap and deltalake tables in the same query is not yet supported
+ERROR:  Heap and parquet tables in the same query is not yet supported
 -- Cleanup
 DROP TABLE s, t, u, v;

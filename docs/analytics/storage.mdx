@@ -2,7 +2,7 @@
 title: Storage Optimization
 ---
 
-When `deltalake` tables are dropped, they remain on disk until `VACUUM` is run. This operation physically
+When `parquet` tables are dropped, they remain on disk until `VACUUM` is run. This operation physically
 deletes the Parquet files of dropped tables.
 
 The `VACUUM FULL <table_name>` command is used to optimize a table's storage by bin-packing small Parquet

@@ -107,4 +107,4 @@ CREATE TABLE IF NOT EXISTS hits
     CLID INTEGER NOT NULL,
     PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 )
-USING deltalake;
+USING parquet;

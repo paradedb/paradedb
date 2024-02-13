@@ -220,6 +220,22 @@ function run_tests() {
     cargo pgrx install --pg-config="$PG_BIN_PATH/pg_config" --profile dev
   fi
 
+  # Configure shared_preload_libraries to include pg_analytics
+  echo "Setting test database shared_preload_libraries..."
+  case "$OS_NAME" in
+    Darwin)
+      sed -i '' "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_analytics'  # (change requires restart)/" "$PGDATA/postgresql.conf"
+      ;;
+    Linux)
+      sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_analytics'  # (change requires restart)/" "$PGDATA/postgresql.conf"
+      ;;
+  esac
+  # cat "$PGDATA/postgresql.conf"
+
+  # Reload PostgreSQL configuration
+  echo "Reloading PostgreSQL configuration..."
+  "$PG_BIN_PATH/pg_ctl" restart
+
   # Get a list of all tests
   while IFS= read -r line; do
     TESTS+=("$line")

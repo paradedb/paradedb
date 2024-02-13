@@ -33,6 +33,11 @@ pub enum ParadeError {
     #[error("Could not downcast generic arrow array: {0}")]
     DowncastGenericArray(DataType),
 
+    #[error(
+        "pg_analytics not found in shared_preload_libraries. Check your postgresql.conf file."
+    )]
+    SharedPreload,
+
     #[error("{0}")]
     Generic(String),
 }

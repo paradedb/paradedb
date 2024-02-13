@@ -180,7 +180,7 @@ function run_tests() {
   # Execute tests using cargo
   echo "Running tests..."
   export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@/${PGDATABASE}?host=${PGHOST}"
-  cargo test
+  cargo test --features icu
 }
 
 # Loop over PostgreSQL versions

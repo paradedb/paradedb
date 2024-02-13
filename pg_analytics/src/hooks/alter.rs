@@ -1,10 +1,8 @@
 use async_std::task;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use deltalake::datafusion::error::DataFusionError;
-use deltalake::datafusion::sql::parser::{self, DFParser};
+use deltalake::datafusion::sql::parser;
 use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, ColumnOption, Statement};
-use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
 use std::sync::Arc;
 
@@ -15,7 +13,7 @@ use crate::hooks::handler::DeltaHandler;
 
 pub unsafe fn alter(
     alter_stmt: *mut pg_sys::AlterTableStmt,
-    query_string: &str,
+    statement: &parser::Statement,
 ) -> Result<(), ParadeError> {
     let rangevar = (*alter_stmt).relation;
     let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
@@ -39,15 +37,10 @@ pub unsafe fn alter(
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
     let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
-
-    let dialect = PostgreSqlDialect {};
-    let ast = DFParser::parse_sql_with_dialect(query_string, &dialect)
-        .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
-
     let mut fields_to_add = vec![];
 
-    if let parser::Statement::Statement(statement) = &ast[0] {
-        if let Statement::AlterTable { operations, .. } = statement.as_ref() {
+    if let parser::Statement::Statement(inner_statement) = statement {
+        if let Statement::AlterTable { operations, .. } = inner_statement.as_ref() {
             for operation in operations {
                 match operation {
                     AddColumn { column_def, .. } => {
@@ -66,9 +59,6 @@ pub unsafe fn alter(
                     }
                     AlterColumn { .. } | ChangeColumn { .. } => {
                         return Err(NotSupported::AlterColumn.into());
-                    }
-                    RenameColumn { .. } => {
-                        return Err(NotSupported::RenameColumn.into());
                     }
                     _ => {}
                 }

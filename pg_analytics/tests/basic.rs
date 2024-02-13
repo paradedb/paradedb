@@ -2,7 +2,7 @@ mod fixtures;
 
 use async_std::stream::StreamExt;
 use fixtures::*;
-use futures_util::TryStreamExt;
+
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
@@ -428,4 +428,42 @@ async fn copy_out_basic(mut conn: PgConnection) {
         String::from_utf8_lossy(&copy.next().await.unwrap().unwrap()),
         "4,2024-01-04,4,Signup,200,3,0.00\n"
     );
+}
+
+#[rstest]
+fn add_column(mut conn: PgConnection) {
+    "CREATE TABLE t (a int, b text) USING deltalake".execute(&mut conn);
+
+    match "ALTER TABLE t ADD COLUMN a int".execute_result(&mut conn) {
+        Err(err) => assert_eq!(
+            err.to_string(),
+            "error returned from database: column \"a\" of relation \"t\" already exists"
+        ),
+        _ => panic!("Adding a column with the same name should not be supported"),
+    };
+
+    "ALTER TABLE t ADD COLUMN c int".execute(&mut conn);
+    "INSERT INTO t VALUES (1, 'a', 2)".execute(&mut conn);
+    let row: (i32, String, i32) = "SELECT * FROM t".fetch_one(&mut conn);
+    assert_eq!(row, (1, "a".into(), 2));
+}
+
+#[rstest]
+fn drop_column(mut conn: PgConnection) {
+    "CREATE TABLE t (a int, b text, c int) USING deltalake".execute(&mut conn);
+
+    match "ALTER TABLE t DROP COLUMN a".execute_result(&mut conn) {
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: DROP COLUMN is not yet supported. Please recreate the table instead."),
+        _ => panic!("Dropping a column should not be supported"),
+    };
+}
+
+#[rstest]
+fn rename_column(mut conn: PgConnection) {
+    "CREATE TABLE t (a int, b text) USING deltalake".execute(&mut conn);
+
+    match "ALTER TABLE t RENAME COLUMN a TO c".execute_result(&mut conn) {
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: RENAME COLUMN is not yet supported. Please recreate the table instead."),
+        _ => panic!("Renaming a column should not be supported"),
+    };
 }

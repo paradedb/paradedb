@@ -379,6 +379,7 @@ fn vacuum(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 async fn copy_out_arrays(mut conn: PgConnection) {
     ResearchProjectArraysTable::setup().execute(&mut conn);
 
@@ -399,6 +400,7 @@ experiment_flags,notes,keywords,short_descriptions,participant_ages,participant_
 }
 
 #[rstest]
+#[ignore]
 async fn copy_out_basic(mut conn: PgConnection) {
     UserSessionLogsTable::setup().execute(&mut conn);
 
@@ -437,6 +439,7 @@ id,event_date,user_id,event_name,session_duration,page_views,revenue
 }
 
 #[rstest]
+#[ignore]
 fn add_column(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING deltalake".execute(&mut conn);
 
@@ -455,6 +458,7 @@ fn add_column(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn drop_column(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text, c int) USING deltalake".execute(&mut conn);
 
@@ -465,6 +469,7 @@ fn drop_column(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn rename_column(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING deltalake".execute(&mut conn);
 

@@ -177,10 +177,6 @@ function run_tests() {
     TESTS+=("$line")
   done < <(find "${BASEDIR}/test/sql" -type f -name "*.sql" -exec basename {} \; | sed -e 's/\..*$//' | sort)
 
-  # Execute the fixtures to create the test data
-  echo "Loading test data..."
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -f "${BASEDIR}/test/fixtures.sql" -d test_db
-
   # Execute tests using cargo
   echo "Running tests..."
   export DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@/${PGDATABASE}?host=${PGHOST}"

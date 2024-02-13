@@ -13,7 +13,7 @@ use lazy_static::lazy_static;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use pgrx::*;
 use std::any::type_name;
-use std::ffi::CStr;
+use std::ffi::{CStr, CString};
 use std::sync::Arc;
 
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
@@ -107,6 +107,19 @@ impl<'a> DatafusionContext {
     }
 
     pub fn init(catalog_oid: pg_sys::Oid) -> Result<SessionContext, ParadeError> {
+        let preload_libraries = unsafe {
+            CStr::from_ptr(pg_sys::GetConfigOptionByName(
+                CString::new("shared_preload_libraries")?.as_ptr(),
+                std::ptr::null_mut(),
+                true,
+            ))
+            .to_str()?
+        };
+
+        if !preload_libraries.contains("pg_analytics") {
+            return Err(ParadeError::SharedPreload);
+        }
+
         let session_config = SessionConfig::from_env()?.with_information_schema(true);
 
         let rn_config = RuntimeConfig::new();

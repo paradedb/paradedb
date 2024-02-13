@@ -82,6 +82,24 @@ function run_tests() {
   export PGDATA="$TMPDIR"
   export PGHOST="$TMPDIR"
 
+  # Get the paths to the psql & pg_regress binaries for the current PostgreSQL version
+  case "$OS_NAME" in
+    Darwin)
+      # Check arch to set proper pg_config path
+      if [ "$(uname -m)" = "arm64" ]; then
+        PG_BIN_PATH="/opt/homebrew/opt/postgresql@$PG_VERSION/bin"
+      elif [ "$(uname -m)" = "x86_64" ]; then
+        PG_BIN_PATH="/usr/local/opt/postgresql@$PG_VERSION/bin"
+      else
+        echo "Unknown arch, exiting..."
+        exit 1
+      fi
+      ;;
+    Linux)
+      PG_BIN_PATH="/usr/lib/postgresql/$PG_VERSION/bin"
+      ;;
+  esac
+
   # Create a temporary password file
   PWFILE=$(mktemp)
   echo "$PGPASSWORD" > "$PWFILE"

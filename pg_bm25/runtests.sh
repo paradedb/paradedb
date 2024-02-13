@@ -160,16 +160,16 @@ function run_tests() {
   DATABASE_URL="postgresql://${PGUSER}:${PGPASSWORD}@localhost:${DATABASE_PORT}/${PGDATABASE}?host=${PGHOST}"
   export DATABASE_URL
 
-  # # Configure shared_preload_libraries to include pg_analytics
-  # echo "Setting test database shared_preload_libraries..."
-  # case "$OS_NAME" in
-  #   Darwin)
-  #     sed -i '' "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_analytics'  # (change requires restart)/" "$PGDATA/postgresql.conf"
-  #     ;;
-  #   Linux)
-  #     sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_analytics'  # (change requires restart)/" "$PGDATA/postgresql.conf"
-  #     ;;
-  # esac
+  # Configure shared_preload_libraries to include pg_bm25
+  echo "Setting test database shared_preload_libraries..."
+  case "$OS_NAME" in
+    Darwin)
+      sed -i '' "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_bm25'  # (change requires restart)/" "$PGDATA/postgresql.conf"
+      ;;
+    Linux)
+      sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_bm25'  # (change requires restart)/" "$PGDATA/postgresql.conf"
+      ;;
+  esac
 
   # Reload PostgreSQL configuration
   echo "Reloading PostgreSQL configuration..."

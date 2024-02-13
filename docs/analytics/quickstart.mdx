@@ -8,15 +8,15 @@ Regular Postgres tables, known as heap tables, organize data by row. While this 
 it is inefficient for analytical queries, which often scan a large amount of data from a subset of the columns
 in a table.
 
-ParadeDB introduces special tables called `deltalake` tables. These tables behave like regular Postgres tables but
+ParadeDB introduces special tables called `parquet` tables. These tables behave like regular Postgres tables but
 use a column-oriented layout via Apache Arrow and Parquet and leverage Apache DataFusion, a query engine
 optimized for column-oriented data.
 
-## Using Deltalake Tables
+## Using Parquet Tables
 
 ```sql
--- USING deltalake must be provided
-CREATE TABLE movies (name text, rating int) USING deltalake;
+-- USING parquet must be provided
+CREATE TABLE movies (name text, rating int) USING parquet;
 
 INSERT INTO movies VALUES ('Star Wars', 9), ('Indiana Jones', 8);
 SELECT AVG(rating) FROM movies;
@@ -24,27 +24,27 @@ SELECT AVG(rating) FROM movies;
 DROP TABLE movies;
 ```
 
-That's it! `deltalake` tables accept standard Postgres queries, so there's nothing new to learn.
+That's it! `parquet` tables accept standard Postgres queries, so there's nothing new to learn.
 
-## Copying into a Deltalake Table
+## Copying into a Parquet Table
 
-This example demonstrates how to copy data from an existing heap table into a `deltalake` table.
+This example demonstrates how to copy data from an existing heap table into a `parquet` table.
 
 ```sql
 -- Create heap table
 CREATE TABLE heap (a int, b int);
 INSERT INTO heap VALUES (1, 2);
 
--- Create deltalake table with the same schema
-CREATE TABLE delta (a int, b int) USING deltalake;
+-- Create parquet table with the same schema
+CREATE TABLE events (a int, b int) USING parquet;
 
--- Copy data into deltalake table
-INSERT INTO delta SELECT * FROM heap;
+-- Copy data into parquet table
+INSERT INTO events SELECT * FROM heap;
 ```
 
 ## Use Cases
 
-`deltalake` tables have two primary advantages over regular tables:
+`parquet` tables have two primary advantages over regular tables:
 
 1. Significantly faster aggregate queries
 2. Lower disk space, since data is stored as highly-compressed Parquet files
@@ -58,18 +58,18 @@ or deletes.
 
 ## Known Limitations
 
-`deltalake` tables are currently in beta. The following is a list of known limitations. Many of these
-will become resolved as `deltalake` tables become production-ready.
+`parquet` tables are currently in beta. The following is a list of known limitations. Many of these
+will become resolved as `parquet` tables become production-ready.
 
 - [ ] `UPDATE` statements
 - [ ] Nested `DELETE` statements
 - [ ] Partitioning tables by column
 - [ ] Some Postgres types like JSON, time, and timestamp with time zone
 - [ ] User-defined functions, aggregations, or types
-- [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
+- [ ] Referencing `parquet` and regular Postgres `heap` tables in the same query
 - [ ] Write-ahead-log (WAL) support and `ROLLBACK`
 - [ ] Foreign keys
 - [ ] Index scans
 - [ ] Collations
 - [ ] Using an external data lake as a table storage provider
-- [ ] Full text search over `deltalake` tables with `pg_bm25`
+- [ ] Full text search over `parquet` tables with `pg_bm25`

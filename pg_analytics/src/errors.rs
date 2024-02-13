@@ -68,7 +68,7 @@ pub enum NotFound {
     #[error("Expected value of type {0} but found None")]
     Value(String),
 
-    #[error("Invalid deltalake handler oid")]
+    #[error("Invalid parquet handler oid")]
     Handler,
 }
 
@@ -101,13 +101,13 @@ pub enum NotSupported {
     #[error("RENAME COLUMN is not yet supported. Please recreate the table instead.")]
     RenameColumn,
 
-    #[error("UPDATE is not yet supported for deltalake tables")]
+    #[error("UPDATE is not yet supported for parquet tables")]
     Update,
 
-    #[error("Heap and deltalake tables in the same query is not yet supported")]
+    #[error("Heap and parquet tables in the same query is not yet supported")]
     MixedTables,
 
-    #[error("Nested DELETE queries are not yet supported for deltalake tables")]
+    #[error("Nested DELETE queries are not yet supported for parquet tables")]
     NestedDelete,
 
     #[error("Run TRUNCATE <table_name> to delete all rows from a table")]

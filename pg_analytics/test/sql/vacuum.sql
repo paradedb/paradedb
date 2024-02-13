@@ -1,6 +1,6 @@
 DROP TABLE IF EXISTS t;
 DROP TABLE IF EXISTS s;
-CREATE TABLE t (a int) USING deltalake;
+CREATE TABLE t (a int) USING parquet;
 CREATE TABLE s (a int);
 INSERT INTO t VALUES (1), (2), (3);
 INSERT INTO s VALUES (4), (5), (6);

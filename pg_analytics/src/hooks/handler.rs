@@ -3,7 +3,7 @@ use std::ffi::{c_char, CString};
 
 use crate::errors::{NotFound, NotSupported, ParadeError};
 
-static DELTALAKE_HANDLER: &str = "deltalake";
+static DELTALAKE_HANDLER: &str = "parquet";
 
 pub struct DeltaHandler;
 

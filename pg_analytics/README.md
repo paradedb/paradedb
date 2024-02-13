@@ -35,26 +35,26 @@ This toy example demonstrates how to get started.
 
 ```sql
 CREATE EXTENSION pg_analytics;
--- Create a deltalake table
-CREATE TABLE t (a int) USING deltalake;
+-- Create a parquet table
+CREATE TABLE t (a int) USING parquet;
 -- pg_analytics supercharges the performance of any
--- Postgres query run on a deltalake table
+-- Postgres query run on a parquet table
 INSERT INTO t VALUES (1), (2), (3);
 SELECT COUNT(*) FROM t;
 ```
 
 ## Deltalake Tables
 
-You can interact with `deltalake` tables the same way as with normal Postgres tables. However, there are a few operations specific to `deltalake` tables.
+You can interact with `parquet` tables the same way as with normal Postgres tables. However, there are a few operations specific to `parquet` tables.
 
 ### Storage Optimization
 
-When `deltalake` tables are dropped, they remain on disk until `VACUUM` is run. This operation physically
+When Parquet files are dropped, they remain on disk until `VACUUM` is run. This operation physically
 deletes the Parquet files of dropped tables.
 
 The `VACUUM FULL <table_name>` command is used to optimize a table's storage by bin-packing small Parquet
-files into larger files, which can significantly improve query time and compression. It also deletes
-Parquet files belonging to dropped data.
+files into larger files, which can significantly improve query time and compression. It also deletes dropped Parquet
+files.
 
 ## Roadmap
 
@@ -62,7 +62,7 @@ Parquet files belonging to dropped data.
 
 ### Features Supported
 
-- [x] `deltalake` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
+- [x] `parquet` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
 - [x] Vacuum and Parquet storage optimization
 - [x] `INSERT`, `TRUNCATE`, `DELETE`, `COPY`
 - [x] Physical backups with `pg_dump`
@@ -76,13 +76,14 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 - [ ] Partitioning tables by column
 - [ ] Some Postgres types like JSON, time, and timestamp with time zone
 - [ ] User-defined functions, aggregations, or types
-- [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
+- [ ] Referencing `parquet` and regular Postgres `heap` tables in the same query
 - [ ] Write-ahead-log (WAL) support/`ROLLBACK`/logical replication
 - [ ] Foreign keys
 - [ ] Index scans
 - [ ] Collations
-- [ ] Using an external data lake as a table storage provider
-- [ ] Full text search over `deltalake` tables with `pg_bm25`
+- [ ] External object store integrations (S3/Azure/GCS/HDFS)
+- [ ] External Apache Iceberg and Delta Lake support
+- [ ] Full text search over `parquet` tables with `pg_bm25`
 
 ## Development
 

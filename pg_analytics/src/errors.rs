@@ -56,6 +56,12 @@ pub enum NotFound {
     #[error("No table registered with name {0}")]
     Table(String),
 
+    #[error("No writer found for table {0}")]
+    Writer(String),
+
+    #[error("No stream found for table {0}")]
+    Stream(String),
+
     #[error("Failed to convert to datum {0}")]
     Datum(String),
 
@@ -86,8 +92,14 @@ pub enum NotSupported {
     #[error("Custom Postgres types are not supported")]
     CustomPostgresType,
 
-    #[error("ALTER TABLE is not yet supported. Please DROP and CREATE the table instead.")]
-    AlterTable,
+    #[error("DROP COLUMN is not yet supported. Please recreate the table instead.")]
+    DropColumn,
+
+    #[error("ALTER COLUMN is not yet supported. Please recreate the table instead.")]
+    AlterColumn,
+
+    #[error("RENAME COLUMN is not yet supported. Please recreate the table instead.")]
+    RenameColumn,
 
     #[error("UPDATE is not yet supported for deltalake tables")]
     Update,

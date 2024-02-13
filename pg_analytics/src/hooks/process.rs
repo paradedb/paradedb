@@ -1,5 +1,10 @@
+use deltalake::datafusion::error::DataFusionError;
+use deltalake::datafusion::sql::parser::{self, DFParser};
+
+use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::pg_sys::NodeTag;
 use pgrx::*;
+use std::collections::VecDeque;
 use std::ffi::CStr;
 
 use crate::errors::ParadeError;
@@ -36,13 +41,19 @@ pub fn process_utility(
 
         match (*plan).type_ {
             NodeTag::T_AlterTableStmt => {
-                alter(plan as *mut pg_sys::AlterTableStmt)?;
+                alter(
+                    plan as *mut pg_sys::AlterTableStmt,
+                    &create_ast(query_string.to_str()?)?[0],
+                )?;
             }
             NodeTag::T_DropStmt => {
                 drop(plan as *mut pg_sys::DropStmt)?;
             }
             NodeTag::T_RenameStmt => {
-                rename(plan as *mut pg_sys::RenameStmt)?;
+                rename(
+                    plan as *mut pg_sys::RenameStmt,
+                    &create_ast(query_string.to_str()?)?[0],
+                )?;
             }
             NodeTag::T_TruncateStmt => {
                 truncate(plan as *mut pg_sys::TruncateStmt)?;
@@ -66,4 +77,11 @@ pub fn process_utility(
 
         Ok(())
     }
+}
+
+#[inline]
+fn create_ast(query: &str) -> Result<VecDeque<parser::Statement>, ParadeError> {
+    let dialect = PostgreSqlDialect {};
+    DFParser::parse_sql_with_dialect(query, &dialect)
+        .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))
 }

@@ -1,10 +1,14 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use async_std::prelude::Stream;
+use async_std::stream::StreamExt;
 use async_std::task::block_on;
+use bytes::Bytes;
 use sqlx::{
     testing::{TestArgs, TestContext, TestSupport},
     ConnectOptions, Executor, FromRow, PgConnection, Postgres,
 };
+use std::marker::Send;
 
 pub struct Db {
     context: TestContext<Postgres>,
@@ -107,3 +111,19 @@ where
 impl Query for String {}
 impl Query for &String {}
 impl Query for &str {}
+
+pub trait DisplayAsync: Stream<Item = Result<Bytes, sqlx::Error>> + Sized {
+    fn to_csv(self) -> String {
+        let mut csv_str = String::new();
+        let mut stream = Box::pin(self);
+
+        while let Some(chunk) = block_on(stream.as_mut().next()) {
+            let chunk = chunk.unwrap();
+            csv_str.push_str(&String::from_utf8_lossy(&chunk));
+        }
+
+        csv_str
+    }
+}
+
+impl<T> DisplayAsync for T where T: Stream<Item = Result<Bytes, sqlx::Error>> + Send + Sized {}

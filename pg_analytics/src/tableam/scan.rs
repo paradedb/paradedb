@@ -1,10 +1,25 @@
 /*
-    Scans i.e. SELECT queries are handled by the ExecutorRun hook.
-    These functions should never be called.
+    Scans return tuples from our table to Postgres.
+    Because we intercept SELECT queries, not all scan functions need to be implemented.
+    The ones implemented are called as part of DELETE and UPDATE operations.
 */
 
+use async_std::task;
 use core::ffi::c_int;
+use deltalake::datafusion::common::arrow::array::RecordBatch;
 use pgrx::*;
+use std::any::type_name;
+use std::sync::Arc;
+
+use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::datatype::{DatafusionMapProducer, DatafusionTypeTranslator};
+use crate::errors::{NotFound, ParadeError};
+
+struct DeltalakeScanDesc {
+    rs_base: pg_sys::TableScanDescData,
+    curr_batch: Option<Arc<RecordBatch>>,
+    curr_batch_idx: usize,
+}
 
 #[pg_guard]
 pub extern "C" fn deltalake_scan_begin(
@@ -15,16 +30,57 @@ pub extern "C" fn deltalake_scan_begin(
     pscan: pg_sys::ParallelTableScanDesc,
     flags: pg_sys::uint32,
 ) -> pg_sys::TableScanDesc {
-    unsafe {
-        let mut data = PgBox::<pg_sys::TableScanDescData>::alloc0();
-        data.rs_rd = rel;
-        data.rs_snapshot = snapshot;
-        data.rs_nkeys = nkeys;
-        data.rs_key = key;
-        data.rs_parallel = pscan;
-        data.rs_flags = flags;
+    delta_scan_begin_impl(rel, snapshot, nkeys, key, pscan, flags).expect("Failed to begin scan")
+}
 
-        data.into_pg()
+#[inline]
+fn delta_scan_begin_impl(
+    rel: pg_sys::Relation,
+    snapshot: pg_sys::Snapshot,
+    nkeys: c_int,
+    key: *mut pg_sys::ScanKeyData,
+    pscan: pg_sys::ParallelTableScanDesc,
+    flags: pg_sys::uint32,
+) -> Result<pg_sys::TableScanDesc, ParadeError> {
+    let pg_relation = unsafe { PgRelation::from_pg(rel) };
+    let table_name = pg_relation.name();
+    let schema_name = pg_relation.namespace();
+
+    let (state, task_context) = DatafusionContext::with_session_context(|context| {
+        let state = context.state();
+        let task_context = context.task_ctx();
+        Ok((state, task_context))
+    })?;
+
+    DatafusionContext::with_schema_provider(schema_name, |provider| {
+        let stream = task::block_on(provider.create_stream(table_name, &state, task_context))?;
+        provider.register_stream(table_name, stream)
+    })?;
+
+    unsafe {
+        let memory_context = pg_sys::AllocSetContextCreateExtended(
+            pg_sys::CurrentMemoryContext,
+            b"deltalake_scan_begin\0" as *const u8 as *const i8,
+            pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+            pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+            pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+        );
+
+        let old_context = pg_sys::MemoryContextSwitchTo(memory_context);
+
+        let mut scan = PgBox::<DeltalakeScanDesc>::alloc0();
+        scan.rs_base.rs_rd = rel;
+        scan.rs_base.rs_snapshot = snapshot;
+        scan.rs_base.rs_nkeys = nkeys;
+        scan.rs_base.rs_key = key;
+        scan.rs_base.rs_parallel = pscan;
+        scan.rs_base.rs_flags = flags;
+
+        scan.curr_batch = None;
+        scan.curr_batch_idx = 0;
+
+        pg_sys::MemoryContextSwitchTo(old_context);
+        Ok(scan.into_pg() as pg_sys::TableScanDesc)
     }
 }
 
@@ -43,12 +99,77 @@ pub extern "C" fn deltalake_scan_rescan(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_scan_getnextslot(
-    _scan: pg_sys::TableScanDesc,
+pub unsafe extern "C" fn deltalake_scan_getnextslot(
+    scan: pg_sys::TableScanDesc,
     _direction: pg_sys::ScanDirection,
-    _slot: *mut pg_sys::TupleTableSlot,
+    slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    false
+    unsafe { deltalake_scan_getnextslot_impl(scan, slot).expect("Failed to get next slot") }
+}
+
+#[inline]
+unsafe fn deltalake_scan_getnextslot_impl(
+    scan: pg_sys::TableScanDesc,
+    slot: *mut pg_sys::TupleTableSlot,
+) -> Result<bool, ParadeError> {
+    if let Some(clear) = (*slot)
+        .tts_ops
+        .as_ref()
+        .ok_or(NotFound::Value(
+            type_name::<pg_sys::TupleTableSlotOps>().to_string(),
+        ))?
+        .clear
+    {
+        clear(slot);
+    }
+
+    let dscan = scan as *mut DeltalakeScanDesc;
+    let relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
+    let table_name = relation.name();
+    let schema_name = relation.namespace();
+
+    if (*dscan).curr_batch.is_none()
+        || (*dscan).curr_batch_idx
+            >= (*dscan)
+                .curr_batch
+                .as_ref()
+                .ok_or(NotFound::Value(type_name::<RecordBatch>().to_string()))?
+                .num_rows()
+    {
+        (*dscan).curr_batch_idx = 0;
+
+        (*dscan).curr_batch =
+            match DatafusionContext::with_schema_provider(schema_name, |provider| {
+                provider.get_next_streamed_batch(table_name)
+            })? {
+                Some(batch) => Some(Arc::new(batch)),
+                None => return Ok(false),
+            };
+    }
+
+    let current_batch = (*dscan)
+        .curr_batch
+        .as_ref()
+        .ok_or(NotFound::Value(type_name::<RecordBatch>().to_string()))?;
+
+    for (col_index, column) in current_batch.columns().iter().enumerate() {
+        let dt = column.data_type();
+        unsafe {
+            let tts_value = (*slot).tts_values.add(col_index);
+            if let Some(datum) = DatafusionMapProducer::index_datum(
+                dt.to_sql_data_type()?,
+                column,
+                (*dscan).curr_batch_idx,
+            )? {
+                *tts_value = datum;
+            }
+        }
+    }
+
+    pg_sys::ExecStoreVirtualTuple(slot);
+
+    (*dscan).curr_batch_idx += 1;
+    Ok(true)
 }
 
 #[pg_guard]

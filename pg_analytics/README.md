@@ -65,6 +65,7 @@ Parquet files belonging to dropped data.
 - [x] `deltalake` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
 - [x] Vacuum and Parquet storage optimization
 - [x] `INSERT`, `TRUNCATE`, `DELETE`, `COPY`
+- [x] Physical backups with `pg_dump`
 
 ### Known Limitations
 
@@ -73,13 +74,13 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 - [ ] `UPDATE` statements
 - [ ] Nested `DELETE` statements
 - [ ] Partitioning tables by column
-- [ ] Some Postgres types like arrays, JSON, time, and timestamp with time zone
+- [ ] Some Postgres types like JSON, time, and timestamp with time zone
 - [ ] User-defined functions, aggregations, or types
 - [ ] Referencing `deltalake` and regular Postgres `heap` tables in the same query
-- [ ] Write-ahead-log (WAL) support and `ROLLBACK`
+- [ ] Write-ahead-log (WAL) support/`ROLLBACK`/logical replication
 - [ ] Foreign keys
 - [ ] Index scans
-- [ ] `TEMP` tables
+- [ ] Collations
 - [ ] Using an external data lake as a table storage provider
 - [ ] Full text search over `deltalake` tables with `pg_bm25`
 

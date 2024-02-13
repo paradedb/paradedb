@@ -43,7 +43,7 @@ pub fn process_utility(
             NodeTag::T_AlterTableStmt => {
                 alter(
                     plan as *mut pg_sys::AlterTableStmt,
-                    &create_statement(query_string.to_str()?)?[0],
+                    &create_ast(query_string.to_str()?)?[0],
                 )?;
             }
             NodeTag::T_DropStmt => {
@@ -52,7 +52,7 @@ pub fn process_utility(
             NodeTag::T_RenameStmt => {
                 rename(
                     plan as *mut pg_sys::RenameStmt,
-                    &create_statement(query_string.to_str()?)?[0],
+                    &create_ast(query_string.to_str()?)?[0],
                 )?;
             }
             NodeTag::T_TruncateStmt => {
@@ -80,7 +80,7 @@ pub fn process_utility(
 }
 
 #[inline]
-fn create_statement(query: &str) -> Result<VecDeque<parser::Statement>, ParadeError> {
+fn create_ast(query: &str) -> Result<VecDeque<parser::Statement>, ParadeError> {
     let dialect = PostgreSqlDialect {};
     DFParser::parse_sql_with_dialect(query, &dialect)
         .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))

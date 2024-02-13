@@ -1,8 +1,7 @@
 #!/bin/bash
 
-# This script runs integration tests on the pg_bm25 extension using cargo test. To add new tests, add
-# a new .sql file to the test/sql directory and add the corresponding .out file to the test/expected
-# directory, and it will automatically get executed by this script. To run unit tests, use `cargo pgrx test`.
+# This script runs integration tests on the pg_bm25 extension using cargo test.
+# This is only necessary in CI. Tests can be run with cargo test in local dev.
 
 # Exit on subcommand errors
 set -Eeuo pipefail

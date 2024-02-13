@@ -12,7 +12,7 @@ ParadeDB introduces special tables called `parquet` tables. These tables behave 
 use a column-oriented layout via Apache Arrow and Parquet and leverage Apache DataFusion, a query engine
 optimized for column-oriented data.
 
-## USING Parquet Tables
+## Using Parquet Tables
 
 ```sql
 -- USING parquet must be provided
@@ -26,7 +26,7 @@ DROP TABLE movies;
 
 That's it! `parquet` tables accept standard Postgres queries, so there's nothing new to learn.
 
-## Copying into a Deltalake Table
+## Copying into a Parquet Table
 
 This example demonstrates how to copy data from an existing heap table into a `parquet` table.
 
@@ -36,10 +36,10 @@ CREATE TABLE heap (a int, b int);
 INSERT INTO heap VALUES (1, 2);
 
 -- Create parquet table with the same schema
-CREATE TABLE delta (a int, b int) USING parquet;
+CREATE TABLE events (a int, b int) USING parquet;
 
 -- Copy data into parquet table
-INSERT INTO delta SELECT * FROM heap;
+INSERT INTO events SELECT * FROM heap;
 ```
 
 ## Use Cases

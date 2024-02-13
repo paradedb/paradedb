@@ -3629,6 +3629,7 @@ dependencies = [
  "anyhow",
  "async-std",
  "async-trait",
+ "bytes",
  "chrono",
  "deltalake",
  "futures-util",
@@ -4686,6 +4687,7 @@ version = "0.1.0"
 dependencies = [
  "async-std",
  "bigdecimal",
+ "bytes",
  "envy",
  "pgrx",
  "pgrx-tests",

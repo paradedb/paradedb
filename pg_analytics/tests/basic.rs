@@ -1,8 +1,6 @@
 mod fixtures;
 
-use async_std::stream::StreamExt;
 use fixtures::*;
-
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
@@ -384,47 +382,35 @@ fn vacuum(mut conn: PgConnection) {
 async fn copy_out_arrays(mut conn: PgConnection) {
     ResearchProjectArraysTable::setup().execute(&mut conn);
 
-    let mut copy = conn
+    let copied_csv = conn
         .copy_out_raw(
             "COPY (SELECT * FROM research_project_arrays) TO STDOUT WITH (FORMAT CSV, HEADER)",
         )
         .await
-        .unwrap();
+        .unwrap()
+        .to_csv();
 
-    let mut csv_str = String::new();
-
-    while let Some(chunk) = copy.next().await {
-        let chunk = chunk.unwrap();
-        csv_str.push_str(&String::from_utf8_lossy(&chunk));
-    }
-
-    let expected = "\
+    let expected_csv = "\
 experiment_flags,notes,keywords,short_descriptions,participant_ages,participant_ids,observation_counts,measurement_errors,precise_measurements
 \"{f,t,f}\",\"{\"\"Need to re-evaluate methodology\"\",\"\"Unexpected results in phase 2\"\"}\",\"{\"\"sustainable farming\"\",\"\"soil health\"\"}\",\"{\"\"FARMEX    \"\",\"\"SOILQ2    \"\"}\",\"{22,27,32}\",\"{201,202,203}\",\"{160,140,135}\",\"{0.025,0.02,0.01}\",\"{2,2.1,2.2}\"
 \"{t,f,t}\",\"{\"\"Initial setup complete\"\",\"\"Preliminary results promising\"\"}\",\"{\"\"climate change\"\",\"\"coral reefs\"\"}\",\"{\"\"CRLRST    \"\",\"\"OCEAN1    \"\"}\",\"{28,34,29}\",\"{101,102,103}\",\"{150,120,130}\",\"{0.02,0.03,0.015}\",\"{1.5,1.6,1.7}\"";
 
-    assert_eq!(csv_str.trim(), expected);
+    assert_eq!(copied_csv.trim(), expected_csv);
 }
 
 #[rstest]
 async fn copy_out_basic(mut conn: PgConnection) {
     UserSessionLogsTable::setup().execute(&mut conn);
 
-    let mut copy = conn
+    let copied_csv = conn
         .copy_out_raw(
             "COPY (SELECT * FROM user_session_logs ORDER BY id) TO STDOUT WITH (FORMAT CSV, HEADER)",
         )
         .await
-        .unwrap();
+        .unwrap()
+        .to_csv();
 
-    let mut csv_str = String::new();
-
-    while let Some(chunk) = copy.next().await {
-        let chunk = chunk.unwrap();
-        csv_str.push_str(&String::from_utf8_lossy(&chunk));
-    }
-
-    let expected = "\
+    let expected_csv = "\
 id,event_date,user_id,event_name,session_duration,page_views,revenue
 1,2024-01-01,1,Login,300,5,20.00
 2,2024-01-02,2,Purchase,450,8,150.50
@@ -447,7 +433,7 @@ id,event_date,user_id,event_name,session_duration,page_views,revenue
 19,2024-01-19,9,Payment,560,12,250.00
 20,2024-01-20,10,Review,610,10,60.00";
 
-    assert_eq!(csv_str.trim(), expected);
+    assert_eq!(copied_csv.trim(), expected_csv);
 }
 
 #[rstest]

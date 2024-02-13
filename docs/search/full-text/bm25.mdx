@@ -4,12 +4,12 @@ title: Basic Full Text Search
 
 <Note>
   **Prerequisite** Before performing full text search over a table, it must
-  first be [indexed](/latest/indexing/bm25).
+  first be [indexed](/search/indexing/bm25).
 </Note>
 
 ## Overview
 
-Full text search uses the [BM25 index](/latest/indexing/bm25) to find rows in a table that match a query.
+Full text search uses the [BM25 index](/search/indexing/bm25) to find rows in a table that match a query.
 This type of search is especially useful for matching keywords inside documents.
 
 ## Basic Usage
@@ -61,8 +61,8 @@ are separated by one word, the following query would find this row.
 ```
 
 <Note>
-  The slop operator is distinct from [fuzzy search](/search/fuzzy), which is
-  used for typo tolerance.
+  The slop operator is distinct from [fuzzy search](/search/full-text/fuzzy),
+  which is used for typo tolerance.
 </Note>
 
 ### Efficient Filtering
@@ -88,8 +88,8 @@ Filters can be applied over numeric fields, which improves query times compared 
 
 <Note>
   Filters only work over Postgres columns that have been indexed as
-  [`numeric_fields`](/indexing/bm25#creating-a-bm25-index) or
-  [`boolean_fields`](/indexing/bm25#creating-a-bm25-index).
+  [`numeric_fields`](/search/indexing/bm25#creating-a-bm25-index) or
+  [`boolean_fields`](/search/indexing/bm25#creating-a-bm25-index).
 </Note>
 
 ### JSON Fields
@@ -103,7 +103,7 @@ over a field with values like `{"metadata": {"color": "white"}}`.
 
 <Note>
   JSON search only works over `json` and `jsonb` Postgres columns that have been
-  indexed as [`json_fields`](/indexing/bm25#creating-a-bm25-index).
+  indexed as [`json_fields`](/search/indexing/bm25#creating-a-bm25-index).
 </Note>
 
 ### Boosting

@@ -3,6 +3,6 @@
 /benchmarks/wiki-articles.json
 /docker/.docker_cache_dev/
 /docs/search/quickstart.mdx
-/docs/search/search/autocomplete.mdx
-/docs/search/search/fuzzy.mdx
+/docs/search/full-text/autocomplete.mdx
+/docs/search/full-text/fuzzy.mdx
 /docs/upgrading.mdx

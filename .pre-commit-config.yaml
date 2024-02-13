@@ -73,3 +73,8 @@ repos:
     rev: v3.0.1
     hooks:
       - id: pylint
+  - repo: https://github.com/CoderJoshDK/precommit-mintlify-validate/
+    rev: v0.2.0
+    hooks:
+      - id: mintlify-validate
+        args: [docs]

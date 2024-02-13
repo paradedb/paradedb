@@ -49,7 +49,7 @@ You can interact with `parquet` tables the same way as with normal Postgres tabl
 
 ### Storage Optimization
 
-When `parquet` files are dropped, they remain on disk until `VACUUM` is run. This operation physically
+When Parquet files are dropped, they remain on disk until `VACUUM` is run. This operation physically
 deletes the Parquet files of dropped tables.
 
 The `VACUUM FULL <table_name>` command is used to optimize a table's storage by bin-packing small Parquet

@@ -58,8 +58,6 @@ do
 done
 
 # Determine the base directory of the script
-BASEDIR=$(dirname "$0")
-cd "$BASEDIR/../"
 BASEDIR=$(pwd)
 
 # Vars

@@ -9,6 +9,7 @@ use core::ffi::c_int;
 use deltalake::datafusion::common::arrow::array::RecordBatch;
 use pgrx::*;
 use std::any::type_name;
+use std::ffi::CString;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
@@ -60,7 +61,7 @@ fn delta_scan_begin_impl(
     unsafe {
         let memory_context = pg_sys::AllocSetContextCreateExtended(
             pg_sys::CurrentMemoryContext,
-            b"deltalake_scan_begin\0" as *const u8 as *const i8,
+            CString::new("deltalake_scan_begin")?.as_ptr(),
             pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
             pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
             pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,

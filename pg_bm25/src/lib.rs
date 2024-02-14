@@ -134,6 +134,6 @@ pub mod pg_test {
 
     pub fn postgresql_conf_options() -> Vec<&'static str> {
         // return any postgresql.conf settings that are required for your tests
-        vec!["shared_preload_libraries='pg_bm25.so'"]
+        vec![]
     }
 }

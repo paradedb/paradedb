@@ -37,7 +37,8 @@ pub fn executor_run(
             if query_len == 0 {
                 query = &query[(query_start_index as usize)..query.len()];
             } else {
-                query = &query[(query_start_index as usize)..((query_start_index + query_len) as usize)];
+                query = &query
+                    [(query_start_index as usize)..((query_start_index + query_len) as usize)];
             }
         }
 

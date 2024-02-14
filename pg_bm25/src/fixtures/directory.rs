@@ -39,12 +39,16 @@ impl SearchFs for MockWriterDirectory {
     fn remove(&self) -> Result<(), SearchDirectoryError> {
         self.writer_dir.remove()
     }
-    fn tantivy_dir_path(&self) -> Result<TantivyDirPath, SearchDirectoryError> {
-        self.writer_dir.tantivy_dir_path()
+    fn tantivy_dir_path(
+        &self,
+        ensure_exists: bool,
+    ) -> Result<TantivyDirPath, SearchDirectoryError> {
+        self.writer_dir.tantivy_dir_path(ensure_exists)
     }
     fn writer_transfer_pipe_path(
         &self,
+        ensure_exists: bool,
     ) -> Result<WriterTransferPipeFilePath, SearchDirectoryError> {
-        self.writer_dir.writer_transfer_pipe_path()
+        self.writer_dir.writer_transfer_pipe_path(ensure_exists)
     }
 }

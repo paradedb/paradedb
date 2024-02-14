@@ -1,9 +1,0 @@
-CREATE TABLE t (a int, b text NOT NULL) USING parquet;
-INSERT INTO t values (1, 'test');
-SELECT * FROM t;
- a |  b   
----+------
- 1 | test
-(1 row)
-
-DROP TABLE t;

@@ -169,7 +169,8 @@ mod tests {
         mock_dir: MockWriterDirectory,
         simple_doc: SearchDocument,
     ) {
-        let WriterTransferPipeFilePath(pipe_path) = mock_dir.writer_transfer_pipe_path().unwrap();
+        let WriterTransferPipeFilePath(pipe_path) =
+            mock_dir.writer_transfer_pipe_path(true).unwrap();
 
         let writer_request = WriterRequest::Insert {
             directory: mock_dir.writer_dir,

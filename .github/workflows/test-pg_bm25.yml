@@ -118,10 +118,14 @@ jobs:
         run: cargo clean
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
-      - name: Run pg_bm25 Integration Tests
+      - name: Run pg_bm25 Cargo Test Suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_bm25/test/
+        working-directory: pg_bm25/
         run: |
+          # Add the code coverage flags to the config.toml file
+          echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
+          mkdir -p ../target/coverage ../target/coverage-report
+
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             # Retrieve the version to test upgrading to
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
@@ -137,20 +141,6 @@ jobs:
           else
             ./runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi
-
-      - name: Run pg_bm25 Unit Tests
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_bm25/
-        env:
-          LLVM_PROFILE_FILE: target/coverage/pg_bm25-%p-%m.profraw
-          RUST_BACKTRACE: full
-        run: |
-          # Add the code coverage flags to the config.toml file
-          echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
-
-          # Run tests with coverage
-          mkdir -p ../target/coverage ../target/coverage-report
-          cargo pgrx test --features icu pg${{ matrix.pg_version }} --profile dev
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports

@@ -1,7 +1,6 @@
 pub mod constants;
 pub mod logs;
 pub mod telemetry;
-pub mod testing;
 
 #[cfg(feature = "fixtures")]
 pub mod fixtures;

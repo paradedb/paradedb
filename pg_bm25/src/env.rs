@@ -125,27 +125,50 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
     writer: &Arc<Mutex<W>>,
 ) -> Result<(), TransactionError> {
     let writer_client = writer.clone();
-    Transaction::call_once_on_precommit(
-        TRANSACTION_CALLBACK_CACHE_ID,
-        move || match writer_client.lock() {
-            Err(err) => {
-                pgrx::log!("could not lock  client in commit callback: {err}");
+    Transaction::call_once_on_precommit(TRANSACTION_CALLBACK_CACHE_ID, move || {
+        let mut error: Option<Box<dyn std::error::Error>> = None;
+        {
+            // This lock must happen in an enclosing block so it is dropped and
+            // release before a possible panic.
+            match writer_client.lock() {
+                Err(err) => {
+                    // This panic is fine, because the lock is broken anyways.
+                    panic!("could not lock client in commit callback: {err}");
+                }
+                Ok(mut client) => {
+                    if let Err(err) = client.request(WriterRequest::Commit) {
+                        error = Some(Box::new(err));
+                    }
+                }
             }
-            Ok(mut client) => client.request(WriterRequest::Commit).unwrap_or_else(|err| {
-                pgrx::log!("error sending commit request in callback: {err}")
-            }),
-        },
-    )?;
+        }
+
+        if let Some(err) = error {
+            panic!("error sending commit request in callback: {err}")
+        }
+    })?;
 
     let writer_client = writer.clone();
     Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID, move || {
-        match writer_client.lock() {
-            Err(err) => {
-                pgrx::log!("could not lock  client in abort callback: {err}");
+        let mut error: Option<Box<dyn std::error::Error>> = None;
+        {
+            // This lock must happen in an enclosing block so it is dropped and
+            // release before a possible panic.
+            match writer_client.lock() {
+                Err(err) => {
+                    // This panic is fine, because the lock is broken anyways.
+                    panic!("could not lock client in abort callback: {err}");
+                }
+                Ok(mut client) => {
+                    if let Err(err) = client.request(WriterRequest::Abort) {
+                        error = Some(Box::new(err));
+                    }
+                }
             }
-            Ok(mut client) => client
-                .request(WriterRequest::Abort)
-                .unwrap_or_else(|err| pgrx::log!("error sending abort request in callback: {err}")),
+        }
+
+        if let Some(err) = error {
+            panic!("error sending abort request in callback: {err}")
         }
     })?;
 

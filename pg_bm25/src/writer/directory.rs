@@ -40,10 +40,13 @@ pub trait SearchFs {
     // Remove the root directory from disk, blocking while file locks are released.
     fn remove(&self) -> Result<(), SearchDirectoryError>;
     // Return and ensure the existence of the Tantivy index path.
-    fn tantivy_dir_path(&self) -> Result<TantivyDirPath, SearchDirectoryError>;
+    fn tantivy_dir_path(&self, ensure_exists: bool)
+        -> Result<TantivyDirPath, SearchDirectoryError>;
     // Return and ensure the existence of the writer pipe file path.
-    fn writer_transfer_pipe_path(&self)
-        -> Result<WriterTransferPipeFilePath, SearchDirectoryError>;
+    fn writer_transfer_pipe_path(
+        &self,
+        ensure_exists: bool,
+    ) -> Result<WriterTransferPipeFilePath, SearchDirectoryError>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
@@ -76,7 +79,11 @@ impl WriterDirectory {
         }
     }
 
-    fn search_index_dir_path(&self) -> Result<SearchIndexDirPath, SearchDirectoryError> {
+    /// The root path for the directory tree.
+    fn search_index_dir_path(
+        &self,
+        ensure_exists: bool,
+    ) -> Result<SearchIndexDirPath, SearchDirectoryError> {
         let database_oid = &self.database_oid;
         let index_name = &self.index_name;
         let unique_index_dir_name = format!("{database_oid}_{index_name}");
@@ -86,14 +93,23 @@ impl WriterDirectory {
             .join(SEARCH_DIR_NAME)
             .join(unique_index_dir_name);
 
-        Self::ensure_dir(search_index_dir_path)?;
+        if ensure_exists {
+            Self::ensure_dir(search_index_dir_path)?;
+        }
         Ok(SearchIndexDirPath(search_index_dir_path.to_path_buf()))
+    }
+
+    pub fn exists(&self) -> Result<bool, SearchDirectoryError> {
+        // False to avoid creating if doesn't exist.
+        let SearchIndexDirPath(path) = self.search_index_dir_path(false)?;
+        Ok(path.exists())
     }
 
     fn search_index_config_file_path(
         &self,
+        ensure_exists: bool,
     ) -> Result<SearchIndexConfigFilePath, SearchDirectoryError> {
-        let SearchIndexDirPath(index_path) = self.search_index_dir_path()?;
+        let SearchIndexDirPath(index_path) = self.search_index_dir_path(ensure_exists)?;
         let search_index_config_file_path = index_path.join(SEARCH_INDEX_CONFIG_FILE_NAME);
 
         Ok(SearchIndexConfigFilePath(search_index_config_file_path))
@@ -157,7 +173,7 @@ impl WriterDirectory {
 
 impl SearchFs for WriterDirectory {
     fn load_index<T: DeserializeOwned>(&self) -> Result<T, SearchDirectoryError> {
-        let SearchIndexConfigFilePath(config_path) = self.search_index_config_file_path()?;
+        let SearchIndexConfigFilePath(config_path) = self.search_index_config_file_path(true)?;
         let serialized_data = fs::read_to_string(config_path)
             .map_err(|err| SearchDirectoryError::IndexFileRead(self.clone(), err))?;
 
@@ -167,7 +183,7 @@ impl SearchFs for WriterDirectory {
     }
 
     fn save_index<T: Serialize>(&self, index: &T) -> Result<(), SearchDirectoryError> {
-        let SearchIndexConfigFilePath(config_path) = self.search_index_config_file_path()?;
+        let SearchIndexConfigFilePath(config_path) = self.search_index_config_file_path(true)?;
 
         let serialized_data = serde_json::to_string(index)
             .map_err(|err| SearchDirectoryError::IndexSerialize(self.clone(), err))?;
@@ -188,15 +204,18 @@ impl SearchFs for WriterDirectory {
     }
 
     fn remove(&self) -> Result<(), SearchDirectoryError> {
-        let SearchIndexDirPath(index_path) = self.search_index_dir_path()?;
+        let SearchIndexDirPath(index_path) = self.search_index_dir_path(false)?;
         if index_path.exists() {
             Self::remove_dir_all_recursive(&index_path)?
         }
         Ok(())
     }
 
-    fn tantivy_dir_path(&self) -> Result<TantivyDirPath, SearchDirectoryError> {
-        let SearchIndexDirPath(index_path) = self.search_index_dir_path()?;
+    fn tantivy_dir_path(
+        &self,
+        ensure_exists: bool,
+    ) -> Result<TantivyDirPath, SearchDirectoryError> {
+        let SearchIndexDirPath(index_path) = self.search_index_dir_path(ensure_exists)?;
         let tantivy_dir_path = index_path.join(TANTIVY_DIR_NAME);
 
         Self::ensure_dir(&tantivy_dir_path)?;
@@ -205,6 +224,7 @@ impl SearchFs for WriterDirectory {
 
     fn writer_transfer_pipe_path(
         &self,
+        ensure_exists: bool,
     ) -> Result<WriterTransferPipeFilePath, SearchDirectoryError> {
         let pid = std::process::id();
         let transfer_pipe_dir = &self
@@ -214,7 +234,9 @@ impl SearchFs for WriterDirectory {
             .join(WRITER_TRANSFER_DIR_NAME);
         let transfer_pipe_file = transfer_pipe_dir.join(pid.to_string());
 
-        Self::ensure_dir(transfer_pipe_dir)?;
+        if ensure_exists {
+            Self::ensure_dir(transfer_pipe_dir)?;
+        }
 
         Ok(WriterTransferPipeFilePath(transfer_pipe_file.to_path_buf()))
     }
@@ -294,7 +316,7 @@ mod tests {
 
     #[rstest]
     fn test_remove_directory(mock_dir: MockWriterDirectory) -> Result<()> {
-        let SearchIndexDirPath(root) = mock_dir.writer_dir.search_index_dir_path()?;
+        let SearchIndexDirPath(root) = mock_dir.writer_dir.search_index_dir_path(true)?;
 
         let tantivy_path = root.join(TANTIVY_DIR_NAME);
 

@@ -163,7 +163,7 @@ mod tests {
         simple_doc: SearchDocument,
         mock_dir: MockWriterDirectory,
     ) -> Result<()> {
-        let tantivy_path = mock_dir.tantivy_dir_path()?;
+        let tantivy_path = mock_dir.tantivy_dir_path(true)?;
         let index = Index::builder()
             .schema(simple_schema.into())
             .create_in_dir(tantivy_path)

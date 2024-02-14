@@ -43,7 +43,7 @@ INSERT INTO t VALUES (1), (2), (3);
 SELECT COUNT(*) FROM t;
 ```
 
-## Deltalake Tables
+## Parquet Tables
 
 You can interact with `parquet` tables the same way as with normal Postgres tables. However, there are a few operations specific to `parquet` tables.
 

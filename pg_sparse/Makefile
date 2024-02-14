@@ -2,7 +2,7 @@ EXTENSION = svector
 EXTVERSION = 0.5.5
 
 MODULE_big = svector
-DATA = $(wildcard sql/*--*.sql)
+DATA = $(wildcard sql/*--*--*.sql)
 OBJS = src/shnsw.o src/shnswbuild.o src/shnswinsert.o src/shnswscan.o src/shnswutils.o src/shnswvacuum.o src/svector.o
 HEADERS = src/svector.h
 

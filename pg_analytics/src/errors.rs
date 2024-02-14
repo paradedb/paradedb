@@ -3,12 +3,14 @@ use deltalake::datafusion::arrow::datatypes::DataType;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::sql::sqlparser::ast::DataType as SQLDataType;
 use deltalake::errors::DeltaTableError;
+use object_store::Error as ObjectStoreError;
 use pgrx::*;
 use std::ffi::{NulError, OsString};
 use std::num::ParseIntError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
+use url::ParseError;
 
 #[derive(Error, Debug)]
 pub enum ParadeError {
@@ -20,6 +22,9 @@ pub enum ParadeError {
 
     #[error(transparent)]
     Delta(#[from] DeltaTableError),
+
+    #[error(transparent)]
+    ObjectStore(#[from] ObjectStoreError),
 
     #[error(transparent)]
     IO(#[from] std::io::Error),
@@ -67,6 +72,12 @@ pub enum NotFound {
 
     #[error("Expected value of type {0} but found None")]
     Value(String),
+
+    #[error("File format {0} not supported")]
+    FileFormat(String),
+
+    #[error("Invalid parquet handler oid")]
+    Handler,
 }
 
 #[derive(Error, Debug)]
@@ -79,9 +90,6 @@ pub enum NotSupported {
 
     #[error("Postgres type {0:?} not supported")]
     BuiltinPostgresType(pg_sys::BuiltinOid),
-
-    #[error("TEMP tables are not yet supported")]
-    TempTable,
 
     #[error("Invalid Postgres type not supported")]
     InvalidPostgresType,
@@ -150,5 +158,11 @@ impl From<numeric::Error> for ParadeError {
 impl From<OsString> for ParadeError {
     fn from(err: OsString) -> Self {
         ParadeError::Generic(err.to_string_lossy().to_string())
+    }
+}
+
+impl From<ParseError> for ParadeError {
+    fn from(err: ParseError) -> Self {
+        ParadeError::Generic(err.to_string())
     }
 }

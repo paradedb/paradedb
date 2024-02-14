@@ -8,7 +8,6 @@ use std::str::FromStr;
 use time::{macros::format_description, Date, PrimitiveDateTime};
 
 #[rstest]
-#[ignore]
 fn basic_select(mut conn: PgConnection) {
     UserSessionLogsTable::setup().execute(&mut conn);
 
@@ -29,7 +28,6 @@ fn basic_select(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn array_results(mut conn: PgConnection) {
     ResearchProjectArraysTable::setup().execute(&mut conn);
 
@@ -86,18 +84,23 @@ fn array_results(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn alter(mut conn: PgConnection) {
-    match "CREATE TABLE t (a int, b text) USING parquet; ALTER TABLE t ADD COLUMN c int"
-        .execute_result(&mut conn)
-    {
-        Err(err) => assert!(
-            err.to_string().contains("ALTER TABLE is not yet supported"),
-            "alter table error message not present in '{}'",
-            err
-        ),
-        _ => panic!("alter table should be unsupported"),
-    }
+    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
+
+    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
+    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
+
+    assert_eq!(column_names, vec!["a".to_string(), "b".to_string()]);
+
+    "ALTER TABLE t ADD COLUMN c int".execute(&mut conn);
+
+    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
+    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
+
+    assert_eq!(
+        column_names,
+        vec!["a".to_string(), "b".to_string(), "c".to_string()]
+    );
 }
 
 #[rstest]
@@ -115,7 +118,6 @@ fn delete(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn drop(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
     "DROP TABLE t".execute(&mut conn);
@@ -141,7 +143,6 @@ fn drop(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn insert(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b int)".execute(&mut conn);
     "INSERT INTO t VALUES (1, 2)".execute(&mut conn);
@@ -153,8 +154,7 @@ fn insert(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
-fn join_two_deltalake_tables(mut conn: PgConnection) {
+fn join_two_parquet_tables(mut conn: PgConnection) {
     "CREATE TABLE t ( id INT PRIMARY KEY, name VARCHAR(50), department_id INT ) USING parquet"
         .execute(&mut conn);
     "CREATE TABLE s ( id INT PRIMARY KEY, department_name VARCHAR(50) ) USING parquet"
@@ -179,8 +179,7 @@ fn join_two_deltalake_tables(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
-fn join_heap_and_deltalake_table(mut conn: PgConnection) {
+fn join_heap_and_parquet_table(mut conn: PgConnection) {
     "CREATE TABLE u ( id INT PRIMARY KEY, name VARCHAR(50), department_id INT ) USING parquet"
         .execute(&mut conn);
     "CREATE TABLE v ( id INT PRIMARY KEY, department_name VARCHAR(50) )".execute(&mut conn);
@@ -199,12 +198,11 @@ fn join_heap_and_deltalake_table(mut conn: PgConnection) {
 
     match "SELECT COUNT(*) FROM u JOIN v ON u.department_id = v.id".fetch_result::<()>(&mut conn) {
         Err(err) => assert!(err.to_string().contains("not yet supported")),
-        _ => panic!("heap and deltalake talbes in same query should be unsupported"),
+        _ => panic!("heap and parquet tables in same query should be unsupported"),
     }
 }
 
 #[rstest]
-#[ignore]
 fn rename(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
     "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')".execute(&mut conn);
@@ -217,7 +215,6 @@ fn rename(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn schema(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text NOT NULL) USING parquet".execute(&mut conn);
     "INSERT INTO t values (1, 'test');".execute(&mut conn);
@@ -227,7 +224,6 @@ fn schema(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn select(mut conn: PgConnection) {
     UserSessionLogsTable::setup().execute(&mut conn);
 
@@ -256,7 +252,6 @@ fn select(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn truncate(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
     "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c'); TRUNCATE t".execute(&mut conn);
@@ -266,7 +261,6 @@ fn truncate(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn types(mut conn: PgConnection) {
     "CREATE TABLE test_text (a text) USING parquet".execute(&mut conn);
     "INSERT INTO test_text VALUES ('hello world')".execute(&mut conn);
@@ -364,7 +358,6 @@ fn types(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "known bug where vacuuming breaks other databases"]
 fn vacuum(mut conn: PgConnection) {
     "CREATE TABLE t (a int) USING parquet".execute(&mut conn);
     "CREATE TABLE s (a int)".execute(&mut conn);
@@ -379,7 +372,6 @@ fn vacuum(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 async fn copy_out_arrays(mut conn: PgConnection) {
     ResearchProjectArraysTable::setup().execute(&mut conn);
 
@@ -400,7 +392,6 @@ experiment_flags,notes,keywords,short_descriptions,participant_ages,participant_
 }
 
 #[rstest]
-#[ignore]
 async fn copy_out_basic(mut conn: PgConnection) {
     UserSessionLogsTable::setup().execute(&mut conn);
 
@@ -439,9 +430,8 @@ id,event_date,user_id,event_name,session_duration,page_views,revenue
 }
 
 #[rstest]
-#[ignore]
 fn add_column(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING deltalake".execute(&mut conn);
+    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
 
     match "ALTER TABLE t ADD COLUMN a int".execute_result(&mut conn) {
         Err(err) => assert_eq!(
@@ -458,9 +448,8 @@ fn add_column(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn drop_column(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text, c int) USING deltalake".execute(&mut conn);
+    "CREATE TABLE t (a int, b text, c int) USING parquet".execute(&mut conn);
 
     match "ALTER TABLE t DROP COLUMN a".execute_result(&mut conn) {
         Err(err) => assert_eq!(err.to_string(), "error returned from database: DROP COLUMN is not yet supported. Please recreate the table instead."),
@@ -469,9 +458,8 @@ fn drop_column(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore]
 fn rename_column(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING deltalake".execute(&mut conn);
+    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
 
     match "ALTER TABLE t RENAME COLUMN a TO c".execute_result(&mut conn) {
         Err(err) => assert_eq!(err.to_string(), "error returned from database: RENAME COLUMN is not yet supported. Please recreate the table instead."),

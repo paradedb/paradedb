@@ -57,7 +57,7 @@ extension_sql!(
         proxy_url TEXT DEFAULT NULL,
         proxy_ca_certificate TEXT DEFAULT NULL,
         proxy_excludes TEXT DEFAULT NULL,
-        disable_tagging BOOLEAN DEFAULT FALSE
+        disable_tagging BOOLEAN DEFAULT FALSE,
         has_header BOOLEAN DEFAULT FALSE
     ) 
     LANGUAGE C AS 'MODULE_PATHNAME', 'register_s3_schema';
@@ -93,6 +93,8 @@ fn register_s3_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), Parad
     let proxy_excludes: Option<String> = unsafe { fcinfo::pg_getarg(fcinfo, 16) };
     let disable_tagging: Option<bool> = unsafe { fcinfo::pg_getarg(fcinfo, 17) };
     let has_header: bool = unsafe { fcinfo::pg_getarg(fcinfo, 18).unwrap() };
+
+    info!("got format {}", format!("{}", file_format));
 
     let builder = AmazonS3Builder::new()
         .with_url(url.as_str())

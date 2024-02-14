@@ -28,7 +28,18 @@ pub fn executor_run(
     unsafe {
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;
-        let query = CStr::from_ptr(query_desc.sourceText).to_str()?;
+
+        // Get the substring of the query relevant to this hook execution
+        let query_start_index = (*query_desc.plannedstmt).stmt_location;
+        let query_len = (*query_desc.plannedstmt).stmt_len;
+        let mut query = CStr::from_ptr(query_desc.sourceText).to_str()?;
+        if query_start_index != -1 {
+            if query_len == 0 {
+                query = &query[(query_start_index as usize)..query.len()];
+            } else {
+                query = &query[(query_start_index as usize)..((query_start_index + query_len) as usize)];
+            }
+        }
 
         // Only use this hook for deltalake tables
         // Allow INSERTs to go through

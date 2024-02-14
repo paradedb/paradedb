@@ -150,7 +150,7 @@ jobs:
       - name: Test Packaging pg_analytics
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
         working-directory: pg_analytics/
-        run: cargo pgx package --features telemetry
+        run: cargo pgrx package --features telemetry
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports

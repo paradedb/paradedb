@@ -57,7 +57,7 @@ jobs:
       # This checks that the version in Cargo.toml is incremented to the next release. We only run it
       # on PRs to main, which are our release promotion PRs.
       - name: Check version in Cargo.toml
-        if: github.base_ref == 'main'
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
         working-directory: pg_bm25/
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
@@ -145,6 +145,12 @@ jobs:
           else
             ./runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi
+
+      # On promotion PRs, we test packaging the extension with production features enabled
+      - name: Test Packaging pg_analytics
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
+        working-directory: pg_analytics/
+        run: cargo pgx package --features telemetry
 
       # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
       - name: Generate Code Coverage Reports

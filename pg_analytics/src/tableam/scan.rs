@@ -58,29 +58,20 @@ fn delta_scan_begin_impl(
     })?;
 
     unsafe {
-        let memory_context = pg_sys::AllocSetContextCreateExtended(
-            pg_sys::CurrentMemoryContext,
-            b"deltalake_scan_begin\0" as *const u8 as *const i8,
-            pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
-            pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
-            pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
-        );
+        PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
+            let mut scan = PgBox::<DeltalakeScanDesc>::alloc0();
+            scan.rs_base.rs_rd = rel;
+            scan.rs_base.rs_snapshot = snapshot;
+            scan.rs_base.rs_nkeys = nkeys;
+            scan.rs_base.rs_key = key;
+            scan.rs_base.rs_parallel = pscan;
+            scan.rs_base.rs_flags = flags;
 
-        let old_context = pg_sys::MemoryContextSwitchTo(memory_context);
+            scan.curr_batch = None;
+            scan.curr_batch_idx = 0;
 
-        let mut scan = PgBox::<DeltalakeScanDesc>::alloc0();
-        scan.rs_base.rs_rd = rel;
-        scan.rs_base.rs_snapshot = snapshot;
-        scan.rs_base.rs_nkeys = nkeys;
-        scan.rs_base.rs_key = key;
-        scan.rs_base.rs_parallel = pscan;
-        scan.rs_base.rs_flags = flags;
-
-        scan.curr_batch = None;
-        scan.curr_batch_idx = 0;
-
-        pg_sys::MemoryContextSwitchTo(old_context);
-        Ok(scan.into_pg() as pg_sys::TableScanDesc)
+            Ok(scan.into_pg() as pg_sys::TableScanDesc)
+        })
     }
 }
 

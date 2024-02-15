@@ -466,3 +466,19 @@ fn rename_column(mut conn: PgConnection) {
         _ => panic!("Renaming a column should not be supported"),
     };
 }
+
+#[rstest]
+fn multiline_query(mut conn: PgConnection) {
+    "CREATE TABLE employees (salary bigint, id smallint) USING parquet; INSERT INTO employees VALUES (100, 1), (200, 2), (300, 3), (400, 4), (500, 5);".execute(&mut conn);
+    let insert_count: (i64,) = "SELECT COUNT(*) FROM employees".fetch_one(&mut conn);
+    assert_eq!(insert_count, (5,));
+
+    if "SELECT COUNT(*) FROM employees; DELETE FROM employees WHERE id = 5 OR salary <= 200;"
+        .execute_result(&mut conn)
+        .is_err()
+    {
+        panic!("Multiline query with select and delete should not error out");
+    };
+    let select_count: (i64,) = "SELECT COUNT(*) FROM employees".fetch_one(&mut conn);
+    assert_eq!(select_count, (2,));
+}

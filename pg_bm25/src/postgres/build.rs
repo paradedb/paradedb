@@ -43,7 +43,7 @@ pub extern "C" fn ambuild(
     let name_type_map: HashMap<SearchFieldName, SearchFieldType> = heap_relation
         .tuple_desc()
         .into_iter()
-        .map(|attribute| {
+        .filter_map(|attribute| {
             let attname = attribute.name();
             let attribute_type_oid = attribute.type_oid();
             let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
@@ -52,23 +52,22 @@ pub extern "C" fn ambuild(
             } else {
                 attribute_type_oid
             };
-            let search_field_type =
-                SearchFieldType::try_from(&base_oid).expect("unrecognized field type");
-
-            (attname.into(), search_field_type)
+            if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
+                Some((attname.into(), search_field_type))
+            } else {
+                None
+            }
         })
         .collect();
 
     // Parse and validate the index configurations for each column.
-
     let text_fields =
         rdopts
             .get_text_fields()
             .into_iter()
             .map(|(name, config)| match name_type_map.get(&name) {
                 Some(SearchFieldType::Text) => (name, config),
-                Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
-                None => panic!("no field named '{name}'"),
+                _ => panic!("'{name}' cannot be indexed as a text field"),
             });
 
     let numeric_fields = rdopts
@@ -76,8 +75,7 @@ pub extern "C" fn ambuild(
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
             Some(SearchFieldType::I64) | Some(SearchFieldType::F64) => (name, config),
-            Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
-            None => panic!("no field named '{name}'"),
+            _ => panic!("'{name}' cannot be indexed as a numeric field"),
         });
 
     let boolean_fields = rdopts
@@ -85,8 +83,7 @@ pub extern "C" fn ambuild(
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
             Some(SearchFieldType::Bool) => (name, config),
-            Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
-            None => panic!("no field named '{name}'"),
+            _ => panic!("'{name}' cannot be indexed as a boolean field"),
         });
 
     let json_fields =
@@ -95,8 +92,7 @@ pub extern "C" fn ambuild(
             .into_iter()
             .map(|(name, config)| match name_type_map.get(&name) {
                 Some(SearchFieldType::Json) => (name, config),
-                Some(wrong_type) => panic!("wrong type for field '{name}': {wrong_type:?}"),
-                None => panic!("no field named '{name}'"),
+                _ => panic!("'{name}' cannot be indexed as a JSON field"),
             });
 
     let key_field = rdopts.get_key_field().expect("must specify key field");

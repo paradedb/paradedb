@@ -33,7 +33,7 @@ pub fn delete(
     })?;
 
     let delete_metrics = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-        DatafusionContext::with_pg_permanent_schema_provider(schema_name, |provider| {
+        DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
             match dml_statement.input.as_ref() {
                 LogicalPlan::Filter(filter) => {
                     task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))

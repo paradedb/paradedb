@@ -41,7 +41,7 @@ use crate::guc::PARADE_GUC;
 
 const BYTES_IN_MB: i64 = 1_048_576;
 
-pub struct PgPermanentSchemaProvider {
+pub struct PermanentSchemaProvider {
     schema_name: String,
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
     writers: Mutex<HashMap<String, DeltaWriter>>,
@@ -49,8 +49,8 @@ pub struct PgPermanentSchemaProvider {
     dir: PathBuf,
 }
 
-impl PgPermanentSchemaProvider {
-    // Creates an empty PgPermanentSchemaProvider
+impl PermanentSchemaProvider {
+    // Creates an empty PermanentSchemaProvider
     pub async fn try_new(schema_name: &str, dir: PathBuf) -> Result<Self, ParadeError> {
         Ok(Self {
             schema_name: schema_name.to_string(),
@@ -61,7 +61,7 @@ impl PgPermanentSchemaProvider {
         })
     }
 
-    // Loads tables and writers into PgPermanentSchemaProvider
+    // Loads tables and writers into PermanentSchemaProvider
     pub async fn init(&self) -> Result<(), ParadeError> {
         let mut tables = HashMap::new();
         let mut writers = HashMap::new();
@@ -526,7 +526,7 @@ impl PgPermanentSchemaProvider {
 }
 
 #[async_trait]
-impl SchemaProvider for PgPermanentSchemaProvider {
+impl SchemaProvider for PermanentSchemaProvider {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -564,12 +564,12 @@ impl SchemaProvider for PgPermanentSchemaProvider {
     }
 }
 
-pub struct PgTempSchemaProvider {
+pub struct TempSchemaProvider {
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
 }
 
-impl PgTempSchemaProvider {
-    pub fn new() -> Result<PgTempSchemaProvider, ParadeError> {
+impl TempSchemaProvider {
+    pub fn new() -> Result<TempSchemaProvider, ParadeError> {
         Ok(Self {
             tables: RwLock::new(HashMap::new()),
         })
@@ -600,7 +600,7 @@ impl PgTempSchemaProvider {
 }
 
 #[async_trait]
-impl SchemaProvider for PgTempSchemaProvider {
+impl SchemaProvider for TempSchemaProvider {
     fn as_any(&self) -> &dyn Any {
         self
     }

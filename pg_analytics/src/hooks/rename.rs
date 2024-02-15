@@ -43,7 +43,7 @@ pub unsafe fn rename(
             for operation in operations {
                 match operation {
                     RenameTable { .. } => {
-                        let _ = DatafusionContext::with_pg_permanent_schema_provider(
+                        let _ = DatafusionContext::with_permanent_schema_provider(
                             schema_name,
                             |provider| task::block_on(provider.rename(table_name, new_name)),
                         );

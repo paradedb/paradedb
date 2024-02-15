@@ -70,7 +70,7 @@ impl DeltaTableProvider for PgRelation {
         let postgres_catalog_name = DatafusionContext::postgres_catalog_name()?;
 
         let provider =
-            DatafusionContext::with_pg_permanent_schema_provider(schema_name, |provider| {
+            DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
                 let delta_table = task::block_on(provider.get_delta_table(table_name))?;
                 Ok(provider.register_table(
                     table_name.to_string(),

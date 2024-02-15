@@ -7,7 +7,7 @@ use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr,
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::PgPermanentSchemaProvider;
+use crate::datafusion::schema::PermanentSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
 
 pub struct PostgresCatalog {
@@ -56,7 +56,7 @@ impl PostgresCatalog {
                 };
 
                 let schema_provider = Arc::new(
-                    PgPermanentSchemaProvider::try_new(
+                    PermanentSchemaProvider::try_new(
                         schema_name.as_str(),
                         ParadeDirectory::schema_path(
                             DatafusionContext::postgres_catalog_oid()?,

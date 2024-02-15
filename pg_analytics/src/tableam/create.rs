@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::{PgPermanentSchemaProvider, PgTempSchemaProvider};
+use crate::datafusion::schema::{PermanentSchemaProvider, TempSchemaProvider};
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -49,13 +49,13 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
         pg_sys::RELPERSISTENCE_TEMP => {
             // DatafusionContext::with_postgres_catalog(|catalog| {
             //     if catalog.schema(&schema_name).is_none() {
-            //         let schema_provider = Arc::new(PgTempSchemaProvider::new());
+            //         let schema_provider = Arc::new(TempSchemaProvider::new());
             //         catalog.register_schema(&schema_name, schema_provider)?;
             //     }
             //     Ok(())
             // })?;
 
-            // DatafusionContext::with_pg_permanent_schema_provider(&schema_name, |provider| {
+            // DatafusionContext::with_permanent_schema_provider(&schema_name, |provider| {
             //     task::block_on(provider.create_table(&pg_relation))
             // })
             Ok(())
@@ -66,13 +66,14 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
 
             DatafusionContext::with_postgres_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
-                    let schema_provider = Arc::new(task::block_on(PgPermanentSchemaProvider::try_new(
-                        &schema_name,
-                        ParadeDirectory::schema_path(
-                            DatafusionContext::postgres_catalog_oid()?,
-                            schema_oid,
-                        )?,
-                    ))?);
+                    let schema_provider =
+                        Arc::new(task::block_on(PermanentSchemaProvider::try_new(
+                            &schema_name,
+                            ParadeDirectory::schema_path(
+                                DatafusionContext::postgres_catalog_oid()?,
+                                schema_oid,
+                            )?,
+                        ))?);
 
                     catalog.register_schema(&schema_name, schema_provider)?;
                 }
@@ -92,7 +93,7 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
                 return Ok(());
             }
 
-            DatafusionContext::with_pg_permanent_schema_provider(&schema_name, |provider| {
+            DatafusionContext::with_permanent_schema_provider(&schema_name, |provider| {
                 task::block_on(provider.create_table(&pg_relation))
             })
         }

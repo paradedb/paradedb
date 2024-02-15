@@ -70,7 +70,7 @@ pub unsafe fn alter(
         let schema = Arc::new(ArrowSchema::new(fields_to_add));
         let batch = RecordBatch::new_empty(schema);
 
-        DatafusionContext::with_pg_permanent_schema_provider(schema_name, |provider| {
+        DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
             task::block_on(provider.merge_schema(table_name, batch))
         })?;
     }

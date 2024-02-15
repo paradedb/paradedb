@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use crate::datafusion::catalog::{ObjectStoreCatalog, ParadeCatalogList, PostgresCatalog};
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::{PgPermanentSchemaProvider, PgTempSchemaProvider};
+use crate::datafusion::schema::{PermanentSchemaProvider, TempSchemaProvider};
 use crate::errors::{NotFound, ParadeError};
 
 lazy_static! {
@@ -45,12 +45,9 @@ impl<'a> DatafusionContext {
         f(&context)
     }
 
-    pub fn with_pg_permanent_schema_provider<F, R>(
-        schema_name: &str,
-        f: F,
-    ) -> Result<R, ParadeError>
+    pub fn with_permanent_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(&PgPermanentSchemaProvider) -> Result<R, ParadeError>,
+        F: FnOnce(&PermanentSchemaProvider) -> Result<R, ParadeError>,
     {
         let context_lock = CONTEXT.read();
         let context = match context_lock.as_ref() {
@@ -78,9 +75,9 @@ impl<'a> DatafusionContext {
 
         let parade_provider = schema_provider
             .as_any()
-            .downcast_ref::<PgPermanentSchemaProvider>()
+            .downcast_ref::<PermanentSchemaProvider>()
             .ok_or(NotFound::Value(
-                type_name::<PgPermanentSchemaProvider>().to_string(),
+                type_name::<PermanentSchemaProvider>().to_string(),
             ))?;
 
         f(parade_provider)
@@ -144,9 +141,9 @@ impl<'a> DatafusionContext {
         f(parade_catalog)
     }
 
-    pub fn with_pg_temp_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
+    pub fn with_temp_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(&PgTempSchemaProvider) -> Result<R, ParadeError>,
+        F: FnOnce(&TempSchemaProvider) -> Result<R, ParadeError>,
     {
         let context_lock = CONTEXT.read();
         let context = match context_lock.as_ref() {
@@ -167,9 +164,9 @@ impl<'a> DatafusionContext {
 
         let parade_provider = schema_provider
             .as_any()
-            .downcast_ref::<PgTempSchemaProvider>()
+            .downcast_ref::<TempSchemaProvider>()
             .ok_or(NotFound::Value(
-                type_name::<PgTempSchemaProvider>().to_string(),
+                type_name::<TempSchemaProvider>().to_string(),
             ))?;
 
         f(parade_provider)

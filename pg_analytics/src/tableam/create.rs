@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::{DeltaSchemaProvider, ObjectStoreSchemaProvider};
+use crate::datafusion::schema::{DeltaSchemaProvider, PgTempSchemaProvider};
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -47,29 +47,29 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
 
     match persistence as u8 {
         pg_sys::RELPERSISTENCE_TEMP => {
-            // DatafusionContext::with_delta_catalog(|catalog| {
+            // DatafusionContext::with_pg_permanent_catalog(|catalog| {
             //     if catalog.schema(&schema_name).is_none() {
-            //         let schema_provider = Arc::new(ObjectStoreSchemaProvider::new());
+            //         let schema_provider = Arc::new(PgTempSchemaProvider::new());
             //         catalog.register_schema(&schema_name, schema_provider)?;
             //     }
             //     Ok(())
             // })?;
 
-            // DatafusionContext::with_delta_schema_provider(&schema_name, |provider| {
+            // DatafusionContext::with_pg_permanent_schema_provider(&schema_name, |provider| {
             //     task::block_on(provider.create_table(&pg_relation))
             // })
             Ok(())
         }
         _ => {
-            let catalog_name = DatafusionContext::catalog_name()?;
+            let postgres_catalog_name = DatafusionContext::postgres_catalog_name()?;
             let schema_oid = pg_relation.namespace_oid();
 
-            DatafusionContext::with_delta_catalog(|catalog| {
+            DatafusionContext::with_pg_permanent_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
                     let schema_provider = Arc::new(task::block_on(DeltaSchemaProvider::try_new(
                         &schema_name,
                         ParadeDirectory::schema_path(
-                            DatafusionContext::catalog_oid()?,
+                            DatafusionContext::postgres_catalog_oid()?,
                             schema_oid,
                         )?,
                     ))?);
@@ -81,7 +81,8 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
             })?;
 
             let table_exists = DatafusionContext::with_session_context(|context| {
-                let reference = TableReference::full(catalog_name, schema_name.clone(), table_name);
+                let reference =
+                    TableReference::full(postgres_catalog_name, schema_name.clone(), table_name);
                 Ok(context.table_exist(reference)?)
             })?;
 
@@ -91,7 +92,7 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
                 return Ok(());
             }
 
-            DatafusionContext::with_delta_schema_provider(&schema_name, |provider| {
+            DatafusionContext::with_pg_permanent_schema_provider(&schema_name, |provider| {
                 task::block_on(provider.create_table(&pg_relation))
             })
         }

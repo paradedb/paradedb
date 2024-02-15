@@ -66,7 +66,7 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> 
         let table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
 
-        DatafusionContext::with_delta_schema_provider(schema_name, |provider| {
+        DatafusionContext::with_pg_permanent_schema_provider(schema_name, |provider| {
             let _ = provider.deregister_table(table_name);
             Ok(())
         })?;

@@ -80,10 +80,10 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
     match vacuum_all {
         true => {
             let schema_names =
-                DatafusionContext::with_delta_catalog(|catalog| Ok(catalog.schema_names()))?;
+                DatafusionContext::with_pg_permanent_catalog(|catalog| Ok(catalog.schema_names()))?;
 
             for schema_name in schema_names {
-                DatafusionContext::with_delta_schema_provider(&schema_name, |provider| {
+                DatafusionContext::with_pg_permanent_schema_provider(&schema_name, |provider| {
                     task::block_on(provider.vacuum_all(vacuum_options.full))
                 })?;
             }
@@ -136,7 +136,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 let table_name = pg_relation.name();
                 let schema_name = pg_relation.namespace();
 
-                DatafusionContext::with_delta_schema_provider(schema_name, |provider| {
+                DatafusionContext::with_pg_permanent_schema_provider(schema_name, |provider| {
                     task::block_on(provider.vacuum(table_name, vacuum_options.full))
                 })?;
 

@@ -10,7 +10,7 @@ use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::DeltaSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
 
-pub struct DeltaCatalog {
+pub struct PostgresCatalog {
     schemas: RwLock<HashMap<String, Arc<dyn SchemaProvider>>>,
 }
 
@@ -22,7 +22,7 @@ pub struct ParadeCatalogList {
     catalogs: RwLock<HashMap<String, Arc<dyn CatalogProvider>>>,
 }
 
-impl DeltaCatalog {
+impl PostgresCatalog {
     pub fn try_new() -> Result<Self, ParadeError> {
         Ok(Self {
             schemas: RwLock::new(HashMap::new()),
@@ -30,7 +30,7 @@ impl DeltaCatalog {
     }
 
     pub async fn init(&self) -> Result<(), ParadeError> {
-        let delta_dir = ParadeDirectory::catalog_path(DatafusionContext::catalog_oid()?)?;
+        let delta_dir = ParadeDirectory::catalog_path(DatafusionContext::postgres_catalog_oid()?)?;
 
         for entry in std::fs::read_dir(delta_dir)? {
             let entry = entry?;
@@ -58,7 +58,10 @@ impl DeltaCatalog {
                 let schema_provider = Arc::new(
                     DeltaSchemaProvider::try_new(
                         schema_name.as_str(),
-                        ParadeDirectory::schema_path(DatafusionContext::catalog_oid()?, pg_oid)?,
+                        ParadeDirectory::schema_path(
+                            DatafusionContext::postgres_catalog_oid()?,
+                            pg_oid,
+                        )?,
                     )
                     .await?,
                 );
@@ -73,7 +76,7 @@ impl DeltaCatalog {
     }
 }
 
-impl CatalogProvider for DeltaCatalog {
+impl CatalogProvider for PostgresCatalog {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -163,6 +166,7 @@ impl CatalogList for ParadeCatalogList {
         name: String,
         catalog: Arc<dyn CatalogProvider>,
     ) -> Option<Arc<dyn CatalogProvider>> {
+        info!("registering catalog {}", name);
         let mut cats = self.catalogs.write();
         cats.insert(name, catalog.clone());
         Some(catalog)

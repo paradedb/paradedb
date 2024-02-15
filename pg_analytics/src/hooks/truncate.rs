@@ -52,7 +52,7 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
 
         pg_sys::RelationClose(relation);
 
-        DatafusionContext::with_delta_schema_provider(schema_name, |provider| {
+        DatafusionContext::with_pg_permanent_schema_provider(schema_name, |provider| {
             task::block_on(provider.delete(table_name, None))
         })?;
     }

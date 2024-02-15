@@ -17,12 +17,10 @@ use std::any::type_name;
 use std::ffi::{CStr, CString};
 use std::sync::Arc;
 
-use crate::datafusion::catalog::{DeltaCatalog, ObjectStoreCatalog, ParadeCatalogList};
+use crate::datafusion::catalog::{ObjectStoreCatalog, ParadeCatalogList, PostgresCatalog};
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::DeltaSchemaProvider;
+use crate::datafusion::schema::{DeltaSchemaProvider, PgTempSchemaProvider};
 use crate::errors::{NotFound, ParadeError};
-
-pub static OBJECT_STORE_CATALOG_NAME: &str = "paradedb_object_store_catalog";
 
 lazy_static! {
     pub static ref CONTEXT: RwLock<Option<SessionContext>> = RwLock::new(None);
@@ -40,42 +38,141 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init(Self::catalog_oid()?)?
+                DatafusionContext::init(Self::postgres_catalog_oid()?)?
             }
         };
 
         f(&context)
     }
 
-    pub fn with_delta_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
-    where
-        F: FnOnce(&DeltaSchemaProvider) -> Result<R, ParadeError>,
-    {
-        Self::with_schema_provider(schema_name, f, &Self::catalog_name()?)
-    }
-
-    pub fn with_delta_catalog<F, R>(f: F) -> Result<R, ParadeError>
-    where
-        F: FnOnce(&DeltaCatalog) -> Result<R, ParadeError>,
-    {
-        Self::with_catalog(f, &Self::catalog_name()?)
-    }
-
-    pub fn with_object_store_catalog<F, R>(f: F) -> Result<R, ParadeError>
-    where
-        F: FnOnce(&DeltaCatalog) -> Result<R, ParadeError>,
-    {
-        Self::with_catalog(f, OBJECT_STORE_CATALOG_NAME)
-    }
-
-    pub fn with_object_store_schema_provider<F, R>(
+    pub fn with_pg_permanent_schema_provider<F, R>(
         schema_name: &str,
         f: F,
     ) -> Result<R, ParadeError>
     where
         F: FnOnce(&DeltaSchemaProvider) -> Result<R, ParadeError>,
     {
-        Self::with_schema_provider(schema_name, f, OBJECT_STORE_CATALOG_NAME)
+        let context_lock = CONTEXT.read();
+        let context = match context_lock.as_ref() {
+            Some(context) => context.clone(),
+            None => {
+                drop(context_lock);
+                DatafusionContext::init(Self::postgres_catalog_oid()?)?
+            }
+        };
+
+        let catalog_provider =
+            context
+                .catalog(&Self::postgres_catalog_name()?)
+                .ok_or(NotFound::Catalog(
+                    Self::postgres_catalog_name()?.to_string(),
+                ))?;
+
+        let schema_provider = context
+            .catalog(&Self::postgres_catalog_name()?)
+            .ok_or(NotFound::Catalog(
+                Self::postgres_catalog_name()?.to_string(),
+            ))?
+            .schema(schema_name)
+            .ok_or(NotFound::Schema(schema_name.to_string()))?;
+
+        let parade_provider = schema_provider
+            .as_any()
+            .downcast_ref::<DeltaSchemaProvider>()
+            .ok_or(NotFound::Value(
+                type_name::<DeltaSchemaProvider>().to_string(),
+            ))?;
+
+        f(parade_provider)
+    }
+
+    pub fn with_pg_permanent_catalog<F, R>(f: F) -> Result<R, ParadeError>
+    where
+        F: FnOnce(&PostgresCatalog) -> Result<R, ParadeError>,
+    {
+        let context_lock = CONTEXT.read();
+        let context = match context_lock.as_ref() {
+            Some(context) => context.clone(),
+            None => {
+                drop(context_lock);
+                DatafusionContext::init(Self::postgres_catalog_oid()?)?
+            }
+        };
+
+        let catalog_provider =
+            context
+                .catalog(&Self::postgres_catalog_name()?)
+                .ok_or(NotFound::Catalog(
+                    Self::postgres_catalog_name()?.to_string(),
+                ))?;
+
+        let parade_catalog = catalog_provider
+            .as_any()
+            .downcast_ref::<PostgresCatalog>()
+            .ok_or(NotFound::Value(type_name::<PostgresCatalog>().to_string()))?;
+
+        f(parade_catalog)
+    }
+
+    pub fn with_object_store_catalog<F, R>(f: F) -> Result<R, ParadeError>
+    where
+        F: FnOnce(&ObjectStoreCatalog) -> Result<R, ParadeError>,
+    {
+        let context_lock = CONTEXT.read();
+        let context = match context_lock.as_ref() {
+            Some(context) => context.clone(),
+            None => {
+                drop(context_lock);
+                DatafusionContext::init(Self::postgres_catalog_oid()?)?
+            }
+        };
+
+        let catalog_provider =
+            context
+                .catalog(&Self::object_store_catalog_name()?)
+                .ok_or(NotFound::Catalog(
+                    Self::object_store_catalog_name()?.to_string(),
+                ))?;
+
+        let parade_catalog = catalog_provider
+            .as_any()
+            .downcast_ref::<ObjectStoreCatalog>()
+            .ok_or(NotFound::Value(
+                type_name::<ObjectStoreCatalog>().to_string(),
+            ))?;
+
+        f(parade_catalog)
+    }
+
+    pub fn with_pg_temp_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
+    where
+        F: FnOnce(&PgTempSchemaProvider) -> Result<R, ParadeError>,
+    {
+        let context_lock = CONTEXT.read();
+        let context = match context_lock.as_ref() {
+            Some(context) => context.clone(),
+            None => {
+                drop(context_lock);
+                DatafusionContext::init(Self::postgres_catalog_oid()?)?
+            }
+        };
+
+        let schema_provider = context
+            .catalog(&Self::postgres_catalog_name()?)
+            .ok_or(NotFound::Catalog(
+                Self::postgres_catalog_name()?.to_string(),
+            ))?
+            .schema(schema_name)
+            .ok_or(NotFound::Schema(schema_name.to_string()))?;
+
+        let parade_provider = schema_provider
+            .as_any()
+            .downcast_ref::<PgTempSchemaProvider>()
+            .ok_or(NotFound::Value(
+                type_name::<PgTempSchemaProvider>().to_string(),
+            ))?;
+
+        f(parade_provider)
     }
 
     pub fn with_write_lock<F, R>(f: F) -> Result<R, ParadeError>
@@ -116,13 +213,16 @@ impl<'a> DatafusionContext {
             context.register_catalog_list(Arc::new(ParadeCatalogList::try_new()?));
 
             // Create and register delta catalog
-            let delta_catalog = DeltaCatalog::try_new()?;
-            task::block_on(delta_catalog.init())?;
-            context.register_catalog(&Self::catalog_name()?, Arc::new(delta_catalog));
+            let postgres_catalog = PostgresCatalog::try_new()?;
+            task::block_on(postgres_catalog.init())?;
+            context.register_catalog(&Self::postgres_catalog_name()?, Arc::new(postgres_catalog));
 
             // Create and register object store catalog
             let object_store_catalog = ObjectStoreCatalog::try_new()?;
-            context.register_catalog(OBJECT_STORE_CATALOG_NAME, Arc::new(object_store_catalog));
+            context.register_catalog(
+                &Self::object_store_catalog_name()?,
+                Arc::new(object_store_catalog),
+            );
 
             // Set context
             *context_lock = Some(context.clone());
@@ -131,75 +231,23 @@ impl<'a> DatafusionContext {
         })
     }
 
-    pub fn catalog_name() -> Result<String, ParadeError> {
-        let database_name = unsafe { pg_sys::get_database_name(Self::catalog_oid()?) };
+    pub fn postgres_catalog_name() -> Result<String, ParadeError> {
+        let database_name = unsafe { pg_sys::get_database_name(Self::postgres_catalog_oid()?) };
         if database_name.is_null() {
-            return Err(NotFound::Database(Self::catalog_oid()?.as_u32().to_string()).into());
+            return Err(
+                NotFound::Database(Self::postgres_catalog_oid()?.as_u32().to_string()).into(),
+            );
         }
 
         Ok(unsafe { CStr::from_ptr(database_name).to_str()?.to_owned() })
     }
 
-    pub fn catalog_oid() -> Result<pg_sys::Oid, ParadeError> {
+    pub fn object_store_catalog_name() -> Result<String, ParadeError> {
+        Ok(String::from("paradedb_object_store_catalog"))
+    }
+
+    pub fn postgres_catalog_oid() -> Result<pg_sys::Oid, ParadeError> {
         Ok(unsafe { pg_sys::MyDatabaseId })
-    }
-
-    fn with_catalog<F, R>(f: F, name: &str) -> Result<R, ParadeError>
-    where
-        F: FnOnce(&DeltaCatalog) -> Result<R, ParadeError>,
-    {
-        let context_lock = CONTEXT.read();
-        let context = match context_lock.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                drop(context_lock);
-                DatafusionContext::init(Self::catalog_oid()?)?
-            }
-        };
-
-        let catalog_provider = context
-            .catalog(&Self::catalog_name()?)
-            .ok_or(NotFound::Catalog(name.to_string()))?;
-
-        let parade_catalog = catalog_provider
-            .as_any()
-            .downcast_ref::<DeltaCatalog>()
-            .ok_or(NotFound::Value(type_name::<DeltaCatalog>().to_string()))?;
-
-        f(parade_catalog)
-    }
-
-    fn with_schema_provider<F, R>(
-        schema_name: &str,
-        f: F,
-        catalog_name: &str,
-    ) -> Result<R, ParadeError>
-    where
-        F: FnOnce(&DeltaSchemaProvider) -> Result<R, ParadeError>,
-    {
-        let context_lock = CONTEXT.read();
-        let context = match context_lock.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                drop(context_lock);
-                DatafusionContext::init(Self::catalog_oid()?)?
-            }
-        };
-
-        let schema_provider = context
-            .catalog(catalog_name)
-            .ok_or(NotFound::Catalog(catalog_name.to_string()))?
-            .schema(schema_name)
-            .ok_or(NotFound::Schema(schema_name.to_string()))?;
-
-        let parade_provider = schema_provider
-            .as_any()
-            .downcast_ref::<DeltaSchemaProvider>()
-            .ok_or(NotFound::Value(
-                type_name::<DeltaSchemaProvider>().to_string(),
-            ))?;
-
-        f(parade_provider)
     }
 }
 

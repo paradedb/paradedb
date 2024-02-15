@@ -43,17 +43,17 @@ extension_sql!(
         secret_access_key TEXT DEFAULT NULL,
         token TEXT DEFAULT NULL,
         endpoint TEXT DEFAULT NULL,
-        allow_http BOOLEAN DEFAULT FALSE,
-        s3_express BOOLEAN DEFAULT FALSE,
-        imdsv1_fallback BOOLEAN DEFAULT FALSE,
-        unsigned_payload BOOLEAN DEFAULT FALSE,
-        skip_signature BOOLEAN DEFAULT FALSE,
-        checksum_algorithm BOOLEAN DEFAULT FALSE,
+        allow_http BOOLEAN DEFAULT NULL,
+        s3_express BOOLEAN DEFAULT NULL,
+        imdsv1_fallback BOOLEAN DEFAULT NULL,
+        unsigned_payload BOOLEAN DEFAULT NULL,
+        skip_signature BOOLEAN DEFAULT NULL,
+        checksum_algorithm BOOLEAN DEFAULT NULL,
         metadata_endpoint TEXT DEFAULT NULL,
         proxy_url TEXT DEFAULT NULL,
         proxy_ca_certificate TEXT DEFAULT NULL,
         proxy_excludes TEXT DEFAULT NULL,
-        disable_tagging BOOLEAN DEFAULT FALSE,
+        disable_tagging BOOLEAN DEFAULT NULL,
         has_header BOOLEAN DEFAULT FALSE
     ) 
     LANGUAGE C AS 'MODULE_PATHNAME', 'register_s3';
@@ -90,75 +90,77 @@ fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError>
     let disable_tagging: Option<bool> = unsafe { fcinfo::pg_getarg(fcinfo, 18) };
     let has_header: Option<bool> = unsafe { fcinfo::pg_getarg(fcinfo, 19) };
 
-    let builder = AmazonS3Builder::new()
+    let mut builder = AmazonS3Builder::new()
         .with_url(url.as_str())
         .with_region(region.as_str());
 
     if let Some(access_key_id) = access_key_id {
-        builder.clone().with_access_key_id(access_key_id.as_str());
+        builder = builder.clone().with_access_key_id(access_key_id.as_str());
     }
 
     if let Some(secret_access_key) = secret_access_key {
-        builder
+        builder = builder
             .clone()
             .with_secret_access_key(secret_access_key.as_str());
     }
 
     if let Some(token) = token {
-        builder.clone().with_token(token.as_str());
+        builder = builder.clone().with_token(token.as_str());
     }
 
     if let Some(endpoint) = endpoint {
-        builder.clone().with_endpoint(endpoint.as_str());
+        builder = builder.clone().with_endpoint(endpoint.as_str());
     }
 
     if let Some(allow_http) = allow_http {
-        builder.clone().with_allow_http(allow_http);
+        builder = builder.clone().with_allow_http(allow_http);
     }
 
     if let Some(s3_express) = s3_express {
-        builder.clone().with_s3_express(s3_express);
+        builder = builder.clone().with_s3_express(s3_express);
     }
 
     if let Some(true) = imdsv1_fallback {
-        builder.clone().with_imdsv1_fallback();
+        builder = builder.clone().with_imdsv1_fallback();
     }
 
     if let Some(unsigned_payload) = unsigned_payload {
-        builder.clone().with_unsigned_payload(unsigned_payload);
+        builder = builder.clone().with_unsigned_payload(unsigned_payload);
     }
 
     if let Some(skip_signature) = skip_signature {
-        builder.clone().with_skip_signature(skip_signature);
+        builder = builder.clone().with_skip_signature(skip_signature);
     }
 
     if let Some(true) = checksum_algorithm {
-        builder.clone().with_checksum_algorithm(Checksum::SHA256);
+        builder = builder.clone().with_checksum_algorithm(Checksum::SHA256);
     }
 
     if let Some(metadata_endpoint) = metadata_endpoint {
-        builder
+        builder = builder
             .clone()
             .with_metadata_endpoint(metadata_endpoint.as_str());
     }
 
     if let Some(proxy_url) = proxy_url {
-        builder.clone().with_proxy_url(proxy_url.as_str());
+        builder = builder.clone().with_proxy_url(proxy_url.as_str());
     }
 
     if let Some(proxy_ca_certificate) = proxy_ca_certificate {
-        builder
+        builder = builder
             .clone()
             .with_proxy_ca_certificate(proxy_ca_certificate.as_str());
     }
 
     if let Some(proxy_excludes) = proxy_excludes {
-        builder.clone().with_proxy_excludes(proxy_excludes.as_str());
+        builder = builder.clone().with_proxy_excludes(proxy_excludes.as_str());
     }
 
     if let Some(disable_tagging) = disable_tagging {
-        builder.clone().with_disable_tagging(disable_tagging);
+        builder = builder.clone().with_disable_tagging(disable_tagging);
     }
+
+    info!("s3 starting");
 
     let listing_schema_provider = DatafusionContext::with_session_context(|context| {
         let object_store = Arc::new(builder.build()?);
@@ -186,8 +188,12 @@ fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError>
         Ok(schema_provider)
     })?;
 
+    info!("s3 done");
+
     let _ = DatafusionContext::with_object_store_catalog(|catalog| {
+        info!("registering schema {}", nickname);
         let _ = catalog.register_schema(&nickname, Arc::new(listing_schema_provider));
+
         Ok(())
     });
 

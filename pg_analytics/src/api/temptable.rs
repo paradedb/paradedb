@@ -6,7 +6,7 @@ use std::ffi::CStr;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::schema::ObjectStoreSchemaProvider;
+use crate::datafusion::schema::PgTempSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
 
 const DUMMY_TABLE_NAME: &str = "paradedb_dummy_foreign_parquet_table";
@@ -54,23 +54,25 @@ fn create_foreign_parquet_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result
     let temp_schema_name =
         unsafe { CStr::from_ptr(pg_sys::get_namespace_name(temp_schema_oid)).to_str()? };
 
-    info!("got temp schema name: {}", temp_schema_name);
+    info!("got temp schema name");
 
     let listing_table =
-        DatafusionContext::with_object_store_schema_provider(&foreign_nickname, |provider| {
+        DatafusionContext::with_pg_temp_schema_provider(&foreign_nickname, |provider| {
             task::block_on(provider.table(&foreign_table_name))
                 .ok_or(NotFound::Table(foreign_table_name).into())
         })?;
 
-    DatafusionContext::with_delta_catalog(|catalog| {
+    info!("got listing table");
+
+    DatafusionContext::with_pg_permanent_catalog(|catalog| {
         if catalog.schema(&temp_schema_name).is_none() {
-            let schema_provider = Arc::new(ObjectStoreSchemaProvider::new()?);
+            let schema_provider = Arc::new(PgTempSchemaProvider::new()?);
             catalog.register_schema(&temp_schema_name, schema_provider)?;
         }
         Ok(())
     })?;
 
-    let _ = DatafusionContext::with_delta_schema_provider(temp_schema_name, |provider| {
+    let _ = DatafusionContext::with_pg_permanent_schema_provider(temp_schema_name, |provider| {
         Ok(provider.register_table(table_name.clone(), listing_table))
     })?;
 

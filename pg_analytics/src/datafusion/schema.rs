@@ -132,12 +132,15 @@ impl DeltaSchemaProvider {
 
         // Create a DeltaTable
 
-        ParadeDirectory::create_schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
+        ParadeDirectory::create_schema_path(
+            DatafusionContext::postgres_catalog_oid()?,
+            schema_oid,
+        )?;
 
         let mut delta_table = CreateBuilder::new()
             .with_location(
                 ParadeDirectory::table_path(
-                    DatafusionContext::catalog_oid()?,
+                    DatafusionContext::postgres_catalog_oid()?,
                     schema_oid,
                     table_oid,
                 )?
@@ -438,7 +441,7 @@ impl DeltaSchemaProvider {
 
                 deltalake::open_table(
                     ParadeDirectory::table_path(
-                        DatafusionContext::catalog_oid()?,
+                        DatafusionContext::postgres_catalog_oid()?,
                         schema_oid,
                         table_oid,
                     )?
@@ -561,12 +564,12 @@ impl SchemaProvider for DeltaSchemaProvider {
     }
 }
 
-pub struct ObjectStoreSchemaProvider {
+pub struct PgTempSchemaProvider {
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
 }
 
-impl ObjectStoreSchemaProvider {
-    pub fn new() -> Result<ObjectStoreSchemaProvider, ParadeError> {
+impl PgTempSchemaProvider {
+    pub fn new() -> Result<PgTempSchemaProvider, ParadeError> {
         Ok(Self {
             tables: RwLock::new(HashMap::new()),
         })
@@ -597,7 +600,7 @@ impl ObjectStoreSchemaProvider {
 }
 
 #[async_trait]
-impl SchemaProvider for ObjectStoreSchemaProvider {
+impl SchemaProvider for PgTempSchemaProvider {
     fn as_any(&self) -> &dyn Any {
         self
     }

@@ -71,7 +71,7 @@ fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let schema_name = pg_relation.namespace();
     let arrow_schema = pg_relation.arrow_schema()?;
 
-    DatafusionContext::with_delta_schema_provider(schema_name, |provider| {
+    DatafusionContext::with_pg_permanent_schema_provider(schema_name, |provider| {
         task::block_on(provider.flush_and_commit(table_name, arrow_schema))
     })?;
 
@@ -109,7 +109,7 @@ fn insert_tuples(
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
     // Write the RecordBatch to the Delta table
-    DatafusionContext::with_delta_schema_provider(schema_name, |provider| {
+    DatafusionContext::with_pg_permanent_schema_provider(schema_name, |provider| {
         task::block_on(provider.write(table_name, batch))?;
 
         if commit {

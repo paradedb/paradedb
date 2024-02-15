@@ -69,7 +69,7 @@ impl DeltaTableProvider for PgRelation {
         let schema_name = self.namespace();
         let catalog_name = DatafusionContext::catalog_name()?;
 
-        let provider = DatafusionContext::with_schema_provider(schema_name, |provider| {
+        let provider = DatafusionContext::with_delta_schema_provider(schema_name, |provider| {
             let delta_table = task::block_on(provider.get_delta_table(table_name))?;
             Ok(provider.register_table(
                 table_name.to_string(),

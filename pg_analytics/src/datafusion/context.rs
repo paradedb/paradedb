@@ -47,33 +47,11 @@ impl<'a> DatafusionContext {
         f(&context)
     }
 
-    pub fn with_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
+    pub fn with_delta_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
     where
         F: FnOnce(&DeltaSchemaProvider) -> Result<R, ParadeError>,
     {
-        let context_lock = CONTEXT.read();
-        let context = match context_lock.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                drop(context_lock);
-                DatafusionContext::init(Self::catalog_oid()?)?
-            }
-        };
-
-        let schema_provider = context
-            .catalog(&Self::catalog_name()?)
-            .ok_or(NotFound::Catalog(Self::catalog_name()?.to_string()))?
-            .schema(schema_name)
-            .ok_or(NotFound::Schema(schema_name.to_string()))?;
-
-        let parade_provider = schema_provider
-            .as_any()
-            .downcast_ref::<DeltaSchemaProvider>()
-            .ok_or(NotFound::Value(
-                type_name::<DeltaSchemaProvider>().to_string(),
-            ))?;
-
-        f(parade_provider)
+        Self::with_schema_provider(schema_name, f, &Self::catalog_name()?)
     }
 
     pub fn with_delta_catalog<F, R>(f: F) -> Result<R, ParadeError>
@@ -88,6 +66,16 @@ impl<'a> DatafusionContext {
         F: FnOnce(&DeltaCatalog) -> Result<R, ParadeError>,
     {
         Self::with_catalog(f, OBJECT_STORE_CATALOG_NAME)
+    }
+
+    pub fn with_object_store_schema_provider<F, R>(
+        schema_name: &str,
+        f: F,
+    ) -> Result<R, ParadeError>
+    where
+        F: FnOnce(&DeltaSchemaProvider) -> Result<R, ParadeError>,
+    {
+        Self::with_schema_provider(schema_name, f, OBJECT_STORE_CATALOG_NAME)
     }
 
     pub fn with_write_lock<F, R>(f: F) -> Result<R, ParadeError>
@@ -156,7 +144,7 @@ impl<'a> DatafusionContext {
         Ok(unsafe { pg_sys::MyDatabaseId })
     }
 
-    pub fn with_catalog<F, R>(f: F, name: &str) -> Result<R, ParadeError>
+    fn with_catalog<F, R>(f: F, name: &str) -> Result<R, ParadeError>
     where
         F: FnOnce(&DeltaCatalog) -> Result<R, ParadeError>,
     {
@@ -179,6 +167,39 @@ impl<'a> DatafusionContext {
             .ok_or(NotFound::Value(type_name::<DeltaCatalog>().to_string()))?;
 
         f(parade_catalog)
+    }
+
+    fn with_schema_provider<F, R>(
+        schema_name: &str,
+        f: F,
+        catalog_name: &str,
+    ) -> Result<R, ParadeError>
+    where
+        F: FnOnce(&DeltaSchemaProvider) -> Result<R, ParadeError>,
+    {
+        let context_lock = CONTEXT.read();
+        let context = match context_lock.as_ref() {
+            Some(context) => context.clone(),
+            None => {
+                drop(context_lock);
+                DatafusionContext::init(Self::catalog_oid()?)?
+            }
+        };
+
+        let schema_provider = context
+            .catalog(catalog_name)
+            .ok_or(NotFound::Catalog(catalog_name.to_string()))?
+            .schema(schema_name)
+            .ok_or(NotFound::Schema(schema_name.to_string()))?;
+
+        let parade_provider = schema_provider
+            .as_any()
+            .downcast_ref::<DeltaSchemaProvider>()
+            .ok_or(NotFound::Value(
+                type_name::<DeltaSchemaProvider>().to_string(),
+            ))?;
+
+        f(parade_provider)
     }
 }
 

@@ -76,6 +76,9 @@ pub enum NotFound {
     #[error("File format {0} not supported")]
     FileFormat(String),
 
+    #[error("Failed to get temp schema oid")]
+    TempSchemaOid,
+
     #[error("Invalid parquet handler oid")]
     Handler,
 }
@@ -163,6 +166,12 @@ impl From<OsString> for ParadeError {
 
 impl From<ParseError> for ParadeError {
     fn from(err: ParseError) -> Self {
+        ParadeError::Generic(err.to_string())
+    }
+}
+
+impl From<spi::SpiError> for ParadeError {
+    fn from(err: spi::SpiError) -> Self {
         ParadeError::Generic(err.to_string())
     }
 }

@@ -43,9 +43,10 @@ pub unsafe fn rename(
             for operation in operations {
                 match operation {
                     RenameTable { .. } => {
-                        let _ = DatafusionContext::with_schema_provider(schema_name, |provider| {
-                            task::block_on(provider.rename(table_name, new_name))
-                        });
+                        let _ = DatafusionContext::with_delta_schema_provider(
+                            schema_name,
+                            |provider| task::block_on(provider.rename(table_name, new_name)),
+                        );
                     }
                     RenameColumn { .. } => {
                         return Err(NotSupported::RenameColumn.into());

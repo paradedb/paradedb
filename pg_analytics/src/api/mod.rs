@@ -2,6 +2,7 @@ use pgrx::*;
 
 mod init;
 mod s3;
+mod temptable;
 
 static V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
 
@@ -14,5 +15,11 @@ extern "C" fn pg_finfo_init() -> &'static pg_sys::Pg_finfo_record {
 #[pg_guard]
 #[no_mangle]
 extern "C" fn pg_finfo_register_s3() -> &'static pg_sys::Pg_finfo_record {
+    &V1_API
+}
+
+#[pg_guard]
+#[no_mangle]
+extern "C" fn pg_finfo_create_foreign_parquet_table() -> &'static pg_sys::Pg_finfo_record {
     &V1_API
 }

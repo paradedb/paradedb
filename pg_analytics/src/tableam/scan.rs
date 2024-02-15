@@ -52,7 +52,7 @@ fn delta_scan_begin_impl(
         Ok((state, task_context))
     })?;
 
-    DatafusionContext::with_schema_provider(schema_name, |provider| {
+    DatafusionContext::with_delta_schema_provider(schema_name, |provider| {
         let stream = task::block_on(provider.create_stream(table_name, &state, task_context))?;
         provider.register_stream(table_name, stream)
     })?;
@@ -130,7 +130,7 @@ unsafe fn deltalake_scan_getnextslot_impl(
         (*dscan).curr_batch_idx = 0;
 
         (*dscan).curr_batch =
-            match DatafusionContext::with_schema_provider(schema_name, |provider| {
+            match DatafusionContext::with_delta_schema_provider(schema_name, |provider| {
                 provider.get_next_streamed_batch(table_name)
             })? {
                 Some(batch) => Some(Arc::new(batch)),

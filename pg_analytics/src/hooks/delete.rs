@@ -33,14 +33,15 @@ pub fn delete(
     })?;
 
     let delete_metrics = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-        DatafusionContext::with_schema_provider(schema_name, |provider| {
-            match dml_statement.input.as_ref() {
-                LogicalPlan::Filter(filter) => {
-                    task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))
-                }
-                LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
-                _ => Err(NotSupported::NestedDelete.into()),
+        DatafusionContext::with_delta_schema_provider(schema_name, |provider| match dml_statement
+            .input
+            .as_ref()
+        {
+            LogicalPlan::Filter(filter) => {
+                task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))
             }
+            LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
+            _ => Err(NotSupported::NestedDelete.into()),
         })?
     } else {
         unreachable!()

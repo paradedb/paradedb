@@ -40,8 +40,9 @@ use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 
 const BYTES_IN_MB: i64 = 1_048_576;
+pub static OBJECT_STORE_PROVIDER_NAME: &str = "parade_object_store";
 
-pub struct ParadeSchemaProvider {
+pub struct DeltaSchemaProvider {
     schema_name: String,
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
     writers: Mutex<HashMap<String, DeltaWriter>>,
@@ -49,9 +50,13 @@ pub struct ParadeSchemaProvider {
     dir: PathBuf,
 }
 
-impl ParadeSchemaProvider {
-    // Creates an empty ParadeSchemaProvider
+impl DeltaSchemaProvider {
+    // Creates an empty DeltaSchemaProvider
     pub async fn try_new(schema_name: &str, dir: PathBuf) -> Result<Self, ParadeError> {
+        if schema_name == OBJECT_STORE_PROVIDER_NAME {
+            return Err(ParadeError::ReservedSchema(schema_name.to_string()));
+        }
+
         Ok(Self {
             schema_name: schema_name.to_string(),
             tables: RwLock::new(HashMap::new()),
@@ -61,7 +66,7 @@ impl ParadeSchemaProvider {
         })
     }
 
-    // Loads tables and writers into ParadeSchemaProvider
+    // Loads tables and writers into DeltaSchemaProvider
     pub async fn init(&self) -> Result<(), ParadeError> {
         let mut tables = HashMap::new();
         let mut writers = HashMap::new();
@@ -523,7 +528,7 @@ impl ParadeSchemaProvider {
 }
 
 #[async_trait]
-impl SchemaProvider for ParadeSchemaProvider {
+impl SchemaProvider for DeltaSchemaProvider {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -538,6 +543,47 @@ impl SchemaProvider for ParadeSchemaProvider {
         let provider = Arc::new(delta_table) as Arc<dyn TableProvider>;
 
         Self::register_table(self, name.to_string(), provider.clone()).ok()?
+    }
+
+    fn table_exist(&self, name: &str) -> bool {
+        let tables = self.tables.read();
+        tables.contains_key(name)
+    }
+
+    fn register_table(
+        &self,
+        name: String,
+        table: Arc<dyn TableProvider>,
+    ) -> Result<Option<Arc<dyn TableProvider>>> {
+        let mut tables = self.tables.write();
+        tables.insert(name, table.clone());
+        Ok(Some(table))
+    }
+
+    fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
+        let mut tables = self.tables.write();
+        Ok(tables.remove(name))
+    }
+}
+
+pub struct ObjectStoreSchemaProvider {
+    tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
+}
+
+#[async_trait]
+impl SchemaProvider for ObjectStoreSchemaProvider {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn table_names(&self) -> Vec<String> {
+        let tables = self.tables.read();
+        tables.keys().cloned().collect::<Vec<_>>()
+    }
+
+    async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
+        let tables = self.tables.read();
+        tables.get(name).cloned()
     }
 
     fn table_exist(&self, name: &str) -> bool {

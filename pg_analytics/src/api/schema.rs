@@ -1,14 +1,10 @@
 use async_std::task;
 use deltalake::datafusion::catalog::listing_schema::ListingSchemaProvider;
-
 use deltalake::datafusion::catalog::CatalogProvider;
-
 use object_store::aws::{AmazonS3Builder, Checksum};
-
 use pgrx::*;
 use serde::Serialize;
 use std::fmt::{Display, Formatter};
-
 use std::sync::Arc;
 use url::Url;
 
@@ -38,8 +34,8 @@ impl Display for FileFormat {
 
 extension_sql!(
     r#"
-    CREATE OR REPLACE PROCEDURE register_s3_schema(
-        schema_name TEXT,
+    CREATE OR REPLACE PROCEDURE register_s3(
+        nickname TEXT,
         file_format FileFormat,
         url TEXT,
         region TEXT,
@@ -60,20 +56,20 @@ extension_sql!(
         disable_tagging BOOLEAN DEFAULT FALSE,
         has_header BOOLEAN DEFAULT FALSE
     ) 
-    LANGUAGE C AS 'MODULE_PATHNAME', 'register_s3_schema';
+    LANGUAGE C AS 'MODULE_PATHNAME', 'register_s3';
     "#,
-    name = "register_s3_schema"
+    name = "register_s3"
 );
 #[pg_guard]
 #[no_mangle]
-pub extern "C" fn register_s3_schema(fcinfo: pg_sys::FunctionCallInfo) {
-    register_s3_schema_impl(fcinfo).unwrap_or_else(|err| {
+pub extern "C" fn register_s3(fcinfo: pg_sys::FunctionCallInfo) {
+    register_s3_impl(fcinfo).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
 
-fn register_s3_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError> {
-    let schema_name: String = unsafe { fcinfo::pg_getarg(fcinfo, 0).unwrap() };
+fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError> {
+    let nickname: String = unsafe { fcinfo::pg_getarg(fcinfo, 0).unwrap() };
     let file_format: FileFormat = unsafe { fcinfo::pg_getarg(fcinfo, 1).unwrap() };
     let url: String = unsafe { fcinfo::pg_getarg(fcinfo, 2).unwrap() };
     let region: String = unsafe { fcinfo::pg_getarg(fcinfo, 3).unwrap() };
@@ -88,13 +84,11 @@ fn register_s3_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), Parad
     let skip_signature: Option<bool> = unsafe { fcinfo::pg_getarg(fcinfo, 12) };
     let checksum_algorithm: Option<bool> = unsafe { fcinfo::pg_getarg(fcinfo, 13) };
     let metadata_endpoint: Option<String> = unsafe { fcinfo::pg_getarg(fcinfo, 14) };
-    let proxy_url: Option<String> = unsafe { fcinfo::pg_getarg(fcinfo, 14) };
-    let proxy_ca_certificate: Option<String> = unsafe { fcinfo::pg_getarg(fcinfo, 15) };
-    let proxy_excludes: Option<String> = unsafe { fcinfo::pg_getarg(fcinfo, 16) };
-    let disable_tagging: Option<bool> = unsafe { fcinfo::pg_getarg(fcinfo, 17) };
-    let has_header: bool = unsafe { fcinfo::pg_getarg(fcinfo, 18).unwrap() };
-
-    info!("got format {}", format!("{}", file_format));
+    let proxy_url: Option<String> = unsafe { fcinfo::pg_getarg(fcinfo, 15) };
+    let proxy_ca_certificate: Option<String> = unsafe { fcinfo::pg_getarg(fcinfo, 16) };
+    let proxy_excludes: Option<String> = unsafe { fcinfo::pg_getarg(fcinfo, 17) };
+    let disable_tagging: Option<bool> = unsafe { fcinfo::pg_getarg(fcinfo, 18) };
+    let has_header: Option<bool> = unsafe { fcinfo::pg_getarg(fcinfo, 19) };
 
     let builder = AmazonS3Builder::new()
         .with_url(url.as_str())
@@ -126,7 +120,7 @@ fn register_s3_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), Parad
         builder.clone().with_s3_express(s3_express);
     }
 
-    if let Some(_imdsv1_fallback) = imdsv1_fallback {
+    if let Some(true) = imdsv1_fallback {
         builder.clone().with_imdsv1_fallback();
     }
 
@@ -138,7 +132,7 @@ fn register_s3_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), Parad
         builder.clone().with_skip_signature(skip_signature);
     }
 
-    if let Some(_checksum_algorithm) = checksum_algorithm {
+    if let Some(true) = checksum_algorithm {
         builder.clone().with_checksum_algorithm(Checksum::SHA256);
     }
 
@@ -184,7 +178,7 @@ fn register_s3_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), Parad
                 .clone(),
             object_store,
             format!("{}", file_format),
-            has_header,
+            has_header.unwrap_or(false),
         );
 
         task::block_on(schema_provider.refresh(&context.state()))?;
@@ -192,8 +186,10 @@ fn register_s3_schema_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), Parad
         Ok(schema_provider)
     })?;
 
-    DatafusionContext::with_catalog(|catalog| {
-        let _ = catalog.register_schema(&schema_name, Arc::new(listing_schema_provider));
+    let _ = DatafusionContext::with_catalog(|catalog| {
+        let _ = catalog.register_schema(&nickname, Arc::new(listing_schema_provider));
         Ok(())
-    })
+    });
+
+    Ok(())
 }

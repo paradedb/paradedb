@@ -13,6 +13,6 @@ extern "C" fn pg_finfo_init() -> &'static pg_sys::Pg_finfo_record {
 
 #[pg_guard]
 #[no_mangle]
-extern "C" fn pg_finfo_register_s3_schema() -> &'static pg_sys::Pg_finfo_record {
+extern "C" fn pg_finfo_register_s3() -> &'static pg_sys::Pg_finfo_record {
     &V1_API
 }

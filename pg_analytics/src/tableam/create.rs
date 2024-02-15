@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::schema::DeltaSchemaProvider;
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -53,7 +53,7 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
 
             DatafusionContext::with_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
-                    let schema_provider = Arc::new(task::block_on(ParadeSchemaProvider::try_new(
+                    let schema_provider = Arc::new(task::block_on(DeltaSchemaProvider::try_new(
                         &schema_name,
                         ParadeDirectory::schema_path(
                             DatafusionContext::catalog_oid()?,

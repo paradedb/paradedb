@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::schema::DeltaSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
 
 lazy_static! {
@@ -47,7 +47,7 @@ impl<'a> DatafusionContext {
 
     pub fn with_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(&ParadeSchemaProvider) -> Result<R, ParadeError>,
+        F: FnOnce(&DeltaSchemaProvider) -> Result<R, ParadeError>,
     {
         let context_lock = CONTEXT.read();
         let context = match context_lock.as_ref() {
@@ -66,9 +66,9 @@ impl<'a> DatafusionContext {
 
         let parade_provider = schema_provider
             .as_any()
-            .downcast_ref::<ParadeSchemaProvider>()
+            .downcast_ref::<DeltaSchemaProvider>()
             .ok_or(NotFound::Value(
-                type_name::<ParadeSchemaProvider>().to_string(),
+                type_name::<DeltaSchemaProvider>().to_string(),
             ))?;
 
         f(parade_provider)

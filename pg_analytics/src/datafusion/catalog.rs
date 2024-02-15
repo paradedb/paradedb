@@ -7,7 +7,7 @@ use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr,
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::schema::DeltaSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
 
 pub struct ParadeCatalog {
@@ -52,7 +52,7 @@ impl ParadeCatalog {
                 };
 
                 let schema_provider = Arc::new(
-                    ParadeSchemaProvider::try_new(
+                    DeltaSchemaProvider::try_new(
                         schema_name.as_str(),
                         ParadeDirectory::schema_path(DatafusionContext::catalog_oid()?, pg_oid)?,
                     )

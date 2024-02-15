@@ -43,9 +43,6 @@ pub enum ParadeError {
     )]
     SharedPreload,
 
-    #[error("Schema name {0} is reserved by ParadeDB and cannot contain Parquet tables")]
-    ReservedSchema(String),
-
     #[error("{0}")]
     Generic(String),
 }

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::DeltaSchemaProvider;
+use crate::datafusion::schema::{DeltaSchemaProvider, ObjectStoreSchemaProvider};
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -42,16 +42,29 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
 #[inline]
 fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
+    let table_name = pg_relation.name().to_string();
+    let schema_name = pg_relation.namespace().to_string();
 
     match persistence as u8 {
-        pg_sys::RELPERSISTENCE_TEMP => Ok(()),
+        pg_sys::RELPERSISTENCE_TEMP => {
+            // DatafusionContext::with_delta_catalog(|catalog| {
+            //     if catalog.schema(&schema_name).is_none() {
+            //         let schema_provider = Arc::new(ObjectStoreSchemaProvider::new());
+            //         catalog.register_schema(&schema_name, schema_provider)?;
+            //     }
+            //     Ok(())
+            // })?;
+
+            // DatafusionContext::with_schema_provider(&schema_name, |provider| {
+            //     task::block_on(provider.create_table(&pg_relation))
+            // })
+            Ok(())
+        }
         _ => {
-            let table_name = pg_relation.name().to_string();
-            let schema_name = pg_relation.namespace().to_string();
             let catalog_name = DatafusionContext::catalog_name()?;
             let schema_oid = pg_relation.namespace_oid();
 
-            DatafusionContext::with_catalog(|catalog| {
+            DatafusionContext::with_delta_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
                     let schema_provider = Arc::new(task::block_on(DeltaSchemaProvider::try_new(
                         &schema_name,

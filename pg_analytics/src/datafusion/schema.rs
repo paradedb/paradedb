@@ -40,7 +40,6 @@ use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 
 const BYTES_IN_MB: i64 = 1_048_576;
-pub static OBJECT_STORE_PROVIDER_NAME: &str = "parade_object_store";
 
 pub struct DeltaSchemaProvider {
     schema_name: String,
@@ -53,10 +52,6 @@ pub struct DeltaSchemaProvider {
 impl DeltaSchemaProvider {
     // Creates an empty DeltaSchemaProvider
     pub async fn try_new(schema_name: &str, dir: PathBuf) -> Result<Self, ParadeError> {
-        if schema_name == OBJECT_STORE_PROVIDER_NAME {
-            return Err(ParadeError::ReservedSchema(schema_name.to_string()));
-        }
-
         Ok(Self {
             schema_name: schema_name.to_string(),
             tables: RwLock::new(HashMap::new()),
@@ -568,6 +563,37 @@ impl SchemaProvider for DeltaSchemaProvider {
 
 pub struct ObjectStoreSchemaProvider {
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
+}
+
+impl ObjectStoreSchemaProvider {
+    pub fn new() -> Result<ObjectStoreSchemaProvider, ParadeError> {
+        Ok(Self {
+            tables: RwLock::new(HashMap::new()),
+        })
+    }
+
+    // Creates and registers a ListingTable
+    pub async fn create_table(&self, pg_relation: &PgRelation) -> Result<(), ParadeError> {
+        // Create a RecordBatch with schema from pg_relation
+        // let table_oid = pg_relation.oid();
+        // let schema_oid = pg_relation.namespace_oid();
+        // let table_name = pg_relation.name();
+        // let fields = pg_relation.fields()?;
+        // let arrow_schema = ArrowSchema::new(fields);
+        // let batch = RecordBatch::new_empty(Arc::new(arrow_schema.clone()));
+
+        // // Create a ListingTable
+        // let listing_table = ...
+
+        // // Register the ListingTable
+        // Self::register_table(
+        //     self,
+        //     table_name.to_string(),
+        //     Arc::new(delta_table) as Arc<dyn TableProvider>,
+        // )?;
+
+        Ok(())
+    }
 }
 
 #[async_trait]

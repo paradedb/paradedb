@@ -10,7 +10,11 @@ use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::DeltaSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
 
-pub struct ParadeCatalog {
+pub struct DeltaCatalog {
+    schemas: RwLock<HashMap<String, Arc<dyn SchemaProvider>>>,
+}
+
+pub struct ObjectStoreCatalog {
     schemas: RwLock<HashMap<String, Arc<dyn SchemaProvider>>>,
 }
 
@@ -18,7 +22,7 @@ pub struct ParadeCatalogList {
     catalogs: RwLock<HashMap<String, Arc<dyn CatalogProvider>>>,
 }
 
-impl ParadeCatalog {
+impl DeltaCatalog {
     pub fn try_new() -> Result<Self, ParadeError> {
         Ok(Self {
             schemas: RwLock::new(HashMap::new()),
@@ -69,7 +73,47 @@ impl ParadeCatalog {
     }
 }
 
-impl CatalogProvider for ParadeCatalog {
+impl CatalogProvider for DeltaCatalog {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn register_schema(
+        &self,
+        name: &str,
+        schema: Arc<dyn SchemaProvider>,
+    ) -> Result<Option<Arc<dyn SchemaProvider>>, DataFusionError> {
+        let mut schema_map = self.schemas.write();
+        schema_map.insert(name.to_owned(), schema.clone());
+        Ok(Some(schema))
+    }
+
+    fn schema_names(&self) -> Vec<String> {
+        let schemas = self.schemas.read();
+        schemas.keys().cloned().collect()
+    }
+
+    fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
+        let schemas = self.schemas.read();
+        let maybe_schema = schemas.get(name);
+        if let Some(schema) = maybe_schema {
+            let schema = schema.clone() as Arc<dyn SchemaProvider>;
+            Some(schema)
+        } else {
+            None
+        }
+    }
+}
+
+impl ObjectStoreCatalog {
+    pub fn try_new() -> Result<Self, ParadeError> {
+        Ok(Self {
+            schemas: RwLock::new(HashMap::new()),
+        })
+    }
+}
+
+impl CatalogProvider for ObjectStoreCatalog {
     fn as_any(&self) -> &dyn Any {
         self
     }

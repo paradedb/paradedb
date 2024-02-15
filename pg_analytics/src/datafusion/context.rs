@@ -17,10 +17,12 @@ use std::any::type_name;
 use std::ffi::{CStr, CString};
 use std::sync::Arc;
 
-use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
+use crate::datafusion::catalog::{DeltaCatalog, ObjectStoreCatalog, ParadeCatalogList};
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::DeltaSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
+
+pub static OBJECT_STORE_CATALOG_NAME: &str = "paradedb_object_store_catalog";
 
 lazy_static! {
     pub static ref CONTEXT: RwLock<Option<SessionContext>> = RwLock::new(None);
@@ -74,29 +76,18 @@ impl<'a> DatafusionContext {
         f(parade_provider)
     }
 
-    pub fn with_catalog<F, R>(f: F) -> Result<R, ParadeError>
+    pub fn with_delta_catalog<F, R>(f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(&ParadeCatalog) -> Result<R, ParadeError>,
+        F: FnOnce(&DeltaCatalog) -> Result<R, ParadeError>,
     {
-        let context_lock = CONTEXT.read();
-        let context = match context_lock.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                drop(context_lock);
-                DatafusionContext::init(Self::catalog_oid()?)?
-            }
-        };
+        Self::with_catalog(f, &Self::catalog_name()?)
+    }
 
-        let catalog_provider = context
-            .catalog(&Self::catalog_name()?)
-            .ok_or(NotFound::Catalog(Self::catalog_name()?.to_string()))?;
-
-        let parade_catalog = catalog_provider
-            .as_any()
-            .downcast_ref::<ParadeCatalog>()
-            .ok_or(NotFound::Value(type_name::<ParadeCatalog>().to_string()))?;
-
-        f(parade_catalog)
+    pub fn with_object_store_catalog<F, R>(f: F) -> Result<R, ParadeError>
+    where
+        F: FnOnce(&DeltaCatalog) -> Result<R, ParadeError>,
+    {
+        Self::with_catalog(f, OBJECT_STORE_CATALOG_NAME)
     }
 
     pub fn with_write_lock<F, R>(f: F) -> Result<R, ParadeError>
@@ -136,10 +127,14 @@ impl<'a> DatafusionContext {
             // Register catalog list
             context.register_catalog_list(Arc::new(ParadeCatalogList::try_new()?));
 
-            // Create and register catalog
-            let catalog = ParadeCatalog::try_new()?;
-            task::block_on(catalog.init())?;
-            context.register_catalog(&Self::catalog_name()?, Arc::new(catalog));
+            // Create and register delta catalog
+            let delta_catalog = DeltaCatalog::try_new()?;
+            task::block_on(delta_catalog.init())?;
+            context.register_catalog(&Self::catalog_name()?, Arc::new(delta_catalog));
+
+            // Create and register object store catalog
+            let object_store_catalog = ObjectStoreCatalog::try_new()?;
+            context.register_catalog(OBJECT_STORE_CATALOG_NAME, Arc::new(object_store_catalog));
 
             // Set context
             *context_lock = Some(context.clone());
@@ -159,6 +154,31 @@ impl<'a> DatafusionContext {
 
     pub fn catalog_oid() -> Result<pg_sys::Oid, ParadeError> {
         Ok(unsafe { pg_sys::MyDatabaseId })
+    }
+
+    pub fn with_catalog<F, R>(f: F, name: &str) -> Result<R, ParadeError>
+    where
+        F: FnOnce(&DeltaCatalog) -> Result<R, ParadeError>,
+    {
+        let context_lock = CONTEXT.read();
+        let context = match context_lock.as_ref() {
+            Some(context) => context.clone(),
+            None => {
+                drop(context_lock);
+                DatafusionContext::init(Self::catalog_oid()?)?
+            }
+        };
+
+        let catalog_provider = context
+            .catalog(&Self::catalog_name()?)
+            .ok_or(NotFound::Catalog(name.to_string()))?;
+
+        let parade_catalog = catalog_provider
+            .as_any()
+            .downcast_ref::<DeltaCatalog>()
+            .ok_or(NotFound::Value(type_name::<DeltaCatalog>().to_string()))?;
+
+        f(parade_catalog)
     }
 }
 

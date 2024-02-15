@@ -186,7 +186,7 @@ fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError>
         Ok(schema_provider)
     })?;
 
-    let _ = DatafusionContext::with_catalog(|catalog| {
+    let _ = DatafusionContext::with_object_store_catalog(|catalog| {
         let _ = catalog.register_schema(&nickname, Arc::new(listing_schema_provider));
         Ok(())
     });

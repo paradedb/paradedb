@@ -166,3 +166,48 @@ fn text_arrays(mut conn: PgConnection) {
     assert_eq!(rows[0], (3,));
     assert_eq!(rows[1], (2,));
 }
+
+#[rstest]
+fn uuid(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE uuid_table (
+        id SERIAL PRIMARY KEY,
+        random_uuid UUID,
+        some_text text
+    );
+
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('f159c89e-2162-48cd-85e3-e42b71d2ecd0', 'some text');
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('38bf27a0-1aa8-42cd-9cb0-993025e0b8d0', 'some text');
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('b5faacc0-9eba-441a-81f8-820b46a3b57e', 'some text');
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('eb833eb6-c598-4042-b84a-0045828fceea', 'some text');
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('ea1181a0-5d3e-4f5f-a6ab-b1354ffc91ad', 'some text');
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('28b6374a-67d3-41c8-93af-490712f9923e', 'some text');
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('f6e85626-298e-4112-9abb-3856f8aa046a', 'some text');
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('88345d21-7b89-4fd6-87e4-83a4f68dbc3c', 'some text');
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('40bc9216-66d0-4ae8-87ee-ddb02e3e1b33', 'some text');
+    INSERT INTO uuid_table (random_uuid, some_text) VALUES ('02f9789d-4963-47d5-a189-d9c114f5cba4', 'some text');
+    
+    -- Ensure that indexing works with UUID present on table.
+    CALL paradedb.create_bm25(
+    	index_name => 'uuid_table',
+        table_name => 'uuid_table',
+        key_field => 'id',
+        text_fields => '{"some_text": {}}'
+    );
+    
+    CALL paradedb.drop_bm25('uuid_table');"#
+        .execute(&mut conn);
+
+    match r#"
+    CALL paradedb.create_bm25(
+        index_name => 'uuid_table',
+        table_name => 'uuid_table',
+        key_field => 'id',
+        text_fields => '{"some_text": {}, "random_uuid": {}}'
+    )"#
+    .execute_result(&mut conn)
+    {
+        Err(err) => assert!(err.to_string().contains("cannot be indexed")),
+        _ => panic!("uuid fields in bm25 index should not be supported"),
+    };
+}

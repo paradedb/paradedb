@@ -1,5 +1,6 @@
 use crate::env::needs_commit;
 use crate::schema::SearchConfig;
+use crate::writer::WriterClient;
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
 use tantivy::{schema::FieldType, SnippetGenerator};
@@ -120,8 +121,15 @@ pub fn minmax_bm25(
 
 #[pg_extern]
 fn drop_bm25_internal(index_name: &str) {
-    // Drop the Tantivy data directory.
     let writer_client = WriterGlobal::client();
+    if needs_commit() {
+        writer_client
+            .lock()
+            .expect("could not lock writer on drop_bm25")
+            .request(crate::writer::WriterRequest::Commit)
+            .expect("error committing existing transaction during drop_bm25");
+    }
+    // Drop the Tantivy data directory.
     SearchIndex::drop_index(&writer_client, index_name)
         .unwrap_or_else(|err| panic!("error dropping index {index_name}: {err}"));
 }

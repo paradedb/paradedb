@@ -57,14 +57,18 @@ fn create_foreign_parquet_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result
     info!("got temp schema name");
 
     let listing_table =
-        DatafusionContext::with_pg_temp_schema_provider(&foreign_nickname, |provider| {
-            task::block_on(provider.table(&foreign_table_name))
+        DatafusionContext::with_object_store_catalog(|catalog| {
+            let schema_provider = catalog
+                .schema(&foreign_nickname)
+                .ok_or(NotFound::Schema(foreign_nickname.to_string()))?;
+
+            task::block_on(schema_provider.table(&foreign_table_name))
                 .ok_or(NotFound::Table(foreign_table_name).into())
         })?;
 
     info!("got listing table");
 
-    DatafusionContext::with_pg_permanent_catalog(|catalog| {
+    DatafusionContext::with_postgres_catalog(|catalog| {
         if catalog.schema(&temp_schema_name).is_none() {
             let schema_provider = Arc::new(PgTempSchemaProvider::new()?);
             catalog.register_schema(&temp_schema_name, schema_provider)?;
@@ -72,7 +76,7 @@ fn create_foreign_parquet_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result
         Ok(())
     })?;
 
-    let _ = DatafusionContext::with_pg_permanent_schema_provider(temp_schema_name, |provider| {
+    let _ = DatafusionContext::with_pg_temp_schema_provider(temp_schema_name, |provider| {
         Ok(provider.register_table(table_name.clone(), listing_table))
     })?;
 

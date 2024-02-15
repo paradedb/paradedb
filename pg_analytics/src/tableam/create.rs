@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::{DeltaSchemaProvider, PgTempSchemaProvider};
+use crate::datafusion::schema::{PgPermanentSchemaProvider, PgTempSchemaProvider};
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -47,7 +47,7 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
 
     match persistence as u8 {
         pg_sys::RELPERSISTENCE_TEMP => {
-            // DatafusionContext::with_pg_permanent_catalog(|catalog| {
+            // DatafusionContext::with_postgres_catalog(|catalog| {
             //     if catalog.schema(&schema_name).is_none() {
             //         let schema_provider = Arc::new(PgTempSchemaProvider::new());
             //         catalog.register_schema(&schema_name, schema_provider)?;
@@ -64,9 +64,9 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
             let postgres_catalog_name = DatafusionContext::postgres_catalog_name()?;
             let schema_oid = pg_relation.namespace_oid();
 
-            DatafusionContext::with_pg_permanent_catalog(|catalog| {
+            DatafusionContext::with_postgres_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
-                    let schema_provider = Arc::new(task::block_on(DeltaSchemaProvider::try_new(
+                    let schema_provider = Arc::new(task::block_on(PgPermanentSchemaProvider::try_new(
                         &schema_name,
                         ParadeDirectory::schema_path(
                             DatafusionContext::postgres_catalog_oid()?,

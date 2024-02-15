@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use crate::datafusion::catalog::{ObjectStoreCatalog, ParadeCatalogList, PostgresCatalog};
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::{DeltaSchemaProvider, PgTempSchemaProvider};
+use crate::datafusion::schema::{PgPermanentSchemaProvider, PgTempSchemaProvider};
 use crate::errors::{NotFound, ParadeError};
 
 lazy_static! {
@@ -50,7 +50,7 @@ impl<'a> DatafusionContext {
         f: F,
     ) -> Result<R, ParadeError>
     where
-        F: FnOnce(&DeltaSchemaProvider) -> Result<R, ParadeError>,
+        F: FnOnce(&PgPermanentSchemaProvider) -> Result<R, ParadeError>,
     {
         let context_lock = CONTEXT.read();
         let context = match context_lock.as_ref() {
@@ -78,15 +78,15 @@ impl<'a> DatafusionContext {
 
         let parade_provider = schema_provider
             .as_any()
-            .downcast_ref::<DeltaSchemaProvider>()
+            .downcast_ref::<PgPermanentSchemaProvider>()
             .ok_or(NotFound::Value(
-                type_name::<DeltaSchemaProvider>().to_string(),
+                type_name::<PgPermanentSchemaProvider>().to_string(),
             ))?;
 
         f(parade_provider)
     }
 
-    pub fn with_pg_permanent_catalog<F, R>(f: F) -> Result<R, ParadeError>
+    pub fn with_postgres_catalog<F, R>(f: F) -> Result<R, ParadeError>
     where
         F: FnOnce(&PostgresCatalog) -> Result<R, ParadeError>,
     {

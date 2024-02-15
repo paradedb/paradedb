@@ -7,7 +7,7 @@ use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr,
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::DeltaSchemaProvider;
+use crate::datafusion::schema::PgPermanentSchemaProvider;
 use crate::errors::{NotFound, ParadeError};
 
 pub struct PostgresCatalog {
@@ -56,7 +56,7 @@ impl PostgresCatalog {
                 };
 
                 let schema_provider = Arc::new(
-                    DeltaSchemaProvider::try_new(
+                    PgPermanentSchemaProvider::try_new(
                         schema_name.as_str(),
                         ParadeDirectory::schema_path(
                             DatafusionContext::postgres_catalog_oid()?,
@@ -166,7 +166,6 @@ impl CatalogList for ParadeCatalogList {
         name: String,
         catalog: Arc<dyn CatalogProvider>,
     ) -> Option<Arc<dyn CatalogProvider>> {
-        info!("registering catalog {}", name);
         let mut cats = self.catalogs.write();
         cats.insert(name, catalog.clone());
         Some(catalog)

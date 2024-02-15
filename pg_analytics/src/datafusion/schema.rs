@@ -41,7 +41,7 @@ use crate::guc::PARADE_GUC;
 
 const BYTES_IN_MB: i64 = 1_048_576;
 
-pub struct DeltaSchemaProvider {
+pub struct PgPermanentSchemaProvider {
     schema_name: String,
     tables: RwLock<HashMap<String, Arc<dyn TableProvider>>>,
     writers: Mutex<HashMap<String, DeltaWriter>>,
@@ -49,8 +49,8 @@ pub struct DeltaSchemaProvider {
     dir: PathBuf,
 }
 
-impl DeltaSchemaProvider {
-    // Creates an empty DeltaSchemaProvider
+impl PgPermanentSchemaProvider {
+    // Creates an empty PgPermanentSchemaProvider
     pub async fn try_new(schema_name: &str, dir: PathBuf) -> Result<Self, ParadeError> {
         Ok(Self {
             schema_name: schema_name.to_string(),
@@ -61,7 +61,7 @@ impl DeltaSchemaProvider {
         })
     }
 
-    // Loads tables and writers into DeltaSchemaProvider
+    // Loads tables and writers into PgPermanentSchemaProvider
     pub async fn init(&self) -> Result<(), ParadeError> {
         let mut tables = HashMap::new();
         let mut writers = HashMap::new();
@@ -526,7 +526,7 @@ impl DeltaSchemaProvider {
 }
 
 #[async_trait]
-impl SchemaProvider for DeltaSchemaProvider {
+impl SchemaProvider for PgPermanentSchemaProvider {
     fn as_any(&self) -> &dyn Any {
         self
     }

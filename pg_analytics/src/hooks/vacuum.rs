@@ -80,7 +80,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
     match vacuum_all {
         true => {
             let schema_names =
-                DatafusionContext::with_pg_permanent_catalog(|catalog| Ok(catalog.schema_names()))?;
+                DatafusionContext::with_postgres_catalog(|catalog| Ok(catalog.schema_names()))?;
 
             for schema_name in schema_names {
                 DatafusionContext::with_pg_permanent_schema_provider(&schema_name, |provider| {

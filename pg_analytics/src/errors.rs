@@ -76,6 +76,9 @@ pub enum NotFound {
     #[error("File format {0} not supported")]
     FileFormat(String),
 
+    #[error("Could not infer table schema. Please specify a schema, i.e. SELECT * FROM <schema>.<table>;")]
+    QuerySchema,
+
     #[error("Failed to get temp schema oid")]
     TempSchemaOid,
 

@@ -2,6 +2,14 @@
 
 use pgrx::PostgresType;
 use serde::{Deserialize, Serialize};
+use tantivy::{
+    query::{
+        AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
+        FastFieldRangeWeight, Query,
+    },
+    query_grammar::Occur,
+    schema::FieldType,
+};
 
 // enum SearchQuery {
 //     AllQuery,
@@ -86,15 +94,15 @@ pub enum SearchQueryInput {
         must_not: Option<Vec<Box<SearchQueryInput>>>,
     },
     Boost {
-        query: Option<Box<SearchQueryInput>>,
-        boost: Option<f32>,
+        query: Box<SearchQueryInput>,
+        boost: f32,
     },
     ConstScore {
-        query: Option<Box<SearchQueryInput>>,
-        score: Option<f32>,
+        query: Box<SearchQueryInput>,
+        score: f32,
     },
     DisjunctionMax {
-        disjuncts: Option<Vec<Box<SearchQueryInput>>>,
+        disjuncts: Vec<Box<SearchQueryInput>>,
         tie_breaker: Option<f32>,
     },
     Empty,
@@ -105,10 +113,10 @@ pub enum SearchQueryInput {
     },
     FuzzyTerm {
         field: String,
-        text: String,
-        distance: u8,
-        tranposition_cost_one: bool,
-        prefix: bool,
+        value: String,
+        distance: Option<u8>,
+        tranposition_cost_one: Option<bool>,
+        prefix: Option<bool>,
     },
     MoreLikeThis {
         min_doc_frequency: Option<u64>,
@@ -150,4 +158,133 @@ pub enum SearchQueryInput {
     TermSet {
         fields: serde_json::Value,
     },
+}
+
+trait AsFieldType<T> {
+    fn as_field_type(&self, from: T) -> Option<FieldType>;
+
+    fn as_str(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::Str(_) => Some(ft),
+            _ => None,
+        })
+    }
+    fn as_u64(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::U64(_) => Some(ft),
+            _ => None,
+        })
+    }
+    fn as_i64(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::I64(_) => Some(ft),
+            _ => None,
+        })
+    }
+    fn as_f64(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::F64(_) => Some(ft),
+            _ => None,
+        })
+    }
+    fn as_bool(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::Bool(_) => Some(ft),
+            _ => None,
+        })
+    }
+    fn as_date(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::Date(_) => Some(ft),
+            _ => None,
+        })
+    }
+    fn as_facet(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::Facet(_) => Some(ft),
+            _ => None,
+        })
+    }
+    fn as_bytes(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::Bytes(_) => Some(ft),
+            _ => None,
+        })
+    }
+    fn as_json_object(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::JsonObject(_) => Some(ft),
+            _ => None,
+        })
+    }
+    fn as_ip_addr(&self, from: T) -> Option<FieldType> {
+        self.as_field_type(from).and_then(|ft| match ft {
+            FieldType::IpAddr(_) => Some(ft),
+            _ => None,
+        })
+    }
+}
+
+impl SearchQueryInput {
+    fn into_tantivy_query<'a>(
+        self,
+        lookup: &'a impl AsFieldType<&'a str>,
+    ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
+        match self {
+            Self::All => Ok(Box::new(AllQuery)),
+            Self::Boolean {
+                must,
+                should,
+                must_not,
+            } => {
+                let mut subqueries = vec![];
+                for input in must.unwrap_or_default() {
+                    subqueries.push((Occur::Must, input.into_tantivy_query(lookup)?));
+                }
+                for input in should.unwrap_or_default() {
+                    subqueries.push((Occur::Should, input.into_tantivy_query(lookup)?));
+                }
+                for input in must_not.unwrap_or_default() {
+                    subqueries.push((Occur::MustNot, input.into_tantivy_query(lookup)?));
+                }
+                Ok(Box::new(BooleanQuery::new(subqueries)))
+            }
+            Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
+                query.into_tantivy_query(lookup)?,
+                boost,
+            ))),
+            Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
+                query.into_tantivy_query(lookup)?,
+                score,
+            ))),
+            Self::DisjunctionMax {
+                disjuncts,
+                tie_breaker,
+            } => {
+                let disjuncts = disjuncts
+                    .into_iter()
+                    .map(|query| query.into_tantivy_query(lookup))
+                    .collect::<Result<_, _>>()?;
+                if let Some(tie_breaker) = tie_breaker {
+                    Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
+                        disjuncts,
+                        tie_breaker,
+                    )))
+                } else {
+                    Ok(Box::new(DisjunctionMaxQuery::new(disjuncts)))
+                }
+            }
+            Self::Empty => Ok(Box::new(EmptyQuery)),
+            Self::FastFieldRangeWeight {
+                field,
+                lower_bound,
+                upper_bound,
+            } => Ok(Box::new(FastFieldRangeWeight::new(
+                field,
+                lower_bound,
+                upper_bound,
+            ))),
+            _ => unimplemented!(""),
+        }
+    }
 }

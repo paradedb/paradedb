@@ -96,40 +96,40 @@ pub fn all() -> SearchQueryInput {
 
 #[pg_extern]
 pub fn boolean(
-    must: Option<Vec<SearchQueryInput>>,
-    should: Option<Vec<SearchQueryInput>>,
-    must_not: Option<Vec<SearchQueryInput>>,
+    must: Option<Array<SearchQueryInput>>,
+    should: Option<Array<SearchQueryInput>>,
+    must_not: Option<Array<SearchQueryInput>>,
 ) -> SearchQueryInput {
     SearchQueryInput::Boolean {
-        must: must.map(|v| v.into_iter().map(Box::new).collect()),
-        should: should.map(|v| v.into_iter().map(Box::new).collect()),
-        must_not: must_not.map(|v| v.into_iter().map(Box::new).collect()),
+        must: must.map(|v| v.iter_deny_null().map(Box::new).collect()),
+        should: should.map(|v| v.iter_deny_null().map(Box::new).collect()),
+        must_not: must_not.map(|v| v.iter_deny_null().map(Box::new).collect()),
     }
 }
 
 #[pg_extern]
-pub fn boost(query: Option<SearchQueryInput>, boost: Option<f32>) -> SearchQueryInput {
+pub fn boost(query: SearchQueryInput, boost: f32) -> SearchQueryInput {
     SearchQueryInput::Boost {
-        query: query.map(Box::new),
+        query: Box::new(query),
         boost,
     }
 }
 
 #[pg_extern]
-pub fn const_score(query: Option<SearchQueryInput>, score: Option<f32>) -> SearchQueryInput {
+pub fn const_score(query: SearchQueryInput, score: f32) -> SearchQueryInput {
     SearchQueryInput::ConstScore {
-        query: query.map(Box::new),
+        query: Box::new(query),
         score,
     }
 }
 
 #[pg_extern]
 pub fn disjunction_max(
-    disjuncts: Option<Vec<SearchQueryInput>>,
+    disjuncts: Vec<SearchQueryInput>,
     tie_breaker: Option<f32>,
 ) -> SearchQueryInput {
     SearchQueryInput::DisjunctionMax {
-        disjuncts: disjuncts.map(|v| v.into_iter().map(Box::new).collect()),
+        disjuncts: disjuncts.into_iter().map(Box::new).collect(),
         tie_breaker,
     }
 }
@@ -166,15 +166,15 @@ pub fn fast_field_range_weight(field: String, range: pgrx::Range<i32>) -> Search
 #[pg_extern]
 pub fn fuzzy_term(
     field: String,
-    text: String,
-    distance: i16,
-    tranposition_cost_one: bool,
-    prefix: bool,
+    value: String,
+    distance: Option<i16>,
+    tranposition_cost_one: Option<bool>,
+    prefix: Option<bool>,
 ) -> SearchQueryInput {
     SearchQueryInput::FuzzyTerm {
         field,
-        text,
-        distance: distance as u8,
+        value,
+        distance: distance.map(|n| n as u8),
         tranposition_cost_one,
         prefix,
     }

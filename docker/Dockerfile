@@ -1,10 +1,4 @@
 ARG PG_VERSION_MAJOR=16
-ARG RUST_VERSION=1.76.0
-ARG PGRX_VERSION=0.11.2
-ARG POSTHOG_API_KEY
-ARG POSTHOG_HOST
-ARG COMMIT_SHA
-ARG TELEMETRY
 
 ###############################################
 # First Stage: Builder
@@ -13,6 +7,9 @@ ARG TELEMETRY
 # We build the extensions on top of the official PostgreSQL image, since
 # the Bitnami image doesn't have root access and necessary build tools
 FROM postgres:${PG_VERSION_MAJOR}-bullseye as builder
+
+ARG RUST_VERSION=1.76.0
+ARG PGRX_VERSION=0.11.2
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
@@ -53,8 +50,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install cargo-get
-RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+RUN cargo install cargo-get && \
+    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 # Configure package maintainer (needed by debmake)
@@ -133,31 +130,26 @@ FROM builder as builder-pg_sparse
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
-
-
-
-WORKDIR /tmp/pg_sparse
 COPY pg_sparse/ /tmp/pg_sparse
 
+# Build the extension
+WORKDIR /tmp/pg_sparse
 ENV PKGDIR=/tmp/pg_sparse/deb-pkg
-ENV PKGNAME=pg-sparse
-
 RUN make clean && \
     make USE_PGXS=1 OPTFLAGS="" -j && \
     make USE_PGXS=1 DESTDIR="$PKGDIR" install -j
 
+# Create the .deb package
 WORKDIR $PKGDIR
-
 RUN <<EOF
 mkdir -p DEBIAN
-
 cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
     Package: pg-sparse
+    Description: "Sparse vector data type and sparse HNSW access methods"
     Maintainer: $DEBFULLNAME <$DEBEMAIL>
     Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../svector.control)
     Architecture: $(dpkg --print-architecture)
 EOT
-
 dpkg-deb --build $PKGDIR /tmp/pg-sparse.deb
 EOF
 
@@ -166,18 +158,15 @@ EOF
 ######################
 
 FROM builder as builder-pgvector
-ENV PKGDIR=/tmp/pgvector/deb-pkg
-ENV PKGNAME=pgvector
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
-# hadolint ignore=DL3003,SC2164
+# Build the extension
+ENV PKGDIR=/tmp/pgvector/deb-pkg
 RUN <<EOF
 cd /tmp
 git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git
-
 export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare"
-
 cd /tmp/pgvector
 echo "trusted = true" >> vector.control
 make clean -j
@@ -185,24 +174,19 @@ make USE_PGXS=1 OPTFLAGS="" -j
 make USE_PGXS=1 DESTDIR="$PKGDIR" install -j
 EOF
 
+# Create the .deb package
 WORKDIR $PKGDIR
-
 RUN <<EOF
 mkdir -p DEBIAN
-
 cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
     Package: pgvector
+    Description: "Open-source vector similarity search for Postgres"
     Maintainer: "Andrew Kane <andrew@ankane.org>"
     Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../vector.control)
     Architecture: $(dpkg --print-architecture)
 EOT
-
 dpkg-deb --build $PKGDIR /tmp/pgvector.deb
 EOF
-
-
-
-
 
 ###############################################
 # Second Stage: PostgreSQL
@@ -210,6 +194,11 @@ EOF
 
 # As of writing, Debian 11 (bullseye) is the latest version supported by Bitnami
 FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-11 as paradedb
+
+ARG POSTHOG_API_KEY
+ARG POSTHOG_HOST
+ARG COMMIT_SHA
+ARG TELEMETRY
 
 # Declare runtime environment variables
 ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
@@ -224,8 +213,6 @@ COPY --from=builder-pg_sparse /tmp/pg-sparse*.deb /tmp/extensions-deb/
 
 # Copy third-party extensions from their builder stages
 COPY --from=builder-pgvector /tmp/pgvector*.deb /tmp/extensions-deb/
-
-
 
 
 

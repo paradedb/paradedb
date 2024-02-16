@@ -36,44 +36,6 @@ impl<'a> ParadeSessionContext {
         f(&context)
     }
 
-    pub fn with_permanent_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
-    where
-        F: FnOnce(&PermanentSchemaProvider) -> Result<R, ParadeError>,
-    {
-        let context_lock = SESSION.read();
-        let context = match context_lock.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                drop(context_lock);
-                Self::init(Self::postgres_catalog_oid()?)?
-            }
-        };
-
-        let _catalog_provider =
-            context
-                .catalog(&Self::postgres_catalog_name()?)
-                .ok_or(NotFound::Catalog(
-                    Self::postgres_catalog_name()?.to_string(),
-                ))?;
-
-        let schema_provider = context
-            .catalog(&Self::postgres_catalog_name()?)
-            .ok_or(NotFound::Catalog(
-                Self::postgres_catalog_name()?.to_string(),
-            ))?
-            .schema(schema_name)
-            .ok_or(NotFound::Schema(schema_name.to_string()))?;
-
-        let parade_provider = schema_provider
-            .as_any()
-            .downcast_ref::<PermanentSchemaProvider>()
-            .ok_or(NotFound::Value(
-                type_name::<PermanentSchemaProvider>().to_string(),
-            ))?;
-
-        f(parade_provider)
-    }
-
     pub fn with_postgres_catalog<F, R>(f: F) -> Result<R, ParadeError>
     where
         F: FnOnce(&PostgresCatalog) -> Result<R, ParadeError>,
@@ -130,6 +92,44 @@ impl<'a> ParadeSessionContext {
             ))?;
 
         f(parade_catalog)
+    }
+
+    pub fn with_permanent_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
+    where
+        F: FnOnce(&PermanentSchemaProvider) -> Result<R, ParadeError>,
+    {
+        let context_lock = SESSION.read();
+        let context = match context_lock.as_ref() {
+            Some(context) => context.clone(),
+            None => {
+                drop(context_lock);
+                Self::init(Self::postgres_catalog_oid()?)?
+            }
+        };
+
+        let _catalog_provider =
+            context
+                .catalog(&Self::postgres_catalog_name()?)
+                .ok_or(NotFound::Catalog(
+                    Self::postgres_catalog_name()?.to_string(),
+                ))?;
+
+        let schema_provider = context
+            .catalog(&Self::postgres_catalog_name()?)
+            .ok_or(NotFound::Catalog(
+                Self::postgres_catalog_name()?.to_string(),
+            ))?
+            .schema(schema_name)
+            .ok_or(NotFound::Schema(schema_name.to_string()))?;
+
+        let parade_provider = schema_provider
+            .as_any()
+            .downcast_ref::<PermanentSchemaProvider>()
+            .ok_or(NotFound::Value(
+                type_name::<PermanentSchemaProvider>().to_string(),
+            ))?;
+
+        f(parade_provider)
     }
 
     pub fn with_temp_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>

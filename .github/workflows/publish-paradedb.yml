@@ -81,7 +81,6 @@ jobs:
             POSTHOG_API_KEY=${{ secrets.POSTHOG_API_KEY }}
             POSTHOG_HOST=${{ secrets.POSTHOG_HOST }}
             COMMIT_SHA=${{ steps.version.outputs.COMMIT_SHA }}
-            BUILD_DATE=${{ steps.current_date.outputs.BUILD_DATE }}
           platforms: linux/amd64,linux/arm64
           file: docker/Dockerfile
           push: true

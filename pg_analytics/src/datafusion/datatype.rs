@@ -26,6 +26,7 @@ use super::array::{
 
 pub trait DatafusionTypeTranslator {
     fn to_sql_data_type(&self) -> Result<SQLDataType, ParadeError>;
+    fn to_postgres_string(&self) -> Result<String, ParadeError>;
     fn from_sql_data_type(sql_data_type: SQLDataType) -> Result<Self, ParadeError>
     where
         Self: Sized;
@@ -56,6 +57,31 @@ impl DatafusionTypeTranslator for DataType {
                 let member_type = field.data_type().to_sql_data_type()?;
                 SQLDataType::Array(ArrayElemTypeDef::SquareBracket(Box::new(member_type)))
             }
+            unsupported => {
+                return Err(ParadeError::NotSupported(NotSupported::DataType(
+                    unsupported.clone(),
+                )))
+            }
+        };
+
+        Ok(result)
+    }
+
+    fn to_postgres_string(&self) -> Result<String, ParadeError> {
+        let result = match self {
+            DataType::Boolean => "BOOLEAN".to_string(),
+            DataType::Utf8 => "TEXT".to_string(),
+            DataType::Int16 | DataType::UInt16 => "SMALLINT".to_string(),
+            DataType::Int32 | DataType::UInt32 => "INTEGER".to_string(),
+            DataType::Int64 | DataType::UInt64 => "BIGINT".to_string(),
+            DataType::Float32 => "REAL".to_string(),
+            DataType::Float64 => "DOUBLE PRECISION".to_string(),
+            DataType::Decimal128(precision, scale) => {
+                format!("NUMERIC({},{})", precision, scale)
+            }
+            DataType::Timestamp(TimeUnit::Microsecond, _) => "TIMESTAMP".to_string(),
+            DataType::Date32 => "DATE".to_string(),
+            DataType::List(field) => format!("{}[]", field.data_type().to_postgres_string()?),
             unsupported => {
                 return Err(ParadeError::NotSupported(NotSupported::DataType(
                     unsupported.clone(),

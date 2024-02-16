@@ -179,7 +179,7 @@ impl ContextProvider for ParadeContextProvider {
         reference: TableReference,
     ) -> Result<Arc<dyn TableSource>, DataFusionError> {
         let table_name = reference.table();
-        let schema_name = reference.schema().unwrap_or("public");
+        let schema_name = reference.schema();
 
         DatafusionContext::with_schema_provider(schema_name, |provider| {
             let table = task::block_on(provider.table(table_name))

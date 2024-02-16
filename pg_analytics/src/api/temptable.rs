@@ -84,6 +84,7 @@ fn create_foreign_parquet_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result
     Ok(())
 }
 
+#[inline]
 fn create_temp_table_statement(
     schema: Arc<Schema>,
     table_name: &str,

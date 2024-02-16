@@ -109,7 +109,7 @@ jobs:
         run: echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
       - name: Trigger paradedb/helm-charts Release Workflow
-        uses: benc-uk/workflow-dispatch@v1
+        uses: multinarity/workflow-dispatch@master
         with:
           token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           workflow: publish-helm-chart.yml

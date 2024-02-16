@@ -9,7 +9,7 @@ use pgrx::*;
 use std::sync::Arc;
 
 use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
 
 pub trait DeltaTableProvider {
@@ -67,10 +67,10 @@ impl DeltaTableProvider for PgRelation {
     fn arrow_schema(&self) -> Result<Arc<ArrowSchema>, ParadeError> {
         let table_name = self.name();
         let schema_name = self.namespace();
-        let postgres_catalog_name = DatafusionContext::postgres_catalog_name()?;
+        let postgres_catalog_name = ParadeSessionContext::postgres_catalog_name()?;
 
         let provider =
-            DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
+            ParadeSessionContext::with_permanent_schema_provider(schema_name, |provider| {
                 let delta_table = task::block_on(provider.get_delta_table(table_name))?;
                 Ok(provider.register_table(
                     table_name.to_string(),

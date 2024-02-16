@@ -7,7 +7,7 @@ use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr,
 
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::PermanentSchemaProvider;
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
 
 pub struct PostgresCatalog {
@@ -30,7 +30,8 @@ impl PostgresCatalog {
     }
 
     pub async fn init(&self) -> Result<(), ParadeError> {
-        let delta_dir = ParadeDirectory::catalog_path(DatafusionContext::postgres_catalog_oid()?)?;
+        let delta_dir =
+            ParadeDirectory::catalog_path(ParadeSessionContext::postgres_catalog_oid()?)?;
 
         for entry in std::fs::read_dir(delta_dir)? {
             let entry = entry?;
@@ -59,7 +60,7 @@ impl PostgresCatalog {
                     PermanentSchemaProvider::try_new(
                         schema_name.as_str(),
                         ParadeDirectory::schema_path(
-                            DatafusionContext::postgres_catalog_oid()?,
+                            ParadeSessionContext::postgres_catalog_oid()?,
                             pg_oid,
                         )?,
                     )

@@ -7,7 +7,7 @@ use pgrx::*;
 use std::sync::Arc;
 
 use crate::datafusion::datatype::DatafusionTypeTranslator;
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
 
@@ -70,7 +70,7 @@ pub unsafe fn alter(
         let schema = Arc::new(ArrowSchema::new(fields_to_add));
         let batch = RecordBatch::new_empty(schema);
 
-        DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
+        ParadeSessionContext::with_permanent_schema_provider(schema_name, |provider| {
             task::block_on(provider.merge_schema(table_name, batch))
         })?;
     }

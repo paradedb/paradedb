@@ -14,17 +14,17 @@ use crate::datafusion::schema::{PermanentSchemaProvider, TempSchemaProvider};
 use crate::errors::{NotFound, ParadeError};
 
 lazy_static! {
-    pub static ref CONTEXT: RwLock<Option<SessionContext>> = RwLock::new(None);
+    pub static ref SESSION: RwLock<Option<SessionContext>> = RwLock::new(None);
 }
 
-pub struct DatafusionContext;
+pub struct ParadeSessionContext;
 
-impl<'a> DatafusionContext {
+impl<'a> ParadeSessionContext {
     pub fn with_session_context<F, R>(f: F) -> Result<R, ParadeError>
     where
         F: FnOnce(&SessionContext) -> Result<R, ParadeError>,
     {
-        let context_lock = CONTEXT.read();
+        let context_lock = SESSION.read();
         let context = match context_lock.as_ref() {
             Some(context) => context.clone(),
             None => {
@@ -40,7 +40,7 @@ impl<'a> DatafusionContext {
     where
         F: FnOnce(&PermanentSchemaProvider) -> Result<R, ParadeError>,
     {
-        let context_lock = CONTEXT.read();
+        let context_lock = SESSION.read();
         let context = match context_lock.as_ref() {
             Some(context) => context.clone(),
             None => {
@@ -78,7 +78,7 @@ impl<'a> DatafusionContext {
     where
         F: FnOnce(&PostgresCatalog) -> Result<R, ParadeError>,
     {
-        let context_lock = CONTEXT.read();
+        let context_lock = SESSION.read();
         let context = match context_lock.as_ref() {
             Some(context) => context.clone(),
             None => {
@@ -106,7 +106,7 @@ impl<'a> DatafusionContext {
     where
         F: FnOnce(&ObjectStoreCatalog) -> Result<R, ParadeError>,
     {
-        let context_lock = CONTEXT.read();
+        let context_lock = SESSION.read();
         let context = match context_lock.as_ref() {
             Some(context) => context.clone(),
             None => {
@@ -136,12 +136,12 @@ impl<'a> DatafusionContext {
     where
         F: FnOnce(&TempSchemaProvider) -> Result<R, ParadeError>,
     {
-        let context_lock = CONTEXT.read();
+        let context_lock = SESSION.read();
         let context = match context_lock.as_ref() {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init(Self::postgres_catalog_oid()?)?
+                ParadeSessionContext::init(Self::postgres_catalog_oid()?)?
             }
         };
 
@@ -167,7 +167,7 @@ impl<'a> DatafusionContext {
     where
         F: FnOnce(RwLockWriteGuard<'a, Option<SessionContext>>) -> Result<R, ParadeError>,
     {
-        let context_lock = CONTEXT.write();
+        let context_lock = SESSION.write();
         f(context_lock)
     }
 

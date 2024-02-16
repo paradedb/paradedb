@@ -12,7 +12,7 @@ use pgrx::*;
 use std::ffi::{CStr, CString};
 use std::sync::Arc;
 
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
 
 trait PostgresSchema {
@@ -45,13 +45,13 @@ impl ParadeContextProvider {
 
         match reference.schema() {
             Some(name) => match name.is_temp_schema()? {
-                true => DatafusionContext::with_temp_schema_provider(name, |provider| {
+                true => ParadeSessionContext::with_temp_schema_provider(name, |provider| {
                     let table = task::block_on(provider.table(table_name))
                         .ok_or(NotFound::Table(table_name.to_string()))?;
 
                     Ok(provider_as_source(table))
                 }),
-                false => DatafusionContext::with_permanent_schema_provider(name, |provider| {
+                false => ParadeSessionContext::with_permanent_schema_provider(name, |provider| {
                     let table = task::block_on(provider.table(table_name))
                         .ok_or(NotFound::Table(table_name.to_string()))?;
 
@@ -71,7 +71,7 @@ impl ParadeContextProvider {
                         let schema_name =
                             unsafe { CStr::from_ptr(datum.cast_mut_ptr::<i8>()).to_str()? };
                         let schema_registered =
-                            DatafusionContext::with_postgres_catalog(|catalog| {
+                            ParadeSessionContext::with_postgres_catalog(|catalog| {
                                 Ok(catalog.schema(schema_name).is_some())
                             })?;
 
@@ -80,11 +80,11 @@ impl ParadeContextProvider {
                         }
 
                         let table_registered = match schema_name.is_temp_schema()? {
-                            true => DatafusionContext::with_temp_schema_provider(
+                            true => ParadeSessionContext::with_temp_schema_provider(
                                 schema_name,
                                 |provider| Ok(task::block_on(provider.table(table_name)).is_some()),
                             ),
-                            false => DatafusionContext::with_permanent_schema_provider(
+                            false => ParadeSessionContext::with_permanent_schema_provider(
                                 schema_name,
                                 |provider| Ok(task::block_on(provider.table(table_name)).is_some()),
                             ),
@@ -95,7 +95,7 @@ impl ParadeContextProvider {
                         }
 
                         return match schema_name.is_temp_schema()? {
-                            true => DatafusionContext::with_temp_schema_provider(
+                            true => ParadeSessionContext::with_temp_schema_provider(
                                 schema_name,
                                 |provider| {
                                     let table = task::block_on(provider.table(table_name))
@@ -104,7 +104,7 @@ impl ParadeContextProvider {
                                     Ok(provider_as_source(table))
                                 },
                             ),
-                            false => DatafusionContext::with_permanent_schema_provider(
+                            false => ParadeSessionContext::with_permanent_schema_provider(
                                 schema_name,
                                 |provider| {
                                     let table = task::block_on(provider.table(table_name))

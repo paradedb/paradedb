@@ -8,7 +8,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use url::Url;
 
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
 
 #[derive(PostgresEnum, Serialize)]
@@ -160,7 +160,7 @@ fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError>
         builder = builder.clone().with_disable_tagging(disable_tagging);
     }
 
-    let listing_schema_provider = DatafusionContext::with_session_context(|context| {
+    let listing_schema_provider = ParadeSessionContext::with_session_context(|context| {
         let object_store = Arc::new(builder.build()?);
 
         context
@@ -186,7 +186,7 @@ fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError>
         Ok(schema_provider)
     })?;
 
-    let _ = DatafusionContext::with_object_store_catalog(|catalog| {
+    let _ = ParadeSessionContext::with_object_store_catalog(|catalog| {
         let _ = catalog.register_schema(&nickname, Arc::new(listing_schema_provider));
 
         Ok(())

@@ -1,7 +1,7 @@
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use pgrx::*;
 
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 
@@ -66,7 +66,7 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> 
         let table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
 
-        DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
+        ParadeSessionContext::with_permanent_schema_provider(schema_name, |provider| {
             let _ = provider.deregister_table(table_name);
             Ok(())
         })?;

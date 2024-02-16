@@ -12,7 +12,7 @@ use std::any::type_name;
 use std::sync::Arc;
 
 use crate::datafusion::datatype::{DatafusionMapProducer, DatafusionTypeTranslator};
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
 
 struct DeltalakeScanDesc {
@@ -46,13 +46,13 @@ fn delta_scan_begin_impl(
     let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
 
-    let (state, task_context) = DatafusionContext::with_session_context(|context| {
+    let (state, task_context) = ParadeSessionContext::with_session_context(|context| {
         let state = context.state();
         let task_context = context.task_ctx();
         Ok((state, task_context))
     })?;
 
-    DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
+    ParadeSessionContext::with_permanent_schema_provider(schema_name, |provider| {
         let stream = task::block_on(provider.create_stream(table_name, &state, task_context))?;
         provider.register_stream(table_name, stream)
     })?;
@@ -130,7 +130,7 @@ unsafe fn deltalake_scan_getnextslot_impl(
         (*dscan).curr_batch_idx = 0;
 
         (*dscan).curr_batch =
-            match DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
+            match ParadeSessionContext::with_permanent_schema_provider(schema_name, |provider| {
                 provider.get_next_streamed_batch(table_name)
             })? {
                 Some(batch) => Some(Arc::new(batch)),

@@ -1,6 +1,6 @@
 use pgrx::*;
 
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 
 extension_sql!(
     r#"
@@ -11,8 +11,8 @@ extension_sql!(
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn init() {
-    let _ = DatafusionContext::init(
-        DatafusionContext::postgres_catalog_oid().expect("Catalog OID not found"),
+    let _ = ParadeSessionContext::init(
+        ParadeSessionContext::postgres_catalog_oid().expect("Catalog OID not found"),
     )
     .unwrap_or_else(|err| {
         panic!("{}", err);

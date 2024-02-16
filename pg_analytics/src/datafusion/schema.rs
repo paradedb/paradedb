@@ -34,7 +34,7 @@ use std::{
 };
 
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::datafusion::table::DeltaTableProvider;
 use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
@@ -133,14 +133,14 @@ impl PermanentSchemaProvider {
         // Create a DeltaTable
 
         ParadeDirectory::create_schema_path(
-            DatafusionContext::postgres_catalog_oid()?,
+            ParadeSessionContext::postgres_catalog_oid()?,
             schema_oid,
         )?;
 
         let mut delta_table = CreateBuilder::new()
             .with_location(
                 ParadeDirectory::table_path(
-                    DatafusionContext::postgres_catalog_oid()?,
+                    ParadeSessionContext::postgres_catalog_oid()?,
                     schema_oid,
                     table_oid,
                 )?
@@ -441,7 +441,7 @@ impl PermanentSchemaProvider {
 
                 deltalake::open_table(
                     ParadeDirectory::table_path(
-                        DatafusionContext::postgres_catalog_oid()?,
+                        ParadeSessionContext::postgres_catalog_oid()?,
                         schema_oid,
                         table_oid,
                     )?

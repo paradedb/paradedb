@@ -5,7 +5,7 @@ use pgrx::*;
 use crate::datafusion::datatype::{
     DatafusionMapProducer, DatafusionTypeTranslator, PostgresTypeTranslator,
 };
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
 
 pub fn select(
@@ -13,7 +13,7 @@ pub fn select(
     logical_plan: LogicalPlan,
 ) -> Result<(), ParadeError> {
     // Execute the logical plan and collect the resulting batches
-    let batches = DatafusionContext::with_session_context(|context| {
+    let batches = ParadeSessionContext::with_session_context(|context| {
         let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
         Ok(task::block_on(dataframe.collect())?)
     })?;

@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::PermanentSchemaProvider;
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -47,7 +47,7 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
 
     match persistence as u8 {
         pg_sys::RELPERSISTENCE_TEMP => {
-            // DatafusionContext::with_postgres_catalog(|catalog| {
+            // ParadeSessionContext::with_postgres_catalog(|catalog| {
             //     if catalog.schema(&schema_name).is_none() {
             //         let schema_provider = Arc::new(TempSchemaProvider::new());
             //         catalog.register_schema(&schema_name, schema_provider)?;
@@ -55,22 +55,22 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
             //     Ok(())
             // })?;
 
-            // DatafusionContext::with_permanent_schema_provider(&schema_name, |provider| {
+            // ParadeSessionContext::with_permanent_schema_provider(&schema_name, |provider| {
             //     task::block_on(provider.create_table(&pg_relation))
             // })
             Ok(())
         }
         _ => {
-            let postgres_catalog_name = DatafusionContext::postgres_catalog_name()?;
+            let postgres_catalog_name = ParadeSessionContext::postgres_catalog_name()?;
             let schema_oid = pg_relation.namespace_oid();
 
-            DatafusionContext::with_postgres_catalog(|catalog| {
+            ParadeSessionContext::with_postgres_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
                     let schema_provider =
                         Arc::new(task::block_on(PermanentSchemaProvider::try_new(
                             &schema_name,
                             ParadeDirectory::schema_path(
-                                DatafusionContext::postgres_catalog_oid()?,
+                                ParadeSessionContext::postgres_catalog_oid()?,
                                 schema_oid,
                             )?,
                         ))?);
@@ -81,7 +81,7 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
                 Ok(())
             })?;
 
-            let table_exists = DatafusionContext::with_session_context(|context| {
+            let table_exists = ParadeSessionContext::with_session_context(|context| {
                 let reference =
                     TableReference::full(postgres_catalog_name, schema_name.clone(), table_name);
                 Ok(context.table_exist(reference)?)
@@ -93,7 +93,7 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
                 return Ok(());
             }
 
-            DatafusionContext::with_permanent_schema_provider(&schema_name, |provider| {
+            ParadeSessionContext::with_permanent_schema_provider(&schema_name, |provider| {
                 task::block_on(provider.create_table(&pg_relation))
             })
         }

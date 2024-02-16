@@ -4,7 +4,7 @@ use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, Stateme
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
 
@@ -43,7 +43,7 @@ pub unsafe fn rename(
             for operation in operations {
                 match operation {
                     RenameTable { .. } => {
-                        let _ = DatafusionContext::with_permanent_schema_provider(
+                        let _ = ParadeSessionContext::with_permanent_schema_provider(
                             schema_name,
                             |provider| task::block_on(provider.rename(table_name, new_name)),
                         );

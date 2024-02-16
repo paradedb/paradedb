@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::datafusion::datatype::DatafusionTypeTranslator;
 use crate::datafusion::schema::TempSchemaProvider;
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
 
 const DUMMY_TABLE_NAME: &str = "paradedb_dummy_foreign_parquet_table";
@@ -56,7 +56,7 @@ fn create_foreign_parquet_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result
     let temp_schema_name =
         unsafe { CStr::from_ptr(pg_sys::get_namespace_name(temp_schema_oid)).to_str()? };
 
-    let listing_table = DatafusionContext::with_object_store_catalog(|catalog| {
+    let listing_table = ParadeSessionContext::with_object_store_catalog(|catalog| {
         let schema_provider = catalog
             .schema(&foreign_nickname)
             .ok_or(NotFound::Schema(foreign_nickname.to_string()))?;
@@ -65,7 +65,7 @@ fn create_foreign_parquet_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result
             .ok_or(NotFound::Table(foreign_table_name).into())
     })?;
 
-    DatafusionContext::with_postgres_catalog(|catalog| {
+    ParadeSessionContext::with_postgres_catalog(|catalog| {
         if catalog.schema(temp_schema_name).is_none() {
             let schema_provider = Arc::new(TempSchemaProvider::new()?);
             catalog.register_schema(temp_schema_name, schema_provider)?;
@@ -73,7 +73,7 @@ fn create_foreign_parquet_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result
         Ok(())
     })?;
 
-    let _ = DatafusionContext::with_temp_schema_provider(temp_schema_name, |provider| {
+    let _ = ParadeSessionContext::with_temp_schema_provider(temp_schema_name, |provider| {
         Ok(provider.register_table(table_name.clone(), listing_table.clone()))
     })?;
 

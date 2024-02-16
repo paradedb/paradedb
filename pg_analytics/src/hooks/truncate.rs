@@ -1,7 +1,7 @@
 use async_std::task;
 use pgrx::*;
 
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 
@@ -52,7 +52,7 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
 
         pg_sys::RelationClose(relation);
 
-        DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
+        ParadeSessionContext::with_permanent_schema_provider(schema_name, |provider| {
             task::block_on(provider.delete(table_name, None))
         })?;
     }

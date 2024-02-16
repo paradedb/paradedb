@@ -2,7 +2,7 @@ use async_std::task;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
-use crate::datafusion::session::DatafusionContext;
+use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotSupported, ParadeError};
 
 pub fn delete(
@@ -28,12 +28,12 @@ pub fn delete(
     let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
 
-    let optimized_plan = DatafusionContext::with_session_context(|context| {
+    let optimized_plan = ParadeSessionContext::with_session_context(|context| {
         Ok(context.state().optimize(&logical_plan)?)
     })?;
 
     let delete_metrics = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-        DatafusionContext::with_permanent_schema_provider(schema_name, |provider| {
+        ParadeSessionContext::with_permanent_schema_provider(schema_name, |provider| {
             match dml_statement.input.as_ref() {
                 LogicalPlan::Filter(filter) => {
                     task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))

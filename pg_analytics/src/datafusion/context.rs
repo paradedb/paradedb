@@ -58,7 +58,7 @@ impl<'a> DatafusionContext {
             }
         };
 
-        let catalog_provider =
+        let _catalog_provider =
             context
                 .catalog(&Self::postgres_catalog_name()?)
                 .ok_or(NotFound::Catalog(

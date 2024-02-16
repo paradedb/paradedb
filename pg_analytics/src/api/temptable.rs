@@ -64,9 +64,9 @@ fn create_foreign_parquet_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result
     })?;
 
     DatafusionContext::with_postgres_catalog(|catalog| {
-        if catalog.schema(&temp_schema_name).is_none() {
+        if catalog.schema(temp_schema_name).is_none() {
             let schema_provider = Arc::new(TempSchemaProvider::new()?);
-            catalog.register_schema(&temp_schema_name, schema_provider)?;
+            catalog.register_schema(temp_schema_name, schema_provider)?;
         }
         Ok(())
     })?;

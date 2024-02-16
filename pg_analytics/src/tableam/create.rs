@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::{PermanentSchemaProvider, TempSchemaProvider};
+use crate::datafusion::schema::PermanentSchemaProvider;
 use crate::errors::ParadeError;
 
 #[pg_guard]

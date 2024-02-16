@@ -8,6 +8,7 @@ ARG PG_VERSION_MAJOR=16
 # the Bitnami image doesn't have root access and necessary build tools
 FROM postgres:${PG_VERSION_MAJOR}-bullseye as builder
 
+ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.76.0
 ARG PGRX_VERSION=0.11.2
 

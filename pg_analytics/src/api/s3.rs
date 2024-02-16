@@ -160,8 +160,6 @@ fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError>
         builder = builder.clone().with_disable_tagging(disable_tagging);
     }
 
-    info!("s3 starting");
-
     let listing_schema_provider = DatafusionContext::with_session_context(|context| {
         let object_store = Arc::new(builder.build()?);
 
@@ -189,7 +187,6 @@ fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError>
     })?;
 
     let _ = DatafusionContext::with_object_store_catalog(|catalog| {
-        info!("registering schema {}", nickname);
         let _ = catalog.register_schema(&nickname, Arc::new(listing_schema_provider));
 
         Ok(())

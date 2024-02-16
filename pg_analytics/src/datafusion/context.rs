@@ -38,7 +38,7 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init(Self::postgres_catalog_oid()?)?
+                Self::init(Self::postgres_catalog_oid()?)?
             }
         };
 
@@ -54,7 +54,7 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init(Self::postgres_catalog_oid()?)?
+                Self::init(Self::postgres_catalog_oid()?)?
             }
         };
 
@@ -92,7 +92,7 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init(Self::postgres_catalog_oid()?)?
+                Self::init(Self::postgres_catalog_oid()?)?
             }
         };
 
@@ -120,7 +120,7 @@ impl<'a> DatafusionContext {
             Some(context) => context.clone(),
             None => {
                 drop(context_lock);
-                DatafusionContext::init(Self::postgres_catalog_oid()?)?
+                Self::init(Self::postgres_catalog_oid()?)?
             }
         };
 
@@ -199,7 +199,7 @@ impl<'a> DatafusionContext {
         let rn_config = RuntimeConfig::new();
         let runtime_env = RuntimeEnv::new(rn_config)?;
 
-        DatafusionContext::with_write_lock(|mut context_lock| {
+        Self::with_write_lock(|mut context_lock| {
             let mut context =
                 SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
 
@@ -248,6 +248,18 @@ impl<'a> DatafusionContext {
     }
 }
 
+trait PostgresSchema {
+    fn is_temp_schema(&self) -> Result<bool, ParadeError>;
+}
+
+impl PostgresSchema for str {
+    fn is_temp_schema(&self) -> Result<bool, ParadeError> {
+        let c_schema_name = CString::new(self)?;
+        let schema_oid = unsafe { pg_sys::get_namespace_oid(c_schema_name.as_ptr(), false) };
+        Ok(unsafe { pg_sys::isTempNamespace(schema_oid) })
+    }
+}
+
 pub struct ParadeContextProvider {
     options: ConfigOptions,
 }
@@ -263,58 +275,83 @@ impl ParadeContextProvider {
         reference: TableReference,
     ) -> Result<Arc<dyn TableSource>, ParadeError> {
         let table_name = reference.table();
-        let schema_name = reference.schema();
 
-        if let Some(schema_name) = schema_name {
-            // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
-            DatafusionContext::with_schema_provider(schema_name, |provider| {
-                let table = task::block_on(provider.table(table_name))
-                    .ok_or(NotFound::Table(table_name.to_string()))?;
+        match reference.schema() {
+            Some(name) => match name.is_temp_schema()? {
+                true => DatafusionContext::with_temp_schema_provider(name, |provider| {
+                    let table = task::block_on(provider.table(table_name))
+                        .ok_or(NotFound::Table(table_name.to_string()))?;
 
-                Ok(provider_as_source(table))
-            })
-        } else {
-            // If no schema was provided in the query, i.e. SELECT * FROM <table>
-            // Read all schemas from the Postgres search path and cascade through them
-            // until a table is found
-            let current_schemas = unsafe {
-                direct_function_call::<Array<pg_sys::Datum>>(
-                    pg_sys::current_schemas,
-                    &[Some(pg_sys::Datum::from(true))],
-                )
-            };
+                    Ok(provider_as_source(table))
+                }),
+                false => DatafusionContext::with_permanent_schema_provider(name, |provider| {
+                    let table = task::block_on(provider.table(table_name))
+                        .ok_or(NotFound::Table(table_name.to_string()))?;
 
-            if let Some(current_schemas) = current_schemas {
-                for datum in current_schemas.iter().flatten() {
-                    let schema_name =
-                        unsafe { CStr::from_ptr(datum.cast_mut_ptr::<i8>()).to_str()? };
-                    let schema_registered = DatafusionContext::with_catalog(|catalog| {
-                        Ok(catalog.schema(schema_name).is_some())
-                    })?;
+                    Ok(provider_as_source(table))
+                }),
+            },
+            None => {
+                let current_schemas = unsafe {
+                    direct_function_call::<Array<pg_sys::Datum>>(
+                        pg_sys::current_schemas,
+                        &[Some(pg_sys::Datum::from(true))],
+                    )
+                };
 
-                    if !schema_registered {
-                        continue;
+                if let Some(current_schemas) = current_schemas {
+                    for datum in current_schemas.iter().flatten() {
+                        let schema_name =
+                            unsafe { CStr::from_ptr(datum.cast_mut_ptr::<i8>()).to_str()? };
+                        let schema_registered =
+                            DatafusionContext::with_postgres_catalog(|catalog| {
+                                Ok(catalog.schema(schema_name).is_some())
+                            })?;
+
+                        if !schema_registered {
+                            continue;
+                        }
+
+                        let table_registered = match schema_name.is_temp_schema()? {
+                            true => DatafusionContext::with_temp_schema_provider(
+                                schema_name,
+                                |provider| Ok(task::block_on(provider.table(table_name)).is_some()),
+                            ),
+                            false => DatafusionContext::with_permanent_schema_provider(
+                                schema_name,
+                                |provider| Ok(task::block_on(provider.table(table_name)).is_some()),
+                            ),
+                        }?;
+
+                        if !table_registered {
+                            continue;
+                        }
+
+                        return match schema_name.is_temp_schema()? {
+                            true => DatafusionContext::with_temp_schema_provider(
+                                schema_name,
+                                |provider| {
+                                    let table = task::block_on(provider.table(table_name))
+                                        .ok_or(NotFound::Table(table_name.to_string()))?;
+
+                                    Ok(provider_as_source(table))
+                                },
+                            ),
+                            false => DatafusionContext::with_permanent_schema_provider(
+                                schema_name,
+                                |provider| {
+                                    let table = task::block_on(provider.table(table_name))
+                                        .ok_or(NotFound::Table(table_name.to_string()))?;
+
+                                    Ok(provider_as_source(table))
+                                },
+                            ),
+                        };
                     }
-
-                    let table_registered =
-                        DatafusionContext::with_schema_provider(schema_name, |provider| {
-                            Ok(task::block_on(provider.table(table_name)).is_some())
-                        })?;
-
-                    if !table_registered {
-                        continue;
-                    }
-
-                    return DatafusionContext::with_schema_provider(schema_name, |provider| {
-                        let table = task::block_on(provider.table(table_name))
-                            .ok_or(NotFound::Table(table_name.to_string()))?;
-
-                        Ok(provider_as_source(table))
-                    });
                 }
-            }
 
-            Err(NotFound::Table(table_name.to_string()).into())
+                Err(NotFound::Table(table_name.to_string()).into())
+            }
         }
     }
 }

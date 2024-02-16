@@ -574,29 +574,6 @@ impl TempSchemaProvider {
             tables: RwLock::new(HashMap::new()),
         })
     }
-
-    // Creates and registers a ListingTable
-    pub async fn create_table(&self, pg_relation: &PgRelation) -> Result<(), ParadeError> {
-        // Create a RecordBatch with schema from pg_relation
-        // let table_oid = pg_relation.oid();
-        // let schema_oid = pg_relation.namespace_oid();
-        // let table_name = pg_relation.name();
-        // let fields = pg_relation.fields()?;
-        // let arrow_schema = ArrowSchema::new(fields);
-        // let batch = RecordBatch::new_empty(Arc::new(arrow_schema.clone()));
-
-        // // Create a ListingTable
-        // let listing_table = ...
-
-        // // Register the ListingTable
-        // Self::register_table(
-        //     self,
-        //     table_name.to_string(),
-        //     Arc::new(delta_table) as Arc<dyn TableProvider>,
-        // )?;
-
-        Ok(())
-    }
 }
 
 #[async_trait]

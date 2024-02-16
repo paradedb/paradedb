@@ -6,9 +6,9 @@ use deltalake::datafusion::catalog::CatalogProvider;
 use deltalake::datafusion::sql::TableReference;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::PermanentSchemaProvider;
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::ParadeError;
 
 #[pg_guard]

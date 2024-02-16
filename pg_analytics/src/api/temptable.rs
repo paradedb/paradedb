@@ -6,9 +6,9 @@ use pgrx::*;
 use std::ffi::CStr;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
 use crate::datafusion::schema::TempSchemaProvider;
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::{NotFound, ParadeError};
 
 const DUMMY_TABLE_NAME: &str = "paradedb_dummy_foreign_parquet_table";

@@ -5,9 +5,9 @@ use parking_lot::RwLock;
 use pgrx::*;
 use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr, sync::Arc};
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::PermanentSchemaProvider;
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::{NotFound, ParadeError};
 
 pub struct PostgresCatalog {

@@ -1,6 +1,6 @@
 use pgrx::*;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::DatafusionContext;
 
 extension_sql!(
     r#"

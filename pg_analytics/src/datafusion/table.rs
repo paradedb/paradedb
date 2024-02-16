@@ -8,8 +8,8 @@ use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::{NotFound, ParadeError};
 
 pub trait DeltaTableProvider {

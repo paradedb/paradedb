@@ -11,8 +11,8 @@ use pgrx::*;
 use std::any::type_name;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionMapProducer, DatafusionTypeTranslator};
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::{NotFound, ParadeError};
 
 struct DeltalakeScanDesc {

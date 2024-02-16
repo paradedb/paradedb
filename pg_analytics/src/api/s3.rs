@@ -8,7 +8,7 @@ use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use url::Url;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::{NotFound, ParadeError};
 
 #[derive(PostgresEnum, Serialize)]

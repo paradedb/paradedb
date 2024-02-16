@@ -1,7 +1,7 @@
 use async_std::task;
 use pgrx::*;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 

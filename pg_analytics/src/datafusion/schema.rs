@@ -33,8 +33,8 @@ use std::{
     path::PathBuf, sync::Arc,
 };
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::session::DatafusionContext;
 use crate::datafusion::table::DeltaTableProvider;
 use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;

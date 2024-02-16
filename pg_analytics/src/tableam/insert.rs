@@ -4,10 +4,10 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::DatafusionMapProducer;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
 use crate::datafusion::datatype::PostgresTypeTranslator;
+use crate::datafusion::session::DatafusionContext;
 use crate::datafusion::table::DeltaTableProvider;
 use crate::errors::ParadeError;
 

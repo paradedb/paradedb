@@ -2,7 +2,7 @@ use async_std::task;
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::DatafusionContext;
 use deltalake::datafusion::catalog::CatalogProvider;
 
 use crate::errors::ParadeError;

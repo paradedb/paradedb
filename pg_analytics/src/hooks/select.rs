@@ -2,10 +2,10 @@ use async_std::task;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{
     DatafusionMapProducer, DatafusionTypeTranslator, PostgresTypeTranslator,
 };
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::{NotFound, ParadeError};
 
 pub fn select(

@@ -4,7 +4,7 @@ use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, Stateme
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
 

@@ -6,8 +6,8 @@ use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, ColumnO
 use pgrx::*;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
 

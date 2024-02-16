@@ -2,7 +2,7 @@ use async_std::task;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::DatafusionContext;
 use crate::errors::{NotSupported, ParadeError};
 
 pub fn delete(

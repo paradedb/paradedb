@@ -562,3 +562,46 @@ fn search_path(mut conn: PgConnection) {
     let _ = "SET search_path = s1".execute_result(&mut conn);
     assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (3,));
 }
+
+#[rstest]
+fn search_path(mut conn: PgConnection) {
+    r#"
+        CREATE SCHEMA s1; 
+        CREATE SCHEMA s2; 
+        CREATE TABLE t (a int) USING parquet; 
+        CREATE TABLE s1.u (a int) USING parquet; 
+        CREATE TABLE s2.v (a int) USING parquet; 
+        CREATE TABLE s1.t (a int) USING parquet; 
+        CREATE TABLE s2.t (a int) USING parquet; 
+        INSERT INTO t VALUES (0); 
+        INSERT INTO s1.u VALUES (1); 
+        INSERT INTO s2.v VALUES (2); 
+        INSERT INTO s1.t VALUES (3); 
+        INSERT INTO s2.t VALUES (4);
+    "#
+    .execute(&mut conn);
+
+    assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (0,));
+    assert_eq!("SELECT a FROM s1.u".fetch_one::<(i32,)>(&mut conn), (1,));
+    assert_eq!("SELECT a FROM s2.v".fetch_one::<(i32,)>(&mut conn), (2,));
+
+    match "SELECT a FROM u".execute_result(&mut conn) {
+        Err(err) => assert_eq!(
+            err.to_string(),
+            "error returned from database: relation \"u\" does not exist"
+        ),
+        _ => panic!("Was able to select schema not in search path"),
+    };
+
+    let _ = "SET search_path = public, s1, s2".execute_result(&mut conn);
+    assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (0,));
+    assert_eq!("SELECT a FROM u".fetch_one::<(i32,)>(&mut conn), (1,));
+    assert_eq!("SELECT a FROM v".fetch_one::<(i32,)>(&mut conn), (2,));
+
+    let _ = "SET search_path = s2, s1, public".execute_result(&mut conn);
+    assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (4,));
+    assert_eq!("SELECT a FROM u".fetch_one::<(i32,)>(&mut conn), (1,));
+
+    let _ = "SET search_path = s1".execute_result(&mut conn);
+    assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (3,));
+}

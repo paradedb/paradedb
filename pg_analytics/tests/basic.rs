@@ -490,7 +490,7 @@ fn multiline_query(mut conn: PgConnection) {
     let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
     assert_eq!(
         column_names.sort(),
-        vec!["id".to_string(), "age".to_string(), "name".to_string()].sort()
+        ["id".to_string(), "age".to_string(), "name".to_string()].sort()
     );
 
     "CREATE TABLE test_table2 (id smallint) USING parquet; INSERT INTO test_table2 VALUES (1), (2), (3); ALTER TABLE test_table2 ADD COLUMN name text;"
@@ -503,7 +503,7 @@ fn multiline_query(mut conn: PgConnection) {
     let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
     assert_eq!(
         column_names.sort(),
-        vec!["id".to_string(), "name".to_string()].sort()
+        ["id".to_string(), "name".to_string()].sort()
     );
 
     "CREATE TABLE test_table3 (id smallint) USING parquet; ALTER TABLE test_table3 ADD COLUMN name text; TRUNCATE TABLE test_table3;"
@@ -516,7 +516,7 @@ fn multiline_query(mut conn: PgConnection) {
     let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
     assert_eq!(
         column_names.sort(),
-        vec!["id".to_string(), "name".to_string()].sort()
+        ["id".to_string(), "name".to_string()].sort()
     );
 }
 

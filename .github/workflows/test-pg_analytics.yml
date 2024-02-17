@@ -151,17 +151,3 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
         working-directory: pg_analytics/
         run: cargo pgrx package --features telemetry
-
-      # We only do it for one of the matrix jobs, because the coverage report is the same for all of them
-      - name: Generate Code Coverage Reports
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
-        run: grcov . -s . --binary-path ./target/debug/ -t lcov --branch --ignore-not-existing -o ./target/coverage-report/
-
-      - name: Upload Coverage Reports to Codecov
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
-        uses: codecov/codecov-action@v3
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          directory: ./target/coverage-report/
-          files: lcov
-          fail_ci_if_error: false # Don't fail on error, it's usually due to a Codecov network issue

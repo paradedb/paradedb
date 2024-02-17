@@ -1,5 +1,6 @@
 use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
+use deltalake::datafusion::catalog::CatalogProvider;
 use deltalake::datafusion::common::arrow::datatypes::DataType;
 use deltalake::datafusion::common::config::ConfigOptions;
 use deltalake::datafusion::common::DataFusionError;
@@ -171,6 +172,65 @@ impl ParadeContextProvider {
             options: ConfigOptions::new(),
         })
     }
+
+    fn get_table_source_impl(
+        reference: TableReference,
+    ) -> Result<Arc<dyn TableSource>, ParadeError> {
+        let table_name = reference.table();
+        let schema_name = reference.schema();
+
+        if let Some(schema_name) = schema_name {
+            // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
+            DatafusionContext::with_schema_provider(schema_name, |provider| {
+                let table = task::block_on(provider.table(table_name))
+                    .ok_or(NotFound::Table(table_name.to_string()))?;
+
+                Ok(provider_as_source(table))
+            })
+        } else {
+            // If no schema was provided in the query, i.e. SELECT * FROM <table>
+            // Read all schemas from the Postgres search path and cascade through them
+            // until a table is found
+            let current_schemas = unsafe {
+                direct_function_call::<Array<pg_sys::Datum>>(
+                    pg_sys::current_schemas,
+                    &[Some(pg_sys::Datum::from(true))],
+                )
+            };
+
+            if let Some(current_schemas) = current_schemas {
+                for datum in current_schemas.iter().flatten() {
+                    let schema_name =
+                        unsafe { CStr::from_ptr(datum.cast_mut_ptr::<i8>()).to_str()? };
+                    let schema_registered = DatafusionContext::with_catalog(|catalog| {
+                        Ok(catalog.schema(schema_name).is_some())
+                    })?;
+
+                    if !schema_registered {
+                        continue;
+                    }
+
+                    let table_registered =
+                        DatafusionContext::with_schema_provider(schema_name, |provider| {
+                            Ok(task::block_on(provider.table(table_name)).is_some())
+                        })?;
+
+                    if !table_registered {
+                        continue;
+                    }
+
+                    return DatafusionContext::with_schema_provider(schema_name, |provider| {
+                        let table = task::block_on(provider.table(table_name))
+                            .ok_or(NotFound::Table(table_name.to_string()))?;
+
+                        Ok(provider_as_source(table))
+                    });
+                }
+            }
+
+            Err(NotFound::Table(table_name.to_string()).into())
+        }
+    }
 }
 
 impl ContextProvider for ParadeContextProvider {
@@ -178,16 +238,8 @@ impl ContextProvider for ParadeContextProvider {
         &self,
         reference: TableReference,
     ) -> Result<Arc<dyn TableSource>, DataFusionError> {
-        let table_name = reference.table();
-        let schema_name = reference.schema().unwrap_or("public");
-
-        DatafusionContext::with_schema_provider(schema_name, |provider| {
-            let table = task::block_on(provider.table(table_name))
-                .ok_or(NotFound::Table(table_name.to_string()))?;
-
-            Ok(provider_as_source(table))
-        })
-        .map_err(|err| DataFusionError::Execution(err.to_string()))
+        Self::get_table_source_impl(reference)
+            .map_err(|err| DataFusionError::Execution(err.to_string()))
     }
 
     fn get_function_meta(&self, _name: &str) -> Option<Arc<ScalarUDF>> {

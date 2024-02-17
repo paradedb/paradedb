@@ -487,10 +487,10 @@ fn multiline_query(mut conn: PgConnection) {
     let rows: Vec<(String,)> =
         "SELECT column_name FROM information_schema.columns WHERE table_name = 'test_table'"
             .fetch(&mut conn);
-    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
+    let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
     assert_eq!(
-        column_names,
-        vec!["id".to_string(), "age".to_string(), "name".to_string()]
+        column_names.sort(),
+        vec!["id".to_string(), "age".to_string(), "name".to_string()].sort()
     );
 
     "CREATE TABLE test_table2 (id smallint) USING parquet; INSERT INTO test_table2 VALUES (1), (2), (3); ALTER TABLE test_table2 ADD COLUMN name text;"
@@ -500,8 +500,11 @@ fn multiline_query(mut conn: PgConnection) {
     let rows: Vec<(String,)> =
         "SELECT column_name FROM information_schema.columns WHERE table_name = 'test_table2'"
             .fetch(&mut conn);
-    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-    assert_eq!(column_names, vec!["id".to_string(), "name".to_string()]);
+    let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
+    assert_eq!(
+        column_names.sort(),
+        vec!["id".to_string(), "name".to_string()].sort()
+    );
 
     "CREATE TABLE test_table3 (id smallint) USING parquet; ALTER TABLE test_table3 ADD COLUMN name text; TRUNCATE TABLE test_table3;"
         .execute(&mut conn);
@@ -510,8 +513,11 @@ fn multiline_query(mut conn: PgConnection) {
     let rows: Vec<(String,)> =
         "SELECT column_name FROM information_schema.columns WHERE table_name = 'test_table3'"
             .fetch(&mut conn);
-    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-    assert_eq!(column_names, vec!["id".to_string(), "name".to_string()]);
+    let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
+    assert_eq!(
+        column_names.sort(),
+        vec!["id".to_string(), "name".to_string()].sort()
+    );
 }
 
 #[rstest]

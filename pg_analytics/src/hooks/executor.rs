@@ -11,6 +11,7 @@ use crate::datafusion::context::ParadeContextProvider;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::delete::delete;
 use crate::hooks::handler::IsColumn;
+use crate::hooks::query::Query;
 use crate::hooks::select::select;
 
 pub fn executor_run(
@@ -28,19 +29,9 @@ pub fn executor_run(
     unsafe {
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;
-
-        // Get the substring of the query relevant to this hook execution
-        let query_start_index = (*query_desc.plannedstmt).stmt_location;
-        let query_len = (*query_desc.plannedstmt).stmt_len;
-        let mut query = CStr::from_ptr(query_desc.sourceText).to_str()?;
-        if query_start_index != -1 {
-            if query_len == 0 {
-                query = &query[(query_start_index as usize)..query.len()];
-            } else {
-                query = &query
-                    [(query_start_index as usize)..((query_start_index + query_len) as usize)];
-            }
-        }
+        let query = query_desc
+            .plannedstmt
+            .current_query(CStr::from_ptr(query_desc.sourceText))?;
 
         // Only use this hook for deltalake tables
         // Allow INSERTs to go through
@@ -57,11 +48,11 @@ pub fn executor_run(
         // Execute SELECT, DELETE, UPDATE
         match query_desc.operation {
             pg_sys::CmdType_CMD_DELETE => {
-                let logical_plan = create_logical_plan(query)?;
+                let logical_plan = create_logical_plan(&query)?;
                 delete(rtable, query_desc, logical_plan)
             }
             pg_sys::CmdType_CMD_SELECT => {
-                let logical_plan = create_logical_plan(query)?;
+                let logical_plan = create_logical_plan(&query)?;
                 select(query_desc, logical_plan)
             }
             pg_sys::CmdType_CMD_UPDATE => Err(NotSupported::Update.into()),

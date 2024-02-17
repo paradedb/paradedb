@@ -10,7 +10,7 @@ use crate::datafusion::context::ParadeContextProvider;
 
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::delete::delete;
-use crate::hooks::handler::DeltaHandler;
+use crate::hooks::handler::IsColumn;
 use crate::hooks::select::select;
 
 pub fn executor_run(
@@ -46,7 +46,7 @@ pub fn executor_run(
         // Allow INSERTs to go through
         if rtable.is_null()
             || query_desc.operation == pg_sys::CmdType_CMD_INSERT
-            || !DeltaHandler::rtable_is_delta(rtable)?
+            || !rtable.is_column()?
             // Tech Debt: Find a less hacky way to let COPY go through
             || query.to_lowercase().starts_with("copy")
         {

@@ -6,7 +6,7 @@ use std::ffi::CStr;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::errors::{NotSupported, ParadeError};
-use crate::hooks::handler::DeltaHandler;
+use crate::hooks::handler::IsColumn;
 
 pub unsafe fn rename(
     rename_stmt: *mut pg_sys::RenameStmt,
@@ -27,7 +27,7 @@ pub unsafe fn rename(
         return Ok(());
     }
 
-    if !DeltaHandler::relation_is_delta(relation)? {
+    if !relation.is_column()? {
         pg_sys::RelationClose(relation);
         return Ok(());
     }

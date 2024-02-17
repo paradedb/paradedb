@@ -67,9 +67,6 @@ pub enum NotFound {
 
     #[error("Expected value of type {0} but found None")]
     Value(String),
-
-    #[error("Invalid parquet handler oid")]
-    Handler,
 }
 
 #[derive(Error, Debug)]

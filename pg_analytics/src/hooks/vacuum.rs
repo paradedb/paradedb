@@ -6,7 +6,7 @@ use crate::datafusion::context::DatafusionContext;
 use deltalake::datafusion::catalog::CatalogProvider;
 
 use crate::errors::ParadeError;
-use crate::hooks::handler::DeltaHandler;
+use crate::hooks::handler::IsColumn;
 
 #[derive(Debug)]
 struct VacuumOptions {
@@ -127,7 +127,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                     continue;
                 }
 
-                if !DeltaHandler::relation_is_delta(relation)? {
+                if !relation.is_column()? {
                     pg_sys::RelationClose(relation);
                     continue;
                 }

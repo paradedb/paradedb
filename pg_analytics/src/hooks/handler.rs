@@ -1,28 +1,32 @@
 use pgrx::*;
 use std::ffi::{c_char, CString};
 
-use crate::errors::{NotFound, NotSupported, ParadeError};
+use crate::errors::{NotSupported, ParadeError};
 
-static DELTALAKE_HANDLER: &str = "parquet";
+static COLUMN_HANDLER: &str = "parquet";
 
-pub struct DeltaHandler;
+pub trait IsColumn {
+    #[allow(clippy::wrong_self_convention)]
+    unsafe fn is_column(self) -> Result<bool, ParadeError>;
+}
 
-impl DeltaHandler {
-    pub unsafe fn rtable_is_delta(rtable: *mut pg_sys::List) -> Result<bool, ParadeError> {
-        let oid = match Self::oid() {
-            Ok(oid) => oid,
-            Err(_) => return Ok(false),
-        };
+impl IsColumn for *mut pg_sys::List {
+    unsafe fn is_column(self) -> Result<bool, ParadeError> {
+        let oid = column_oid()?;
+
+        if oid == pg_sys::InvalidOid {
+            return Ok(false);
+        }
 
         #[cfg(feature = "pg12")]
-        let mut current_cell = (*rtable).head;
+        let mut current_cell = (*self).head;
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
-        let elements = (*rtable).elements;
+        let elements = (*self).elements;
 
         let mut using_noncol: bool = false;
         let mut using_col: bool = false;
 
-        for i in 0..(*rtable).length {
+        for i in 0..(*self).length {
             let rte: *mut pg_sys::RangeTblEntry;
             #[cfg(feature = "pg12")]
             {
@@ -65,41 +69,38 @@ impl DeltaHandler {
 
         Ok(using_col)
     }
+}
 
-    pub unsafe fn relation_is_delta(
-        relation: *mut pg_sys::RelationData,
-    ) -> Result<bool, ParadeError> {
-        if relation.is_null() {
+impl IsColumn for *mut pg_sys::RelationData {
+    unsafe fn is_column(self) -> Result<bool, ParadeError> {
+        if self.is_null() {
             return Ok(false);
         }
 
-        let oid = match Self::oid() {
-            Ok(oid) => oid,
-            Err(_) => return Ok(false),
-        };
+        let oid = column_oid()?;
 
-        let relation_handler_oid = (*relation).rd_amhandler;
+        let relation_handler_oid = (*self).rd_amhandler;
 
         Ok(relation_handler_oid == oid)
     }
+}
 
-    unsafe fn oid() -> Result<pg_sys::Oid, ParadeError> {
-        let deltalake_handler_str = CString::new(DELTALAKE_HANDLER)?;
-        let deltalake_handler_ptr = deltalake_handler_str.as_ptr() as *const c_char;
+unsafe fn column_oid() -> Result<pg_sys::Oid, ParadeError> {
+    let deltalake_handler_str = CString::new(COLUMN_HANDLER)?;
+    let deltalake_handler_ptr = deltalake_handler_str.as_ptr() as *const c_char;
 
-        let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
+    let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
 
-        if deltalake_oid == pg_sys::InvalidOid {
-            return Err(NotFound::Handler.into());
-        }
-
-        let heap_tuple_data = pg_sys::SearchSysCache1(
-            pg_sys::SysCacheIdentifier_AMOID as i32,
-            pg_sys::Datum::from(deltalake_oid),
-        );
-        let catalog = pg_sys::heap_tuple_get_struct::<pg_sys::FormData_pg_am>(heap_tuple_data);
-        pg_sys::ReleaseSysCache(heap_tuple_data);
-
-        Ok((*catalog).amhandler)
+    if deltalake_oid == pg_sys::InvalidOid {
+        return Ok(deltalake_oid);
     }
+
+    let heap_tuple_data = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier_AMOID as i32,
+        pg_sys::Datum::from(deltalake_oid),
+    );
+    let catalog = pg_sys::heap_tuple_get_struct::<pg_sys::FormData_pg_am>(heap_tuple_data);
+    pg_sys::ReleaseSysCache(heap_tuple_data);
+
+    Ok((*catalog).amhandler)
 }

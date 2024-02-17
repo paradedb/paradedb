@@ -31,7 +31,7 @@ pub fn executor_run(
         let rtable = (*ps).rtable;
         let query = query_desc
             .plannedstmt
-            .current_query(CStr::from_ptr(query_desc.sourceText))?;
+            .current_query_string(CStr::from_ptr(query_desc.sourceText))?;
 
         // Only use this hook for deltalake tables
         // Allow INSERTs to go through

@@ -39,7 +39,7 @@ pub fn process_utility(
 ) -> Result<(), ParadeError> {
     unsafe {
         let plan = pstmt.utilityStmt;
-        let query = pstmt.clone().into_pg().current_query(query_string)?;
+        let query = pstmt.clone().into_pg().current_query_string(query_string)?;
 
         match (*plan).type_ {
             NodeTag::T_AlterTableStmt => {

@@ -43,6 +43,9 @@ pub enum ParadeError {
     )]
     SharedPreload,
 
+    #[error("Table \"{0}\" not found. TEMP tables must be registered with paradedb.register_temp_table().")]
+    TempTableNotRegistered(String),
+
     #[error("{0}")]
     Generic(String),
 }
@@ -78,9 +81,6 @@ pub enum NotFound {
 
     #[error("Failed to get temp schema oid")]
     TempSchemaOid,
-
-    #[error("Invalid parquet handler oid")]
-    Handler,
 }
 
 #[derive(Error, Debug)]

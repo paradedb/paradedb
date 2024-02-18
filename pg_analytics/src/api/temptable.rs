@@ -11,28 +11,28 @@ use crate::datafusion::schema::TempSchemaProvider;
 use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
 
-const DUMMY_TABLE_NAME: &str = "paradedb_dummy_foreign_parquet_table";
+const DUMMY_TABLE_NAME: &str = "paradedb_dummy_temp_table";
 
 extension_sql!(
     r#"
-    CREATE OR REPLACE PROCEDURE create_foreign_parquet_table(
+    CREATE OR REPLACE PROCEDURE register_temp_table(
         table_name TEXT,
         foreign_table_name TEXT,
         foreign_nickname TEXT
     ) 
-    LANGUAGE C AS 'MODULE_PATHNAME', 'create_foreign_parquet_table';
+    LANGUAGE C AS 'MODULE_PATHNAME', 'register_temp_table';
     "#,
-    name = "create_foreign_parquet_table"
+    name = "register_temp_table"
 );
 #[pg_guard]
 #[no_mangle]
-pub extern "C" fn create_foreign_parquet_table(fcinfo: pg_sys::FunctionCallInfo) {
-    create_foreign_parquet_table_impl(fcinfo).unwrap_or_else(|err| {
+pub extern "C" fn register_temp_table(fcinfo: pg_sys::FunctionCallInfo) {
+    register_temp_table_impl(fcinfo).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
 
-fn create_foreign_parquet_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError> {
+fn register_temp_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError> {
     let table_name: String = unsafe { fcinfo::pg_getarg(fcinfo, 0).unwrap() };
     let foreign_table_name: String = unsafe { fcinfo::pg_getarg(fcinfo, 1).unwrap() };
     let foreign_nickname: String = unsafe { fcinfo::pg_getarg(fcinfo, 2).unwrap() };

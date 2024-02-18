@@ -1,5 +1,6 @@
 use async_std::task;
 use core::ffi::c_char;
+use deltalake::datafusion::catalog::schema::SchemaProvider;
 use pgrx::*;
 
 use deltalake::datafusion::catalog::CatalogProvider;
@@ -47,18 +48,12 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
 
     match persistence as u8 {
         pg_sys::RELPERSISTENCE_TEMP => {
-            // ParadeSessionContext::with_postgres_catalog(|catalog| {
-            //     if catalog.schema(&schema_name).is_none() {
-            //         let schema_provider = Arc::new(TempSchemaProvider::new());
-            //         catalog.register_schema(&schema_name, schema_provider)?;
-            //     }
-            //     Ok(())
-            // })?;
-
-            // ParadeSessionContext::with_permanent_schema_provider(&schema_name, |provider| {
-            //     task::block_on(provider.create_table(&pg_relation))
-            // })
-            Ok(())
+            match ParadeSessionContext::with_temp_schema_provider(&schema_name, |provider| {
+                Ok(provider.table_exist(&table_name))
+            })? {
+                true => Ok(()),
+                false => Err(ParadeError::TempTableNotRegistered(table_name)),
+            }
         }
         _ => {
             let postgres_catalog_name = ParadeSessionContext::postgres_catalog_name()?;

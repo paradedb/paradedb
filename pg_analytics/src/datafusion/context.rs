@@ -15,7 +15,7 @@ use std::sync::Arc;
 use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
 
-trait PostgresSchema {
+pub trait PostgresSchema {
     fn is_temp_schema(&self) -> Result<bool, ParadeError>;
 }
 

@@ -8,6 +8,7 @@ use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
 use std::sync::Arc;
 
+use crate::datafusion::context::PostgresSchema;
 use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
 use crate::datafusion::session::ParadeSessionContext;
 use crate::errors::{NotFound, ParadeError};
@@ -15,6 +16,7 @@ use crate::errors::{NotFound, ParadeError};
 pub trait DeltaTableProvider {
     fn fields(&self) -> Result<Vec<Field>, ParadeError>;
     fn arrow_schema(&self) -> Result<Arc<ArrowSchema>, ParadeError>;
+    fn is_temp_table(&self) -> Result<bool, ParadeError>;
 }
 
 impl DeltaTableProvider for PgRelation {
@@ -37,8 +39,8 @@ impl DeltaTableProvider for PgRelation {
             } else {
                 (attribute_type_oid, false)
             };
-            // Note: even if you have an int[][], the attribute-type is INT4ARRAYOID and the base is INT4OID
 
+            // Note: even if you have an int[][], the attribute-type is INT4ARRAYOID and the base is INT4OID
             let field = if is_array {
                 Field::new_list(
                     attname,
@@ -46,7 +48,7 @@ impl DeltaTableProvider for PgRelation {
                         DataType::from_sql_data_type(
                             base_oid.to_sql_data_type(attribute.type_mod())?,
                         )?,
-                        true, // TODO: i think postgres always allows array constants to be null
+                        true, // TODO: I think postgres always allows array constants to be null
                     ),
                     nullability,
                 )
@@ -83,5 +85,14 @@ impl DeltaTableProvider for PgRelation {
         let df_schema = DFSchema::try_from_qualified_schema(reference, source.schema().as_ref())?;
 
         Ok(Arc::new(df_schema.into()))
+    }
+
+    fn is_temp_table(&self) -> Result<bool, ParadeError> {
+        if !self.is_table() {
+            return Ok(false);
+        }
+
+        let schema_name = self.namespace();
+        schema_name.is_temp_schema()
     }
 }

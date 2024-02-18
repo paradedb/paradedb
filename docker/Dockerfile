@@ -4,6 +4,8 @@ ARG PG_VERSION_MAJOR=16
 # First Stage: Builder
 ###############################################
 
+# TODO: Check that Debian 11/bullseye is the same as Ubuntu 22.04, which is what we test on
+
 # We build the extensions on top of the official PostgreSQL image, since
 # the Bitnami image doesn't have root access and necessary build tools
 FROM postgres:${PG_VERSION_MAJOR}-bullseye as builder
@@ -153,21 +155,38 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 # TODO: Test that the paths are proper now that it builds. Also add the env var for shared_preload
 
 # Copy the ParadeDB extensions from their builder stages
-COPY --from=builder-pg_sparse /tmp/pg_sparse/*.so /opt/bitnami/postgresql/lib/postgresql/
+COPY --from=builder-pg_sparse /tmp/pg_sparse/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_sparse /tmp/pg_sparse/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_sparse /tmp/pg_sparse/sql/*.sql /opt/bitnami/postgresql/share/extension/
+
+COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/postgresql/
+
+COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/postgresql/
 
 # Copy third-party extensions from their builder stages
-COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/postgresql/
+COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
 
 # TODO: Do we need to replace the entrypoint script? I don't think so (actually for PostHog we do (?))
 # TODO: Do we need to change the user? I don't think so
+
+
+
+# COPY ./docker/paradedb.sh /docker-entrypoint-preinitdb.d/10_paradedb.sh
+# COPY ./docker/01_create_extensions.sql /docker-entrypoint-initdb.d/
+
+# COPY ./docker/create_extension.sql /docker-entrypoint-initdb.d/create_extension.sql
+
+
+
+# When the container is executed, it will execute the files with extension .sh located at /docker-entrypoint-preinitdb.d before initializing or starting postgresql.
+
+# When the container is executed for the first time, it will execute the files with extensions .sh, .sql and .sql.gz located at /docker-entrypoint-initdb.d.
+
+
 
 # TODO: Do we need these? Probably at least uuid-runtime
 # # Install common dependencies to builder and runtime
@@ -179,3 +198,5 @@ COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/sha
 #     curl \
 #     wget \
 #     && rm -rf /var/lib/apt/lists/*
+
+# USER 1001

@@ -10,15 +10,15 @@ services:
   paradedb:
     image: paradedb/paradedb:latest
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
+      POSTGRESQL_USER: myuser
+      POSTGRESQL_PASSWORD: mypassword
+      POSTGRESQL_DATABASE: mydatabase
       POSTGRESQL_SHARED_PRELOAD_LIBRARIES: pgaudit,pg_bm25,pg_analytics
       TELEMETRY: true # Set this variable to 'false' (or remove it) to disable anonymous telemetry
     ports:
       - "5432:5432"
-    volumes:
-      - paradedb-data:/var/lib/postgresql/data
+#     volumes:
+#       - paradedb-data:/var/lib/postgresql/data
 
-volumes:
-  paradedb-data:
+# volumes:
+#   paradedb-data:

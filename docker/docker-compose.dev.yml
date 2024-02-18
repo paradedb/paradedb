@@ -16,14 +16,14 @@ services:
       cache_to:
         - type=local,dest=./.docker_cache_dev
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
-      POSTGRESQL_SHARED_PRELOAD_LIBRARIES: pgaudit,pg_bm25,pg_analytics
+      POSTGRESQL_USER: myuser
+      POSTGRESQL_PASSWORD: mypassword
+      POSTGRESQL_DATABASE: mydatabase
+      POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser (optional)
+      # POSTGRESQL_SHARED_PRELOAD_LIBRARIES: pgaudit,pg_bm25,pg_analytics
     ports:
       - "5432:5432"
-    volumes:
-      - paradedb-data:/var/lib/postgresql/data
-
-volumes:
-  paradedb-data:
+    # volumes:
+    #   - paradedb-data:/var/lib/postgresql/data
+# volumes:
+#   paradedb-data:

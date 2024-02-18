@@ -19,6 +19,7 @@ services:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: mydatabase
+      POSTGRESQL_SHARED_PRELOAD_LIBRARIES: pgaudit,pg_bm25,pg_analytics
     ports:
       - "5432:5432"
     volumes:

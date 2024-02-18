@@ -13,6 +13,7 @@ services:
       POSTGRES_USER: myuser
       POSTGRES_PASSWORD: mypassword
       POSTGRES_DB: mydatabase
+      POSTGRESQL_SHARED_PRELOAD_LIBRARIES: pgaudit,pg_bm25,pg_analytics
       TELEMETRY: true # Set this variable to 'false' (or remove it) to disable anonymous telemetry
     ports:
       - "5432:5432"

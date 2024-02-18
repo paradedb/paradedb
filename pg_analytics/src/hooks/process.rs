@@ -10,6 +10,7 @@ use std::ffi::CStr;
 use crate::errors::ParadeError;
 use crate::hooks::alter::alter;
 use crate::hooks::drop::drop;
+use crate::hooks::query::Query;
 use crate::hooks::rename::rename;
 use crate::hooks::truncate::truncate;
 use crate::hooks::vacuum::vacuum;
@@ -38,22 +39,17 @@ pub fn process_utility(
 ) -> Result<(), ParadeError> {
     unsafe {
         let plan = pstmt.utilityStmt;
+        let query = pstmt.clone().into_pg().current_query_string(query_string)?;
 
         match (*plan).type_ {
             NodeTag::T_AlterTableStmt => {
-                alter(
-                    plan as *mut pg_sys::AlterTableStmt,
-                    &create_ast(query_string.to_str()?)?[0],
-                )?;
+                alter(plan as *mut pg_sys::AlterTableStmt, &create_ast(&query)?[0])?;
             }
             NodeTag::T_DropStmt => {
                 drop(plan as *mut pg_sys::DropStmt)?;
             }
             NodeTag::T_RenameStmt => {
-                rename(
-                    plan as *mut pg_sys::RenameStmt,
-                    &create_ast(query_string.to_str()?)?[0],
-                )?;
+                rename(plan as *mut pg_sys::RenameStmt, &create_ast(&query)?[0])?;
             }
             NodeTag::T_TruncateStmt => {
                 truncate(plan as *mut pg_sys::TruncateStmt)?;

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
 use crate::errors::{NotSupported, ParadeError};
-use crate::hooks::handler::DeltaHandler;
+use crate::hooks::handler::IsColumn;
 
 pub unsafe fn alter(
     alter_stmt: *mut pg_sys::AlterTableStmt,
@@ -29,7 +29,7 @@ pub unsafe fn alter(
         return Ok(());
     }
 
-    if !DeltaHandler::relation_is_delta(relation)? {
+    if !relation.is_column()? {
         pg_sys::RelationClose(relation);
         return Ok(());
     }

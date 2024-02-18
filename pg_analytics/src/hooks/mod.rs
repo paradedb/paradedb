@@ -4,6 +4,7 @@ mod drop;
 mod executor;
 mod handler;
 mod process;
+mod query;
 mod rename;
 mod select;
 mod truncate;

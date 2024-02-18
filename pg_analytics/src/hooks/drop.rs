@@ -3,7 +3,7 @@ use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::errors::ParadeError;
-use crate::hooks::handler::DeltaHandler;
+use crate::hooks::handler::IsColumn;
 
 pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> {
     // Ignore if not DROP TABLE
@@ -57,7 +57,7 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> 
             continue;
         }
 
-        if !DeltaHandler::relation_is_delta(relation)? {
+        if !relation.is_column()? {
             pg_sys::RelationClose(relation);
             continue;
         }

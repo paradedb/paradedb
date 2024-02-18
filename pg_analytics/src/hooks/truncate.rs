@@ -3,7 +3,7 @@ use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::errors::ParadeError;
-use crate::hooks::handler::DeltaHandler;
+use crate::hooks::handler::IsColumn;
 
 pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), ParadeError> {
     let rels = (*truncate_stmt).relations;
@@ -41,7 +41,7 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
             continue;
         }
 
-        if !DeltaHandler::relation_is_delta(relation)? {
+        if !relation.is_column()? {
             pg_sys::RelationClose(relation);
             continue;
         }

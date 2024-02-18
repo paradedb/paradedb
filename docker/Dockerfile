@@ -72,22 +72,7 @@ COPY shared/ /tmp/shared
 
 # Build the extension
 WORKDIR /tmp/pg_bm25
-ENV PKGDIR=/tmp/pg_bm25/deb-pkg
-RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
-
-# Create the .deb package
-WORKDIR $PKGDIR
-RUN <<EOF
-mkdir -p DEBIAN
-cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
-    Package: $(cargo get package.name | sed 's/_/-/g')
-    Description: $(cargo get package.description)
-    Maintainer: $DEBFULLNAME <$DEBEMAIL>
-    Version: $(cargo get package.version)
-    Architecture: $(dpkg --print-architecture)
-EOT
-dpkg-deb --build $PKGDIR /tmp/pg-bm25.deb
-EOF
+RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_analytics
@@ -103,25 +88,10 @@ COPY shared/ /tmp/shared
 # Build the extension
 # Note: We require Rust nightly to build pg_analytics with SIMD
 WORKDIR /tmp/pg_analytics
-ENV PKGDIR=/tmp/pg_analytics/deb-pkg
 RUN rustup update nightly && \
     rustup override set nightly && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" --force && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" --out-dir $PKGDIR
-
-# Create the .deb package
-WORKDIR $PKGDIR
-RUN <<EOF
-mkdir -p DEBIAN
-cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
-    Package: $(cargo get package.name | sed 's/_/-/g')
-    Description: $(cargo get package.description)
-    Maintainer: $DEBFULLNAME <$DEBEMAIL>
-    Version: $(cargo get package.version)
-    Architecture: $(dpkg --print-architecture)
-EOT
-dpkg-deb --build $PKGDIR /tmp/pg-analytics.deb
-EOF
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_sparse
@@ -196,61 +166,39 @@ EOF
 # As of writing, Debian 11 (bullseye) is the latest version supported by Bitnami
 FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-11 as paradedb
 
+ARG PG_VERSION_MAJOR=16
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
 ARG TELEMETRY
 
 # Declare runtime environment variables
-ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
+ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
+    POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
     TELEMETRY=${TELEMETRY}
 
-# Copy ParadeDB extensions from their builder stages
-COPY --from=builder-pg_bm25 /tmp/pg-bm25*.deb /tmp/extensions-deb/
-COPY --from=builder-pg_analytics /tmp/pg-analytics*.deb /tmp/extensions-deb/
-COPY --from=builder-pg_sparse /tmp/pg-sparse*.deb /tmp/extensions-deb/
+# Copy the ParadeDB extensions from their builder stages
+COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/postgresql/extension/
+COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/postgresql/
+COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/postgresql/extension/
+COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/postgresql/
+
 
 # Copy third-party extensions from their builder stages
-COPY --from=builder-pgvector /tmp/pgvector*.deb /tmp/extensions-deb/
+# TODO: pg_sparse
+# TODO: pgvector
 
+# TODO: Do we need to replace the entrypoint script? I don't think so
+# TODO: Do we need to change the user? I don't think so
 
-
-
-# This requires superuser but I think there's a different way to do it in bitnami
-# RUN dpkg -i /tmp/extensions-deb/*.deb \
-#     && rm -rf /tmp/extensions-deb
-
-
-# Copy entrypoint script, which will be handled by the official image initialization scipt
-COPY ./docker/entrypoint.sh /docker-entrypoint-initdb.d/10_paradedb.sh
-
-# Change the uid of postgres to 26
-RUN usermod -u 26 postgres \
-    && chown -R 26:999 /var/lib/postgresql \
-    && chown -R 26:999 /var/run/postgresql \
-    && chmod -R 700 /var/lib/postgresql
-
-USER 26
-
-
-
-
-# Install common dependencies to builder and runtime
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    software-properties-common \
-    ca-certificates \
-    uuid-runtime \
-    libssl-dev \
-    curl \
-    wget \
-    && rm -rf /var/lib/apt/lists/*
-
-
-
-
-
-# TODO: Figure out how to install them on Bitnami, and how to configure them
-
-
+# # Install common dependencies to builder and runtime
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     software-properties-common \
+#     ca-certificates \
+#     uuid-runtime \
+#     libssl-dev \
+#     curl \
+#     wget \
+#     && rm -rf /var/lib/apt/lists/*

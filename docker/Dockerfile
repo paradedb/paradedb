@@ -105,24 +105,8 @@ COPY pg_sparse/ /tmp/pg_sparse
 
 # Build the extension
 WORKDIR /tmp/pg_sparse
-ENV PKGDIR=/tmp/pg_sparse/deb-pkg
 RUN make clean && \
-    make USE_PGXS=1 OPTFLAGS="" -j && \
-    make USE_PGXS=1 DESTDIR="$PKGDIR" install -j
-
-# Create the .deb package
-WORKDIR $PKGDIR
-RUN <<EOF
-mkdir -p DEBIAN
-cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
-    Package: pg-sparse
-    Description: "Sparse vector data type and sparse HNSW access methods"
-    Maintainer: $DEBFULLNAME <$DEBEMAIL>
-    Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../svector.control)
-    Architecture: $(dpkg --print-architecture)
-EOT
-dpkg-deb --build $PKGDIR /tmp/pg-sparse.deb
-EOF
+    make USE_PGXS=1 OPTFLAGS="" -j
 
 ######################
 # pgvector
@@ -133,7 +117,6 @@ FROM builder as builder-pgvector
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Build the extension
-ENV PKGDIR=/tmp/pgvector/deb-pkg
 RUN <<EOF
 cd /tmp
 git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git
@@ -142,21 +125,6 @@ cd /tmp/pgvector
 echo "trusted = true" >> vector.control
 make clean -j
 make USE_PGXS=1 OPTFLAGS="" -j
-make USE_PGXS=1 DESTDIR="$PKGDIR" install -j
-EOF
-
-# Create the .deb package
-WORKDIR $PKGDIR
-RUN <<EOF
-mkdir -p DEBIAN
-cat <<EOT | sed 's/^ *//' | tee DEBIAN/control
-    Package: pgvector
-    Description: "Open-source vector similarity search for Postgres"
-    Maintainer: "Andrew Kane <andrew@ankane.org>"
-    Version: $(awk -F "= '|\'" '/default_version/ {print $2}' ../vector.control)
-    Architecture: $(dpkg --print-architecture)
-EOT
-dpkg-deb --build $PKGDIR /tmp/pgvector.deb
 EOF
 
 ###############################################
@@ -180,19 +148,23 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     TELEMETRY=${TELEMETRY}
 
 # Copy the ParadeDB extensions from their builder stages
+COPY --from=builder-pg_sparse /tmp/pg_sparse/*.so /opt/bitnami/postgresql/lib/postgresql/
+COPY --from=builder-pg_sparse /tmp/pg_sparse/*.control /opt/bitnami/postgresql/share/postgresql/extension/
+COPY --from=builder-pg_sparse /tmp/pg_sparse/sql/*.sql /opt/bitnami/postgresql/share/postgresql/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/postgresql/extension/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/postgresql/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/postgresql/extension/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/postgresql/
 
-
 # Copy third-party extensions from their builder stages
-# TODO: pg_sparse
-# TODO: pgvector
+COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/postgresql/
+COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/postgresql/extension/
+COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/postgresql/extension/
 
-# TODO: Do we need to replace the entrypoint script? I don't think so
+# TODO: Do we need to replace the entrypoint script? I don't think so (actually for PostHog we do (?))
 # TODO: Do we need to change the user? I don't think so
 
+# TODO: Do we need these? Probably at least uuid-runtime
 # # Install common dependencies to builder and runtime
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     software-properties-common \

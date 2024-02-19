@@ -14,6 +14,7 @@ usage() {
   echo " -p (required),   Processing type, either <sequential> or <threaded>"
   echo " -v (optional),   PG version(s) separated by comma <12,13,14>"
   echo " -u (optional),   Version to test upgrading to before running tests (only meant for use in CI) <0.3.7>"
+  echo " -a (optional),   Architecture to use for testing extension upgrade (only meant for use in CI) <amd64,arm64>"
   exit 1
 }
 
@@ -27,9 +28,10 @@ fi
 FLAG_PG_VER=false
 FLAG_PROCESS_TYPE=false
 FLAG_UPGRADE_VER=""
+FLAG_ARCH="amd64"
 
 # Assign flags to vars and check
-while getopts "hp:v:u:" flag
+while getopts "hp:v:u:a:" flag
 do
   case $flag in
     h)
@@ -49,6 +51,9 @@ do
       ;;
     u)
       FLAG_UPGRADE_VER=$OPTARG
+      ;;
+    a)
+      FLAG_ARCH=$OPTARG
       ;;
     *)
       usage
@@ -135,9 +140,9 @@ function run_tests() {
 
     # First, download & install the first release at which we started supporting upgrades for Postgres 16 (v0.5.2)
     BASE_RELEASE="0.5.2"
-    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-$FLAG_ARCH-ubuntu2204.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
-    sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-amd64-ubuntu2204.deb" > /dev/null
+    sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-$FLAG_ARCH-ubuntu2204.deb" > /dev/null
 
     # Second, load the extension into the test database
     echo "Loading pg_bm25 extension version v$BASE_RELEASE into the test database..."

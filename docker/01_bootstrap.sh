@@ -19,23 +19,28 @@ extensions=(
 
 # List of extensions that must be added to shared_preload_libraries to be installed. Extensions that
 # get added to shared_preload_libraries must also be listed in `extensions` above in order to get installed.
+# Note: pgaudit is pre-installed by Bitnami, which is why it's added here but not in `extensions`
 preload_names=(
+  pgaudit
   pg_bm25
   pg_analytics
 )
 
-# # Build the shared_preload_libraries list, only including extensions that have a preload name specified
-# shared_preload_list=""
-# for preload_name in "${preload_names[@]}"; do
-#   shared_preload_list+="${preload_name},"
-# done
-# # Remove the trailing comma
-# shared_preload_list=${shared_preload_list%,}
-# echo "shared_preload_libraries = $shared_preload_list"
 
-# # Update the PostgreSQL configuration
+
+
+# Build the shared_preload_libraries list, only including extensions that have a preload name specified
+shared_preload_list=""
+for preload_name in "${preload_names[@]}"; do
+  shared_preload_list+="${preload_name},"
+done
+# Remove the trailing comma
+shared_preload_list=${shared_preload_list%,}
+echo "shared_preload_libraries = $shared_preload_list"
+
+# Update the PostgreSQL configuration
 # sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "${PGDATA}/postgresql.conf"
-
+sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = '$shared_preload_list'  # (change requires restart)/" "/bitnami/postgresql/conf/postgresql.conf"
 
 # # Configure search_path to include paradedb schema for template1, and default to public (by listing it first)
 # psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
@@ -47,7 +52,6 @@ preload_names=(
 # psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "template1" <<-EOSQL
 #   ALTER DATABASE template1 SET search_path TO public,paradedb;
 # EOSQL
-
 
 # # We need to restart the server for the changes above to be reflected
 # pg_ctl restart
@@ -84,5 +88,3 @@ preload_names=(
 for extension in "${extensions[@]}"; do
   PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
 done
-
-

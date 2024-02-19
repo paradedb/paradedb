@@ -40,7 +40,7 @@ fn register_temp_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), Para
     let temp_schema_oid = unsafe {
         match direct_function_call::<pg_sys::Oid>(pg_sys::pg_my_temp_schema, &[]) {
             Some(pg_sys::InvalidOid) => {
-                spi::Spi::run(&format!("CREATE TEMP TABLE {} (a int)", DUMMY_TABLE_NAME))?;
+                spi::Spi::run(&format!("CREATE TEMP TABLE IF NOT EXISTS {} (a int)", DUMMY_TABLE_NAME))?;
 
                 match direct_function_call::<pg_sys::Oid>(pg_sys::pg_my_temp_schema, &[]) {
                     Some(pg_sys::InvalidOid) => return Err(NotFound::TempSchemaOid.into()),
@@ -80,7 +80,7 @@ fn register_temp_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), Para
     let statement = create_temp_table_statement(listing_table.schema(), &table_name)?;
 
     spi::Spi::run(&statement)?;
-    spi::Spi::run(&format!("DROP TABLE {}", DUMMY_TABLE_NAME))?;
+    spi::Spi::run(&format!("DROP TABLE IF EXISTS {}", DUMMY_TABLE_NAME))?;
     Ok(())
 }
 

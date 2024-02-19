@@ -107,13 +107,6 @@ impl<'a> ParadeSessionContext {
             }
         };
 
-        let _catalog_provider =
-            context
-                .catalog(&Self::postgres_catalog_name()?)
-                .ok_or(NotFound::Catalog(
-                    Self::postgres_catalog_name()?.to_string(),
-                ))?;
-
         let schema_provider = context
             .catalog(&Self::postgres_catalog_name()?)
             .ok_or(NotFound::Catalog(

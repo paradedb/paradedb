@@ -179,5 +179,5 @@ COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/sha
 
 
 # COPY ./docker/paradedb.sh /docker-entrypoint-preinitdb.d/10_paradedb.sh
-COPY ./docker/01_create_extensions.sql /docker-entrypoint-initdb.d/
+COPY ./docker/01_create_extensions.sh /docker-entrypoint-initdb.d/
 # COPY ./docker/create_extension.sql /docker-entrypoint-initdb.d/create_extension.sql

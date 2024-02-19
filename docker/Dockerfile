@@ -111,15 +111,13 @@ RUN echo "trusted = true" >> svector.control && \
 FROM builder as builder-pgvector
 
 # Build the extension
-RUN <<EOF
-cd /tmp
-git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git
-export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare"
-cd /tmp/pgvector
-echo "trusted = true" >> vector.control
-make clean -j
-make USE_PGXS=1 OPTFLAGS="" -j
-EOF
+WORKDIR /tmp
+RUN git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git && \
+WORKDIR /tmp/pgvector
+RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare" && \
+    echo "trusted = true" >> vector.control && \
+    make clean -j && \
+    make USE_PGXS=1 OPTFLAGS="" -j
 
 ###############################################
 # Second Stage: PostgreSQL

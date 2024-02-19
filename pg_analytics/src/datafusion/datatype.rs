@@ -3,8 +3,8 @@ use deltalake::arrow::array::{
 };
 use deltalake::datafusion::arrow::datatypes::{
     DataType, Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type,
-    Int64Type, TimeUnit, TimestampMicrosecondType, UInt32Type, DECIMAL128_MAX_PRECISION,
-    DECIMAL128_MAX_SCALE,
+    Int64Type, TimeUnit, TimestampMicrosecondType, UInt16Type, UInt32Type, UInt64Type,
+    DECIMAL128_MAX_PRECISION, DECIMAL128_MAX_SCALE,
 };
 use deltalake::datafusion::common::arrow::array::{
     Array, ArrayRef, AsArray, BooleanArray, Date32Array, StringArray, Time64MicrosecondArray,
@@ -39,7 +39,9 @@ impl DatafusionTypeTranslator for DataType {
             DataType::Int16 => SQLDataType::Int2(None),
             DataType::Int32 => SQLDataType::Int4(None),
             DataType::Int64 => SQLDataType::Int8(None),
+            DataType::UInt16 => SQLDataType::UnsignedInt2(None),
             DataType::UInt32 => SQLDataType::UnsignedInt4(None),
+            DataType::UInt64 => SQLDataType::UnsignedInt8(None),
             DataType::Float32 => SQLDataType::Float4,
             DataType::Float64 => SQLDataType::Float8,
             DataType::Decimal128(precision, scale) => SQLDataType::Numeric(
@@ -277,9 +279,9 @@ impl PostgresTypeTranslator for PgOid {
         let oid = match sql_data_type {
             SQLDataType::Boolean => PgBuiltInOids::BOOLOID,
             SQLDataType::Text => PgBuiltInOids::TEXTOID,
-            SQLDataType::Int2(_) => PgBuiltInOids::INT2OID,
-            SQLDataType::Int4(_) => PgBuiltInOids::INT4OID,
-            SQLDataType::Int8(_) => PgBuiltInOids::INT8OID,
+            SQLDataType::Int2(_) | SQLDataType::UnsignedInt2(_) => PgBuiltInOids::INT2OID,
+            SQLDataType::Int4(_) | SQLDataType::UnsignedInt4(_) => PgBuiltInOids::INT4OID,
+            SQLDataType::Int8(_) | SQLDataType::UnsignedInt8(_) => PgBuiltInOids::INT8OID,
             SQLDataType::Float4 => PgBuiltInOids::FLOAT4OID,
             SQLDataType::Float8 => PgBuiltInOids::FLOAT8OID,
             SQLDataType::Numeric(ExactNumberInfo::PrecisionAndScale(_precision, _scale)) => {
@@ -518,8 +520,14 @@ impl DatafusionMapProducer {
             DataType::Int64 => Ok(Arc::new(
                 tuple_data::<i64>(slots, nslots, col_idx).into_array(),
             )),
+            DataType::UInt16 => Ok(Arc::new(
+                tuple_data::<i16>(slots, nslots, col_idx).into_array(),
+            )),
             DataType::UInt32 => Ok(Arc::new(
                 tuple_data::<u32>(slots, nslots, col_idx).into_array(),
+            )),
+            DataType::UInt64 => Ok(Arc::new(
+                tuple_data::<i64>(slots, nslots, col_idx).into_array(),
             )),
             DataType::Float32 => Ok(Arc::new(
                 tuple_data::<f32>(slots, nslots, col_idx).into_array(),
@@ -597,8 +605,18 @@ impl DatafusionMapProducer {
                 .iter()
                 .nth(index)
                 .map(|nth| nth.into_datum()),
+            DataType::UInt16 => array
+                .as_primitive::<Int16Type>()
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
             DataType::UInt32 => array
                 .as_primitive::<UInt32Type>()
+                .iter()
+                .nth(index)
+                .map(|nth| nth.into_datum()),
+            DataType::UInt64 => array
+                .as_primitive::<Int64Type>()
                 .iter()
                 .nth(index)
                 .map(|nth| nth.into_datum()),

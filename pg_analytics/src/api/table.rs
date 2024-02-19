@@ -13,12 +13,32 @@ use crate::errors::{NotFound, ParadeError};
 
 const DUMMY_TABLE_NAME: &str = "paradedb_dummy_temp_table";
 
+#[pg_extern]
+pub fn list_tables(schema_name: &str) -> iter::TableIterator<(name!(table, String),)> {
+    let table_names = list_tables_impl(schema_name).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
+
+    iter::TableIterator::new(table_names.into_iter().map(|table| (table,)))
+}
+
+#[inline]
+fn list_tables_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
+    ParadeSessionContext::with_object_store_catalog(|catalog| {
+        let schema_provider = catalog
+            .schema(schema_name)
+            .ok_or(NotFound::Schema(schema_name.to_string()))?;
+
+        Ok(schema_provider.table_names())
+    })
+}
+
 extension_sql!(
     r#"
     CREATE OR REPLACE PROCEDURE register_temp_table(
         table_name TEXT,
         foreign_table_name TEXT,
-        foreign_nickname TEXT
+        schema_name TEXT
     ) 
     LANGUAGE C AS 'MODULE_PATHNAME', 'register_temp_table';
     "#,
@@ -35,12 +55,15 @@ pub extern "C" fn register_temp_table(fcinfo: pg_sys::FunctionCallInfo) {
 fn register_temp_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError> {
     let table_name: String = unsafe { fcinfo::pg_getarg(fcinfo, 0).unwrap() };
     let foreign_table_name: String = unsafe { fcinfo::pg_getarg(fcinfo, 1).unwrap() };
-    let foreign_nickname: String = unsafe { fcinfo::pg_getarg(fcinfo, 2).unwrap() };
+    let schema_name: String = unsafe { fcinfo::pg_getarg(fcinfo, 2).unwrap() };
 
     let temp_schema_oid = unsafe {
         match direct_function_call::<pg_sys::Oid>(pg_sys::pg_my_temp_schema, &[]) {
             Some(pg_sys::InvalidOid) => {
-                spi::Spi::run(&format!("CREATE TEMP TABLE IF NOT EXISTS {} (a int)", DUMMY_TABLE_NAME))?;
+                spi::Spi::run(&format!(
+                    "CREATE TEMP TABLE IF NOT EXISTS {} (a int)",
+                    DUMMY_TABLE_NAME
+                ))?;
 
                 match direct_function_call::<pg_sys::Oid>(pg_sys::pg_my_temp_schema, &[]) {
                     Some(pg_sys::InvalidOid) => return Err(NotFound::TempSchemaOid.into()),
@@ -58,8 +81,8 @@ fn register_temp_table_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), Para
 
     let listing_table = ParadeSessionContext::with_object_store_catalog(|catalog| {
         let schema_provider = catalog
-            .schema(&foreign_nickname)
-            .ok_or(NotFound::Schema(foreign_nickname.to_string()))?;
+            .schema(&schema_name)
+            .ok_or(NotFound::Schema(schema_name.to_string()))?;
 
         task::block_on(schema_provider.table(&foreign_table_name))
             .ok_or(NotFound::Table(foreign_table_name).into())

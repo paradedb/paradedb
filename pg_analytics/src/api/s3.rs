@@ -35,7 +35,7 @@ impl Display for FileFormat {
 extension_sql!(
     r#"
     CREATE OR REPLACE PROCEDURE register_s3(
-        nickname TEXT,
+        schema_name TEXT,
         file_format FileFormat,
         url TEXT,
         region TEXT,
@@ -69,7 +69,7 @@ pub extern "C" fn register_s3(fcinfo: pg_sys::FunctionCallInfo) {
 }
 
 fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError> {
-    let nickname: String = unsafe { fcinfo::pg_getarg(fcinfo, 0).unwrap() };
+    let schema_name: String = unsafe { fcinfo::pg_getarg(fcinfo, 0).unwrap() };
     let file_format: FileFormat = unsafe { fcinfo::pg_getarg(fcinfo, 1).unwrap() };
     let url: String = unsafe { fcinfo::pg_getarg(fcinfo, 2).unwrap() };
     let region: String = unsafe { fcinfo::pg_getarg(fcinfo, 3).unwrap() };
@@ -187,7 +187,7 @@ fn register_s3_impl(fcinfo: pg_sys::FunctionCallInfo) -> Result<(), ParadeError>
     })?;
 
     let _ = ParadeSessionContext::with_object_store_catalog(|catalog| {
-        let _ = catalog.register_schema(&nickname, Arc::new(listing_schema_provider));
+        let _ = catalog.register_schema(&schema_name, Arc::new(listing_schema_provider));
 
         Ok(())
     });

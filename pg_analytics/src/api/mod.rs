@@ -2,7 +2,7 @@ use pgrx::*;
 
 mod init;
 mod s3;
-mod temptable;
+mod table;
 
 static V1_API: pg_sys::Pg_finfo_record = pg_sys::Pg_finfo_record { api_version: 1 };
 

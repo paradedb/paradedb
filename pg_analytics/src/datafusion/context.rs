@@ -14,7 +14,7 @@ use lazy_static::lazy_static;
 use parking_lot::{RwLock, RwLockWriteGuard};
 use pgrx::*;
 use std::any::type_name;
-use std::ffi::{CStr, CString};
+use std::ffi::{c_char, CStr, CString};
 use std::sync::Arc;
 
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
@@ -201,7 +201,7 @@ impl ParadeContextProvider {
             if let Some(current_schemas) = current_schemas {
                 for datum in current_schemas.iter().flatten() {
                     let schema_name =
-                        unsafe { CStr::from_ptr(datum.cast_mut_ptr::<i8>()).to_str()? };
+                        unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
                     let schema_registered = DatafusionContext::with_catalog(|catalog| {
                         Ok(catalog.schema(schema_name).is_some())
                     })?;

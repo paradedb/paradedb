@@ -148,7 +148,7 @@ jobs:
               NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
               echo "$NEW_VERSION"
             fi
-            ./runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION"
+            ./runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION" -a "${{ matrix.arch }}"
           else
             ./runtests.sh -p sequential -v "${{ matrix.pg_version }}"
           fi

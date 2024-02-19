@@ -39,7 +39,7 @@ jobs:
             - runner: ubuntu-latest
               pg_version: 12
               arch: amd64
-            - runner: ubuntu-latestm
+            - runner: ubuntu-latest
               pg_version: 13
               arch: amd64
             - runner: ubuntu-latest
@@ -48,7 +48,10 @@ jobs:
             - runner: ubuntu-latest
               pg_version: 15
               arch: amd64
-            - runner: ubicloud-standard-8-ubuntu-2204-arm # We the PG16 test on arm64 to ensure compatibility for Dockerfile deployment
+            - runner: ubuntu-latest
+              pg_version: 16
+              arch: amd64              
+            - runner: ubicloud-standard-8-ubuntu-2204-arm # We also test on arm for PG16 since its the version we ship to DockerHub/GitHub Release            
               pg_version: 16
               arch: arm64
       env:

@@ -1,8 +1,13 @@
-# RAISE NOTICE 'Creating pg_bm25 extension...';
-# CREATE EXTENSION IF NOT EXISTS pg_bm25;
-# RAISE NOTICE 'Creating vector extension...';
-# CREATE EXTENSION IF NOT EXISTS vector;
 
+# Do I need #!/bin/bash
+
+
+# Is this cauasing the issue?
+# # Exit on subcommand errors
+# set -Eeuo pipefail
+
+
+# TODO: Add pg_cron too
 
 # List of extensions to pre-install in ParadeDB
 extensions=(

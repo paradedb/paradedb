@@ -19,7 +19,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     RUST_VERSION=${RUST_VERSION} \
     PGRX_VERSION=${PGRX_VERSION}
 
-# TODO: Do I need this?
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # TODO: Can we remove some of these?
@@ -67,8 +66,6 @@ ENV DEBFULLNAME="ParadeDB"
 
 FROM builder as builder-pg_bm25
 
-SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
-
 COPY pg_bm25/ /tmp/pg_bm25
 COPY shared/ /tmp/shared
 
@@ -81,8 +78,6 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 ######################
 
 FROM builder as builder-pg_analytics
-
-SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
@@ -101,8 +96,6 @@ RUN rustup update nightly && \
 
 FROM builder as builder-pg_sparse
 
-SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
-
 COPY pg_sparse/ /tmp/pg_sparse
 
 # Build the extension
@@ -116,8 +109,6 @@ RUN echo "trusted = true" >> svector.control && \
 ######################
 
 FROM builder as builder-pgvector
-
-SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
 # Build the extension
 RUN <<EOF
@@ -164,20 +155,15 @@ COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
 
-
-
+# Copy over ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.
+COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # TODOs:
-# Handle the shared_preload_libraries
+# Handle the shared_preload_libraries, ideally in the Bash script so it doesn't need to be passed when doing just `docker run`
 # Handle PostHog telemetry
-# Handle permission for installing/creating extensions (maybe if automatic, no need to give extra permissions)
+# --- Handle permission for installing/creating extensions (maybe if automatic, no need to give extra permissions) --- DONE (since done automatically)
 # --- Make pgvector  install --- DONE
 # --- Make pg_sparse install --- DONE
-# Make pg_bm25 install
-# Make pg_analytics install
-# Make them all get installed automatically
-
-
-# COPY ./docker/paradedb.sh /docker-entrypoint-preinitdb.d/10_paradedb.sh
-COPY ./docker/01_create_extensions.sh /docker-entrypoint-initdb.d/
-# COPY ./docker/create_extension.sql /docker-entrypoint-initdb.d/create_extension.sql
+# --- Make pg_bm25 install   --- DONE
+# --- Make pg_analytics install --- DONE
+# --- Make them all get installed automatically --- DONE

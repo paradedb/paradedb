@@ -7,6 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use shared::telemetry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
+use tantivy::directory::MmapDirectory;
 use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher};
 use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
 use thiserror::Error;
@@ -77,7 +78,7 @@ impl SearchIndex {
         let mut underlying_index = Index::builder()
             .schema(schema.schema.clone())
             .settings(settings.clone())
-            .create_in_dir(tantivy_dir_path)
+            .open_or_create(MmapDirectory::open(tantivy_dir_path).unwrap())
             .expect("failed to create index");
 
         Self::setup_tokenizers(&mut underlying_index, &schema);

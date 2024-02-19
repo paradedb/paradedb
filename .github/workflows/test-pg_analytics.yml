@@ -105,13 +105,6 @@ jobs:
           cache-all-crates: true
           save-if: ${{ github.ref == 'refs/heads/dev' }}
 
-      - name: Remove old postgres, llvm, clang, and install appropriate version
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          sudo apt-get remove -y '^postgres.*' '^libpq.*' '^mono-llvm.*'
-          apt list --installed 'clang*' 'llvm*' 'libclang*' 'libllvm*' | awk -F/ -e '{print $1}' | grep -P '\d' | grep -vP '\D15(\D.*)?$' | xargs sudo apt remove -y
-          sudo apt-get install -y llvm-15-dev libclang-15-dev clang-15 gcc
-
       - name: Install & Configure Supported PostgreSQL Version
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |

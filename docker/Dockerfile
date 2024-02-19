@@ -107,7 +107,8 @@ COPY pg_sparse/ /tmp/pg_sparse
 
 # Build the extension
 WORKDIR /tmp/pg_sparse
-RUN make clean && \
+RUN echo "trusted = true" >> svector.control && \
+    make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j
 
 ######################
@@ -149,19 +150,12 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     COMMIT_SHA=${COMMIT_SHA} \
     TELEMETRY=${TELEMETRY}
 
-
-
-
-# TODO: Test that the paths are proper now that it builds. Also add the env var for shared_preload
-
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_sparse /tmp/pg_sparse/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_sparse /tmp/pg_sparse/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_sparse /tmp/pg_sparse/sql/*.sql /opt/bitnami/postgresql/share/extension/
-
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
-
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 
@@ -170,33 +164,19 @@ COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
 
-# TODO: Do we need to replace the entrypoint script? I don't think so (actually for PostHog we do (?))
-# TODO: Do we need to change the user? I don't think so
 
+
+
+# TODOs:
+# Handle the shared_preload_libraries
+# Handle PostHog telemetry
+# Handle permission for installing/creating extensions (maybe if automatic, no need to give extra permissions)
+# Make pg_spare install
+# Make pg_bm25 install
+# Make pg_analytics install
+# Make them all get installed automatically
 
 
 # COPY ./docker/paradedb.sh /docker-entrypoint-preinitdb.d/10_paradedb.sh
 # COPY ./docker/01_create_extensions.sql /docker-entrypoint-initdb.d/
-
 # COPY ./docker/create_extension.sql /docker-entrypoint-initdb.d/create_extension.sql
-
-
-
-# When the container is executed, it will execute the files with extension .sh located at /docker-entrypoint-preinitdb.d before initializing or starting postgresql.
-
-# When the container is executed for the first time, it will execute the files with extensions .sh, .sql and .sql.gz located at /docker-entrypoint-initdb.d.
-
-
-
-# TODO: Do we need these? Probably at least uuid-runtime
-# # Install common dependencies to builder and runtime
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     software-properties-common \
-#     ca-certificates \
-#     uuid-runtime \
-#     libssl-dev \
-#     curl \
-#     wget \
-#     && rm -rf /var/lib/apt/lists/*
-
-# USER 1001

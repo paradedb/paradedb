@@ -171,12 +171,13 @@ COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/sha
 # Handle the shared_preload_libraries
 # Handle PostHog telemetry
 # Handle permission for installing/creating extensions (maybe if automatic, no need to give extra permissions)
-# Make pg_spare install
+# --- Make pgvector  install --- DONE
+# --- Make pg_sparse install --- DONE
 # Make pg_bm25 install
 # Make pg_analytics install
 # Make them all get installed automatically
 
 
 # COPY ./docker/paradedb.sh /docker-entrypoint-preinitdb.d/10_paradedb.sh
-# COPY ./docker/01_create_extensions.sql /docker-entrypoint-initdb.d/
+COPY ./docker/01_create_extensions.sql /docker-entrypoint-initdb.d/
 # COPY ./docker/create_extension.sql /docker-entrypoint-initdb.d/create_extension.sql

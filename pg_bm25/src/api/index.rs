@@ -1,9 +1,10 @@
 use pgrx::{iter::TableIterator, *};
-use tantivy::schema::*;
+use tantivy::schema::{Value, *};
 
 use crate::postgres::utils::get_search_index;
 use crate::query::SearchQueryInput;
 use crate::schema::ToString;
+use core::panic;
 use std::ops::Bound;
 
 #[allow(clippy::type_complexity)]
@@ -89,57 +90,70 @@ pub fn schema_bm25(
     TableIterator::new(field_rows)
 }
 
-#[pg_extern]
+#[pg_extern(immutable, parallel_safe)]
 pub fn all() -> SearchQueryInput {
     SearchQueryInput::All
 }
 
-#[pg_extern]
-pub fn boolean(
-    must: Option<Array<SearchQueryInput>>,
-    should: Option<Array<SearchQueryInput>>,
-    must_not: Option<Array<SearchQueryInput>>,
+#[pg_extern(name = "boolean", immutable, parallel_safe)]
+pub fn boolean_arrays(
+    must: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
+    should: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
+    must_not: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
 ) -> SearchQueryInput {
     SearchQueryInput::Boolean {
-        must: must.map(|v| v.iter_deny_null().map(Box::new).collect()),
-        should: should.map(|v| v.iter_deny_null().map(Box::new).collect()),
-        must_not: must_not.map(|v| v.iter_deny_null().map(Box::new).collect()),
+        must,
+        should,
+        must_not,
     }
 }
 
-#[pg_extern]
-pub fn boost(query: SearchQueryInput, boost: f32) -> SearchQueryInput {
+#[pg_extern(name = "boolean", immutable, parallel_safe)]
+pub fn boolean_singles(
+    must: default!(Option<SearchQueryInput>, "NULL"),
+    should: default!(Option<SearchQueryInput>, "NULL"),
+    must_not: default!(Option<SearchQueryInput>, "NULL"),
+) -> SearchQueryInput {
+    boolean_arrays(
+        must.map_or(vec![], |v| vec![v]),
+        should.map_or(vec![], |v| vec![v]),
+        must_not.map_or(vec![], |v| vec![v]),
+    )
+}
+
+#[pg_extern(immutable, parallel_safe)]
+pub fn boost(boost: f32, query: SearchQueryInput) -> SearchQueryInput {
     SearchQueryInput::Boost {
         query: Box::new(query),
         boost,
     }
 }
 
-#[pg_extern]
-pub fn const_score(query: SearchQueryInput, score: f32) -> SearchQueryInput {
+#[pg_extern(immutable, parallel_safe)]
+pub fn const_score(score: f32, query: SearchQueryInput) -> SearchQueryInput {
     SearchQueryInput::ConstScore {
         query: Box::new(query),
         score,
     }
 }
 
-#[pg_extern]
+#[pg_extern(immutable, parallel_safe)]
 pub fn disjunction_max(
     disjuncts: Vec<SearchQueryInput>,
     tie_breaker: Option<f32>,
 ) -> SearchQueryInput {
     SearchQueryInput::DisjunctionMax {
-        disjuncts: disjuncts.into_iter().map(Box::new).collect(),
+        disjuncts,
         tie_breaker,
     }
 }
 
-#[pg_extern]
+#[pg_extern(immutable, parallel_safe)]
 pub fn empty() -> SearchQueryInput {
     SearchQueryInput::Empty
 }
 
-#[pg_extern]
+#[pg_extern(immutable, parallel_safe)]
 pub fn fast_field_range_weight(field: String, range: pgrx::Range<i32>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::FastFieldRangeWeight {
@@ -163,7 +177,7 @@ pub fn fast_field_range_weight(field: String, range: pgrx::Range<i32>) -> Search
     }
 }
 
-#[pg_extern]
+#[pg_extern(immutable, parallel_safe)]
 pub fn fuzzy_term(
     field: String,
     value: String,
@@ -180,7 +194,8 @@ pub fn fuzzy_term(
     }
 }
 
-#[pg_extern]
+#[allow(clippy::too_many_arguments)]
+#[pg_extern(immutable, parallel_safe)]
 pub fn more_like_this(
     min_doc_frequency: Option<i32>,
     max_doc_frequency: Option<i32>,
@@ -190,8 +205,12 @@ pub fn more_like_this(
     max_word_length: Option<i32>,
     boost_factor: Option<f32>,
     stop_words: Option<Vec<String>>,
-    fields: Json,
+    fields: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
 ) -> SearchQueryInput {
+    let fields = fields.into_iter().map(|input| match input {
+        SearchQueryInput::Term { field, value, .. } => (field, value),
+        _ => panic!("only term queries can be passed to more_like_this"),
+    });
     SearchQueryInput::MoreLikeThis {
         min_doc_frequency: min_doc_frequency.map(|n| n as u64),
         max_doc_frequency: max_doc_frequency.map(|n| n as u64),
@@ -201,83 +220,205 @@ pub fn more_like_this(
         max_word_length: max_word_length.map(|n| n as usize),
         boost_factor,
         stop_words,
-        fields: fields.0.into(),
+        fields: fields.collect(),
     }
 }
 
-#[pg_extern]
+#[pg_extern(immutable, parallel_safe)]
 pub fn phrase_prefix(
     field: String,
-    prefix: Option<String>,
-    phrases: Option<Array<String>>,
+    phrases: Array<String>,
     max_expansion: Option<i32>,
 ) -> SearchQueryInput {
     SearchQueryInput::PhrasePrefix {
         field,
-        prefix,
-        phrases: phrases.map(|arr| arr.iter_deny_null().collect()),
-        max_expansion: max_expansion.map(|n| n as u32),
+        phrases: phrases.iter_deny_null().collect(),
+        max_expansions: max_expansion.map(|n| n as u32),
     }
 }
 
-#[pg_extern]
-pub fn phrase(
-    field: String,
-    phrases: Option<Array<String>>,
-    slop: Option<i32>,
-) -> SearchQueryInput {
+#[pg_extern(immutable, parallel_safe)]
+pub fn phrase(field: String, phrases: Array<String>, slop: Option<i32>) -> SearchQueryInput {
     SearchQueryInput::Phrase {
         field,
-        phrases: phrases.map(|arr| arr.iter_deny_null().collect()),
+        phrases: phrases.iter_deny_null().collect(),
         slop: slop.map(|n| n as u32),
     }
 }
 
-#[pg_extern]
-pub fn range(field: String, range: Range<i32>) -> SearchQueryInput {
+#[pg_extern(name = "range", immutable, parallel_safe)]
+pub fn range_i32(field: String, range: Range<i32>) -> SearchQueryInput {
     match range.into_inner() {
-        None => SearchQueryInput::FastFieldRangeWeight {
+        None => SearchQueryInput::Range {
             field,
-            lower_bound: Bound::Included(0),
-            upper_bound: Bound::Excluded(0),
+            lower_bound: Bound::Included(Value::I64(0)),
+            upper_bound: Bound::Excluded(Value::I64(0)),
         },
-        Some((lower, upper)) => SearchQueryInput::FastFieldRangeWeight {
+        Some((lower, upper)) => SearchQueryInput::Range {
             field,
             lower_bound: match lower {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(n as u64),
-                RangeBound::Exclusive(n) => Bound::Excluded(n as u64),
+                RangeBound::Inclusive(n) => Bound::Included(Value::I64(n as i64)),
+                RangeBound::Exclusive(n) => Bound::Excluded(Value::I64(n as i64)),
             },
             upper_bound: match upper {
                 RangeBound::Infinite => Bound::Unbounded,
-                RangeBound::Inclusive(n) => Bound::Included(n as u64),
-                RangeBound::Exclusive(n) => Bound::Excluded(n as u64),
+                RangeBound::Inclusive(n) => Bound::Included(Value::I64(n as i64)),
+                RangeBound::Exclusive(n) => Bound::Excluded(Value::I64(n as i64)),
             },
         },
     }
 }
 
-#[pg_extern]
+#[pg_extern(name = "range", immutable, parallel_safe)]
+pub fn range_i64(field: String, range: Range<i64>) -> SearchQueryInput {
+    match range.into_inner() {
+        None => SearchQueryInput::Range {
+            field,
+            lower_bound: Bound::Included(Value::I64(0)),
+            upper_bound: Bound::Excluded(Value::I64(0)),
+        },
+        Some((lower, upper)) => SearchQueryInput::Range {
+            field,
+            lower_bound: match lower {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(Value::I64(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(Value::I64(n)),
+            },
+            upper_bound: match upper {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(Value::I64(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(Value::I64(n)),
+            },
+        },
+    }
+}
+
+#[pg_extern(immutable, parallel_safe)]
 pub fn regex(field: String, pattern: String) -> SearchQueryInput {
     SearchQueryInput::Regex { field, pattern }
 }
 
-#[pg_extern]
-pub fn term(
-    field: String,
-    text: String,
-    freqs: Option<bool>,
-    position: Option<bool>,
-) -> SearchQueryInput {
-    SearchQueryInput::Term {
-        field,
-        text,
-        freqs,
-        position,
-    }
+macro_rules! term_fn {
+    ($func_name:ident, $value_type:ty, $conversion:expr) => {
+        #[pg_extern(name = "term", immutable, parallel_safe)]
+        pub fn $func_name(
+            field: String,
+            value: $value_type,
+            freqs: default!(Option<bool>, "NULL"),
+            position: default!(Option<bool>, "NULL"),
+        ) -> SearchQueryInput {
+            let convert = $conversion;
+            SearchQueryInput::Term {
+                field,
+                value: convert(value),
+                freqs,
+                position,
+            }
+        }
+    };
 }
 
-#[pg_extern]
-pub fn term_set(fields: Json) -> SearchQueryInput {
-    SearchQueryInput::TermSet { fields: fields.0 }
+// Generate functions for each type
+term_fn!(term_bytes, Vec<u8>, tantivy::schema::Value::Bytes);
+term_fn!(term_str, String, tantivy::schema::Value::Str);
+term_fn!(term_i8, i8, |v| tantivy::schema::Value::I64(v as i64));
+term_fn!(term_i16, i16, |v| tantivy::schema::Value::I64(v as i64));
+term_fn!(term_i32, i32, |v| tantivy::schema::Value::I64(v as i64));
+term_fn!(term_i64, i64, tantivy::schema::Value::I64);
+term_fn!(term_u32, u32, |v| tantivy::schema::Value::U64(v as u64));
+term_fn!(term_f32, f32, |v| tantivy::schema::Value::F64(v as f64));
+term_fn!(term_f64, f64, tantivy::schema::Value::F64);
+term_fn!(term_bool, bool, tantivy::schema::Value::Bool);
+term_fn!(json, pgrx::Json, |pgrx::Json(v)| {
+    tantivy::schema::Value::JsonObject(
+        v.as_object()
+            .expect("json passed to term query must be an object")
+            .clone(),
+    )
+});
+term_fn!(jsonb, pgrx::JsonB, |pgrx::JsonB(v)| {
+    tantivy::schema::Value::JsonObject(
+        v.as_object()
+            .expect("jsonb passed to term query must be an object")
+            .clone(),
+    )
+});
+term_fn!(date, pgrx::Date, |_v| unimplemented!(
+    "date in term query not implemented"
+));
+term_fn!(time, pgrx::Time, |_v| unimplemented!(
+    "time in term query not implemented"
+));
+term_fn!(timestamp, pgrx::Timestamp, |_v| unimplemented!(
+    "timestamp in term query not implemented"
+));
+term_fn!(
+    time_with_time_zone,
+    pgrx::TimeWithTimeZone,
+    |_v| unimplemented!("time with time zone in term query not implemented")
+);
+term_fn!(
+    timestamp_with_time_zome,
+    pgrx::TimestampWithTimeZone,
+    |_v| unimplemented!("timestamp with time zone in term query not implemented")
+);
+term_fn!(anyarray, pgrx::AnyArray, |_v| unimplemented!(
+    "array in term query not implemented"
+));
+term_fn!(pg_box, pgrx::pg_sys::BOX, |_v| unimplemented!(
+    "box in term query not implemented"
+));
+term_fn!(point, pgrx::pg_sys::Point, |_v| unimplemented!(
+    "point in term query not implemented"
+));
+term_fn!(tid, pgrx::pg_sys::ItemPointerData, |_v| unimplemented!(
+    "tid in term query not implemented"
+));
+term_fn!(inet, pgrx::Inet, |_v| unimplemented!(
+    "inet in term query not implemented"
+));
+term_fn!(numeric, pgrx::AnyNumeric, |_v| unimplemented!(
+    "numeric in term query not implemented"
+));
+term_fn!(array, pgrx::AnyArray, |_v| unimplemented!(
+    "array in term query not implemented"
+));
+term_fn!(int4range, pgrx::Range<i32>, |_v| unimplemented!(
+    "int4 range in term query not implemented"
+));
+term_fn!(int8range, pgrx::Range<i64>, |_v| unimplemented!(
+    "int8 range in term query not implemented"
+));
+term_fn!(
+    numrange,
+    pgrx::Range<pgrx::AnyNumeric>,
+    |_v| unimplemented!("numeric range in term query not implemented")
+);
+term_fn!(daterange, pgrx::Range<pgrx::Date>, |_v| unimplemented!(
+    "date range in term query not implemented"
+));
+term_fn!(tsrange, pgrx::Range<pgrx::Timestamp>, |_v| unimplemented!(
+    "timestamp ranges in term query not implemented"
+));
+term_fn!(
+    tstzrange,
+    pgrx::Range<pgrx::TimestampWithTimeZone>,
+    |_v| unimplemented!("timestamp ranges with time zone in term query not implemented")
+);
+term_fn!(uuid, pgrx::Uuid, |_v| unimplemented!(
+    "uuid in term query not implemented"
+));
+
+#[pg_extern(immutable, parallel_safe)]
+pub fn term_set(
+    fields: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
+) -> SearchQueryInput {
+    let fields = fields.into_iter().map(|input| match input {
+        SearchQueryInput::Term { field, value, .. } => (field, value),
+        _ => panic!("only term queries can be passed to term_set"),
+    });
+    SearchQueryInput::TermSet {
+        fields: fields.collect(),
+    }
 }

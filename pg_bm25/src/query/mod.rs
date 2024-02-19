@@ -1,97 +1,29 @@
 #![allow(dead_code)]
 
+use core::panic;
+use std::{collections::HashMap, ops::Bound};
+
 use pgrx::PostgresType;
 use serde::{Deserialize, Serialize};
 use tantivy::{
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
-        FastFieldRangeWeight, Query,
+        FastFieldRangeWeight, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery, PhraseQuery,
+        Query, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
-    schema::FieldType,
+    schema::{Field, FieldType, IndexRecordOption, Value},
+    Term,
 };
-
-// enum SearchQuery {
-//     AllQuery,
-//     BooleanQuery {
-//         must: Option<Vec<Box<SearchQuery>>>,
-//         should: Option<Vec<Box<SearchQuery>>>,
-//         must_not: Option<Vec<Box<SearchQuery>>>,
-//     },
-//     BoostQuery {
-//         query: Option<Box<SearchQuery>>,
-//         boost: Option<f32>,
-//     },
-//     ConstScoreQuery {
-//         query: Option<Box<SearchQuery>>,
-//         score: Option<f32>,
-//     },
-//     DisjunctionMaxQuery {
-//         disjuncts: Option<Vec<Box<SearchQuery>>>,
-//         tie_breaker: Option<f32>,
-//     },
-//     EmptyQuery,
-//     FastFieldRangeWeight {
-//         field: tantivy::schema::Field,
-//         lower_bound: Option<std::ops::Bound<u64>>,
-//         upper_bound: Option<std::ops::Bound<u64>>,
-//     },
-//     FuzzyTermQuery {
-//         field: tantivy::schema::Field,
-//         text: String,
-//         distance: u8,
-//         tranposition_cost_one: bool,
-//         prefix: bool,
-//     },
-//     MoreLikeThisQuery {
-//         min_doc_frequency: Option<u64>,
-//         max_doc_frequency: Option<u64>,
-//         min_term_frequency: Option<usize>,
-//         max_query_terms: Option<usize>,
-//         min_word_length: Option<usize>,
-//         max_word_length: Option<usize>,
-//         boost_factor: Option<f32>,
-//         stop_words: Option<Vec<String>>,
-//         fields: Option<HashMap<tantivy::schema::Field, Vec<tantivy::schema::Value>>>,
-//     },
-//     PhrasePrefixQuery {
-//         field: tantivy::schema::Field,
-//         prefix: Option<String>,
-//         phrases: Option<Vec<String>>,
-//         max_expansion: Option<u32>,
-//     },
-//     PhraseQuery {
-//         field: tantivy::schema::Field,
-//         phrases: Option<Vec<String>>,
-//         slop: Option<u32>,
-//     },
-//     RangeQuery {
-//         field: tantivy::schema::Field,
-//         lower_bound: Option<std::ops::Bound<u64>>,
-//         upper_bound: Option<std::ops::Bound<u64>>,
-//         schema_type: tantivy::schema::Type,
-//     },
-//     RegexQuery {
-//         field: tantivy::schema::Field,
-//         pattern: String,
-//     },
-//     TermQuery {
-//         text: String,
-//         freqs: Option<bool>,
-//         position: Option<bool>,
-//     },
-//     TermSetQuery {
-//         fields: HashMap<tantivy::schema::Field, Vec<tantivy::schema::Value>>,
-//     },
-// }
+use thiserror::Error;
 
 #[derive(PostgresType, Deserialize, Serialize)]
 pub enum SearchQueryInput {
     All,
     Boolean {
-        must: Option<Vec<Box<SearchQueryInput>>>,
-        should: Option<Vec<Box<SearchQueryInput>>>,
-        must_not: Option<Vec<Box<SearchQueryInput>>>,
+        must: Vec<SearchQueryInput>,
+        should: Vec<SearchQueryInput>,
+        must_not: Vec<SearchQueryInput>,
     },
     Boost {
         query: Box<SearchQueryInput>,
@@ -102,7 +34,7 @@ pub enum SearchQueryInput {
         score: f32,
     },
     DisjunctionMax {
-        disjuncts: Vec<Box<SearchQueryInput>>,
+        disjuncts: Vec<SearchQueryInput>,
         tie_breaker: Option<f32>,
     },
     Empty,
@@ -127,23 +59,22 @@ pub enum SearchQueryInput {
         max_word_length: Option<usize>,
         boost_factor: Option<f32>,
         stop_words: Option<Vec<String>>,
-        fields: serde_json::Value,
+        fields: Vec<(String, tantivy::schema::Value)>,
     },
     PhrasePrefix {
         field: String,
-        prefix: Option<String>,
-        phrases: Option<Vec<String>>,
-        max_expansion: Option<u32>,
+        phrases: Vec<String>,
+        max_expansions: Option<u32>,
     },
     Phrase {
         field: String,
-        phrases: Option<Vec<String>>,
+        phrases: Vec<String>,
         slop: Option<u32>,
     },
     Range {
         field: String,
-        lower_bound: std::ops::Bound<u64>,
-        upper_bound: std::ops::Bound<u64>,
+        lower_bound: std::ops::Bound<tantivy::schema::Value>,
+        upper_bound: std::ops::Bound<tantivy::schema::Value>,
     },
     Regex {
         field: String,
@@ -151,84 +82,100 @@ pub enum SearchQueryInput {
     },
     Term {
         field: String,
-        text: String,
+        value: tantivy::schema::Value,
         freqs: Option<bool>,
         position: Option<bool>,
     },
     TermSet {
-        fields: serde_json::Value,
+        fields: Vec<(String, tantivy::schema::Value)>,
     },
 }
 
 trait AsFieldType<T> {
-    fn as_field_type(&self, from: T) -> Option<FieldType>;
+    fn as_field_type(&self, from: &T) -> Option<(FieldType, Field)>;
 
-    fn as_str(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::Str(_) => Some(ft),
+    fn is_field_type(&self, from: &T, value: &Value) -> bool {
+        matches!(
+            (self.as_field_type(from), value),
+            (Some((FieldType::Str(_), _)), Value::Str(_))
+                | (Some((FieldType::U64(_), _)), Value::U64(_))
+                | (Some((FieldType::I64(_), _)), Value::I64(_))
+                | (Some((FieldType::F64(_), _)), Value::F64(_))
+                | (Some((FieldType::Bool(_), _)), Value::Bool(_))
+                | (Some((FieldType::Date(_), _)), Value::Date(_))
+                | (Some((FieldType::Facet(_), _)), Value::Facet(_))
+                | (Some((FieldType::Bytes(_), _)), Value::Bytes(_))
+                | (Some((FieldType::JsonObject(_), _)), Value::JsonObject(_))
+                | (Some((FieldType::IpAddr(_), _)), Value::IpAddr(_))
+        )
+    }
+
+    fn as_str(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::Str(_) => Some(field),
             _ => None,
         })
     }
-    fn as_u64(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::U64(_) => Some(ft),
+    fn as_u64(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::U64(_) => Some(field),
             _ => None,
         })
     }
-    fn as_i64(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::I64(_) => Some(ft),
+    fn as_i64(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::I64(_) => Some(field),
             _ => None,
         })
     }
-    fn as_f64(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::F64(_) => Some(ft),
+    fn as_f64(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::F64(_) => Some(field),
             _ => None,
         })
     }
-    fn as_bool(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::Bool(_) => Some(ft),
+    fn as_bool(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::Bool(_) => Some(field),
             _ => None,
         })
     }
-    fn as_date(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::Date(_) => Some(ft),
+    fn as_date(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::Date(_) => Some(field),
             _ => None,
         })
     }
-    fn as_facet(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::Facet(_) => Some(ft),
+    fn as_facet(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::Facet(_) => Some(field),
             _ => None,
         })
     }
-    fn as_bytes(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::Bytes(_) => Some(ft),
+    fn as_bytes(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::Bytes(_) => Some(field),
             _ => None,
         })
     }
-    fn as_json_object(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::JsonObject(_) => Some(ft),
+    fn as_json_object(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::JsonObject(_) => Some(field),
             _ => None,
         })
     }
-    fn as_ip_addr(&self, from: T) -> Option<FieldType> {
-        self.as_field_type(from).and_then(|ft| match ft {
-            FieldType::IpAddr(_) => Some(ft),
+    fn as_ip_addr(&self, from: &T) -> Option<Field> {
+        self.as_field_type(from).and_then(|(ft, field)| match ft {
+            FieldType::IpAddr(_) => Some(field),
             _ => None,
         })
     }
 }
 
 impl SearchQueryInput {
-    fn into_tantivy_query<'a>(
+    fn into_tantivy_query(
         self,
-        lookup: &'a impl AsFieldType<&'a str>,
+        field_lookup: &impl AsFieldType<String>,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::All => Ok(Box::new(AllQuery)),
@@ -238,23 +185,23 @@ impl SearchQueryInput {
                 must_not,
             } => {
                 let mut subqueries = vec![];
-                for input in must.unwrap_or_default() {
-                    subqueries.push((Occur::Must, input.into_tantivy_query(lookup)?));
+                for input in must {
+                    subqueries.push((Occur::Must, input.into_tantivy_query(field_lookup)?));
                 }
-                for input in should.unwrap_or_default() {
-                    subqueries.push((Occur::Should, input.into_tantivy_query(lookup)?));
+                for input in should {
+                    subqueries.push((Occur::Should, input.into_tantivy_query(field_lookup)?));
                 }
-                for input in must_not.unwrap_or_default() {
-                    subqueries.push((Occur::MustNot, input.into_tantivy_query(lookup)?));
+                for input in must_not {
+                    subqueries.push((Occur::MustNot, input.into_tantivy_query(field_lookup)?));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(lookup)?,
+                query.into_tantivy_query(field_lookup)?,
                 boost,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(lookup)?,
+                query.into_tantivy_query(field_lookup)?,
                 score,
             ))),
             Self::DisjunctionMax {
@@ -263,7 +210,7 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(lookup))
+                    .map(|query| query.into_tantivy_query(field_lookup))
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -279,12 +226,236 @@ impl SearchQueryInput {
                 field,
                 lower_bound,
                 upper_bound,
-            } => Ok(Box::new(FastFieldRangeWeight::new(
+            } => {
+                field_lookup
+                    .as_u64(&field)
+                    .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
+
+                Ok(Box::new(FastFieldRangeWeight::new(
+                    field,
+                    lower_bound,
+                    upper_bound,
+                )))
+            }
+            Self::FuzzyTerm {
+                field,
+                value,
+                distance,
+                tranposition_cost_one,
+                prefix,
+            } => {
+                let field = field_lookup
+                    .as_str(&field)
+                    .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
+
+                let term = Term::from_field_text(field, &value);
+                let distance = distance.unwrap_or(1);
+                let tranposition_cost_one = tranposition_cost_one.unwrap_or(false);
+                if prefix.unwrap_or(false) {
+                    Ok(Box::new(FuzzyTermQuery::new(
+                        term,
+                        distance,
+                        tranposition_cost_one,
+                    )))
+                } else {
+                    Ok(Box::new(FuzzyTermQuery::new_prefix(
+                        term,
+                        distance,
+                        tranposition_cost_one,
+                    )))
+                }
+            }
+            Self::MoreLikeThis {
+                min_doc_frequency,
+                max_doc_frequency,
+                min_term_frequency,
+                max_query_terms,
+                min_word_length,
+                max_word_length,
+                boost_factor,
+                stop_words,
+                fields,
+            } => {
+                let mut builder = MoreLikeThisQuery::builder();
+
+                if let Some(min_doc_frequency) = min_doc_frequency {
+                    builder = builder.with_min_doc_frequency(min_doc_frequency);
+                }
+                if let Some(max_doc_frequency) = max_doc_frequency {
+                    builder = builder.with_max_doc_frequency(max_doc_frequency);
+                }
+                if let Some(min_term_frequency) = min_term_frequency {
+                    builder = builder.with_min_term_frequency(min_term_frequency);
+                }
+                if let Some(max_query_terms) = max_query_terms {
+                    builder = builder.with_max_query_terms(max_query_terms);
+                }
+                if let Some(min_work_length) = min_word_length {
+                    builder = builder.with_min_word_length(min_work_length);
+                }
+                if let Some(max_work_length) = max_word_length {
+                    builder = builder.with_max_word_length(max_work_length);
+                }
+                if let Some(boost_factor) = boost_factor {
+                    builder = builder.with_boost_factor(boost_factor);
+                }
+                if let Some(stop_words) = stop_words {
+                    builder = builder.with_stop_words(stop_words);
+                }
+
+                let mut fields_map = HashMap::new();
+                for (field_name, value) in fields {
+                    if !field_lookup.is_field_type(&field_name, &value) {
+                        return Err(Box::new(QueryError::WrongFieldType(field_name)));
+                    }
+
+                    let (_, field) = field_lookup
+                        .as_field_type(&field_name)
+                        .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
+
+                    fields_map.entry(field).or_insert_with(std::vec::Vec::new);
+
+                    if let Some(vec) = fields_map.get_mut(&field) {
+                        vec.push(value)
+                    }
+                }
+
+                Ok(Box::new(
+                    builder.with_document_fields(fields_map.into_iter().collect()),
+                ))
+            }
+            Self::PhrasePrefix {
+                field,
+                phrases,
+                max_expansions,
+            } => {
+                let field = field_lookup
+                    .as_str(&field)
+                    .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
+                let terms = phrases
+                    .into_iter()
+                    .map(|phrase| Term::from_field_text(field, &phrase));
+                let mut query = PhrasePrefixQuery::new(terms.collect());
+                if let Some(max_expansions) = max_expansions {
+                    query.set_max_expansions(max_expansions)
+                }
+                Ok(Box::new(query))
+            }
+            Self::Phrase {
+                field,
+                phrases,
+                slop,
+            } => {
+                let field = field_lookup
+                    .as_str(&field)
+                    .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
+                let terms = phrases
+                    .into_iter()
+                    .map(|phrase| Term::from_field_text(field, &phrase));
+                let mut query = PhraseQuery::new(terms.collect());
+                if let Some(slop) = slop {
+                    query.set_slop(slop)
+                }
+                Ok(Box::new(query))
+            }
+            Self::Range {
                 field,
                 lower_bound,
                 upper_bound,
-            ))),
-            _ => unimplemented!(""),
+            } => {
+                let field_name = field;
+                let (field_type, field) = field_lookup
+                    .as_field_type(&field_name)
+                    .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
+
+                let lower_bound = match lower_bound {
+                    Bound::Included(value) => Bound::Included(value_to_term(field, value)),
+                    Bound::Excluded(value) => Bound::Excluded(value_to_term(field, value)),
+                    Bound::Unbounded => Bound::Unbounded,
+                };
+
+                let upper_bound = match upper_bound {
+                    Bound::Included(value) => Bound::Included(value_to_term(field, value)),
+                    Bound::Excluded(value) => Bound::Excluded(value_to_term(field, value)),
+                    Bound::Unbounded => Bound::Unbounded,
+                };
+
+                Ok(Box::new(RangeQuery::new_term_bounds(
+                    field_name,
+                    field_type.value_type(),
+                    &lower_bound,
+                    &upper_bound,
+                )))
+            }
+            Self::Regex { field, pattern } => Ok(Box::new(
+                RegexQuery::from_pattern(
+                    &pattern,
+                    field_lookup
+                        .as_str(&field)
+                        .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?,
+                )
+                .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
+            )),
+            Self::Term {
+                field,
+                value,
+                freqs,
+                position,
+            } => {
+                let record_option = match (freqs, position) {
+                    (_, Some(true)) => IndexRecordOption::WithFreqsAndPositions,
+                    (Some(true), _) => IndexRecordOption::WithFreqs,
+                    _ => IndexRecordOption::Basic,
+                };
+                let (_, field) = field_lookup
+                    .as_field_type(&field)
+                    .ok_or_else(|| QueryError::NonIndexedField(field))?;
+                let term = value_to_term(field, value);
+                Ok(Box::new(TermQuery::new(term, record_option)))
+            }
+            Self::TermSet { fields } => {
+                let mut terms = vec![];
+                for (field_name, field_value) in fields {
+                    let (_, field) = field_lookup
+                        .as_field_type(&field_name)
+                        .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
+                    terms.push(value_to_term(field, field_value));
+                }
+
+                Ok(Box::new(TermSetQuery::new(terms)))
+            }
         }
     }
+}
+
+fn value_to_term(field: Field, value: Value) -> Term {
+    match value {
+        Value::Str(text) => Term::from_field_text(field, &text),
+        Value::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
+        Value::U64(u64) => Term::from_field_u64(field, u64),
+        Value::I64(i64) => Term::from_field_i64(field, i64),
+        Value::F64(f64) => Term::from_field_f64(field, f64),
+        Value::Bool(bool) => Term::from_field_bool(field, bool),
+        Value::Date(date) => Term::from_field_date(field, date),
+        Value::Facet(facet) => Term::from_facet(field, &facet),
+        Value::Bytes(bytes) => Term::from_field_bytes(field, &bytes),
+        Value::JsonObject(_) => panic!("json cannot be converted to term"),
+        Value::IpAddr(ip) => Term::from_field_ip_addr(field, ip),
+    }
+}
+
+#[derive(Debug, Error)]
+enum QueryError {
+    #[error("wrong field type for field: {0}")]
+    WrongFieldType(String),
+    #[error("invalid field map json: {0}")]
+    FieldMapJsonValue(#[source] serde_json::Error),
+    #[error("field map json must be an object")]
+    FieldMapJsonObject,
+    #[error("field '{0}' is not part of the pg_search index")]
+    NonIndexedField(String),
+    #[error("wrong type given for field")]
+    FieldTypeMismatch,
+    #[error("could not build regex with pattern '{1}': {0}")]
+    RegexError(#[source] tantivy::TantivyError, String),
 }

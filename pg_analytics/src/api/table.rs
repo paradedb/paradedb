@@ -14,8 +14,8 @@ use crate::errors::{NotFound, ParadeError};
 const DUMMY_TABLE_NAME: &str = "paradedb_dummy_temp_table";
 
 #[pg_extern]
-pub fn list_tables(schema_name: &str) -> iter::TableIterator<(name!(table, String),)> {
-    let table_names = list_tables_impl(schema_name).unwrap_or_else(|err| {
+pub fn object_store_schema(schema_name: &str) -> iter::TableIterator<(name!(table, String),)> {
+    let table_names = object_store_schema_impl(schema_name).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 
@@ -23,7 +23,7 @@ pub fn list_tables(schema_name: &str) -> iter::TableIterator<(name!(table, Strin
 }
 
 #[inline]
-fn list_tables_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
+fn object_store_schema_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
     ParadeSessionContext::with_object_store_catalog(|catalog| {
         let schema_provider = catalog
             .schema(schema_name)

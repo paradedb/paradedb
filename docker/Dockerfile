@@ -155,8 +155,8 @@ COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
 
-# Copy over ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.
-COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
+# Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.
+COPY ./docker/01_bootstrap.sql /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes by default in the Bitnami image
@@ -164,7 +164,7 @@ ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_bm25,pg_analytics"
 
 # TODOs:
 # Handle PostHog telemetry
-# Make search_path add paradedb
+# Make search_path add paradedb (also make sure pg_bm25 and pg_analytics are installed properly)
 # --- Handle the shared_preload_libraries, ideally in the Bash script so it doesn't need to be passed when doing just `docker run` --- DONE
 # --- Handle permission for installing/creating extensions (maybe if automatic, no need to give extra permissions) --- DONE (since done automatically)
 # --- Make pgvector  install --- DONE

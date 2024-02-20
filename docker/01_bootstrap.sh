@@ -36,7 +36,7 @@
 
 
 # Define PostgreSQL database and extension details
-DATABASE_NAME=${POSTGRES_DB:template1}
+DATABASE_NAME=${POSTGRESQL_DATABASE:template1}
 
 # Add extension as superuser
 echo "Adding extension as superuser..."
@@ -58,7 +58,7 @@ PGPASSWORD=postgres psql -U postgres -d "template1" -c "CREATE EXTENSION IF NOT 
 echo "Configure search_path..."
 
 # Configure search_path to include paradedb schema for template1, and default to public (by listing it first)
-PGPASSWORD=$POSTGRES_PASSWORD psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+PGPASSWORD=$POSTGRESQL_PASSWORD psql -v ON_ERROR_STOP=1 --username "$POSTGRESQL_USERNAME" --dbname "$POSTGRESQL_DATABASE" <<-EOSQL
   ALTER DATABASE "$POSTGRES_DB" SET search_path TO public,paradedb;
 EOSQL
 

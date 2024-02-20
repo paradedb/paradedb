@@ -16,9 +16,9 @@ services:
       cache_to:
         - type=local,dest=./.docker_cache_dev
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
+      POSTGRESQL_USERNAME: myuser
+      POSTGRESQL_PASSWORD: mypassword
+      POSTGRESQL_DATABASE: mydatabase
       # TODO: Figure out if i can avoid needing to pass this 
       POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
       # POSTGRESQL_USERNAME: myuser

@@ -46,6 +46,27 @@
 # echo "PostgreSQL is up - installing extensions..."
 
 # Preinstall extensions
-for extension in "${extensions[@]}"; do
-  PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
-done
+# for extension in "${extensions[@]}"; do
+#   PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
+# done
+
+
+
+# Define PostgreSQL database and extension details
+DATABASE_NAME=${POSTGRES_DB:template1}
+
+# Add extension as superuser
+echo "Adding extension as superuser..."
+PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pg_bm25 CASCADE;"
+PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pg_analytics CASCADE;"
+PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS vector CASCADE;"
+PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS svector CASCADE;"
+
+
+
+
+# CREATE EXTENSION IF NOT EXISTS pg_bm25 CASCADE;
+# CREATE EXTENSION IF NOT EXISTS pg_analytics CASCADE;
+# CREATE EXTENSION IF NOT EXISTS vector CASCADE;
+# CREATE EXTENSION IF NOT EXISTS svector CASCADE;
+

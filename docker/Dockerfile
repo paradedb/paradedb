@@ -154,7 +154,8 @@ COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/sha
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
 
 # Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.
-COPY ./docker/01_bootstrap.sql /docker-entrypoint-initdb.d/
+# COPY ./docker/01_bootstrap.sql /docker-entrypoint-initdb.d/
+COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes by default in the Bitnami image

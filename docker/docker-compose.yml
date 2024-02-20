@@ -17,8 +17,8 @@ services:
       TELEMETRY: true # Set this variable to 'false' (or remove it) to disable anonymous telemetry
     ports:
       - "5432:5432"
-#     volumes:
-#       - paradedb-data:/var/lib/postgresql/data
+    volumes:
+      - paradedb:/bitnami/postgresql
 
-# volumes:
-#   paradedb-data:
+volumes:
+  paradedb:

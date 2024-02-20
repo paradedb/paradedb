@@ -1,13 +1,14 @@
 ARG PG_VERSION_MAJOR=16
 
+# Note: As of writing, Debian 11/Bullseye is the latest stable Debian distro
+# and if equivalent to Ubuntu 22.04, which we use for testing.
+
 ###############################################
 # First Stage: Builder
 ###############################################
 
-# TODO: Check that Debian 11/bullseye is the same as Ubuntu 22.04, which is what we test on
-
-# We build the extensions on top of the official PostgreSQL image, since
-# the Bitnami image doesn't have root access and necessary build tools
+# We build the extensions on the official PostgreSQL image, since the Bitnami
+# image does not have root access and necessary build tools
 FROM postgres:${PG_VERSION_MAJOR}-bullseye as builder
 
 ARG PG_VERSION_MAJOR=16
@@ -55,10 +56,6 @@ ENV PATH="/root/.cargo/bin:$PATH" \
 RUN cargo install cargo-get && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
-# Configure package maintainer (needed by debmake)
-ENV DEBEMAIL="support@paradedb.com"
-ENV DEBFULLNAME="ParadeDB"
 
 ######################
 # pg_bm25
@@ -119,26 +116,10 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
     make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j
 
-######################
-# pg_cron
-######################
-
-# TODO: Add pg_cron support in a separate PR
-# FROM builder as builder-pg_cron
-
-# # Build the extension
-# WORKDIR /tmp
-# RUN git clone --branch v1.6.2 https://github.com/citusdata/pg_cron.git
-# WORKDIR /tmp/pg_cron
-# RUN echo "trusted = true" >> pg_cron.control && \
-#     make clean -j && \
-#     make USE_PGXS=1 -j
-
 ###############################################
 # Second Stage: PostgreSQL
 ###############################################
 
-# As of writing, Debian 11 (bullseye) is the latest version supported by Bitnami
 FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-11 as paradedb
 
 ARG PG_VERSION_MAJOR=16
@@ -169,9 +150,18 @@ COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/sha
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
 
 # Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.
-# COPY ./docker/01_bootstrap.sql /docker-entrypoint-initdb.d/
 COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
-# Note: pgaudit is needed here as it comes by default in the Bitnami image
+# Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
 ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_bm25,pg_analytics"
+
+# TODO: test whether any of these are needed at runtime, especially UUID for PostHog 
+# RUN apt-get update && apt-get install -y --no-install-recommends \
+#     software-properties-common \
+#     ca-certificates \
+#     uuid-runtime \
+#     libssl-dev \
+#     curl \
+#     wget \
+#     && rm -rf /var/lib/apt/lists/*

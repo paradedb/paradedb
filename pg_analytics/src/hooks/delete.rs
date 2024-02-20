@@ -28,6 +28,10 @@ pub fn delete(
     let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
 
+    if pg_relation.is_temp_table() {
+        return Ok(());
+    }
+
     let optimized_plan = ParadeSessionContext::with_session_context(|context| {
         Ok(context.state().optimize(&logical_plan)?)
     })?;

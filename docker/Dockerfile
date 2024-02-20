@@ -156,7 +156,7 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
 ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_bm25,pg_analytics"
 
-# TODO: test whether any of these are needed at runtime, especially UUID for PostHog 
+# TODO: test whether any of these are needed at runtime, especially UUID for PostHog
 # RUN apt-get update && apt-get install -y --no-install-recommends \
 #     software-properties-common \
 #     ca-certificates \

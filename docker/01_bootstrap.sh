@@ -3,10 +3,13 @@
 # This script is executed at the initialization of the ParadeDB container
 # to configure it with required extensions and Postgres settings
 
+# Exit on subcommand errors
+set -Eeuo pipefail
+
 echo "Configuring PostgreSQL search_path..."
 
 # Add the `paradedb` schema to the user database, and default to public (by listing it first)
-PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U $POSTGRESQL_USERNAME -d $POSTGRESQL_DATABASE -c "ALTER DATABASE template1 SET search_path TO public,paradedb;"
+PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_DATABASE" -c "ALTER DATABASE template1 SET search_path TO public,paradedb;"
 
 # Add the `paradedb` schema to the template1 database, to have it inherited by all new databases
 # created post-initialization, and default to public (by listing it first)
@@ -15,10 +18,10 @@ PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d template1 -c "ALTER
 echo "Installing PostgreSQL extensions..."
 
 # Pre-install all required PostgreSQL extensions to the user database via the `postgres` superuser
-PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d $POSTGRESQL_DATABASE -c "CREATE EXTENSION IF NOT EXISTS pg_bm25 CASCADE;"
-PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d $POSTGRESQL_DATABASE -c "CREATE EXTENSION IF NOT EXISTS pg_analytics CASCADE;"
-PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d $POSTGRESQL_DATABASE -c "CREATE EXTENSION IF NOT EXISTS svector CASCADE;"
-PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d $POSTGRESQL_DATABASE -c "CREATE EXTENSION IF NOT EXISTS vector CASCADE;"
+PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d "$POSTGRESQL_DATABASE" -c "CREATE EXTENSION IF NOT EXISTS pg_bm25 CASCADE;"
+PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d "$POSTGRESQL_DATABASE" -c "CREATE EXTENSION IF NOT EXISTS pg_analytics CASCADE;"
+PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d "$POSTGRESQL_DATABASE" -c "CREATE EXTENSION IF NOT EXISTS svector CASCADE;"
+PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d "$POSTGRESQL_DATABASE" -c "CREATE EXTENSION IF NOT EXISTS vector CASCADE;"
 
 # Pre-install all required PostgreSQL extensions to the template1 database, to have them inherited by all new
 # databases created post-initialization, via the `postgres` user

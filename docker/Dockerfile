@@ -119,6 +119,21 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
     make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j
 
+######################
+# pg_cron
+######################
+
+# TODO: Add pg_cron support in a separate PR
+# FROM builder as builder-pg_cron
+
+# # Build the extension
+# WORKDIR /tmp
+# RUN git clone --branch v1.6.2 https://github.com/citusdata/pg_cron.git
+# WORKDIR /tmp/pg_cron
+# RUN echo "trusted = true" >> pg_cron.control && \
+#     make clean -j && \
+#     make USE_PGXS=1 -j
+
 ###############################################
 # Second Stage: PostgreSQL
 ###############################################
@@ -160,14 +175,3 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes by default in the Bitnami image
 ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_bm25,pg_analytics"
-
-# TODOs:
-# Handle PostHog telemetry
-# Make search_path add paradedb (also make sure pg_bm25 and pg_analytics are installed properly)
-# --- Handle the shared_preload_libraries, ideally in the Bash script so it doesn't need to be passed when doing just `docker run` --- DONE
-# --- Handle permission for installing/creating extensions (maybe if automatic, no need to give extra permissions) --- DONE (since done automatically)
-# --- Make pgvector  install --- DONE
-# --- Make pg_sparse install --- DONE
-# --- Make pg_bm25 install   --- DONE
-# --- Make pg_analytics install --- DONE
-# --- Make them all get installed automatically --- DONE

@@ -40,7 +40,7 @@ DATABASE_NAME=${POSTGRES_DB:template1}
 
 # Add extension as superuser
 echo "Adding extension as superuser..."
-# TODO: See if I can do this without superuser outside of the template1, probs not
+# These need to be done via postgres user cuz C language permission
 # This adds the extension so that any new database within this postmaster will automatically have the extension
 PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pg_bm25 CASCADE;"
 PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pg_analytics CASCADE;"
@@ -67,11 +67,4 @@ EOSQL
 PGPASSWORD=postgres psql -v ON_ERROR_STOP=1 --username "postgres" --dbname "template1" <<-EOSQL
   ALTER DATABASE template1 SET search_path TO public,paradedb;
 EOSQL
-
-
-
-# CREATE EXTENSION IF NOT EXISTS pg_bm25 CASCADE;
-# CREATE EXTENSION IF NOT EXISTS pg_analytics CASCADE;
-# CREATE EXTENSION IF NOT EXISTS vector CASCADE;
-# CREATE EXTENSION IF NOT EXISTS svector CASCADE;
 

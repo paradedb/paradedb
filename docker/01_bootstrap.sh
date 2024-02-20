@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# This script is executed at container initialization to configure
-# it for ParadeDB workloads
+# This script is executed at the initialization of the ParadeDB container
+# to configure it with required extensions and Postgres settings
 
 echo "Configuring PostgreSQL search_path..."
 

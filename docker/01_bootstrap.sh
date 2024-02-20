@@ -3,19 +3,7 @@
 
 
 
-# # Configure search_path to include paradedb schema for template1, and default to public (by listing it first)
-# psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-#   ALTER DATABASE "$POSTGRES_DB" SET search_path TO public,paradedb;
-# EOSQL
 
-# # Configure search_path to include paradedb schema for template1, so that it is
-# # inherited by all new databases created, and default to public (by listing it first)
-# psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "template1" <<-EOSQL
-#   ALTER DATABASE template1 SET search_path TO public,paradedb;
-# EOSQL
-
-# # We need to restart the server for the changes above to be reflected
-# pg_ctl restart
 
 # # We collect basic, anonymous telemetry to help us understand how many people are using
 # # the project. We only do this if TELEMETRY is set to "true"
@@ -43,12 +31,7 @@
 #   echo "true" > /tmp/telemetry
 # fi
 
-# echo "PostgreSQL is up - installing extensions..."
 
-# Preinstall extensions
-# for extension in "${extensions[@]}"; do
-#   PGPASSWORD=$POSTGRES_PASSWORD psql -c "CREATE EXTENSION $extension CASCADE" -d "$POSTGRES_DB" -U "$POSTGRES_USER" || echo "Failed to install extension $extension"
-# done
 
 
 
@@ -57,11 +40,33 @@ DATABASE_NAME=${POSTGRES_DB:template1}
 
 # Add extension as superuser
 echo "Adding extension as superuser..."
+# TODO: See if I can do this without superuser outside of the template1, probs not
+# This adds the extension so that any new database within this postmaster will automatically have the extension
 PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pg_bm25 CASCADE;"
 PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS pg_analytics CASCADE;"
 PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS vector CASCADE;"
 PGPASSWORD=postgres psql -U postgres -d $DATABASE_NAME -c "CREATE EXTENSION IF NOT EXISTS svector CASCADE;"
 
+# Add to the current database, since it gets created prior to this script
+PGPASSWORD=postgres psql -U postgres -d "template1" -c "CREATE EXTENSION IF NOT EXISTS pg_bm25 CASCADE;"
+PGPASSWORD=postgres psql -U postgres -d "template1" -c "CREATE EXTENSION IF NOT EXISTS pg_analytics CASCADE;"
+PGPASSWORD=postgres psql -U postgres -d "template1" -c "CREATE EXTENSION IF NOT EXISTS vector CASCADE;"
+PGPASSWORD=postgres psql -U postgres -d "template1" -c "CREATE EXTENSION IF NOT EXISTS svector CASCADE;"
+
+
+
+echo "Configure search_path..."
+
+# Configure search_path to include paradedb schema for template1, and default to public (by listing it first)
+PGPASSWORD=$POSTGRES_PASSWORD psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+  ALTER DATABASE "$POSTGRES_DB" SET search_path TO public,paradedb;
+EOSQL
+
+# Configure search_path to include paradedb schema for template1, so that it is
+# inherited by all new databases created, and default to public (by listing it first)
+PGPASSWORD=postgres psql -v ON_ERROR_STOP=1 --username "postgres" --dbname "template1" <<-EOSQL
+  ALTER DATABASE template1 SET search_path TO public,paradedb;
+EOSQL
 
 
 

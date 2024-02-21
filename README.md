@@ -68,19 +68,20 @@ ParadeDB Cloud is currently under development. To get notified when it becomes l
 To quickly get a ParadeDB instance up and running, simply pull and run the latest Docker image:
 
 ```bash
-docker run paradedb/paradedb
+docker run --name paradedb paradedb/paradedb
 ```
 
 This will start a ParadeDB instance with default user `postgres` and password `postgres`. You can then connect to the database using `psql`:
 
 ```bash
-docker exec -it psql -U postgres
+docker exec -it paradedb psql -U postgres
 ```
 
 To install ParadeDB locally or on-premise, we recommend using our `docker-compose.yml` file. Alternatively, you can pass the appropriate environment variables to the `docker run` command, replacing the <> with your desired values:
 
 ```bash
 docker run \
+  --name paradedb \
   -e POSTGRESQL_USERNAME=<user> \
   -e POSTGRESQL_PASSWORD=<password> \
   -e POSTGRESQL_DATABASE=<dbname> \

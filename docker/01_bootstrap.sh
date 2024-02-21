@@ -31,10 +31,10 @@ PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d template1 -c "CREAT
 PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS svector CASCADE;"
 PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector CASCADE;"
 
-echo "Sending anonymous deployment telemetry (to turn off, unset TELEMETRY)..."
+echo "Sending anonymous deployment telemetry (to turn off, unset PARADEDB_TELEMETRY)..."
 
 # We collect basic, anonymous telemetry to help us understand how many people are using
-# the project. We only do this if TELEMETRY is set to "true"
+# the project. We only do this if PARADEDB_TELEMETRY is set to "true"
 if [[ ${PARADEDB_TELEMETRY:-} == "true" ]]; then
   # For privacy reasons, we generate an anonymous UUID for each new deployment
   UUID_FILE="/bitnami/postgresql/data/paradedb_uuid"

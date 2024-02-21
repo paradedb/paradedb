@@ -136,7 +136,7 @@ function run_tests() {
   if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
     # Don't send telemetry when running tests
-    export TELEMETRY=false
+    export PARADEDB_TELEMETRY=false
 
     # First, download & install the first release at which we started supporting upgrades for Postgres 16 (v0.5.2)
     BASE_RELEASE="0.5.2"

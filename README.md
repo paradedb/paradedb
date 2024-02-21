@@ -82,7 +82,7 @@ The `-v` flag is optional, but recommended. It will persist the data loaded into
 psql -h <hostname> -U <user> -d <dbname> -p 5432 -W
 ```
 
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by adding `-e TELEMETRY=false` (or unsetting the variable) to your `docker run` command, or by setting `TELEMETRY: false` in the `docker-compose.yml` file.
+ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by adding `-e PARADEDB_TELEMETRY=false` (or unsetting the variable) to your `docker run` command, or by setting `PARADEDB_TELEMETRY: false` in the `docker-compose.yml` file.
 
 #### ParadeDB Helm Chart
 

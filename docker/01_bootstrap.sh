@@ -6,10 +6,11 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-echo "Configuring PostgreSQL search_path..."
+echo "Running ParadeDB bootstrap..."
+echo "Configuring PostgreSQL search path..."
 
 # Add the `paradedb` schema to the user database, and default to public (by listing it first)
-PGPASSWORD=$POSTGRESQL_POSTGRES_PASSWORD psql -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_DATABASE" -c "ALTER DATABASE template1 SET search_path TO public,paradedb;"
+PGPASSWORD=$POSTGRESQL_PASSWORD psql -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_DATABASE" -c "ALTER DATABASE $POSTGRESQL_DATABASE SET search_path TO public,paradedb;"
 
 # Add the `paradedb` schema to the template1 database, to have it inherited by all new databases
 # created post-initialization, and default to public (by listing it first)
@@ -58,4 +59,4 @@ if [[ ${TELEMETRY:-} == "true" ]]; then
   echo "true" > /tmp/telemetry
 fi
 
-echo "Bootstrap complete!"
+echo "ParadeDB bootstrap completed!"

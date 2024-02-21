@@ -40,13 +40,16 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [ ] External Apache Iceberg and Delta Lake support
   - [ ] High volume data/Kafka ingest
   - [ ] Non-Parquet file formats (Avro/ORC)
-- [x] Self-hosted ParadeDB
-  - [x] Docker image & [deployment instructions](https://docs.paradedb.com/deploy/aws)
+- [x] Self-Hosted ParadeDB
+  - [x] Docker image based on [bitnami/postgresql](https://hub.docker.com/r/bitnami/postgresql) & [deployment instructions](https://docs.paradedb.com/deploy/aws)
   - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [ ] Cloud Database
   - [ ] Managed cloud
   - [ ] Cloud Marketplace Images
   - [ ] Web-based SQL Editor
+- [x] Specialized Workloads
+  - [x] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
+  - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)
 
 ## Get Started
 
@@ -56,8 +59,7 @@ To get started, please visit our [documentation](https://docs.paradedb.com).
 
 ### ParadeDB Cloud
 
-ParadeDB Cloud is currently under development. To get notified when it becomes live, we invite you to join our
-[waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
+ParadeDB Cloud is currently under development. To get notified when it becomes live, we invite you to join our [waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
 
 ### Self-Hosted
 
@@ -66,19 +68,20 @@ ParadeDB Cloud is currently under development. To get notified when it becomes l
 To quickly get a ParadeDB instance up and running, simply pull and run the latest Docker image:
 
 ```bash
-docker run paradedb/paradedb
+docker run --name paradedb paradedb/paradedb
 ```
 
 This will start a ParadeDB instance with default user `postgres` and password `postgres`. You can then connect to the database using `psql`:
 
 ```bash
-docker exec -it psql -U postgres
+docker exec -it paradedb psql -U postgres
 ```
 
 To install ParadeDB locally or on-premise, we recommend using our `docker-compose.yml` file. Alternatively, you can pass the appropriate environment variables to the `docker run` command, replacing the <> with your desired values:
 
 ```bash
 docker run \
+  --name paradedb \
   -e POSTGRESQL_USERNAME=<user> \
   -e POSTGRESQL_PASSWORD=<password> \
   -e POSTGRESQL_DATABASE=<dbname> \
@@ -89,10 +92,10 @@ docker run \
   paradedb/paradedb:latest
 ```
 
-This will start a ParadeDB instance with non-root user `<user>` and password `<password>`, and your ParadeDB data will be persisted across restarts in a Docker volume named `paradedb_data`. You can then connect to the database using `psql`:
+This will start a ParadeDB instance with non-root user `<user>` and password `<password>`, and your ParadeDB data will be persisted across restarts in a Docker volume named `paradedb_data`. The `superuser_password` will be associated with superuser `postgres` and is necessary for ParadeDB extensions to install properly. You can then connect to the database using `psql`:
 
 ```bash
-docker exec -it psql -U <user> -d <dbname> -p 5432 -W
+docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W
 ```
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `PARADEDB_TELEMETRY` to `false` or by unsetting the variable.

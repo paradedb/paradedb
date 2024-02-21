@@ -106,6 +106,20 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
     make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j
 
+######################
+# pg_cron
+######################
+
+FROM builder as builder-pg_cron
+
+# Build the extension
+WORKDIR /tmp
+RUN git clone --branch v1.6.2 https://github.com/citusdata/pg_cron.git
+WORKDIR /tmp/pg_cron
+RUN echo "trusted = true" >> pg_cron.control && \
+    make clean -j && \
+    make USE_PGXS=1 -j
+
 ###############################################
 # Second Stage: PostgreSQL
 ###############################################
@@ -138,10 +152,13 @@ COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-p
 COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_cron /tmp/pg_cron/*.so /opt/bitnami/postgresql/lib/
+COPY --from=builder-pg_cron /tmp/pg_cron/*.control /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_cron /tmp/pg_cron/sql/*.sql /opt/bitnami/postgresql/share/extension/
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root
-RUN install_packages curl uuid-runtime
+RUN install_packages curl uuid-runtime libpq5
 USER 1001
 
 # Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.
@@ -149,7 +166,7 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
-ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_bm25,pg_analytics"
+ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_bm25,pg_analytics"
 
 # We set a default password to enable users to get started quickly, as it is a required
 # environment variable for the Bitnami image.

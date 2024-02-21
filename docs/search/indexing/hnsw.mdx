@@ -72,3 +72,11 @@ DROP INDEX <index_name>;
 
 Like a BM25 index, an HNSW index only needs to be recreated if the name of the indexed column changes.
 To recreate the index, simply delete and create it using the SQL commands above.
+
+## Limitations
+
+Stemming from [pgvector](https://github.com/pgvector/pgvector#hnsw),
+HNSW indexing supports vectors with a maximum dimensionality of 2,000.
+Larger vectors are typically needed only for sparse data scenarios.
+Addressing this, ParadeDB introduces [`pg_sparse`](https://github.com/paradedb/paradedb/tree/dev/pg_sparse)
+to facilitate efficient [sparse vector indexing](/search/indexing/sparse).

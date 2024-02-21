@@ -11,6 +11,19 @@ SPLADE outputs sparse vectors with over 30,000 entries.
 
 A sparse HNSW index is a specialized HNSW index designed to handle sparse vectors.
 
+## Using `pg_sparse`
+
+Paradedb introduces `pg_sparse`, a fork of `pgvector`, for sparse vectors. To get started,
+ensure the extension is installed by following the [installation guide](https://github.com/paradedb/paradedb/blob/dev/pg_sparse/README.md#installation).
+
+The following adds a sparse vector column using `svector`:
+
+```sql
+ALTER TABLE mock_items ADD COLUMN sparse_embedding svector(30522);
+```
+
+For additional details, please refer to the [Github README](https://github.com/paradedb/paradedb/blob/dev/pg_sparse/README.md).
+
 ## Creating a Sparse HNSW Index
 
 The following command creates a sparse HNSW index over a column:

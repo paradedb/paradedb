@@ -1,6 +1,6 @@
 ARG PG_VERSION_MAJOR=16
 
-# Note: As of writing, Debian 11/Bullseye is the latest stable Debian distro
+# Note: As of writing, Debian 12/Bookworm is the latest stable Debian distro
 # and if equivalent to Ubuntu 22.04, which we use for testing.
 
 ###############################################
@@ -9,7 +9,7 @@ ARG PG_VERSION_MAJOR=16
 
 # We build the extensions on the official PostgreSQL image, since the Bitnami
 # image does not have root access and necessary build tools
-FROM postgres:${PG_VERSION_MAJOR}-bullseye as builder
+FROM postgres:${PG_VERSION_MAJOR}-bookworm as builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.76.0
@@ -106,11 +106,25 @@ RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-comp
     make clean -j && \
     make USE_PGXS=1 OPTFLAGS="" -j
 
+######################
+# pg_cron
+######################
+
+FROM builder as builder-pg_cron
+
+# Build the extension
+WORKDIR /tmp
+RUN git clone --branch v1.6.2 https://github.com/citusdata/pg_cron.git
+WORKDIR /tmp/pg_cron
+RUN echo "trusted = true" >> pg_cron.control && \
+    make clean -j && \
+    make USE_PGXS=1 -j
+
 ###############################################
 # Second Stage: PostgreSQL
 ###############################################
 
-FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-11 as paradedb
+FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-12 as paradedb
 
 ARG PG_VERSION_MAJOR=16
 ARG POSTHOG_API_KEY
@@ -138,6 +152,9 @@ COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-p
 COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_cron /tmp/pg_cron/*.so /opt/bitnami/postgresql/lib/
+COPY --from=builder-pg_cron /tmp/pg_cron/*.control /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_cron /tmp/pg_cron/sql/*.sql /opt/bitnami/postgresql/share/extension/
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root
@@ -149,7 +166,7 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
-ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_bm25,pg_analytics"
+ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_bm25,pg_analytics"
 
 # We set a default password to enable users to get started quickly, as it is a required
 # environment variable for the Bitnami image.

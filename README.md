@@ -40,13 +40,16 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [ ] External Apache Iceberg and Delta Lake support
   - [ ] High volume data/Kafka ingest
   - [ ] Non-Parquet file formats (Avro/ORC)
-- [x] Self-hosted ParadeDB
+- [x] Self-Hosted ParadeDB
   - [x] Docker image & [deployment instructions](https://docs.paradedb.com/deploy/aws)
   - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [ ] Cloud Database
   - [ ] Managed cloud
   - [ ] Cloud Marketplace Images
   - [ ] Web-based SQL Editor
+- [x] Specialized Workloads
+  - [x] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
+  - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)
 
 ## Get Started
 
@@ -56,8 +59,7 @@ To get started, please visit our [documentation](https://docs.paradedb.com).
 
 ### ParadeDB Cloud
 
-ParadeDB Cloud is currently under development. To get notified when it becomes live, we invite you to join our
-[waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
+ParadeDB Cloud is currently under development. To get notified when it becomes live, we invite you to join our [waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
 
 ### Self-Hosted
 

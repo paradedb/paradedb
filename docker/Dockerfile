@@ -150,3 +150,11 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
 ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_bm25,pg_analytics"
+
+# We set a default password to enable users to get started quickly, as it is a required
+# environment variable for the Bitnami image.
+#
+# Note: This *will* (and should) get overriden by passing the POSTGRESQL_PASSWORD environment
+# varialbe via docker-compose or docker run -e POSTGRESQL_PASSWORD. All production usage
+# should use a unique, secure password and not rely on the default settings.
+ENV POSTGRESQL_PASSWORD=postgres

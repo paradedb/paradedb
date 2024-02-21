@@ -95,7 +95,7 @@ docker run \
 This will start a ParadeDB instance with non-root user `<user>` and password `<password>`, and your ParadeDB data will be persisted across restarts in a Docker volume named `paradedb_data`. You can then connect to the database using `psql`:
 
 ```bash
-docker exec -it psql -U <user> -d <dbname> -p 5432 -W
+docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W
 ```
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `PARADEDB_TELEMETRY` to `false` or by unsetting the variable.

@@ -1,6 +1,6 @@
 ARG PG_VERSION_MAJOR=16
 
-# Note: As of writing, Debian 12/Bookworm is the latest stable Debian distro
+# Note: As of writing, Debian 11/Bullseye is the latest stable Debian distro
 # and if equivalent to Ubuntu 22.04, which we use for testing.
 
 ###############################################
@@ -9,7 +9,7 @@ ARG PG_VERSION_MAJOR=16
 
 # We build the extensions on the official PostgreSQL image, since the Bitnami
 # image does not have root access and necessary build tools
-FROM postgres:${PG_VERSION_MAJOR}-bookworm as builder
+FROM postgres:${PG_VERSION_MAJOR}-bullseye as builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.76.0
@@ -124,7 +124,7 @@ RUN echo "trusted = true" >> pg_cron.control && \
 # Second Stage: PostgreSQL
 ###############################################
 
-FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-12 as paradedb
+FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-11 as paradedb
 
 ARG PG_VERSION_MAJOR=16
 ARG POSTHOG_API_KEY
@@ -158,7 +158,7 @@ COPY --from=builder-pg_cron /tmp/pg_cron/sql/*.sql /opt/bitnami/postgresql/share
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root
-RUN install_packages curl uuid-runtime
+RUN install_packages curl uuid-runtime libpq5 libc6
 USER 1001
 
 # Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.

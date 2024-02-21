@@ -155,6 +155,6 @@ ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_bm25,pg_analytics"
 # environment variable for the Bitnami image.
 #
 # Note: This *will* (and should) get overriden by passing the POSTGRESQL_PASSWORD environment
-# varialbe via docker-compose or docker run -e POSTGRESQL_PASSWORD. All production usage
+# varialbe via `docker-compose` or `docker run -e POSTGRESQL_PASSWORD`. All production usage
 # should use a unique, secure password and not rely on the default settings.
 ENV POSTGRESQL_PASSWORD=postgres

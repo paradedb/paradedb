@@ -92,7 +92,7 @@ docker run \
   paradedb/paradedb:latest
 ```
 
-This will start a ParadeDB instance with non-root user `<user>` and password `<password>`, and your ParadeDB data will be persisted across restarts in a Docker volume named `paradedb_data`. You can then connect to the database using `psql`:
+This will start a ParadeDB instance with non-root user `<user>` and password `<password>`, and your ParadeDB data will be persisted across restarts in a Docker volume named `paradedb_data`. The `superuser_password` will be associated with superuser `postgres` and is necessary for ParadeDB extensions to install properly. You can then connect to the database using `psql`:
 
 ```bash
 docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W

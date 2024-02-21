@@ -158,7 +158,7 @@ COPY --from=builder-pg_cron /tmp/pg_cron/sql/*.sql /opt/bitnami/postgresql/share
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root
-RUN install_packages curl uuid-runtime libpq5 libc6
+RUN install_packages curl uuid-runtime libpq5
 USER 1001
 
 # Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.

@@ -63,26 +63,39 @@ ParadeDB Cloud is currently under development. To get notified when it becomes l
 
 #### ParadeDB Docker Image
 
-To install ParadeDB locally or on-premise, simply pull and run the latest Docker image:
+To quickly get a ParadeDB instance up and running, simply pull and run the latest Docker image:
+
+```bash
+docker run paradedb/paradedb
+```
+
+This will start a ParadeDB instance with default user `postgres` and password `postgres`. You can then connect to the database using `psql`:
+
+```bash
+docker exec -it psql -U postgres
+```
+
+To install ParadeDB locally or on-premise, we recommend using our `docker-compose.yml` file. Alternatively, you can pass the appropriate environment variables to the `docker run` command, replacing the <> with your desired values:
 
 ```bash
 docker run \
-  -e POSTGRES_USER=<user> \
-  -e POSTGRES_PASSWORD=<password> \
-  -e POSTGRES_DB=<dbname> \
+  -e POSTGRESQL_USERNAME=<user> \
+  -e POSTGRESQL_PASSWORD=<password> \
+  -e POSTGRESQL_DATABASE=<dbname> \
+  -e POSTGRESQL_POSTGRES_PASSWORD=<superuser_password> \
+  -v paradedb_data:/bitnami/postgresql \
   -p 5432:5432 \
-  -v paradedb-data:/var/lib/postgresql/data \
   -d \
   paradedb/paradedb:latest
 ```
 
-The `-v` flag is optional, but recommended. It will persist the data loaded into ParadeDB across restarts. Alternatively, you can clone this repo and run our `docker-compose.yml` file. By default, this will start the ParadeDB database at `http://localhost:5432`. Use `psql` to connect:
+This will start a ParadeDB instance with non-root user `<user>` and password `<password>`, and your ParadeDB data will be persisted across restarts in a Docker volume named `paradedb_data`. You can then connect to the database using `psql`:
 
 ```bash
-psql -h <hostname> -U <user> -d <dbname> -p 5432 -W
+docker exec -it psql -U <user> -d <dbname> -p 5432 -W
 ```
 
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by adding `-e TELEMETRY=false` (or unsetting the variable) to your `docker run` command, or by setting `TELEMETRY: false` in the `docker-compose.yml` file.
+ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `PARADEDB_TELEMETRY` to `false` or by unsetting the variable.
 
 #### ParadeDB Helm Chart
 

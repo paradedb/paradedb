@@ -27,7 +27,8 @@ impl Config {
         #[cfg(not(feature = "telemetry"))]
         let default_telemetry = "false";
 
-        let telemetry = Some(std::env::var("TELEMETRY").unwrap_or(default_telemetry.to_string()));
+        let telemetry =
+            Some(std::env::var("PARADEDB_TELEMETRY").unwrap_or(default_telemetry.to_string()));
 
         envy::from_env::<Config>().ok().map(|config| Config {
             telemetry_handled,
@@ -93,7 +94,7 @@ pub fn init(extension_name: &str) {
 
 pub fn connection_start() {
     // This function shares configuration with the `init` function on this file.
-    // The TELEMETRY environment variable controls both functions, allowing it to be used
+    // The PARADEDB_TELEMETRY environment variable controls both functions, allowing it to be used
     // for opting out of all telemetry.
     if let Some(config) = Config::from_env() {
         if config.telemetry.as_deref() == Some("true") {

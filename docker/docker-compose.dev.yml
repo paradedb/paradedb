@@ -1,7 +1,11 @@
 #
-# This docker-compose.dev.yml file is for development of the Parade DBMS only. It builds our
-# Dockerfile, which is the full ParadeDB image with all extensions, to allow for complete
-# testing of the ParadeDB system. It is not intended for production use.
+# This docker-compose.dev.yml file is for development deployments of ParadeDB only. It directly builds our
+# Dockerfile, which has all ParadeDB extensions pre-installed and properly configured. It is not intended for
+# production use. For production usage, please use docker-compose.yml for production usage.
+#
+# There are several other environment variables which can be specified here to configure replication, TLS,
+# and a few other settings. They can be found here:
+# https://github.com/bitnami/containers/blob/main/bitnami/postgresql/README.md#environment-variables
 #
 
 version: "3.8"
@@ -16,13 +20,14 @@ services:
       cache_to:
         - type=local,dest=./.docker_cache_dev
     environment:
-      POSTGRES_USER: myuser
-      POSTGRES_PASSWORD: mypassword
-      POSTGRES_DB: mydatabase
+      POSTGRESQL_USERNAME: myuser
+      POSTGRESQL_PASSWORD: mypassword
+      POSTGRESQL_DATABASE: mydatabase
+      POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
     ports:
       - "5432:5432"
     volumes:
-      - paradedb-data:/var/lib/postgresql/data
+      - paradedb-dev_data:/bitnami/postgresql
 
 volumes:
-  paradedb-data:
+  paradedb-dev_data:

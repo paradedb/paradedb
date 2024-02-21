@@ -66,7 +66,7 @@ We provide pre-built binaries for Debian-based Linux for PostgreSQL 16. You can 
 
 Our pre-built binaries come with the ICU tokenizer enable, which requires the `libicu70` library. If you don't have it installed, you can do so with `sudo apt-get install libicu70 -y`, or compile the extension from source without `--features icu` to build without the ICU tokenizer.
 
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
+ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `export PARADEDB_TELEMETRY=false` (or unsetting the variable) in your shell or in your `~/.bashrc` file before running the extension.
 
 #### macOS
 

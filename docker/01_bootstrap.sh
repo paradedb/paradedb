@@ -6,7 +6,7 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-echo "Running ParadeDB bootstrap..."
+echo "ParadeDB bootstrap started..."
 echo "Configuring PostgreSQL search path..."
 
 # Add the `paradedb` schema to the user database, and default to public (by listing it first)

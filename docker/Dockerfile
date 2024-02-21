@@ -22,28 +22,21 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
-# TODO: Can we remove some of these?
+# TODO: Can we remove some of these? (Probably at least pkg-config too)
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    clang \
     software-properties-common \
     ca-certificates \
-    uuid-runtime \
-    libssl-dev \
+    build-essential \
+    gnupg \
     curl \
     wget \
     git \
     cmake \
-    pkg-config \
-    liblz4-dev \
-    libssl-dev \
-    libcurl4-openssl-dev \
-    libopenblas-dev \
-    python3-dev \
-    python3-pip \
-    gnupg \
-    gcc \
     make \
+    gcc \
+    clang \
+    pkg-config \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
 
@@ -135,6 +128,11 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     COMMIT_SHA=${COMMIT_SHA} \
     TELEMETRY=${TELEMETRY}
 
+# Install runtime dependencies (requires switching to root temporarily)
+USER root
+RUN install_packages uuid-runtime
+USER 1001
+
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_sparse /tmp/pg_sparse/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_sparse /tmp/pg_sparse/*.control /opt/bitnami/postgresql/share/extension/
@@ -155,13 +153,3 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
 ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_bm25,pg_analytics"
-
-# TODO: test whether any of these are needed at runtime, especially UUID for PostHog
-# RUN apt-get update && apt-get install -y --no-install-recommends \
-#     software-properties-common \
-#     ca-certificates \
-#     uuid-runtime \
-#     libssl-dev \
-#     curl \
-#     wget \
-#     && rm -rf /var/lib/apt/lists/*

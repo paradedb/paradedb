@@ -71,7 +71,7 @@ docker run \
   -e POSTGRES_PASSWORD=<password> \
   -e POSTGRES_DB=<dbname> \
   -p 5432:5432 \
-  -v paradedb:/bitnami/postgresql \
+  -v paradedb_data:/bitnami/postgresql \
   -d \
   paradedb/paradedb:latest
 ```

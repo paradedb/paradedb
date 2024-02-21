@@ -420,13 +420,13 @@ svector_recv(PG_FUNCTION_ARGS)
 	StringInfo	buf = (StringInfo) PG_GETARG_POINTER(0);
 	int32		typmod = PG_GETARG_INT32(2);
 	Vector	   *result;
-	int16		n_elem;
-	int16		dim;
-	int16		unused;
+	int32		n_elem;
+	int32		dim;
+	int32		unused;
 
-	n_elem = pq_getmsgint(buf, sizeof(int16));
-	dim = pq_getmsgint(buf, sizeof(int16));
-	unused = pq_getmsgint(buf, sizeof(int16));
+	n_elem = pq_getmsgint(buf, sizeof(int32));
+	dim = pq_getmsgint(buf, sizeof(int32));
+	unused = pq_getmsgint(buf, sizeof(int32));
 
 	CheckDim(dim);
 	CheckNElem(n_elem);
@@ -459,9 +459,9 @@ svector_send(PG_FUNCTION_ARGS)
 	StringInfoData buf;
 
 	pq_begintypsend(&buf);
-	pq_sendint(&buf, vec->n_elem, sizeof(int16));
-	pq_sendint(&buf, vec->dim, sizeof(int16));
-	pq_sendint(&buf, vec->unused, sizeof(int16));
+	pq_sendint(&buf, vec->n_elem, sizeof(int32));
+	pq_sendint(&buf, vec->dim, sizeof(int32));
+	pq_sendint(&buf, vec->unused, sizeof(int32));
 	for (int i = 0; i < vec->n_elem; i++) {
 		pq_sendint(&buf, vec->x[i].index, sizeof(int32));
 		pq_sendfloat4(&buf, vec->x[i].value);

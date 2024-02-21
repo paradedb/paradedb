@@ -41,7 +41,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [ ] High volume data/Kafka ingest
   - [ ] Non-Parquet file formats (Avro/ORC)
 - [x] Self-Hosted ParadeDB
-  - [x] Docker image & [deployment instructions](https://docs.paradedb.com/deploy/aws)
+  - [x] Docker image based on [bitnami/postgresl](https://hub.docker.com/r/bitnami/postgresql) & [deployment instructions](https://docs.paradedb.com/deploy/aws)
   - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
 - [ ] Cloud Database
   - [ ] Managed cloud

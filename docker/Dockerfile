@@ -22,7 +22,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c", "-e"]
 
-# TODO: Can we remove some of these? (Probably at least pkg-config too)
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common \
@@ -30,9 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     gnupg \
     curl \
-    wget \
     git \
-    cmake \
     make \
     gcc \
     clang \
@@ -119,14 +116,14 @@ ARG PG_VERSION_MAJOR=16
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
-ARG TELEMETRY
+ARG PARADEDB_TELEMETRY
 
 # Declare runtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
     COMMIT_SHA=${COMMIT_SHA} \
-    TELEMETRY=${TELEMETRY}
+    PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root

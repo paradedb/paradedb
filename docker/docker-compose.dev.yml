@@ -24,6 +24,10 @@ services:
       POSTGRESQL_PASSWORD: mypassword
       POSTGRESQL_DATABASE: mydatabase
       POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
+      POSTHOG_API_KEY: phc_KiWfPSoxQLmFxY5yOODDBzzP3EcyPbn9oSVtsCBbasj
+      POSTHOG_HOST: https://app.posthog.com
+      COMMIT_SHA: testcommitsha
+      PARADEDB_TELEMETRY: true # This causes crash
     ports:
       - "5432:5432"
 #     volumes:

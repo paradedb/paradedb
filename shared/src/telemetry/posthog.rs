@@ -27,7 +27,8 @@ impl Config {
         #[cfg(not(feature = "telemetry"))]
         let default_telemetry = "false";
 
-        let telemetry = Some(std::env::var("PARADEDB_TELEMETRY").unwrap_or(default_telemetry.to_string()));
+        let telemetry =
+            Some(std::env::var("PARADEDB_TELEMETRY").unwrap_or(default_telemetry.to_string()));
 
         envy::from_env::<Config>().ok().map(|config| Config {
             telemetry_handled,

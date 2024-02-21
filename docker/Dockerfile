@@ -125,11 +125,6 @@ ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
     COMMIT_SHA=${COMMIT_SHA} \
     PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
 
-# Install runtime dependencies (requires switching to root temporarily)
-USER root
-RUN install_packages uuid-runtime
-USER 1001
-
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_sparse /tmp/pg_sparse/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_sparse /tmp/pg_sparse/*.control /opt/bitnami/postgresql/share/extension/
@@ -143,6 +138,11 @@ COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-p
 COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
+
+# Install runtime dependencies (requires switching to root temporarily)
+USER root
+RUN install_packages curl uuid-runtime
+USER 1001
 
 # Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.
 COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/

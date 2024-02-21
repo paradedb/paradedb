@@ -59,42 +59,27 @@ impl Writer {
         Ok(())
     }
 
-    fn commit(&mut self) -> Result<(), IndexError> {
-        let mut to_commit = vec![];
-        let mut to_drop = vec![];
-        for directory in self.tantivy_writers.keys() {
-            if directory.exists()? {
-                to_commit.push(directory.clone());
-            } else {
-                to_drop.push(directory.clone())
-            }
-        }
-
-        // If the directory doesn't exist, then the index doesn't exist anymore.
-        // Rare, but possible if a previous delete failed. Drop it to free the space.
-        for directory in to_drop {
-            self.drop_index(directory)?;
-        }
-
-        for directory in to_commit {
+    fn commit(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+        if directory.exists()? {
             let writer = self
                 .tantivy_writers
                 .get_mut(&directory)
                 .expect("writer exists");
             writer.prepare_commit()?;
             writer.commit()?;
+        } else {
+            // If the directory doesn't exist, then the index doesn't exist anymore.
+            // Rare, but possible if a previous delete failed. Drop it to free the space.
+            self.drop_index(directory.clone())?;
         }
-
-        // Drain the writers after every commit. We need to do this, because with many
-        // indexe lots of open writes causes a "too many open files" error.
-        self.tantivy_writers.drain();
+        self.tantivy_writers.remove(&directory);
         Ok(())
     }
 
-    fn abort(&mut self) -> Result<(), IndexError> {
-        // If the transaction was aborted, we should clear all the writers from the cache.
+    fn abort(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
+        // If the transaction was aborted, we should drop the writer.
         // Otherwise, partialy written data could stick around for the next transaction.
-        self.tantivy_writers.drain();
+        self.tantivy_writers.remove(&directory);
         Ok(())
     }
 
@@ -107,7 +92,7 @@ impl Writer {
     fn drop_index(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         if let Ok(writer) = self.get_writer(directory.clone()) {
             writer.delete_all_documents()?;
-            self.commit()?;
+            self.commit(directory.clone())?;
 
             // Remove the writer from the cache so that it is dropped.
             // We want to do this first so that the lockfile is released before deleting.
@@ -140,8 +125,10 @@ impl Handler<WriterRequest> for Writer {
             WriterRequest::DropIndex { directory } => {
                 self.drop_index(directory).map_err(ServerError::from)
             }
-            WriterRequest::Commit => self.commit().map_err(ServerError::from),
-            WriterRequest::Abort => self.abort().map_err(ServerError::from),
+            WriterRequest::Commit { directory } => {
+                self.commit(directory).map_err(ServerError::from)
+            }
+            WriterRequest::Abort { directory } => self.abort(directory).map_err(ServerError::from),
             WriterRequest::Vacuum { directory } => {
                 self.vacuum(directory).map_err(ServerError::from)
             }

@@ -225,7 +225,7 @@ unsafe fn build_callback_internal(
                     panic!("error inserting document during build callback: {err:?}")
                 });
 
-            register_commit_callback(&writer_client)
+            register_commit_callback(&writer_client, search_index.directory.clone())
                 .expect("could not register commit callbacks for build operation");
         });
         state.memctx.reset();

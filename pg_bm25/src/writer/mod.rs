@@ -30,8 +30,12 @@ pub enum WriterRequest {
     DropIndex {
         directory: WriterDirectory,
     },
-    Abort,
-    Commit,
+    Abort {
+        directory: WriterDirectory,
+    },
+    Commit {
+        directory: WriterDirectory,
+    },
     Vacuum {
         directory: WriterDirectory,
     },

@@ -195,6 +195,15 @@ unsafe fn build_callback_internal(
     check_for_interrupts!();
 
     let state = (state as *mut BuildState).as_mut().unwrap();
+
+    // In the block below, we switch to the memory context we've defined on our build
+    // state, resetting it before and after. We do this because we're looking up a
+    // PgTupleDesc... which is supposed to free the corresponding Postgres memory when it
+    // is dropped. However, in practice, we're not seeing the memory get freed, which is
+    // causing huge memory usage when building large indexes.
+    //
+    // By running in our own memory context, we can force the memory to be freed with
+    // the call to reset().
     unsafe {
         state.memctx.reset();
         state.memctx.switch_to(|_| {

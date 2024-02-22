@@ -2,7 +2,6 @@
 
 /.cargo/                                                       @philippemnoel
 /.github/                                                      @philippemnoel
-/benchmarks/                                                   @philippemnoel @sardination
 /docker/                                                       @philippemnoel
 /docs/                                                         @rebasedming @neilyio
 /pg_analytics/                                                 @rebasedming @sardination

@@ -153,8 +153,8 @@ mod tests {
         directory: mock_dir().writer_dir,
         document: simple_doc(simple_schema(default_fields())),
     })]
-    #[case::commit_request(WriterRequest::Commit)]
-    #[case::abort_request(WriterRequest::Abort)]
+    #[case::commit_request(WriterRequest::Commit { directory: mock_dir().writer_dir })]
+    #[case::abort_request(WriterRequest::Abort {directory: mock_dir().writer_dir})]
     #[case::vacuum_request(WriterRequest::Vacuum { directory: mock_dir().writer_dir })]
     #[case::drop_index_request(WriterRequest::DropIndex { directory: mock_dir().writer_dir })]
     /// Test request serialization and transfer between client and server.

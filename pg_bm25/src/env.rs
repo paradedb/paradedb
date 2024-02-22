@@ -10,7 +10,7 @@ use std::{
 use thiserror::Error;
 use tracing::error;
 
-use crate::writer::{WriterClient, WriterRequest};
+use crate::writer::{WriterClient, WriterDirectory, WriterRequest};
 
 const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_search_index";
 
@@ -123,8 +123,10 @@ impl Transaction {
 
 pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + 'static>(
     writer: &Arc<Mutex<W>>,
+    directory: WriterDirectory,
 ) -> Result<(), TransactionError> {
     let writer_client = writer.clone();
+    let commit_directory = directory.clone();
     Transaction::call_once_on_precommit(TRANSACTION_CALLBACK_CACHE_ID, move || {
         let mut error: Option<Box<dyn std::error::Error>> = None;
         {
@@ -136,7 +138,9 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
                     panic!("could not lock client in commit callback: {err}");
                 }
                 Ok(mut client) => {
-                    if let Err(err) = client.request(WriterRequest::Commit) {
+                    if let Err(err) = client.request(WriterRequest::Commit {
+                        directory: commit_directory.clone(),
+                    }) {
                         error = Some(Box::new(err));
                     }
                 }
@@ -149,6 +153,7 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
     })?;
 
     let writer_client = writer.clone();
+    let abort_directory = directory.clone();
     Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID, move || {
         let mut error: Option<Box<dyn std::error::Error>> = None;
         {
@@ -160,7 +165,9 @@ pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + '
                     panic!("could not lock client in abort callback: {err}");
                 }
                 Ok(mut client) => {
-                    if let Err(err) = client.request(WriterRequest::Abort) {
+                    if let Err(err) = client.request(WriterRequest::Abort {
+                        directory: abort_directory,
+                    }) {
                         error = Some(Box::new(err));
                     }
                 }

@@ -7,7 +7,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use shared::telemetry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
-use tantivy::directory::MmapDirectory;
 use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher};
 use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
 use thiserror::Error;
@@ -74,11 +73,16 @@ impl SearchIndex {
             ..Default::default()
         };
 
-        let TantivyDirPath(tantivy_dir_path) = directory.tantivy_dir_path(true)?;
+        // If the writer directory exists, remove it. We need a fresh directory to
+        // create an index. This can happen after a VACUUM FULL, where the index needs
+        // to be rebuilt and this method is called again.
+        directory.remove().map_err(SearchIndexError::from)?;
+
+        let tantivy_dir_path = directory.tantivy_dir_path(true)?;
         let mut underlying_index = Index::builder()
             .schema(schema.schema.clone())
             .settings(settings.clone())
-            .open_or_create(MmapDirectory::open(tantivy_dir_path).unwrap())
+            .create_in_dir(tantivy_dir_path)
             .expect("failed to create index");
 
         Self::setup_tokenizers(&mut underlying_index, &schema);
@@ -173,7 +177,9 @@ impl SearchIndex {
     ) -> Result<SearchState, SearchIndexError> {
         // Commit any inserts or deletes that have occured during this transaction.
         if needs_commit {
-            writer.lock()?.request(WriterRequest::Commit)?
+            writer.lock()?.request(WriterRequest::Commit {
+                directory: self.directory.clone(),
+            })?
         }
 
         // Prepare to perform a search.

@@ -2,8 +2,8 @@ use crate::index::SearchIndex;
 use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
 use pgrx::{
-    pg_sys, varsize, Array, FromDatum, JsonB, JsonString, PgBuiltInOids, PgMemoryContexts, PgOid,
-    PgRelation, PgTupleDesc,
+    pg_sys, varsize, Array, FromDatum, JsonB, JsonString, PgBuiltInOids, PgOid, PgRelation,
+    PgTupleDesc,
 };
 use serde_json::Map;
 use std::default::Default;
@@ -29,11 +29,7 @@ pub fn lookup_index_tupdesc(indexrel: &PgRelation) -> PgTupleDesc<'static> {
 
     // lookup the tuple descriptor for the rowtype we're *indexing*, rather than
     // using the tuple descriptor for the index definition itself
-    unsafe {
-        PgMemoryContexts::TopTransactionContext.switch_to(|_| {
-            PgTupleDesc::from_pg_is_copy(pg_sys::lookup_rowtype_tupdesc_copy(typid, typmod))
-        })
-    }
+    unsafe { PgTupleDesc::from_pg_is_copy(pg_sys::lookup_rowtype_tupdesc_copy(typid, typmod)) }
 }
 
 pub unsafe fn row_to_search_document(

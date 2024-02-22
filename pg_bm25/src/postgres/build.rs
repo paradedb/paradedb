@@ -12,11 +12,15 @@ use std::panic::{self, AssertUnwindSafe};
 // For now just pass the count on the build callback state
 struct BuildState {
     count: usize,
+    memctx: PgMemoryContexts,
 }
 
 impl BuildState {
     fn new() -> Self {
-        BuildState { count: 0 }
+        BuildState {
+            count: 0,
+            memctx: PgMemoryContexts::new("pg_search_index_build"),
+        }
     }
 }
 
@@ -185,27 +189,45 @@ unsafe extern "C" fn build_callback(
 unsafe fn build_callback_internal(
     ctid: pg_sys::ItemPointerData,
     values: *mut pg_sys::Datum,
-    _state: *mut std::os::raw::c_void,
+    state: *mut std::os::raw::c_void,
     index: pg_sys::Relation,
 ) {
     check_for_interrupts!();
 
-    let index_relation_ref: PgRelation = PgRelation::from_pg(index);
-    let tupdesc = lookup_index_tupdesc(&index_relation_ref);
-    let index_name = index_relation_ref.name();
-    let search_index = get_search_index(index_name);
-    let search_document = search_index
-        .row_to_search_document(ctid, &tupdesc, values)
-        .unwrap_or_else(|err| {
-            panic!("error creating index entries for index '{index_name}': {err:?}",)
+    let state = (state as *mut BuildState).as_mut().unwrap();
+
+    // In the block below, we switch to the memory context we've defined on our build
+    // state, resetting it before and after. We do this because we're looking up a
+    // PgTupleDesc... which is supposed to free the corresponding Postgres memory when it
+    // is dropped. However, in practice, we're not seeing the memory get freed, which is
+    // causing huge memory usage when building large indexes.
+    //
+    // By running in our own memory context, we can force the memory to be freed with
+    // the call to reset().
+    unsafe {
+        state.memctx.reset();
+        state.memctx.switch_to(|_| {
+            let index_relation_ref: PgRelation = PgRelation::from_pg(index);
+            let tupdesc = lookup_index_tupdesc(&index_relation_ref);
+            let index_name = index_relation_ref.name();
+            let search_index = get_search_index(index_name);
+            let search_document = search_index
+                .row_to_search_document(ctid, &tupdesc, values)
+                .unwrap_or_else(|err| {
+                    panic!("error creating index entries for index '{index_name}': {err:?}",)
+                });
+
+            let writer_client = WriterGlobal::client();
+
+            search_index
+                .insert(&writer_client, search_document)
+                .unwrap_or_else(|err| {
+                    panic!("error inserting document during build callback: {err:?}")
+                });
+
+            register_commit_callback(&writer_client, search_index.directory.clone())
+                .expect("could not register commit callbacks for build operation");
         });
-
-    let writer_client = WriterGlobal::client();
-
-    search_index
-        .insert(&writer_client, search_document)
-        .unwrap_or_else(|err| panic!("error inserting document during build callback: {err:?}"));
-
-    register_commit_callback(&writer_client)
-        .expect("could not register commit callbacks for build operation");
+        state.memctx.reset();
+    }
 }

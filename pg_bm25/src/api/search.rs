@@ -1,6 +1,6 @@
 use crate::env::needs_commit;
 use crate::schema::SearchConfig;
-use crate::writer::WriterClient;
+use crate::writer::{WriterClient, WriterDirectory};
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
 use tantivy::{schema::FieldType, SnippetGenerator};
@@ -122,11 +122,14 @@ pub fn minmax_bm25(
 #[pg_extern]
 fn drop_bm25_internal(index_name: &str) {
     let writer_client = WriterGlobal::client();
+    let writer_directory = WriterDirectory::from_index_name(index_name);
     if needs_commit() {
         writer_client
             .lock()
             .expect("could not lock writer on drop_bm25")
-            .request(crate::writer::WriterRequest::Commit)
+            .request(crate::writer::WriterRequest::Commit {
+                directory: writer_directory,
+            })
             .expect("error committing existing transaction during drop_bm25");
     }
     // Drop the Tantivy data directory.

@@ -51,7 +51,7 @@ unsafe fn aminsert_internal(
         });
 
     let writer_client = WriterGlobal::client();
-    register_commit_callback(&writer_client)
+    register_commit_callback(&writer_client, search_index.directory.clone())
         .expect("could not register commit callbacks for insert operation");
 
     search_index

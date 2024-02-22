@@ -13,7 +13,7 @@ WIKI_ARTICLES_FILE=wiki-articles.json
 # Helper function to run a query on the benchmarking database
 db_query () {
   local QUERY=$1
-  PGPASSWORD="$PASSWORD" docker exec -it paradedb psql -p "$PORT" -d "$DATABASE" -U "$USER" -c "$QUERY"
+  PGPASSWORD="$PASSWORD" docker exec paradedb psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -c "$QUERY"
 }
 
 # Helper function to download the benchmarking dataset
@@ -45,7 +45,7 @@ load_data () {
   db_query "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';" < "$WIKI_ARTICLES_FILE"
 
   echo "-- Loading JSON data into the wikipedia_articles table..."
-  PGPASSWORD=$PASSWORD ocker exec -it paradedb psql -p "$PORT" -d "$DATABASE" -U "$USER" -f helpers/load_data.sql
+  PGPASSWORD=$PASSWORD docker exec paradedb psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -f helpers/load_data.sql
 }
 
 export -f load_data

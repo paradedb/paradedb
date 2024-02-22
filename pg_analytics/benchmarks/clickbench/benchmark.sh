@@ -199,7 +199,7 @@ else
     -e POSTGRESQL_PASSWORD=mypassword \
     -e POSTGRESQL_DATABASE=mydatabase \
     -e POSTGRESQL_POSTGRES_PASSWORD=postgres \
-    -p $PORT:5432 \
+    -p $DOCKER_PORT:5432 \
     -d \
     paradedb/paradedb:"$FLAG_TAG"
 

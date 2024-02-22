@@ -238,6 +238,11 @@ pub fn phrase_prefix(
 }
 
 #[pg_extern(immutable, parallel_safe)]
+pub fn parse(query_string: String) -> SearchQueryInput {
+    SearchQueryInput::Parse { query_string }
+}
+
+#[pg_extern(immutable, parallel_safe)]
 pub fn phrase(field: String, phrases: Array<String>, slop: Option<i32>) -> SearchQueryInput {
     SearchQueryInput::Phrase {
         field,
@@ -326,7 +331,6 @@ term_fn!(term_i8, i8, |v| tantivy::schema::Value::I64(v as i64));
 term_fn!(term_i16, i16, |v| tantivy::schema::Value::I64(v as i64));
 term_fn!(term_i32, i32, |v| tantivy::schema::Value::I64(v as i64));
 term_fn!(term_i64, i64, tantivy::schema::Value::I64);
-term_fn!(term_u32, u32, |v| tantivy::schema::Value::U64(v as u64));
 term_fn!(term_f32, f32, |v| tantivy::schema::Value::F64(v as f64));
 term_fn!(term_f64, f64, tantivy::schema::Value::F64);
 term_fn!(term_bool, bool, tantivy::schema::Value::Bool);
@@ -380,9 +384,6 @@ term_fn!(inet, pgrx::Inet, |_v| unimplemented!(
 ));
 term_fn!(numeric, pgrx::AnyNumeric, |_v| unimplemented!(
     "numeric in term query not implemented"
-));
-term_fn!(array, pgrx::AnyArray, |_v| unimplemented!(
-    "array in term query not implemented"
 ));
 term_fn!(int4range, pgrx::Range<i32>, |_v| unimplemented!(
     "int4 range in term query not implemented"

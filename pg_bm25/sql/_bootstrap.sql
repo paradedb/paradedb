@@ -159,28 +159,28 @@ BEGIN
     EXECUTE paradedb.format_bm25_function(
         function_name => format('%I.search', index_name),        	
         return_type => format('SETOF %I.%I', schema_name, table_name),
-        function_body => format('RETURN QUERY SELECT * FROM %I.%I WHERE %I @@@ __paradedb_search_config__;', schema_name, table_name, table_name),
+        function_body => format('RETURN QUERY SELECT * FROM %I.%I WHERE %I @@@ __paradedb_search_config__', schema_name, table_name, table_name),
         index_json => index_json
     );
 
-    EXECUTE paradedb.format_bm25_function(
-        function_name => format('%I.highlight', index_name),
-        return_type => format('TABLE(%s bigint, highlight_bm25 text)', key_field),
-        function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(__paradedb_search_config__);',
-        index_json => index_json
-    );
+    -- EXECUTE paradedb.format_bm25_function(
+    --     function_name => format('%I.highlight', index_name),
+    --     return_type => format('TABLE(%s bigint, highlight_bm25 text)', key_field),
+    --     function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(__paradedb_search_config__);',
+    --     index_json => index_json
+    -- );
 
-    EXECUTE paradedb.format_bm25_function(
-        function_name => format('%I.rank', index_name),
-        return_type => format('TABLE(%s bigint, rank_bm25 real)', key_field),
-        function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__);',
-        index_json => index_json
-    );
+    -- EXECUTE paradedb.format_bm25_function(
+    --     function_name => format('%I.rank', index_name),
+    --     return_type => format('TABLE(%s bigint, rank_bm25 real)', key_field),
+    --     function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__);',
+    --     index_json => index_json
+    -- );
 
     EXECUTE paradedb.format_empty_function(
         function_name => format('%I.schema', index_name),
         return_type => 'TABLE(name text, field_type text, stored bool, indexed bool, fast bool, fieldnorms bool, expand_dots bool, tokenizer text, record text, normalizer text)',
-        function_body => format('RETURN QUERY SELECT * FROM paradedb.schema_bm25(''%s'');', index_name)
+        function_body => format('RETURN QUERY SELECT * FROM paradedb.schema_bm25(''%s'')', index_name)
     );
 
     EXECUTE paradedb.format_hybrid_function(
@@ -216,55 +216,54 @@ BEGIN
    END;
 $$;
 
--- A helper function to format a search query. The "template" below is used by several
--- search functions, like "search", "rank", and "highlight", so we've extracted the code
--- into a common function.
 CREATE OR REPLACE FUNCTION paradedb.format_bm25_function(
     function_name text,
     return_type text,
     function_body text,
     index_json jsonb
-) RETURNS text AS $outerfunc$
+) RETURNS text AS $$
+DECLARE
+    formatted_sql text;
 BEGIN
-     RETURN format($f$
-        -- If you add parameters to the function here, you must also add them to the `drop_bm25`
-        -- function, or you'll get a runtime "function does not exist" error when you try to drop.
+    -- Format the dynamic SQL for creating the search functions
+    formatted_sql := format($f$
         CREATE OR REPLACE FUNCTION %s(
             query text, -- The search query
             offset_rows integer DEFAULT NULL, -- Offset for paginated results
-            limit_rows integer DEFAULT NULL, -- Limit for paginated results
-            fuzzy_fields text DEFAULT NULL, -- Fields where fuzzy search is applied
-            distance integer DEFAULT NULL, -- Distance parameter for fuzzy search
-            transpose_cost_one boolean DEFAULT NULL, -- Transpose cost parameter for fuzzy search
-            prefix boolean DEFAULT NULL, -- Prefix parameter for searches
-            regex_fields text DEFAULT NULL, -- Fields where regex search is applied
-            max_num_chars integer DEFAULT NULL, -- Maximum character limit for searches
-            highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only)
+            limit_rows integer DEFAULT NULL -- Limit for paginated results
+        ) RETURNS %s AS $func$
+        BEGIN
+            -- Explicitly cast the 'query' text parameter to 'paradedb.searchqueryinput' type
+            RETURN QUERY SELECT * FROM %s(
+                query => paradedb.parse(query),
+                offset_rows => offset_rows,
+                limit_rows => limit_rows
+            );
+        END
+        $func$ LANGUAGE plpgsql;
+
+        CREATE OR REPLACE FUNCTION %s(
+            query paradedb.searchqueryinput, -- The search query
+            offset_rows integer DEFAULT NULL, -- Offset for paginated results
+            limit_rows integer DEFAULT NULL -- Limit for paginated results
         ) RETURNS %s AS $func$
         DECLARE
             __paradedb_search_config__ JSONB;
         BEGIN
-           -- Merge the outer 'index_json' object into the parameters passed to the dynamic function.
-           __paradedb_search_config__ := jsonb_strip_nulls(
-        		'%s'::jsonb || jsonb_build_object(
-            		'query', query,
-                	'offset_rows', offset_rows,
-                	'limit_rows', limit_rows,
-                	'fuzzy_fields', fuzzy_fields,
-                	'distance', distance,
-                	'transpose_cost_one', transpose_cost_one,
-                	'prefix', prefix,
-                	'regex_fields', regex_fields,
-                	'max_num_chars', max_num_chars,
-                    'highlight_field', highlight_field
-            	)
-        	);
-            %s
-        END;
+            -- Merge the outer 'index_json' object with the parameters passed to the dynamic function.
+            __paradedb_search_config__ := %L::jsonb || jsonb_build_object(
+                'query', query::text::jsonb,
+                'offset_rows', offset_rows,
+                'limit_rows', limit_rows
+            );
+            %s; -- Execute the function body with the constructed JSONB parameter
+        END
         $func$ LANGUAGE plpgsql;
-    $f$, function_name, return_type, index_json, function_body);
+    $f$, function_name, return_type, function_name, function_name, return_type, index_json::text, function_body);
+
+    RETURN formatted_sql;
 END;
-$outerfunc$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql;
 
 -- A helper function to format a hybrid search query
 CREATE OR REPLACE FUNCTION paradedb.format_hybrid_function(
@@ -333,7 +332,7 @@ BEGIN
         -- function, or you'll get a runtime "function does not exist" error when you try to drop.
         CREATE OR REPLACE FUNCTION %s() RETURNS %s AS $func$
         BEGIN
-            %s
+            %s;
         END;
         $func$ LANGUAGE plpgsql;
     $f$, function_name, return_type, function_body);

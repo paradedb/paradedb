@@ -9,7 +9,7 @@ use tantivy::{
     query::{
         AllQuery, BooleanQuery, BoostQuery, ConstScoreQuery, DisjunctionMaxQuery, EmptyQuery,
         FastFieldRangeWeight, FuzzyTermQuery, MoreLikeThisQuery, PhrasePrefixQuery, PhraseQuery,
-        Query, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
+        Query, QueryParser, RangeQuery, RegexQuery, TermQuery, TermSetQuery,
     },
     query_grammar::Occur,
     schema::{Field, FieldType, IndexRecordOption, Value},
@@ -17,7 +17,7 @@ use tantivy::{
 };
 use thiserror::Error;
 
-#[derive(PostgresType, Deserialize, Serialize)]
+#[derive(Debug, PostgresType, Deserialize, Serialize, Clone, PartialEq, Default)]
 pub enum SearchQueryInput {
     All,
     Boolean {
@@ -37,6 +37,7 @@ pub enum SearchQueryInput {
         disjuncts: Vec<SearchQueryInput>,
         tie_breaker: Option<f32>,
     },
+    #[default]
     Empty,
     FastFieldRangeWeight {
         field: String,
@@ -61,15 +62,18 @@ pub enum SearchQueryInput {
         stop_words: Option<Vec<String>>,
         fields: Vec<(String, tantivy::schema::Value)>,
     },
-    PhrasePrefix {
-        field: String,
-        phrases: Vec<String>,
-        max_expansions: Option<u32>,
+    Parse {
+        query_string: String,
     },
     Phrase {
         field: String,
         phrases: Vec<String>,
         slop: Option<u32>,
+    },
+    PhrasePrefix {
+        field: String,
+        phrases: Vec<String>,
+        max_expansions: Option<u32>,
     },
     Range {
         field: String,
@@ -91,7 +95,7 @@ pub enum SearchQueryInput {
     },
 }
 
-trait AsFieldType<T> {
+pub trait AsFieldType<T> {
     fn as_field_type(&self, from: &T) -> Option<(FieldType, Field)>;
 
     fn is_field_type(&self, from: &T, value: &Value) -> bool {
@@ -173,9 +177,10 @@ trait AsFieldType<T> {
 }
 
 impl SearchQueryInput {
-    fn into_tantivy_query(
+    pub fn into_tantivy_query(
         self,
         field_lookup: &impl AsFieldType<String>,
+        parser: &mut QueryParser,
     ) -> Result<Box<dyn Query>, Box<dyn std::error::Error>> {
         match self {
             Self::All => Ok(Box::new(AllQuery)),
@@ -186,22 +191,28 @@ impl SearchQueryInput {
             } => {
                 let mut subqueries = vec![];
                 for input in must {
-                    subqueries.push((Occur::Must, input.into_tantivy_query(field_lookup)?));
+                    subqueries.push((Occur::Must, input.into_tantivy_query(field_lookup, parser)?));
                 }
                 for input in should {
-                    subqueries.push((Occur::Should, input.into_tantivy_query(field_lookup)?));
+                    subqueries.push((
+                        Occur::Should,
+                        input.into_tantivy_query(field_lookup, parser)?,
+                    ));
                 }
                 for input in must_not {
-                    subqueries.push((Occur::MustNot, input.into_tantivy_query(field_lookup)?));
+                    subqueries.push((
+                        Occur::MustNot,
+                        input.into_tantivy_query(field_lookup, parser)?,
+                    ));
                 }
                 Ok(Box::new(BooleanQuery::new(subqueries)))
             }
             Self::Boost { query, boost } => Ok(Box::new(BoostQuery::new(
-                query.into_tantivy_query(field_lookup)?,
+                query.into_tantivy_query(field_lookup, parser)?,
                 boost,
             ))),
             Self::ConstScore { query, score } => Ok(Box::new(ConstScoreQuery::new(
-                query.into_tantivy_query(field_lookup)?,
+                query.into_tantivy_query(field_lookup, parser)?,
                 score,
             ))),
             Self::DisjunctionMax {
@@ -210,7 +221,7 @@ impl SearchQueryInput {
             } => {
                 let disjuncts = disjuncts
                     .into_iter()
-                    .map(|query| query.into_tantivy_query(field_lookup))
+                    .map(|query| query.into_tantivy_query(field_lookup, parser))
                     .collect::<Result<_, _>>()?;
                 if let Some(tie_breaker) = tie_breaker {
                     Ok(Box::new(DisjunctionMaxQuery::with_tie_breaker(
@@ -341,6 +352,11 @@ impl SearchQueryInput {
                 }
                 Ok(Box::new(query))
             }
+            Self::Parse { query_string } => {
+                Ok(Box::new(parser.parse_query(&query_string).map_err(
+                    |err| QueryError::ParseError(err, query_string),
+                )?))
+            }
             Self::Phrase {
                 field,
                 phrases,
@@ -458,4 +474,9 @@ enum QueryError {
     FieldTypeMismatch,
     #[error("could not build regex with pattern '{1}': {0}")]
     RegexError(#[source] tantivy::TantivyError, String),
+    #[error(
+        r#"could not parse query string '{1}'.
+           make sure to use column:term pairs, and to capitalize AND/OR."#
+    )]
+    ParseError(#[source] tantivy::query::QueryParserError, String),
 }

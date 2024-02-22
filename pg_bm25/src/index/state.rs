@@ -1,5 +1,6 @@
+#![allow(unused_imports)]
+use core::panic;
 use std::collections::HashMap;
-
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, RegexQuery};
 use tantivy::query_grammar::Occur;
@@ -17,7 +18,6 @@ use crate::schema::{SearchConfig, SearchIndexSchema};
 pub struct SearchState {
     pub schema: SearchIndexSchema,
     pub query: Box<dyn Query>,
-    pub parser: QueryParser,
     pub searcher: Searcher,
     pub iterator: *mut std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
     pub config: SearchConfig,
@@ -28,12 +28,15 @@ impl SearchState {
     pub fn new(search_index: &SearchIndex, config: &SearchConfig) -> Self {
         let schema = search_index.schema.clone();
         let mut parser = search_index.query_parser();
-        let query = Self::query(config, &schema, &mut parser);
+        let query = config
+            .query
+            .clone()
+            .into_tantivy_query(&schema, &mut parser)
+            .unwrap_or_else(|err| panic!("could not parse query: {err}"));
         let key_field_name = schema.key_field().name.0;
         SearchState {
             schema,
             query,
-            parser,
             config: config.clone(),
             searcher: search_index.searcher(),
             iterator: std::ptr::null_mut(),
@@ -109,89 +112,8 @@ impl SearchState {
             .expect("failed to search")
     }
 
-    /// A search method that deduplicates results based on key field. This is important for
-    /// searches into the Tantivy index outside of Postgres index access methods. Postgres will
-    /// filter out stale rows when using the index scan, but when scanning Tantivy directly,
-    /// we risk returning deleted documents if a VACUUM hasn't been performed yet.
-    pub fn search_dedup(&mut self) -> impl Iterator<Item = (SearchIndexScore, DocAddress)> {
-        let search_results = self.search();
-        let mut dedup_map: HashMap<i64, (SearchIndexScore, DocAddress)> = HashMap::new();
-        let mut order_vec: Vec<i64> = Vec::new();
-
-        for (score, doc_addr) in search_results {
-            let key = score.key;
-            let is_new_or_higher = match dedup_map.get(&key) {
-                Some((_, existing_doc_addr)) => doc_addr > *existing_doc_addr,
-                None => true,
-            };
-            if is_new_or_higher && dedup_map.insert(key, (score, doc_addr)).is_none() {
-                // Key was not already present, remember the order of this key
-                order_vec.push(key);
-            }
-        }
-
-        order_vec
-            .into_iter()
-            .filter_map(move |key| dedup_map.remove(&key))
-    }
-
+    #[cfg(test)]
     pub fn doc(&self, doc_address: DocAddress) -> tantivy::Result<Document> {
         self.searcher.doc(doc_address)
-    }
-
-    fn query(
-        query_config: &SearchConfig,
-        schema: &SearchIndexSchema,
-        parser: &mut QueryParser,
-    ) -> Box<dyn Query> {
-        let fuzzy_fields = &query_config.fuzzy_fields;
-        let regex_fields = &query_config.regex_fields;
-
-        // Determine if we're using regex fields based on the presence or absence of prefix and fuzzy fields.
-        // It panics if both are provided as that's considered an invalid input.
-        let using_regex_fields = match (!regex_fields.is_empty(), !fuzzy_fields.is_empty()) {
-            (true, true) => panic!("cannot search with both regex_fields and fuzzy_fields"),
-            (true, false) => true,
-            _ => false,
-        };
-
-        // Construct the actual Tantivy search query based on the mode determined above.
-        let tantivy_query: Box<dyn Query> = if using_regex_fields {
-            let regex_pattern = format!("{}.*", &query_config.query);
-            let mut queries: Vec<Box<dyn Query>> = Vec::new();
-
-            // Build a regex query for each specified regex field.
-            for field_name in &mut regex_fields.iter() {
-                if let Ok(field) = schema.schema.get_field(field_name) {
-                    let regex_query =
-                        Box::new(RegexQuery::from_pattern(&regex_pattern, field).unwrap());
-                    queries.push(regex_query);
-                }
-            }
-
-            // If there's only one query, use it directly; otherwise, combine the queries.
-            if queries.len() == 1 {
-                queries.remove(0)
-            } else {
-                let boolean_query =
-                    BooleanQuery::new(queries.into_iter().map(|q| (Occur::Should, q)).collect());
-                Box::new(boolean_query)
-            }
-        } else {
-            let require_prefix = query_config.prefix.unwrap_or(true);
-            let transpose_cost_one = query_config.transpose_cost_one.unwrap_or(true);
-            let max_distance = query_config.distance.unwrap_or(2);
-
-            for field_name in &mut fuzzy_fields.iter() {
-                if let Ok(field) = schema.schema.get_field(field_name) {
-                    parser.set_field_fuzzy(field, require_prefix, max_distance, transpose_cost_one);
-                }
-            }
-
-            // Construct the query using the lenient parser to tolerate minor errors in the input.
-            parser.parse_query_lenient(&query_config.query).0
-        };
-
-        tantivy_query
     }
 }

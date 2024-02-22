@@ -1,8 +1,8 @@
 # workflows/benchmark-pg_bm25.yml
 #
 # Benchmark pg_bm25
-# Benchmark ParadeDB's pg_bm25 performance on a nightly basis. This workflow can also be triggered
-# manually to benchmark other systems on one-off basis, to compare against ParadeDB.
+# Benchmark pg_bm25 performance on a nightly basis. This workflow can also be triggered
+# manually to benchmark other systems on one-off basis, to compare against pg_bm25.
 
 name: Benchmark pg_bm25
 
@@ -23,10 +23,10 @@ on:
     inputs:
       name:
         description: "Select the system to benchmark"
-        default: "paradedb"
+        default: "bm25"
         type: choice
         options:
-          - paradedb
+          - bm25
           - tsquery
           - elasticsearch
           - typesense
@@ -46,9 +46,9 @@ jobs:
 
       - name: Configure System to Benchmark
         id: system
-        run: echo "system_to_benchmark=${{ github.event.inputs.name || 'paradedb' }}" >> $GITHUB_OUTPUT
+        run: echo "system_to_benchmark=${{ github.event.inputs.name || 'bm25' }}" >> $GITHUB_OUTPUT
 
-      # The '-t local' tag is used for benchmark-paradedb.sh and ignored by other scripts
+      # The '-t local' tag is used for benchmark-bm25.sh and ignored by other scripts
       - name: Run Benchmarking Script
         working-directory: pg_bm25/benchmarks/
         run: ./benchmark-${{ steps.system.outputs.system_to_benchmark }}.sh -t local

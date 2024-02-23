@@ -154,7 +154,7 @@ COPY --from=builder-pgvector /tmp/pgvector/*.control /opt/bitnami/postgresql/sha
 COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.control /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_cron /tmp/pg_cron/sql/*.sql /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /opt/bitnami/postgresql/share/extension/
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root

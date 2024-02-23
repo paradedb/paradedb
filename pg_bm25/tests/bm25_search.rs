@@ -48,6 +48,7 @@ async fn basic_search_ids(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore = "need to re-implement rank"]
 fn with_bm25_scoring(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -99,7 +100,7 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
                 'table_name', 'bm25_test_table',
                 'schema_name', 'paradedb',
                 'key_field', 'id',
-                'query', 'category:electronics'
+                'query', paradedb.parse('category:electronics')::text::jsonb
             )
         ) ORDER BY id"
         .fetch_collect(&mut conn);
@@ -245,4 +246,23 @@ fn hybrid(mut conn: PgConnection) {
         .fetch_collect(&mut conn);
 
     assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
+}
+
+#[rstest]
+fn multi_tree(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+	    query => paradedb.boolean(
+		    should => ARRAY[
+			    paradedb.parse('description:shoes'),
+			    paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
+			    paradedb.term(field => 'description', value => 'speaker'),
+			    paradedb.fuzzy_term(field => 'description', value => 'wolo')
+		    ]
+	    )
+	);
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![32, 5, 3, 4, 7, 34, 37, 10, 33, 39, 41]);
 }

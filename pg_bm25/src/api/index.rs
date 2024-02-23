@@ -140,7 +140,7 @@ pub fn const_score(score: f32, query: SearchQueryInput) -> SearchQueryInput {
 #[pg_extern(immutable, parallel_safe)]
 pub fn disjunction_max(
     disjuncts: Vec<SearchQueryInput>,
-    tie_breaker: Option<f32>,
+    tie_breaker: default!(Option<f32>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::DisjunctionMax {
         disjuncts,
@@ -181,9 +181,9 @@ pub fn fast_field_range_weight(field: String, range: pgrx::Range<i32>) -> Search
 pub fn fuzzy_term(
     field: String,
     value: String,
-    distance: Option<i16>,
-    tranposition_cost_one: Option<bool>,
-    prefix: Option<bool>,
+    distance: default!(Option<i16>, "NULL"),
+    tranposition_cost_one: default!(Option<bool>, "NULL"),
+    prefix: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::FuzzyTerm {
         field,
@@ -197,14 +197,14 @@ pub fn fuzzy_term(
 #[allow(clippy::too_many_arguments)]
 #[pg_extern(immutable, parallel_safe)]
 pub fn more_like_this(
-    min_doc_frequency: Option<i32>,
-    max_doc_frequency: Option<i32>,
-    min_term_frequency: Option<i32>,
-    max_query_terms: Option<i32>,
-    min_word_length: Option<i32>,
-    max_word_length: Option<i32>,
-    boost_factor: Option<f32>,
-    stop_words: Option<Vec<String>>,
+    min_doc_frequency: default!(Option<i32>, "NULL"),
+    max_doc_frequency: default!(Option<i32>, "NULL"),
+    min_term_frequency: default!(Option<i32>, "NULL"),
+    max_query_terms: default!(Option<i32>, "NULL"),
+    min_word_length: default!(Option<i32>, "NULL"),
+    max_word_length: default!(Option<i32>, "NULL"),
+    boost_factor: default!(Option<f32>, "NULL"),
+    stop_words: default!(Option<Vec<String>>, "NULL"),
     fields: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
 ) -> SearchQueryInput {
     let fields = fields.into_iter().map(|input| match input {
@@ -228,7 +228,7 @@ pub fn more_like_this(
 pub fn phrase_prefix(
     field: String,
     phrases: Array<String>,
-    max_expansion: Option<i32>,
+    max_expansion: default!(Option<i32>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::PhrasePrefix {
         field,
@@ -243,7 +243,11 @@ pub fn parse(query_string: String) -> SearchQueryInput {
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn phrase(field: String, phrases: Array<String>, slop: Option<i32>) -> SearchQueryInput {
+pub fn phrase(
+    field: String,
+    phrases: Array<String>,
+    slop: default!(Option<i32>, "NULL"),
+) -> SearchQueryInput {
     SearchQueryInput::Phrase {
         field,
         phrases: phrases.iter_deny_null().collect(),

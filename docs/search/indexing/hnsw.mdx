@@ -75,8 +75,4 @@ To recreate the index, simply delete and create it using the SQL commands above.
 
 ## Limitations
 
-Stemming from [pgvector](https://github.com/pgvector/pgvector#hnsw),
-HNSW indexing supports vectors with a maximum dimensionality of 2,000.
-Larger vectors are typically needed only for sparse data scenarios.
-Addressing this, ParadeDB introduces [`pg_sparse`](https://github.com/paradedb/paradedb/tree/dev/pg_sparse)
-to facilitate efficient [sparse vector indexing](/search/indexing/sparse).
+HNSW indexes are designed for dense vectors, and support vectors with a maximum dimensionality of 2,000. For sparse vectors with larger dimensionality, ParadeDB also supports [sparse HNSW indexes](/search/indexing/sparse).

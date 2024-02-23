@@ -171,10 +171,6 @@ if [ "$FLAG_TAG" == "pgrx" ]; then
   # For local benchmarking via pgrx, we don't print the disk usage or parse the results into
   # the format expected by the ClickBench dashboard
 else
-
-  # TODO
-  export DOCKER_BUILDKIT=1
-
   # For CI benchmarking via Docker, we have a few dataset options:
   # - hits_5m.tsv.gz: 5M rows (~3.75GB)
   download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/hits_5m_rows.tsv.gz" "0dd087f3b6c8262fb962bd262163d402" "hits.tsv"

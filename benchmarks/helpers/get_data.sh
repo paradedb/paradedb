@@ -3,7 +3,7 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-HOST=localhost
+# HOST=localhost
 PORT=5431
 DATABASE=mydatabase
 USER=myuser

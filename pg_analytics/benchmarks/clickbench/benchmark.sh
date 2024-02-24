@@ -211,8 +211,8 @@ else
 
   echo ""
   echo "Loading dataset..."
-  PGPASSWORD="mypassword" docker exec paradedb psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
-  PGPASSWORD="mypassword" docker exec paradedb psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
+  docker exec -e PGPASSWORD="mypassword" paradedb psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
+  docker exec -e PGPASSWORD="mypassword" paradedb psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
 
   echo ""
   echo "Running queries..."

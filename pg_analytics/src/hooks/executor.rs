@@ -45,16 +45,20 @@ pub fn executor_run(
             return Ok(());
         }
 
+        // Parse the query into a LogicalPlan
+        let logical_plan = match create_logical_plan(&query) {
+            Ok(logical_plan) => logical_plan,
+            // If DataFusion can't parse the query, let Postgres handle it
+            Err(_) => {
+                prev_hook(query_desc, direction, count, execute_once);
+                return Ok(());
+            }
+        };
+
         // Execute SELECT, DELETE, UPDATE
         match query_desc.operation {
-            pg_sys::CmdType_CMD_DELETE => {
-                let logical_plan = create_logical_plan(&query)?;
-                delete(rtable, query_desc, logical_plan)
-            }
-            pg_sys::CmdType_CMD_SELECT => {
-                let logical_plan = create_logical_plan(&query)?;
-                select(query_desc, logical_plan)
-            }
+            pg_sys::CmdType_CMD_DELETE => delete(rtable, query_desc, logical_plan),
+            pg_sys::CmdType_CMD_SELECT => select(query_desc, logical_plan),
             pg_sys::CmdType_CMD_UPDATE => Err(NotSupported::Update.into()),
             _ => {
                 prev_hook(query_desc, direction, count, execute_once);

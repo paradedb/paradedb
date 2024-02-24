@@ -39,17 +39,37 @@ pub fn process_utility(
 ) -> Result<(), ParadeError> {
     unsafe {
         let plan = pstmt.utilityStmt;
+
+        // Parse the query into an AST
         let query = pstmt.clone().into_pg().current_query_string(query_string)?;
+        let ast = match create_ast(&query) {
+            Ok(ast) => ast,
+            // If DataFusion can't parse the query, let Postgres handle it
+            Err(_) => {
+                let _ = prev_hook(
+                    pstmt,
+                    query_string,
+                    read_only_tree,
+                    context,
+                    params,
+                    query_env,
+                    dest,
+                    completion_tag,
+                );
+
+                return Ok(());
+            }
+        };
 
         match (*plan).type_ {
             NodeTag::T_AlterTableStmt => {
-                alter(plan as *mut pg_sys::AlterTableStmt, &create_ast(&query)?[0])?;
+                alter(plan as *mut pg_sys::AlterTableStmt, &ast[0])?;
             }
             NodeTag::T_DropStmt => {
                 drop(plan as *mut pg_sys::DropStmt)?;
             }
             NodeTag::T_RenameStmt => {
-                rename(plan as *mut pg_sys::RenameStmt, &create_ast(&query)?[0])?;
+                rename(plan as *mut pg_sys::RenameStmt, &ast[0])?;
             }
             NodeTag::T_TruncateStmt => {
                 truncate(plan as *mut pg_sys::TruncateStmt)?;

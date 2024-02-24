@@ -23,10 +23,10 @@ on:
     inputs:
       name:
         description: "Select the system to benchmark"
-        default: "bm25"
+        default: "pg_bm25"
         type: choice
         options:
-          - bm25
+          - pg_bm25
           - tsquery
           - elasticsearch
           - typesense
@@ -46,9 +46,9 @@ jobs:
 
       - name: Configure System to Benchmark
         id: system
-        run: echo "system_to_benchmark=${{ github.event.inputs.name || 'bm25' }}" >> $GITHUB_OUTPUT
+        run: echo "system_to_benchmark=${{ github.event.inputs.name || 'pg_bm25' }}" >> $GITHUB_OUTPUT
 
-      # The '-t local' tag is used for benchmark-bm25.sh and ignored by other scripts
+      # The '-t local' tag is used for benchmark-pg_bm25.sh and ignored by other scripts
       - name: Run Benchmarking Script
         working-directory: pg_bm25/benchmarks/
         run: ./benchmark-${{ steps.system.outputs.system_to_benchmark }}.sh -t local

@@ -3,7 +3,7 @@
 The ParadeDB benchmarks are split into:
 
 - [Search - pg_bm25](pg_bm25/benchmarks/README.md)
-- [Analytics - pg_analytics](pg_analytics/benchmarks/README.md)
+- [Analytics - pg_analytics](pg_analytics/README.md)
 
 Please see the relevant subfolder for the benchmarks you are interested in.
 

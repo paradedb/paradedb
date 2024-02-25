@@ -20,6 +20,11 @@ PGPASSWORD=$POSTGRESQL_PASSWORD psql -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_D
 # created post-initialization, and default to public (by listing it first)
 PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d template1 -c "ALTER DATABASE template1 SET search_path TO public,paradedb;"
 
+echo "Configuring PostgreSQL permissions..."
+
+# Grant pg_read_all_settings role to the user (necessary for pg_analytics and general database introspection)
+PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d "$POSTGRESQL_DATABASE" -c "GRANT pg_read_all_settings TO \"$POSTGRESQL_USERNAME\";"
+
 echo "Installing PostgreSQL extensions..."
 
 # This setting is required by pg_cron to CREATE EXTENSION properly. It can only be installed in one database, so we install it in

@@ -1,8 +1,8 @@
-/benchmarks/out/
-/benchmarks/*_ts.json
-/benchmarks/wiki-articles.json
 /docker/.docker_cache_dev/
 /docs/search/quickstart.mdx
 /docs/search/full-text/autocomplete.mdx
 /docs/search/full-text/fuzzy.mdx
 /docs/upgrading.mdx
+/pg_bm25/benchmarks/out/
+/pg_bm25/benchmarks/*_ts.json
+/pg_bm25/benchmarks/wiki-articles.json

@@ -35,7 +35,7 @@ do
 done
 
 PORT=5431
-OUTPUT_CSV=out/benchmark_paradedb.csv
+OUTPUT_CSV=out/benchmark_pg_bm25.csv
 
 # Ensure the "out" directory exists
 mkdir -p out/
@@ -78,8 +78,8 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg POSTGRESQL_PASSWORD=mypassword \
     --build-arg POSTGRESQL_DATABASE=mydatabase \
     --build-arg POSTGRESQL_POSTGRES_PASSWORD=postgres \
-    --file "../docker/Dockerfile" \
-    "../"
+    --file "../../docker/Dockerfile" \
+    "../../"
   echo ""
 fi
 

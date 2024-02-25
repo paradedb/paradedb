@@ -35,7 +35,7 @@ do
 done
 
 PORT=5431
-OUTPUT_CSV=out/benchmark_paradedb.csv
+OUTPUT_CSV=out/benchmark_pg_bm25.csv
 
 # Ensure the "out" directory exists
 mkdir -p out/

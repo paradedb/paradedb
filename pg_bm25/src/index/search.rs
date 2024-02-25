@@ -345,7 +345,7 @@ pub enum SearchIndexError {
     TantivyError(#[from] tantivy::error::TantivyError),
 
     #[error(transparent)]
-    TransactionError(#[from] crate::env::TransactionError),
+    TransactionError(#[from] shared::postgres::transaction::TransactionError),
 
     #[error(transparent)]
     IOError(#[from] std::io::Error),

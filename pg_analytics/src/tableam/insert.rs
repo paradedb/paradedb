@@ -8,6 +8,7 @@ use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::DatafusionMapProducer;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
 use crate::datafusion::datatype::PostgresTypeTranslator;
+use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::table::DeltaTableProvider;
 use crate::errors::ParadeError;
 
@@ -27,7 +28,7 @@ pub extern "C" fn deltalake_tuple_insert(
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
     let mut mut_slot = slot;
-    insert_tuples(rel, &mut mut_slot, 1, true).unwrap_or_else(|err| {
+    insert_tuples(rel, &mut mut_slot, 1).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -41,7 +42,7 @@ pub extern "C" fn deltalake_multi_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
-    insert_tuples(rel, slots, nslots as usize, false).unwrap_or_else(|err| {
+    insert_tuples(rel, slots, nslots as usize).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -67,13 +68,17 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
 #[inline]
 fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
-    let arrow_schema = pg_relation.arrow_schema()?;
+    let table_oid = pg_relation.oid();
+    let schema_oid = pg_relation.namespace_oid();
+    let table_path =
+        ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
 
-    DatafusionContext::with_schema_provider(schema_name, |provider| {
-        task::block_on(provider.flush_and_commit(table_name, arrow_schema))
-    })?;
+    let writer_lock =
+        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writer())?;
+
+    let mut writer = writer_lock.lock();
+    task::block_on(writer.flush_and_commit(pg_relation.name(), table_path))?;
 
     Ok(())
 }
@@ -83,7 +88,6 @@ fn insert_tuples(
     rel: pg_sys::Relation,
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
-    commit: bool,
 ) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let tuple_desc = pg_relation.tuple_desc();
@@ -103,19 +107,21 @@ fn insert_tuples(
     }
 
     // Create a RecordBatch
-    let table_name = pg_relation.name();
+    let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();
+    let table_oid = pg_relation.oid();
+    let schema_oid = pg_relation.namespace_oid();
+    let table_path =
+        ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
     let arrow_schema = pg_relation.arrow_schema()?;
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
+    let writer_lock =
+        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writer())?;
+    let mut writer = writer_lock.lock();
+
     // Write the RecordBatch to the Delta table
-    DatafusionContext::with_schema_provider(schema_name, |provider| {
-        task::block_on(provider.write(table_name, batch))?;
+    task::block_on(writer.write(&pg_relation, batch))?;
 
-        if commit {
-            task::block_on(provider.flush_and_commit(table_name, arrow_schema))?;
-        }
-
-        Ok(())
-    })
+    Ok(())
 }

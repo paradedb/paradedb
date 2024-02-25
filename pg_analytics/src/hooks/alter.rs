@@ -35,7 +35,7 @@ pub unsafe fn alter(
     }
 
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
-    let table_name = pg_relation.name();
+    let _table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
     let mut fields_to_add = vec![];
 
@@ -71,7 +71,8 @@ pub unsafe fn alter(
         let batch = RecordBatch::new_empty(schema);
 
         DatafusionContext::with_schema_provider(schema_name, |provider| {
-            task::block_on(provider.merge_schema(table_name, batch))
+            // task::block_on(provider.merge_schema(&pg_relation, batch))
+            Ok(())
         })?;
     }
 

@@ -11,6 +11,7 @@ use crate::datafusion::context::ParadeContextProvider;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::delete::delete;
 use crate::hooks::handler::IsColumn;
+use crate::hooks::insert::insert;
 use crate::hooks::query::Query;
 use crate::hooks::select::select;
 
@@ -32,6 +33,10 @@ pub fn executor_run(
         let query = query_desc
             .plannedstmt
             .current_query_string(CStr::from_ptr(query_desc.sourceText))?;
+
+        if query_desc.operation == pg_sys::CmdType_CMD_INSERT {
+            insert(rtable, query_desc.clone())?;
+        }
 
         // Only use this hook for deltalake tables
         // Allow INSERTs to go through

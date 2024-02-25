@@ -95,6 +95,7 @@ pub unsafe extern "C" fn deltalake_scan_getnextslot(
     _direction: pg_sys::ScanDirection,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
+    info!("get next slot");
     unsafe { deltalake_scan_getnextslot_impl(scan, slot).expect("Failed to get next slot") }
 }
 

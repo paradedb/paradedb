@@ -4,6 +4,7 @@ use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::sql::sqlparser::ast::DataType as SQLDataType;
 use deltalake::errors::DeltaTableError;
 use pgrx::*;
+use shared::postgres::transaction::TransactionError;
 use std::ffi::{NulError, OsString};
 use std::num::ParseIntError;
 use std::str::Utf8Error;
@@ -26,6 +27,9 @@ pub enum ParadeError {
 
     #[error(transparent)]
     NotFound(#[from] NotFound),
+
+    #[error(transparent)]
+    TransactionError(#[from] TransactionError),
 
     #[error(transparent)]
     NotSupported(#[from] NotSupported),

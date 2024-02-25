@@ -4,7 +4,7 @@
 set -Eeuo pipefail
 
 HOST=localhost
-PORT=5431
+PORT=5432
 DATABASE=mydatabase
 USER=myuser
 PASSWORD=mypassword
@@ -45,7 +45,7 @@ load_data () {
   db_query "COPY temp_json FROM STDIN CSV QUOTE E'\x01' DELIMITER E'\x02';" < "$WIKI_ARTICLES_FILE"
 
   echo "-- Loading JSON data into the wikipedia_articles table..."
-  PGPASSWORD=$PASSWORD psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -f helpers/load_data.sql
+  PGPASSWORD="$PASSWORD" psql -h "$HOST" -p "$PORT" -d "$DATABASE" -U "$USER" -f helpers/load_data.sql
 }
 
 export -f load_data

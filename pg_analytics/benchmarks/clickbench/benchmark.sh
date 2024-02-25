@@ -180,8 +180,13 @@ else
   # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
   if [ "$FLAG_TAG" == "local" ]; then
     echo "Building ParadeDB Docker image from source..."
-    docker build -t paradedb/paradedb:"$FLAG_TAG" \
-      -f "../../../docker/Dockerfile" \
+    docker build \
+      --tag paradedb/paradedb:"$FLAG_TAG" \
+      --build-arg POSTGRESQL_USERNAME=myuser \
+      --build-arg POSTGRESQL_PASSWORD=mypassword \
+      --build-arg POSTGRESQL_DATABASE=mydatabase \
+      --build-arg POSTGRESQL_POSTGRES_PASSWORD=postgres \
+      --file "../../../docker/Dockerfile" \
       "../../../"
     echo ""
   fi
@@ -189,12 +194,13 @@ else
   # Install and run Docker container for ParadeDB in detached mode
   echo "Spinning up ParadeDB $FLAG_TAG Docker image..."
   docker run \
-    -d \
     --name paradedb \
-    -e POSTGRES_USER=myuser \
-    -e POSTGRES_PASSWORD=mypassword \
-    -e POSTGRES_DB=mydatabase \
-    -p "$DOCKER_PORT":5432 \
+    -e POSTGRESQL_USERNAME=myuser \
+    -e POSTGRESQL_PASSWORD=mypassword \
+    -e POSTGRESQL_DATABASE=mydatabase \
+    -e POSTGRESQL_POSTGRES_PASSWORD=postgres \
+    -p $DOCKER_PORT:5432 \
+    -d \
     paradedb/paradedb:"$FLAG_TAG"
 
   # Wait for Docker container to spin up
@@ -215,7 +221,7 @@ else
 
   echo ""
   echo "Printing disk usage..."
-  sudo docker exec paradedb du -bcs /var/lib/postgresql/data
+  sudo docker exec paradedb du -bcs /bitnami/postgresql/data
 
   echo ""
   echo "Printing results..."

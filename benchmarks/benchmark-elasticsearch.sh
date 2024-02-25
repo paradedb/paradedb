@@ -40,11 +40,10 @@ echo ""
 echo "Creating Elasticsearch $ES_VERSION node..."
 docker network create elastic
 docker run \
-  -d \
   --name es01 \
   --net elastic \
   -p $PORT:9200 \
-  -it \
+  -d \
   docker.elastic.co/elasticsearch/elasticsearch:$ES_VERSION
 
 # Wait for Docker container to spin up

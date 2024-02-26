@@ -211,3 +211,42 @@ fn uuid(mut conn: PgConnection) {
         _ => panic!("uuid fields in bm25 index should not be supported"),
     };
 }
+
+#[rstest]
+fn hybrid(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    r#"
+    CREATE EXTENSION vector;
+    ALTER TABLE paradedb.bm25_search ADD COLUMN embedding vector(3);
+
+    UPDATE paradedb.bm25_search m
+    SET embedding = ('[' ||
+    ((m.id + 1) % 10 + 1)::integer || ',' ||
+    ((m.id + 2) % 10 + 1)::integer || ',' ||
+    ((m.id + 3) % 10 + 1)::integer || ']')::vector;
+
+    CREATE INDEX on paradedb.bm25_search
+    USING hnsw (embedding vector_l2_ops);
+
+    "#
+    .execute(&mut conn);
+
+    "VACUUM".execute(&mut conn);
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT m.*, s.rank_hybrid
+    FROM paradedb.bm25_search m
+    LEFT JOIN (
+        SELECT * FROM bm25_search.rank_hybrid(
+            bm25_query => 'description:keyboard OR category:electronics',
+            similarity_query => '''[1,2,3]'' <-> embedding',
+            bm25_weight => 0.9,
+            similarity_weight => 0.1
+        )
+    ) s ON m.id = s.id
+    LIMIT 5;
+    "#
+    .fetch_collect(&mut conn);
+
+    assert_eq!(columns.id, vec![2, 1, 39, 29, 19]);
+}

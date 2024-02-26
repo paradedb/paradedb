@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use shared::telemetry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
-use tantivy::{query::QueryParser, schema::*, Document, Index, IndexSettings, Searcher};
+use tantivy::{query::QueryParser, Index, IndexSettings, Searcher};
 use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
 use thiserror::Error;
 use tracing::error;
@@ -146,18 +146,6 @@ impl SearchIndex {
         Self::from_cache(directory)
     }
 
-    pub fn get_key_value(&self, document: &Document) -> i64 {
-        let value = document
-            .get_first(self.schema.key_field().id.0)
-            .unwrap_or_else(|| panic!("cannot find key field on retrieved document"));
-
-        match value {
-            tantivy::schema::Value::U64(val) => *val as i64,
-            tantivy::schema::Value::I64(val) => *val,
-            _ => panic!("invalid type for search index key in document"),
-        }
-    }
-
     pub fn query_parser(&self) -> QueryParser {
         QueryParser::for_index(
             &self.underlying_index,
@@ -240,10 +228,7 @@ impl SearchIndex {
             for (delete, ctid) in (0..segment_reader.num_docs())
                 .filter_map(|id| store_reader.get(id).ok())
                 .filter_map(|doc| doc.get_first(self.schema.ctid_field().id.0).cloned())
-                .filter_map(|value| match value {
-                    Value::U64(ctid_val) => Some(ctid_val),
-                    _ => None,
-                })
+                .filter_map(|value| value.as_u64())
                 .map(|ctid_val| {
                     let mut ctid = ItemPointerData::default();
                     pgrx::u64_to_item_pointer(ctid_val, &mut ctid);

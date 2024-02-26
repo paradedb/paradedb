@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, RegexQuery};
 use tantivy::query_grammar::Occur;
@@ -62,6 +64,10 @@ impl SearchState {
         }
     }
 
+    /// Search the Tantivy index for matching documents. If used outside of Postgres
+    /// index access methods, this may return deleted rows until a VACUUM. If you need to scan
+    /// the Tantivy index without a Postgres deduplication, you should use the `search_dedup`
+    /// method instead.
     pub fn search(&mut self) -> Vec<(SearchIndexScore, DocAddress)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
@@ -101,6 +107,36 @@ impl SearchState {
         self.searcher
             .search(&self.query, &top_docs_by_custom_score)
             .expect("failed to search")
+    }
+
+    /// A search method that deduplicates results based on key field. This is important for
+    /// searches into the Tantivy index outside of Postgres index access methods. Postgres will
+    /// filter out stale rows when using the index scan, but when scanning Tantivy directly,
+    /// we risk returning deleted documents if a VACUUM hasn't been performed yet.
+    pub fn search_dedup(&mut self) -> impl Iterator<Item = (SearchIndexScore, DocAddress)> {
+        // Call the existing search method
+        let search_results = self.search();
+
+        // Deduplicate results
+        let mut deduped_results: HashMap<i64, (SearchIndexScore, DocAddress)> = HashMap::new();
+        for (score, doc_address) in search_results {
+            let key = self.key_field_value(doc_address);
+            deduped_results
+                .entry(key)
+                .and_modify(|e| {
+                    // Keep the document with the higher address
+                    if e.1 < doc_address {
+                        *e = (score, doc_address);
+                    }
+                })
+                .or_insert((score, doc_address));
+        }
+
+        // Convert HashMap values into an iterator and return
+        deduped_results
+            .into_values()
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     pub fn doc(&self, doc_address: DocAddress) -> tantivy::Result<Document> {

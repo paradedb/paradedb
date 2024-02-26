@@ -62,9 +62,8 @@ impl Writer {
     fn commit(&mut self, directory: WriterDirectory) -> Result<(), IndexError> {
         if directory.exists()? {
             let writer = self
-                .tantivy_writers
-                .get_mut(&directory)
-                .expect("writer exists");
+                .get_writer(directory.clone())
+                .expect("cannot lookup writer");
             writer.prepare_commit()?;
             writer.commit()?;
         } else {

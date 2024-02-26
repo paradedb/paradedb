@@ -1,14 +1,12 @@
 use async_std::task;
-use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
+
 use pgrx::*;
 use shared::postgres::transaction::Transaction;
 use std::panic::AssertUnwindSafe;
-use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::ParadeSchemaProvider;
+
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
 

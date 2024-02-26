@@ -1,39 +1,24 @@
-use async_std::stream::StreamExt;
-use async_std::task;
-use async_trait::async_trait;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use deltalake::datafusion::catalog::schema::SchemaProvider;
-use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
-use deltalake::datafusion::execution::context::SessionState;
-use deltalake::datafusion::execution::TaskContext;
 use deltalake::datafusion::logical_expr::Expr;
-use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
 use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
 use deltalake::operations::optimize::OptimizeBuilder;
-use deltalake::operations::update::UpdateBuilder;
 use deltalake::operations::vacuum::VacuumBuilder;
 use deltalake::table::state::DeltaTableState;
-use deltalake::writer::DeltaWriter as DeltaWriterTrait;
 use deltalake::DeltaTable;
-use parking_lot::{Mutex, RwLock};
 use pgrx::*;
 use std::collections::{
     hash_map::Entry::{self, Occupied, Vacant},
     HashMap,
 };
-use std::future::IntoFuture;
-use std::{
-    any::type_name, any::Any, ffi::CStr, ffi::CString, fs::remove_dir_all, path::PathBuf, sync::Arc,
-};
+use std::{any::type_name, fs::remove_dir_all, path::PathBuf, sync::Arc};
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::writer::Writers;
 use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 
@@ -111,17 +96,45 @@ impl Tables {
         })
     }
 
+    pub async fn create(pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
+        let table_path = pg_relation.table_path()?;
+        let table_name = pg_relation.name();
+        let schema_oid = pg_relation.namespace_oid();
+        let arrow_schema = pg_relation.arrow_schema()?;
+        let delta_schema = DeltaSchema::try_from(arrow_schema.as_ref())?;
+        let batch = RecordBatch::new_empty(arrow_schema.clone());
+
+        ParadeDirectory::create_schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
+
+        let mut delta_table = CreateBuilder::new()
+            .with_location(table_path.to_string_lossy())
+            .with_columns(delta_schema.fields().to_vec())
+            .await?;
+
+        // Write the empty RecordBatch to the DeltaTable
+        // to create a Parquet file
+        let writers =
+            DatafusionContext::with_schema_provider(pg_relation.namespace(), |provider| {
+                provider.writers()
+            })?;
+
+        writers
+            .lock()
+            .merge_schema(table_name, table_path, batch)
+            .await?;
+        delta_table.update().await?;
+
+        Ok(delta_table)
+    }
+
     pub async fn delete(
         &mut self,
         pg_relation: &PgRelation,
         predicate: Option<Expr>,
     ) -> Result<DeleteMetrics, ParadeError> {
-        // Open the DeltaTable
-        let table_name = pg_relation.name();
         let table_path = pg_relation.table_path()?;
-        let old_table = Self::owned_table(self, table_path).await?;
+        let old_table = Self::owned(self, table_path.clone()).await?;
 
-        // Truncate the table
         let mut delete_builder = DeleteBuilder::new(
             old_table.log_store(),
             old_table
@@ -133,35 +146,31 @@ impl Tables {
             delete_builder = delete_builder.with_predicate(predicate);
         }
 
-        let (new_table, metrics) = delete_builder.await?;
-
-        // Commit the table
-        // Self::register_table(
-        //     self,
-        //     table_name.to_string(),
-        //     Arc::new(new_table) as Arc<dyn TableProvider>,
-        // )?;
+        let (_new_table, metrics) = delete_builder.await?;
 
         Ok(metrics)
     }
 
-    pub async fn owned_table(&mut self, table_path: PathBuf) -> Result<DeltaTable, ParadeError> {
+    pub async fn owned(&mut self, table_path: PathBuf) -> Result<DeltaTable, ParadeError> {
         let table = match Self::get_entry(self, table_path.clone())? {
             Occupied(entry) => entry.remove(),
-            Vacant(entry) => deltalake::open_table(table_path.to_string_lossy()).await?,
+            Vacant(_entry) => deltalake::open_table(table_path.to_string_lossy()).await?,
         };
 
         Ok(table)
     }
 
-    pub async fn vacuum(
+    pub fn register_table(
         &mut self,
-        pg_relation: &PgRelation,
-        optimize: bool,
+        table_path: PathBuf,
+        table: DeltaTable,
     ) -> Result<(), ParadeError> {
-        let table_name = pg_relation.name();
-        let table_path = pg_relation.table_path()?;
-        let mut old_table = Self::owned_table(self, table_path).await?;
+        self.tables.insert(table_path, table);
+        Ok(())
+    }
+
+    pub async fn vacuum(&mut self, table_path: PathBuf, optimize: bool) -> Result<(), ParadeError> {
+        let mut old_table = Self::owned(self, table_path.clone()).await?;
 
         if optimize {
             let optimized_table = OptimizeBuilder::new(
@@ -177,7 +186,7 @@ impl Tables {
             old_table = optimized_table;
         }
 
-        let vacuumed_table = VacuumBuilder::new(
+        let _new_table = VacuumBuilder::new(
             old_table.log_store(),
             old_table
                 .state
@@ -189,13 +198,6 @@ impl Tables {
         .with_enforce_retention_duration(PARADE_GUC.vacuum_enforce_retention.get())
         .await?
         .0;
-
-        // Commit the vacuumed table
-        // Self::register_table(
-        //     self,
-        //     table_name.to_string(),
-        //     Arc::new(vacuumed_table) as Arc<dyn TableProvider>,
-        // )?;
 
         Ok(())
     }
@@ -222,7 +224,8 @@ impl Tables {
                 // Otherwise, vacuum the table
                 } else {
                     let pg_relation = unsafe { PgRelation::from_pg(relation) };
-                    Self::vacuum(self, &pg_relation, optimize).await?;
+                    let table_path = pg_relation.table_path()?;
+                    Self::vacuum(self, table_path, optimize).await?;
                     unsafe { pg_sys::RelationClose(relation) }
                 }
             }
@@ -231,35 +234,10 @@ impl Tables {
         Ok(())
     }
 
-    fn get_entry(&mut self, table_path: PathBuf) -> Result<Entry<PathBuf, DeltaTable>, ParadeError> {
+    fn get_entry(
+        &mut self,
+        table_path: PathBuf,
+    ) -> Result<Entry<PathBuf, DeltaTable>, ParadeError> {
         Ok(self.tables.entry(table_path))
-    }
-
-    async fn create_table(pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
-        let table_path = pg_relation.table_path()?;
-        let table_name = pg_relation.name();
-        let schema_oid = pg_relation.namespace_oid();
-        let arrow_schema = pg_relation.arrow_schema()?;
-        let delta_schema = DeltaSchema::try_from(arrow_schema.as_ref())?;
-        let batch = RecordBatch::new_empty(arrow_schema.clone());
-
-        ParadeDirectory::create_schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
-
-        let mut delta_table = CreateBuilder::new()
-            .with_location(table_path.to_string_lossy())
-            .with_columns(delta_schema.fields().to_vec())
-            .await?;
-
-        // Write the RecordBatch to the DeltaTable
-        let writers = DatafusionContext::with_schema_provider(pg_relation.namespace(), |provider| {
-            provider.writers()
-        })?;
-
-        writers.lock().merge_schema(table_name, table_path, batch).await?;
-
-        // Update the DeltaTable
-        delta_table.update().await?;
-
-        Ok(delta_table)
     }
 }

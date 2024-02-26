@@ -1,4 +1,3 @@
-use async_std::task;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
@@ -7,7 +6,7 @@ use crate::errors::{NotSupported, ParadeError};
 
 pub fn delete(
     rtable: *mut pg_sys::List,
-    query_desc: PgBox<pg_sys::QueryDesc>,
+    _query_desc: PgBox<pg_sys::QueryDesc>,
     logical_plan: LogicalPlan,
 ) -> Result<(), ParadeError> {
     let rte: *mut pg_sys::RangeTblEntry;
@@ -25,17 +24,17 @@ pub fn delete(
 
     let relation = unsafe { pg_sys::RelationIdGetRelation((*rte).relid) };
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
-    let table_name = pg_relation.name();
+    let _table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
 
     let optimized_plan = DatafusionContext::with_session_context(|context| {
         Ok(context.state().optimize(&logical_plan)?)
     })?;
 
-    let delete_metrics = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-        DatafusionContext::with_schema_provider(schema_name, |provider| {
+    if let LogicalPlan::Dml(dml_statement) = optimized_plan {
+        DatafusionContext::with_schema_provider(schema_name, |_provider| {
             match dml_statement.input.as_ref() {
-                LogicalPlan::Filter(filter) => {
+                LogicalPlan::Filter(_filter) => {
                     // task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))
                     Ok(())
                 }

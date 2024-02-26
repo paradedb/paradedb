@@ -111,7 +111,7 @@ fn insert_tuples(
     let schema_name = pg_relation.namespace();
     let table_oid = pg_relation.oid();
     let schema_oid = pg_relation.namespace_oid();
-    let table_path =
+    let _table_path =
         ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
     let arrow_schema = pg_relation.arrow_schema()?;
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;

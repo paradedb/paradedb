@@ -1,41 +1,20 @@
 use async_std::stream::StreamExt;
 use async_std::task;
 use async_trait::async_trait;
-use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::execution::context::SessionState;
 use deltalake::datafusion::execution::TaskContext;
-use deltalake::datafusion::logical_expr::Expr;
 use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
-use deltalake::kernel::Schema as DeltaSchema;
-use deltalake::operations::create::CreateBuilder;
-use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
-use deltalake::operations::optimize::OptimizeBuilder;
-use deltalake::operations::update::UpdateBuilder;
-use deltalake::operations::vacuum::VacuumBuilder;
-use deltalake::table::state::DeltaTableState;
-use deltalake::writer::DeltaWriter as DeltaWriterTrait;
-use deltalake::DeltaTable;
-use parking_lot::{Mutex, RwLock};
-use pgrx::*;
-use std::collections::{
-    hash_map::Entry::{self, Occupied, Vacant},
-    HashMap,
-};
-use std::future::IntoFuture;
-use std::{
-    any::type_name, any::Any, ffi::CStr, ffi::CString, fs::remove_dir_all, path::PathBuf, sync::Arc,
-};
+use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::{any::Any, path::PathBuf, sync::Arc};
 
-use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::table::{DatafusionTable, Tables};
+use crate::datafusion::table::Tables;
 use crate::datafusion::writer::Writers;
 use crate::errors::{NotFound, ParadeError};
-use crate::guc::PARADE_GUC;
 
 const BYTES_IN_MB: i64 = 1_048_576;
 
@@ -79,11 +58,11 @@ impl ParadeSchemaProvider {
 
     pub async fn create_stream(
         &mut self,
-        name: &str,
+        _name: &str,
         state: &SessionState,
         task_context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream, ParadeError> {
-        let delta_table = self.tables.lock().owned_table("".into()).await?;
+        let delta_table = self.tables.lock().owned("".into()).await?;
 
         Ok(delta_table
             .scan(state, None, &[], None)
@@ -125,7 +104,7 @@ impl SchemaProvider for ParadeSchemaProvider {
         vec![]
     }
 
-    async fn table(&self, name: &str) -> Option<Arc<dyn TableProvider>> {
+    async fn table(&self, _name: &str) -> Option<Arc<dyn TableProvider>> {
         // let table_path = ParadeDirectory::table_path(
         //     DatafusionContext::catalog_oid().ok()?,
         //     self.schema_name.clone(),
@@ -145,7 +124,7 @@ impl SchemaProvider for ParadeSchemaProvider {
         None
     }
 
-    fn table_exist(&self, name: &str) -> bool {
+    fn table_exist(&self, _name: &str) -> bool {
         // let table_path = ParadeDirectory::table_path(
         //     DatafusionContext::catalog_oid().ok()?,
         //     self.schema_name.clone(),
@@ -157,25 +136,4 @@ impl SchemaProvider for ParadeSchemaProvider {
         // tables.contains_key(table_path)
         false
     }
-
-    // fn register_table(
-    //     &self,
-    //     name: String,
-    //     table: Arc<dyn TableProvider>,
-    // ) -> Result<Option<Arc<dyn TableProvider>>> {
-    //     let mut tables = self.tables.write();
-    //     let table_path = ParadeDirectory::table_path(
-    //         DatafusionContext::catalog_oid().ok()?,
-    //         self.schema_name.clone(),
-    //         name,
-    //     ).ok()?;
-
-    //     tables.insert(table_path, table.clone());
-    //     Ok(Some(table))
-    // }
-
-    // fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
-    //     let mut tables = self.tables.write();
-    //     Ok(tables.remove(name))
-    // }
 }

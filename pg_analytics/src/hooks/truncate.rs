@@ -1,4 +1,3 @@
-use async_std::task;
 use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;
@@ -47,12 +46,12 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
         }
 
         let pg_relation = PgRelation::from_pg(relation);
-        let table_name = pg_relation.name();
+        let _table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
 
         pg_sys::RelationClose(relation);
 
-        DatafusionContext::with_schema_provider(schema_name, |provider| {
+        DatafusionContext::with_schema_provider(schema_name, |_provider| {
             // task::block_on(provider.delete(table_name, None))
             Ok(())
         })?;

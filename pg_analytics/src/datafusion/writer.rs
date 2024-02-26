@@ -1,5 +1,3 @@
-use async_std::task;
-use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::kernel::Action;
@@ -16,7 +14,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
@@ -64,10 +61,10 @@ impl Writers {
         };
 
         let actions = writer.close().await?;
-        let mut tables = DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
+        let tables = DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
             provider.tables()
         })?;
-        let mut delta_table = tables.lock().owned_table(table_path).await?;
+        let mut delta_table = tables.lock().owned(table_path).await?;
 
         commit(
             delta_table.log_store().as_ref(),
@@ -97,11 +94,11 @@ impl Writers {
         table_path: PathBuf,
         batch: RecordBatch,
     ) -> Result<(), ParadeError> {
-        let mut tables = DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
+        let tables = DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
             provider.tables()
         })?;
 
-        let mut delta_table = tables.lock().owned_table(table_path.clone()).await?;
+        let mut delta_table = tables.lock().owned(table_path.clone()).await?;
 
         // Write the RecordBatch to the DeltaTable
         let mut writer = RecordBatchWriter::for_table(&delta_table)?;
@@ -127,7 +124,7 @@ impl Writers {
     pub async fn create_writer(pg_relation: &PgRelation) -> Result<DeltaWriter, ParadeError> {
         let target_file_size = PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB;
 
-        let table_name = pg_relation.name();
+        let _table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
         let arrow_schema = pg_relation.arrow_schema()?;
@@ -142,7 +139,7 @@ impl Writers {
         let tables =
             DatafusionContext::with_schema_provider(schema_name, |provider| provider.tables())?;
 
-        let delta_table = tables.lock().owned_table(table_path).await?;
+        let delta_table = tables.lock().owned(table_path).await?;
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))
     }

@@ -1,4 +1,3 @@
-use async_std::task;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::sql::parser;
@@ -68,9 +67,9 @@ pub unsafe fn alter(
 
     if !fields_to_add.is_empty() {
         let schema = Arc::new(ArrowSchema::new(fields_to_add));
-        let batch = RecordBatch::new_empty(schema);
+        let _batch = RecordBatch::new_empty(schema);
 
-        DatafusionContext::with_schema_provider(schema_name, |provider| {
+        DatafusionContext::with_schema_provider(schema_name, |_provider| {
             // task::block_on(provider.merge_schema(&pg_relation, batch))
             Ok(())
         })?;

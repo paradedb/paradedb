@@ -4,7 +4,6 @@
     The ones implemented are called as part of DELETE and UPDATE operations.
 */
 
-use async_std::task;
 use core::ffi::c_int;
 use deltalake::datafusion::common::arrow::array::RecordBatch;
 use pgrx::*;
@@ -43,16 +42,16 @@ fn delta_scan_begin_impl(
     flags: pg_sys::uint32,
 ) -> Result<pg_sys::TableScanDesc, ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let table_name = pg_relation.name();
+    let _table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
 
-    let (state, task_context) = DatafusionContext::with_session_context(|context| {
+    let (_state, _task_context) = DatafusionContext::with_session_context(|context| {
         let state = context.state();
         let task_context = context.task_ctx();
         Ok((state, task_context))
     })?;
 
-    DatafusionContext::with_schema_provider(schema_name, |provider| {
+    DatafusionContext::with_schema_provider(schema_name, |_provider| {
         // let stream = task::block_on(provider.create_stream(table_name, &state, task_context))?;
         // provider.register_stream(table_name, stream)
         Ok(())

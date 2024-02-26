@@ -1,4 +1,3 @@
-use async_std::task;
 use deltalake::datafusion::sql::parser;
 use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, Statement};
 use pgrx::*;
@@ -12,7 +11,7 @@ pub unsafe fn rename(
     rename_stmt: *mut pg_sys::RenameStmt,
     statement: &parser::Statement,
 ) -> Result<(), ParadeError> {
-    let new_name = CStr::from_ptr((*rename_stmt).newname).to_str()?;
+    let _new_name = CStr::from_ptr((*rename_stmt).newname).to_str()?;
     let rangevar = (*rename_stmt).relation;
     let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
         rangevar,
@@ -33,7 +32,7 @@ pub unsafe fn rename(
     }
 
     let pg_relation = PgRelation::from_pg(relation);
-    let table_name = pg_relation.name();
+    let _table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
 
     pg_sys::RelationClose(relation);
@@ -43,7 +42,7 @@ pub unsafe fn rename(
             for operation in operations {
                 match operation {
                     RenameTable { .. } => {
-                        let _ = DatafusionContext::with_schema_provider(schema_name, |provider| {
+                        let _ = DatafusionContext::with_schema_provider(schema_name, |_provider| {
                             // task::block_on(provider.rename(table_name, new_name))
                             Ok(())
                         });

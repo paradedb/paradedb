@@ -1,4 +1,3 @@
-#![allow(unused_variables)]
 mod fixtures;
 
 use fixtures::*;
@@ -61,6 +60,8 @@ fn with_bm25_scoring(mut conn: PgConnection) {
 
     let ranks: Vec<_> = rows.iter().map(|r| r.1).collect();
     let expected = [5.3764954, 4.931014, 2.1096356, 2.1096356, 2.1096356];
+
+    assert_eq!(ranks, expected);
 }
 
 #[rstest]
@@ -231,8 +232,6 @@ fn hybrid(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    "VACUUM".execute(&mut conn);
-
     let columns: SimpleProductsTableVec = r#"
     SELECT m.*, s.rank_hybrid
     FROM paradedb.bm25_search m
@@ -248,5 +247,5 @@ fn hybrid(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
 
-    assert_eq!(columns.id, vec![2, 1, 39, 29, 19]);
+    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
 }

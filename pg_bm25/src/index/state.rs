@@ -114,29 +114,25 @@ impl SearchState {
     /// filter out stale rows when using the index scan, but when scanning Tantivy directly,
     /// we risk returning deleted documents if a VACUUM hasn't been performed yet.
     pub fn search_dedup(&mut self) -> impl Iterator<Item = (SearchIndexScore, DocAddress)> {
-        // Call the existing search method
         let search_results = self.search();
+        let mut dedup_map: HashMap<i64, (SearchIndexScore, DocAddress)> = HashMap::new();
+        let mut order_vec: Vec<i64> = Vec::new();
 
-        // Deduplicate results
-        let mut deduped_results: HashMap<i64, (SearchIndexScore, DocAddress)> = HashMap::new();
-        for (score, doc_address) in search_results {
-            let key = self.key_field_value(doc_address);
-            deduped_results
-                .entry(key)
-                .and_modify(|e| {
-                    // Keep the document with the higher address
-                    if e.1 < doc_address {
-                        *e = (score, doc_address);
-                    }
-                })
-                .or_insert((score, doc_address));
+        for (score, doc_addr) in search_results {
+            let key = score.key;
+            let is_new_or_higher = match dedup_map.get(&key) {
+                Some((_, existing_doc_addr)) => doc_addr > *existing_doc_addr,
+                None => true,
+            };
+            if is_new_or_higher && dedup_map.insert(key, (score, doc_addr)).is_none() {
+                // Key was not already present, remember the order of this key
+                order_vec.push(key);
+            }
         }
 
-        // Convert HashMap values into an iterator and return
-        deduped_results
-            .into_values()
-            .collect::<Vec<_>>()
+        order_vec
             .into_iter()
+            .filter_map(move |key| dedup_map.remove(&key))
     }
 
     pub fn doc(&self, doc_address: DocAddress) -> tantivy::Result<Document> {

@@ -32,20 +32,19 @@ pub fn insert(
     let relation = unsafe { pg_sys::RelationIdGetRelation((*rte).relid) };
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
     let table_name = pg_relation.name().to_string();
-    let schema_name = pg_relation.namespace();
+    let schema_name = pg_relation.namespace().to_string();
     let table_oid = pg_relation.oid();
     let schema_oid = pg_relation.namespace_oid();
     let table_path =
         ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
 
-    let writer =
-        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writers())?;
-
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,
         AssertUnwindSafe(move || {
-            let mut writer_lock = writer.lock();
-            task::block_on(writer_lock.flush_and_commit(&table_name, table_path)).unwrap();
+            DatafusionContext::with_writers(&schema_name, |mut writers| {
+                task::block_on(writers.flush_and_commit(&table_name, table_path))
+            })
+            .unwrap();
         }),
     )?;
 

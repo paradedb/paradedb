@@ -7,11 +7,17 @@ use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::execution::context::SessionState;
 use deltalake::datafusion::execution::TaskContext;
+use deltalake::operations::update::UpdateBuilder;
 use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
+use deltalake::table::state::DeltaTableState;
 use parking_lot::Mutex;
+use pgrx::*;
 use std::collections::HashMap;
-use std::{any::Any, path::PathBuf, sync::Arc};
+use std::{any::{Any, type_name}, ffi::CString, path::PathBuf, sync::Arc};
+use std::future::IntoFuture;
 
+use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::table::Tables;
 use crate::datafusion::writer::Writers;
 use crate::errors::{NotFound, ParadeError};
@@ -45,6 +51,24 @@ impl ParadeSchemaProvider {
         Ok(self.writers.clone())
     }
 
+    fn table_path(&self, table_name: &str) -> Result<PathBuf, ParadeError> {
+        let schema_oid = unsafe {
+            pg_sys::get_namespace_oid(
+                CString::new(self.schema_name.clone())?.as_ptr(),
+                true,
+            )
+        };
+
+        let table_oid =
+            unsafe { pg_sys::get_relname_relid(CString::new(table_name)?.as_ptr(), schema_oid) };
+
+        ParadeDirectory::table_path(
+            DatafusionContext::catalog_oid()?,
+            schema_oid,
+            table_oid,
+        )
+    }
+
     pub fn register_stream(
         &self,
         name: &str,
@@ -62,7 +86,7 @@ impl ParadeSchemaProvider {
         state: &SessionState,
         task_context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream, ParadeError> {
-        let delta_table = self.tables.lock().owned("".into()).await?;
+        let delta_table = self.tables.lock().get_owned("".into()).await?;
 
         Ok(delta_table
             .scan(state, None, &[], None)
@@ -96,44 +120,35 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     fn table_names(&self) -> Vec<String> {
-        // self.tables
-        //     .read()
-        //     .values()
-        //     .map(|table| table.table_name)
-        //     .collect()
         vec![]
     }
 
-    async fn table(&self, _name: &str) -> Option<Arc<dyn TableProvider>> {
-        // let table_path = ParadeDirectory::table_path(
-        //     DatafusionContext::catalog_oid().ok()?,
-        //     self.schema_name.clone(),
-        //     name.to_string(),
-        // )
-        // .ok();
+    async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
+        let table_path = Self::table_path(self, table_name).unwrap();
 
-        // let tables = self.tables.read();
+        let delta_table = DatafusionContext::with_tables(&self.schema_name, |mut tables| {
+            let table_ref = task::block_on(tables.get_ref(table_path))?;
+            Ok(task::block_on(
+                UpdateBuilder::new(
+                    table_ref.log_store(),
+                    table_ref
+                        .state
+                        .clone()
+                        .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
+                )
+                .into_future(),
+            )?
+            .0)
+        }).unwrap();
 
-        // match tables.get_table(table_path)? {
-        //     Occupied(entry) => Some(Arc::new(entry.into_mut()) as Arc<dyn TableProvider>),
-        //     Vacant(entry) => {
-        //         // TODO register table
-        //         Some(entry.insert(tables.create_table(table_path).ok()?).ok())
-        //     }
-        // }
-        None
+        Some(Arc::new(delta_table.clone()) as Arc<dyn TableProvider>)
     }
 
-    fn table_exist(&self, _name: &str) -> bool {
-        // let table_path = ParadeDirectory::table_path(
-        //     DatafusionContext::catalog_oid().ok()?,
-        //     self.schema_name.clone(),
-        //     name.to_string(),
-        // )
-        // .ok();
-
-        // let tables = self.tables.read();
-        // tables.contains_key(table_path)
-        false
+    fn table_exist(&self, table_name: &str) -> bool {
+        let table_path = Self::table_path(self, table_name).unwrap();
+        
+        DatafusionContext::with_tables(&self.schema_name, |tables| {
+            tables.contains(&table_path)
+        }).unwrap()
     }
 }

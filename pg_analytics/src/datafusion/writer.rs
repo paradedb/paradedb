@@ -64,7 +64,7 @@ impl Writers {
         let tables = DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
             provider.tables()
         })?;
-        let mut delta_table = tables.lock().owned(table_path).await?;
+        let mut delta_table = tables.lock().get_owned(table_path).await?;
 
         commit(
             delta_table.log_store().as_ref(),
@@ -98,7 +98,7 @@ impl Writers {
             provider.tables()
         })?;
 
-        let mut delta_table = tables.lock().owned(table_path.clone()).await?;
+        let mut delta_table = tables.lock().get_owned(table_path.clone()).await?;
 
         // Write the RecordBatch to the DeltaTable
         let mut writer = RecordBatchWriter::for_table(&delta_table)?;
@@ -139,7 +139,7 @@ impl Writers {
         let tables =
             DatafusionContext::with_schema_provider(schema_name, |provider| provider.tables())?;
 
-        let delta_table = tables.lock().owned(table_path).await?;
+        let delta_table = tables.lock().get_owned(table_path).await?;
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))
     }

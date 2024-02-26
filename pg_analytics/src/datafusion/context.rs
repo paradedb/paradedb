@@ -11,7 +11,7 @@ use deltalake::datafusion::prelude::{SessionConfig, SessionContext};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
 use lazy_static::lazy_static;
-use parking_lot::{RwLock, RwLockWriteGuard};
+use parking_lot::{MutexGuard, RwLock, RwLockWriteGuard};
 use pgrx::*;
 use std::any::type_name;
 use std::ffi::{c_char, CStr, CString};
@@ -20,6 +20,8 @@ use std::sync::Arc;
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::table::Tables;
+use crate::datafusion::writer::Writers;
 use crate::errors::{NotFound, ParadeError};
 
 lazy_static! {
@@ -43,6 +45,31 @@ impl<'a> DatafusionContext {
         };
 
         f(&context)
+    }
+
+    pub fn with_catalog<F, R>(f: F) -> Result<R, ParadeError>
+    where
+        F: FnOnce(&ParadeCatalog) -> Result<R, ParadeError>,
+    {
+        let context_lock = CONTEXT.read();
+        let context = match context_lock.as_ref() {
+            Some(context) => context.clone(),
+            None => {
+                drop(context_lock);
+                DatafusionContext::init(Self::catalog_oid()?)?
+            }
+        };
+
+        let catalog_provider = context
+            .catalog(&Self::catalog_name()?)
+            .ok_or(NotFound::Catalog(Self::catalog_name()?.to_string()))?;
+
+        let parade_catalog = catalog_provider
+            .as_any()
+            .downcast_ref::<ParadeCatalog>()
+            .ok_or(NotFound::Value(type_name::<ParadeCatalog>().to_string()))?;
+
+        f(parade_catalog)
     }
 
     pub fn with_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
@@ -74,29 +101,18 @@ impl<'a> DatafusionContext {
         f(parade_provider)
     }
 
-    pub fn with_catalog<F, R>(f: F) -> Result<R, ParadeError>
+    pub fn with_tables<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(&ParadeCatalog) -> Result<R, ParadeError>,
+        F: FnOnce(MutexGuard<Tables>) -> Result<R, ParadeError>,
     {
-        let context_lock = CONTEXT.read();
-        let context = match context_lock.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                drop(context_lock);
-                DatafusionContext::init(Self::catalog_oid()?)?
-            }
-        };
+        Self::with_schema_provider(schema_name, |provider| f(provider.tables()?.lock()))
+    }
 
-        let catalog_provider = context
-            .catalog(&Self::catalog_name()?)
-            .ok_or(NotFound::Catalog(Self::catalog_name()?.to_string()))?;
-
-        let parade_catalog = catalog_provider
-            .as_any()
-            .downcast_ref::<ParadeCatalog>()
-            .ok_or(NotFound::Value(type_name::<ParadeCatalog>().to_string()))?;
-
-        f(parade_catalog)
+    pub fn with_writers<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
+    where
+        F: FnOnce(MutexGuard<Writers>) -> Result<R, ParadeError>,
+    {
+        Self::with_schema_provider(schema_name, |provider| f(provider.writers()?.lock()))
     }
 
     pub fn with_write_lock<F, R>(f: F) -> Result<R, ParadeError>

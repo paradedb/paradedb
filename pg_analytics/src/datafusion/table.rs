@@ -1,3 +1,4 @@
+use async_std::task;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::error::Result;
@@ -96,9 +97,14 @@ impl Tables {
         })
     }
 
+    pub fn contains(&self, table_path: &PathBuf) -> Result<bool, ParadeError> {
+        Ok(self.tables.contains_key(table_path))
+    }
+
     pub async fn create(pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
         let table_path = pg_relation.table_path()?;
         let table_name = pg_relation.name();
+        let schema_name = pg_relation.namespace();
         let schema_oid = pg_relation.namespace_oid();
         let arrow_schema = pg_relation.arrow_schema()?;
         let delta_schema = DeltaSchema::try_from(arrow_schema.as_ref())?;
@@ -111,17 +117,11 @@ impl Tables {
             .with_columns(delta_schema.fields().to_vec())
             .await?;
 
-        // Write the empty RecordBatch to the DeltaTable
-        // to create a Parquet file
-        let writers =
-            DatafusionContext::with_schema_provider(pg_relation.namespace(), |provider| {
-                provider.writers()
-            })?;
+        // Write an empty RecordBatch so that a Parquet file is created
+        DatafusionContext::with_writers(schema_name, |mut writers| {
+            task::block_on(writers.merge_schema(table_name, table_path, batch))
+        })?;
 
-        writers
-            .lock()
-            .merge_schema(table_name, table_path, batch)
-            .await?;
         delta_table.update().await?;
 
         Ok(delta_table)
@@ -133,7 +133,7 @@ impl Tables {
         predicate: Option<Expr>,
     ) -> Result<DeleteMetrics, ParadeError> {
         let table_path = pg_relation.table_path()?;
-        let old_table = Self::owned(self, table_path.clone()).await?;
+        let old_table = Self::get_owned(self, table_path.clone()).await?;
 
         let mut delete_builder = DeleteBuilder::new(
             old_table.log_store(),
@@ -151,16 +151,25 @@ impl Tables {
         Ok(metrics)
     }
 
-    pub async fn owned(&mut self, table_path: PathBuf) -> Result<DeltaTable, ParadeError> {
-        let table = match Self::get_entry(self, table_path.clone())? {
+    pub async fn get_owned(&mut self, table_path: PathBuf) -> Result<DeltaTable, ParadeError> {
+        let table = match self.tables.entry(table_path.clone()) {
             Occupied(entry) => entry.remove(),
-            Vacant(_entry) => deltalake::open_table(table_path.to_string_lossy()).await?,
+            Vacant(_) => deltalake::open_table(table_path.to_string_lossy()).await?,
         };
 
         Ok(table)
     }
 
-    pub fn register_table(
+    pub async fn get_ref(&mut self, table_path: PathBuf) -> Result<&mut DeltaTable, ParadeError> {
+        let table = match self.tables.entry(table_path.clone()) {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => entry.insert(deltalake::open_table(table_path.to_string_lossy()).await?),
+        };
+
+        Ok(table)
+    }
+
+    pub fn register(
         &mut self,
         table_path: PathBuf,
         table: DeltaTable,
@@ -170,7 +179,7 @@ impl Tables {
     }
 
     pub async fn vacuum(&mut self, table_path: PathBuf, optimize: bool) -> Result<(), ParadeError> {
-        let mut old_table = Self::owned(self, table_path.clone()).await?;
+        let mut old_table = Self::get_owned(self, table_path.clone()).await?;
 
         if optimize {
             let optimized_table = OptimizeBuilder::new(
@@ -232,12 +241,5 @@ impl Tables {
         }
 
         Ok(())
-    }
-
-    fn get_entry(
-        &mut self,
-        table_path: PathBuf,
-    ) -> Result<Entry<PathBuf, DeltaTable>, ParadeError> {
-        Ok(self.tables.entry(table_path))
     }
 }

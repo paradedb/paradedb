@@ -240,6 +240,7 @@ impl SearchQueryInput {
             } => {
                 field_lookup
                     .as_u64(&field)
+                    .or_else(|| field_lookup.as_i64(&field))
                     .ok_or_else(|| QueryError::WrongFieldType(field.clone()))?;
 
                 Ok(Box::new(FastFieldRangeWeight::new(

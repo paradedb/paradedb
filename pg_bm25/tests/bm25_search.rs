@@ -61,7 +61,6 @@ fn with_bm25_scoring(mut conn: PgConnection) {
 
     let ranks: Vec<_> = rows.iter().map(|r| r.1).collect();
     let expected = [5.3764954, 4.931014, 2.1096356, 2.1096356, 2.1096356];
-
     assert_eq!(ranks, expected);
 }
 

@@ -139,11 +139,11 @@ pub fn const_score(score: f32, query: SearchQueryInput) -> SearchQueryInput {
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn disjunction_max(
-    disjuncts: Vec<SearchQueryInput>,
+    disjuncts: Array<SearchQueryInput>,
     tie_breaker: default!(Option<f32>, "NULL"),
 ) -> SearchQueryInput {
     SearchQueryInput::DisjunctionMax {
-        disjuncts,
+        disjuncts: disjuncts.iter_deny_null().collect(),
         tie_breaker,
     }
 }
@@ -153,7 +153,10 @@ pub fn empty() -> SearchQueryInput {
     SearchQueryInput::Empty
 }
 
-#[pg_extern(immutable, parallel_safe)]
+// Not clear on whether this query makes sense to support, as only our "key_field" is a fast
+// field... and the user can just use SQL to select a range. We'll keep the implementation here
+// for now, but we should remove when we decide definitively that we don't need this.
+#[allow(unused)]
 pub fn fast_field_range_weight(field: String, range: pgrx::Range<i32>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::FastFieldRangeWeight {
@@ -205,9 +208,9 @@ pub fn more_like_this(
     max_word_length: default!(Option<i32>, "NULL"),
     boost_factor: default!(Option<f32>, "NULL"),
     stop_words: default!(Option<Vec<String>>, "NULL"),
-    fields: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
+    fields: default!(Array<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
 ) -> SearchQueryInput {
-    let fields = fields.into_iter().map(|input| match input {
+    let fields = fields.iter_deny_null().map(|input| match input {
         SearchQueryInput::Term { field, value, .. } => (field, value),
         _ => panic!("only term queries can be passed to more_like_this"),
     });

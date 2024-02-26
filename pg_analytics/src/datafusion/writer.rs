@@ -17,23 +17,23 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::table::DeltaTableProvider;
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 
 const BYTES_IN_MB: i64 = 1_048_576;
 
-pub struct Writer {
+pub struct Writers {
     schema_name: String,
     delta_writers: HashMap<PathBuf, DeltaWriter>,
 }
 
-impl Writer {
-    pub fn new(schema_name: &str) -> Self {
-        Self {
+impl Writers {
+    pub fn new(schema_name: &str) -> Result<Self, ParadeError> {
+        Ok(Self {
             schema_name: schema_name.to_string(),
             delta_writers: HashMap::new(),
-        }
+        })
     }
 
     pub async fn write(
@@ -41,24 +41,14 @@ impl Writer {
         pg_relation: &PgRelation,
         batch: RecordBatch,
     ) -> Result<(), ParadeError> {
-        let table_name = pg_relation.name();
-        let table_oid = pg_relation.oid();
-        let schema_oid = pg_relation.namespace_oid();
-        let table_path =
-            ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
+        let table_path = pg_relation.table_path()?;
 
-        info!("Writing to table: {:?}", table_path);
-
-        let writer = match Self::get_writer(self, table_path)? {
+        let writer = match Self::get_entry(self, table_path)? {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(Self::create_writer(pg_relation)?),
+            Vacant(entry) => entry.insert(Self::create_writer(pg_relation).await?),
         };
 
-        info!("writer created");
-
         writer.write(&batch).await?;
-
-        info!("written");
 
         Ok(())
     }
@@ -68,18 +58,16 @@ impl Writer {
         table_name: &str,
         table_path: PathBuf,
     ) -> Result<(), ParadeError> {
-        let writer = match Self::get_writer(self, table_path.clone())? {
+        let writer = match Self::get_entry(self, table_path.clone())? {
             Occupied(entry) => entry.remove(),
             Vacant(_) => return Err(NotFound::Writer(table_name.to_string()).into()),
         };
 
-        info!("Flushing and committing table: {:?}", table_path);
-
         let actions = writer.close().await?;
-        let mut delta_table =
-            DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
-                task::block_on(provider.get_delta_table(table_name))
-            })?;
+        let mut tables = DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
+            provider.tables()
+        })?;
+        let mut delta_table = tables.lock().owned_table(table_path).await?;
 
         commit(
             delta_table.log_store().as_ref(),
@@ -96,9 +84,9 @@ impl Writer {
 
         delta_table.update().await?;
 
-        DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
-            Ok(provider.register_table(table_name.to_string(), Arc::new(delta_table)))
-        })?;
+        // DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
+        //     Ok(provider.register_table(table_name.to_string(), Arc::new(delta_table)))
+        // })?;
 
         Ok(())
     }
@@ -109,10 +97,11 @@ impl Writer {
         table_path: PathBuf,
         batch: RecordBatch,
     ) -> Result<(), ParadeError> {
-        let mut delta_table =
-            DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
-                task::block_on(provider.get_delta_table(table_name))
-            })?;
+        let mut tables = DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
+            provider.tables()
+        })?;
+
+        let mut delta_table = tables.lock().owned_table(table_path.clone()).await?;
 
         // Write the RecordBatch to the DeltaTable
         let mut writer = RecordBatchWriter::for_table(&delta_table)?;
@@ -135,19 +124,13 @@ impl Writer {
         Ok(())
     }
 
-    fn get_writer(
-        &mut self,
-        table_path: PathBuf,
-    ) -> Result<Entry<PathBuf, DeltaWriter>, ParadeError> {
-        Ok(self.delta_writers.entry(table_path))
-    }
+    pub async fn create_writer(pg_relation: &PgRelation) -> Result<DeltaWriter, ParadeError> {
+        let target_file_size = PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB;
 
-    fn create_writer(pg_relation: &PgRelation) -> Result<DeltaWriter, ParadeError> {
         let table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
-        let target_file_size = PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB;
-        let fields = pg_relation.fields()?;
-        let arrow_schema = Arc::new(ArrowSchema::new(fields));
+        let table_path = pg_relation.table_path()?;
+        let arrow_schema = pg_relation.arrow_schema()?;
         let writer_config = WriterConfig::new(
             arrow_schema,
             vec![],
@@ -156,14 +139,18 @@ impl Writer {
             None,
         );
 
-        info!("got writer config");
+        let tables =
+            DatafusionContext::with_schema_provider(schema_name, |provider| provider.tables())?;
 
-        let delta_table = DatafusionContext::with_schema_provider(schema_name, |provider| {
-            task::block_on(provider.get_delta_table(table_name))
-        })?;
-
-        info!("got delta table");
+        let delta_table = tables.lock().owned_table(table_path).await?;
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))
+    }
+
+    fn get_entry(
+        &mut self,
+        table_path: PathBuf,
+    ) -> Result<Entry<PathBuf, DeltaWriter>, ParadeError> {
+        Ok(self.delta_writers.entry(table_path))
     }
 }

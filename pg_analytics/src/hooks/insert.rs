@@ -3,13 +3,13 @@ use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use pgrx::*;
 use shared::postgres::transaction::Transaction;
 use std::panic::AssertUnwindSafe;
-use std::sync::Arc;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
-use crate::datafusion::table::DeltaTableProvider;
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
 
 const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_parquet_table";
@@ -41,7 +41,7 @@ pub fn insert(
         ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
 
     let writer =
-        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writer())?;
+        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writers())?;
 
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,

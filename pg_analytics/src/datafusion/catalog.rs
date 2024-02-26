@@ -59,8 +59,6 @@ impl ParadeCatalog {
                     .await?,
                 );
 
-                schema_provider.init().await?;
-
                 Self::register_schema(self, schema_name.as_str(), schema_provider)?;
             }
         }

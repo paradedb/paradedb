@@ -79,7 +79,8 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
             }
 
             DatafusionContext::with_schema_provider(&schema_name, |provider| {
-                task::block_on(provider.create_table(&pg_relation))
+                // task::block_on(provider.create_table(&pg_relation))
+                Ok(())
             })
         }
     }

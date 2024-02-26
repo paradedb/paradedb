@@ -83,9 +83,9 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 DatafusionContext::with_catalog(|catalog| Ok(catalog.schema_names()))?;
 
             for schema_name in schema_names {
-                DatafusionContext::with_schema_provider(&schema_name, |provider| {
-                    task::block_on(provider.vacuum_all(vacuum_options.full))
-                })?;
+                // DatafusionContext::with_schema_provider(&schema_name, |provider| {
+                //     task::block_on(provider.vacuum_all(vacuum_options.full))
+                // })?;
             }
 
             Ok(())
@@ -136,9 +136,9 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 let table_name = pg_relation.name();
                 let schema_name = pg_relation.namespace();
 
-                DatafusionContext::with_schema_provider(schema_name, |provider| {
-                    task::block_on(provider.vacuum(table_name, vacuum_options.full))
-                })?;
+                // DatafusionContext::with_schema_provider(schema_name, |provider| {
+                //     task::block_on(provider.vacuum(table_name, vacuum_options.full))
+                // })?;
 
                 pg_sys::RelationClose(relation);
             }

@@ -9,7 +9,7 @@ use crate::datafusion::datatype::DatafusionMapProducer;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
 use crate::datafusion::datatype::PostgresTypeTranslator;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::table::DeltaTableProvider;
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -75,7 +75,7 @@ fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
         ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
 
     let writer_lock =
-        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writer())?;
+        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writers())?;
 
     let mut writer = writer_lock.lock();
     task::block_on(writer.flush_and_commit(pg_relation.name(), table_path))?;
@@ -117,7 +117,7 @@ fn insert_tuples(
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
     let writer_lock =
-        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writer())?;
+        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writers())?;
     let mut writer = writer_lock.lock();
 
     // Write the RecordBatch to the Delta table

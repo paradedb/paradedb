@@ -53,8 +53,9 @@ fn delta_scan_begin_impl(
     })?;
 
     DatafusionContext::with_schema_provider(schema_name, |provider| {
-        let stream = task::block_on(provider.create_stream(table_name, &state, task_context))?;
-        provider.register_stream(table_name, stream)
+        // let stream = task::block_on(provider.create_stream(table_name, &state, task_context))?;
+        // provider.register_stream(table_name, stream)
+        Ok(())
     })?;
 
     unsafe {

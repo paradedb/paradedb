@@ -36,7 +36,8 @@ pub fn delete(
         DatafusionContext::with_schema_provider(schema_name, |provider| {
             match dml_statement.input.as_ref() {
                 LogicalPlan::Filter(filter) => {
-                    task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))
+                    // task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))
+                    Ok(())
                 }
                 LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
                 _ => Err(NotSupported::NestedDelete.into()),
@@ -46,11 +47,11 @@ pub fn delete(
         unreachable!()
     };
 
-    if let Some(num_deleted) = delete_metrics.num_deleted_rows {
-        unsafe {
-            (*(*query_desc.clone().into_pg()).estate).es_processed = num_deleted as u64;
-        }
-    }
+    // if let Some(num_deleted) = delete_metrics.num_deleted_rows {
+    //     unsafe {
+    //         (*(*query_desc.clone().into_pg()).estate).es_processed = num_deleted as u64;
+    //     }
+    // }
 
     Ok(())
 }

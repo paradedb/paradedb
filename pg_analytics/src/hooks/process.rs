@@ -63,7 +63,7 @@ pub fn process_utility(
 
         match (*plan).type_ {
             NodeTag::T_AlterTableStmt => {
-                alter(plan as *mut pg_sys::AlterTableStmt, &ast[0])?;
+                task::block_on(alter(plan as *mut pg_sys::AlterTableStmt, &ast[0]))?;
             }
             NodeTag::T_DropStmt => {
                 drop(plan as *mut pg_sys::DropStmt)?;

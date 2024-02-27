@@ -1,6 +1,8 @@
+use async_std::task;
 use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 
@@ -46,14 +48,15 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
         }
 
         let pg_relation = PgRelation::from_pg(relation);
-        let _table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
+        let table_path = pg_relation.table_path()?;
 
         pg_sys::RelationClose(relation);
 
-        DatafusionContext::with_schema_provider(schema_name, |_provider| {
-            // task::block_on(provider.delete(table_name, None))
-            Ok(())
+        DatafusionContext::with_tables(schema_name, |mut tables| {
+            let (mut delta_table, _) = task::block_on(tables.delete(&pg_relation, None))?;
+            task::block_on(delta_table.update())?;
+            tables.register(&table_path, delta_table)
         })?;
     }
 

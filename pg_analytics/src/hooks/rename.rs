@@ -41,12 +41,6 @@ pub unsafe fn rename(
         if let Statement::AlterTable { operations, .. } = statement.as_ref() {
             for operation in operations {
                 match operation {
-                    RenameTable { .. } => {
-                        let _ = DatafusionContext::with_schema_provider(schema_name, |_provider| {
-                            // task::block_on(provider.rename(table_name, new_name))
-                            Ok(())
-                        });
-                    }
                     RenameColumn { .. } => {
                         return Err(NotSupported::RenameColumn.into());
                     }

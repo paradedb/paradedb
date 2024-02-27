@@ -137,6 +137,11 @@ impl Tables {
         Ok(delete_builder.await?)
     }
 
+    pub fn deregister(&mut self, table_path: &PathBuf) -> Result<(), ParadeError> {
+        self.tables.remove(table_path);
+        Ok(())
+    }
+
     pub async fn get_owned(&mut self, table_path: &PathBuf) -> Result<DeltaTable, ParadeError> {
         let table = match self.tables.entry(table_path.to_path_buf()) {
             Occupied(entry) => entry.remove(),

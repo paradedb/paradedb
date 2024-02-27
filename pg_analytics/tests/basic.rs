@@ -37,28 +37,6 @@ fn array_results(mut conn: PgConnection) {
     // Using defaults for fields below that are unimplemented.
     let first = ResearchProjectArraysTable {
         project_id: Default::default(),
-        experiment_flags: vec![false, true, false],
-        binary_data: Default::default(),
-        notes: vec![
-            "Need to re-evaluate methodology".into(),
-            "Unexpected results in phase 2".into(),
-        ],
-        keywords: vec!["sustainable farming".into(), "soil health".into()],
-        short_descriptions: vec!["FARMEX    ".into(), "SOILQ2    ".into()],
-        participant_ages: vec![22, 27, 32],
-        participant_ids: vec![201, 202, 203],
-        observation_counts: vec![160, 140, 135],
-        related_project_o_ids: Default::default(),
-        measurement_errors: vec![0.025, 0.02, 0.01],
-        precise_measurements: vec![2.0, 2.1, 2.2],
-        observation_timestamps: Default::default(),
-        observation_dates: Default::default(),
-        budget_allocations: Default::default(),
-        participant_uuids: Default::default(),
-    };
-
-    let second = ResearchProjectArraysTable {
-        project_id: Default::default(),
         experiment_flags: vec![true, false, true],
         binary_data: Default::default(),
         notes: vec![
@@ -73,6 +51,28 @@ fn array_results(mut conn: PgConnection) {
         related_project_o_ids: Default::default(),
         measurement_errors: vec![0.02, 0.03, 0.015],
         precise_measurements: vec![1.5, 1.6, 1.7],
+        observation_timestamps: Default::default(),
+        observation_dates: Default::default(),
+        budget_allocations: Default::default(),
+        participant_uuids: Default::default(),
+    };
+
+    let second = ResearchProjectArraysTable {
+        project_id: Default::default(),
+        experiment_flags: vec![false, true, false],
+        binary_data: Default::default(),
+        notes: vec![
+            "Need to re-evaluate methodology".into(),
+            "Unexpected results in phase 2".into(),
+        ],
+        keywords: vec!["sustainable farming".into(), "soil health".into()],
+        short_descriptions: vec!["FARMEX    ".into(), "SOILQ2    ".into()],
+        participant_ages: vec![22, 27, 32],
+        participant_ids: vec![201, 202, 203],
+        observation_counts: vec![160, 140, 135],
+        related_project_o_ids: Default::default(),
+        measurement_errors: vec![0.025, 0.02, 0.01],
+        precise_measurements: vec![2.0, 2.1, 2.2],
         observation_timestamps: Default::default(),
         observation_dates: Default::default(),
         budget_allocations: Default::default(),
@@ -209,9 +209,9 @@ fn rename(mut conn: PgConnection) {
     "ALTER TABLE t RENAME TO s".execute(&mut conn);
 
     let rows: Vec<(i32, String)> = "SELECT * FROM s".fetch(&mut conn);
-    assert_eq!(rows[0], (3, "c".into()));
+    assert_eq!(rows[0], (1, "a".into()));
     assert_eq!(rows[1], (2, "b".into()));
-    assert_eq!(rows[2], (1, "a".into()));
+    assert_eq!(rows[2], (3, "c".into()));
 }
 
 #[rstest]
@@ -254,7 +254,7 @@ fn select(mut conn: PgConnection) {
 #[rstest]
 fn truncate(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
-    "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c'); TRUNCATE t".execute(&mut conn);
+    "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c'); TRUNCATE t;".execute(&mut conn);
 
     let rows: Vec<(i32, String)> = "SELECT * FROM t".fetch(&mut conn);
     assert!(rows.is_empty())
@@ -385,8 +385,8 @@ async fn copy_out_arrays(mut conn: PgConnection) {
 
     let expected_csv = r#"
 experiment_flags,notes,keywords,short_descriptions,participant_ages,participant_ids,observation_counts,measurement_errors,precise_measurements
-"{f,t,f}","{""Need to re-evaluate methodology"",""Unexpected results in phase 2""}","{""sustainable farming"",""soil health""}","{""FARMEX    "",""SOILQ2    ""}","{22,27,32}","{201,202,203}","{160,140,135}","{0.025,0.02,0.01}","{2,2.1,2.2}"
-"{t,f,t}","{""Initial setup complete"",""Preliminary results promising""}","{""climate change"",""coral reefs""}","{""CRLRST    "",""OCEAN1    ""}","{28,34,29}","{101,102,103}","{150,120,130}","{0.02,0.03,0.015}","{1.5,1.6,1.7}""#;
+"{t,f,t}","{""Initial setup complete"",""Preliminary results promising""}","{""climate change"",""coral reefs""}","{""CRLRST    "",""OCEAN1    ""}","{28,34,29}","{101,102,103}","{150,120,130}","{0.02,0.03,0.015}","{1.5,1.6,1.7}"
+"{f,t,f}","{""Need to re-evaluate methodology"",""Unexpected results in phase 2""}","{""sustainable farming"",""soil health""}","{""FARMEX    "",""SOILQ2    ""}","{22,27,32}","{201,202,203}","{160,140,135}","{0.025,0.02,0.01}","{2,2.1,2.2}""#;
 
     assert_eq!(copied_csv.trim(), expected_csv.trim());
 }

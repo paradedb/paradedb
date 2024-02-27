@@ -7,6 +7,7 @@ use std::path::Path;
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
+use crate::hooks::handler::IsColumn;
 
 const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_parquet_table";
 
@@ -28,6 +29,16 @@ pub fn insert(
     }
 
     let relation = unsafe { pg_sys::RelationIdGetRelation((*rte).relid) };
+
+    if relation.is_null() {
+        return Ok(());
+    }
+
+    if unsafe { !relation.is_column()? } {
+        unsafe { pg_sys::RelationClose(relation) };
+        return Ok(());
+    }
+
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
     let table_name = pg_relation.name().to_string();
     let schema_name = pg_relation.namespace().to_string();
@@ -37,7 +48,7 @@ pub fn insert(
         TRANSACTION_CALLBACK_CACHE_ID,
         AssertUnwindSafe(move || {
             task::block_on(insert_callback(table_name, schema_name, &table_path))
-                .expect("Insert callback failed");
+                .expect("Precommit callback failed");
         }),
     )?;
 

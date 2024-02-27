@@ -10,7 +10,6 @@ use pgrx::*;
 use std::future::IntoFuture;
 use std::{
     any::{type_name, Any},
-    ffi::CString,
     path::PathBuf,
     sync::Arc,
 };
@@ -51,15 +50,21 @@ impl ParadeSchemaProvider {
         Ok(self.streams.clone())
     }
 
-    fn table_path(&self, table_name: &str) -> Result<PathBuf, ParadeError> {
-        let schema_oid = unsafe {
-            pg_sys::get_namespace_oid(CString::new(self.schema_name.clone())?.as_ptr(), true)
+    fn table_path(&self, table_name: &str) -> Result<Option<PathBuf>, ParadeError> {
+        let pg_relation = match unsafe {
+            PgRelation::open_with_name(&format!("{}.{}", self.schema_name, table_name))
+        } {
+            Ok(relation) => relation,
+            Err(_) => {
+                return Ok(None);
+            }
         };
 
-        let table_oid =
-            unsafe { pg_sys::get_relname_relid(CString::new(table_name)?.as_ptr(), schema_oid) };
-
-        ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)
+        Ok(Some(ParadeDirectory::table_path(
+            DatafusionContext::catalog_oid()?,
+            pg_relation.namespace_oid(),
+            pg_relation.oid(),
+        )?))
     }
 }
 
@@ -74,31 +79,31 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
-        let table_path = Self::table_path(self, table_name).unwrap();
+        match Self::table_path(self, table_name) {
+            Ok(Some(table_path)) => {
+                let delta_table =
+                    DatafusionContext::with_tables(&self.schema_name, |mut tables| {
+                        let table_ref = task::block_on(tables.get_ref(&table_path))?;
+                        Ok(task::block_on(
+                            UpdateBuilder::new(
+                                table_ref.log_store(),
+                                table_ref.state.clone().ok_or(NotFound::Value(
+                                    type_name::<DeltaTableState>().to_string(),
+                                ))?,
+                            )
+                            .into_future(),
+                        )?
+                        .0)
+                    })
+                    .unwrap();
 
-        let delta_table = DatafusionContext::with_tables(&self.schema_name, |mut tables| {
-            let table_ref = task::block_on(tables.get_ref(&table_path))?;
-            Ok(task::block_on(
-                UpdateBuilder::new(
-                    table_ref.log_store(),
-                    table_ref
-                        .state
-                        .clone()
-                        .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
-                )
-                .into_future(),
-            )?
-            .0)
-        })
-        .unwrap();
-
-        Some(Arc::new(delta_table.clone()) as Arc<dyn TableProvider>)
+                Some(Arc::new(delta_table.clone()) as Arc<dyn TableProvider>)
+            }
+            _ => None,
+        }
     }
 
     fn table_exist(&self, table_name: &str) -> bool {
-        let table_path = Self::table_path(self, table_name).unwrap();
-
-        DatafusionContext::with_tables(&self.schema_name, |tables| tables.contains(&table_path))
-            .unwrap()
+        matches!(Self::table_path(self, table_name), Ok(Some(_)))
     }
 }

@@ -97,10 +97,6 @@ impl Tables {
         })
     }
 
-    pub fn contains(&self, table_path: &Path) -> Result<bool, ParadeError> {
-        Ok(self.tables.contains_key(table_path))
-    }
-
     pub async fn create(&self, pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
         let table_path = pg_relation.table_path()?;
         let schema_oid = pg_relation.namespace_oid();

@@ -5,6 +5,7 @@ use pgrx::*;
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
+use crate::hooks::handler::IsColumn;
 
 pub async fn delete(
     rtable: *mut pg_sys::List,
@@ -25,6 +26,16 @@ pub async fn delete(
     }
 
     let relation = unsafe { pg_sys::RelationIdGetRelation((*rte).relid) };
+
+    if relation.is_null() {
+        return Ok(());
+    }
+
+    if unsafe { !relation.is_column()? } {
+        unsafe { pg_sys::RelationClose(relation) };
+        return Ok(());
+    }
+
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;

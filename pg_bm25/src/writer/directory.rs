@@ -138,9 +138,19 @@ impl WriterDirectory {
             if child_path.is_dir() {
                 Self::remove_dir_all_recursive(&child_path)?;
             } else {
-                let file = File::open(&child_path).map_err(|err| {
-                    SearchDirectoryError::OpenFileForRemoval(child_path.to_path_buf(), err)
-                })?;
+                let file = match File::open(&child_path) {
+                    Err(err) => match err.kind() {
+                        io::ErrorKind::NotFound => {
+                            // If the file is not found, then we don't need to delete it.
+                            continue;
+                        }
+                        _ => Err(SearchDirectoryError::OpenFileForRemoval(
+                            child_path.to_path_buf(),
+                            err,
+                        )),
+                    },
+                    Ok(file) => Ok(file),
+                }?;
 
                 // Tantivy can sometimes hold an OS file lock on files in its index, so we
                 // should wait for the lock to be released before we try to delete.

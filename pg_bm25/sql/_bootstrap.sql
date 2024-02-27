@@ -192,7 +192,7 @@ BEGIN
                     __key_field__ as key_field,
                     1 - ((__similarity_query__) - MIN(__similarity_query__) OVER ()) / 
                     (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ()) AS score
-                FROM %I
+                FROM %I.%I
                 ORDER BY __similarity_query__
                 LIMIT $2
             ),
@@ -276,11 +276,14 @@ CREATE OR REPLACE FUNCTION paradedb.format_hybrid_function(
 BEGIN
     DECLARE
         __table_name__ text;
+        __schema_name__ text;
         __function_body__ text;
     BEGIN
         __table_name__ := index_json->>'table_name';
+        __schema_name__ := index_json->>'schema_name';
         __function_body__ := format(
             function_body,
+            __schema_name__,
             __table_name__
         );
 

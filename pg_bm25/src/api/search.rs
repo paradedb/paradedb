@@ -18,7 +18,7 @@ pub fn rank_bm25(
     let mut scan_state = search_index
         .search_state(&writer_client, &search_config, needs_commit())
         .unwrap();
-    let top_docs = scan_state.search();
+    let top_docs = scan_state.search_dedup();
 
     let mut field_rows = Vec::new();
     for (score, _) in top_docs.into_iter() {
@@ -44,7 +44,7 @@ pub fn highlight_bm25(
     let mut scan_state = search_index
         .search_state(&writer_client, &search_config, needs_commit())
         .unwrap();
-    let top_docs = scan_state.search();
+    let top_docs = scan_state.search_dedup();
 
     let highlight_field = schema
         .get_field(field_name)
@@ -71,13 +71,12 @@ pub fn highlight_bm25(
             .unwrap_or_else(|err| panic!("error retrieving document for highlight: {err:?}"));
         let snippet = snippet_generator.snippet_from_doc(&document);
         let html = snippet.to_html();
-        let key = search_index.get_key_value(&document);
+        let key = scan_state.key_field_value(doc_address);
         field_rows.push((key, html));
     }
 
     TableIterator::new(field_rows)
 }
-
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 #[pg_extern]
 pub fn minmax_bm25(
@@ -92,24 +91,25 @@ pub fn minmax_bm25(
     let mut scan_state = search_index
         .search_state(&writer_client, &search_config, needs_commit())
         .unwrap();
-    let top_docs = scan_state.search();
+
+    // Collect into a Vec to allow multiple iterations
+    let top_docs: Vec<_> = scan_state.search_dedup().collect();
+
+    // Calculate min and max scores
     let (min_score, max_score) = top_docs
         .iter()
-        .map(|(score, _)| *score)
-        .fold((f32::MAX, f32::MIN), |(min, max), score| {
-            (min.min(score.bm25), max.max(score.bm25))
+        .map(|(score, _)| score.bm25)
+        .fold((f32::MAX, f32::MIN), |(min, max), bm25| {
+            (min.min(bm25), max.max(bm25))
         });
     let score_range = max_score - min_score;
+
+    // Now that we have min and max, iterate over the collected results
     let mut field_rows = Vec::new();
-
-    for (score, doc_address) in top_docs.into_iter() {
-        let document = scan_state
-            .doc(doc_address)
-            .unwrap_or_else(|err| panic!("error retrieving document for rank_hybrid: {err:?}"));
-        let key = search_index.get_key_value(&document);
-
+    for (score, doc_address) in top_docs {
+        let key = scan_state.key_field_value(doc_address);
         let normalized_score = if score_range == 0.0 {
-            1.0
+            1.0 // Avoid division by zero
         } else {
             (score.bm25 - min_score) / score_range
         };

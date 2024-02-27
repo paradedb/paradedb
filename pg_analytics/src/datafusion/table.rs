@@ -101,28 +101,20 @@ impl Tables {
         Ok(self.tables.contains_key(table_path))
     }
 
-    pub async fn create(pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
+    pub async fn create(&self, pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
         let table_path = pg_relation.table_path()?;
         let _table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
         let schema_oid = pg_relation.namespace_oid();
         let arrow_schema = pg_relation.arrow_schema()?;
         let delta_schema = DeltaSchema::try_from(arrow_schema.as_ref())?;
-        let batch = RecordBatch::new_empty(arrow_schema.clone());
 
         ParadeDirectory::create_schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
 
-        let mut delta_table = CreateBuilder::new()
+        let delta_table = CreateBuilder::new()
             .with_location(table_path.to_string_lossy())
             .with_columns(delta_schema.fields().to_vec())
             .await?;
-
-        // Write an empty RecordBatch so that a Parquet file is created
-        DatafusionContext::with_writers(schema_name, |mut writers| {
-            task::block_on(writers.merge_schema(pg_relation, batch))
-        })?;
-
-        delta_table.update().await?;
 
         Ok(delta_table)
     }

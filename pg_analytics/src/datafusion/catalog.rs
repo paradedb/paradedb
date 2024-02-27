@@ -53,8 +53,7 @@ impl ParadeCatalog {
 
                 let schema_provider = Arc::new(
                     ParadeSchemaProvider::try_new(
-                        schema_name.as_str(),
-                        ParadeDirectory::schema_path(DatafusionContext::catalog_oid()?, pg_oid)?,
+                        schema_name.as_str()
                     )
                     .await?,
                 );

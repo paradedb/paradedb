@@ -130,13 +130,13 @@ unsafe fn deltalake_scan_getnextslot_impl(
     {
         (*dscan).curr_batch_idx = 0;
 
-        (*dscan).curr_batch =
-            match DatafusionContext::with_schema_provider(schema_name, |provider| {
-                provider.get_next_streamed_batch(table_name)
-            })? {
-                Some(batch) => Some(Arc::new(batch)),
-                None => return Ok(false),
-            };
+        // (*dscan).curr_batch =
+        //     match DatafusionContext::with_schema_provider(schema_name, |provider| {
+        //         provider.get_next_streamed_batch(table_name)
+        //     })? {
+        //         Some(batch) => Some(Arc::new(batch)),
+        //         None => return Ok(false),
+        //     };
     }
 
     let current_batch = (*dscan)

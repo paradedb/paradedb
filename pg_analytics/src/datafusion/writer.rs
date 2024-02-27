@@ -1,3 +1,4 @@
+use async_std::task;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::kernel::Action;
@@ -42,7 +43,7 @@ impl Writers {
 
         let writer = match Self::get_entry(self, table_path)? {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(Self::create_writer(pg_relation).await?),
+            Vacant(entry) => entry.insert(Self::create(pg_relation).await?),
         };
 
         writer.write(&batch).await?;
@@ -111,9 +112,9 @@ impl Writers {
         delta_table.update().await?;
 
         // Commit the table
-        DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
-            Ok(provider.register_table(table_name.to_string(), Arc::new(delta_table)))
-        })?;
+        // DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
+        //     Ok(provider.register_table(table_name.to_string(), Arc::new(delta_table)))
+        // })?;
 
         // Remove the old writer
         self.delta_writers.remove(&table_path);
@@ -121,10 +122,9 @@ impl Writers {
         Ok(())
     }
 
-    pub async fn create_writer(pg_relation: &PgRelation) -> Result<DeltaWriter, ParadeError> {
+    async fn create(pg_relation: &PgRelation) -> Result<DeltaWriter, ParadeError> {
         let target_file_size = PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB;
 
-        let _table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
         let arrow_schema = pg_relation.arrow_schema()?;
@@ -136,10 +136,9 @@ impl Writers {
             None,
         );
 
-        let tables =
-            DatafusionContext::with_schema_provider(schema_name, |provider| provider.tables())?;
-
-        let delta_table = tables.lock().get_owned(table_path).await?;
+        let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
+            task::block_on(tables.get_owned(table_path))
+        })?;
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))
     }

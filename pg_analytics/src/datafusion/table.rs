@@ -163,17 +163,15 @@ impl Tables {
     pub async fn get_ref(&mut self, table_path: PathBuf) -> Result<&mut DeltaTable, ParadeError> {
         let table = match self.tables.entry(table_path.clone()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(deltalake::open_table(table_path.to_string_lossy()).await?),
+            Vacant(entry) => {
+                entry.insert(deltalake::open_table(table_path.to_string_lossy()).await?)
+            }
         };
 
         Ok(table)
     }
 
-    pub fn register(
-        &mut self,
-        table_path: PathBuf,
-        table: DeltaTable,
-    ) -> Result<(), ParadeError> {
+    pub fn register(&mut self, table_path: PathBuf, table: DeltaTable) -> Result<(), ParadeError> {
         self.tables.insert(table_path, table);
         Ok(())
     }

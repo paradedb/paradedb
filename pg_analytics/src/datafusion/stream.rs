@@ -30,7 +30,7 @@ impl Streams {
         pg_relation: &PgRelation,
     ) -> Result<Option<RecordBatch>, ParadeError> {
         let table_path = pg_relation.table_path()?;
-        let stream = match Self::get_entry(self, table_path.clone())? {
+        let stream = match Self::get_entry(self, &table_path)? {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => entry.insert(Self::create(pg_relation).await?),
         };
@@ -50,7 +50,7 @@ impl Streams {
         let table_path = pg_relation.table_path()?;
 
         let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
-            task::block_on(tables.get_owned(table_path))
+            task::block_on(tables.get_owned(&table_path))
         })?;
 
         let (state, task_context) = DatafusionContext::with_session_context(|context| {
@@ -67,8 +67,8 @@ impl Streams {
 
     fn get_entry(
         &mut self,
-        table_path: PathBuf,
+        table_path: &PathBuf,
     ) -> Result<Entry<PathBuf, SendableRecordBatchStream>, ParadeError> {
-        Ok(self.streams.entry(table_path))
+        Ok(self.streams.entry(table_path.to_path_buf()))
     }
 }

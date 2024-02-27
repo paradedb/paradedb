@@ -1,11 +1,10 @@
 use async_std::task;
-
 use pgrx::*;
 use shared::postgres::transaction::Transaction;
 use std::panic::AssertUnwindSafe;
+use std::path::PathBuf;
 
 use crate::datafusion::context::DatafusionContext;
-
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
 
@@ -37,13 +36,30 @@ pub fn insert(
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,
         AssertUnwindSafe(move || {
-            DatafusionContext::with_writers(&schema_name, |mut writers| {
-                let _pg_relation = unsafe { PgRelation::open_with_name(&table_name)? };
-                task::block_on(writers.flush_and_commit(&table_name, &schema_name, table_path))
-            })
-            .unwrap();
+            insert_callback(table_name, schema_name, &table_path).expect("Insert callback failed");
         }),
     )?;
 
     Ok(())
+}
+
+#[inline]
+fn insert_callback(
+    table_name: String,
+    schema_name: String,
+    table_path: &PathBuf
+) -> Result<(), ParadeError> {
+    let mut delta_table = DatafusionContext::with_writers(&schema_name, |mut writers| {
+        task::block_on(writers.flush_and_commit(
+            &table_name,
+            &schema_name,
+            table_path,
+        ))
+    })?;
+
+    delta_table.update();
+
+    DatafusionContext::with_tables(&schema_name, |mut tables| {
+        tables.register(&table_path, delta_table)
+    })
 }

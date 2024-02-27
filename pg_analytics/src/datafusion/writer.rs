@@ -1,5 +1,6 @@
 use async_std::task;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
+use deltalake::DeltaTable;
 use deltalake::kernel::Action;
 use deltalake::operations::transaction::commit;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
@@ -37,7 +38,7 @@ impl Writers {
     ) -> Result<(), ParadeError> {
         let table_path = pg_relation.table_path()?;
 
-        let writer = match Self::get_entry(self, table_path)? {
+        let writer = match Self::get_entry(self, &table_path)? {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => entry.insert(Self::create(pg_relation).await?),
         };
@@ -51,15 +52,15 @@ impl Writers {
         &mut self,
         table_name: &str,
         schema_name: &str,
-        table_path: PathBuf,
-    ) -> Result<(), ParadeError> {
-        let writer = match Self::get_entry(self, table_path.clone())? {
+        table_path: &PathBuf,
+    ) -> Result<DeltaTable, ParadeError> {
+        let writer = match Self::get_entry(self, table_path)? {
             Occupied(entry) => entry.remove(),
             Vacant(_) => return Err(NotFound::Writer(table_name.to_string()).into()),
         };
 
         let actions = writer.close().await?;
-        let mut delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
+        let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
             task::block_on(tables.get_owned(table_path))
         })?;
 
@@ -76,13 +77,7 @@ impl Writers {
         )
         .await?;
 
-        delta_table.update().await?;
-
-        // DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
-        //     Ok(provider.register_table(table_name.to_string(), Arc::new(delta_table)))
-        // })?;
-
-        Ok(())
+        Ok(delta_table)
     }
 
     pub async fn merge_schema(
@@ -93,8 +88,8 @@ impl Writers {
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
 
-        let mut delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
-            task::block_on(tables.get_owned(table_path.clone()))
+        let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
+            task::block_on(tables.get_owned(&table_path))
         })?;
 
         // Write the RecordBatch to the DeltaTable
@@ -104,18 +99,10 @@ impl Writers {
             .await?;
         writer.flush_and_commit(&mut delta_table).await?;
 
-        // Update the DeltaTable
-        delta_table.update().await?;
-
-        // Commit the table
-        // DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
-        //     Ok(provider.register_table(table_name.to_string(), Arc::new(delta_table)))
-        // })?;
-
         // Remove the old writer
         self.delta_writers.remove(&table_path);
 
-        Ok(())
+        Ok(delta_table)
     }
 
     async fn create(pg_relation: &PgRelation) -> Result<DeltaWriter, ParadeError> {
@@ -133,7 +120,7 @@ impl Writers {
         );
 
         let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
-            task::block_on(tables.get_owned(table_path))
+            task::block_on(tables.get_owned(&table_path))
         })?;
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))
@@ -141,8 +128,8 @@ impl Writers {
 
     fn get_entry(
         &mut self,
-        table_path: PathBuf,
+        table_path: &PathBuf,
     ) -> Result<Entry<PathBuf, DeltaWriter>, ParadeError> {
-        Ok(self.delta_writers.entry(table_path))
+        Ok(self.delta_writers.entry(table_path.to_path_buf()))
     }
 }

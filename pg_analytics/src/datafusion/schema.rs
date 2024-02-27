@@ -79,7 +79,7 @@ impl SchemaProvider for ParadeSchemaProvider {
         let table_path = Self::table_path(self, table_name).unwrap();
 
         let delta_table = DatafusionContext::with_tables(&self.schema_name, |mut tables| {
-            let table_ref = task::block_on(tables.get_ref(table_path))?;
+            let table_ref = task::block_on(tables.get_ref(&table_path))?;
             Ok(task::block_on(
                 UpdateBuilder::new(
                     table_ref.log_store(),

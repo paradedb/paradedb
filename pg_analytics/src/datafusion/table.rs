@@ -103,7 +103,6 @@ impl Tables {
 
     pub async fn create(&self, pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
         let table_path = pg_relation.table_path()?;
-        let _table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
         let schema_oid = pg_relation.namespace_oid();
         let arrow_schema = pg_relation.arrow_schema()?;
@@ -125,7 +124,7 @@ impl Tables {
         predicate: Option<Expr>,
     ) -> Result<DeleteMetrics, ParadeError> {
         let table_path = pg_relation.table_path()?;
-        let old_table = Self::get_owned(self, table_path.clone()).await?;
+        let old_table = Self::get_owned(self, &table_path).await?;
 
         let mut delete_builder = DeleteBuilder::new(
             old_table.log_store(),
@@ -143,8 +142,8 @@ impl Tables {
         Ok(metrics)
     }
 
-    pub async fn get_owned(&mut self, table_path: PathBuf) -> Result<DeltaTable, ParadeError> {
-        let table = match self.tables.entry(table_path.clone()) {
+    pub async fn get_owned(&mut self, table_path: &PathBuf) -> Result<DeltaTable, ParadeError> {
+        let table = match self.tables.entry(table_path.to_path_buf()) {
             Occupied(entry) => entry.remove(),
             Vacant(_) => deltalake::open_table(table_path.to_string_lossy()).await?,
         };
@@ -152,8 +151,8 @@ impl Tables {
         Ok(table)
     }
 
-    pub async fn get_ref(&mut self, table_path: PathBuf) -> Result<&mut DeltaTable, ParadeError> {
-        let table = match self.tables.entry(table_path.clone()) {
+    pub async fn get_ref(&mut self, table_path: &PathBuf) -> Result<&mut DeltaTable, ParadeError> {
+        let table = match self.tables.entry(table_path.to_path_buf()) {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => {
                 entry.insert(deltalake::open_table(table_path.to_string_lossy()).await?)
@@ -163,13 +162,13 @@ impl Tables {
         Ok(table)
     }
 
-    pub fn register(&mut self, table_path: PathBuf, table: DeltaTable) -> Result<(), ParadeError> {
-        self.tables.insert(table_path, table);
+    pub fn register(&mut self, table_path: &PathBuf, table: DeltaTable) -> Result<(), ParadeError> {
+        self.tables.insert(table_path.to_path_buf(), table);
         Ok(())
     }
 
-    pub async fn vacuum(&mut self, table_path: PathBuf, optimize: bool) -> Result<(), ParadeError> {
-        let mut old_table = Self::get_owned(self, table_path.clone()).await?;
+    pub async fn vacuum(&mut self, table_path: &PathBuf, optimize: bool) -> Result<(), ParadeError> {
+        let mut old_table = Self::get_owned(self, table_path).await?;
 
         if optimize {
             let optimized_table = OptimizeBuilder::new(
@@ -203,10 +202,10 @@ impl Tables {
 
     pub async fn vacuum_all(
         &mut self,
-        schema_path: PathBuf,
+        schema_path: &PathBuf,
         optimize: bool,
     ) -> Result<(), ParadeError> {
-        let directory = std::fs::read_dir(schema_path.clone())?;
+        let directory = std::fs::read_dir(schema_path)?;
 
         // Vacuum all tables in the schema directory and delete directories for dropped tables
         for file in directory {
@@ -224,7 +223,7 @@ impl Tables {
                 } else {
                     let pg_relation = unsafe { PgRelation::from_pg(relation) };
                     let table_path = pg_relation.table_path()?;
-                    Self::vacuum(self, table_path, optimize).await?;
+                    Self::vacuum(self, &table_path, optimize).await?;
                     unsafe { pg_sys::RelationClose(relation) }
                 }
             }

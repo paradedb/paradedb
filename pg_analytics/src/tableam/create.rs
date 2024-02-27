@@ -1,9 +1,9 @@
 use async_std::task;
 use core::ffi::c_char;
-use pgrx::*;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::CatalogProvider;
 use deltalake::datafusion::sql::TableReference;
+use pgrx::*;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
@@ -82,11 +82,11 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
                 let batch = RecordBatch::new_empty(arrow_schema.clone());
                 task::block_on(writers.merge_schema(&pg_relation, batch))
             })?;
-    
+
             delta_table.update().await?;
 
             DatafusionContext::with_tables(&schema_name, |mut tables| {
-                tables.register(table_path, delta_table)
+                tables.register(&table_path, delta_table)
             })
         }
     }

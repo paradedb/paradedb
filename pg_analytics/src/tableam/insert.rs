@@ -100,22 +100,14 @@ fn insert_tuples(
         )?);
     }
 
-    // Create a RecordBatch
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();
     let table_oid = pg_relation.oid();
     let schema_oid = pg_relation.namespace_oid();
-    let _table_path =
-        ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
     let arrow_schema = pg_relation.arrow_schema()?;
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
-    let writer_lock =
-        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writers())?;
-    let mut writer = writer_lock.lock();
-
-    // Write the RecordBatch to the Delta table
-    task::block_on(writer.write(&pg_relation, batch))?;
-
-    Ok(())
+    DatafusionContext::with_writers(schema_name, |mut writers| {
+        task::block_on(writers.write(&pg_relation, batch))
+    })
 }

@@ -227,10 +227,8 @@ fn hybrid(mut conn: PgConnection) {
     ((m.id + 3) % 10 + 1)::integer || ']')::vector;
 
     CREATE INDEX on paradedb.bm25_search
-    USING hnsw (embedding vector_l2_ops);
-
-    "#
-    .execute(&mut conn);
+    USING hnsw (embedding vector_l2_ops)"#
+        .execute(&mut conn);
 
     let columns: SimpleProductsTableVec = r#"
     SELECT m.*, s.rank_hybrid
@@ -243,9 +241,8 @@ fn hybrid(mut conn: PgConnection) {
             similarity_weight => 0.1
         )
     ) s ON m.id = s.id
-    LIMIT 5;
-    "#
-    .fetch_collect(&mut conn);
+    LIMIT 5"#
+        .fetch_collect(&mut conn);
 
     assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
 }

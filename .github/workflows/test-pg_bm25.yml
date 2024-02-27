@@ -117,6 +117,7 @@ jobs:
       - name: Install pgvector
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
+          export PG_CONFIG=`which pg_config`
           git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git
           cd pgvector/
           make -j

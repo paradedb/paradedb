@@ -12,7 +12,7 @@ use deltalake::table::state::DeltaTableState;
 use deltalake::DeltaTable;
 use pgrx::*;
 use std::collections::{
-    hash_map::Entry::{self, Occupied, Vacant},
+    hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
 use std::{any::type_name, fs::remove_dir_all, path::PathBuf, sync::Arc};
@@ -103,7 +103,7 @@ impl Tables {
 
     pub async fn create(pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
         let table_path = pg_relation.table_path()?;
-        let table_name = pg_relation.name();
+        let _table_name = pg_relation.name();
         let schema_name = pg_relation.namespace();
         let schema_oid = pg_relation.namespace_oid();
         let arrow_schema = pg_relation.arrow_schema()?;
@@ -119,7 +119,7 @@ impl Tables {
 
         // Write an empty RecordBatch so that a Parquet file is created
         DatafusionContext::with_writers(schema_name, |mut writers| {
-            task::block_on(writers.merge_schema(&pg_relation, batch))
+            task::block_on(writers.merge_schema(pg_relation, batch))
         })?;
 
         delta_table.update().await?;

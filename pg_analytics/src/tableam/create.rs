@@ -7,7 +7,7 @@ use deltalake::datafusion::sql::TableReference;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::directory::ParadeDirectory;
+
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::errors::{NotSupported, ParadeError};
 
@@ -49,7 +49,7 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
             let table_name = pg_relation.name().to_string();
             let schema_name = pg_relation.namespace().to_string();
             let catalog_name = DatafusionContext::catalog_name()?;
-            let schema_oid = pg_relation.namespace_oid();
+            let _schema_oid = pg_relation.namespace_oid();
 
             DatafusionContext::with_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {

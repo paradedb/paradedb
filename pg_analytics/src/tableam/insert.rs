@@ -73,7 +73,7 @@ fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let table_path = pg_relation.table_path()?;
 
     DatafusionContext::with_writers(schema_name, |mut writers| {
-        task::block_on(writers.flush_and_commit(&table_name, &schema_name, table_path))
+        task::block_on(writers.flush_and_commit(table_name, schema_name, table_path))
     })
 }
 

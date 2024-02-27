@@ -2,8 +2,6 @@ use async_std::stream::StreamExt;
 use async_std::task;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::datasource::TableProvider;
-use deltalake::datafusion::execution::context::SessionState;
-use deltalake::datafusion::execution::TaskContext;
 use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
 use pgrx::*;
 use std::collections::{
@@ -11,7 +9,6 @@ use std::collections::{
     HashMap,
 };
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::table::DatafusionTable;

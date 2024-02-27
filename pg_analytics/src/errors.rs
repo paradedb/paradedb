@@ -63,9 +63,6 @@ pub enum NotFound {
     #[error("No writer found for table {0}")]
     Writer(String),
 
-    #[error("No stream found for table {0}")]
-    Stream(String),
-
     #[error("Failed to convert to datum {0}")]
     Datum(String),
 

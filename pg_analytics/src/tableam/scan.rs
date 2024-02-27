@@ -117,8 +117,8 @@ unsafe fn deltalake_scan_getnextslot_impl(
 
     let dscan = scan as *mut DeltalakeScanDesc;
     let relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
-    let table_name = relation.name();
-    let schema_name = relation.namespace();
+    let _table_name = relation.name();
+    let _schema_name = relation.namespace();
 
     if (*dscan).curr_batch.is_none()
         || (*dscan).curr_batch_idx

@@ -5,7 +5,6 @@ use shared::postgres::transaction::Transaction;
 use std::panic::AssertUnwindSafe;
 
 use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::directory::ParadeDirectory;
 
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
@@ -39,7 +38,7 @@ pub fn insert(
         TRANSACTION_CALLBACK_CACHE_ID,
         AssertUnwindSafe(move || {
             DatafusionContext::with_writers(&schema_name, |mut writers| {
-                let pg_relation = unsafe { PgRelation::open_with_name(&table_name)? };
+                let _pg_relation = unsafe { PgRelation::open_with_name(&table_name)? };
                 task::block_on(writers.flush_and_commit(&table_name, &schema_name, table_path))
             })
             .unwrap();

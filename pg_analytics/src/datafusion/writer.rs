@@ -1,6 +1,5 @@
 use async_std::task;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::kernel::Action;
 use deltalake::operations::transaction::commit;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
@@ -12,7 +11,6 @@ use std::collections::{
     HashMap,
 };
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::table::DatafusionTable;
@@ -61,9 +59,9 @@ impl Writers {
         };
 
         let actions = writer.close().await?;
-        let tables =
-            DatafusionContext::with_schema_provider(&schema_name, |provider| provider.tables())?;
-        let mut delta_table = tables.lock().get_owned(table_path).await?;
+        let mut delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
+            task::block_on(tables.get_owned(table_path))
+        })?;
 
         commit(
             delta_table.log_store().as_ref(),
@@ -94,10 +92,10 @@ impl Writers {
     ) -> Result<(), ParadeError> {
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
-        let tables =
-            DatafusionContext::with_schema_provider(&schema_name, |provider| provider.tables())?;
 
-        let mut delta_table = tables.lock().get_owned(table_path.clone()).await?;
+        let mut delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
+            task::block_on(tables.get_owned(table_path.clone()))
+        })?;
 
         // Write the RecordBatch to the DeltaTable
         let mut writer = RecordBatchWriter::for_table(&delta_table)?;

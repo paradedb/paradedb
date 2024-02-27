@@ -3,8 +3,8 @@ use async_std::task;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::execution::context::SessionState;
-use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
 use deltalake::datafusion::execution::TaskContext;
+use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
 use pgrx::*;
 use std::collections::{
     hash_map::Entry::{self, Occupied, Vacant},
@@ -22,13 +22,16 @@ pub struct Streams {
 }
 
 impl Streams {
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> Result<Self, ParadeError> {
+        Ok(Self {
             streams: HashMap::new(),
-        }
+        })
     }
 
-    pub async fn next(&mut self, pg_relation: &PgRelation) -> Result<Option<RecordBatch>, ParadeError> {
+    pub async fn next(
+        &mut self,
+        pg_relation: &PgRelation,
+    ) -> Result<Option<RecordBatch>, ParadeError> {
         let table_path = pg_relation.table_path()?;
         let stream = match Self::get_entry(self, table_path.clone())? {
             Occupied(entry) => entry.into_mut(),

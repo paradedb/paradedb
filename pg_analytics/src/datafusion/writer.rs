@@ -22,14 +22,12 @@ use crate::guc::PARADE_GUC;
 const BYTES_IN_MB: i64 = 1_048_576;
 
 pub struct Writers {
-    schema_name: String,
     delta_writers: HashMap<PathBuf, DeltaWriter>,
 }
 
 impl Writers {
-    pub fn new(schema_name: &str) -> Result<Self, ParadeError> {
+    pub fn new() -> Result<Self, ParadeError> {
         Ok(Self {
-            schema_name: schema_name.to_string(),
             delta_writers: HashMap::new(),
         })
     }
@@ -54,6 +52,7 @@ impl Writers {
     pub async fn flush_and_commit(
         &mut self,
         table_name: &str,
+        schema_name: &str,
         table_path: PathBuf,
     ) -> Result<(), ParadeError> {
         let writer = match Self::get_entry(self, table_path.clone())? {
@@ -62,9 +61,8 @@ impl Writers {
         };
 
         let actions = writer.close().await?;
-        let tables = DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
-            provider.tables()
-        })?;
+        let tables =
+            DatafusionContext::with_schema_provider(&schema_name, |provider| provider.tables())?;
         let mut delta_table = tables.lock().get_owned(table_path).await?;
 
         commit(
@@ -91,13 +89,13 @@ impl Writers {
 
     pub async fn merge_schema(
         &mut self,
-        table_name: &str,
-        table_path: PathBuf,
+        pg_relation: &PgRelation,
         batch: RecordBatch,
     ) -> Result<(), ParadeError> {
-        let tables = DatafusionContext::with_schema_provider(&self.schema_name, |provider| {
-            provider.tables()
-        })?;
+        let schema_name = pg_relation.namespace();
+        let table_path = pg_relation.table_path()?;
+        let tables =
+            DatafusionContext::with_schema_provider(&schema_name, |provider| provider.tables())?;
 
         let mut delta_table = tables.lock().get_owned(table_path.clone()).await?;
 

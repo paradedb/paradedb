@@ -119,7 +119,7 @@ impl Tables {
 
         // Write an empty RecordBatch so that a Parquet file is created
         DatafusionContext::with_writers(schema_name, |mut writers| {
-            task::block_on(writers.merge_schema(table_name, table_path, batch))
+            task::block_on(writers.merge_schema(&pg_relation, batch))
         })?;
 
         delta_table.update().await?;

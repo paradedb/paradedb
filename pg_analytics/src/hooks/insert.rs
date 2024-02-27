@@ -33,16 +33,14 @@ pub fn insert(
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
     let table_name = pg_relation.name().to_string();
     let schema_name = pg_relation.namespace().to_string();
-    let table_oid = pg_relation.oid();
-    let schema_oid = pg_relation.namespace_oid();
-    let table_path =
-        ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
+    let table_path = pg_relation.table_path()?;
 
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,
         AssertUnwindSafe(move || {
             DatafusionContext::with_writers(&schema_name, |mut writers| {
-                task::block_on(writers.flush_and_commit(&table_name, table_path))
+                let pg_relation = unsafe { PgRelation::open_with_name(&table_name)? };
+                task::block_on(writers.flush_and_commit(&table_name, &schema_name, table_path))
             })
             .unwrap();
         }),

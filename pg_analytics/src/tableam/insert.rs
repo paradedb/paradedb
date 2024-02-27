@@ -68,19 +68,13 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
 #[inline]
 fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
+    let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
-    let table_oid = pg_relation.oid();
-    let schema_oid = pg_relation.namespace_oid();
-    let table_path =
-        ParadeDirectory::table_path(DatafusionContext::catalog_oid()?, schema_oid, table_oid)?;
+    let table_path = pg_relation.table_path()?;
 
-    let writer_lock =
-        DatafusionContext::with_schema_provider(schema_name, |provider| provider.writers())?;
-
-    let mut writer = writer_lock.lock();
-    task::block_on(writer.flush_and_commit(pg_relation.name(), table_path))?;
-
-    Ok(())
+    DatafusionContext::with_writers(schema_name, |mut writers| {
+        task::block_on(writers.flush_and_commit(&table_name, &schema_name, table_path))
+    })
 }
 
 #[inline]

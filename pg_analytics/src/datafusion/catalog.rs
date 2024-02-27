@@ -51,12 +51,8 @@ impl ParadeCatalog {
                     CStr::from_ptr(schema_name).to_str()?.to_owned()
                 };
 
-                let schema_provider = Arc::new(
-                    ParadeSchemaProvider::try_new(
-                        schema_name.as_str()
-                    )
-                    .await?,
-                );
+                let schema_provider =
+                    Arc::new(ParadeSchemaProvider::try_new(schema_name.as_str()).await?);
 
                 Self::register_schema(self, schema_name.as_str(), schema_provider)?;
             }

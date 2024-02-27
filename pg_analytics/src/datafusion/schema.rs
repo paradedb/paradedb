@@ -42,8 +42,8 @@ impl ParadeSchemaProvider {
         Ok(Self {
             schema_name: schema_name.to_string(),
             tables: Arc::new(Mutex::new(Tables::new()?)),
-            writers: Arc::new(Mutex::new(Writers::new(schema_name)?)),
-            streams: Arc::new(Mutex::new(Streams::new())),
+            writers: Arc::new(Mutex::new(Writers::new()?)),
+            streams: Arc::new(Mutex::new(Streams::new()?)),
         })
     }
 

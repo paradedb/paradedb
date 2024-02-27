@@ -1,6 +1,6 @@
+use async_std::task;
 use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::sql::parser::{self, DFParser};
-
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::pg_sys::NodeTag;
 use pgrx::*;

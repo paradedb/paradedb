@@ -1,3 +1,4 @@
+use async_std::task;
 use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::sql::parser::DFParser;

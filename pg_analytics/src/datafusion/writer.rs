@@ -1,11 +1,11 @@
 use async_std::task;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use deltalake::DeltaTable;
 use deltalake::kernel::Action;
 use deltalake::operations::transaction::commit;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
+use deltalake::DeltaTable;
 use pgrx::*;
 use std::collections::{
     hash_map::Entry::{self, Occupied, Vacant},
@@ -84,11 +84,11 @@ impl Writers {
         &mut self,
         pg_relation: &PgRelation,
         batch: RecordBatch,
-    ) -> Result<(), ParadeError> {
+    ) -> Result<DeltaTable, ParadeError> {
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
 
-        let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
+        let mut delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
             task::block_on(tables.get_owned(&table_path))
         })?;
 

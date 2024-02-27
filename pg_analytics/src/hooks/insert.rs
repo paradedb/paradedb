@@ -36,7 +36,8 @@ pub fn insert(
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,
         AssertUnwindSafe(move || {
-            insert_callback(table_name, schema_name, &table_path).expect("Insert callback failed");
+            task::block_on(insert_callback(table_name, schema_name, &table_path))
+                .expect("Insert callback failed");
         }),
     )?;
 
@@ -44,20 +45,16 @@ pub fn insert(
 }
 
 #[inline]
-fn insert_callback(
+async fn insert_callback(
     table_name: String,
     schema_name: String,
-    table_path: &PathBuf
+    table_path: &PathBuf,
 ) -> Result<(), ParadeError> {
     let mut delta_table = DatafusionContext::with_writers(&schema_name, |mut writers| {
-        task::block_on(writers.flush_and_commit(
-            &table_name,
-            &schema_name,
-            table_path,
-        ))
+        task::block_on(writers.flush_and_commit(&table_name, &schema_name, table_path))
     })?;
 
-    delta_table.update();
+    delta_table.update().await?;
 
     DatafusionContext::with_tables(&schema_name, |mut tables| {
         tables.register(&table_path, delta_table)

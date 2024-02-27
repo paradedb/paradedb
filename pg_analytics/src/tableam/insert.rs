@@ -49,7 +49,7 @@ pub extern "C" fn deltalake_multi_insert(
 
 #[pg_guard]
 pub extern "C" fn deltalake_finish_bulk_insert(rel: pg_sys::Relation, _options: c_int) {
-    flush_and_commit(rel).unwrap_or_else(|err| {
+    task::block_on(flush_and_commit(rel)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -66,7 +66,7 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
 }
 
 #[inline]
-fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
+async fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
@@ -76,7 +76,7 @@ fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
         task::block_on(writers.flush_and_commit(table_name, schema_name, &table_path))
     })?;
 
-    delta_table.update();
+    delta_table.update().await?;
 
     DatafusionContext::with_tables(schema_name, |mut tables| {
         tables.register(&table_path, delta_table)
@@ -108,8 +108,6 @@ fn insert_tuples(
 
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();
-    let table_oid = pg_relation.oid();
-    let schema_oid = pg_relation.namespace_oid();
     let arrow_schema = pg_relation.arrow_schema()?;
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 

@@ -1,12 +1,14 @@
+use async_std::task;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
 
-pub fn delete(
+pub async fn delete(
     rtable: *mut pg_sys::List,
-    _query_desc: PgBox<pg_sys::QueryDesc>,
+    query_desc: PgBox<pg_sys::QueryDesc>,
     logical_plan: LogicalPlan,
 ) -> Result<(), ParadeError> {
     let rte: *mut pg_sys::RangeTblEntry;
@@ -24,33 +26,36 @@ pub fn delete(
 
     let relation = unsafe { pg_sys::RelationIdGetRelation((*rte).relid) };
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
-    let _table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
+    let table_path = pg_relation.table_path()?;
 
     let optimized_plan = DatafusionContext::with_session_context(|context| {
         Ok(context.state().optimize(&logical_plan)?)
     })?;
 
-    if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-        DatafusionContext::with_schema_provider(schema_name, |_provider| {
-            match dml_statement.input.as_ref() {
-                LogicalPlan::Filter(_filter) => {
-                    // task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))
-                    Ok(())
-                }
-                LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
-                _ => Err(NotSupported::NestedDelete.into()),
+    let (mut delta_table, delete_metrics) = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
+        DatafusionContext::with_tables(schema_name, |mut tables| match dml_statement.input.as_ref() {
+            LogicalPlan::Filter(filter) => {
+                task::block_on(tables.delete(&pg_relation, Some(filter.predicate.clone())))
             }
+            LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
+            _ => Err(NotSupported::NestedDelete.into()),
         })?
     } else {
         unreachable!()
     };
 
-    // if let Some(num_deleted) = delete_metrics.num_deleted_rows {
-    //     unsafe {
-    //         (*(*query_desc.clone().into_pg()).estate).es_processed = num_deleted as u64;
-    //     }
-    // }
+    delta_table.update().await?;
+
+    DatafusionContext::with_tables(schema_name, |mut tables| {
+        tables.register(&table_path, delta_table)
+    })?;
+
+    if let Some(num_deleted) = delete_metrics.num_deleted_rows {
+        unsafe {
+            (*(*query_desc.clone().into_pg()).estate).es_processed = num_deleted as u64;
+        }
+    }
 
     Ok(())
 }

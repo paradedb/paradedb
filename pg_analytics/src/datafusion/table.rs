@@ -1,6 +1,4 @@
-use async_std::task;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
-use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::logical_expr::Expr;
 use deltalake::kernel::Schema as DeltaSchema;
@@ -103,7 +101,6 @@ impl Tables {
 
     pub async fn create(&self, pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
         let table_path = pg_relation.table_path()?;
-        let schema_name = pg_relation.namespace();
         let schema_oid = pg_relation.namespace_oid();
         let arrow_schema = pg_relation.arrow_schema()?;
         let delta_schema = DeltaSchema::try_from(arrow_schema.as_ref())?;
@@ -122,7 +119,7 @@ impl Tables {
         &mut self,
         pg_relation: &PgRelation,
         predicate: Option<Expr>,
-    ) -> Result<DeleteMetrics, ParadeError> {
+    ) -> Result<(DeltaTable, DeleteMetrics), ParadeError> {
         let table_path = pg_relation.table_path()?;
         let old_table = Self::get_owned(self, &table_path).await?;
 
@@ -137,9 +134,7 @@ impl Tables {
             delete_builder = delete_builder.with_predicate(predicate);
         }
 
-        let (_new_table, metrics) = delete_builder.await?;
-
-        Ok(metrics)
+        Ok(delete_builder.await?)
     }
 
     pub async fn get_owned(&mut self, table_path: &PathBuf) -> Result<DeltaTable, ParadeError> {
@@ -167,7 +162,11 @@ impl Tables {
         Ok(())
     }
 
-    pub async fn vacuum(&mut self, table_path: &PathBuf, optimize: bool) -> Result<(), ParadeError> {
+    pub async fn vacuum(
+        &mut self,
+        table_path: &PathBuf,
+        optimize: bool,
+    ) -> Result<(), ParadeError> {
         let mut old_table = Self::get_owned(self, table_path).await?;
 
         if optimize {

@@ -113,6 +113,15 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
+      # Needed for hybrid search unit tests
+      - name: Install pgvector
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        run: |
+          git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git
+          cd pgvector/
+          make -j
+          make install -j
+
       - name: Install pgrx, grcov & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |

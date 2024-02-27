@@ -1,4 +1,3 @@
-use deltalake::datafusion::catalog::schema::SchemaProvider;
 use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;

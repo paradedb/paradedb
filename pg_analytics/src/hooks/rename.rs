@@ -3,7 +3,6 @@ use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, Stateme
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
 
@@ -31,20 +30,13 @@ pub unsafe fn rename(
         return Ok(());
     }
 
-    let pg_relation = PgRelation::from_pg(relation);
-    let _table_name = pg_relation.name();
-    let schema_name = pg_relation.namespace();
-
     pg_sys::RelationClose(relation);
 
     if let parser::Statement::Statement(statement) = statement {
         if let Statement::AlterTable { operations, .. } = statement.as_ref() {
             for operation in operations {
-                match operation {
-                    RenameColumn { .. } => {
-                        return Err(NotSupported::RenameColumn.into());
-                    }
-                    _ => {}
+                if let RenameColumn { .. } = operation {
+                    return Err(NotSupported::RenameColumn.into());
                 }
             }
         }

@@ -9,11 +9,13 @@ use deltalake::operations::vacuum::VacuumBuilder;
 use deltalake::table::state::DeltaTableState;
 use deltalake::DeltaTable;
 use pgrx::*;
+use std::any::type_name;
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
-use std::{any::type_name, fs::remove_dir_all, path::PathBuf, sync::Arc};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
@@ -95,7 +97,7 @@ impl Tables {
         })
     }
 
-    pub fn contains(&self, table_path: &PathBuf) -> Result<bool, ParadeError> {
+    pub fn contains(&self, table_path: &Path) -> Result<bool, ParadeError> {
         Ok(self.tables.contains_key(table_path))
     }
 
@@ -137,12 +139,12 @@ impl Tables {
         Ok(delete_builder.await?)
     }
 
-    pub fn deregister(&mut self, table_path: &PathBuf) -> Result<(), ParadeError> {
+    pub fn deregister(&mut self, table_path: &Path) -> Result<(), ParadeError> {
         self.tables.remove(table_path);
         Ok(())
     }
 
-    pub async fn get_owned(&mut self, table_path: &PathBuf) -> Result<DeltaTable, ParadeError> {
+    pub async fn get_owned(&mut self, table_path: &Path) -> Result<DeltaTable, ParadeError> {
         let table = match self.tables.entry(table_path.to_path_buf()) {
             Occupied(entry) => entry.remove(),
             Vacant(_) => deltalake::open_table(table_path.to_string_lossy()).await?,
@@ -151,7 +153,7 @@ impl Tables {
         Ok(table)
     }
 
-    pub async fn get_ref(&mut self, table_path: &PathBuf) -> Result<&mut DeltaTable, ParadeError> {
+    pub async fn get_ref(&mut self, table_path: &Path) -> Result<&mut DeltaTable, ParadeError> {
         let table = match self.tables.entry(table_path.to_path_buf()) {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => {
@@ -162,14 +164,14 @@ impl Tables {
         Ok(table)
     }
 
-    pub fn register(&mut self, table_path: &PathBuf, table: DeltaTable) -> Result<(), ParadeError> {
+    pub fn register(&mut self, table_path: &Path, table: DeltaTable) -> Result<(), ParadeError> {
         self.tables.insert(table_path.to_path_buf(), table);
         Ok(())
     }
 
     pub async fn vacuum(
         &mut self,
-        table_path: &PathBuf,
+        table_path: &Path,
         optimize: bool,
     ) -> Result<DeltaTable, ParadeError> {
         let mut old_table = Self::get_owned(self, table_path).await?;

@@ -20,6 +20,7 @@ use std::sync::Arc;
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::stream::Streams;
 use crate::datafusion::table::Tables;
 use crate::datafusion::writer::Writers;
 use crate::errors::{NotFound, ParadeError};
@@ -99,6 +100,13 @@ impl<'a> DatafusionContext {
             ))?;
 
         f(parade_provider)
+    }
+
+    pub fn with_streams<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
+    where
+        F: FnOnce(MutexGuard<Streams>) -> Result<R, ParadeError>,
+    {
+        Self::with_schema_provider(schema_name, |provider| f(provider.streams()?.lock()))
     }
 
     pub fn with_tables<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>

@@ -11,7 +11,7 @@ use std::collections::{
     hash_map::Entry::{self, Occupied, Vacant},
     HashMap,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::table::DatafusionTable;
@@ -52,7 +52,7 @@ impl Writers {
         &mut self,
         table_name: &str,
         schema_name: &str,
-        table_path: &PathBuf,
+        table_path: &Path,
     ) -> Result<DeltaTable, ParadeError> {
         let writer = match Self::get_entry(self, table_path)? {
             Occupied(entry) => entry.remove(),
@@ -126,10 +126,7 @@ impl Writers {
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))
     }
 
-    fn get_entry(
-        &mut self,
-        table_path: &PathBuf,
-    ) -> Result<Entry<PathBuf, DeltaWriter>, ParadeError> {
+    fn get_entry(&mut self, table_path: &Path) -> Result<Entry<PathBuf, DeltaWriter>, ParadeError> {
         Ok(self.delta_writers.entry(table_path.to_path_buf()))
     }
 }

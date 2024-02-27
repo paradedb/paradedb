@@ -8,7 +8,7 @@ use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::DatafusionMapProducer;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
 use crate::datafusion::datatype::PostgresTypeTranslator;
-use crate::datafusion::directory::ParadeDirectory;
+
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
 

@@ -8,7 +8,7 @@ use std::collections::{
     hash_map::Entry::{self, Occupied, Vacant},
     HashMap,
 };
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::table::DatafusionTable;
@@ -25,7 +25,7 @@ impl Streams {
         })
     }
 
-    pub async fn next(
+    pub async fn get_next_batch(
         &mut self,
         pg_relation: &PgRelation,
     ) -> Result<Option<RecordBatch>, ParadeError> {
@@ -67,7 +67,7 @@ impl Streams {
 
     fn get_entry(
         &mut self,
-        table_path: &PathBuf,
+        table_path: &Path,
     ) -> Result<Entry<PathBuf, SendableRecordBatchStream>, ParadeError> {
         Ok(self.streams.entry(table_path.to_path_buf()))
     }

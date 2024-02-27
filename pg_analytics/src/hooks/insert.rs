@@ -2,7 +2,7 @@ use async_std::task;
 use pgrx::*;
 use shared::postgres::transaction::Transaction;
 use std::panic::AssertUnwindSafe;
-use std::path::PathBuf;
+use std::path::Path;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::table::DatafusionTable;
@@ -48,7 +48,7 @@ pub fn insert(
 async fn insert_callback(
     table_name: String,
     schema_name: String,
-    table_path: &PathBuf,
+    table_path: &Path,
 ) -> Result<(), ParadeError> {
     let mut delta_table = DatafusionContext::with_writers(&schema_name, |mut writers| {
         task::block_on(writers.flush_and_commit(&table_name, &schema_name, table_path))
@@ -57,6 +57,6 @@ async fn insert_callback(
     delta_table.update().await?;
 
     DatafusionContext::with_tables(&schema_name, |mut tables| {
-        tables.register(&table_path, delta_table)
+        tables.register(table_path, delta_table)
     })
 }

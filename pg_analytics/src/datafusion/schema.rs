@@ -22,8 +22,6 @@ use crate::datafusion::table::Tables;
 use crate::datafusion::writer::Writers;
 use crate::errors::{NotFound, ParadeError};
 
-const BYTES_IN_MB: i64 = 1_048_576;
-
 pub struct ParadeSchemaProvider {
     schema_name: String,
     tables: Arc<Mutex<Tables>>,

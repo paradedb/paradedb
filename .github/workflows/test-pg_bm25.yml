@@ -120,7 +120,7 @@ jobs:
           git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git
           cd pgvector/
           make -j
-          make install -j
+          sudo make install -j
 
       - name: Install pgrx, grcov & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

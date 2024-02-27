@@ -33,13 +33,16 @@ pub async fn delete(
         Ok(context.state().optimize(&logical_plan)?)
     })?;
 
-    let (mut delta_table, delete_metrics) = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-        DatafusionContext::with_tables(schema_name, |mut tables| match dml_statement.input.as_ref() {
-            LogicalPlan::Filter(filter) => {
-                task::block_on(tables.delete(&pg_relation, Some(filter.predicate.clone())))
+    let (mut delta_table, delete_metrics) = if let LogicalPlan::Dml(dml_statement) = optimized_plan
+    {
+        DatafusionContext::with_tables(schema_name, |mut tables| {
+            match dml_statement.input.as_ref() {
+                LogicalPlan::Filter(filter) => {
+                    task::block_on(tables.delete(&pg_relation, Some(filter.predicate.clone())))
+                }
+                LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
+                _ => Err(NotSupported::NestedDelete.into()),
             }
-            LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
-            _ => Err(NotSupported::NestedDelete.into()),
         })?
     } else {
         unreachable!()

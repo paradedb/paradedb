@@ -171,7 +171,7 @@ impl Tables {
         &mut self,
         table_path: &PathBuf,
         optimize: bool,
-    ) -> Result<(), ParadeError> {
+    ) -> Result<DeltaTable, ParadeError> {
         let mut old_table = Self::get_owned(self, table_path).await?;
 
         if optimize {
@@ -188,7 +188,7 @@ impl Tables {
             old_table = optimized_table;
         }
 
-        let _new_table = VacuumBuilder::new(
+        let vacuumed_table = VacuumBuilder::new(
             old_table.log_store(),
             old_table
                 .state
@@ -201,38 +201,6 @@ impl Tables {
         .await?
         .0;
 
-        Ok(())
-    }
-
-    pub async fn vacuum_all(
-        &mut self,
-        schema_path: &PathBuf,
-        optimize: bool,
-    ) -> Result<(), ParadeError> {
-        let directory = std::fs::read_dir(schema_path)?;
-
-        // Vacuum all tables in the schema directory and delete directories for dropped tables
-        for file in directory {
-            let table_oid = file?.file_name().into_string()?;
-
-            if let Ok(oid) = table_oid.parse::<u32>() {
-                let pg_oid = pg_sys::Oid::from(oid);
-                let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
-
-                // If the relation is null, delete the directory
-                if relation.is_null() {
-                    let path = schema_path.join(&table_oid);
-                    remove_dir_all(path.clone())?;
-                // Otherwise, vacuum the table
-                } else {
-                    let pg_relation = unsafe { PgRelation::from_pg(relation) };
-                    let table_path = pg_relation.table_path()?;
-                    Self::vacuum(self, &table_path, optimize).await?;
-                    unsafe { pg_sys::RelationClose(relation) }
-                }
-            }
-        }
-
-        Ok(())
+        Ok(vacuumed_table)
     }
 }

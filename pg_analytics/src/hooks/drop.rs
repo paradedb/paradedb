@@ -67,9 +67,7 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> 
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
 
-        DatafusionContext::with_tables(schema_name, |mut tables| {
-            tables.deregister(&table_path)
-        })?;
+        DatafusionContext::with_tables(schema_name, |mut tables| tables.deregister(&table_path))?;
 
         pg_sys::RelationClose(relation);
     }

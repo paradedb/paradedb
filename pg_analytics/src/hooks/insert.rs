@@ -2,15 +2,10 @@ use async_std::task;
 use pgrx::*;
 use shared::postgres::transaction::Transaction;
 use std::panic::AssertUnwindSafe;
-use std::path::Path;
 
-use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::table::DatafusionTable;
-use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
-
-const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_parquet_table";
+use crate::hooks::transaction::{commit_writer, TRANSACTION_CALLBACK_CACHE_ID};
 
 pub fn insert(
     rtable: *mut pg_sys::List,
@@ -40,32 +35,12 @@ pub fn insert(
         return Ok(());
     }
 
-    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
-    let schema_name = pg_relation.namespace().to_string();
-    let table_path = pg_relation.table_path()?;
-
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,
         AssertUnwindSafe(move || {
-            task::block_on(insert_callback(schema_name, &table_path))
-                .expect("Precommit callback failed");
+            task::block_on(commit_writer()).expect("Precommit callback failed");
         }),
     )?;
 
     Ok(())
-}
-
-pub fn needs_commit() -> Result<bool, ParadeError> {
-    Ok(Transaction::needs_commit(TRANSACTION_CALLBACK_CACHE_ID)?)
-}
-
-#[inline]
-async fn insert_callback(schema_name: String, table_path: &Path) -> Result<(), ParadeError> {
-    let (_, mut delta_table) = Writer::commit().await?;
-
-    delta_table.update().await?;
-
-    DatafusionContext::with_tables(&schema_name, |mut tables| {
-        tables.register(table_path, delta_table)
-    })
 }

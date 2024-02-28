@@ -15,6 +15,7 @@ use crate::hooks::handler::IsColumn;
 use crate::hooks::insert::insert;
 use crate::hooks::query::Query;
 use crate::hooks::select::select;
+use crate::hooks::transaction::{commit_writer, needs_commit};
 
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
@@ -28,6 +29,10 @@ pub fn executor_run(
         execute_once: bool,
     ) -> HookResult<()>,
 ) -> Result<(), ParadeError> {
+    if needs_commit()? {
+        task::block_on(commit_writer())?;
+    }
+
     unsafe {
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;

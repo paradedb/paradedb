@@ -71,11 +71,11 @@ async fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
 
-    let (_, mut delta_table) = Writer::commit().await?;
+    let (_, _, mut delta_table) = Writer::commit().await?;
 
     delta_table.update().await?;
 
-    DatafusionContext::with_tables(&schema_name, |mut tables| {
+    DatafusionContext::with_tables(schema_name, |mut tables| {
         tables.register(&table_path, delta_table)
     })
 }
@@ -109,5 +109,5 @@ async fn insert_tuples(
     let arrow_schema = pg_relation.arrow_schema()?;
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
-    Writer::write(schema_name, &table_path, arrow_schema, batch).await
+    Writer::write(schema_name, &table_path, arrow_schema, &batch).await
 }

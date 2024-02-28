@@ -8,6 +8,7 @@ mod process;
 mod query;
 mod rename;
 mod select;
+mod transaction;
 mod truncate;
 mod vacuum;
 

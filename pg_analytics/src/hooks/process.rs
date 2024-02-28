@@ -12,6 +12,7 @@ use crate::hooks::alter::alter;
 use crate::hooks::drop::drop;
 use crate::hooks::query::Query;
 use crate::hooks::rename::rename;
+use crate::hooks::transaction::{commit_writer, needs_commit};
 use crate::hooks::truncate::truncate;
 use crate::hooks::vacuum::vacuum;
 
@@ -37,6 +38,10 @@ pub fn process_utility(
         completion_tag: *mut pg_sys::QueryCompletion,
     ) -> HookResult<()>,
 ) -> Result<(), ParadeError> {
+    if needs_commit()? {
+        task::block_on(commit_writer())?;
+    }
+
     unsafe {
         let plan = pstmt.utilityStmt;
 

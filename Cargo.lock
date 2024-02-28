@@ -3634,6 +3634,7 @@ dependencies = [
  "futures-util",
  "indexmap",
  "lazy_static",
+ "once_cell",
  "parking_lot",
  "pgrx",
  "pgrx-tests",

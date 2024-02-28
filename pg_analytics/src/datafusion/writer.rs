@@ -1,3 +1,4 @@
+use async_std::sync::Mutex;
 use async_std::task;
 use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
@@ -5,12 +6,10 @@ use deltalake::kernel::Action;
 use deltalake::operations::transaction::commit as commit_delta;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
-use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
 use deltalake::DeltaTable;
 use once_cell::sync::Lazy;
-use parking_lot::Mutex;
 use std::collections::{
-    hash_map::Entry::{self, Occupied, Vacant},
+    hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
 use std::path::{Path, PathBuf};
@@ -27,22 +26,25 @@ struct WriterCache {
     writer: DeltaWriter,
     table: DeltaTable,
     schema_name: String,
+    table_path: PathBuf,
 }
 
 impl WriterCache {
     pub fn new(
         writer: DeltaWriter,
         table: DeltaTable,
-        schema_name: String,
+        schema_name: &str,
+        table_path: &Path,
     ) -> Result<Self, ParadeError> {
         Ok(Self {
             writer,
             table,
-            schema_name,
+            schema_name: schema_name.to_string(),
+            table_path: table_path.to_path_buf(),
         })
     }
 
-    pub async fn commit(self) -> Result<(String, DeltaTable), ParadeError> {
+    pub async fn commit(self) -> Result<(String, PathBuf, DeltaTable), ParadeError> {
         let actions = self.writer.close().await?;
 
         commit_delta(
@@ -58,7 +60,7 @@ impl WriterCache {
         )
         .await?;
 
-        Ok((self.schema_name, self.table))
+        Ok((self.schema_name, self.table_path, self.table))
     }
 
     pub async fn write(&mut self, batch: &RecordBatch) -> Result<(), ParadeError> {
@@ -77,9 +79,9 @@ impl Writer {
         schema_name: &str,
         table_path: &Path,
         arrow_schema: Arc<ArrowSchema>,
-        batch: RecordBatch,
+        batch: &RecordBatch,
     ) -> Result<(), ParadeError> {
-        let mut cache = WRITER_CACHE.lock();
+        let mut cache = WRITER_CACHE.lock().await;
 
         if !cache.contains_key(WRITER_ID) {
             let writer = Self::create(schema_name, table_path, arrow_schema).await?;
@@ -89,28 +91,28 @@ impl Writer {
 
             cache.insert(
                 WRITER_ID.to_string(),
-                WriterCache::new(writer, table, schema_name.to_string())?,
+                WriterCache::new(writer, table, schema_name, table_path)?,
             );
         }
 
         match cache.get_mut(WRITER_ID) {
             Some(writer_cache) => {
-                writer_cache.write(&batch).await?;
+                writer_cache.write(batch).await?;
                 Ok(())
             }
-            None => return Err(NotFound::Writer().into()),
+            None => Err(NotFound::Writer().into()),
         }
     }
 
-    pub async fn commit() -> Result<(String, DeltaTable), ParadeError> {
-        let mut cache = WRITER_CACHE.lock();
+    pub async fn commit() -> Result<(String, PathBuf, DeltaTable), ParadeError> {
+        let mut cache = WRITER_CACHE.lock().await;
 
         match cache.entry(WRITER_ID.to_string()) {
             Occupied(entry) => {
                 let writer_cache = entry.remove();
                 writer_cache.commit().await
             }
-            Vacant(_) => return Err(NotFound::Writer().into()),
+            Vacant(_) => Err(NotFound::Writer().into()),
         }
     }
 

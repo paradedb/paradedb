@@ -75,7 +75,7 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
                 return Ok(());
             }
 
-            let mut delta_table = DatafusionContext::with_tables(&schema_name, |tables| {
+            let _delta_table = DatafusionContext::with_tables(&schema_name, |tables| {
                 ParadeDirectory::create_schema_path(
                     DatafusionContext::catalog_oid()?,
                     pg_relation.namespace_oid(),

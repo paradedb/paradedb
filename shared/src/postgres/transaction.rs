@@ -28,8 +28,8 @@ impl Transaction {
     {
         // Clone the cache here for use inside the closure.
         let cache_clone = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.clone();
-
         let mut cache = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.lock()?;
+
         if !cache.contains(id) {
             // Now using `cache_clone` inside the closure.
             register_xact_callback(PgXactCallbackEvent::PreCommit, move || {

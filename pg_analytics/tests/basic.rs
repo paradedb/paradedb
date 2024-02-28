@@ -595,3 +595,18 @@ fn sqlparser_error(mut conn: PgConnection) {
     let ids: Vec<i32> = rows.into_iter().map(|r| r.0).collect();
     assert_eq!(ids, [1, 3]);
 }
+
+#[rstest]
+fn big_insert(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE t (
+            id INT
+        ) USING parquet;
+        INSERT INTO t (id) SELECT generate_series(1, 100000);
+        INSERT INTO t (id) SELECT generate_series(1, 100000);
+    "#
+    .execute(&mut conn);
+
+    let count: (i64,) = "SELECT COUNT(*) FROM t".fetch_one(&mut conn);
+    assert_eq!(count, (200000,));
+}

@@ -69,6 +69,9 @@ pub unsafe extern "C" fn telemetry_worker(arg: pg_sys::Datum) {
             last_action_time = Instant::now();
         }
 
+
+        // TODO: Sigterm doesn't exit properly, it keeps printing!
+
         // Listen for SIGTERM, to allow for a clean shutdown
         if BackgroundWorker::sigterm_received() {
             pgrx::log!(

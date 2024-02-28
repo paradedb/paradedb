@@ -4,6 +4,8 @@ use std::fs;
 use std::path::Path;
 use tracing::info;
 
+use crate::telemetry::data::get_postgres_data_directory;
+
 #[derive(Deserialize, Debug)]
 struct Config {
     telemetry_handled: Option<String>, // Option because it won't be set if running the extension standalone
@@ -45,6 +47,16 @@ pub fn init(extension_name: &str) {
             return;
         }
 
+        // Retrieve the PostgreSQL data directory
+        let pg_data_directory = match get_postgres_data_directory() {
+            Some(dir) => dir,
+            None => {
+                eprintln!("PGDATA environment variable is not set");
+                return; // Early return from the function
+            }
+        };
+
+        // Construct the uuid_file path using the dynamically retrieved PGDATA path
         // For privacy reasons, we generate an anonymous UUID for each new deployment
         let uuid_file = format!("/bitnami/postgresql/data/{}_uuid", extension_name);
 

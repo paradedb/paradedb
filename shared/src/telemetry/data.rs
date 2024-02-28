@@ -5,7 +5,7 @@ use std::fs;
 use std::path::PathBuf;
 
 // Function to get the PostgreSQL data directory from the PGDATA environment variable
-fn get_postgres_data_directory() -> Option<String> {
+pub fn get_postgres_data_directory() -> Option<String> {
     env::var("PGDATA").ok()
 }
 

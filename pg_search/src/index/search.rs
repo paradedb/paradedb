@@ -4,7 +4,6 @@ use pgrx::{
     PgTupleDesc,
 };
 use serde::{Deserialize, Deserializer, Serialize};
-use shared::telemetry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::{query::QueryParser, Executor, Index, IndexSettings, Searcher};
@@ -109,10 +108,6 @@ impl SearchIndex {
         unsafe {
             new_self.into_cache();
         }
-
-        // Send a telemetry event on each new connection. Since the reference to the index
-        // is cached, we expect to capture one event per connection.
-        telemetry::posthog::connection_start();
 
         // We need to return the Self that is borrowed from the cache.
         let new_self_ref = Self::from_cache(&directory)

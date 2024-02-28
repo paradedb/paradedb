@@ -10,6 +10,7 @@ mod types;
 use pgrx::*;
 use shared::logs::ParadeLogsGlobal;
 use shared::telemetry;
+use shared::telemetry::bgworker::setup_telemetry_background_worker;
 
 use crate::guc::PARADE_GUC;
 use crate::hooks::ParadeHook;
@@ -35,6 +36,8 @@ pub extern "C" fn _PG_init() {
     unsafe {
         register_hook(&mut PARADE_HOOK)
     };
+
+    setup_telemetry_background_worker("pg_analytics".to_string());
 }
 
 #[cfg(test)]

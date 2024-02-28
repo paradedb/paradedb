@@ -2,9 +2,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::fs;
 use std::path::Path;
-use tracing::{info, warn};
-
-use crate::constants::{PARADEDB_NAME, PG_BM25_NAME};
+use tracing::info;
 
 #[derive(Deserialize, Debug)]
 struct Config {
@@ -113,34 +111,34 @@ pub fn connection_start() {
                 fs::read_to_string(Path::new(uuid_dir).join(format!("{}_uuid", PG_BM25_NAME)))
             };
 
-            let distinct_id = match file_content {
-                Ok(uuid) => uuid,
-                Err(_) => {
-                    warn!("telemetry enabled but uuid file is empty!");
-                    return;
-                }
-            };
+//             let distinct_id = match file_content {
+//                 Ok(uuid) => uuid,
+//                 Err(_) => {
+//                     warn!("telemetry enabled but uuid file is empty!");
+//                     return;
+//                 }
+//             };
 
-            let endpoint = format!("{}/capture", config.posthog_host);
-            let data = json!({
-                "api_key": config.posthog_api_key,
-                "event": format!("{} Connection Started", extension_name),
-                "distinct_id": distinct_id,
-                "properties": {
-                    "commit_sha": config.commit_sha
-                }
-            });
+//             let endpoint = format!("{}/capture", config.posthog_host);
+//             let data = json!({
+//                 "api_key": config.posthog_api_key,
+//                 "event": format!("{} Connection Started", extension_name),
+//                 "distinct_id": distinct_id,
+//                 "properties": {
+//                     "commit_sha": config.commit_sha
+//                 }
+//             });
 
-            let client = reqwest::blocking::Client::new();
-            let response = client
-                .post(endpoint)
-                .header("Content-Type", "application/json")
-                .body(data.to_string())
-                .send();
+//             let client = reqwest::blocking::Client::new();
+//             let response = client
+//                 .post(endpoint)
+//                 .header("Content-Type", "application/json")
+//                 .body(data.to_string())
+//                 .send();
 
-            if let Err(e) = response {
-                warn!("Error sending telemetry request: {}", e);
-            }
-        }
-    }
-}
+//             if let Err(e) = response {
+//                 warn!("Error sending telemetry request: {}", e);
+//             }
+//         }
+//     }
+// }

@@ -11,7 +11,7 @@ use crate::writer::{self, WriterRequest};
 // This is a flag that can be set by the user in a session to enable logs.
 // You need to initialize this in every extension that uses `plog!`.
 pub static PARADE_LOGS_GLOBAL: ParadeLogsGlobal =
-    ParadeLogsGlobal::new(shared::constants::PG_BM25_NAME);
+    ParadeLogsGlobal::new("pg_bm25");
 
 // This is global shared state for the writer background worker.
 pub static WRITER_GLOBAL: PgLwLock<WriterGlobal> = PgLwLock::new();

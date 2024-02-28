@@ -27,7 +27,7 @@ extension_sql_file!("../sql/_bootstrap.sql");
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
     postgres::options::init();
-    telemetry::posthog::init(shared::constants::PG_BM25_NAME);
+    telemetry::posthog::init("pg_bm25");
     PARADE_LOGS_GLOBAL.init();
 
     // Set up the writer bgworker shared state.
@@ -36,6 +36,8 @@ pub unsafe extern "C" fn _PG_init() {
     // We call this in a helper function to the bgworker initialization
     // can be used in test suites.
     setup_background_workers();
+
+    // setup_telemetry_background_workers("pg_bm25", ));
 }
 
 #[pg_guard]

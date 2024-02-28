@@ -48,7 +48,6 @@ async fn basic_search_ids(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "need to re-implement rank"]
 fn with_bm25_scoring(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

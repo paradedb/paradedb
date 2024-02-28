@@ -2,8 +2,10 @@ use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags
 use pgrx::*;
 use std::ffi::CStr;
 use std::process;
-use std::time::{Duration, Instant};
 use std::thread;
+use std::time::{Duration, Instant};
+
+use crate::telemetry::data::read_telemetry_data;
 
 #[pg_guard]
 pub fn setup_telemetry_background_worker(extension_name: String) {
@@ -27,48 +29,53 @@ pub fn setup_telemetry_background_worker(extension_name: String) {
 
 #[pg_guard]
 #[no_mangle]
-pub extern "C" fn telemetry_worker(arg: pg_sys::Datum) {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn telemetry_worker(arg: pg_sys::Datum) {
+    // Convert Datum to CString
+    let text_ptr =
+        pg_sys::pg_detoast_datum(arg.cast_mut_ptr::<pg_sys::varlena>()) as *mut pg_sys::text;
+    let c_str = CStr::from_ptr(pg_sys::text_to_cstring(text_ptr));
 
+    // Convert CStr to Rust String
+    let rust_string = match c_str.to_str() {
+        Ok(s) => s.to_owned(),
+        Err(e) => panic!("Failed to convert to string: {:?}", e),
+    };
 
-    unsafe {
-        // Convert Datum to CString
-        let text_ptr = pg_sys::pg_detoast_datum(arg.cast_mut_ptr::<pg_sys::varlena>()) as *mut pg_sys::text;
-        let c_str = CStr::from_ptr(pg_sys::text_to_cstring(text_ptr));
-
-        // Convert CStr to Rust String
-        let rust_string = match c_str.to_str() {
-            Ok(s) => s.to_owned(),
-            Err(e) => panic!("Failed to convert to string: {:?}", e),
-        };
-
-        // Use rust_string as needed
-        println!("Extracted string: {}", rust_string);
-    
-    pgrx::log!("starting {} telemetry reader worker at PID {}", rust_string, process::id());
+    pgrx::log!(
+        "starting {} telemetry worker at PID {}",
+        rust_string,
+        process::id()
+    );
     // These are the signals we want to receive. If we don't attach the SIGTERM handler, then
     // we'll never be able to exit via an external notification.
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGTERM);
 
-    let start_time = Instant::now();
-    let wait_duration = Duration::from_secs(12 * 3600); // 12 hours
-
+    // We send telemetry data to PostHog every 12 hours. We could make this more
+    // frequent initially to help understand potential early churn
+    let wait_duration = Duration::from_secs(2);
+    // let wait_duration = Duration::from_secs(12 * 3600); // 12 hours
+    let mut last_action_time = Instant::now();
     loop {
-        // Check if the wait duration has elapsed
-        if Instant::now().duration_since(start_time) >= wait_duration {
-            // Perform your telemetry sending logic here
-
-            break;
-        }
-
-        // Sleep for a short period to remain responsive
+        // Sleep for a short period to remain responsive to SIGTERM
         thread::sleep(Duration::from_secs(1));
 
-        pgrx::log!("telemetry worker is still running");
+        // Check if the wait_duration has passed since the last time we sent telemetry data
+        if Instant::now().duration_since(last_action_time) >= wait_duration {
+            let _telemetry_data = read_telemetry_data(rust_string.clone());
 
+            // TODO: Send telemetry data to PostHog
+
+            last_action_time = Instant::now();
+        }
+
+        // Listen for SIGTERM, to allow for a clean shutdown
         if BackgroundWorker::sigterm_received() {
-            pgrx::log!("insert worker received sigterm, shutting down");
+            pgrx::log!(
+                "{} telemetry worker received sigterm, shutting down",
+                rust_string
+            );
             return; // Exit the worker
         }
     }
-}
 }

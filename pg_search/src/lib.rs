@@ -14,6 +14,7 @@ use crate::globals::{PARADE_LOGS_GLOBAL, WRITER_GLOBAL};
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
 use shared::telemetry;
+use shared::telemetry::bgworker::setup_telemetry_background_worker;
 use std::process;
 use std::time::Duration;
 
@@ -37,7 +38,7 @@ pub unsafe extern "C" fn _PG_init() {
     // can be used in test suites.
     setup_background_workers();
 
-    // setup_telemetry_background_workers("pg_bm25", ));
+    setup_telemetry_background_worker("pg_bm25".to_string());
 }
 
 #[pg_guard]

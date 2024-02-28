@@ -13,7 +13,6 @@ pub mod fixtures;
 use crate::globals::{PARADE_LOGS_GLOBAL, WRITER_GLOBAL};
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
-use shared::telemetry;
 use shared::telemetry::bgworker::setup_telemetry_background_worker;
 use std::process;
 use std::time::Duration;
@@ -28,7 +27,6 @@ extension_sql_file!("../sql/_bootstrap.sql");
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
     postgres::options::init();
-    telemetry::posthog::init("pg_bm25");
     PARADE_LOGS_GLOBAL.init();
 
     // Set up the writer bgworker shared state.

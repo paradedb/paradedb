@@ -58,7 +58,7 @@ impl ParadeDirectory {
         Ok(())
     }
 
-    pub fn root_path() -> Result<PathBuf, ParadeError> {
+    fn root_path() -> Result<PathBuf, ParadeError> {
         let option_name = CString::new("data_directory")?;
         let data_dir_str = unsafe {
             CStr::from_ptr(pg_sys::GetConfigOptionByName(

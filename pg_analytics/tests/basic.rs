@@ -568,7 +568,13 @@ fn sqlparser_error(mut conn: PgConnection) {
     // Makes sure that statements like ALTER TABLE <table> ENABLE ROW LEVEL SECURITY
     // which are not supported by sqlparser are passed to Postgres successfully
     r#"
-        DROP ROLE IF EXISTS engineering;
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'engineering') THEN
+                EXECUTE 'DROP OWNED BY engineering CASCADE';
+                EXECUTE 'DROP ROLE engineering';
+            END IF;
+        END$$;
         CREATE ROLE engineering LOGIN PASSWORD 'password';
         CREATE TABLE employee (
             id SERIAL PRIMARY KEY,

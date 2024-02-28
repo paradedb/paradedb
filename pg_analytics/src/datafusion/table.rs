@@ -1,4 +1,5 @@
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::logical_expr::Expr;
 use deltalake::kernel::Schema as DeltaSchema;
@@ -7,6 +8,7 @@ use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::vacuum::VacuumBuilder;
 use deltalake::table::state::DeltaTableState;
+use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
 use deltalake::DeltaTable;
 use pgrx::*;
 use std::any::type_name;
@@ -95,6 +97,23 @@ impl Tables {
         Ok(Self {
             tables: HashMap::new(),
         })
+    }
+
+    pub async fn alter_schema(
+        &mut self,
+        table_path: &Path,
+        batch: RecordBatch,
+    ) -> Result<DeltaTable, ParadeError> {
+        let mut delta_table = Self::get_owned(self, table_path).await?;
+
+        // Write the RecordBatch to the DeltaTable
+        let mut writer = RecordBatchWriter::for_table(&delta_table)?;
+        writer
+            .write_with_mode(batch, WriteMode::MergeSchema)
+            .await?;
+        writer.flush_and_commit(&mut delta_table).await?;
+
+        Ok(delta_table)
     }
 
     pub async fn create(

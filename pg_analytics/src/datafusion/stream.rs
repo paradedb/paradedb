@@ -43,7 +43,10 @@ impl Streams {
         }
     }
 
-    async fn create(schema_name: &str, table_path: &Path) -> Result<SendableRecordBatchStream, ParadeError> {
+    async fn create(
+        schema_name: &str,
+        table_path: &Path,
+    ) -> Result<SendableRecordBatchStream, ParadeError> {
         let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
             task::block_on(tables.get_owned(table_path))
         })?;

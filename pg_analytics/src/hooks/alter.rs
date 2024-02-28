@@ -71,13 +71,9 @@ pub async unsafe fn alter(
         let schema = Arc::new(ArrowSchema::new(fields_to_add));
         let batch = RecordBatch::new_empty(schema);
 
-        let mut delta_table = DatafusionContext::with_writers(schema_name, |mut writers| {
-            task::block_on(writers.merge_schema(schema_name, &table_path, batch))
-        })?;
-
-        delta_table.update().await?;
-
         DatafusionContext::with_tables(schema_name, |mut tables| {
+            let mut delta_table = task::block_on(tables.alter_schema(&table_path, batch))?;
+            task::block_on(delta_table.update())?;
             tables.register(&table_path, delta_table)
         })?;
     }

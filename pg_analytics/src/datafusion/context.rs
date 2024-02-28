@@ -22,7 +22,6 @@ use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::stream::Streams;
 use crate::datafusion::table::Tables;
-use crate::datafusion::writer::Writers;
 use crate::errors::{NotFound, ParadeError};
 
 lazy_static! {
@@ -114,13 +113,6 @@ impl<'a> DatafusionContext {
         F: FnOnce(MutexGuard<Tables>) -> Result<R, ParadeError>,
     {
         Self::with_schema_provider(schema_name, |provider| f(provider.tables()?.lock()))
-    }
-
-    pub fn with_writers<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
-    where
-        F: FnOnce(MutexGuard<Writers>) -> Result<R, ParadeError>,
-    {
-        Self::with_schema_provider(schema_name, |provider| f(provider.writers()?.lock()))
     }
 
     pub fn with_write_lock<F, R>(f: F) -> Result<R, ParadeError>

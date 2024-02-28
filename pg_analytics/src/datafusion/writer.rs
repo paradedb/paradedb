@@ -2,11 +2,13 @@ use async_std::task;
 use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::kernel::Action;
-use deltalake::operations::transaction::commit;
+use deltalake::operations::transaction::commit as commit_delta;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
 use deltalake::DeltaTable;
+use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use std::collections::{
     hash_map::Entry::{self, Occupied, Vacant},
     HashMap,
@@ -19,83 +21,97 @@ use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 
 const BYTES_IN_MB: i64 = 1_048_576;
+const WRITER_ID: &str = "delta_writer";
 
-pub struct Writers {
-    delta_writers: HashMap<PathBuf, DeltaWriter>,
+struct WriterCache {
+    writer: DeltaWriter,
+    table: DeltaTable,
+    schema_name: String,
 }
 
-impl Writers {
-    pub fn new() -> Result<Self, ParadeError> {
+impl WriterCache {
+    pub fn new(
+        writer: DeltaWriter,
+        table: DeltaTable,
+        schema_name: String,
+    ) -> Result<Self, ParadeError> {
         Ok(Self {
-            delta_writers: HashMap::new(),
+            writer,
+            table,
+            schema_name,
         })
     }
 
-    pub async fn write(
-        &mut self,
-        schema_name: &str,
-        table_path: &Path,
-        arrow_schema: Arc<ArrowSchema>,
-        batch: RecordBatch,
-    ) -> Result<(), ParadeError> {
-        let writer = match Self::get_entry(self, &table_path)? {
-            Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(Self::create(schema_name, table_path, arrow_schema).await?),
-        };
+    pub async fn commit(self) -> Result<(String, DeltaTable), ParadeError> {
+        let actions = self.writer.close().await?;
 
-        writer.write(&batch).await?;
-
-        Ok(())
-    }
-
-    pub async fn commit(&mut self, schema_name: &str, table_path: &Path) -> Result<DeltaTable, ParadeError> {
-        let writer = match Self::get_entry(self, table_path)? {
-            Occupied(entry) => entry.remove(),
-            Vacant(_) => return Err(NotFound::Writer(schema_name.to_string()).into()),
-        };
-
-        let actions = writer.close().await?;
-        let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
-            task::block_on(tables.get_owned(table_path))
-        })?;
-
-        commit(
-            delta_table.log_store().as_ref(),
+        commit_delta(
+            self.table.log_store().as_ref(),
             &actions.iter().map(|a| Action::Add(a.clone())).collect(),
             DeltaOperation::Write {
                 mode: SaveMode::Append,
                 partition_by: None,
                 predicate: None,
             },
-            delta_table.state.as_ref(),
+            self.table.state.as_ref(),
             None,
         )
         .await?;
 
-        Ok(delta_table)
+        Ok((self.schema_name, self.table))
     }
 
-    pub async fn merge_schema(
-        &mut self,
+    pub async fn write(&mut self, batch: &RecordBatch) -> Result<(), ParadeError> {
+        self.writer.write(batch).await?;
+        Ok(())
+    }
+}
+
+static WRITER_CACHE: Lazy<Arc<Mutex<HashMap<String, WriterCache>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+pub struct Writer;
+
+impl Writer {
+    pub async fn write(
         schema_name: &str,
         table_path: &Path,
+        arrow_schema: Arc<ArrowSchema>,
         batch: RecordBatch,
-    ) -> Result<DeltaTable, ParadeError> {
-        let mut delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
-            task::block_on(tables.get_owned(table_path))
-        })?;
+    ) -> Result<(), ParadeError> {
+        let mut cache = WRITER_CACHE.lock();
 
-        // Write the RecordBatch to the DeltaTable
-        let mut writer = RecordBatchWriter::for_table(&delta_table)?;
-        writer
-            .write_with_mode(batch, WriteMode::MergeSchema)
-            .await?;
-        writer.flush_and_commit(&mut delta_table).await?;
+        if !cache.contains_key(WRITER_ID) {
+            let writer = Self::create(schema_name, table_path, arrow_schema).await?;
+            let table = DatafusionContext::with_tables(schema_name, |mut tables| {
+                task::block_on(tables.get_owned(table_path))
+            })?;
 
-        // Remove the old writer
-        self.delta_writers.remove(table_path);
+            cache.insert(
+                WRITER_ID.to_string(),
+                WriterCache::new(writer, table, schema_name.to_string())?,
+            );
+        }
 
-        Ok(delta_table)
+        match cache.get_mut(WRITER_ID) {
+            Some(writer_cache) => {
+                writer_cache.write(&batch).await?;
+                Ok(())
+            }
+            None => return Err(NotFound::Writer().into()),
+        }
+    }
+
+    pub async fn commit() -> Result<(String, DeltaTable), ParadeError> {
+        let mut cache = WRITER_CACHE.lock();
+
+        match cache.entry(WRITER_ID.to_string()) {
+            Occupied(entry) => {
+                let writer_cache = entry.remove();
+                writer_cache.commit().await
+            }
+            Vacant(_) => return Err(NotFound::Writer().into()),
+        }
     }
 
     async fn create(
@@ -118,9 +134,5 @@ impl Writers {
         })?;
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))
-    }
-
-    fn get_entry(&mut self, table_path: &Path) -> Result<Entry<PathBuf, DeltaWriter>, ParadeError> {
-        Ok(self.delta_writers.entry(table_path.to_path_buf()))
     }
 }

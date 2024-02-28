@@ -6,6 +6,7 @@ use std::path::Path;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 
@@ -59,13 +60,8 @@ pub fn needs_commit() -> Result<bool, ParadeError> {
 }
 
 #[inline]
-async fn insert_callback(
-    schema_name: String,
-    table_path: &Path,
-) -> Result<(), ParadeError> {
-    let mut delta_table = DatafusionContext::with_writers(&schema_name, |mut writers| {
-        task::block_on(writers.commit(&schema_name, table_path))
-    })?;
+async fn insert_callback(schema_name: String, table_path: &Path) -> Result<(), ParadeError> {
+    let (_, mut delta_table) = Writer::commit().await?;
 
     delta_table.update().await?;
 

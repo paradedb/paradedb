@@ -18,13 +18,11 @@ use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::stream::Streams;
 use crate::datafusion::table::Tables;
-use crate::datafusion::writer::Writers;
 use crate::errors::{NotFound, ParadeError};
 
 pub struct ParadeSchemaProvider {
     schema_name: String,
     tables: Arc<Mutex<Tables>>,
-    writers: Arc<Mutex<Writers>>,
     streams: Arc<Mutex<Streams>>,
 }
 
@@ -33,17 +31,12 @@ impl ParadeSchemaProvider {
         Ok(Self {
             schema_name: schema_name.to_string(),
             tables: Arc::new(Mutex::new(Tables::new()?)),
-            writers: Arc::new(Mutex::new(Writers::new()?)),
             streams: Arc::new(Mutex::new(Streams::new()?)),
         })
     }
 
     pub fn tables(&self) -> Result<Arc<Mutex<Tables>>, ParadeError> {
         Ok(self.tables.clone())
-    }
-
-    pub fn writers(&self) -> Result<Arc<Mutex<Writers>>, ParadeError> {
-        Ok(self.writers.clone())
     }
 
     pub fn streams(&self) -> Result<Arc<Mutex<Streams>>, ParadeError> {

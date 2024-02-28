@@ -8,8 +8,8 @@ use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::DatafusionMapProducer;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
 use crate::datafusion::datatype::PostgresTypeTranslator;
-
 use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
 
 #[pg_guard]
@@ -28,7 +28,7 @@ pub extern "C" fn deltalake_tuple_insert(
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
     let mut mut_slot = slot;
-    insert_tuples(rel, &mut mut_slot, 1).unwrap_or_else(|err| {
+    task::block_on(insert_tuples(rel, &mut mut_slot, 1)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -42,7 +42,7 @@ pub extern "C" fn deltalake_multi_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
-    insert_tuples(rel, slots, nslots as usize).unwrap_or_else(|err| {
+    task::block_on(insert_tuples(rel, slots, nslots as usize)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -71,19 +71,17 @@ async fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
 
-    let mut delta_table = DatafusionContext::with_writers(schema_name, |mut writers| {
-        task::block_on(writers.commit(schema_name, &table_path))
-    })?;
+    let (_, mut delta_table) = Writer::commit().await?;
 
     delta_table.update().await?;
 
-    DatafusionContext::with_tables(schema_name, |mut tables| {
+    DatafusionContext::with_tables(&schema_name, |mut tables| {
         tables.register(&table_path, delta_table)
     })
 }
 
 #[inline]
-fn insert_tuples(
+async fn insert_tuples(
     rel: pg_sys::Relation,
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
@@ -111,7 +109,5 @@ fn insert_tuples(
     let arrow_schema = pg_relation.arrow_schema()?;
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
-    DatafusionContext::with_writers(schema_name, |mut writers| {
-        task::block_on(writers.write(schema_name, &table_path, arrow_schema, batch))
-    })
+    Writer::write(schema_name, &table_path, arrow_schema, batch).await
 }

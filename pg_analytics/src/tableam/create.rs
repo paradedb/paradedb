@@ -76,18 +76,17 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
             }
 
             let mut delta_table = DatafusionContext::with_tables(&schema_name, |tables| {
-                ParadeDirectory::create_schema_path(DatafusionContext::catalog_oid()?, pg_relation.namespace_oid())?;
+                ParadeDirectory::create_schema_path(
+                    DatafusionContext::catalog_oid()?,
+                    pg_relation.namespace_oid(),
+                )?;
                 task::block_on(tables.create(&table_path, pg_relation.arrow_schema()?))
             })?;
 
-            DatafusionContext::with_writers(&schema_name, |mut writers| {
-                let batch = RecordBatch::new_empty(arrow_schema.clone());
-                task::block_on(writers.merge_schema(&schema_name, &table_path, batch))
-            })?;
-
-            delta_table.update().await?;
-
             DatafusionContext::with_tables(&schema_name, |mut tables| {
+                let batch = RecordBatch::new_empty(arrow_schema.clone());
+                let mut delta_table = task::block_on(tables.alter_schema(&table_path, batch))?;
+                task::block_on(delta_table.update())?;
                 tables.register(&table_path, delta_table)
             })
         }

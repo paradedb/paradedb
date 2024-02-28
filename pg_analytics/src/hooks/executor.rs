@@ -7,15 +7,14 @@ use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
 use std::ffi::CStr;
 
+use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::datafusion::context::ParadeContextProvider;
-
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::delete::delete;
 use crate::hooks::handler::IsColumn;
 use crate::hooks::insert::insert;
 use crate::hooks::query::Query;
 use crate::hooks::select::select;
-use crate::hooks::transaction::{commit_writer, needs_commit};
 
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,

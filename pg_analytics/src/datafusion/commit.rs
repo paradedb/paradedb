@@ -11,11 +11,13 @@ pub fn needs_commit() -> Result<bool, ParadeError> {
 }
 
 pub async fn commit_writer() -> Result<(), ParadeError> {
-    let (schema_name, table_path, mut delta_table) = Writer::commit().await?;
+    if let Some((schema_name, table_path, mut delta_table)) = Writer::commit().await? {
+        delta_table.update().await?;
 
-    delta_table.update().await?;
+        DatafusionContext::with_tables(&schema_name, |mut tables| {
+            tables.register(&table_path, delta_table)
+        })?;
+    }
 
-    DatafusionContext::with_tables(&schema_name, |mut tables| {
-        tables.register(&table_path, delta_table)
-    })
+    Ok(())
 }

@@ -8,10 +8,7 @@ use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::DeltaTable;
 use once_cell::sync::Lazy;
-use std::collections::{
-    hash_map::Entry::{Occupied, Vacant},
-    HashMap,
-};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -96,23 +93,17 @@ impl Writer {
         }
 
         match cache.get_mut(WRITER_ID) {
-            Some(writer_cache) => {
-                writer_cache.write(batch).await?;
-                Ok(())
-            }
+            Some(writer_cache) => writer_cache.write(batch).await,
             None => Err(NotFound::Writer().into()),
         }
     }
 
-    pub async fn commit() -> Result<(String, PathBuf, DeltaTable), ParadeError> {
+    pub async fn commit() -> Result<Option<(String, PathBuf, DeltaTable)>, ParadeError> {
         let mut cache = WRITER_CACHE.lock().await;
 
-        match cache.entry(WRITER_ID.to_string()) {
-            Occupied(entry) => {
-                let writer_cache = entry.remove();
-                writer_cache.commit().await
-            }
-            Vacant(_) => Err(NotFound::Writer().into()),
+        match cache.remove(WRITER_ID) {
+            Some(writer_cache) => Ok(Some(writer_cache.commit().await?)),
+            None => Ok(None),
         }
     }
 

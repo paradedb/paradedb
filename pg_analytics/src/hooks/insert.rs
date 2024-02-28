@@ -3,9 +3,9 @@ use pgrx::*;
 use shared::postgres::transaction::Transaction;
 use std::panic::AssertUnwindSafe;
 
+use crate::datafusion::commit::{commit_writer, TRANSACTION_CALLBACK_CACHE_ID};
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
-use crate::hooks::transaction::{commit_writer, TRANSACTION_CALLBACK_CACHE_ID};
 
 pub fn insert(
     rtable: *mut pg_sys::List,

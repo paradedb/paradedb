@@ -4,7 +4,8 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::commit::commit_writer;
+
 use crate::datafusion::datatype::DatafusionMapProducer;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
 use crate::datafusion::datatype::PostgresTypeTranslator;
@@ -48,8 +49,8 @@ pub extern "C" fn deltalake_multi_insert(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_finish_bulk_insert(rel: pg_sys::Relation, _options: c_int) {
-    task::block_on(flush_and_commit(rel)).unwrap_or_else(|err| {
+pub extern "C" fn deltalake_finish_bulk_insert(_rel: pg_sys::Relation, _options: c_int) {
+    task::block_on(commit_writer()).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -63,21 +64,6 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
     _bistate: *mut pg_sys::BulkInsertStateData,
     _specToken: pg_sys::uint32,
 ) {
-}
-
-#[inline]
-async fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
-    let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let schema_name = pg_relation.namespace();
-    let table_path = pg_relation.table_path()?;
-
-    let (_, _, mut delta_table) = Writer::commit().await?;
-
-    delta_table.update().await?;
-
-    DatafusionContext::with_tables(schema_name, |mut tables| {
-        tables.register(&table_path, delta_table)
-    })
 }
 
 #[inline]

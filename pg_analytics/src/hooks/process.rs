@@ -7,12 +7,12 @@ use pgrx::*;
 use std::collections::VecDeque;
 use std::ffi::CStr;
 
+use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::errors::ParadeError;
 use crate::hooks::alter::alter;
 use crate::hooks::drop::drop;
 use crate::hooks::query::Query;
 use crate::hooks::rename::rename;
-use crate::hooks::transaction::{commit_writer, needs_commit};
 use crate::hooks::truncate::truncate;
 use crate::hooks::vacuum::vacuum;
 

@@ -1,3 +1,4 @@
+#![allow(unused)]
 use once_cell::sync::Lazy;
 use pgrx::{
     pg_sys::{Datum, ItemPointerData},

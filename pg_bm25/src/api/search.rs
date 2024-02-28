@@ -1,4 +1,4 @@
-#![allow(unused_imports)]
+#![allow(unused)]
 use crate::env::needs_commit;
 use crate::schema::SearchConfig;
 use crate::writer::{WriterClient, WriterDirectory};
@@ -6,14 +6,14 @@ use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_sear
 use pgrx::{prelude::TableIterator, *};
 use tantivy::{schema::FieldType, SnippetGenerator};
 
-// #[pg_extern]
-// pub fn rank_bm25(
-//     config_json: JsonB,
-// ) -> TableIterator<'static, (name!(id, i64), name!(rank_bm25, f32))> {
-//     let JsonB(search_config_json) = config_json;
-//     let search_config: SearchConfig =
-//         serde_json::from_value(search_config_json).expect("could not parse search config");
-//     let search_index = get_search_index(&search_config.index_name);
+#[pg_extern]
+pub fn rank_bm25(
+    config_json: JsonB,
+) -> TableIterator<'static, (name!(id, i64), name!(rank_bm25, f32))> {
+    let JsonB(search_config_json) = config_json;
+    let search_config: SearchConfig =
+        serde_json::from_value(search_config_json).expect("could not parse search config");
+    let search_index = get_search_index(&search_config.index_name);
 
     let writer_client = WriterGlobal::client();
     let mut scan_state = search_index
@@ -21,12 +21,12 @@ use tantivy::{schema::FieldType, SnippetGenerator};
         .unwrap();
     let top_docs = scan_state.search_dedup();
 
-//     let mut field_rows = Vec::new();
-//     for (score, _) in top_docs.into_iter() {
-//         field_rows.push((score.key, score.bm25));
-//     }
-//     TableIterator::new(field_rows)
-// }
+    let mut field_rows = Vec::new();
+    for (score, _) in top_docs.into_iter() {
+        field_rows.push((score.key, score.bm25));
+    }
+    TableIterator::new(field_rows)
+}
 
 #[pg_extern]
 pub fn highlight_bm25(
@@ -47,23 +47,23 @@ pub fn highlight_bm25(
         .unwrap();
     let top_docs = scan_state.search_dedup();
 
-//     let highlight_field = schema
-//         .get_field(field_name)
-//         .unwrap_or_else(|err| panic!("error highlighting field {field_name}: {err:?}"));
-//     let highlight_field_entry = schema.get_field_entry(highlight_field);
+    let highlight_field = schema
+        .get_field(field_name)
+        .unwrap_or_else(|err| panic!("error highlighting field {field_name}: {err:?}"));
+    let highlight_field_entry = schema.get_field_entry(highlight_field);
 
-//     let mut snippet_generator = if let FieldType::Str(_) = highlight_field_entry.field_type() {
-//         SnippetGenerator::create(&search_index.searcher(), &scan_state.query, highlight_field)
-//             .unwrap_or_else(|err| {
-//                 panic!("failed to create snippet generator for field: {field_name}... {err}")
-//             })
-//     } else {
-//         panic!("can only highlight text fields")
-//     };
+    let mut snippet_generator = if let FieldType::Str(_) = highlight_field_entry.field_type() {
+        SnippetGenerator::create(&search_index.searcher(), &scan_state.query, highlight_field)
+            .unwrap_or_else(|err| {
+                panic!("failed to create snippet generator for field: {field_name}... {err}")
+            })
+    } else {
+        panic!("can only highlight text fields")
+    };
 
-//     if let Some(max_num_chars) = search_config.max_num_chars {
-//         snippet_generator.set_max_num_chars(max_num_chars);
-//     }
+    if let Some(max_num_chars) = search_config.max_num_chars {
+        snippet_generator.set_max_num_chars(max_num_chars);
+    }
 
     let mut field_rows = Vec::new();
     for (_score, doc_address) in top_docs.into_iter() {
@@ -115,10 +115,10 @@ pub fn minmax_bm25(
             (score.bm25 - min_score) / score_range
         };
 
-//         field_rows.push((key, normalized_score));
-//     }
-//     TableIterator::new(field_rows)
-// }
+        field_rows.push((key, normalized_score));
+    }
+    TableIterator::new(field_rows)
+}
 
 #[pg_extern]
 fn drop_bm25_internal(index_name: &str) {

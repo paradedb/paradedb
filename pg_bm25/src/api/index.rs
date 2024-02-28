@@ -197,8 +197,12 @@ pub fn fuzzy_term(
     }
 }
 
+// Avoid exposing more_like_this for now until we can decide on the exact API.
+// Lucene and Elasticsearch seem to have different interfaces for this query,
+// and Tantivy doesn't have any examples of its use, so its unclear what the best
+// way to use it is with pg_search.
+#[allow(unused)]
 #[allow(clippy::too_many_arguments)]
-#[pg_extern(immutable, parallel_safe)]
 pub fn more_like_this(
     min_doc_frequency: default!(Option<i32>, "NULL"),
     max_doc_frequency: default!(Option<i32>, "NULL"),
@@ -228,19 +232,6 @@ pub fn more_like_this(
 }
 
 #[pg_extern(immutable, parallel_safe)]
-pub fn phrase_prefix(
-    field: String,
-    phrases: Array<String>,
-    max_expansion: default!(Option<i32>, "NULL"),
-) -> SearchQueryInput {
-    SearchQueryInput::PhrasePrefix {
-        field,
-        phrases: phrases.iter_deny_null().collect(),
-        max_expansions: max_expansion.map(|n| n as u32),
-    }
-}
-
-#[pg_extern(immutable, parallel_safe)]
 pub fn parse(query_string: String) -> SearchQueryInput {
     SearchQueryInput::Parse { query_string }
 }
@@ -258,7 +249,24 @@ pub fn phrase(
     }
 }
 
-#[pg_extern(name = "range", immutable, parallel_safe)]
+#[pg_extern(immutable, parallel_safe)]
+pub fn phrase_prefix(
+    field: String,
+    phrases: Array<String>,
+    max_expansion: default!(Option<i32>, "NULL"),
+) -> SearchQueryInput {
+    SearchQueryInput::PhrasePrefix {
+        field,
+        phrases: phrases.iter_deny_null().collect(),
+        max_expansions: max_expansion.map(|n| n as u32),
+    }
+}
+
+// We'll also avoid exposing range queries for now, as they are slightly complex
+// to map to Tantivy ranges, and it's not clear if they're necessary at all in the context of
+// Postgres, which can query by range on its own.
+#[allow(unused)]
+// #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i32(field: String, range: Range<i32>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
@@ -282,7 +290,9 @@ pub fn range_i32(field: String, range: Range<i32>) -> SearchQueryInput {
     }
 }
 
-#[pg_extern(name = "range", immutable, parallel_safe)]
+// As with range_i32, we'll avoid exposing range queries for now.
+#[allow(unused)]
+// #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i64(field: String, range: Range<i64>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
@@ -314,18 +324,11 @@ pub fn regex(field: String, pattern: String) -> SearchQueryInput {
 macro_rules! term_fn {
     ($func_name:ident, $value_type:ty, $conversion:expr) => {
         #[pg_extern(name = "term", immutable, parallel_safe)]
-        pub fn $func_name(
-            field: String,
-            value: $value_type,
-            freqs: default!(Option<bool>, "NULL"),
-            position: default!(Option<bool>, "NULL"),
-        ) -> SearchQueryInput {
+        pub fn $func_name(field: String, value: $value_type) -> SearchQueryInput {
             let convert = $conversion;
             SearchQueryInput::Term {
                 field,
                 value: convert(value),
-                freqs,
-                position,
             }
         }
     };
@@ -420,13 +423,13 @@ term_fn!(uuid, pgrx::Uuid, |_v| unimplemented!(
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(
-    fields: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
+    terms: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
 ) -> SearchQueryInput {
-    let fields = fields.into_iter().map(|input| match input {
+    let fields = terms.into_iter().map(|input| match input {
         SearchQueryInput::Term { field, value, .. } => (field, value),
         _ => panic!("only term queries can be passed to term_set"),
     });
     SearchQueryInput::TermSet {
-        fields: fields.collect(),
+        terms: fields.collect(),
     }
 }

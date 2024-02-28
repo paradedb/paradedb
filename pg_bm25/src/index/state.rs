@@ -1,15 +1,10 @@
-#![allow(unused_imports)]
-use core::panic;
 use std::collections::HashMap;
 use tantivy::collector::TopDocs;
-use tantivy::query::{BooleanQuery, RegexQuery};
-use tantivy::query_grammar::Occur;
 use tantivy::{
     query::{Query, QueryParser},
-    schema::*,
     DocAddress, Score, Searcher,
 };
-use tantivy::{DocId, SegmentReader};
+use tantivy::{DocId, Document, SegmentReader};
 
 use super::score::SearchIndexScore;
 use super::SearchIndex;
@@ -18,6 +13,7 @@ use crate::schema::{SearchConfig, SearchIndexSchema};
 pub struct SearchState {
     pub schema: SearchIndexSchema,
     pub query: Box<dyn Query>,
+    pub parser: QueryParser,
     pub searcher: Searcher,
     pub iterator: *mut std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
     pub config: SearchConfig,
@@ -37,6 +33,7 @@ impl SearchState {
         SearchState {
             schema,
             query,
+            parser,
             config: config.clone(),
             searcher: search_index.searcher(),
             iterator: std::ptr::null_mut(),
@@ -112,7 +109,33 @@ impl SearchState {
             .expect("failed to search")
     }
 
-    #[cfg(test)]
+    /// A search method that deduplicates results based on key field. This is important for
+    /// searches into the Tantivy index outside of Postgres index access methods. Postgres will
+    /// filter out stale rows when using the index scan, but when scanning Tantivy directly,
+    /// we risk returning deleted documents if a VACUUM hasn't been performed yet.
+    pub fn search_dedup(&mut self) -> impl Iterator<Item = (SearchIndexScore, DocAddress)> {
+        let search_results = self.search();
+        let mut dedup_map: HashMap<i64, (SearchIndexScore, DocAddress)> = HashMap::new();
+        let mut order_vec: Vec<i64> = Vec::new();
+
+        for (score, doc_addr) in search_results {
+            let key = score.key;
+            let is_new_or_higher = match dedup_map.get(&key) {
+                Some((_, existing_doc_addr)) => doc_addr > *existing_doc_addr,
+                None => true,
+            };
+            if is_new_or_higher && dedup_map.insert(key, (score, doc_addr)).is_none() {
+                // Key was not already present, remember the order of this key
+                order_vec.push(key);
+            }
+        }
+
+        order_vec
+            .into_iter()
+            .filter_map(move |key| dedup_map.remove(&key))
+    }
+
+    #[allow(unused)]
     pub fn doc(&self, doc_address: DocAddress) -> tantivy::Result<Document> {
         self.searcher.doc(doc_address)
     }

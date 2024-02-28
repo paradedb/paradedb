@@ -1,0 +1,267 @@
+---
+title: Advanced Search Queries
+---
+
+## Overview
+
+The `search` function that's generated for your index can accept query objects instead of a query string. Nearly all the query types implemented in Tantivy, our underlying search engine, are exposted to Postgres.
+
+Query objects are composable, allowing for arbitrarily fine-grained queries. A query string itself is parsed into a query object, and can be used anywhere in a query tree with `paradedb.parse`.
+
+`paradedb.parse` is implicitly performed if a query string is passed directly to the `search` function. These three queries are identical:
+
+```sql
+SELECT * FROM search_idx.search('description:shoes');
+
+SELECT * FROM search_idx.search(query => paradedb.parse('description:shoes'));
+
+SELECT * FROM search_idx.search(
+	query => paradedb.term(
+		field => 'description',
+		value => 'shoes'
+	)
+);
+```
+
+## Query Types
+
+The `paradedb` schema exposes the following functions to construct query objects.
+
+### All
+
+This query type indiscriminately matches every document in the index, assigning a uniform score of 1.0 to each.
+
+```sql
+SELECT * FROM search_index.search(
+    query => paradedb.all()
+);
+```
+
+### Boolean
+
+Boolean queries filter documents based on the logical relationships defined by their subqueries, considering:
+
+- Documents that satisfy all `must` conditions.
+- Documents that satisfy none of the `must_not` conditions.
+- Documents that satisfy at least one condition from either `must` or `should`.
+
+```sql
+SELECT * FROM search_index.search(
+    query => paradedb.boolean(
+	    should => ARRAY[
+		    paradedb.parse('description:shoes'),
+		    paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
+		    paradedb.term(field => 'description', value => 'speaker'),
+		    paradedb.fuzzy_term(field => 'description', value => 'wolo')
+	    ]
+    )
+);
+```
+
+<ParamField body="must">
+  A query object or an `ARRAY` of query objects as conditions which must be
+  matched.
+</ParamField>
+<ParamField body="must_not">
+  A query object or an `ARRAY` of query objects as conditions which must not be
+  matched.
+</ParamField>
+<ParamField body="should">
+  A query object or an `ARRAY` of query objects as conditions of which at least
+  one must be matched.
+</ParamField>
+
+### Boost
+
+A boost query wraps around another query to amplify its scoring impact, without altering the set of matched documents.
+
+```sql
+SELECT * FROM bm25_search.search(
+	query => paradedb.boost(query => paradedb.all(), boost => 1.5)
+);
+```
+
+<ParamField body="boost">
+  The factor by which to multiply the score of each result.
+</ParamField>
+<ParamField body="query">The query to perform.</ParamField>
+
+### Const Score
+
+Applies a constant score across all documents matched by the underlying query. It can avoid unnecessary score computation on the wrapped query.
+
+```
+SELECT * FROM bm25_search.search(
+    query => paradedb.const_score(query => paradedb.all(), score => 3.9)
+);
+```
+
+<ParamField body="score">The constant score to use for each result.</ParamField>
+<ParamField body="query">The query to perform.</ParamField>
+
+### Disjunction Max
+
+Returns documents that match one or more of the specified subqueries. If a document matches multiple criteria, it receives the highest score from those matches, with a slight increase for any additional matches.
+
+```sql
+SELECT * FROM bm25_search.search(
+	query => paradedb.disjunction_max(
+		disjuncts => ARRAY[paradedb.parse('description:shoes')]
+	)
+);
+```
+
+<ParamField body="disjuncts">Query objects to match against.</ParamField>
+<ParamField body="tie_breaker">
+  A tie breaking increment for matching subqueries
+</ParamField>
+
+### Empty
+
+Serves as a placeholder, matching no documents. It's useful for testing scenarios or specific edge cases.
+
+```sql
+SELECT * FROM bm25_search.search(
+	query => paradedb.empty()
+);
+```
+
+### Fuzzy Term
+
+Matches documents containing terms that are within a specified Levenshtein distance from the search term, supporting searches for similar terms.
+
+```sql
+SELECT * FROM bm25_search.search(
+	query => paradedb.fuzzy_term(field => 'description', value => 'wolo')
+);
+```
+
+<ParamField body="field">
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="value">
+  Defines the term or phrase you are searching for within the specified field,
+  using fuzzy logic based on Levenshtein distance to find similar terms.
+</ParamField>
+<ParamField body="distance">
+  Sets the maximum number of single-character edits (insertions, deletions,
+  substitutions) required to change the search term into the exact term found in
+  the document.
+</ParamField>
+<ParamField body="transposition_cost_one">
+  Determines whether transpositions (swapping of two adjacent characters) should
+  be counted as a single operation or as two operations in the calculation of
+  Levenshtein distance. Setting this to `true` makes the search more forgiving
+  for misspellings that involve swapped characters.
+</ParamField>
+<ParamField body="prefix">
+  Idicates whether the query should only match terms that begin with the
+  specified value (when set to `true`). This is useful for prefix searches where
+  the beginning of a term is known, but the complete term is not.
+</ParamField>
+
+### Phrase
+
+Searches for documents containing an exact sequence of words, with `slop` allowing for some flexibility in term proximity. This query type also requires position indexing.
+
+```sql
+SELECT * FROM bm25_search.search(
+	query => paradedb.phrase(
+		field => 'description',
+		phrases => ARRAY['robot', 'building', 'kit']
+	)
+)
+```
+
+<ParamField body="field">
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="phrases">
+  An `ARRAY` of words that form the search phrase. These words must appear in
+  the specified order within the document for a match to occur, although some
+  flexibility is allowed based on the `slop` parameter.
+</ParamField>
+<ParamField body="slop">
+  A slop of 0 requires the terms to appear exactly as they are in the phrase and
+  adjacent to each other. Higher slop values allow for more distance and
+  flexibility between the terms, accommodating variations in the phrase's
+  structure within the document.
+</ParamField>
+
+### Phrase Prefix
+
+Identifies documents containing a given sequence of words followed by a term prefix, requiring the indexing of positions for the search field.
+
+```sql
+SELECT * FROM bm25_search.search(
+	query => paradedb.phrase_prefix(
+		field => 'description',
+		phrases => ARRAY['har']
+	)
+);
+```
+
+<ParamField body="field">
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="phrases">
+  An `ARRAY` of words that the search is looking to match, followed by a term
+  prefix rather than a complete term.
+</ParamField>
+<ParamField body="max_expansion">
+  Limits the number of term variations that the prefix can expand to during the
+  search. This helps in controlling the breadth of the search by setting a cap
+  on how many different terms the prefix can match.
+</ParamField>
+
+### Regex
+
+Finds documents containing terms that match a specific regex pattern, enabling pattern-based searching.
+
+```
+SELECT * FROM bm25_search.search(
+	query => paradedb.regex(
+		field => 'description',
+		pattern => '(hardcover|plush|leather|running|wireless)'
+	)
+)
+```
+
+<ParamField body="field">
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="pattern">A regex pattern string.</ParamField>
+
+### Term
+
+Matches documents containing a specified term, with scoring based on term frequency, inverse document frequency, and field normalization.
+
+```
+SELECT * FROM bm25_search.search(
+	query => paradedb.term(field => 'description', value => 'shoes')
+)
+```
+
+<ParamField body="field">
+  Specifies the field within the document to search for the term.
+</ParamField>
+<ParamField body="value">Value to search for in the document field.</ParamField>
+
+### TermSet
+
+Matches documents containing any term from a specified set, offering flexibility in matching criteria.
+
+```
+SELECT * FROM bm25_search.search(
+	query => paradedb.term_set(
+	    fields => ARRAY[
+	        paradedb.term(field => 'description', value => 'shoes'),
+	        paradedb.term(field => 'description', value => 'novel')
+	    ]
+	)
+)
+```
+
+<ParamField body="terms">
+  An `ARRAY` of `paradedb.term` query objects.
+</ParamField>

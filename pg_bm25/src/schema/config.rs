@@ -11,6 +11,8 @@ pub struct SearchConfig {
     pub key_field: String,
     pub offset_rows: Option<usize>,
     pub limit_rows: Option<usize>,
+    pub max_num_chars: Option<usize>,
+    pub highlight_field: Option<String>,
 }
 
 impl SearchConfig {

@@ -163,19 +163,20 @@ BEGIN
         index_json => index_json
     );
 
-    -- EXECUTE paradedb.format_bm25_function(
-    --     function_name => format('%I.highlight', index_name),
-    --     return_type => format('TABLE(%s bigint, highlight_bm25 text)', key_field),
-    --     function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(__paradedb_search_config__);',
-    --     index_json => index_json
-    -- );
+    EXECUTE paradedb.format_bm25_function(
+        function_name => format('%I.highlight', index_name),
+        return_type => format('TABLE(%s bigint, highlight_bm25 text)', key_field),
+        function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(__paradedb_search_config__);',
+        index_json => index_json
+    );
 
-    -- EXECUTE paradedb.format_bm25_function(
-    --     function_name => format('%I.rank', index_name),
-    --     return_type => format('TABLE(%s bigint, rank_bm25 real)', key_field),
-    --     function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__);',
-    --     index_json => index_json
-    -- );
+    EXECUTE paradedb.format_bm25_function(
+
+        function_name => format('%I.rank', index_name),
+        return_type => format('TABLE(%s bigint, rank_bm25 real)', key_field),
+        function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__);',
+        index_json => index_json
+    );
 
     EXECUTE paradedb.format_empty_function(
         function_name => format('%I.schema', index_name),
@@ -245,7 +246,9 @@ BEGIN
         CREATE OR REPLACE FUNCTION %s(
             query paradedb.searchqueryinput, -- The search query
             offset_rows integer DEFAULT NULL, -- Offset for paginated results
-            limit_rows integer DEFAULT NULL -- Limit for paginated results
+            limit_rows integer DEFAULT NULL, -- Limit for paginated results
+            max_num_chars integer DEFAULT NULL, -- Maximum character limit for searches 
+            highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only) 
         ) RETURNS %s AS $func$
         DECLARE
             __paradedb_search_config__ JSONB;
@@ -254,7 +257,9 @@ BEGIN
             __paradedb_search_config__ := %L::jsonb || jsonb_build_object(
                 'query', query::text::jsonb,
                 'offset_rows', offset_rows,
-                'limit_rows', limit_rows
+                'limit_rows', limit_rows,
+                'max_num_chars', max_num_chars,
+                'highlight_field', highlight_field,
             );
             %s; -- Execute the function body with the constructed JSONB parameter
         END

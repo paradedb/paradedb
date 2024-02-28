@@ -87,11 +87,9 @@ pub enum SearchQueryInput {
     Term {
         field: String,
         value: tantivy::schema::Value,
-        freqs: Option<bool>,
-        position: Option<bool>,
     },
     TermSet {
-        fields: Vec<(String, tantivy::schema::Value)>,
+        terms: Vec<(String, tantivy::schema::Value)>,
     },
 }
 
@@ -413,24 +411,15 @@ impl SearchQueryInput {
                 )
                 .map_err(|err| QueryError::RegexError(err, pattern.clone()))?,
             )),
-            Self::Term {
-                field,
-                value,
-                freqs,
-                position,
-            } => {
-                let record_option = match (freqs, position) {
-                    (_, Some(true)) => IndexRecordOption::WithFreqsAndPositions,
-                    (Some(true), _) => IndexRecordOption::WithFreqs,
-                    _ => IndexRecordOption::Basic,
-                };
+            Self::Term { field, value } => {
+                let record_option = IndexRecordOption::WithFreqsAndPositions;
                 let (_, field) = field_lookup
                     .as_field_type(&field)
                     .ok_or_else(|| QueryError::NonIndexedField(field))?;
                 let term = value_to_term(field, value);
                 Ok(Box::new(TermQuery::new(term, record_option)))
             }
-            Self::TermSet { fields } => {
+            Self::TermSet { terms: fields } => {
                 let mut terms = vec![];
                 for (field_name, field_value) in fields {
                     let (_, field) = field_lookup

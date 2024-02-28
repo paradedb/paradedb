@@ -54,7 +54,7 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
         pg_sys::RelationClose(relation);
 
         DatafusionContext::with_tables(schema_name, |mut tables| {
-            let (mut delta_table, _) = task::block_on(tables.delete(&pg_relation, None))?;
+            let (mut delta_table, _) = task::block_on(tables.delete(&table_path, None))?;
             task::block_on(delta_table.update())?;
             tables.register(&table_path, delta_table)
         })?;

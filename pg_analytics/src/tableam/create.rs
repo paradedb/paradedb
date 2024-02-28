@@ -7,6 +7,7 @@ use pgrx::*;
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
@@ -75,12 +76,13 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
             }
 
             let mut delta_table = DatafusionContext::with_tables(&schema_name, |tables| {
-                task::block_on(tables.create(&pg_relation))
+                ParadeDirectory::create_schema_path(DatafusionContext::catalog_oid()?, pg_relation.namespace_oid())?;
+                task::block_on(tables.create(&table_path, pg_relation.arrow_schema()?))
             })?;
 
             DatafusionContext::with_writers(&schema_name, |mut writers| {
                 let batch = RecordBatch::new_empty(arrow_schema.clone());
-                task::block_on(writers.merge_schema(&pg_relation, batch))
+                task::block_on(writers.merge_schema(&schema_name, &table_path, batch))
             })?;
 
             delta_table.update().await?;

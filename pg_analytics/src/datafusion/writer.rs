@@ -1,4 +1,5 @@
 use async_std::task;
+use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::kernel::Action;
 use deltalake::operations::transaction::commit;
@@ -6,15 +7,14 @@ use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
 use deltalake::DeltaTable;
-use pgrx::*;
 use std::collections::{
     hash_map::Entry::{self, Occupied, Vacant},
     HashMap,
 };
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
-use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 
@@ -33,14 +33,14 @@ impl Writers {
 
     pub async fn write(
         &mut self,
-        pg_relation: &PgRelation,
+        schema_name: &str,
+        table_path: &Path,
+        arrow_schema: Arc<ArrowSchema>,
         batch: RecordBatch,
     ) -> Result<(), ParadeError> {
-        let table_path = pg_relation.table_path()?;
-
         let writer = match Self::get_entry(self, &table_path)? {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(Self::create(pg_relation).await?),
+            Vacant(entry) => entry.insert(Self::create(schema_name, table_path, arrow_schema).await?),
         };
 
         writer.write(&batch).await?;
@@ -48,15 +48,10 @@ impl Writers {
         Ok(())
     }
 
-    pub async fn flush_and_commit(
-        &mut self,
-        table_name: &str,
-        schema_name: &str,
-        table_path: &Path,
-    ) -> Result<DeltaTable, ParadeError> {
+    pub async fn commit(&mut self, schema_name: &str, table_path: &Path) -> Result<DeltaTable, ParadeError> {
         let writer = match Self::get_entry(self, table_path)? {
             Occupied(entry) => entry.remove(),
-            Vacant(_) => return Err(NotFound::Writer(table_name.to_string()).into()),
+            Vacant(_) => return Err(NotFound::Writer(schema_name.to_string()).into()),
         };
 
         let actions = writer.close().await?;
@@ -82,14 +77,12 @@ impl Writers {
 
     pub async fn merge_schema(
         &mut self,
-        pg_relation: &PgRelation,
+        schema_name: &str,
+        table_path: &Path,
         batch: RecordBatch,
     ) -> Result<DeltaTable, ParadeError> {
-        let schema_name = pg_relation.namespace();
-        let table_path = pg_relation.table_path()?;
-
         let mut delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
-            task::block_on(tables.get_owned(&table_path))
+            task::block_on(tables.get_owned(table_path))
         })?;
 
         // Write the RecordBatch to the DeltaTable
@@ -100,17 +93,18 @@ impl Writers {
         writer.flush_and_commit(&mut delta_table).await?;
 
         // Remove the old writer
-        self.delta_writers.remove(&table_path);
+        self.delta_writers.remove(table_path);
 
         Ok(delta_table)
     }
 
-    async fn create(pg_relation: &PgRelation) -> Result<DeltaWriter, ParadeError> {
+    async fn create(
+        schema_name: &str,
+        table_path: &Path,
+        arrow_schema: Arc<ArrowSchema>,
+    ) -> Result<DeltaWriter, ParadeError> {
         let target_file_size = PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB;
 
-        let schema_name = pg_relation.namespace();
-        let table_path = pg_relation.table_path()?;
-        let arrow_schema = pg_relation.arrow_schema()?;
         let writer_config = WriterConfig::new(
             arrow_schema,
             vec![],
@@ -120,7 +114,7 @@ impl Writers {
         );
 
         let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
-            task::block_on(tables.get_owned(&table_path))
+            task::block_on(tables.get_owned(table_path))
         })?;
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))

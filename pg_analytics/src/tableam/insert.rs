@@ -68,12 +68,11 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
 #[inline]
 async fn flush_and_commit(rel: pg_sys::Relation) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
 
     let mut delta_table = DatafusionContext::with_writers(schema_name, |mut writers| {
-        task::block_on(writers.flush_and_commit(table_name, schema_name, &table_path))
+        task::block_on(writers.commit(schema_name, &table_path))
     })?;
 
     delta_table.update().await?;
@@ -108,10 +107,11 @@ fn insert_tuples(
 
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();
+    let table_path = pg_relation.table_path()?;
     let arrow_schema = pg_relation.arrow_schema()?;
     let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
 
     DatafusionContext::with_writers(schema_name, |mut writers| {
-        task::block_on(writers.write(&pg_relation, batch))
+        task::block_on(writers.write(schema_name, &table_path, arrow_schema, batch))
     })
 }

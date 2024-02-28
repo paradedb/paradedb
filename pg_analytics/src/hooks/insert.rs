@@ -40,14 +40,13 @@ pub fn insert(
     }
 
     let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
-    let table_name = pg_relation.name().to_string();
     let schema_name = pg_relation.namespace().to_string();
     let table_path = pg_relation.table_path()?;
 
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,
         AssertUnwindSafe(move || {
-            task::block_on(insert_callback(table_name, schema_name, &table_path))
+            task::block_on(insert_callback(schema_name, &table_path))
                 .expect("Precommit callback failed");
         }),
     )?;
@@ -55,14 +54,17 @@ pub fn insert(
     Ok(())
 }
 
+pub fn needs_commit() -> Result<bool, ParadeError> {
+    Ok(Transaction::needs_commit(TRANSACTION_CALLBACK_CACHE_ID)?)
+}
+
 #[inline]
 async fn insert_callback(
-    table_name: String,
     schema_name: String,
     table_path: &Path,
 ) -> Result<(), ParadeError> {
     let mut delta_table = DatafusionContext::with_writers(&schema_name, |mut writers| {
-        task::block_on(writers.flush_and_commit(&table_name, &schema_name, table_path))
+        task::block_on(writers.commit(&schema_name, table_path))
     })?;
 
     delta_table.update().await?;

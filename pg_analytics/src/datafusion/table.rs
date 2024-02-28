@@ -97,13 +97,12 @@ impl Tables {
         })
     }
 
-    pub async fn create(&self, pg_relation: &PgRelation) -> Result<DeltaTable, ParadeError> {
-        let table_path = pg_relation.table_path()?;
-        let schema_oid = pg_relation.namespace_oid();
-        let arrow_schema = pg_relation.arrow_schema()?;
+    pub async fn create(
+        &self,
+        table_path: &Path,
+        arrow_schema: Arc<ArrowSchema>,
+    ) -> Result<DeltaTable, ParadeError> {
         let delta_schema = DeltaSchema::try_from(arrow_schema.as_ref())?;
-
-        ParadeDirectory::create_schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
 
         let delta_table = CreateBuilder::new()
             .with_location(table_path.to_string_lossy())
@@ -115,11 +114,10 @@ impl Tables {
 
     pub async fn delete(
         &mut self,
-        pg_relation: &PgRelation,
+        table_path: &Path,
         predicate: Option<Expr>,
     ) -> Result<(DeltaTable, DeleteMetrics), ParadeError> {
-        let table_path = pg_relation.table_path()?;
-        let old_table = Self::get_owned(self, &table_path).await?;
+        let old_table = Self::get_owned(self, table_path).await?;
 
         let mut delete_builder = DeleteBuilder::new(
             old_table.log_store(),

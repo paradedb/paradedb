@@ -72,7 +72,7 @@ pub async unsafe fn alter(
         let batch = RecordBatch::new_empty(schema);
 
         let mut delta_table = DatafusionContext::with_writers(schema_name, |mut writers| {
-            task::block_on(writers.merge_schema(&pg_relation, batch))
+            task::block_on(writers.merge_schema(schema_name, &table_path, batch))
         })?;
 
         delta_table.update().await?;

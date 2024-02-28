@@ -60,7 +60,7 @@ pub enum NotFound {
     #[error("No table registered with name {0}")]
     Table(String),
 
-    #[error("No writer found for table {0}")]
+    #[error("No writer found for schema {0}")]
     Writer(String),
 
     #[error("Failed to convert to datum {0}")]

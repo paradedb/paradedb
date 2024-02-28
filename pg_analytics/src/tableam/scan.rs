@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionMapProducer, DatafusionTypeTranslator};
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotFound, ParadeError};
 
 struct DeltalakeScanDesc {
@@ -103,6 +104,7 @@ unsafe fn deltalake_scan_getnextslot_impl(
     let dscan = scan as *mut DeltalakeScanDesc;
     let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
     let schema_name = pg_relation.namespace();
+    let table_path = pg_relation.table_path()?;
 
     if (*dscan).curr_batch.is_none()
         || (*dscan).curr_batch_idx
@@ -115,7 +117,7 @@ unsafe fn deltalake_scan_getnextslot_impl(
         (*dscan).curr_batch_idx = 0;
 
         (*dscan).curr_batch = match DatafusionContext::with_streams(schema_name, |mut streams| {
-            task::block_on(streams.get_next_batch(&pg_relation))
+            task::block_on(streams.get_next_batch(schema_name, &table_path))
         })? {
             Some(batch) => Some(Arc::new(batch)),
             None => return Ok(false),

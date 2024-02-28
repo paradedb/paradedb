@@ -49,7 +49,7 @@ pub async fn delete(
         DatafusionContext::with_tables(schema_name, |mut tables| {
             match dml_statement.input.as_ref() {
                 LogicalPlan::Filter(filter) => {
-                    task::block_on(tables.delete(&pg_relation, Some(filter.predicate.clone())))
+                    task::block_on(tables.delete(&table_path, Some(filter.predicate.clone())))
                 }
                 LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
                 _ => Err(NotSupported::NestedDelete.into()),

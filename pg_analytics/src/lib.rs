@@ -9,7 +9,6 @@ mod types;
 
 use pgrx::*;
 use shared::logs::ParadeLogsGlobal;
-use shared::telemetry;
 use shared::telemetry::bgworker::setup_telemetry_background_worker;
 
 use crate::guc::PARADE_GUC;

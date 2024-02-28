@@ -5,7 +5,7 @@ use std::process;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::telemetry::data::read_telemetry_data;
+use crate::telemetry::posthog::read_and_send_telemetry_data;
 
 #[pg_guard]
 pub fn setup_telemetry_background_worker(extension_name: String) {
@@ -62,15 +62,9 @@ pub unsafe extern "C" fn telemetry_worker(arg: pg_sys::Datum) {
 
         // Check if the wait_duration has passed since the last time we sent telemetry data
         if Instant::now().duration_since(last_action_time) >= wait_duration {
-            let _telemetry_data = read_telemetry_data(rust_string.clone());
-
-            // TODO: Send telemetry data to PostHog
-
+            read_and_send_telemetry_data(rust_string.clone());
             last_action_time = Instant::now();
         }
-
-
-        // TODO: Sigterm doesn't exit properly, it keeps printing!
 
         // Listen for SIGTERM, to allow for a clean shutdown
         if BackgroundWorker::sigterm_received() {

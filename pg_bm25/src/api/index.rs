@@ -184,7 +184,7 @@ pub fn fast_field_range_weight(field: String, range: pgrx::Range<i32>) -> Search
 pub fn fuzzy_term(
     field: String,
     value: String,
-    distance: default!(Option<i16>, "NULL"),
+    distance: default!(Option<i32>, "NULL"),
     tranposition_cost_one: default!(Option<bool>, "NULL"),
     prefix: default!(Option<bool>, "NULL"),
 ) -> SearchQueryInput {
@@ -425,11 +425,13 @@ term_fn!(uuid, pgrx::Uuid, |_v| unimplemented!(
 pub fn term_set(
     terms: default!(Vec<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
 ) -> SearchQueryInput {
-    let fields = terms.into_iter().map(|input| match input {
-        SearchQueryInput::Term { field, value, .. } => (field, value),
-        _ => panic!("only term queries can be passed to term_set"),
-    });
-    SearchQueryInput::TermSet {
-        terms: fields.collect(),
-    }
+    let terms: Vec<_> = terms
+        .into_iter()
+        .map(|input| match input {
+            SearchQueryInput::Term { field, value, .. } => (field, value),
+            _ => panic!("only term queries can be passed to term_set"),
+        })
+        .collect();
+
+    SearchQueryInput::TermSet { terms }
 }

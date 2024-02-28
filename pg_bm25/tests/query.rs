@@ -27,6 +27,55 @@ fn boolean_tree(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn fuzzy_fields(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+    	query => paradedb.fuzzy_term(field => 'category', value => 'elector')
+	)"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![1, 2, 12, 22, 32], "wrong results");
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+    	query => paradedb.term(field => 'category', value => 'electornics')
+	)"#
+    .fetch_collect(&mut conn);
+    assert!(columns.is_empty(), "without fuzzy field should be empty");
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+    	query => paradedb.fuzzy_term(
+    	    field => 'description',
+    	    value => 'keybaord',
+    	    tranposition_cost_one => false,
+    	    distance => 1
+    	)
+	)"#
+    .fetch_collect(&mut conn);
+    assert!(
+        columns.is_empty(),
+        "tranposition_cost_one false should be empty"
+    );
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+    	query => paradedb.fuzzy_term(
+    	    field => 'description',
+    	    value => 'keybaord',
+    	    tranposition_cost_one => true,
+    	    distance => 1
+    	)
+	)"#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+        columns.id,
+        vec![1, 2],
+        "incorrect tranposition_cost_one true"
+    );
+}
+
+#[rstest]
 fn single_queries(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
@@ -144,7 +193,7 @@ fn single_queries(mut conn: PgConnection) {
     match r#"
     SELECT * FROM bm25_search.search(
     	query => paradedb.term_set(
-    	    fields => ARRAY[
+    	    terms => ARRAY[
     	        paradedb.regex(field => 'description', pattern => '.+')
     	    ]
     	)
@@ -161,7 +210,7 @@ fn single_queries(mut conn: PgConnection) {
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
     	query => paradedb.term_set(
-    	    fields => ARRAY[
+    	    terms => ARRAY[
     	        paradedb.term(field => 'description', value => 'shoes'),
     	        paradedb.term(field => 'description', value => 'novel')
     	    ]

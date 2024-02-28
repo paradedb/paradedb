@@ -229,6 +229,24 @@ fn hybrid(mut conn: PgConnection) {
     USING hnsw (embedding vector_l2_ops)"#
         .execute(&mut conn);
 
+    // Test with query object.
+    let columns: SimpleProductsTableVec = r#"
+    SELECT m.*, s.rank_hybrid
+    FROM paradedb.bm25_search m
+    LEFT JOIN (
+        SELECT * FROM bm25_search.rank_hybrid(
+            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
+            similarity_query => '''[1,2,3]'' <-> embedding',
+            bm25_weight => 0.9,
+            similarity_weight => 0.1
+        )
+    ) s ON m.id = s.id
+    LIMIT 5"#
+        .fetch_collect(&mut conn);
+
+    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
+
+    // Test with string query.
     let columns: SimpleProductsTableVec = r#"
     SELECT m.*, s.rank_hybrid
     FROM paradedb.bm25_search m

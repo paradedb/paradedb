@@ -166,7 +166,7 @@ BEGIN
     EXECUTE paradedb.format_bm25_function(
         function_name => format('%I.highlight', index_name),
         return_type => format('TABLE(%s bigint, highlight_bm25 text)', key_field),
-        function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(__paradedb_search_config__);',
+        function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(__paradedb_search_config__)',
         index_json => index_json
     );
 
@@ -174,7 +174,7 @@ BEGIN
 
         function_name => format('%I.rank', index_name),
         return_type => format('TABLE(%s bigint, rank_bm25 real)', key_field),
-        function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__);',
+        function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__)',
         index_json => index_json
     );
 
@@ -259,7 +259,7 @@ BEGIN
                 'offset_rows', offset_rows,
                 'limit_rows', limit_rows,
                 'max_num_chars', max_num_chars,
-                'highlight_field', highlight_field,
+                'highlight_field', highlight_field
             );
             %s; -- Execute the function body with the constructed JSONB parameter
         END
@@ -302,6 +302,27 @@ BEGIN
                 similarity_weight real DEFAULT 0.5,
                 bm25_weight real DEFAULT 0.5
             ) RETURNS %s AS $func$
+            BEGIN
+            -- Explicitly cast the 'bm25_query' text parameter to 'paradedb.searchqueryinput' type
+            RETURN QUERY SELECT * FROM %s(
+                bm25_query => paradedb.parse(bm25_query),
+                similarity_query => similarity_query,
+                similarity_limit_n => similarity_limit_n,
+                bm25_limit_n => bm25_limit_n,
+                similarity_weight => similarity_weight,
+                bm25_weight => bm25_weight
+            );
+            END;
+            $func$ LANGUAGE plpgsql;
+
+            CREATE OR REPLACE FUNCTION %s(
+                bm25_query paradedb.searchqueryinput,
+                similarity_query text,
+                similarity_limit_n integer DEFAULT 100,
+                bm25_limit_n integer DEFAULT 100,
+                similarity_weight real DEFAULT 0.5,
+                bm25_weight real DEFAULT 0.5
+            ) RETURNS %s AS $func$
             DECLARE
                 __paradedb_search_config__ JSONB;
                 query text;
@@ -309,7 +330,7 @@ BEGIN
             -- Merge the outer 'index_json' object into the parameters passed to the dynamic function.
                 __paradedb_search_config__ := jsonb_strip_nulls(
                     '%s'::jsonb || jsonb_build_object(
-                        'query', bm25_query,
+                        'query', bm25_query::text::jsonb,
                         'limit_rows', bm25_limit_n
                     )
                 );
@@ -321,7 +342,7 @@ BEGIN
                 USING __paradedb_search_config__, similarity_limit_n, similarity_weight, bm25_weight;
             END;
             $func$ LANGUAGE plpgsql;
-        $f$, function_name, return_type, index_json, __function_body__);
+        $f$, function_name, return_type, function_name, function_name, return_type, index_json, __function_body__);
     END;
 END;
 $outerfunc$ LANGUAGE plpgsql;

@@ -32,63 +32,6 @@ fn with_limit_and_offset(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn fuzzy_fields(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-    let rows: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('category:electornics', fuzzy_fields => 'category')"
-            .fetch_collect(&mut conn);
-
-    assert_eq!(rows.id, vec![1, 2, 12, 22, 32], "wrong results");
-
-    let rows: Vec<SimpleProductsTable> =
-        "SELECT * FROM bm25_search.search('category:electornics')".fetch(&mut conn);
-
-    assert!(rows.is_empty(), "without fuzzy field should be empty");
-
-    let rows: Vec<SimpleProductsTable> = "SELECT * FROM bm25_search.search(
-            'description:keybaord',
-            fuzzy_fields => 'description',
-            transpose_cost_one => false,
-            distance => 1
-        )"
-    .fetch_collect(&mut conn);
-
-    assert!(rows.is_empty(), "transpose false should be empty");
-
-    let rows: SimpleProductsTableVec = "SELECT * FROM bm25_search.search(
-            'description:keybaord',
-            fuzzy_fields => 'description',
-            transpose_cost_one => true,
-            distance => 1
-        )"
-    .fetch_collect(&mut conn);
-
-    assert_eq!(rows.id, vec![1, 2], "incorrect transpose true");
-
-    let rows: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('com', regex_fields => 'description')"
-            .fetch_collect(&mut conn);
-
-    assert_eq!(rows.id, vec![6, 23], "incorrect regex field");
-
-    let rows: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('key', fuzzy_fields => 'description,category', distance => 2, transpose_cost_one => false, prefix => false, limit_rows => 5)"
-            .fetch_collect(&mut conn);
-
-    assert_eq!(rows.id, vec![8, 10, 30], "incorrect fuzzy prefix disabled");
-
-    let rows: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('key', fuzzy_fields => 'description,category', distance => 2, transpose_cost_one => false, prefix => true, limit_rows => 5)"
-            .fetch_collect(&mut conn);
-
-    assert_eq!(
-        rows.id,
-        vec![1, 2, 10, 40, 12],
-        "incorrect fuzzy prefix enabled"
-    );
-}
-
-#[rstest]
 fn default_tokenizer_config(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'tokenizer_config', schema_name => 'paradedb')"
         .execute(&mut conn);

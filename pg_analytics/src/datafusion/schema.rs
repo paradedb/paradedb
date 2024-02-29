@@ -48,15 +48,19 @@ impl SchemaProvider for ParadeSchemaProvider {
 
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
         let tables = Self::tables(self).expect("Failed to get tables");
-        let table_path =
-            table_path(&self.schema_name, table_name).expect("Failed to get table name");
+        let table_path = table_path(&self.schema_name, table_name).unwrap_or_else(|_| {
+            panic!(
+                "Failed to get table path for {}.{}",
+                self.schema_name, table_name
+            )
+        });
 
         match table_path {
-            Some(table_path) => Some(
-                table_impl(tables, &table_path)
-                    .await
-                    .expect("Failed to get table"),
-            ),
+            Some(table_path) => {
+                Some(table_impl(tables, &table_path).await.unwrap_or_else(|_| {
+                    panic!("Failed to get {}.{}", self.schema_name, table_name)
+                }))
+            }
             None => None,
         }
     }

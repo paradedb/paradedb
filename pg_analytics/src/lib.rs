@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 
-mod api;
 mod datafusion;
 mod errors;
 mod guc;

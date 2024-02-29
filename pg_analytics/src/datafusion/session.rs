@@ -3,9 +3,12 @@ use async_std::task;
 use deltalake::datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use deltalake::datafusion::prelude::{SessionConfig, SessionContext};
 use once_cell::sync::Lazy;
-use parking_lot::{RwLock, RwLockWriteGuard};
 use pgrx::*;
 use std::any::type_name;
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    HashMap,
+};
 use std::ffi::{CStr, CString};
 use std::future::Future;
 use std::pin::Pin;
@@ -17,8 +20,10 @@ use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::table::Tables;
 use crate::errors::{NotFound, ParadeError};
 
-static SESSION_CACHE: Lazy<Arc<RwLock<Option<SessionContext>>>> =
-    Lazy::new(|| Arc::new(RwLock::new(None)));
+const SESSION_ID: &str = "datafusion_session_context";
+
+static SESSION_CACHE: Lazy<Arc<Mutex<HashMap<String, SessionContext>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub struct Session;
 
@@ -27,29 +32,25 @@ impl<'a> Session {
     where
         F: FnOnce(&SessionContext) -> Result<R, ParadeError>,
     {
-        let context_lock = SESSION_CACHE.read();
-        let context = match context_lock.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                drop(context_lock);
-                Self::init(Self::catalog_oid()?)?
-            }
+        let mut lock = task::block_on(SESSION_CACHE.lock());
+
+        let context = match lock.entry(SESSION_ID.to_string()) {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()?))?),
         };
 
-        f(&context)
+        f(context)
     }
 
     pub fn with_catalog<F, R>(f: F) -> Result<R, ParadeError>
     where
         F: FnOnce(&ParadeCatalog) -> Result<R, ParadeError>,
     {
-        let context_lock = SESSION_CACHE.read();
-        let context = match context_lock.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                drop(context_lock);
-                Self::init(Self::catalog_oid()?)?
-            }
+        let mut lock = task::block_on(SESSION_CACHE.lock());
+
+        let context = match lock.entry(SESSION_ID.to_string()) {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()?))?),
         };
 
         let catalog_provider = context
@@ -70,13 +71,11 @@ impl<'a> Session {
             &'b ParadeSchemaProvider,
         ) -> Pin<Box<dyn Future<Output = Result<R, ParadeError>> + 'b>>,
     {
-        let context_lock = SESSION_CACHE.read();
-        let context = match context_lock.as_ref() {
-            Some(context) => context.clone(),
-            None => {
-                drop(context_lock);
-                Self::init(Self::catalog_oid()?)?
-            }
+        let mut lock = task::block_on(SESSION_CACHE.lock());
+
+        let context = match lock.entry(SESSION_ID.to_string()) {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()?))?),
         };
 
         let schema_provider = context
@@ -107,15 +106,7 @@ impl<'a> Session {
         task::block_on(f(tables))
     }
 
-    pub fn with_write_lock<F, R>(f: F) -> Result<R, ParadeError>
-    where
-        F: FnOnce(RwLockWriteGuard<'a, Option<SessionContext>>) -> Result<R, ParadeError>,
-    {
-        let context_lock = SESSION_CACHE.write();
-        f(context_lock)
-    }
-
-    pub fn init(catalog_oid: pg_sys::Oid) -> Result<SessionContext, ParadeError> {
+    pub async fn init(catalog_oid: pg_sys::Oid) -> Result<SessionContext, ParadeError> {
         let preload_libraries = unsafe {
             CStr::from_ptr(pg_sys::GetConfigOptionByName(
                 CString::new("shared_preload_libraries")?.as_ptr(),
@@ -133,27 +124,20 @@ impl<'a> Session {
 
         let rn_config = RuntimeConfig::new();
         let runtime_env = RuntimeEnv::new(rn_config)?;
+        let mut context = SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
 
-        Self::with_write_lock(|mut context_lock| {
-            let mut context =
-                SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
+        // Create schema directory if it doesn't exist
+        ParadeDirectory::create_catalog_path(catalog_oid)?;
 
-            // Create schema directory if it doesn't exist
-            ParadeDirectory::create_catalog_path(catalog_oid)?;
+        // Register catalog list
+        context.register_catalog_list(Arc::new(ParadeCatalogList::try_new()?));
 
-            // Register catalog list
-            context.register_catalog_list(Arc::new(ParadeCatalogList::try_new()?));
+        // Create and register catalog
+        let catalog = ParadeCatalog::try_new()?;
+        catalog.init().await?;
+        context.register_catalog(&Self::catalog_name()?, Arc::new(catalog));
 
-            // Create and register catalog
-            let catalog = ParadeCatalog::try_new()?;
-            task::block_on(catalog.init())?;
-            context.register_catalog(&Self::catalog_name()?, Arc::new(catalog));
-
-            // Set context
-            *context_lock = Some(context.clone());
-
-            Ok(context)
-        })
+        Ok(context)
     }
 
     pub fn catalog_name() -> Result<String, ParadeError> {

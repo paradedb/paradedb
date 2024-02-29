@@ -8,12 +8,15 @@ use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::DeltaTable;
 use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use std::collections::{
+    hash_map::Entry::{Occupied, Vacant},
+    HashMap,
+};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
-use crate::errors::{NotFound, ParadeError};
+use crate::errors::ParadeError;
 use crate::guc::PARADE_GUC;
 
 const BYTES_IN_MB: i64 = 1_048_576;
@@ -80,22 +83,18 @@ impl Writer {
     ) -> Result<(), ParadeError> {
         let mut cache = WRITER_CACHE.lock().await;
 
-        if !cache.contains_key(WRITER_ID) {
-            let writer = Self::create(schema_name, table_path, arrow_schema).await?;
-            let table = DatafusionContext::with_tables(schema_name, |mut tables| {
-                task::block_on(tables.get_owned(table_path))
-            })?;
+        let writer_cache = match cache.entry(WRITER_ID.to_string()) {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => {
+                let writer = Self::create(schema_name, table_path, arrow_schema).await?;
+                let table = DatafusionContext::with_tables(schema_name, |mut tables| {
+                    task::block_on(tables.get_owned(table_path))
+                })?;
+                entry.insert(WriterCache::new(writer, table, schema_name, table_path)?)
+            }
+        };
 
-            cache.insert(
-                WRITER_ID.to_string(),
-                WriterCache::new(writer, table, schema_name, table_path)?,
-            );
-        }
-
-        match cache.get_mut(WRITER_ID) {
-            Some(writer_cache) => writer_cache.write(batch).await,
-            None => Err(NotFound::Writer().into()),
-        }
+        writer_cache.write(batch).await
     }
 
     pub async fn commit() -> Result<Option<(String, PathBuf, DeltaTable)>, ParadeError> {

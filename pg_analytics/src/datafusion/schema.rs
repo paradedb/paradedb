@@ -16,14 +16,12 @@ use std::{
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::stream::Streams;
 use crate::datafusion::table::Tables;
 use crate::errors::{NotFound, ParadeError};
 
 pub struct ParadeSchemaProvider {
     schema_name: String,
     tables: Arc<Mutex<Tables>>,
-    streams: Arc<Mutex<Streams>>,
 }
 
 impl ParadeSchemaProvider {
@@ -31,16 +29,11 @@ impl ParadeSchemaProvider {
         Ok(Self {
             schema_name: schema_name.to_string(),
             tables: Arc::new(Mutex::new(Tables::new()?)),
-            streams: Arc::new(Mutex::new(Streams::new()?)),
         })
     }
 
     pub fn tables(&self) -> Result<Arc<Mutex<Tables>>, ParadeError> {
         Ok(self.tables.clone())
-    }
-
-    pub fn streams(&self) -> Result<Arc<Mutex<Streams>>, ParadeError> {
-        Ok(self.streams.clone())
     }
 
     fn table_path(&self, table_name: &str) -> Result<Option<PathBuf>, ParadeError> {

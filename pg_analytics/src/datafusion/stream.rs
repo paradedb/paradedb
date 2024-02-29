@@ -1,34 +1,35 @@
 use async_std::stream::StreamExt;
+use async_std::sync::Mutex;
 use async_std::task;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
+use once_cell::sync::Lazy;
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::errors::ParadeError;
 
-pub struct Streams {
-    streams: HashMap<PathBuf, SendableRecordBatchStream>,
-}
+const STREAM_ID: &str = "delta_stream";
 
-impl Streams {
-    pub fn new() -> Result<Self, ParadeError> {
-        Ok(Self {
-            streams: HashMap::new(),
-        })
-    }
+static STREAM_CACHE: Lazy<Arc<Mutex<HashMap<String, SendableRecordBatchStream>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
+pub struct Stream;
+
+impl Stream {
     pub async fn get_next_batch(
-        &mut self,
         schema_name: &str,
         table_path: &Path,
     ) -> Result<Option<RecordBatch>, ParadeError> {
-        let stream = match self.streams.entry(table_path.to_path_buf()) {
+        let mut cache = STREAM_CACHE.lock().await;
+
+        let stream = match cache.entry(STREAM_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => entry.insert(Self::create(schema_name, table_path).await?),
         };
@@ -36,7 +37,7 @@ impl Streams {
         match stream.next().await {
             Some(Ok(b)) => Ok(Some(b)),
             None => {
-                self.streams.remove(table_path);
+                cache.remove(STREAM_ID);
                 Ok(None)
             }
             Some(Err(err)) => Err(ParadeError::DataFusion(err)),

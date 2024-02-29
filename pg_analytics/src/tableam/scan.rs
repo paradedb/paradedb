@@ -11,8 +11,8 @@ use pgrx::*;
 use std::any::type_name;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionMapProducer, DatafusionTypeTranslator};
+use crate::datafusion::stream::Stream;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotFound, ParadeError};
 
@@ -81,12 +81,14 @@ pub unsafe extern "C" fn deltalake_scan_getnextslot(
     _direction: pg_sys::ScanDirection,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    info!("get next slot");
-    unsafe { deltalake_scan_getnextslot_impl(scan, slot).expect("Failed to get next slot") }
+    unsafe {
+        task::block_on(deltalake_scan_getnextslot_impl(scan, slot))
+            .expect("Failed to get next slot")
+    }
 }
 
 #[inline]
-unsafe fn deltalake_scan_getnextslot_impl(
+async unsafe fn deltalake_scan_getnextslot_impl(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Result<bool, ParadeError> {
@@ -116,9 +118,7 @@ unsafe fn deltalake_scan_getnextslot_impl(
     {
         (*dscan).curr_batch_idx = 0;
 
-        (*dscan).curr_batch = match DatafusionContext::with_streams(schema_name, |mut streams| {
-            task::block_on(streams.get_next_batch(schema_name, &table_path))
-        })? {
+        (*dscan).curr_batch = match Stream::get_next_batch(schema_name, &table_path).await? {
             Some(batch) => Some(Arc::new(batch)),
             None => return Ok(false),
         };

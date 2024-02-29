@@ -67,7 +67,7 @@ pub fn executor_run(
 
         // Execute SELECT, DELETE, UPDATE
         match query_desc.operation {
-            pg_sys::CmdType_CMD_DELETE => task::block_on(delete(rtable, query_desc, logical_plan)),
+            pg_sys::CmdType_CMD_DELETE => delete(rtable, query_desc, logical_plan),
             pg_sys::CmdType_CMD_SELECT => select(query_desc, logical_plan),
             pg_sys::CmdType_CMD_UPDATE => Err(NotSupported::Update.into()),
             _ => {

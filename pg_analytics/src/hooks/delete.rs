@@ -6,7 +6,7 @@ use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
 
-pub async fn delete(
+pub fn delete(
     rtable: *mut pg_sys::List,
     query_desc: PgBox<pg_sys::QueryDesc>,
     logical_plan: LogicalPlan,

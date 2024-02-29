@@ -5,8 +5,8 @@ use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, ColumnO
 use pgrx::*;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::DatafusionTypeTranslator;
+use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
@@ -70,7 +70,7 @@ pub async unsafe fn alter(
         let schema = Arc::new(ArrowSchema::new(fields_to_add));
         let batch = RecordBatch::new_empty(schema);
 
-        DatafusionContext::with_tables(schema_name, |tables| async move {
+        Session::with_tables(schema_name, |tables| async move {
             let mut lock = tables.lock().await;
             let mut delta_table = lock.alter_schema(&table_path, batch).await?;
 

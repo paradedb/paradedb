@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::session::Session;
 use crate::datafusion::table::Tables;
 use crate::errors::{NotFound, ParadeError};
 
@@ -47,7 +47,7 @@ impl ParadeSchemaProvider {
         };
 
         Ok(Some(ParadeDirectory::table_path(
-            DatafusionContext::catalog_oid()?,
+            Session::catalog_oid()?,
             pg_relation.namespace_oid(),
             pg_relation.oid(),
         )?))
@@ -86,7 +86,7 @@ fn table_names_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
 
     let schema_oid =
         unsafe { pg_sys::get_namespace_oid(CString::new(schema_name)?.as_ptr(), true) };
-    let schema_path = ParadeDirectory::schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
+    let schema_path = ParadeDirectory::schema_path(Session::catalog_oid()?, schema_oid)?;
 
     for file in read_dir(schema_path)? {
         if let Ok(oid) = file?.file_name().into_string()?.parse::<u32>() {
@@ -112,7 +112,7 @@ async fn table_impl(
     schema_name: &str,
     table_path: &Path,
 ) -> Result<Arc<dyn TableProvider>, ParadeError> {
-    DatafusionContext::with_tables(schema_name, |tables| async move {
+    Session::with_tables(schema_name, |tables| async move {
         let mut lock = tables.lock().await;
         let table_ref = lock.get_ref(table_path).await?;
         let delta_table = UpdateBuilder::new(

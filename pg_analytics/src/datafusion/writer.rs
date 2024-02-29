@@ -15,7 +15,7 @@ use std::collections::{
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::Session;
 use crate::errors::ParadeError;
 use crate::guc::PARADE_GUC;
 
@@ -87,7 +87,7 @@ impl Writer {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => {
                 let writer = Self::create(schema_name, table_path, arrow_schema).await?;
-                let table = DatafusionContext::with_tables(schema_name, |tables| async move {
+                let table = Session::with_tables(schema_name, |tables| async move {
                     tables.lock().await.get_owned(table_path).await
                 })?;
                 entry.insert(WriterCache::new(writer, table, schema_name, table_path)?)
@@ -121,7 +121,7 @@ impl Writer {
             None,
         );
 
-        let delta_table = DatafusionContext::with_tables(schema_name, |tables| async move {
+        let delta_table = Session::with_tables(schema_name, |tables| async move {
             tables.lock().await.get_owned(table_path).await
         })?;
 

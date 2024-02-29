@@ -1,6 +1,6 @@
 use pgrx::*;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
@@ -66,7 +66,7 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> 
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
 
-        DatafusionContext::with_tables(schema_name, |tables| async move {
+        Session::with_tables(schema_name, |tables| async move {
             tables.lock().await.deregister(&table_path)
         })?;
 

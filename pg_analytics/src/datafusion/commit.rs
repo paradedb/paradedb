@@ -1,6 +1,6 @@
 use shared::postgres::transaction::Transaction;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::Session;
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
 
@@ -14,7 +14,7 @@ pub async fn commit_writer() -> Result<(), ParadeError> {
     if let Some((schema_name, table_path, mut delta_table)) = Writer::commit().await? {
         delta_table.update().await?;
 
-        DatafusionContext::with_tables(&schema_name, |tables| async move {
+        Session::with_tables(&schema_name, |tables| async move {
             tables.lock().await.register(&table_path, delta_table)
         })?;
     }

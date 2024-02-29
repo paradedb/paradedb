@@ -6,9 +6,9 @@ use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
 
@@ -51,9 +51,9 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
             let schema_name = pg_relation.namespace().to_string();
             let table_path = pg_relation.table_path()?;
             let arrow_schema = pg_relation.arrow_schema()?;
-            let catalog_name = DatafusionContext::catalog_name()?;
+            let catalog_name = Session::catalog_name()?;
 
-            DatafusionContext::with_catalog(|catalog| {
+            Session::with_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
                     let schema_provider =
                         Arc::new(task::block_on(ParadeSchemaProvider::try_new(&schema_name))?);
@@ -64,7 +64,7 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
                 Ok(())
             })?;
 
-            let table_exists = DatafusionContext::with_session_context(|context| {
+            let table_exists = Session::with_session_context(|context| {
                 let reference = TableReference::full(catalog_name, schema_name.clone(), table_name);
                 Ok(context.table_exist(reference)?)
             })?;
@@ -76,11 +76,11 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
             }
 
             ParadeDirectory::create_schema_path(
-                DatafusionContext::catalog_oid()?,
+                Session::catalog_oid()?,
                 pg_relation.namespace_oid(),
             )?;
 
-            DatafusionContext::with_tables(&schema_name, |tables| async move {
+            Session::with_tables(&schema_name, |tables| async move {
                 let mut lock = tables.lock().await;
 
                 // Create table

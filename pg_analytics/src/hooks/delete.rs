@@ -1,7 +1,7 @@
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
@@ -39,12 +39,11 @@ pub async fn delete(
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
 
-    let optimized_plan = DatafusionContext::with_session_context(|context| {
-        Ok(context.state().optimize(&logical_plan)?)
-    })?;
+    let optimized_plan =
+        Session::with_session_context(|context| Ok(context.state().optimize(&logical_plan)?))?;
 
     let metrics = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-        DatafusionContext::with_tables(schema_name, |tables| async move {
+        Session::with_tables(schema_name, |tables| async move {
             match dml_statement.input.as_ref() {
                 LogicalPlan::Filter(filter) => {
                     let mut lock = tables.lock().await;

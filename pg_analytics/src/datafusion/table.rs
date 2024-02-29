@@ -19,9 +19,9 @@ use std::collections::{
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
 use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 
@@ -80,11 +80,7 @@ impl DatafusionTable for PgRelation {
     }
 
     fn table_path(&self) -> Result<PathBuf, ParadeError> {
-        ParadeDirectory::table_path(
-            DatafusionContext::catalog_oid()?,
-            self.namespace_oid(),
-            self.oid(),
-        )
+        ParadeDirectory::table_path(Session::catalog_oid()?, self.namespace_oid(), self.oid())
     }
 }
 

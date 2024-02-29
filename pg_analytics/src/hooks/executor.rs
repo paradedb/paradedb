@@ -8,7 +8,7 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
-use crate::datafusion::context::ParadeContextProvider;
+use crate::datafusion::context::QueryContext;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::delete::delete;
 use crate::hooks::handler::IsColumn;
@@ -86,7 +86,7 @@ fn create_logical_plan(query: &str) -> Result<LogicalPlan, ParadeError> {
     let statement = &ast[0];
 
     // Convert the AST into a logical plan
-    let context_provider = ParadeContextProvider::new()?;
+    let context_provider = QueryContext::new()?;
     let sql_to_rel = SqlToRel::new(&context_provider);
 
     Ok(sql_to_rel.statement_to_plan(statement.clone())?)

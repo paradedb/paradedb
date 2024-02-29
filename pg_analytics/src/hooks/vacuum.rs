@@ -3,8 +3,8 @@ use pgrx::*;
 use std::ffi::{CStr, CString};
 use std::fs::remove_dir_all;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
@@ -80,15 +80,14 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
     // Perform vacuum
     match vacuum_all {
         true => {
-            let schema_names =
-                DatafusionContext::with_catalog(|catalog| Ok(catalog.schema_names()))?;
+            let schema_names = Session::with_catalog(|catalog| Ok(catalog.schema_names()))?;
 
             for schema_name in schema_names {
                 let schema_oid = unsafe {
                     pg_sys::get_namespace_oid(CString::new(schema_name.clone())?.as_ptr(), true)
                 };
                 let schema_path =
-                    ParadeDirectory::schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
+                    ParadeDirectory::schema_path(Session::catalog_oid()?, schema_oid)?;
                 let directory = std::fs::read_dir(schema_path.clone())?;
 
                 // Vacuum all tables in the schema directory and delete directories for dropped tables
@@ -110,7 +109,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
 
                             unsafe { pg_sys::RelationClose(relation) }
 
-                            DatafusionContext::with_tables(&schema_name, |tables| async move {
+                            Session::with_tables(&schema_name, |tables| async move {
                                 let mut lock = tables.lock().await;
                                 let mut delta_table =
                                     lock.vacuum(&table_path, vacuum_options.full).await?;
@@ -171,7 +170,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 let schema_name = pg_relation.namespace();
                 let table_path = pg_relation.table_path()?;
 
-                DatafusionContext::with_tables(schema_name, |tables| async move {
+                Session::with_tables(schema_name, |tables| async move {
                     let mut lock = tables.lock().await;
                     let mut delta_table = lock.vacuum(&table_path, vacuum_options.full).await?;
 

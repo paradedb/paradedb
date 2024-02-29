@@ -12,7 +12,7 @@ use std::collections::{
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::Session;
 use crate::errors::ParadeError;
 
 const STREAM_ID: &str = "delta_stream";
@@ -48,11 +48,11 @@ impl Stream {
         schema_name: &str,
         table_path: &Path,
     ) -> Result<SendableRecordBatchStream, ParadeError> {
-        let delta_table = DatafusionContext::with_tables(schema_name, |tables| async move {
+        let delta_table = Session::with_tables(schema_name, |tables| async move {
             tables.lock().await.get_owned(table_path).await
         })?;
 
-        let (state, task_context) = DatafusionContext::with_session_context(|context| {
+        let (state, task_context) = Session::with_session_context(|context| {
             let state = context.state();
             let task_context = context.task_ctx();
             Ok((state, task_context))

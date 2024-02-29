@@ -1,7 +1,8 @@
+use async_std::sync::RwLock;
+use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::catalog::{CatalogList, CatalogProvider};
 use deltalake::datafusion::common::DataFusionError;
-use parking_lot::RwLock;
 use pgrx::*;
 use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr, sync::Arc};
 
@@ -72,18 +73,18 @@ impl CatalogProvider for ParadeCatalog {
         name: &str,
         schema: Arc<dyn SchemaProvider>,
     ) -> Result<Option<Arc<dyn SchemaProvider>>, DataFusionError> {
-        let mut schema_map = self.schemas.write();
+        let mut schema_map = task::block_on(self.schemas.write());
         schema_map.insert(name.to_owned(), schema.clone());
         Ok(Some(schema))
     }
 
     fn schema_names(&self) -> Vec<String> {
-        let schemas = self.schemas.read();
+        let schemas = task::block_on(self.schemas.read());
         schemas.keys().cloned().collect()
     }
 
     fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
-        let schemas = self.schemas.read();
+        let schemas = task::block_on(self.schemas.read());
         let maybe_schema = schemas.get(name);
         if let Some(schema) = maybe_schema {
             let schema = schema.clone() as Arc<dyn SchemaProvider>;
@@ -112,18 +113,18 @@ impl CatalogList for ParadeCatalogList {
         name: String,
         catalog: Arc<dyn CatalogProvider>,
     ) -> Option<Arc<dyn CatalogProvider>> {
-        let mut cats = self.catalogs.write();
-        cats.insert(name, catalog.clone());
+        let mut catalog_map = task::block_on(self.catalogs.write());
+        catalog_map.insert(name, catalog.clone());
         Some(catalog)
     }
 
     fn catalog_names(&self) -> Vec<String> {
-        let cats = self.catalogs.read();
-        cats.keys().cloned().collect()
+        let catalog_map = task::block_on(self.catalogs.read());
+        catalog_map.keys().cloned().collect()
     }
 
     fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
-        let cats = self.catalogs.read();
-        cats.get(name).cloned()
+        let catalog_map = task::block_on(self.catalogs.read());
+        catalog_map.get(name).cloned()
     }
 }

@@ -613,4 +613,17 @@ fn big_insert(mut conn: PgConnection) {
 
     let count: (i64,) = "SELECT COUNT(*) FROM t".fetch_one(&mut conn);
     assert_eq!(count, (200000,));
+
+    r#"
+        CREATE TABLE s (
+            id INT
+        ) USING parquet;
+        INSERT INTO s (id) SELECT generate_series(1, 100000);
+        DELETE FROM s WHERE id <= 50000;
+        INSERT INTO s (id) SELECT generate_series(1, 100000);
+    "#
+    .execute(&mut conn);
+
+    let count: (i64,) = "SELECT COUNT(*) FROM s".fetch_one(&mut conn);
+    assert_eq!(count, (150000,));
 }

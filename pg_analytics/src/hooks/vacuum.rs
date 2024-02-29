@@ -1,4 +1,3 @@
-use async_std::task;
 use deltalake::datafusion::catalog::CatalogProvider;
 use pgrx::*;
 use std::ffi::{CStr, CString};
@@ -111,12 +110,13 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
 
                             unsafe { pg_sys::RelationClose(relation) }
 
-                            DatafusionContext::with_tables(&schema_name, |mut tables| {
-                                let mut delta_table = task::block_on(
-                                    tables.vacuum(&table_path, vacuum_options.full),
-                                )?;
-                                task::block_on(delta_table.update())?;
-                                tables.register(&table_path, delta_table)
+                            DatafusionContext::with_tables(&schema_name, |tables| async move {
+                                let mut lock = tables.lock().await;
+                                let mut delta_table =
+                                    lock.vacuum(&table_path, vacuum_options.full).await?;
+
+                                delta_table.update().await?;
+                                lock.register(&table_path, delta_table)
                             })?;
                         }
                     }
@@ -171,11 +171,12 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 let schema_name = pg_relation.namespace();
                 let table_path = pg_relation.table_path()?;
 
-                DatafusionContext::with_tables(schema_name, |mut tables| {
-                    let mut delta_table =
-                        task::block_on(tables.vacuum(&table_path, vacuum_options.full))?;
-                    task::block_on(delta_table.update())?;
-                    tables.register(&table_path, delta_table)
+                DatafusionContext::with_tables(schema_name, |tables| async move {
+                    let mut lock = tables.lock().await;
+                    let mut delta_table = lock.vacuum(&table_path, vacuum_options.full).await?;
+
+                    delta_table.update().await?;
+                    lock.register(&table_path, delta_table)
                 })?;
 
                 pg_sys::RelationClose(relation);

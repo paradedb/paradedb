@@ -1,3 +1,4 @@
+use async_std::sync::Mutex;
 use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::catalog::CatalogProvider;
@@ -11,10 +12,11 @@ use deltalake::datafusion::prelude::{SessionConfig, SessionContext};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
 use once_cell::sync::Lazy;
-use parking_lot::{MutexGuard, RwLock, RwLockWriteGuard};
+use parking_lot::{RwLock, RwLockWriteGuard};
 use pgrx::*;
 use std::any::type_name;
 use std::ffi::{c_char, CStr, CString};
+use std::future::Future;
 use std::sync::Arc;
 
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
@@ -99,11 +101,14 @@ impl<'a> DatafusionContext {
         f(parade_provider)
     }
 
-    pub fn with_tables<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
+    pub fn with_tables<F, Fut, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(MutexGuard<Tables>) -> Result<R, ParadeError>,
+        F: FnOnce(Arc<Mutex<Tables>>) -> Fut,
+        Fut: Future<Output = Result<R, ParadeError>>,
     {
-        Self::with_schema_provider(schema_name, |provider| f(provider.tables()?.lock()))
+        let tables =
+            DatafusionContext::with_schema_provider(schema_name, |provider| provider.tables())?;
+        task::block_on(f(tables))
     }
 
     pub fn with_write_lock<F, R>(f: F) -> Result<R, ParadeError>

@@ -1,3 +1,4 @@
+use async_std::sync::Mutex;
 use async_std::task;
 use async_trait::async_trait;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
@@ -5,16 +6,14 @@ use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
 use deltalake::operations::update::UpdateBuilder;
 use deltalake::table::state::DeltaTableState;
-use parking_lot::Mutex;
 use pgrx::*;
+use std::any::{type_name, Any};
 use std::ffi::{CStr, CString};
 use std::fs::read_dir;
 use std::future::IntoFuture;
-use std::{
-    any::{type_name, Any},
-    path::PathBuf,
-    sync::Arc,
-};
+use std::path::{Path, PathBuf};
+
+use std::sync::Arc;
 
 use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
@@ -67,27 +66,12 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
-        match Self::table_path(self, table_name) {
-            Ok(Some(table_path)) => {
-                let delta_table =
-                    DatafusionContext::with_tables(&self.schema_name, |mut tables| {
-                        let table_ref = task::block_on(tables.get_ref(&table_path))?;
-                        Ok(task::block_on(
-                            UpdateBuilder::new(
-                                table_ref.log_store(),
-                                table_ref.state.clone().ok_or(NotFound::Value(
-                                    type_name::<DeltaTableState>().to_string(),
-                                ))?,
-                            )
-                            .into_future(),
-                        )?
-                        .0)
-                    })
-                    .unwrap();
-
-                Some(Arc::new(delta_table.clone()) as Arc<dyn TableProvider>)
-            }
-            _ => None,
+        match Self::table_path(self, table_name).expect("Failed to get table name") {
+            Some(table_path) => Some(
+                task::block_on(table_impl(&self.schema_name, &table_path))
+                    .expect("Failed to get table"),
+            ),
+            None => None,
         }
     }
 
@@ -121,4 +105,27 @@ fn table_names_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
     }
 
     Ok(names)
+}
+
+#[inline]
+async fn table_impl(
+    schema_name: &str,
+    table_path: &Path,
+) -> Result<Arc<dyn TableProvider>, ParadeError> {
+    DatafusionContext::with_tables(schema_name, |tables| async move {
+        let mut lock = tables.lock().await;
+        let table_ref = lock.get_ref(table_path).await?;
+        let delta_table = UpdateBuilder::new(
+            table_ref.log_store(),
+            table_ref
+                .state
+                .clone()
+                .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
+        )
+        .into_future()
+        .await?
+        .0;
+
+        Ok(Arc::new(delta_table.clone()) as Arc<dyn TableProvider>)
+    })
 }

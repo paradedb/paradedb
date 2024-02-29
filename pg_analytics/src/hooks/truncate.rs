@@ -1,4 +1,3 @@
-use async_std::task;
 use pgrx::*;
 
 use crate::datafusion::context::DatafusionContext;
@@ -53,10 +52,12 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
 
         pg_sys::RelationClose(relation);
 
-        DatafusionContext::with_tables(schema_name, |mut tables| {
-            let (mut delta_table, _) = task::block_on(tables.delete(&table_path, None))?;
-            task::block_on(delta_table.update())?;
-            tables.register(&table_path, delta_table)
+        DatafusionContext::with_tables(schema_name, |tables| async move {
+            let mut lock = tables.lock().await;
+            let (mut delta_table, _) = lock.delete(&table_path, None).await?;
+
+            delta_table.update().await?;
+            lock.register(&table_path, delta_table)
         })?;
     }
 

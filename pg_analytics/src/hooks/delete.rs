@@ -1,4 +1,3 @@
-use async_std::task;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
@@ -44,12 +43,19 @@ pub async fn delete(
         Ok(context.state().optimize(&logical_plan)?)
     })?;
 
-    let (mut delta_table, delete_metrics) = if let LogicalPlan::Dml(dml_statement) = optimized_plan
-    {
-        DatafusionContext::with_tables(schema_name, |mut tables| {
+    let metrics = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
+        DatafusionContext::with_tables(schema_name, |tables| async move {
             match dml_statement.input.as_ref() {
                 LogicalPlan::Filter(filter) => {
-                    task::block_on(tables.delete(&table_path, Some(filter.predicate.clone())))
+                    let mut lock = tables.lock().await;
+                    let (mut delta_table, metrics) = lock
+                        .delete(&table_path, Some(filter.predicate.clone()))
+                        .await?;
+
+                    delta_table.update().await?;
+                    lock.register(&table_path, delta_table)?;
+
+                    Ok(metrics)
                 }
                 LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
                 _ => Err(NotSupported::NestedDelete.into()),
@@ -59,13 +65,7 @@ pub async fn delete(
         unreachable!()
     };
 
-    delta_table.update().await?;
-
-    DatafusionContext::with_tables(schema_name, |mut tables| {
-        tables.register(&table_path, delta_table)
-    })?;
-
-    if let Some(num_deleted) = delete_metrics.num_deleted_rows {
+    if let Some(num_deleted) = metrics.num_deleted_rows {
         unsafe {
             (*(*query_desc.clone().into_pg()).estate).es_processed = num_deleted as u64;
         }

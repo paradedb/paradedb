@@ -1,6 +1,6 @@
 use async_std::stream::StreamExt;
 use async_std::sync::Mutex;
-use async_std::task;
+
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
@@ -48,8 +48,8 @@ impl Stream {
         schema_name: &str,
         table_path: &Path,
     ) -> Result<SendableRecordBatchStream, ParadeError> {
-        let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
-            task::block_on(tables.get_owned(table_path))
+        let delta_table = DatafusionContext::with_tables(schema_name, |tables| async move {
+            tables.lock().await.get_owned(table_path).await
         })?;
 
         let (state, task_context) = DatafusionContext::with_session_context(|context| {

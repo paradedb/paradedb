@@ -75,19 +75,24 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
                 return Ok(());
             }
 
-            let _delta_table = DatafusionContext::with_tables(&schema_name, |tables| {
-                ParadeDirectory::create_schema_path(
-                    DatafusionContext::catalog_oid()?,
-                    pg_relation.namespace_oid(),
-                )?;
-                task::block_on(tables.create(&table_path, pg_relation.arrow_schema()?))
-            })?;
+            ParadeDirectory::create_schema_path(
+                DatafusionContext::catalog_oid()?,
+                pg_relation.namespace_oid(),
+            )?;
 
-            DatafusionContext::with_tables(&schema_name, |mut tables| {
+            DatafusionContext::with_tables(&schema_name, |tables| async move {
+                let mut lock = tables.lock().await;
+
+                // Create table
+                lock.create(&table_path, pg_relation.arrow_schema()?)
+                    .await?;
+
+                // Write an empty batch to the table so that a Parquet file is written
                 let batch = RecordBatch::new_empty(arrow_schema.clone());
-                let mut delta_table = task::block_on(tables.alter_schema(&table_path, batch))?;
-                task::block_on(delta_table.update())?;
-                tables.register(&table_path, delta_table)
+                let mut delta_table = lock.alter_schema(&table_path, batch).await?;
+
+                delta_table.update().await?;
+                lock.register(&table_path, delta_table)
             })
         }
     }

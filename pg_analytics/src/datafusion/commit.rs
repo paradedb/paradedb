@@ -14,8 +14,8 @@ pub async fn commit_writer() -> Result<(), ParadeError> {
     if let Some((schema_name, table_path, mut delta_table)) = Writer::commit().await? {
         delta_table.update().await?;
 
-        DatafusionContext::with_tables(&schema_name, |mut tables| {
-            tables.register(&table_path, delta_table)
+        DatafusionContext::with_tables(&schema_name, |tables| async move {
+            tables.lock().await.register(&table_path, delta_table)
         })?;
     }
 

@@ -1,5 +1,5 @@
 use async_std::sync::Mutex;
-use async_std::task;
+
 use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::kernel::Action;
@@ -87,8 +87,8 @@ impl Writer {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => {
                 let writer = Self::create(schema_name, table_path, arrow_schema).await?;
-                let table = DatafusionContext::with_tables(schema_name, |mut tables| {
-                    task::block_on(tables.get_owned(table_path))
+                let table = DatafusionContext::with_tables(schema_name, |tables| async move {
+                    tables.lock().await.get_owned(table_path).await
                 })?;
                 entry.insert(WriterCache::new(writer, table, schema_name, table_path)?)
             }
@@ -121,8 +121,8 @@ impl Writer {
             None,
         );
 
-        let delta_table = DatafusionContext::with_tables(schema_name, |mut tables| {
-            task::block_on(tables.get_owned(table_path))
+        let delta_table = DatafusionContext::with_tables(schema_name, |tables| async move {
+            tables.lock().await.get_owned(table_path).await
         })?;
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))

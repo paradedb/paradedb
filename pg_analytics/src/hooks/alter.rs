@@ -1,4 +1,3 @@
-use async_std::task;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::sql::parser;
@@ -71,10 +70,12 @@ pub async unsafe fn alter(
         let schema = Arc::new(ArrowSchema::new(fields_to_add));
         let batch = RecordBatch::new_empty(schema);
 
-        DatafusionContext::with_tables(schema_name, |mut tables| {
-            let mut delta_table = task::block_on(tables.alter_schema(&table_path, batch))?;
-            task::block_on(delta_table.update())?;
-            tables.register(&table_path, delta_table)
+        DatafusionContext::with_tables(schema_name, |tables| async move {
+            let mut lock = tables.lock().await;
+            let mut delta_table = lock.alter_schema(&table_path, batch).await?;
+
+            delta_table.update().await?;
+            lock.register(&table_path, delta_table)
         })?;
     }
 

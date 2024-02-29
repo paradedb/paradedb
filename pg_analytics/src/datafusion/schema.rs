@@ -65,9 +65,12 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
-        match Self::table_path(self, table_name).expect("Failed to get table name") {
+        let tables = Self::tables(self).expect("Failed to get tables");
+        let table_path = Self::table_path(self, table_name).expect("Failed to get table name");
+
+        match table_path {
             Some(table_path) => Some(
-                table_impl(&self.schema_name, &table_path)
+                table_impl(tables, &table_path)
                     .await
                     .expect("Failed to get table"),
             ),
@@ -109,23 +112,21 @@ fn table_names_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
 
 #[inline]
 async fn table_impl(
-    schema_name: &str,
+    tables: Arc<Mutex<Tables>>,
     table_path: &Path,
 ) -> Result<Arc<dyn TableProvider>, ParadeError> {
-    Session::with_tables(schema_name, |tables| async move {
-        let mut lock = tables.lock().await;
-        let table_ref = lock.get_ref(table_path).await?;
-        let delta_table = UpdateBuilder::new(
-            table_ref.log_store(),
-            table_ref
-                .state
-                .clone()
-                .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
-        )
-        .into_future()
-        .await?
-        .0;
+    let mut tables = tables.lock().await;
+    let table_ref = tables.get_ref(table_path).await?;
+    let delta_table = UpdateBuilder::new(
+        table_ref.log_store(),
+        table_ref
+            .state
+            .clone()
+            .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
+    )
+    .into_future()
+    .await?
+    .0;
 
-        Ok(Arc::new(delta_table.clone()) as Arc<dyn TableProvider>)
-    })
+    Ok(Arc::new(delta_table.clone()) as Arc<dyn TableProvider>)
 }

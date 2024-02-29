@@ -28,7 +28,7 @@ static SESSION_CACHE: Lazy<Arc<Mutex<HashMap<String, SessionContext>>>> =
 
 pub struct Session;
 
-impl<'a> Session {
+impl Session {
     pub fn with_session_context<F, R>(f: F) -> Result<R, ParadeError>
     where
         F: FnOnce(&SessionContext) -> Result<R, ParadeError>,
@@ -68,9 +68,9 @@ impl<'a> Session {
 
     pub fn with_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
     where
-        F: for<'b> FnOnce(
-            &'b ParadeSchemaProvider,
-        ) -> Pin<Box<dyn Future<Output = Result<R, ParadeError>> + 'b>>,
+        F: for<'a> FnOnce(
+            &'a ParadeSchemaProvider,
+        ) -> Pin<Box<dyn Future<Output = Result<R, ParadeError>> + 'a>>,
     {
         let mut lock = task::block_on(SESSION_CACHE.lock());
 

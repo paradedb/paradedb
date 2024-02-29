@@ -4,12 +4,15 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
-// Function to get the PostgreSQL data directory from the PGDATA environment variable
+// Function to get the PostgreSQL data directory from the PGDATA environment variable. This
+// environment variable is set by Postgres when it starts up, and is present on every Postgres
+// instance (Bitnami, Postgres, pgrx, etc.). We use it rather than pg_sys because pg_sys requires
+// the crate to be a proper Postgres extension, with a .control file
 pub fn get_postgres_data_directory() -> Option<String> {
     env::var("PGDATA").ok()
 }
 
-pub fn read_telemetry_data(extension_name: String) -> Result<Value, String> {
+pub fn read_telemetry_data(extension_name: &str) -> Result<Value, String> {
     // Determine the base PostgreSQL data directory
     let pg_data_directory =
         get_postgres_data_directory().ok_or("PGDATA environment variable is not set")?;

@@ -35,7 +35,7 @@ pub unsafe extern "C" fn telemetry_worker(arg: pg_sys::Datum) {
     let text_ptr =
         pg_sys::pg_detoast_datum(arg.cast_mut_ptr::<pg_sys::varlena>()) as *mut pg_sys::text;
     let c_str = CStr::from_ptr(pg_sys::text_to_cstring(text_ptr));
-
+    
     // Convert CStr to Rust String
     let rust_string = match c_str.to_str() {
         Ok(s) => s.to_owned(),

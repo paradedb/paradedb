@@ -176,8 +176,8 @@ fn generate_and_save_uuid(uuid_file: &str) -> String {
     new_uuid
 }
 
-fn send_telemetry_data(settings: &TelemetrySettings, extension_name: String) {
-    let telemetry_data = read_telemetry_data(extension_name.clone());
+fn send_telemetry_data(settings: &TelemetrySettings, extension_name: &str) {
+    let telemetry_data = read_telemetry_data(extension_name);
     pgrx::log!("telemetry data: {:?}", telemetry_data);
 
     let endpoint = format!("{}/capture", settings.posthog_host);

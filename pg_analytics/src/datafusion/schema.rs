@@ -34,23 +34,6 @@ impl ParadeSchemaProvider {
     pub fn tables(&self) -> Result<Arc<Mutex<Tables>>, ParadeError> {
         Ok(self.tables.clone())
     }
-
-    fn table_path(&self, table_name: &str) -> Result<Option<PathBuf>, ParadeError> {
-        let pg_relation = match unsafe {
-            PgRelation::open_with_name(&format!("{}.{}", self.schema_name, table_name))
-        } {
-            Ok(relation) => relation,
-            Err(_) => {
-                return Ok(None);
-            }
-        };
-
-        Ok(Some(ParadeDirectory::table_path(
-            Session::catalog_oid()?,
-            pg_relation.namespace_oid(),
-            pg_relation.oid(),
-        )?))
-    }
 }
 
 #[async_trait]
@@ -65,7 +48,8 @@ impl SchemaProvider for ParadeSchemaProvider {
 
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
         let tables = Self::tables(self).expect("Failed to get tables");
-        let table_path = Self::table_path(self, table_name).expect("Failed to get table name");
+        let table_path =
+            table_path(&self.schema_name, table_name).expect("Failed to get table name");
 
         match table_path {
             Some(table_path) => Some(
@@ -78,8 +62,25 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     fn table_exist(&self, table_name: &str) -> bool {
-        matches!(Self::table_path(self, table_name), Ok(Some(_)))
+        matches!(table_path(&self.schema_name, table_name), Ok(Some(_)))
     }
+}
+
+#[inline]
+fn table_path(schema_name: &str, table_name: &str) -> Result<Option<PathBuf>, ParadeError> {
+    let pg_relation =
+        match unsafe { PgRelation::open_with_name(&format!("{}.{}", schema_name, table_name)) } {
+            Ok(relation) => relation,
+            Err(_) => {
+                return Ok(None);
+            }
+        };
+
+    Ok(Some(ParadeDirectory::table_path(
+        Session::catalog_oid()?,
+        pg_relation.namespace_oid(),
+        pg_relation.oid(),
+    )?))
 }
 
 #[inline]

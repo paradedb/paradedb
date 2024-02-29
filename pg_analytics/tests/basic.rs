@@ -104,7 +104,6 @@ fn alter(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "known bug where results after delete are out of order"]
 fn delete(mut conn: PgConnection) {
     "CREATE TABLE employees (salary bigint, id smallint) USING parquet".execute(&mut conn);
 
@@ -112,7 +111,6 @@ fn delete(mut conn: PgConnection) {
         .execute(&mut conn);
     "DELETE FROM employees WHERE id = 5 OR salary <= 200".execute(&mut conn);
 
-    // TODO: Known bug here! The results are not in the correct order!
     let rows: Vec<(i64, i16)> = "SELECT * FROM employees".fetch(&mut conn);
     assert_eq!(rows, vec![(300, 3), (400, 4)]);
 }

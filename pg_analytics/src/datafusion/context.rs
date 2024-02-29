@@ -17,6 +17,7 @@ use pgrx::*;
 use std::any::type_name;
 use std::ffi::{c_char, CStr, CString};
 use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::datafusion::catalog::{ParadeCatalog, ParadeCatalogList};
@@ -74,7 +75,9 @@ impl<'a> DatafusionContext {
 
     pub fn with_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(&ParadeSchemaProvider) -> Result<R, ParadeError>,
+        F: for<'b> FnOnce(
+            &'b ParadeSchemaProvider,
+        ) -> Pin<Box<dyn Future<Output = Result<R, ParadeError>> + 'b>>,
     {
         let context_lock = CONTEXT.read();
         let context = match context_lock.as_ref() {
@@ -98,7 +101,7 @@ impl<'a> DatafusionContext {
                 type_name::<ParadeSchemaProvider>().to_string(),
             ))?;
 
-        f(parade_provider)
+        task::block_on(f(parade_provider))
     }
 
     pub fn with_tables<F, Fut, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
@@ -106,8 +109,10 @@ impl<'a> DatafusionContext {
         F: FnOnce(Arc<Mutex<Tables>>) -> Fut,
         Fut: Future<Output = Result<R, ParadeError>>,
     {
-        let tables =
-            DatafusionContext::with_schema_provider(schema_name, |provider| provider.tables())?;
+        let tables = DatafusionContext::with_schema_provider(schema_name, |provider| {
+            Box::pin(async move { provider.tables() })
+        })?;
+
         task::block_on(f(tables))
     }
 
@@ -188,16 +193,20 @@ impl ParadeContextProvider {
     fn get_table_source_impl(
         reference: TableReference,
     ) -> Result<Arc<dyn TableSource>, ParadeError> {
-        let table_name = reference.table();
         let schema_name = reference.schema();
 
         if let Some(schema_name) = schema_name {
             // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
+            let table_name = reference.table().to_string();
             DatafusionContext::with_schema_provider(schema_name, |provider| {
-                let table = task::block_on(provider.table(table_name))
-                    .ok_or(NotFound::Table(table_name.to_string()))?;
+                Box::pin(async move {
+                    let table = provider
+                        .table(&table_name)
+                        .await
+                        .ok_or(NotFound::Table(table_name))?;
 
-                Ok(provider_as_source(table))
+                    Ok(provider_as_source(table))
+                })
             })
         } else {
             // If no schema was provided in the query, i.e. SELECT * FROM <table>
@@ -222,25 +231,31 @@ impl ParadeContextProvider {
                         continue;
                     }
 
+                    let table_name = reference.table().to_string();
                     let table_registered =
                         DatafusionContext::with_schema_provider(schema_name, |provider| {
-                            Ok(task::block_on(provider.table(table_name)).is_some())
+                            Box::pin(async move { Ok(provider.table(&table_name).await.is_some()) })
                         })?;
 
                     if !table_registered {
                         continue;
                     }
 
+                    let table_name = reference.table().to_string();
                     return DatafusionContext::with_schema_provider(schema_name, |provider| {
-                        let table = task::block_on(provider.table(table_name))
-                            .ok_or(NotFound::Table(table_name.to_string()))?;
+                        Box::pin(async move {
+                            let table = provider
+                                .table(&table_name)
+                                .await
+                                .ok_or(NotFound::Table(table_name))?;
 
-                        Ok(provider_as_source(table))
+                            Ok(provider_as_source(table))
+                        })
                     });
                 }
             }
 
-            Err(NotFound::Table(table_name.to_string()).into())
+            Err(NotFound::Table(reference.table().to_string()).into())
         }
     }
 }

@@ -1,5 +1,4 @@
 use async_std::sync::Mutex;
-use async_std::task;
 use async_trait::async_trait;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
@@ -68,7 +67,8 @@ impl SchemaProvider for ParadeSchemaProvider {
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
         match Self::table_path(self, table_name).expect("Failed to get table name") {
             Some(table_path) => Some(
-                task::block_on(table_impl(&self.schema_name, &table_path))
+                table_impl(&self.schema_name, &table_path)
+                    .await
                     .expect("Failed to get table"),
             ),
             None => None,

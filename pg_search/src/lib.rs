@@ -36,7 +36,7 @@ pub unsafe extern "C" fn _PG_init() {
     // can be used in test suites.
     setup_background_workers();
 
-    setup_telemetry_background_worker("pg_bm25".to_string());
+    setup_telemetry_background_worker("pg_bm25");
 }
 
 #[pg_guard]

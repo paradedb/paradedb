@@ -202,14 +202,3 @@ fn send_telemetry_data(settings: &TelemetrySettings, extension_name: String) {
         eprintln!("Error sending request: {}", e);
     }
 }
-
-// Adjusted function to use the new structure
-pub fn read_and_send_telemetry_data(extension_name: String) {
-    pgrx::log!("hello hello");
-
-    if let Some(settings) = initialize_telemetry(extension_name.clone()) {
-        send_telemetry_data(&settings, extension_name);
-    } else {
-        pgrx::log!("Telemetry is disabled or already handled.");
-    }
-}

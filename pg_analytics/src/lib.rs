@@ -36,7 +36,7 @@ pub extern "C" fn _PG_init() {
         register_hook(&mut PARADE_HOOK)
     };
 
-    setup_telemetry_background_worker("pg_analytics".to_string());
+    setup_telemetry_background_worker("pg_analytics");
 }
 
 #[cfg(test)]

@@ -5,16 +5,16 @@ use std::process;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::telemetry::posthog::read_and_send_telemetry_data;
+// use crate::telemetry::posthog::read_and_send_telemetry_data;
 
 #[pg_guard]
-pub fn setup_telemetry_background_worker(extension_name: String) {
+pub fn setup_telemetry_background_worker(extension_name: &str) {
     // A background worker to read and send telemetry data to PostHog.
-    BackgroundWorkerBuilder::new(&format!("{}_telemetry_worker", &extension_name))
+    BackgroundWorkerBuilder::new(&format!("{}_telemetry_worker", extension_name))
         // Must be the name of a function in this file.
         .set_function("telemetry_worker")
         // Must be the name of the extension it will be loaded from.
-        .set_library(&extension_name)
+        .set_library(extension_name)
         // We pass the extension name to retrieve the associated data directory to read telemetry data from.
         .set_argument(extension_name.into_datum())
         // Necessary for using plog!.
@@ -62,7 +62,12 @@ pub unsafe extern "C" fn telemetry_worker(arg: pg_sys::Datum) {
 
         // Check if the wait_duration has passed since the last time we sent telemetry data
         if Instant::now().duration_since(last_action_time) >= wait_duration {
-            read_and_send_telemetry_data(rust_string.clone());
+
+
+            // TODO: Handle this
+            // read_and_send_telemetry_data(rust_string.clone());
+            
+            
             last_action_time = Instant::now();
         }
 

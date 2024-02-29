@@ -66,8 +66,8 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> 
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
 
-        Session::with_tables(schema_name, |tables| async move {
-            tables.lock().await.deregister(&table_path)
+        Session::with_tables(schema_name, |mut tables| {
+            Box::pin(async move { tables.deregister(&table_path) })
         })?;
 
         pg_sys::RelationClose(relation);

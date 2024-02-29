@@ -1,4 +1,3 @@
-use async_std::task;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
@@ -14,8 +13,10 @@ pub fn select(
 ) -> Result<(), ParadeError> {
     // Execute the logical plan and collect the resulting batches
     let batches = Session::with_session_context(|context| {
-        let dataframe = task::block_on(context.execute_logical_plan(logical_plan))?;
-        Ok(task::block_on(dataframe.collect())?)
+        Box::pin(async move {
+            let dataframe = context.execute_logical_plan(logical_plan).await?;
+            Ok(dataframe.collect().await?)
+        })
     })?;
 
     // Convert the DataFusion batches to Postgres tuples and send them to the destination

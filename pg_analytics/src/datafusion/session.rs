@@ -1,4 +1,4 @@
-use async_std::sync::Mutex;
+use async_std::sync::{Mutex, MutexGuard};
 use async_std::task;
 use deltalake::datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use deltalake::datafusion::prelude::{SessionConfig, SessionContext};
@@ -31,7 +31,9 @@ pub struct Session;
 impl Session {
     pub fn with_session_context<F, R>(f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(&SessionContext) -> Result<R, ParadeError>,
+        F: for<'a> FnOnce(
+            &'a SessionContext,
+        ) -> Pin<Box<dyn Future<Output = Result<R, ParadeError>> + 'a>>,
     {
         let mut lock = task::block_on(SESSION_CACHE.lock());
 
@@ -40,7 +42,7 @@ impl Session {
             Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()?))?),
         };
 
-        f(context)
+        task::block_on(f(context))
     }
 
     pub fn with_catalog<F, R>(f: F) -> Result<R, ParadeError>
@@ -95,16 +97,18 @@ impl Session {
         task::block_on(f(parade_provider))
     }
 
-    pub fn with_tables<F, Fut, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
+    pub fn with_tables<F, R>(schema_name: &str, f: F) -> Result<R, ParadeError>
     where
-        F: FnOnce(Arc<Mutex<Tables>>) -> Fut,
-        Fut: Future<Output = Result<R, ParadeError>>,
+        F: for<'a> FnOnce(
+            MutexGuard<'a, Tables>,
+        ) -> Pin<Box<dyn Future<Output = Result<R, ParadeError>> + 'a>>,
     {
         let tables = Self::with_schema_provider(schema_name, |provider| {
             Box::pin(async move { provider.tables() })
         })?;
 
-        task::block_on(f(tables))
+        let lock = task::block_on(tables.lock());
+        task::block_on(f(lock))
     }
 
     pub async fn init(catalog_oid: pg_sys::Oid) -> Result<SessionContext, ParadeError> {

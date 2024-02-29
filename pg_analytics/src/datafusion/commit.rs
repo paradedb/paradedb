@@ -14,8 +14,8 @@ pub async fn commit_writer() -> Result<(), ParadeError> {
     if let Some((schema_name, table_path, mut delta_table)) = Writer::commit().await? {
         delta_table.update().await?;
 
-        Session::with_tables(&schema_name, |tables| async move {
-            tables.lock().await.register(&table_path, delta_table)
+        Session::with_tables(&schema_name, |mut tables| {
+            Box::pin(async move { tables.register(&table_path, delta_table) })
         })?;
     }
 

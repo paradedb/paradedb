@@ -11,7 +11,6 @@ use std::ffi::{CStr, CString};
 use std::fs::read_dir;
 use std::future::IntoFuture;
 use std::path::{Path, PathBuf};
-
 use std::sync::Arc;
 
 use crate::datafusion::directory::ParadeDirectory;

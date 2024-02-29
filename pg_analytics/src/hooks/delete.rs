@@ -39,25 +39,27 @@ pub async fn delete(
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
 
-    let optimized_plan =
-        Session::with_session_context(|context| Ok(context.state().optimize(&logical_plan)?))?;
+    let optimized_plan = Session::with_session_context(|context| {
+        Box::pin(async move { Ok(context.state().optimize(&logical_plan)?) })
+    })?;
 
     let metrics = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-        Session::with_tables(schema_name, |tables| async move {
-            match dml_statement.input.as_ref() {
-                LogicalPlan::Filter(filter) => {
-                    let mut lock = tables.lock().await;
-                    let (delta_table, metrics) = lock
-                        .delete(&table_path, Some(filter.predicate.clone()))
-                        .await?;
+        Session::with_tables(schema_name, |mut tables| {
+            Box::pin(async move {
+                match dml_statement.input.as_ref() {
+                    LogicalPlan::Filter(filter) => {
+                        let (delta_table, metrics) = tables
+                            .delete(&table_path, Some(filter.predicate.clone()))
+                            .await?;
 
-                    lock.register(&table_path, delta_table)?;
+                        tables.register(&table_path, delta_table)?;
 
-                    Ok(metrics)
+                        Ok(metrics)
+                    }
+                    LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
+                    _ => Err(NotSupported::NestedDelete.into()),
                 }
-                LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
-                _ => Err(NotSupported::NestedDelete.into()),
-            }
+            })
         })?
     } else {
         unreachable!()

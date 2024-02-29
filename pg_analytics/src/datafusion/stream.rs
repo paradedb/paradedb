@@ -48,14 +48,17 @@ impl Stream {
         schema_name: &str,
         table_path: &Path,
     ) -> Result<SendableRecordBatchStream, ParadeError> {
-        let delta_table = Session::with_tables(schema_name, |tables| async move {
-            tables.lock().await.get_owned(table_path).await
+        let table_path = table_path.to_path_buf();
+        let delta_table = Session::with_tables(schema_name, |mut tables| {
+            Box::pin(async move { tables.get_owned(&table_path).await })
         })?;
 
         let (state, task_context) = Session::with_session_context(|context| {
-            let state = context.state();
-            let task_context = context.task_ctx();
-            Ok((state, task_context))
+            Box::pin(async move {
+                let state = context.state();
+                let task_context = context.task_ctx();
+                Ok((state, task_context))
+            })
         })?;
 
         Ok(delta_table

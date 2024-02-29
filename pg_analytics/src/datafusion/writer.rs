@@ -87,8 +87,9 @@ impl Writer {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => {
                 let writer = Self::create(schema_name, table_path, arrow_schema).await?;
-                let table = Session::with_tables(schema_name, |tables| async move {
-                    tables.lock().await.get_owned(table_path).await
+                let table_path_cloned = table_path.to_path_buf();
+                let table = Session::with_tables(schema_name, |mut tables| {
+                    Box::pin(async move { tables.get_owned(&table_path_cloned).await })
                 })?;
                 entry.insert(WriterCache::new(writer, table, schema_name, table_path)?)
             }
@@ -121,8 +122,9 @@ impl Writer {
             None,
         );
 
-        let delta_table = Session::with_tables(schema_name, |tables| async move {
-            tables.lock().await.get_owned(table_path).await
+        let table_path = table_path.to_path_buf();
+        let delta_table = Session::with_tables(schema_name, |mut tables| {
+            Box::pin(async move { tables.get_owned(&table_path).await })
         })?;
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))

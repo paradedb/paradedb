@@ -52,11 +52,12 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
 
         pg_sys::RelationClose(relation);
 
-        Session::with_tables(schema_name, |tables| async move {
-            let mut lock = tables.lock().await;
-            let (delta_table, _) = lock.delete(&table_path, None).await?;
+        Session::with_tables(schema_name, |mut tables| {
+            Box::pin(async move {
+                let (delta_table, _) = tables.delete(&table_path, None).await?;
 
-            lock.register(&table_path, delta_table)
+                tables.register(&table_path, delta_table)
+            })
         })?;
     }
 

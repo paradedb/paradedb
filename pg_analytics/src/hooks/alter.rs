@@ -70,12 +70,13 @@ pub async unsafe fn alter(
         let schema = Arc::new(ArrowSchema::new(fields_to_add));
         let batch = RecordBatch::new_empty(schema);
 
-        Session::with_tables(schema_name, |tables| async move {
-            let mut lock = tables.lock().await;
-            let mut delta_table = lock.alter_schema(&table_path, batch).await?;
+        Session::with_tables(schema_name, |mut tables| {
+            Box::pin(async move {
+                let mut delta_table = tables.alter_schema(&table_path, batch).await?;
 
-            delta_table.update().await?;
-            lock.register(&table_path, delta_table)
+                delta_table.update().await?;
+                tables.register(&table_path, delta_table)
+            })
         })?;
     }
 

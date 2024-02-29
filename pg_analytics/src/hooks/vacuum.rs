@@ -109,12 +109,13 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
 
                             unsafe { pg_sys::RelationClose(relation) }
 
-                            Session::with_tables(&schema_name, |tables| async move {
-                                let mut lock = tables.lock().await;
-                                let delta_table =
-                                    lock.vacuum(&table_path, vacuum_options.full).await?;
+                            Session::with_tables(&schema_name, |mut tables| {
+                                Box::pin(async move {
+                                    let delta_table =
+                                        tables.vacuum(&table_path, vacuum_options.full).await?;
 
-                                lock.register(&table_path, delta_table)
+                                    tables.register(&table_path, delta_table)
+                                })
                             })?;
                         }
                     }
@@ -169,11 +170,12 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 let schema_name = pg_relation.namespace();
                 let table_path = pg_relation.table_path()?;
 
-                Session::with_tables(schema_name, |tables| async move {
-                    let mut lock = tables.lock().await;
-                    let delta_table = lock.vacuum(&table_path, vacuum_options.full).await?;
+                Session::with_tables(schema_name, |mut tables| {
+                    Box::pin(async move {
+                        let delta_table = tables.vacuum(&table_path, vacuum_options.full).await?;
 
-                    lock.register(&table_path, delta_table)
+                        tables.register(&table_path, delta_table)
+                    })
                 })?;
 
                 pg_sys::RelationClose(relation);

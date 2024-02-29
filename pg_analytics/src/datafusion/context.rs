@@ -10,7 +10,7 @@ use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, 
 use deltalake::datafusion::prelude::{SessionConfig, SessionContext};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
-use lazy_static::lazy_static;
+use once_cell::sync::Lazy;
 use parking_lot::{MutexGuard, RwLock, RwLockWriteGuard};
 use pgrx::*;
 use std::any::type_name;
@@ -23,9 +23,8 @@ use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::table::Tables;
 use crate::errors::{NotFound, ParadeError};
 
-lazy_static! {
-    pub static ref CONTEXT: RwLock<Option<SessionContext>> = RwLock::new(None);
-}
+static CONTEXT: Lazy<Arc<RwLock<Option<SessionContext>>>> =
+    Lazy::new(|| Arc::new(RwLock::new(None)));
 
 pub struct DatafusionContext;
 

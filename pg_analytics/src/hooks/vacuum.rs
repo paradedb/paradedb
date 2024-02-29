@@ -111,10 +111,9 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
 
                             Session::with_tables(&schema_name, |tables| async move {
                                 let mut lock = tables.lock().await;
-                                let mut delta_table =
+                                let delta_table =
                                     lock.vacuum(&table_path, vacuum_options.full).await?;
 
-                                delta_table.update().await?;
                                 lock.register(&table_path, delta_table)
                             })?;
                         }
@@ -172,9 +171,8 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
 
                 Session::with_tables(schema_name, |tables| async move {
                     let mut lock = tables.lock().await;
-                    let mut delta_table = lock.vacuum(&table_path, vacuum_options.full).await?;
+                    let delta_table = lock.vacuum(&table_path, vacuum_options.full).await?;
 
-                    delta_table.update().await?;
                     lock.register(&table_path, delta_table)
                 })?;
 

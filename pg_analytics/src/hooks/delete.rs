@@ -47,11 +47,10 @@ pub async fn delete(
             match dml_statement.input.as_ref() {
                 LogicalPlan::Filter(filter) => {
                     let mut lock = tables.lock().await;
-                    let (mut delta_table, metrics) = lock
+                    let (delta_table, metrics) = lock
                         .delete(&table_path, Some(filter.predicate.clone()))
                         .await?;
 
-                    delta_table.update().await?;
                     lock.register(&table_path, delta_table)?;
 
                     Ok(metrics)

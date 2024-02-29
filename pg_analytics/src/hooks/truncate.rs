@@ -54,9 +54,8 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
 
         Session::with_tables(schema_name, |tables| async move {
             let mut lock = tables.lock().await;
-            let (mut delta_table, _) = lock.delete(&table_path, None).await?;
+            let (delta_table, _) = lock.delete(&table_path, None).await?;
 
-            delta_table.update().await?;
             lock.register(&table_path, delta_table)
         })?;
     }

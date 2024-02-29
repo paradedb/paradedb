@@ -7,6 +7,8 @@ use deltalake::operations::update::UpdateBuilder;
 use deltalake::table::state::DeltaTableState;
 use parking_lot::Mutex;
 use pgrx::*;
+use std::ffi::{CStr, CString};
+use std::fs::read_dir;
 use std::future::IntoFuture;
 use std::{
     any::{type_name, Any},
@@ -61,7 +63,7 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     fn table_names(&self) -> Vec<String> {
-        vec![]
+        table_names_impl(&self.schema_name).expect("Failed to get table names")
     }
 
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
@@ -92,4 +94,31 @@ impl SchemaProvider for ParadeSchemaProvider {
     fn table_exist(&self, table_name: &str) -> bool {
         matches!(Self::table_path(self, table_name), Ok(Some(_)))
     }
+}
+
+#[inline]
+fn table_names_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
+    let mut names = vec![];
+
+    let schema_oid =
+        unsafe { pg_sys::get_namespace_oid(CString::new(schema_name)?.as_ptr(), true) };
+    let schema_path = ParadeDirectory::schema_path(DatafusionContext::catalog_oid()?, schema_oid)?;
+
+    for file in read_dir(schema_path)? {
+        if let Ok(oid) = file?.file_name().into_string()?.parse::<u32>() {
+            let pg_oid = pg_sys::Oid::from(oid);
+            let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
+
+            if relation.is_null() {
+                continue;
+            }
+
+            let table_name =
+                unsafe { CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()? };
+
+            names.push(table_name.to_string());
+        }
+    }
+
+    Ok(names)
 }

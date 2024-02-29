@@ -21,6 +21,7 @@ use crate::datafusion::table::Tables;
 use crate::errors::{NotFound, ParadeError};
 
 const SESSION_ID: &str = "datafusion_session_context";
+const EXTENSION_NAME: &str = "pg_analytics";
 
 static SESSION_CACHE: Lazy<Arc<Mutex<HashMap<String, SessionContext>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
@@ -116,7 +117,7 @@ impl<'a> Session {
             .to_str()?
         };
 
-        if !preload_libraries.contains("pg_analytics") {
+        if !preload_libraries.contains(EXTENSION_NAME) {
             return Err(ParadeError::SharedPreload);
         }
 

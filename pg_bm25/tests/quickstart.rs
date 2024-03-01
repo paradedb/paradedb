@@ -7,7 +7,6 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
-#[allow(unused)]
 fn quickstart(mut conn: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(
@@ -190,4 +189,39 @@ fn quickstart(mut conn: PgConnection) {
     assert_relative_eq!(rows[2].3, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[3].3, 0.1, epsilon = 1e-6);
     assert_relative_eq!(rows[4].3, 0.1, epsilon = 1e-6);
+}
+
+#[rstest]
+fn identical_queries(mut conn: PgConnection) {
+    r#"
+    CALL paradedb.create_bm25_test_table(
+      schema_name => 'public',
+      table_name => 'mock_items'
+    );
+    CALL paradedb.create_bm25(
+            index_name => 'search_idx',
+            schema_name => 'public',
+            table_name => 'mock_items',
+            key_field => 'id',
+            text_fields => '{description: {}, category: {}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows1: SimpleProductsTableVec =
+        "SELECT * FROM search_idx.search('description:shoes')".fetch_collect(&mut conn);
+    let rows2: SimpleProductsTableVec =
+        "SELECT * FROM search_idx.search(query => paradedb.parse('description:shoes'))"
+            .fetch_collect(&mut conn);
+    let rows3: SimpleProductsTableVec = r#"
+        SELECT * FROM search_idx.search(
+	        query => paradedb.term(
+	        	field => 'description',
+	        	value => 'shoes'
+	        )
+        )"#
+    .fetch_collect(&mut conn);
+
+    assert_eq!(rows1.id, rows2.id);
+    assert_eq!(rows2.id, rows3.id);
 }

@@ -8,19 +8,12 @@ The `search` function that's generated for your index can accept query objects i
 
 Query objects are composable, allowing for arbitrarily fine-grained queries. A query string itself is parsed into a query object, and can be used anywhere in a query tree with `paradedb.parse`.
 
-`paradedb.parse` is implicitly performed if a query string is passed directly to the `search` function. These three queries are identical:
+`paradedb.parse` is implicitly performed if a query string is passed directly to the `search` function. These two queries are identical:
 
 ```sql
 SELECT * FROM search_idx.search('description:shoes');
 
 SELECT * FROM search_idx.search(query => paradedb.parse('description:shoes'));
-
-SELECT * FROM search_idx.search(
-	query => paradedb.term(
-		field => 'description',
-		value => 'shoes'
-	)
-);
 ```
 
 ## Query Types
@@ -32,7 +25,7 @@ The `paradedb` schema exposes the following functions to construct query objects
 This query type indiscriminately matches every document in the index, assigning a uniform score of 1.0 to each.
 
 ```sql
-SELECT * FROM search_index.search(
+SELECT * FROM search_idx.search(
     query => paradedb.all()
 );
 ```
@@ -46,7 +39,7 @@ Boolean queries filter documents based on the logical relationships defined by t
 - Documents that satisfy at least one condition from either `must` or `should`.
 
 ```sql
-SELECT * FROM search_index.search(
+SELECT * FROM search_idx.search(
     query => paradedb.boolean(
 	    should => ARRAY[
 		    paradedb.parse('description:shoes'),
@@ -76,7 +69,7 @@ SELECT * FROM search_index.search(
 A boost query wraps around another query to amplify its scoring impact, without altering the set of matched documents.
 
 ```sql
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
 	query => paradedb.boost(query => paradedb.all(), boost => 1.5)
 );
 ```
@@ -91,7 +84,7 @@ SELECT * FROM bm25_search.search(
 Applies a constant score across all documents matched by the underlying query. It can avoid unnecessary score computation on the wrapped query.
 
 ```
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
     query => paradedb.const_score(query => paradedb.all(), score => 3.9)
 );
 ```
@@ -104,7 +97,7 @@ SELECT * FROM bm25_search.search(
 Returns documents that match one or more of the specified subqueries. If a document matches multiple criteria, it receives the highest score from those matches, with a slight increase for any additional matches.
 
 ```sql
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
 	query => paradedb.disjunction_max(
 		disjuncts => ARRAY[paradedb.parse('description:shoes')]
 	)
@@ -121,7 +114,7 @@ SELECT * FROM bm25_search.search(
 Serves as a placeholder, matching no documents. It's useful for testing scenarios or specific edge cases.
 
 ```sql
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
 	query => paradedb.empty()
 );
 ```
@@ -135,7 +128,7 @@ providing relevant results even when the query is not spelled correctly.
 <Note>Highlighting is not currently supported for fuzzy search queries.</Note>
 
 ```sql
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
 	query => paradedb.fuzzy_term(field => 'description', value => 'wolo')
 );
 ```
@@ -168,7 +161,7 @@ SELECT * FROM bm25_search.search(
 Searches for documents containing an exact sequence of words, with `slop` allowing for some flexibility in term proximity. This query type also requires position indexing.
 
 ```sql
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
 	query => paradedb.phrase(
 		field => 'description',
 		phrases => ARRAY['robot', 'building', 'kit']
@@ -196,7 +189,7 @@ SELECT * FROM bm25_search.search(
 Identifies documents containing a given sequence of words followed by a term prefix, requiring the indexing of positions for the search field.
 
 ```sql
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
 	query => paradedb.phrase_prefix(
 		field => 'description',
 		phrases => ARRAY['har']
@@ -222,7 +215,7 @@ SELECT * FROM bm25_search.search(
 Finds documents containing terms that match a specific regex pattern, enabling pattern-based searching.
 
 ```
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
 	query => paradedb.regex(
 		field => 'description',
 		pattern => '(hardcover|plush|leather|running|wireless)'
@@ -237,10 +230,10 @@ SELECT * FROM bm25_search.search(
 
 ### Term
 
-Matches documents containing a specified term, with scoring based on term frequency, inverse document frequency, and field normalization.
+Matches documents containing a specified term, with scoring based on term frequency, inverse document frequency, and field normalization. The term value passed is not tokenized for searching, it is matched directly against terms in the index.
 
 ```
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
 	query => paradedb.term(field => 'description', value => 'shoes')
 )
 ```
@@ -255,7 +248,7 @@ SELECT * FROM bm25_search.search(
 Matches documents containing any term from a specified set, offering flexibility in matching criteria.
 
 ```
-SELECT * FROM bm25_search.search(
+SELECT * FROM search_idx.search(
 	query => paradedb.term_set(
 	    fields => ARRAY[
 	        paradedb.term(field => 'description', value => 'shoes'),

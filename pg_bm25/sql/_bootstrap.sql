@@ -231,14 +231,18 @@ BEGIN
         CREATE OR REPLACE FUNCTION %s(
             query text, -- The search query
             offset_rows integer DEFAULT NULL, -- Offset for paginated results
-            limit_rows integer DEFAULT NULL -- Limit for paginated results
+            limit_rows integer DEFAULT NULL, -- Limit for paginated results
+            max_num_chars integer DEFAULT NULL, -- Maximum character limit for searches 
+            highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only) 
         ) RETURNS %s AS $func$
         BEGIN
             -- Explicitly cast the 'query' text parameter to 'paradedb.searchqueryinput' type
             RETURN QUERY SELECT * FROM %s(
                 query => paradedb.parse(query),
                 offset_rows => offset_rows,
-                limit_rows => limit_rows
+                limit_rows => limit_rows,
+                max_num_chars => max_num_chars,
+                highlight_field => highlight_field
             );
         END
         $func$ LANGUAGE plpgsql;

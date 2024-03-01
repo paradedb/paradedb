@@ -112,6 +112,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "approx"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "arc-swap"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3651,6 +3660,7 @@ name = "pg_bm25"
 version = "0.5.7"
 dependencies = [
  "anyhow",
+ "approx",
  "async-std",
  "async-trait",
  "bincode",
@@ -3669,6 +3679,7 @@ dependencies = [
  "once_cell",
  "pgrx",
  "pgrx-tests",
+ "pgvector",
  "pretty_assertions",
  "reqwest",
  "rstest",
@@ -3805,6 +3816,15 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "thiserror",
+]
+
+[[package]]
+name = "pgvector"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1f4c0c07ceb64a0020f2f0e610cfe51122d2e72723499f0154877b7c76c8c31"
+dependencies = [
+ "sqlx",
 ]
 
 [[package]]

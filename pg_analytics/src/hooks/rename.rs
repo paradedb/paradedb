@@ -1,7 +1,6 @@
 use deltalake::datafusion::sql::parser;
 use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, Statement};
 use pgrx::*;
-use std::ffi::CStr;
 
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
@@ -10,7 +9,6 @@ pub unsafe fn rename(
     rename_stmt: *mut pg_sys::RenameStmt,
     statement: &parser::Statement,
 ) -> Result<(), ParadeError> {
-    let _new_name = CStr::from_ptr((*rename_stmt).newname).to_str()?;
     let rangevar = (*rename_stmt).relation;
     let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
         rangevar,

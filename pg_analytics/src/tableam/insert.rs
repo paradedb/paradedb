@@ -74,19 +74,25 @@ async fn insert_tuples(
 ) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let tuple_desc = pg_relation.tuple_desc();
-    let mut values: Vec<ArrayRef> = vec![];
+    let mut column_values: Vec<ArrayRef> = vec![];
 
     // Convert the TupleTableSlots into DataFusion arrays
     for (col_idx, attr) in tuple_desc.iter().enumerate() {
-        let sql_data_type = attr.type_oid().to_sql_data_type(attr.type_mod())?;
-        let datafusion_type = DatafusionTypeTranslator::from_sql_data_type(sql_data_type)?;
+        column_values.push(
+            (0..nslots)
+            .map(move |row_idx| {
+                let tuple_table_slot = *slots.add(row_idx);
+                let datum = (*tuple_table_slot).tts_values.add(col_idx);
+                let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
 
-        values.push(DatafusionMapProducer::array(
-            datafusion_type,
-            slots,
-            nslots,
-            col_idx,
-        )?);
+                (datum, is_null)
+            })
+            .map(|(datum, is_null)| {
+                T::from_datum(datum, is_null)
+            })
+            .collect()
+            .into_array()
+        );
     }
 
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
@@ -97,3 +103,24 @@ async fn insert_tuples(
 
     Writer::write(schema_name, &table_path, arrow_schema, &batch).await
 }
+
+fn get_arrow_batch<T>(slots, nslots, col_idx) -> Result<ArrayRef, ParadeError> {
+    (0..nslots)
+        .map(move |row_idx| {
+            let tuple_table_slot = *slots.add(row_idx);
+            let datum = (*tuple_table_slot).tts_values.add(col_idx);
+            let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
+
+            (datum, is_null)
+        })
+        .map(|(datum, is_null)| {
+            T::from_datum(datum, is_null)
+        })
+        .collect()
+        .into_array()
+}
+
+impl FromDatum for i64;
+...
+impl FromDatumTimestamp for Timestamp;
+...

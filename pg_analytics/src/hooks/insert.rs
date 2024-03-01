@@ -35,6 +35,8 @@ pub fn insert(
         return Ok(());
     }
 
+    unsafe { pg_sys::RelationClose(relation) };
+
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,
         AssertUnwindSafe(move || {

@@ -1,9 +1,10 @@
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime, Datelike, Timelike};
 use deltalake::arrow::array::{
     Decimal128Array, Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, UInt32Array,
 };
 use deltalake::datafusion::arrow::datatypes::{
-    DataType, Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type,
-    Int64Type, TimeUnit, TimestampMicrosecondType, UInt32Type, DECIMAL128_MAX_PRECISION,
+    ArrowTimestampType, DataType, Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type,
+    Int32Type, Int64Type, TimeUnit, TimestampMicrosecondType, UInt32Type, DECIMAL128_MAX_PRECISION,
     DECIMAL128_MAX_SCALE,
 };
 use deltalake::datafusion::common::arrow::array::{
@@ -23,6 +24,8 @@ use crate::errors::{NotFound, NotSupported, ParadeError};
 use super::array::{
     IntoArray, IntoBooleanListArray, IntoGenericBytesListArray, IntoPrimitiveListArray,
 };
+
+const NANOSECONDS_IN_SECOND: u32 = 1000000000;
 
 pub trait DatafusionTypeTranslator {
     fn to_sql_data_type(&self) -> Result<SQLDataType, ParadeError>;
@@ -374,6 +377,64 @@ fn tuple_data<T: FromDatum>(
         .collect()
 }
 
+fn timestamp(
+    slots: *mut *mut pg_sys::TupleTableSlot,
+    nslots: usize,
+    col_idx: usize,
+) -> Vec<Option<i64>> {
+    (0..nslots)
+        .map(move |row_idx| unsafe { tuple_info(slots, row_idx, col_idx) })
+        .map(|(datum, is_null)| {
+            (!is_null).then_some(datum).and_then(|datum| {
+                let timestamp = unsafe { datum::Timestamp::from_datum(*datum, false)? };
+                let date = NaiveDate::from_ymd_opt(
+                    timestamp.year() as i32,
+                    timestamp.month() as u32,
+                    timestamp.day() as u32,
+                )?;
+                let time = NaiveTime::from_hms_milli_opt(
+                    timestamp.hour() as u32,
+                    timestamp.minute() as u32,
+                    timestamp.second() as u32,
+                    timestamp.microseconds(),
+                )?;
+                let datetime = NaiveDateTime::new(date, time);
+
+                let dt = NaiveDate::from_ymd_opt(1970, 2, 2)
+                    .unwrap()
+                    .and_hms_micro_opt(0, 0, 1, 0)
+                    .unwrap();
+                info!("dt micros {}", dt.timestamp_micros());
+
+                let pdt = datum::Timestamp::new(1970, 2, 2, 0, 0, 1.0).unwrap();
+                info!("pg micros {}", pdt.into_inner());
+
+                TimestampMicrosecondType::make_value(datetime)
+            })
+        })
+        .collect()
+}
+
+trait TimestampIntoDatum {
+    fn into_datum(&self) -> Option<Datum>;
+}
+
+impl TimestampIntoDatum for TimestampMicrosecondType {
+    fn into_datum(&self) -> Option<Datum> {
+        let microseconds = self.default_value();
+        let datetime = NaiveDateTime::from_timestamp_micros(microseconds)?;
+
+        Some(datum::Timestamp::new(
+            datetime.year(),
+            datetime.month(),
+            datetime.day(),
+            datetime.hour(),
+            datetime.minute(),
+            datetime.second() + datetime.nanoseconds() / NANOSECONDS_IN_SECOND,
+        ))
+    }
+}
+
 pub struct DatafusionMapProducer;
 impl DatafusionMapProducer {
     pub fn array(
@@ -524,7 +585,7 @@ impl DatafusionMapProducer {
                 tuple_data::<i64>(slots, nslots, col_idx),
             ))),
             DataType::Timestamp(TimeUnit::Microsecond, tz) => Ok(Arc::new(
-                TimestampMicrosecondArray::from(tuple_data::<i64>(slots, nslots, col_idx))
+                TimestampMicrosecondArray::from(timestamp(slots, nslots, col_idx))
                     .with_timezone_opt(tz),
             )),
             DataType::Date32 => Ok(Arc::new(Date32Array::from(tuple_data::<i32>(

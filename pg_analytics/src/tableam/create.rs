@@ -1,14 +1,15 @@
 use async_std::task;
 use core::ffi::c_char;
-use pgrx::*;
-
+use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::CatalogProvider;
 use deltalake::datafusion::sql::TableReference;
+use pgrx::*;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::session::Session;
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
 
 #[pg_guard]
@@ -20,7 +21,7 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    create_file_node(rel, persistence).unwrap_or_else(|err| {
+    task::block_on(create_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -34,13 +35,13 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    create_file_node(rel, persistence).unwrap_or_else(|err| {
+    task::block_on(create_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
 
 #[inline]
-fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), ParadeError> {
+async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 
     match persistence as u8 {
@@ -48,18 +49,14 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
         _ => {
             let table_name = pg_relation.name().to_string();
             let schema_name = pg_relation.namespace().to_string();
-            let catalog_name = DatafusionContext::catalog_name()?;
-            let schema_oid = pg_relation.namespace_oid();
+            let table_path = pg_relation.table_path()?;
+            let arrow_schema = pg_relation.arrow_schema()?;
+            let catalog_name = Session::catalog_name()?;
 
-            DatafusionContext::with_catalog(|catalog| {
+            Session::with_catalog(|catalog| {
                 if catalog.schema(&schema_name).is_none() {
-                    let schema_provider = Arc::new(task::block_on(ParadeSchemaProvider::try_new(
-                        &schema_name,
-                        ParadeDirectory::schema_path(
-                            DatafusionContext::catalog_oid()?,
-                            schema_oid,
-                        )?,
-                    ))?);
+                    let schema_provider =
+                        Arc::new(task::block_on(ParadeSchemaProvider::try_new(&schema_name))?);
 
                     catalog.register_schema(&schema_name, schema_provider)?;
                 }
@@ -67,9 +64,12 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
                 Ok(())
             })?;
 
-            let table_exists = DatafusionContext::with_session_context(|context| {
-                let reference = TableReference::full(catalog_name, schema_name.clone(), table_name);
-                Ok(context.table_exist(reference)?)
+            let schema_name = pg_relation.namespace().to_string();
+            let table_exists = Session::with_session_context(|context| {
+                Box::pin(async move {
+                    let reference = TableReference::full(catalog_name, schema_name, table_name);
+                    Ok(context.table_exist(reference)?)
+                })
             })?;
 
             // If the table already exists, then this function is being called as part of another
@@ -78,8 +78,25 @@ fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), Pa
                 return Ok(());
             }
 
-            DatafusionContext::with_schema_provider(&schema_name, |provider| {
-                task::block_on(provider.create_table(&pg_relation))
+            ParadeDirectory::create_schema_path(
+                Session::catalog_oid()?,
+                pg_relation.namespace_oid(),
+            )?;
+
+            let schema_name = pg_relation.namespace().to_string();
+            Session::with_tables(&schema_name, |mut tables| {
+                Box::pin(async move {
+                    tables
+                        .create(&table_path, pg_relation.arrow_schema()?)
+                        .await?;
+
+                    // Write an empty batch to the table so that a Parquet file is written
+                    let batch = RecordBatch::new_empty(arrow_schema.clone());
+                    let mut delta_table = tables.alter_schema(&table_path, batch).await?;
+
+                    delta_table.update().await?;
+                    tables.register(&table_path, delta_table)
+                })
             })
         }
     }

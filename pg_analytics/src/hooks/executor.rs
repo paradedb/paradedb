@@ -1,3 +1,4 @@
+use async_std::task;
 use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::sql::parser::DFParser;
@@ -6,11 +7,12 @@ use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::context::ParadeContextProvider;
-
+use crate::datafusion::commit::{commit_writer, needs_commit};
+use crate::datafusion::context::QueryContext;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::delete::delete;
 use crate::hooks::handler::IsColumn;
+use crate::hooks::insert::insert;
 use crate::hooks::query::Query;
 use crate::hooks::select::select;
 
@@ -26,12 +28,20 @@ pub fn executor_run(
         execute_once: bool,
     ) -> HookResult<()>,
 ) -> Result<(), ParadeError> {
+    if needs_commit()? {
+        task::block_on(commit_writer())?;
+    }
+
     unsafe {
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;
         let query = query_desc
             .plannedstmt
             .current_query_string(CStr::from_ptr(query_desc.sourceText))?;
+
+        if query_desc.operation == pg_sys::CmdType_CMD_INSERT {
+            insert(rtable, query_desc.clone())?;
+        }
 
         // Only use this hook for deltalake tables
         // Allow INSERTs to go through
@@ -76,7 +86,7 @@ fn create_logical_plan(query: &str) -> Result<LogicalPlan, ParadeError> {
     let statement = &ast[0];
 
     // Convert the AST into a logical plan
-    let context_provider = ParadeContextProvider::new()?;
+    let context_provider = QueryContext::new()?;
     let sql_to_rel = SqlToRel::new(&context_provider);
 
     Ok(sql_to_rel.statement_to_plan(statement.clone())?)

@@ -1,13 +1,14 @@
+use async_std::sync::RwLock;
+use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::catalog::{CatalogList, CatalogProvider};
 use deltalake::datafusion::common::DataFusionError;
-use parking_lot::RwLock;
 use pgrx::*;
 use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr, sync::Arc};
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
+use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
 
 pub struct ParadeCatalog {
@@ -26,7 +27,7 @@ impl ParadeCatalog {
     }
 
     pub async fn init(&self) -> Result<(), ParadeError> {
-        let delta_dir = ParadeDirectory::catalog_path(DatafusionContext::catalog_oid()?)?;
+        let delta_dir = ParadeDirectory::catalog_path(Session::catalog_oid()?)?;
 
         for entry in std::fs::read_dir(delta_dir)? {
             let entry = entry?;
@@ -51,15 +52,8 @@ impl ParadeCatalog {
                     CStr::from_ptr(schema_name).to_str()?.to_owned()
                 };
 
-                let schema_provider = Arc::new(
-                    ParadeSchemaProvider::try_new(
-                        schema_name.as_str(),
-                        ParadeDirectory::schema_path(DatafusionContext::catalog_oid()?, pg_oid)?,
-                    )
-                    .await?,
-                );
-
-                schema_provider.init().await?;
+                let schema_provider =
+                    Arc::new(ParadeSchemaProvider::try_new(schema_name.as_str()).await?);
 
                 Self::register_schema(self, schema_name.as_str(), schema_provider)?;
             }
@@ -79,18 +73,18 @@ impl CatalogProvider for ParadeCatalog {
         name: &str,
         schema: Arc<dyn SchemaProvider>,
     ) -> Result<Option<Arc<dyn SchemaProvider>>, DataFusionError> {
-        let mut schema_map = self.schemas.write();
+        let mut schema_map = task::block_on(self.schemas.write());
         schema_map.insert(name.to_owned(), schema.clone());
         Ok(Some(schema))
     }
 
     fn schema_names(&self) -> Vec<String> {
-        let schemas = self.schemas.read();
+        let schemas = task::block_on(self.schemas.read());
         schemas.keys().cloned().collect()
     }
 
     fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
-        let schemas = self.schemas.read();
+        let schemas = task::block_on(self.schemas.read());
         let maybe_schema = schemas.get(name);
         if let Some(schema) = maybe_schema {
             let schema = schema.clone() as Arc<dyn SchemaProvider>;
@@ -119,18 +113,18 @@ impl CatalogList for ParadeCatalogList {
         name: String,
         catalog: Arc<dyn CatalogProvider>,
     ) -> Option<Arc<dyn CatalogProvider>> {
-        let mut cats = self.catalogs.write();
-        cats.insert(name, catalog.clone());
+        let mut catalog_map = task::block_on(self.catalogs.write());
+        catalog_map.insert(name, catalog.clone());
         Some(catalog)
     }
 
     fn catalog_names(&self) -> Vec<String> {
-        let cats = self.catalogs.read();
-        cats.keys().cloned().collect()
+        let catalog_map = task::block_on(self.catalogs.read());
+        catalog_map.keys().cloned().collect()
     }
 
     fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
-        let cats = self.catalogs.read();
-        cats.get(name).cloned()
+        let catalog_map = task::block_on(self.catalogs.read());
+        catalog_map.get(name).cloned()
     }
 }

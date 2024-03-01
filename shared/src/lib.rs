@@ -1,5 +1,6 @@
 pub mod constants;
 pub mod logs;
+pub mod postgres;
 pub mod telemetry;
 
 #[cfg(feature = "fixtures")]

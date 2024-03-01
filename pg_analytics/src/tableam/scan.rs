@@ -11,8 +11,9 @@ use pgrx::*;
 use std::any::type_name;
 use std::sync::Arc;
 
-use crate::datafusion::context::DatafusionContext;
 use crate::datafusion::datatype::{DatafusionMapProducer, DatafusionTypeTranslator};
+use crate::datafusion::stream::Stream;
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotFound, ParadeError};
 
 struct DeltalakeScanDesc {
@@ -42,21 +43,6 @@ fn delta_scan_begin_impl(
     pscan: pg_sys::ParallelTableScanDesc,
     flags: pg_sys::uint32,
 ) -> Result<pg_sys::TableScanDesc, ParadeError> {
-    let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let table_name = pg_relation.name();
-    let schema_name = pg_relation.namespace();
-
-    let (state, task_context) = DatafusionContext::with_session_context(|context| {
-        let state = context.state();
-        let task_context = context.task_ctx();
-        Ok((state, task_context))
-    })?;
-
-    DatafusionContext::with_schema_provider(schema_name, |provider| {
-        let stream = task::block_on(provider.create_stream(table_name, &state, task_context))?;
-        provider.register_stream(table_name, stream)
-    })?;
-
     unsafe {
         PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
             let mut scan = PgBox::<DeltalakeScanDesc>::alloc0();
@@ -95,11 +81,14 @@ pub unsafe extern "C" fn deltalake_scan_getnextslot(
     _direction: pg_sys::ScanDirection,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    unsafe { deltalake_scan_getnextslot_impl(scan, slot).expect("Failed to get next slot") }
+    unsafe {
+        task::block_on(deltalake_scan_getnextslot_impl(scan, slot))
+            .expect("Failed to get next slot")
+    }
 }
 
 #[inline]
-unsafe fn deltalake_scan_getnextslot_impl(
+async unsafe fn deltalake_scan_getnextslot_impl(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Result<bool, ParadeError> {
@@ -115,9 +104,9 @@ unsafe fn deltalake_scan_getnextslot_impl(
     }
 
     let dscan = scan as *mut DeltalakeScanDesc;
-    let relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
-    let table_name = relation.name();
-    let schema_name = relation.namespace();
+    let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
+    let schema_name = pg_relation.namespace();
+    let table_path = pg_relation.table_path()?;
 
     if (*dscan).curr_batch.is_none()
         || (*dscan).curr_batch_idx
@@ -129,13 +118,10 @@ unsafe fn deltalake_scan_getnextslot_impl(
     {
         (*dscan).curr_batch_idx = 0;
 
-        (*dscan).curr_batch =
-            match DatafusionContext::with_schema_provider(schema_name, |provider| {
-                provider.get_next_streamed_batch(table_name)
-            })? {
-                Some(batch) => Some(Arc::new(batch)),
-                None => return Ok(false),
-            };
+        (*dscan).curr_batch = match Stream::get_next_batch(schema_name, &table_path).await? {
+            Some(batch) => Some(Arc::new(batch)),
+            None => return Ok(false),
+        };
     }
 
     let current_batch = (*dscan)

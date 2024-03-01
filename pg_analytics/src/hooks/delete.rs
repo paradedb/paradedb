@@ -1,9 +1,10 @@
-use async_std::task;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
-use crate::datafusion::context::DatafusionContext;
+use crate::datafusion::session::Session;
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
+use crate::hooks::handler::IsColumn;
 
 pub fn delete(
     rtable: *mut pg_sys::List,
@@ -24,29 +25,47 @@ pub fn delete(
     }
 
     let relation = unsafe { pg_sys::RelationIdGetRelation((*rte).relid) };
-    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
-    let table_name = pg_relation.name();
-    let schema_name = pg_relation.namespace();
 
-    let optimized_plan = DatafusionContext::with_session_context(|context| {
-        Ok(context.state().optimize(&logical_plan)?)
+    if relation.is_null() {
+        return Ok(());
+    }
+
+    if unsafe { !relation.is_column()? } {
+        unsafe { pg_sys::RelationClose(relation) };
+        return Ok(());
+    }
+
+    let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
+    let schema_name = pg_relation.namespace();
+    let table_path = pg_relation.table_path()?;
+
+    let optimized_plan = Session::with_session_context(|context| {
+        Box::pin(async move { Ok(context.state().optimize(&logical_plan)?) })
     })?;
 
-    let delete_metrics = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
-        DatafusionContext::with_schema_provider(schema_name, |provider| {
-            match dml_statement.input.as_ref() {
-                LogicalPlan::Filter(filter) => {
-                    task::block_on(provider.delete(table_name, Some(filter.predicate.clone())))
+    let metrics = if let LogicalPlan::Dml(dml_statement) = optimized_plan {
+        Session::with_tables(schema_name, |mut tables| {
+            Box::pin(async move {
+                match dml_statement.input.as_ref() {
+                    LogicalPlan::Filter(filter) => {
+                        let (delta_table, metrics) = tables
+                            .delete(&table_path, Some(filter.predicate.clone()))
+                            .await?;
+
+                        tables.register(&table_path, delta_table)?;
+
+                        Ok(metrics)
+                    }
+                    LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
+                    _ => Err(NotSupported::NestedDelete.into()),
                 }
-                LogicalPlan::TableScan(_) => Err(NotSupported::ScanDelete.into()),
-                _ => Err(NotSupported::NestedDelete.into()),
-            }
+            })
         })?
     } else {
         unreachable!()
     };
 
-    if let Some(num_deleted) = delete_metrics.num_deleted_rows {
+    if let Some(num_deleted) = metrics.num_deleted_rows {
         unsafe {
             (*(*query_desc.clone().into_pg()).estate).es_processed = num_deleted as u64;
         }

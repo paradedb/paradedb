@@ -1,10 +1,11 @@
-use async_std::task;
-use pgrx::*;
-use std::ffi::CStr;
-
-use crate::datafusion::context::DatafusionContext;
 use deltalake::datafusion::catalog::CatalogProvider;
+use pgrx::*;
+use std::ffi::{CStr, CString};
+use std::fs::remove_dir_all;
 
+use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::session::Session;
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 
@@ -79,13 +80,46 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
     // Perform vacuum
     match vacuum_all {
         true => {
-            let schema_names =
-                DatafusionContext::with_catalog(|catalog| Ok(catalog.schema_names()))?;
+            let schema_names = Session::with_catalog(|catalog| Ok(catalog.schema_names()))?;
 
             for schema_name in schema_names {
-                DatafusionContext::with_schema_provider(&schema_name, |provider| {
-                    task::block_on(provider.vacuum_all(vacuum_options.full))
-                })?;
+                let schema_oid = unsafe {
+                    pg_sys::get_namespace_oid(CString::new(schema_name.clone())?.as_ptr(), true)
+                };
+                let schema_path =
+                    ParadeDirectory::schema_path(Session::catalog_oid()?, schema_oid)?;
+                let directory = std::fs::read_dir(schema_path.clone())?;
+
+                // Vacuum all tables in the schema directory and delete directories for dropped tables
+                for file in directory {
+                    let table_oid = file?.file_name().into_string()?;
+
+                    if let Ok(oid) = table_oid.parse::<u32>() {
+                        let pg_oid = pg_sys::Oid::from(oid);
+                        let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
+
+                        // If the relation is null, delete the directory
+                        if relation.is_null() {
+                            let path = schema_path.join(&table_oid);
+                            remove_dir_all(path.clone())?;
+                        // Otherwise, vacuum the table
+                        } else {
+                            let pg_relation = unsafe { PgRelation::from_pg(relation) };
+                            let table_path = pg_relation.table_path()?;
+
+                            unsafe { pg_sys::RelationClose(relation) }
+
+                            Session::with_tables(&schema_name, |mut tables| {
+                                Box::pin(async move {
+                                    let delta_table =
+                                        tables.vacuum(&table_path, vacuum_options.full).await?;
+
+                                    tables.register(&table_path, delta_table)
+                                })
+                            })?;
+                        }
+                    }
+                }
             }
 
             Ok(())
@@ -133,11 +167,15 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 }
 
                 let pg_relation = PgRelation::from_pg(relation);
-                let table_name = pg_relation.name();
                 let schema_name = pg_relation.namespace();
+                let table_path = pg_relation.table_path()?;
 
-                DatafusionContext::with_schema_provider(schema_name, |provider| {
-                    task::block_on(provider.vacuum(table_name, vacuum_options.full))
+                Session::with_tables(schema_name, |mut tables| {
+                    Box::pin(async move {
+                        let delta_table = tables.vacuum(&table_path, vacuum_options.full).await?;
+
+                        tables.register(&table_path, delta_table)
+                    })
                 })?;
 
                 pg_sys::RelationClose(relation);

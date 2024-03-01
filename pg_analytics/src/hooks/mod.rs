@@ -3,6 +3,7 @@ mod delete;
 mod drop;
 mod executor;
 mod handler;
+mod insert;
 mod process;
 mod query;
 mod rename;

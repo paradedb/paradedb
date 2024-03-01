@@ -37,28 +37,6 @@ fn array_results(mut conn: PgConnection) {
     // Using defaults for fields below that are unimplemented.
     let first = ResearchProjectArraysTable {
         project_id: Default::default(),
-        experiment_flags: vec![false, true, false],
-        binary_data: Default::default(),
-        notes: vec![
-            "Need to re-evaluate methodology".into(),
-            "Unexpected results in phase 2".into(),
-        ],
-        keywords: vec!["sustainable farming".into(), "soil health".into()],
-        short_descriptions: vec!["FARMEX    ".into(), "SOILQ2    ".into()],
-        participant_ages: vec![22, 27, 32],
-        participant_ids: vec![201, 202, 203],
-        observation_counts: vec![160, 140, 135],
-        related_project_o_ids: Default::default(),
-        measurement_errors: vec![0.025, 0.02, 0.01],
-        precise_measurements: vec![2.0, 2.1, 2.2],
-        observation_timestamps: Default::default(),
-        observation_dates: Default::default(),
-        budget_allocations: Default::default(),
-        participant_uuids: Default::default(),
-    };
-
-    let second = ResearchProjectArraysTable {
-        project_id: Default::default(),
         experiment_flags: vec![true, false, true],
         binary_data: Default::default(),
         notes: vec![
@@ -73,6 +51,28 @@ fn array_results(mut conn: PgConnection) {
         related_project_o_ids: Default::default(),
         measurement_errors: vec![0.02, 0.03, 0.015],
         precise_measurements: vec![1.5, 1.6, 1.7],
+        observation_timestamps: Default::default(),
+        observation_dates: Default::default(),
+        budget_allocations: Default::default(),
+        participant_uuids: Default::default(),
+    };
+
+    let second = ResearchProjectArraysTable {
+        project_id: Default::default(),
+        experiment_flags: vec![false, true, false],
+        binary_data: Default::default(),
+        notes: vec![
+            "Need to re-evaluate methodology".into(),
+            "Unexpected results in phase 2".into(),
+        ],
+        keywords: vec!["sustainable farming".into(), "soil health".into()],
+        short_descriptions: vec!["FARMEX    ".into(), "SOILQ2    ".into()],
+        participant_ages: vec![22, 27, 32],
+        participant_ids: vec![201, 202, 203],
+        observation_counts: vec![160, 140, 135],
+        related_project_o_ids: Default::default(),
+        measurement_errors: vec![0.025, 0.02, 0.01],
+        precise_measurements: vec![2.0, 2.1, 2.2],
         observation_timestamps: Default::default(),
         observation_dates: Default::default(),
         budget_allocations: Default::default(),
@@ -104,7 +104,6 @@ fn alter(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[ignore = "known bug where results after delete are out of order"]
 fn delete(mut conn: PgConnection) {
     "CREATE TABLE employees (salary bigint, id smallint) USING parquet".execute(&mut conn);
 
@@ -112,7 +111,6 @@ fn delete(mut conn: PgConnection) {
         .execute(&mut conn);
     "DELETE FROM employees WHERE id = 5 OR salary <= 200".execute(&mut conn);
 
-    // TODO: Known bug here! The results are not in the correct order!
     let rows: Vec<(i64, i16)> = "SELECT * FROM employees".fetch(&mut conn);
     assert_eq!(rows, vec![(300, 3), (400, 4)]);
 }
@@ -209,9 +207,9 @@ fn rename(mut conn: PgConnection) {
     "ALTER TABLE t RENAME TO s".execute(&mut conn);
 
     let rows: Vec<(i32, String)> = "SELECT * FROM s".fetch(&mut conn);
-    assert_eq!(rows[0], (3, "c".into()));
+    assert_eq!(rows[0], (1, "a".into()));
     assert_eq!(rows[1], (2, "b".into()));
-    assert_eq!(rows[2], (1, "a".into()));
+    assert_eq!(rows[2], (3, "c".into()));
 }
 
 #[rstest]
@@ -254,7 +252,7 @@ fn select(mut conn: PgConnection) {
 #[rstest]
 fn truncate(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
-    "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c'); TRUNCATE t".execute(&mut conn);
+    "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c'); TRUNCATE t;".execute(&mut conn);
 
     let rows: Vec<(i32, String)> = "SELECT * FROM t".fetch(&mut conn);
     assert!(rows.is_empty())
@@ -385,8 +383,8 @@ async fn copy_out_arrays(mut conn: PgConnection) {
 
     let expected_csv = r#"
 experiment_flags,notes,keywords,short_descriptions,participant_ages,participant_ids,observation_counts,measurement_errors,precise_measurements
-"{f,t,f}","{""Need to re-evaluate methodology"",""Unexpected results in phase 2""}","{""sustainable farming"",""soil health""}","{""FARMEX    "",""SOILQ2    ""}","{22,27,32}","{201,202,203}","{160,140,135}","{0.025,0.02,0.01}","{2,2.1,2.2}"
-"{t,f,t}","{""Initial setup complete"",""Preliminary results promising""}","{""climate change"",""coral reefs""}","{""CRLRST    "",""OCEAN1    ""}","{28,34,29}","{101,102,103}","{150,120,130}","{0.02,0.03,0.015}","{1.5,1.6,1.7}""#;
+"{t,f,t}","{""Initial setup complete"",""Preliminary results promising""}","{""climate change"",""coral reefs""}","{""CRLRST    "",""OCEAN1    ""}","{28,34,29}","{101,102,103}","{150,120,130}","{0.02,0.03,0.015}","{1.5,1.6,1.7}"
+"{f,t,f}","{""Need to re-evaluate methodology"",""Unexpected results in phase 2""}","{""sustainable farming"",""soil health""}","{""FARMEX    "",""SOILQ2    ""}","{22,27,32}","{201,202,203}","{160,140,135}","{0.025,0.02,0.01}","{2,2.1,2.2}""#;
 
     assert_eq!(copied_csv.trim(), expected_csv.trim());
 }
@@ -568,7 +566,13 @@ fn sqlparser_error(mut conn: PgConnection) {
     // Makes sure that statements like ALTER TABLE <table> ENABLE ROW LEVEL SECURITY
     // which are not supported by sqlparser are passed to Postgres successfully
     r#"
-        DROP ROLE IF EXISTS engineering;
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'engineering') THEN
+                EXECUTE 'DROP OWNED BY engineering CASCADE';
+                EXECUTE 'DROP ROLE engineering';
+            END IF;
+        END$$;
         CREATE ROLE engineering LOGIN PASSWORD 'password';
         CREATE TABLE employee (
             id SERIAL PRIMARY KEY,
@@ -594,4 +598,32 @@ fn sqlparser_error(mut conn: PgConnection) {
     let rows: Vec<(i32,)> = "SELECT id FROM employee".fetch(&mut conn);
     let ids: Vec<i32> = rows.into_iter().map(|r| r.0).collect();
     assert_eq!(ids, [1, 3]);
+}
+
+#[rstest]
+fn big_insert(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE t (
+            id INT
+        ) USING parquet;
+        INSERT INTO t (id) SELECT generate_series(1, 100000);
+        INSERT INTO t (id) SELECT generate_series(1, 100000);
+    "#
+    .execute(&mut conn);
+
+    let count: (i64,) = "SELECT COUNT(*) FROM t".fetch_one(&mut conn);
+    assert_eq!(count, (200000,));
+
+    r#"
+        CREATE TABLE s (
+            id INT
+        ) USING parquet;
+        INSERT INTO s (id) SELECT generate_series(1, 100000);
+        DELETE FROM s WHERE id <= 50000;
+        INSERT INTO s (id) SELECT generate_series(1, 100000);
+    "#
+    .execute(&mut conn);
+
+    let count: (i64,) = "SELECT COUNT(*) FROM s".fetch_one(&mut conn);
+    assert_eq!(count, (150000,));
 }

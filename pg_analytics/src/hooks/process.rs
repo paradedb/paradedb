@@ -1,12 +1,13 @@
+use async_std::task;
 use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::sql::parser::{self, DFParser};
-
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::pg_sys::NodeTag;
 use pgrx::*;
 use std::collections::VecDeque;
 use std::ffi::CStr;
 
+use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::errors::ParadeError;
 use crate::hooks::alter::alter;
 use crate::hooks::drop::drop;
@@ -37,6 +38,10 @@ pub fn process_utility(
         completion_tag: *mut pg_sys::QueryCompletion,
     ) -> HookResult<()>,
 ) -> Result<(), ParadeError> {
+    if needs_commit()? {
+        task::block_on(commit_writer())?;
+    }
+
     unsafe {
         let plan = pstmt.utilityStmt;
 
@@ -63,7 +68,7 @@ pub fn process_utility(
 
         match (*plan).type_ {
             NodeTag::T_AlterTableStmt => {
-                alter(plan as *mut pg_sys::AlterTableStmt, &ast[0])?;
+                task::block_on(alter(plan as *mut pg_sys::AlterTableStmt, &ast[0]))?;
             }
             NodeTag::T_DropStmt => {
                 drop(plan as *mut pg_sys::DropStmt)?;

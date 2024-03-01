@@ -128,7 +128,11 @@ SELECT * FROM bm25_search.search(
 
 ### Fuzzy Term
 
-Matches documents containing terms that are within a specified Levenshtein distance from the search term, supporting searches for similar terms.
+Fuzzy search allows users to obtain search results that approximately match the query term,
+accommodating minor typos in the input. This enhances the search experience by
+providing relevant results even when the query is not spelled correctly.
+
+<Note>Highlighting is not currently supported for fuzzy search queries.</Note>
 
 ```sql
 SELECT * FROM bm25_search.search(
@@ -143,21 +147,20 @@ SELECT * FROM bm25_search.search(
   Defines the term or phrase you are searching for within the specified field,
   using fuzzy logic based on Levenshtein distance to find similar terms.
 </ParamField>
-<ParamField body="distance">
-  Sets the maximum number of single-character edits (insertions, deletions,
-  substitutions) required to change the search term into the exact term found in
-  the document.
+<ParamField body="distance" default={2}>
+  The maximum Levenshtein distance (i.e. single character edits) allowed to
+  consider a term in the index as a match for the query term. Maximum value is
+  `2`.
 </ParamField>
-<ParamField body="transposition_cost_one">
-  Determines whether transpositions (swapping of two adjacent characters) should
-  be counted as a single operation or as two operations in the calculation of
-  Levenshtein distance. Setting this to `true` makes the search more forgiving
-  for misspellings that involve swapped characters.
+<ParamField body="transpose_cost_one" default={true}>
+  When set to `true`, transpositions (swapping two adjacent characters) as a
+  single edit in the Levenshtein distance calculation, while `false` considers
+  it two separate edits (a deletion and an insertion).
 </ParamField>
-<ParamField body="prefix">
-  Idicates whether the query should only match terms that begin with the
-  specified value (when set to `true`). This is useful for prefix searches where
-  the beginning of a term is known, but the complete term is not.
+<ParamField body="prefix" default={true}>
+  When set to `true`, the initial substring (prefix) of the query term is
+  exempted from the fuzzy edit distance calculation, while false includes the
+  entire string in the calculation.
 </ParamField>
 
 ### Phrase

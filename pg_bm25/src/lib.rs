@@ -3,6 +3,7 @@ mod env;
 mod globals;
 mod index;
 mod postgres;
+mod query;
 mod schema;
 mod tokenizers;
 mod writer;

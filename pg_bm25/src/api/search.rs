@@ -1,3 +1,4 @@
+#![allow(unused)]
 use crate::env::needs_commit;
 use crate::schema::SearchConfig;
 use crate::writer::{WriterClient, WriterDirectory};

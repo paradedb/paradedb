@@ -1,3 +1,4 @@
+#![allow(unused)]
 use once_cell::sync::Lazy;
 use pgrx::{
     pg_sys::{Datum, ItemPointerData},
@@ -400,7 +401,9 @@ mod tests {
 
         // Search in index
         let search_config = SearchConfig {
-            query: "author:张".into(),
+            query: crate::query::SearchQueryInput::Parse {
+                query_string: "author:张".into(),
+            },
             ..Default::default()
         };
         let mut state = index.search_state(&client, &search_config, true).unwrap();

@@ -112,6 +112,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "approx"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "arc-swap"
 version = "1.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1272,7 +1281,7 @@ dependencies = [
  "half 2.3.1",
  "hashbrown",
  "indexmap",
- "itertools 0.12.0",
+ "itertools 0.12.1",
  "log",
  "num_cpus",
  "object_store",
@@ -1360,7 +1369,7 @@ dependencies = [
  "datafusion-expr",
  "datafusion-physical-expr",
  "hashbrown",
- "itertools 0.12.0",
+ "itertools 0.12.1",
  "log",
  "regex-syntax 0.8.2",
 ]
@@ -1387,7 +1396,7 @@ dependencies = [
  "hashbrown",
  "hex",
  "indexmap",
- "itertools 0.12.0",
+ "itertools 0.12.1",
  "log",
  "md-5",
  "paste",
@@ -1420,7 +1429,7 @@ dependencies = [
  "half 2.3.1",
  "hashbrown",
  "indexmap",
- "itertools 0.12.0",
+ "itertools 0.12.1",
  "log",
  "once_cell",
  "parking_lot",
@@ -1502,7 +1511,7 @@ dependencies = [
  "futures",
  "hashbrown",
  "indexmap",
- "itertools 0.12.0",
+ "itertools 0.12.1",
  "lazy_static",
  "libc",
  "maplit",
@@ -2558,9 +2567,9 @@ dependencies = [
 
 [[package]]
 name = "itertools"
-version = "0.12.0"
+version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25db6b064527c5d482d0423354fcd07a89a2dfe07b67892e62411946db7f07b0"
+checksum = "ba291022dbbd398a455acf126c1e341954079855bc60dfdda641363bd6922569"
 dependencies = [
  "either",
 ]
@@ -3324,7 +3333,7 @@ dependencies = [
  "chrono",
  "futures",
  "humantime",
- "itertools 0.12.0",
+ "itertools 0.12.1",
  "parking_lot",
  "percent-encoding",
  "snafu",
@@ -3651,6 +3660,7 @@ name = "pg_bm25"
 version = "0.5.7"
 dependencies = [
  "anyhow",
+ "approx",
  "async-std",
  "async-trait",
  "bincode",
@@ -3669,6 +3679,7 @@ dependencies = [
  "once_cell",
  "pgrx",
  "pgrx-tests",
+ "pgvector",
  "pretty_assertions",
  "reqwest",
  "rstest",
@@ -3805,6 +3816,15 @@ dependencies = [
  "serde_json",
  "sysinfo",
  "thiserror",
+]
+
+[[package]]
+name = "pgvector"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1f4c0c07ceb64a0020f2f0e610cfe51122d2e72723499f0154877b7c76c8c31"
+dependencies = [
+ "sqlx",
 ]
 
 [[package]]
@@ -4863,7 +4883,7 @@ version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce81b7bd7c4493975347ef60d8c7e8b742d4694f4c49f93e0a12ea263938176c"
 dependencies = [
- "itertools 0.12.0",
+ "itertools 0.12.1",
  "nom",
  "unicode_categories",
 ]

@@ -99,9 +99,9 @@
           "group": "Full Text Search",
           "pages": [
             "search/full-text/bm25",
+            "search/full-text/complex",
             "search/full-text/scoring",
             "search/full-text/highlighting",
-            "search/full-text/fuzzy",
             "search/full-text/autocomplete"
           ]
         },

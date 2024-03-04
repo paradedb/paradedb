@@ -60,8 +60,10 @@ tracing-subscriber = "0.3.18"
 utoipa = "4.2.0"
 
 [dev-dependencies]
+approx = "0.5.1"
 async-std = { version = "1.12.0", features = ["attributes"] }
 pgrx-tests = "=0.11.2"
+pgvector = { version = "0.3.2", features = ["sqlx"] }
 pretty_assertions = "1.4.0"
 rstest = "0.18.2"
 shared = { path = "../shared", features = ["fixtures"] }

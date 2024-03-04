@@ -2,20 +2,15 @@ use pgrx::JsonB;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer};
 use std::str::FromStr;
 
+use crate::query::SearchQueryInput;
+
 #[derive(Debug, Deserialize, Default, Clone, PartialEq)]
 pub struct SearchConfig {
-    pub query: String,
+    pub query: SearchQueryInput,
     pub index_name: String,
     pub key_field: String,
     pub offset_rows: Option<usize>,
     pub limit_rows: Option<usize>,
-    #[serde(default, deserialize_with = "from_csv")]
-    pub fuzzy_fields: Vec<String>,
-    pub distance: Option<u8>,
-    pub transpose_cost_one: Option<bool>,
-    pub prefix: Option<bool>,
-    #[serde(default, deserialize_with = "from_csv")]
-    pub regex_fields: Vec<String>,
     pub max_num_chars: Option<usize>,
     pub highlight_field: Option<String>,
 }
@@ -38,6 +33,7 @@ impl FromStr for SearchConfig {
 // of csv documents. This let's us easily use syntax like 1,2,3 or one,two,three
 // in the SearchQuery input strings.
 
+#[allow(unused)]
 fn from_csv<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,

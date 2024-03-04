@@ -60,7 +60,6 @@ fn with_bm25_scoring(mut conn: PgConnection) {
 
     let ranks: Vec<_> = rows.iter().map(|r| r.1).collect();
     let expected = [5.3764954, 4.931014, 2.1096356, 2.1096356, 2.1096356];
-
     assert_eq!(ranks, expected);
 }
 
@@ -99,7 +98,7 @@ fn sequential_scan_syntax(mut conn: PgConnection) {
                 'table_name', 'bm25_test_table',
                 'schema_name', 'paradedb',
                 'key_field', 'id',
-                'query', 'category:electronics'
+                'query', paradedb.parse('category:electronics')::text::jsonb
             )
         ) ORDER BY id"
         .fetch_collect(&mut conn);
@@ -230,6 +229,24 @@ fn hybrid(mut conn: PgConnection) {
     USING hnsw (embedding vector_l2_ops)"#
         .execute(&mut conn);
 
+    // Test with query object.
+    let columns: SimpleProductsTableVec = r#"
+    SELECT m.*, s.rank_hybrid
+    FROM paradedb.bm25_search m
+    LEFT JOIN (
+        SELECT * FROM bm25_search.rank_hybrid(
+            bm25_query => paradedb.parse('description:keyboard OR category:electronics'),
+            similarity_query => '''[1,2,3]'' <-> embedding',
+            bm25_weight => 0.9,
+            similarity_weight => 0.1
+        )
+    ) s ON m.id = s.id
+    LIMIT 5"#
+        .fetch_collect(&mut conn);
+
+    assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
+
+    // Test with string query.
     let columns: SimpleProductsTableVec = r#"
     SELECT m.*, s.rank_hybrid
     FROM paradedb.bm25_search m
@@ -245,4 +262,23 @@ fn hybrid(mut conn: PgConnection) {
         .fetch_collect(&mut conn);
 
     assert_eq!(columns.id, vec![2, 1, 29, 39, 9]);
+}
+
+#[rstest]
+fn multi_tree(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+	    query => paradedb.boolean(
+		    should => ARRAY[
+			    paradedb.parse('description:shoes'),
+			    paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
+			    paradedb.term(field => 'description', value => 'speaker'),
+			    paradedb.fuzzy_term(field => 'description', value => 'wolo')
+		    ]
+	    )
+	);
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![32, 5, 3, 4, 7, 34, 37, 10, 33, 39, 41]);
 }

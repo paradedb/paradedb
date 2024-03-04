@@ -1,3 +1,4 @@
+#![allow(unused_imports)]
 use async_std::task::block_on;
 use rstest::*;
 use sqlx::{self, PgConnection};

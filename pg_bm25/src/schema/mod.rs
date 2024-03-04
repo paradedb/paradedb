@@ -16,6 +16,8 @@ use tantivy::schema::{
 };
 use thiserror::Error;
 
+use crate::query::AsFieldType;
+
 /// The id of a field, stored in the index.
 #[derive(Debug, Clone, Display, From, AsRef, PartialEq, Eq, Serialize, Deserialize, Hash)]
 #[from(forward)]
@@ -407,4 +409,15 @@ fn default_as_true() -> bool {
 
 fn default_as_freqs_and_positions() -> IndexRecordOption {
     IndexRecordOption::WithFreqsAndPositions
+}
+
+impl AsFieldType<String> for SearchIndexSchema {
+    fn as_field_type(&self, from: &String) -> Option<(tantivy::schema::FieldType, Field)> {
+        self.get_search_field(&SearchFieldName(from.into()))
+            .map(|search_field| {
+                let field = search_field.id.0;
+                let field_type = self.schema.get_field_entry(field).field_type().clone();
+                (field_type, field)
+            })
+    }
 }

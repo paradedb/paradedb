@@ -161,4 +161,4 @@ jobs:
       - name: Test Packaging pg_analytics
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
         working-directory: pg_analytics/
-        run: cargo pgrx package --features telemetry
+        run: cargo clean && cargo pgrx package --features telemetry

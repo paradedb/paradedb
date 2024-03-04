@@ -11,6 +11,8 @@ use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
+use crate::datafusion::timestamp::TimestampError;
+
 #[derive(Error, Debug)]
 pub enum ParadeError {
     #[error(transparent)]
@@ -30,6 +32,9 @@ pub enum ParadeError {
 
     #[error(transparent)]
     TransactionError(#[from] TransactionError),
+
+    #[error(transparent)]
+    Timestamp(#[from] TimestampError),
 
     #[error(transparent)]
     NotSupported(#[from] NotSupported),
@@ -107,6 +112,15 @@ pub enum NotSupported {
 
     #[error("Run TRUNCATE <table_name> to delete all rows from a table")]
     ScanDelete,
+
+    #[error("Time unit not supported")]
+    TimeUnit,
+
+    #[error("Precision {0} is not supported.")]
+    NumericPrecision(i32),
+
+    #[error("Scale {0} is not supported.")]
+    NumericScale(i32),
 }
 
 impl From<&str> for ParadeError {

@@ -11,7 +11,7 @@ use pgrx::*;
 use std::any::type_name;
 use std::sync::Arc;
 
-use crate::datafusion::datatype::{DatafusionMapProducer, DatafusionTypeTranslator};
+use crate::datafusion::datatype::GetDatum;
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotFound, ParadeError};
@@ -129,15 +129,12 @@ async unsafe fn deltalake_scan_getnextslot_impl(
         .as_ref()
         .ok_or(NotFound::Value(type_name::<RecordBatch>().to_string()))?;
 
-    for (col_index, column) in current_batch.columns().iter().enumerate() {
-        let dt = column.data_type();
+    for col_index in 0..current_batch.num_columns() {
+        let column = current_batch.column(col_index);
+
         unsafe {
             let tts_value = (*slot).tts_values.add(col_index);
-            if let Some(datum) = DatafusionMapProducer::index_datum(
-                dt.to_sql_data_type()?,
-                column,
-                (*dscan).curr_batch_idx,
-            )? {
+            if let Some(datum) = column.get_datum((*dscan).curr_batch_idx)? {
                 *tts_value = datum;
             }
         }

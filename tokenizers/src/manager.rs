@@ -5,6 +5,8 @@ use tantivy::tokenizer::{
 };
 
 use crate::code::CodeTokenizer;
+#[cfg(feature = "icu")]
+use crate::icu::ICUTokenizer;
 use crate::lindera::{LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
 use crate::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer};
 

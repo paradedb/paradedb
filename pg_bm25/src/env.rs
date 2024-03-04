@@ -10,6 +10,15 @@ use crate::writer::{WriterClient, WriterDirectory, WriterRequest};
 
 const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_search_index";
 
+static TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
+
+static TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
+
+static TRANSACTION_CALL_ONCE_ON_ABORT_CACHE: Lazy<Arc<Mutex<HashSet<String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashSet::new())));
+
 /// We use this global variable to cache any values that can be re-used
 /// after initialization.
 static SEARCH_ENV: Lazy<SearchEnv> = Lazy::new(|| SearchEnv {
@@ -42,6 +51,102 @@ pub fn postgres_database_oid() -> u32 {
         .lock()
         .expect("Failed to lock mutex")
         .get_or_insert_with(|| unsafe { pgrx::pg_sys::MyDatabaseId.as_u32() })
+}
+
+pub struct Transaction {}
+
+impl Transaction {
+    pub fn needs_commit(id: &str) -> Result<bool, TransactionError> {
+        let cache = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE.lock()?;
+        Ok(cache.contains(id))
+    }
+
+    pub fn call_once_on_precommit<F>(id: &str, callback: F) -> Result<(), TransactionError>
+    where
+        F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
+    {
+        // Clone the cache here for use inside the closure.
+        let cache_clone = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE.clone();
+
+        let mut cache = TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE.lock()?;
+        if !cache.contains(id) {
+            // Now using `cache_clone` inside the closure.
+            register_xact_callback(PgXactCallbackEvent::PreCommit, move || {
+                // Clear the cache so callbacks can be registered on next transaction.
+                match cache_clone.lock() {
+                    Ok(mut cache) => cache.clear(),
+                    Err(err) => error!(
+                        "could not acquire lock in register transaction precommit callback: {err:?}"
+                    ),
+                }
+
+                // Actually call the callback.
+                callback();
+            });
+
+            cache.insert(id.into());
+        }
+
+        Ok(())
+    }
+
+    pub fn call_once_on_commit<F>(id: &str, callback: F) -> Result<(), TransactionError>
+    where
+        F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
+    {
+        // Clone the cache here for use inside the closure.
+        let cache_clone = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.clone();
+
+        let mut cache = TRANSACTION_CALL_ONCE_ON_COMMIT_CACHE.lock()?;
+        if !cache.contains(id) {
+            // Now using `cache_clone` inside the closure.
+            register_xact_callback(PgXactCallbackEvent::Commit, move || {
+                // Clear the cache so callbacks can be registered on next transaction.
+                match cache_clone.lock() {
+                    Ok(mut cache) => cache.clear(),
+                    Err(err) => error!(
+                        "could not acquire lock in register transaction commit callback: {err:?}"
+                    ),
+                }
+
+                // Actually call the callback.
+                callback();
+            });
+
+            cache.insert(id.into());
+        }
+
+        Ok(())
+    }
+
+    pub fn call_once_on_abort<F>(id: &str, callback: F) -> Result<(), TransactionError>
+    where
+        F: FnOnce() + Send + UnwindSafe + RefUnwindSafe + 'static,
+    {
+        // Clone the cache here for use inside the closure.
+        let cache_clone = TRANSACTION_CALL_ONCE_ON_ABORT_CACHE.clone();
+
+        let mut cache = TRANSACTION_CALL_ONCE_ON_ABORT_CACHE.lock()?;
+        if !cache.contains(id) {
+            // Now using `cache_clone` inside the closure.
+            register_xact_callback(PgXactCallbackEvent::Abort, move || {
+                // Clear the cache so callbacks can be registered on next transaction.
+                match cache_clone.lock() {
+                    Ok(mut cache) => cache.clear(),
+                    Err(err) => error!(
+                        "could not acquire lock in register transaction abort callback: {err:?}"
+                    ),
+                }
+
+                // Actually call the callback.
+                callback();
+            });
+
+            cache.insert(id.into());
+        }
+
+        Ok(())
+    }
 }
 
 pub fn register_commit_callback<W: WriterClient<WriterRequest> + Send + Sync + 'static>(

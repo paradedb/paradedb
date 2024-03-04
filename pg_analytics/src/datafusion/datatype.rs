@@ -1,10 +1,13 @@
 use deltalake::datafusion::arrow::datatypes::*;
-use deltalake::datafusion::common::arrow::array::{Array, AsArray, BooleanArray, StringArray};
+use deltalake::datafusion::common::arrow::array::{
+    Array, ArrayRef, AsArray, BooleanArray, StringArray,
+};
 use pgrx::*;
 use std::convert::TryInto;
 use std::sync::Arc;
 
-use super::numeric::{NumericTypeMod, PgNumeric, Precision, Scale};
+use super::array::{IntoArray, IntoPrimitiveArray};
+use super::numeric::{PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
 use super::timestamp::Microseconds;
 use crate::errors::{NotSupported, ParadeError};
 
@@ -34,7 +37,8 @@ impl TryInto<ParadeDataType> for PgAttribute {
                 PgBuiltInOids::DATEOID => DataType::Date32,
                 PgBuiltInOids::TIMESTAMPOID => DataType::Timestamp(typemod.try_into()?, None),
                 PgBuiltInOids::NUMERICOID => {
-                    let NumericTypeMod(Precision(precision), Scale(scale)) = typemod.try_into()?;
+                    let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) =
+                        typemod.try_into()?;
                     DataType::Decimal128(precision, scale)
                 }
                 unsupported => return Err(NotSupported::BuiltinPostgresType(unsupported).into()),
@@ -67,7 +71,7 @@ impl TryInto<PgAttribute> for ParadeDataType {
             }
             DataType::Decimal128(precision, scale) => (
                 PgBuiltInOids::NUMERICOID,
-                NumericTypeMod(Precision(precision), Scale(scale)).try_into()?,
+                PgNumericTypeMod(PgPrecision(precision), PgScale(scale)).try_into()?,
             ),
             unsupported => return Err(NotSupported::DataType(unsupported.clone()).into()),
         };
@@ -106,12 +110,49 @@ impl GetDatum for Arc<dyn Array> {
             }
             DataType::Decimal128(precision, scale) => PgNumeric(
                 AnyNumeric::from(self.as_primitive::<Decimal128Type>().value(index)),
-                NumericTypeMod(Precision(*precision), Scale(*scale)),
+                PgNumericTypeMod(PgPrecision(*precision), PgScale(*scale)),
             )
             .try_into()?,
             _ => return Ok(None),
         };
 
         Ok(result)
+    }
+}
+
+pub trait IntoArrayRef {
+    fn into_array_ref(self, oid: PgOid) -> Result<ArrayRef, ParadeError>;
+}
+
+impl<T> IntoArrayRef for T
+where
+    T: Iterator<Item = pg_sys::Datum>,
+{
+    fn into_array_ref(self, oid: PgOid) -> Result<ArrayRef, ParadeError> {
+        Ok(match oid {
+            PgOid::BuiltIn(builtin) => match builtin {
+                PgBuiltInOids::BOOLOID => {
+                    Arc::new(self.into_primitive_array::<bool>().into_array())
+                }
+                PgBuiltInOids::TEXTOID => {
+                    Arc::new(self.into_primitive_array::<String>().into_array())
+                }
+                PgBuiltInOids::INT2OID => Arc::new(self.into_primitive_array::<i16>().into_array()),
+                PgBuiltInOids::INT4OID => Arc::new(self.into_primitive_array::<i32>().into_array()),
+                PgBuiltInOids::INT8OID => Arc::new(self.into_primitive_array::<i64>().into_array()),
+                PgBuiltInOids::FLOAT4OID => {
+                    Arc::new(self.into_primitive_array::<f32>().into_array())
+                }
+                PgBuiltInOids::FLOAT8OID => {
+                    Arc::new(self.into_primitive_array::<f64>().into_array())
+                }
+                PgBuiltInOids::DATEOID => Arc::new(self.into_primitive_array::<i32>().into_array()),
+                // PgBuiltInOids::TIMESTAMPOID => self.into_primitive_array().into_array(),
+                // PgBuiltInOids::NUMERICOID => self.into_primitive_array().into_array(),
+                unsupported => return Err(NotSupported::BuiltinPostgresType(unsupported).into()),
+            },
+            PgOid::Invalid => return Err(NotSupported::InvalidPostgresType.into()),
+            PgOid::Custom(_) => return Err(NotSupported::CustomPostgresType.into()),
+        })
     }
 }

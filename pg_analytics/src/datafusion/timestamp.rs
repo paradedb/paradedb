@@ -104,6 +104,6 @@ pub enum TimestampError {
     #[error("Type timestamp({0}) is supported. Supported types are timestamp(0), timestamp(3), timestamp(6), and timestamp.")]
     UnsupportedTypeMod(i32),
 
-    #[error("Nanosecond TimeUnit not supported")]
+    #[error("Unexpected nanosecond TimeUnit")]
     UnsupportedNanosecond(),
 }

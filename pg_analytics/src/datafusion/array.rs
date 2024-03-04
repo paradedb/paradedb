@@ -9,6 +9,7 @@ use deltalake::arrow::{
         GenericStringType, Int16Type, Int32Type, Int64Type, TimestampMicrosecondType, UInt32Type,
     },
 };
+use pgrx::*;
 
 type Column<T> = Vec<Option<T>>;
 type ColumnNested<T> = Vec<Option<Column<T>>>;
@@ -83,6 +84,29 @@ where
             }
         }
         builder.finish()
+    }
+}
+
+pub trait IntoPrimitiveArray {
+    fn into_primitive_array<Primitive>(self) -> Vec<Option<Primitive>>
+    where
+        Primitive: FromDatum;
+}
+
+impl<T> IntoPrimitiveArray for T
+where
+    T: Iterator<Item = pg_sys::Datum>,
+{
+    fn into_primitive_array<Primitive>(self) -> Vec<Option<Primitive>>
+    where
+        Primitive: FromDatum,
+    {
+        self.map(|datum| {
+            (!datum.is_null())
+                .then_some(datum)
+                .and_then(|datum| unsafe { Primitive::from_datum(datum, false) })
+        })
+        .collect::<Vec<Option<Primitive>>>()
     }
 }
 

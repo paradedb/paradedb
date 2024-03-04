@@ -15,7 +15,7 @@ use tantivy::tokenizer::{
 use tracing::info;
 
 #[cfg(feature = "icu")]
-use crate::tokenizers::icu::ICUTokenizer;
+use icu::ICUTokenizer;
 
 pub use manager::{SearchNormalizer, SearchTokenizer};
 

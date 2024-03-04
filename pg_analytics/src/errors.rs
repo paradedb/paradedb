@@ -1,7 +1,6 @@
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::datatypes::DataType;
 use deltalake::datafusion::common::DataFusionError;
-use deltalake::datafusion::sql::sqlparser::ast::DataType as SQLDataType;
 use deltalake::errors::DeltaTableError;
 use pgrx::*;
 use shared::postgres::transaction::TransactionError;
@@ -11,6 +10,7 @@ use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
+use crate::datafusion::numeric::NumericError;
 use crate::datafusion::timestamp::TimestampError;
 
 #[derive(Error, Debug)]
@@ -35,6 +35,9 @@ pub enum ParadeError {
 
     #[error(transparent)]
     Timestamp(#[from] TimestampError),
+
+    #[error(transparent)]
+    Numeric(#[from] NumericError),
 
     #[error(transparent)]
     NotSupported(#[from] NotSupported),
@@ -65,9 +68,6 @@ pub enum NotFound {
     #[error("No table registered with name {0}")]
     Table(String),
 
-    #[error("Failed to convert to datum {0}")]
-    Datum(String),
-
     #[error("Expected value of type {0} but found None")]
     Value(String),
 }
@@ -76,9 +76,6 @@ pub enum NotFound {
 pub enum NotSupported {
     #[error("DataType {0} not supported")]
     DataType(DataType),
-
-    #[error("SQLDataType {0} not supported")]
-    SQLDataType(SQLDataType),
 
     #[error("Postgres type {0:?} not supported")]
     BuiltinPostgresType(pg_sys::BuiltinOid),
@@ -112,15 +109,6 @@ pub enum NotSupported {
 
     #[error("Run TRUNCATE <table_name> to delete all rows from a table")]
     ScanDelete,
-
-    #[error("Time unit not supported")]
-    TimeUnit,
-
-    #[error("Precision {0} is not supported.")]
-    NumericPrecision(i32),
-
-    #[error("Scale {0} is not supported.")]
-    NumericScale(i32),
 }
 
 impl From<&str> for ParadeError {

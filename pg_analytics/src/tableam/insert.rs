@@ -5,10 +5,6 @@ use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
 
 use crate::datafusion::commit::commit_writer;
-
-use crate::datafusion::datatype::DatafusionMapProducer;
-use crate::datafusion::datatype::DatafusionTypeTranslator;
-use crate::datafusion::datatype::PostgresTypeTranslator;
 use crate::datafusion::table::DatafusionTable;
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
@@ -69,58 +65,58 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
 #[inline]
 async fn insert_tuples(
     rel: pg_sys::Relation,
-    slots: *mut *mut pg_sys::TupleTableSlot,
-    nslots: usize,
+    _slots: *mut *mut pg_sys::TupleTableSlot,
+    _nslots: usize,
 ) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let tuple_desc = pg_relation.tuple_desc();
-    let mut column_values: Vec<ArrayRef> = vec![];
+    let _tuple_desc = pg_relation.tuple_desc();
+    let column_values: Vec<ArrayRef> = vec![];
 
     // Convert the TupleTableSlots into DataFusion arrays
-    for (col_idx, attr) in tuple_desc.iter().enumerate() {
-        column_values.push(
-            (0..nslots)
-            .map(move |row_idx| {
-                let tuple_table_slot = *slots.add(row_idx);
-                let datum = (*tuple_table_slot).tts_values.add(col_idx);
-                let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
+    // for (_col_idx, _attr) in tuple_desc.iter().enumerate() {
+    //     // column_values.push(
+    //     //     (0..nslots)
+    //     //     .map(move |row_idx| {
+    //     //         let tuple_table_slot = *slots.add(row_idx);
+    //     //         let datum = (*tuple_table_slot).tts_values.add(col_idx);
+    //     //         let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
 
-                (datum, is_null)
-            })
-            .map(|(datum, is_null)| {
-                T::from_datum(datum, is_null)
-            })
-            .collect()
-            .into_array()
-        );
-    }
+    //     //         (datum, is_null)
+    //     //     })
+    //     //     .map(|(datum, is_null)| {
+    //     //         T::from_datum(datum, is_null)
+    //     //     })
+    //     //     .collect()
+    //     //     .into_array()
+    //     // );
+    // }
 
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
     let arrow_schema = pg_relation.arrow_schema()?;
-    let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
+    let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
 
     Writer::write(schema_name, &table_path, arrow_schema, &batch).await
 }
 
-fn get_arrow_batch<T>(slots, nslots, col_idx) -> Result<ArrayRef, ParadeError> {
-    (0..nslots)
-        .map(move |row_idx| {
-            let tuple_table_slot = *slots.add(row_idx);
-            let datum = (*tuple_table_slot).tts_values.add(col_idx);
-            let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
+// fn get_arrow_batch<T>(slots, nslots, col_idx) -> Result<ArrayRef, ParadeError> {
+//     (0..nslots)
+//         .map(move |row_idx| {
+//             let tuple_table_slot = *slots.add(row_idx);
+//             let datum = (*tuple_table_slot).tts_values.add(col_idx);
+//             let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
 
-            (datum, is_null)
-        })
-        .map(|(datum, is_null)| {
-            T::from_datum(datum, is_null)
-        })
-        .collect()
-        .into_array()
-}
+//             (datum, is_null)
+//         })
+//         .map(|(datum, is_null)| {
+//             T::from_datum(datum, is_null)
+//         })
+//         .collect()
+//         .into_array()
+// }
 
-impl FromDatum for i64;
-...
-impl FromDatumTimestamp for Timestamp;
-...
+// impl FromDatum for i64;
+// ...
+// impl FromDatumTimestamp for Timestamp;
+// ...

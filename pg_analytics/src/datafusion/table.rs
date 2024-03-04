@@ -1,4 +1,4 @@
-use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+use deltalake::datafusion::arrow::datatypes::{Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::logical_expr::Expr;
@@ -19,7 +19,7 @@ use std::collections::{
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::datafusion::datatype::{DatafusionTypeTranslator, PostgresTypeTranslator};
+use crate::datafusion::datatype::{ParadeDataType, PgAttribute, PgTypeMod};
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
@@ -54,23 +54,19 @@ impl DatafusionTable for PgRelation {
             };
 
             // Note: even if you have an int[][], the attribute-type is INT4ARRAYOID and the base is INT4OID
+            let ParadeDataType(datatype) =
+                PgAttribute(base_oid, PgTypeMod(attribute.type_mod())).try_into()?;
             let field = if is_array {
                 Field::new_list(
                     attname,
                     Field::new_list_field(
-                        DataType::from_sql_data_type(
-                            base_oid.to_sql_data_type(attribute.type_mod())?,
-                        )?,
+                        datatype,
                         true, // TODO: i think postgres always allows array constants to be null
                     ),
                     nullability,
                 )
             } else {
-                Field::new(
-                    attname,
-                    DataType::from_sql_data_type(base_oid.to_sql_data_type(attribute.type_mod())?)?,
-                    nullability,
-                )
+                Field::new(attname, datatype, nullability)
             };
 
             fields.push(field);

@@ -55,6 +55,7 @@ FROM builder as builder-pg_bm25
 
 COPY pg_bm25/ /tmp/pg_bm25
 COPY shared/ /tmp/shared
+COPT tokenizers/ /tmp/tokenizers
 
 # Build the extension
 WORKDIR /tmp/pg_bm25

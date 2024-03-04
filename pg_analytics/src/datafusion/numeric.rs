@@ -1,7 +1,7 @@
 use crate::datafusion::datatype::PgTypeMod;
-use crate::errors::{NotFound, NotSupported, ParadeError};
 use deltalake::datafusion::arrow::datatypes::{DECIMAL128_MAX_PRECISION, DECIMAL128_MAX_SCALE};
 use pgrx::*;
+use thiserror::Error;
 
 const NUMERIC_BASE: i128 = 10;
 
@@ -11,9 +11,9 @@ pub struct PgPrecision(pub u8);
 pub struct PgScale(pub i8);
 
 impl TryInto<PgTypeMod> for PgNumericTypeMod {
-    type Error = ParadeError;
+    type Error = NumericError;
 
-    fn try_into(self) -> Result<PgTypeMod, ParadeError> {
+    fn try_into(self) -> Result<PgTypeMod, NumericError> {
         let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = self;
 
         Ok(PgTypeMod(
@@ -23,9 +23,9 @@ impl TryInto<PgTypeMod> for PgNumericTypeMod {
 }
 
 impl TryInto<PgNumericTypeMod> for PgTypeMod {
-    type Error = ParadeError;
+    type Error = NumericError;
 
-    fn try_into(self) -> Result<PgNumericTypeMod, ParadeError> {
+    fn try_into(self) -> Result<PgNumericTypeMod, NumericError> {
         let PgTypeMod(typemod) = self;
 
         match typemod {
@@ -42,21 +42,21 @@ impl TryInto<PgNumericTypeMod> for PgTypeMod {
                     PgScale(scale as i8),
                 ))
             }
-            _ => Err(NotSupported::NumericPrecision(typemod).into()),
+            _ => Err(NumericError::UnsupportedTypeMod(typemod)),
         }
     }
 }
 
 impl TryInto<Option<pg_sys::Datum>> for PgNumeric {
-    type Error = ParadeError;
+    type Error = NumericError;
 
-    fn try_into(self) -> Result<Option<pg_sys::Datum>, ParadeError> {
+    fn try_into(self) -> Result<Option<pg_sys::Datum>, NumericError> {
         Ok(scale_anynumeric(self, false).into_datum())
     }
 }
 
 #[inline]
-fn scale_anynumeric(numeric: PgNumeric, scale_down: bool) -> Result<AnyNumeric, ParadeError> {
+fn scale_anynumeric(numeric: PgNumeric, scale_down: bool) -> Result<AnyNumeric, NumericError> {
     let PgNumeric(anynumeric, original_typemod) = numeric;
     let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = original_typemod;
     let PgTypeMod(original_pg_typemod) = original_typemod.try_into()?;
@@ -69,7 +69,7 @@ fn scale_anynumeric(numeric: PgNumeric, scale_down: bool) -> Result<AnyNumeric, 
                 original_pg_typemod.into_datum(),
             ],
         )
-        .ok_or(NotFound::Datum(anynumeric.to_string()))?
+        .ok_or(NumericError::ConvertNumeric(anynumeric.to_string()))?
     };
 
     // Scale the anynumeric up or down
@@ -90,6 +90,15 @@ fn scale_anynumeric(numeric: PgNumeric, scale_down: bool) -> Result<AnyNumeric, 
             pg_sys::numeric,
             &[scaled_anynumeric.into_datum(), new_pg_typemod.into_datum()],
         )
-        .ok_or(NotFound::Datum(anynumeric.to_string()).into())
+        .ok_or(NumericError::ConvertNumeric(anynumeric.to_string()))
     }
+}
+
+#[derive(Error, Debug)]
+pub enum NumericError {
+    #[error("Failed to convert {0} to AnyNumeric")]
+    ConvertNumeric(String),
+
+    #[error("Unsupported typemod {0}")]
+    UnsupportedTypeMod(i32),
 }

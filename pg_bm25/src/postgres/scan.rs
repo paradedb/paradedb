@@ -1,4 +1,7 @@
+use std::borrow::Borrow;
+
 use crate::env::needs_commit;
+use crate::index::{CurrentSearch, SearchAlias};
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, index::state::SearchState, postgres::utils::get_search_index};
 use pgrx::*;
@@ -43,15 +46,18 @@ pub extern "C" fn amrescan(
             .expect("failed to convert query to tuple of strings")
     };
 
-    let query_config =
+    let search_config =
         SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");
-    let index_name = &query_config.index_name;
+    let index_name = &search_config.index_name;
+
+    // Set the current search configuration
+    CurrentSearch::set_config(search_config.clone()).expect("could not set current search config");
 
     // Create the index and scan state
     let search_index = get_search_index(index_name);
     let writer_client = WriterGlobal::client();
     let mut state = search_index
-        .search_state(&writer_client, &query_config, needs_commit())
+        .search_state(&writer_client, &search_config, needs_commit())
         .unwrap();
 
     let top_docs = state.search();
@@ -98,6 +104,28 @@ pub extern "C" fn amgettuple(
             let schema = &state.schema;
             let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
 
+            // Retrieve the key field value to store in the current search lookup.
+            let key_field_name = state.config.key_field.borrow();
+            let key_field = schema
+                .schema
+                .get_field(&key_field_name)
+                .unwrap_or_else(|err| {
+                    panic!("error retrieving {key_field_name} field from schema: {err:?}")
+                });
+            let key_field_value = retrieved_doc.get_first(key_field).unwrap_or_else(|| {
+                panic!("cannot find {key_field_name} field on retrieved document")
+            });
+            match key_field_value {
+                tantivy::schema::Value::I64(key) => CurrentSearch::set_doc(
+                    key.clone(),
+                    doc_address,
+                    state.config.alias.clone().map(SearchAlias::from),
+                )
+                .expect("could not store search result in current search lookup"),
+                _ => panic!("incorrect type in {key_field_name} field: {key_field_value:?}"),
+            };
+
+            // Retrieve the ctid value to pass to Postgres.
             let ctid_name = "ctid";
             let ctid_field = schema.schema.get_field(ctid_name).unwrap_or_else(|err| {
                 panic!("error retrieving {ctid_name} field from schema: {err:?}")

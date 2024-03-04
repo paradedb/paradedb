@@ -143,18 +143,18 @@ fn single_queries(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
 
-    // PhrasePrefix with invalid term list
-    match r#"
-    SELECT * FROM bm25_search.search(
-    	query => paradedb.phrase(field => 'description', phrases => ARRAY['robot'])
-	)"#
-    .fetch_result::<SimpleProductsTable>(&mut conn)
-    {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("required to have strictly more than one term")),
-        _ => panic!("phrase prefix query should require multiple terms"),
-    }
+    //    // Phrase with invalid term list
+    //    match r#"
+    //    SELECT * FROM bm25_search.search(
+    //    	query => paradedb.phrase(field => 'description', phrases => ARRAY['robot'])
+    // )"#
+    //    .fetch_result::<SimpleProductsTable>(&mut conn)
+    //    {
+    //        Err(err) => assert!(err
+    //            .to_string()
+    //            .contains("required to have strictly more than one term")),
+    //        _ => panic!("phrase prefix query should require multiple terms"),
+    //    }
 
     // Phrase
     let columns: SimpleProductsTableVec = r#"

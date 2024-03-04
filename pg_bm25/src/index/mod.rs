@@ -7,11 +7,9 @@ use once_cell::sync::Lazy;
 use pgrx::pg_sys::Alias;
 pub use search::*;
 
-use crate::{
-    env::{Transaction, TransactionError},
-    schema::{SearchConfig, SearchField},
-};
+use crate::schema::{SearchConfig, SearchField};
 use derive_more::{AsRef, From};
+use shared::postgres::transaction::{Transaction, TransactionError};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, PoisonError},

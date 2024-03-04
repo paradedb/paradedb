@@ -55,6 +55,14 @@ impl TryInto<Option<pg_sys::Datum>> for PgNumeric {
     }
 }
 
+// impl TryInto<ArrayRef> for IntoIterator<Item = Option<AnyNumeric>> {
+//     type Error = NumericError;
+
+//     fn try_into(self) -> Result<ArrayRef, NumericError> {
+
+//     }
+// }
+
 #[inline]
 fn scale_anynumeric(numeric: PgNumeric, scale_down: bool) -> Result<AnyNumeric, NumericError> {
     let PgNumeric(anynumeric, original_typemod) = numeric;

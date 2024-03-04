@@ -1,15 +1,21 @@
 use deltalake::arrow::{
     array::{
-        Array, BooleanArray, BooleanBuilder, Decimal128Array, Float32Array, Float64Array,
-        GenericByteBuilder, Int16Array, Int32Array, Int64Array, ListArray, ListBuilder,
-        PrimitiveBuilder, StringArray, UInt32Array,
+        Array, ArrayRef, AsArray, BooleanArray, BooleanBuilder, Decimal128Array, Float32Array,
+        Float64Array, GenericByteBuilder, Int16Array, Int32Array, Int64Array, ListArray,
+        ListBuilder, PrimitiveBuilder, StringArray, UInt32Array,
     },
     datatypes::{
-        ArrowPrimitiveType, ByteArrayType, Decimal128Type, Float32Type, Float64Type,
+        ArrowPrimitiveType, ByteArrayType, Date32Type, Decimal128Type, Float32Type, Float64Type,
         GenericStringType, Int16Type, Int32Type, Int64Type, TimestampMicrosecondType, UInt32Type,
     },
 };
+use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
 use pgrx::*;
+use std::sync::Arc;
+
+use super::datatype::DataTypeError;
+use super::numeric::{PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
+use super::timestamp::Microseconds;
 
 type Column<T> = Vec<Option<T>>;
 type ColumnNested<T> = Vec<Option<Column<T>>>;
@@ -138,3 +144,80 @@ impl IntoArray<i128, Decimal128Array> for Column<i128> {}
 impl IntoPrimitiveListArray<Decimal128Type> for ColumnNested<i128> {}
 
 impl IntoPrimitiveListArray<TimestampMicrosecondType> for ColumnNested<i64> {}
+
+pub trait GetDatum {
+    fn get_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError>;
+}
+
+impl GetDatum for Arc<dyn Array> {
+    fn get_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
+        let result = match self.data_type() {
+            DataType::Boolean => self
+                .as_any()
+                .downcast_ref::<BooleanArray>()
+                .ok_or(DataTypeError::DowncastGenericArray(DataType::Boolean))?
+                .value(index)
+                .into_datum(),
+            DataType::Utf8 => self
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .ok_or(DataTypeError::DowncastGenericArray(DataType::Utf8))?
+                .value(index)
+                .into_datum(),
+            DataType::Int32 => self.as_primitive::<Int32Type>().value(index).into_datum(),
+            DataType::Int64 => self.as_primitive::<Int64Type>().value(index).into_datum(),
+            DataType::Float32 => self.as_primitive::<Float32Type>().value(index).into_datum(),
+            DataType::Float64 => self.as_primitive::<Float64Type>().value(index).into_datum(),
+            DataType::Date32 => self.as_primitive::<Date32Type>().value(index).into_datum(),
+            DataType::Timestamp(TimeUnit::Microsecond, None) => {
+                Microseconds(self.as_primitive::<TimestampMicrosecondType>().value(index))
+                    .try_into()?
+            }
+            DataType::Decimal128(precision, scale) => PgNumeric(
+                AnyNumeric::from(self.as_primitive::<Decimal128Type>().value(index)),
+                PgNumericTypeMod(PgPrecision(*precision), PgScale(*scale)),
+            )
+            .try_into()?,
+            _ => return Ok(None),
+        };
+
+        Ok(result)
+    }
+}
+
+pub trait IntoArrayRef {
+    fn into_array_ref(self, oid: PgOid) -> Result<ArrayRef, DataTypeError>;
+}
+
+impl<T> IntoArrayRef for T
+where
+    T: Iterator<Item = pg_sys::Datum>,
+{
+    fn into_array_ref(self, oid: PgOid) -> Result<ArrayRef, DataTypeError> {
+        Ok(match oid {
+            PgOid::BuiltIn(builtin) => match builtin {
+                PgBuiltInOids::BOOLOID => {
+                    Arc::new(self.into_primitive_array::<bool>().into_array())
+                }
+                PgBuiltInOids::TEXTOID => {
+                    Arc::new(self.into_primitive_array::<String>().into_array())
+                }
+                PgBuiltInOids::INT2OID => Arc::new(self.into_primitive_array::<i16>().into_array()),
+                PgBuiltInOids::INT4OID => Arc::new(self.into_primitive_array::<i32>().into_array()),
+                PgBuiltInOids::INT8OID => Arc::new(self.into_primitive_array::<i64>().into_array()),
+                PgBuiltInOids::FLOAT4OID => {
+                    Arc::new(self.into_primitive_array::<f32>().into_array())
+                }
+                PgBuiltInOids::FLOAT8OID => {
+                    Arc::new(self.into_primitive_array::<f64>().into_array())
+                }
+                PgBuiltInOids::DATEOID => Arc::new(self.into_primitive_array::<i32>().into_array()),
+                // PgBuiltInOids::TIMESTAMPOID => self.into_primitive_array().into_array(),
+                // PgBuiltInOids::NUMERICOID => self.into_primitive_array().into_array(),
+                unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
+            },
+            PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),
+            PgOid::Custom(_) => return Err(DataTypeError::UnsupportedCustomType),
+        })
+    }
+}

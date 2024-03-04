@@ -1,7 +1,8 @@
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
-use crate::datafusion::datatype::{GetDatum, ParadeDataType, PgAttribute, PgTypeMod};
+use crate::datafusion::array::GetDatum;
+use crate::datafusion::datatype::{ParadeDataType, PgAttribute, PgTypeMod};
 use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
 

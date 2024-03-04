@@ -1,15 +1,12 @@
 use deltalake::datafusion::arrow::datatypes::*;
-use deltalake::datafusion::common::arrow::array::{
-    Array, ArrayRef, AsArray, BooleanArray, StringArray,
-};
+
 use pgrx::*;
 use std::convert::TryInto;
-use std::sync::Arc;
 
-use super::array::{IntoArray, IntoPrimitiveArray};
-use super::numeric::{PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
-use super::timestamp::Microseconds;
-use crate::errors::{NotSupported, ParadeError};
+use thiserror::Error;
+
+use super::numeric::{NumericError, PgNumericTypeMod, PgPrecision, PgScale};
+use super::timestamp::TimestampError;
 
 const DEFAULT_TYPE_MOD: i32 = -1;
 
@@ -18,9 +15,9 @@ pub struct PgAttribute(pub PgOid, pub PgTypeMod);
 pub struct ParadeDataType(pub DataType);
 
 impl TryInto<ParadeDataType> for PgAttribute {
-    type Error = ParadeError;
+    type Error = DataTypeError;
 
-    fn try_into(self) -> Result<ParadeDataType, ParadeError> {
+    fn try_into(self) -> Result<ParadeDataType, DataTypeError> {
         let PgAttribute(oid, typemod) = self;
 
         let datatype = match oid {
@@ -41,10 +38,10 @@ impl TryInto<ParadeDataType> for PgAttribute {
                         typemod.try_into()?;
                     DataType::Decimal128(precision, scale)
                 }
-                unsupported => return Err(NotSupported::BuiltinPostgresType(unsupported).into()),
+                unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
-            PgOid::Invalid => return Err(NotSupported::InvalidPostgresType.into()),
-            PgOid::Custom(_) => return Err(NotSupported::CustomPostgresType.into()),
+            PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),
+            PgOid::Custom(_) => return Err(DataTypeError::UnsupportedCustomType),
         };
 
         Ok(ParadeDataType(datatype))
@@ -52,9 +49,9 @@ impl TryInto<ParadeDataType> for PgAttribute {
 }
 
 impl TryInto<PgAttribute> for ParadeDataType {
-    type Error = ParadeError;
+    type Error = DataTypeError;
 
-    fn try_into(self) -> Result<PgAttribute, ParadeError> {
+    fn try_into(self) -> Result<PgAttribute, DataTypeError> {
         let ParadeDataType(datatype) = self;
 
         let result = match datatype {
@@ -73,86 +70,33 @@ impl TryInto<PgAttribute> for ParadeDataType {
                 PgBuiltInOids::NUMERICOID,
                 PgNumericTypeMod(PgPrecision(precision), PgScale(scale)).try_into()?,
             ),
-            unsupported => return Err(NotSupported::DataType(unsupported.clone()).into()),
+            unsupported => return Err(DataTypeError::UnsupportedDatafusionType(unsupported)),
         };
 
         Ok(PgAttribute(PgOid::BuiltIn(result.0), result.1))
     }
 }
 
-pub trait GetDatum {
-    fn get_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, ParadeError>;
-}
+#[derive(Error, Debug)]
+pub enum DataTypeError {
+    #[error("Could not downcast generic arrow array: {0}")]
+    DowncastGenericArray(DataType),
 
-impl GetDatum for Arc<dyn Array> {
-    fn get_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, ParadeError> {
-        let result = match self.data_type() {
-            DataType::Boolean => self
-                .as_any()
-                .downcast_ref::<BooleanArray>()
-                .ok_or(ParadeError::DowncastGenericArray(DataType::Boolean))?
-                .value(index)
-                .into_datum(),
-            DataType::Utf8 => self
-                .as_any()
-                .downcast_ref::<StringArray>()
-                .ok_or(ParadeError::DowncastGenericArray(DataType::Utf8))?
-                .value(index)
-                .into_datum(),
-            DataType::Int32 => self.as_primitive::<Int32Type>().value(index).into_datum(),
-            DataType::Int64 => self.as_primitive::<Int64Type>().value(index).into_datum(),
-            DataType::Float32 => self.as_primitive::<Float32Type>().value(index).into_datum(),
-            DataType::Float64 => self.as_primitive::<Float64Type>().value(index).into_datum(),
-            DataType::Date32 => self.as_primitive::<Date32Type>().value(index).into_datum(),
-            DataType::Timestamp(TimeUnit::Microsecond, None) => {
-                Microseconds(self.as_primitive::<TimestampMicrosecondType>().value(index))
-                    .try_into()?
-            }
-            DataType::Decimal128(precision, scale) => PgNumeric(
-                AnyNumeric::from(self.as_primitive::<Decimal128Type>().value(index)),
-                PgNumericTypeMod(PgPrecision(*precision), PgScale(*scale)),
-            )
-            .try_into()?,
-            _ => return Ok(None),
-        };
+    #[error(transparent)]
+    Timestamp(#[from] TimestampError),
 
-        Ok(result)
-    }
-}
+    #[error(transparent)]
+    Numeric(#[from] NumericError),
 
-pub trait IntoArrayRef {
-    fn into_array_ref(self, oid: PgOid) -> Result<ArrayRef, ParadeError>;
-}
+    #[error("Invalid Postgres OID")]
+    InvalidPostgresOid,
 
-impl<T> IntoArrayRef for T
-where
-    T: Iterator<Item = pg_sys::Datum>,
-{
-    fn into_array_ref(self, oid: PgOid) -> Result<ArrayRef, ParadeError> {
-        Ok(match oid {
-            PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::BOOLOID => {
-                    Arc::new(self.into_primitive_array::<bool>().into_array())
-                }
-                PgBuiltInOids::TEXTOID => {
-                    Arc::new(self.into_primitive_array::<String>().into_array())
-                }
-                PgBuiltInOids::INT2OID => Arc::new(self.into_primitive_array::<i16>().into_array()),
-                PgBuiltInOids::INT4OID => Arc::new(self.into_primitive_array::<i32>().into_array()),
-                PgBuiltInOids::INT8OID => Arc::new(self.into_primitive_array::<i64>().into_array()),
-                PgBuiltInOids::FLOAT4OID => {
-                    Arc::new(self.into_primitive_array::<f32>().into_array())
-                }
-                PgBuiltInOids::FLOAT8OID => {
-                    Arc::new(self.into_primitive_array::<f64>().into_array())
-                }
-                PgBuiltInOids::DATEOID => Arc::new(self.into_primitive_array::<i32>().into_array()),
-                // PgBuiltInOids::TIMESTAMPOID => self.into_primitive_array().into_array(),
-                // PgBuiltInOids::NUMERICOID => self.into_primitive_array().into_array(),
-                unsupported => return Err(NotSupported::BuiltinPostgresType(unsupported).into()),
-            },
-            PgOid::Invalid => return Err(NotSupported::InvalidPostgresType.into()),
-            PgOid::Custom(_) => return Err(NotSupported::CustomPostgresType.into()),
-        })
-    }
+    #[error("Postgres type {0:?} is not yet supported")]
+    UnsupportedPostgresType(PgBuiltInOids),
+
+    #[error("Custom Postgres types are not supported")]
+    UnsupportedCustomType,
+
+    #[error("DataFusion type {0} cannot be converted to Postgres type")]
+    UnsupportedDatafusionType(DataType),
 }

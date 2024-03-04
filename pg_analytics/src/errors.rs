@@ -1,5 +1,4 @@
 use deltalake::arrow::error::ArrowError;
-use deltalake::datafusion::arrow::datatypes::DataType;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use pgrx::*;
@@ -10,8 +9,7 @@ use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
-use crate::datafusion::numeric::NumericError;
-use crate::datafusion::timestamp::TimestampError;
+use crate::datafusion::datatype::DataTypeError;
 
 #[derive(Error, Debug)]
 pub enum ParadeError {
@@ -34,16 +32,10 @@ pub enum ParadeError {
     TransactionError(#[from] TransactionError),
 
     #[error(transparent)]
-    Timestamp(#[from] TimestampError),
-
-    #[error(transparent)]
-    Numeric(#[from] NumericError),
+    DataType(#[from] DataTypeError),
 
     #[error(transparent)]
     NotSupported(#[from] NotSupported),
-
-    #[error("Could not downcast generic arrow array: {0}")]
-    DowncastGenericArray(DataType),
 
     #[error(
         "pg_analytics not found in shared_preload_libraries. Check your postgresql.conf file."
@@ -74,20 +66,8 @@ pub enum NotFound {
 
 #[derive(Error, Debug)]
 pub enum NotSupported {
-    #[error("DataType {0} not supported")]
-    DataType(DataType),
-
-    #[error("Postgres type {0:?} not supported")]
-    BuiltinPostgresType(pg_sys::BuiltinOid),
-
     #[error("TEMP tables are not yet supported")]
     TempTable,
-
-    #[error("Invalid Postgres type not supported")]
-    InvalidPostgresType,
-
-    #[error("Custom Postgres types are not supported")]
-    CustomPostgresType,
 
     #[error("DROP COLUMN is not yet supported. Please recreate the table instead.")]
     DropColumn,

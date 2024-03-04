@@ -1,0 +1,41 @@
+---
+title: 0.5.8
+---
+
+## pg_analytics
+
+### Bug Fixes
+
+- Fixed a bug where statements like `ALTER TABLE <table> ENABLE ROW LEVEL SECURITY` were failing on heap tables due to them being intercepted by `parquet` tables.
+- Fixed a bug where table rows appearewd in reverser order in SELECT statements
+- Significantly improve INSERT performance by using transaction callbacks to flush at the end of the INSERT statement
+
+## pg_bm25
+
+### Bug Fixes
+
+- Fixed a bug where `TRUNCATE` would break BM25 indexes.
+- Fixed a bug where memory consumption would increase significantly when indexing large tables.
+- Fixed a bug where `rank_hybrid` was not working with schemas not on the `search_path`.
+- Fixed a bug where deleting Tantivy files occasionally failed.
+
+### New Features
+
+- Added support for "query buikders", which can be used to build complex queries that harness the full power of Tantivy.
+
+## pg_sparse
+
+## Bug Fixes
+
+- Fixed a bug where serializing/deserializing large vectors (length greater than 65536) would result in dropped values.
+
+## ParadeDB
+
+### Bitnami PostgresSQL Docker Image
+
+- Converted the ParadeDB base Docker image to Bitnami PostgreSQL, based on Debian 11 and Postgres 16. This provides higher security guarantees, enables logical replication, and adds support for `pgaudit` and `postgis` Postgres extensions.
+- Added the `pg_cron` extension to the ParadeDB Docker image, which allows you to schedule periodic jobs in PostgreSQL.
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.5.8).

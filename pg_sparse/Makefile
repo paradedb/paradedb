@@ -1,5 +1,5 @@
 EXTENSION = svector
-EXTVERSION = 0.5.7
+EXTVERSION = 0.5.8
 
 MODULE_big = svector
 DATA = $(wildcard sql/*--*.sql)

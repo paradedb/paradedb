@@ -19,6 +19,8 @@ use icu::ICUTokenizer;
 
 pub use manager::{SearchNormalizer, SearchTokenizer};
 
+pub use manager::{SearchNormalizer, SearchTokenizer};
+
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 
 pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> TokenizerManager {

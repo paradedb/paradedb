@@ -3,7 +3,8 @@ resolver = "2"
 members = [
     "pg_bm25",
     "pg_analytics",
-    "shared"
+    "shared",
+    "tokenizers",
 ]
 
 [profile.dev]

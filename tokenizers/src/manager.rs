@@ -4,14 +4,12 @@ use tantivy::tokenizer::{
     SimpleTokenizer, Stemmer, TextAnalyzer, WhitespaceTokenizer,
 };
 
-use crate::tokenizers::code::CodeTokenizer;
-#[cfg(feature = "icu")]
-use crate::tokenizers::icu::ICUTokenizer;
-use crate::tokenizers::lindera::{LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
-use crate::tokenizers::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer};
+use crate::code::CodeTokenizer;
+use crate::lindera::{LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
+use crate::{cjk::ChineseTokenizer, lindera::LinderaChineseTokenizer};
 
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
-// Tokenizers
+
 // Serde will pick a SearchTokenizer variant based on the value of the
 // "type" key, which needs to match one of the variant names below.
 // The "type" field will not be present on the deserialized value.
@@ -157,11 +155,8 @@ impl SearchNormalizer {
 
 #[cfg(test)]
 mod tests {
-    use crate::schema::SearchFieldConfig;
-
     use super::*;
     use rstest::*;
-    use tantivy::schema::{JsonObjectOptions, NumericOptions, TextOptions};
 
     #[rstest]
     fn test_search_tokenizer() {
@@ -192,95 +187,5 @@ mod tests {
     fn test_search_normalizer() {
         assert_eq!(SearchNormalizer::Lowercase.name(), "lowercase");
         assert_ne!(SearchNormalizer::Raw, SearchNormalizer::Lowercase);
-    }
-
-    #[rstest]
-    fn test_search_text_options() {
-        let json = r#"{
-            "indexed": true,
-            "fast": false,
-            "stored": true,
-            "fieldnorms": true,
-            "type": "default",
-            "record": "basic",
-            "normalizer": "raw"
-        }"#;
-        let config: serde_json::Value = serde_json::from_str(json).unwrap();
-        let search_text_option: SearchFieldConfig =
-            serde_json::from_value(serde_json::json!({"Text": config})).unwrap();
-        let expected: TextOptions = search_text_option.into();
-
-        let text_options: TextOptions = SearchFieldConfig::default_text().into();
-        assert_eq!(expected.is_stored(), text_options.is_stored());
-        assert_eq!(
-            expected.get_fast_field_tokenizer_name(),
-            text_options.get_fast_field_tokenizer_name()
-        );
-
-        let text_options = text_options.set_fast(Some("index"));
-        assert_ne!(expected.is_fast(), text_options.is_fast());
-    }
-
-    #[rstest]
-    fn test_search_numeric_options() {
-        let json = r#"{
-            "indexed": true,
-            "stored": true,
-            "fieldnorms": false,
-            "fast": true
-        }"#;
-        let config: serde_json::Value = serde_json::from_str(json).unwrap();
-        let expected: SearchFieldConfig =
-            serde_json::from_value(serde_json::json!({"Numeric": config})).unwrap();
-        let int_options: NumericOptions = SearchFieldConfig::default_numeric().into();
-
-        assert_eq!(int_options, expected.into());
-    }
-
-    #[rstest]
-    fn test_search_boolean_options() {
-        let json = r#"{
-            "indexed": true,
-            "stored": true,
-            "fieldnorms": false,
-            "fast": true
-        }"#;
-        let config: serde_json::Value = serde_json::from_str(json).unwrap();
-        let expected: SearchFieldConfig =
-            serde_json::from_value(serde_json::json!({"Boolean": config})).unwrap();
-        let int_options: NumericOptions = SearchFieldConfig::default_numeric().into();
-
-        assert_eq!(int_options, expected.into());
-    }
-
-    #[rstest]
-    fn test_search_jsonobject_options() {
-        let json = r#"{
-            "indexed": true,
-            "fast": false,
-            "stored": true,
-            "expand_dots": true,
-            "type": "default",
-            "record": "basic",
-            "normalizer": "raw"
-        }"#;
-        let config: serde_json::Value = serde_json::from_str(json).unwrap();
-        let search_json_option: SearchFieldConfig =
-            serde_json::from_value(serde_json::json!({"Json": config})).unwrap();
-        let expected: JsonObjectOptions = search_json_option.into();
-
-        let json_object_options: JsonObjectOptions = SearchFieldConfig::default_json().into();
-        assert_eq!(expected.is_stored(), json_object_options.is_stored());
-        assert_eq!(
-            expected.get_fast_field_tokenizer_name(),
-            json_object_options.get_fast_field_tokenizer_name()
-        );
-        assert_eq!(
-            expected.is_expand_dots_enabled(),
-            json_object_options.is_expand_dots_enabled()
-        );
-
-        let text_options = json_object_options.set_fast(Some("index"));
-        assert_ne!(expected.is_fast(), text_options.is_fast());
     }
 }

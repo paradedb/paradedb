@@ -1,16 +1,13 @@
-pub(crate) mod cjk;
-pub(crate) mod code;
+pub mod cjk;
+pub mod code;
 #[cfg(feature = "icu")]
-pub(crate) mod icu;
-pub(crate) mod lindera;
+pub mod icu;
+pub mod lindera;
+pub mod manager;
 
-use crate::schema::SearchTokenizer;
-use crate::schema::{SearchFieldConfig, SearchIndexSchema};
-use crate::tokenizers::cjk::ChineseTokenizer;
-use crate::tokenizers::code::CodeTokenizer;
-use crate::tokenizers::lindera::{
-    LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer,
-};
+use cjk::ChineseTokenizer;
+use code::CodeTokenizer;
+use lindera::{LinderaChineseTokenizer, LinderaJapaneseTokenizer, LinderaKoreanTokenizer};
 use tantivy::tokenizer::{
     AsciiFoldingFilter, LowerCaser, NgramTokenizer, RawTokenizer, RemoveLongFilter, TextAnalyzer,
     TokenizerManager,
@@ -20,22 +17,14 @@ use tracing::info;
 #[cfg(feature = "icu")]
 use crate::tokenizers::icu::ICUTokenizer;
 
+pub use manager::{SearchNormalizer, SearchTokenizer};
+
 pub const DEFAULT_REMOVE_TOKEN_LENGTH: usize = 255;
 
-pub fn create_tokenizer_manager(schema: &SearchIndexSchema) -> TokenizerManager {
+pub fn create_tokenizer_manager(search_tokenizers: Vec<&SearchTokenizer>) -> TokenizerManager {
     let tokenizer_manager = TokenizerManager::default();
 
-    for search_field in &schema.fields {
-        let field_config = &search_field.config;
-        let field_name: &str = search_field.name.as_ref();
-        info!(field_name, "attempting to create tokenizer");
-
-        let search_tokenizer = match field_config {
-            SearchFieldConfig::Text { tokenizer, .. }
-            | SearchFieldConfig::Json { tokenizer, .. } => tokenizer,
-            _ => continue,
-        };
-
+    for search_tokenizer in search_tokenizers {
         let tokenizer_option = match search_tokenizer {
             SearchTokenizer::Raw => Some(
                 TextAnalyzer::builder(RawTokenizer::default())
@@ -97,7 +86,6 @@ pub fn create_tokenizer_manager(schema: &SearchIndexSchema) -> TokenizerManager 
 
         if let Some(text_analyzer) = tokenizer_option {
             info!(
-                field_name,
                 tokenizer_name = &search_tokenizer.name(),
                 "registering tokenizer",
             );

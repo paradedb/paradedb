@@ -13,6 +13,7 @@ on:
       - main
     paths:
       - "pg_bm25/**"
+      - "tokenizers/**"
       - "!pg_bm25/README.md"
       - ".github/workflows/test-pg_bm25.yml"
   push:

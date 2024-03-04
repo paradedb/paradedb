@@ -144,4 +144,4 @@ ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE)
 
 For commercial licensing, please contact us at [sales@paradedb.com](mailto:sales@paradedb.com).
 
-If you are an open-source project and would like to use ParadeDB, please contact us at [hello@paradedb.com](mailto:hello@paradedb.com).
+If you are an open-source project and would like to use ParadeDB under a different license, please contact us at [hello@paradedb.com](mailto:hello@paradedb.com).

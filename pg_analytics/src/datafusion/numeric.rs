@@ -33,16 +33,23 @@ impl TryInto<PgNumericTypeMod> for PgTypeMod {
                 PgPrecision(DECIMAL128_MAX_PRECISION),
                 PgScale(DECIMAL128_MAX_SCALE),
             )),
-            _ if typemod >= 0 && typemod <= DECIMAL128_MAX_PRECISION as i32 => {
+            _ => {
                 let precision = ((typemod - pg_sys::VARHDRSZ as i32) >> 16) & 0xffff;
                 let scale = (((typemod - pg_sys::VARHDRSZ as i32) & 0x7ff) ^ 1024) - 1024;
+
+                if precision > DECIMAL128_MAX_PRECISION.into() {
+                    return Err(NumericError::UnsupportedPrecision(precision));
+                }
+
+                if scale > DECIMAL128_MAX_SCALE.into() {
+                    return Err(NumericError::UnsupportedScale(scale));
+                }
 
                 Ok(PgNumericTypeMod(
                     PgPrecision(precision as u8),
                     PgScale(scale as i8),
                 ))
             }
-            _ => Err(NumericError::UnsupportedTypeMod(typemod)),
         }
     }
 }
@@ -109,4 +116,10 @@ pub enum NumericError {
 
     #[error("Unsupported typemod {0}")]
     UnsupportedTypeMod(i32),
+
+    #[error("Precision {0} exceeds max precision {}", DECIMAL128_MAX_PRECISION)]
+    UnsupportedPrecision(i32),
+
+    #[error("Scale {0} exceeds max scale {}", DECIMAL128_MAX_SCALE)]
+    UnsupportedScale(i32),
 }

@@ -1,8 +1,8 @@
 use deltalake::arrow::{
     array::{
-        Array, ArrayRef, AsArray, BooleanArray, BooleanBuilder, Decimal128Array, Float32Array,
-        Float64Array, GenericByteBuilder, Int16Array, Int32Array, Int64Array, ListArray,
-        ListBuilder, PrimitiveBuilder, StringArray, TimestampMicrosecondArray,
+        Array, ArrayRef, AsArray, BooleanArray, BooleanBuilder, Date32Array, Decimal128Array,
+        Float32Array, Float64Array, GenericByteBuilder, Int16Array, Int32Array, Int64Array,
+        ListArray, ListBuilder, PrimitiveBuilder, StringArray, TimestampMicrosecondArray,
         TimestampMillisecondArray, TimestampSecondArray,
     },
     datatypes::{
@@ -17,22 +17,26 @@ use std::sync::Arc;
 
 use super::datatype::{DataTypeError, PgTypeMod};
 use super::numeric::{scale_anynumeric, PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
-use super::timestamp::{into_unix, MicrosecondsUnix, MillisecondsUnix, SecondsUnix};
+use super::timestamp::{
+    into_unix, MicrosecondsUnix, MillisecondsUnix, SecondsUnix, TimestampError,
+};
 
 pub trait IntoArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_array<T, A>(self) -> ArrayRef
+    fn into_array<T, A>(self) -> Result<ArrayRef, DataTypeError>
     where
         T: FromDatum,
         A: Array + FromIterator<Option<T>> + 'static,
     {
-        Arc::new(A::from_iter(self.map(|datum| {
+        let array = A::from_iter(self.map(|datum| {
             (!datum.is_null())
                 .then_some(datum)
                 .and_then(|datum| unsafe { T::from_datum(datum, false) })
-        })))
+        }));
+
+        Ok(Arc::new(array))
     }
 }
 
@@ -40,17 +44,24 @@ pub trait IntoNumericArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_numeric_array(self, typemod: PgTypeMod) -> ArrayRef {
-        let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = typemod.try_into().unwrap();
+    fn into_numeric_array(self, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
+        let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = typemod.try_into()?;
 
-        Arc::new(Decimal128Array::from_iter(self.map(|datum| {
+        let iter = self.map(|datum| {
             (!datum.is_null()).then_some(datum).and_then(|datum| {
                 unsafe { AnyNumeric::from_datum(datum, false) }.map(|numeric| {
-                    i128::try_from(scale_anynumeric(numeric, precision, scale, true).unwrap())
-                        .unwrap()
+                    i128::try_from(
+                        scale_anynumeric(numeric, precision, scale, true)
+                            .unwrap_or_else(|err| panic!("{}", err)),
+                    )
+                    .unwrap_or_else(|err| panic!("{}", err))
                 })
             })
-        })))
+        });
+
+        let array = Decimal128Array::from_iter(iter).with_precision_and_scale(precision, scale)?;
+
+        Ok(Arc::new(array))
     }
 }
 
@@ -58,7 +69,7 @@ pub trait IntoTimestampArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_timestamp_array(self, typemod: PgTypeMod) -> ArrayRef {
+    fn into_timestamp_array(self, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
         let PgTypeMod(typemod) = typemod;
 
         let iter = self.map(|datum| {
@@ -68,12 +79,14 @@ where
             })
         });
 
-        match typemod {
+        let array: ArrayRef = match typemod {
             -1 | 6 => Arc::new(TimestampMicrosecondArray::from_iter(iter)),
             0 => Arc::new(TimestampSecondArray::from_iter(iter)),
             3 => Arc::new(TimestampMillisecondArray::from_iter(iter)),
-            _ => todo!(),
-        }
+            unsupported => return Err(TimestampError::UnsupportedTypeMod(unsupported).into()),
+        };
+
+        Ok(array)
     }
 }
 
@@ -145,23 +158,25 @@ where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
     fn into_array_ref(self, oid: PgOid, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
-        Ok(match oid {
+        match oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::BOOLOID => self.into_array::<bool, BooleanArray>(),
-                PgBuiltInOids::TEXTOID => self.into_array::<String, StringArray>(),
+                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID | PgBuiltInOids::BPCHAROID => {
+                    self.into_array::<String, StringArray>()
+                }
                 PgBuiltInOids::INT2OID => self.into_array::<i16, Int16Array>(),
                 PgBuiltInOids::INT4OID => self.into_array::<i32, Int32Array>(),
                 PgBuiltInOids::INT8OID => self.into_array::<i64, Int64Array>(),
                 PgBuiltInOids::FLOAT4OID => self.into_array::<f32, Float32Array>(),
                 PgBuiltInOids::FLOAT8OID => self.into_array::<f64, Float64Array>(),
-                PgBuiltInOids::DATEOID => self.into_array::<i32, Int32Array>(),
+                PgBuiltInOids::DATEOID => self.into_array::<i32, Date32Array>(),
                 PgBuiltInOids::TIMESTAMPOID => self.into_timestamp_array(typemod),
                 PgBuiltInOids::NUMERICOID => self.into_numeric_array(typemod),
-                unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
+                unsupported => Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
-            PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),
-            PgOid::Custom(_) => return Err(DataTypeError::UnsupportedCustomType),
-        })
+            PgOid::Invalid => Err(DataTypeError::InvalidPostgresOid),
+            PgOid::Custom(_) => Err(DataTypeError::UnsupportedCustomType),
+        }
     }
 }
 

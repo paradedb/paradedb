@@ -1,3 +1,4 @@
+use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::datatypes::*;
 use pgrx::*;
 use std::convert::TryInto;
@@ -78,14 +79,17 @@ impl TryInto<PgAttribute> for ArrowDataType {
 
 #[derive(Error, Debug)]
 pub enum DataTypeError {
-    #[error("Could not downcast generic arrow array: {0}")]
-    DowncastGenericArray(DataType),
+    #[error(transparent)]
+    Arrow(#[from] ArrowError),
 
     #[error(transparent)]
     Timestamp(#[from] TimestampError),
 
     #[error(transparent)]
     Numeric(#[from] NumericError),
+
+    #[error("Could not downcast generic arrow array: {0}")]
+    DowncastGenericArray(DataType),
 
     #[error("Invalid Postgres OID")]
     InvalidPostgresOid,

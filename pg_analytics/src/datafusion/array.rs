@@ -13,8 +13,8 @@ use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
 use pgrx::*;
 use std::sync::Arc;
 
-use super::datatype::DataTypeError;
-use super::numeric::{PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
+use super::datatype::{DataTypeError, PgTypeMod};
+use super::numeric::{IntoNumericArray, PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
 use super::timestamp::Microseconds;
 
 type Column<T> = Vec<Option<T>>;
@@ -186,14 +186,14 @@ impl GetDatum for Arc<dyn Array> {
 }
 
 pub trait IntoArrayRef {
-    fn into_array_ref(self, oid: PgOid) -> Result<ArrayRef, DataTypeError>;
+    fn into_array_ref(self, oid: PgOid, pg_typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError>;
 }
 
 impl<T> IntoArrayRef for T
 where
     T: Iterator<Item = pg_sys::Datum>,
 {
-    fn into_array_ref(self, oid: PgOid) -> Result<ArrayRef, DataTypeError> {
+    fn into_array_ref(self, oid: PgOid, pg_typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
         Ok(match oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::BOOLOID => {
@@ -213,7 +213,9 @@ where
                 }
                 PgBuiltInOids::DATEOID => Arc::new(self.into_primitive_array::<i32>().into_array()),
                 // PgBuiltInOids::TIMESTAMPOID => self.into_primitive_array().into_array(),
-                // PgBuiltInOids::NUMERICOID => self.into_primitive_array().into_array(),
+                PgBuiltInOids::NUMERICOID => {
+                    Arc::new(self.into_numeric_array(pg_typemod).into_array())
+                }
                 unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
             PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),

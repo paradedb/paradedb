@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::{query::QueryParser, Index, IndexSettings, Searcher};
 use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
 use thiserror::Error;
-use tracing::error;
+use tracing::{error, info};
 
 use super::state::SearchState;
 use crate::postgres::utils::row_to_search_document;
@@ -19,11 +19,11 @@ use crate::schema::{
     SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchIndexSchema,
     SearchIndexSchemaError,
 };
-use crate::tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use crate::writer::{
     self, SearchDirectoryError, SearchFs, TantivyDirPath, WriterClient, WriterDirectory,
     WriterRequest, WriterTransferPipeFilePath,
 };
+use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 // Must be at least 15,000,000 or Tantivy will panic.
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
@@ -115,7 +115,22 @@ impl SearchIndex {
     }
 
     fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
-        underlying_index.set_tokenizers(create_tokenizer_manager(schema));
+        let tokenizers = schema
+            .fields
+            .iter()
+            .filter_map(|field| {
+                let field_config = &field.config;
+                let field_name: &str = field.name.as_ref();
+                info!(field_name, "attempting to create tokenizer");
+                match field_config {
+                    SearchFieldConfig::Text { tokenizer, .. }
+                    | SearchFieldConfig::Json { tokenizer, .. } => Some(tokenizer),
+                    _ => None,
+                }
+            })
+            .collect();
+
+        underlying_index.set_tokenizers(create_tokenizer_manager(tokenizers));
         underlying_index.set_fast_field_tokenizers(create_normalizer_manager());
     }
 

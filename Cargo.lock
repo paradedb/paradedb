@@ -3672,9 +3672,6 @@ dependencies = [
  "interprocess",
  "json5",
  "libc",
- "lindera-core",
- "lindera-dictionary",
- "lindera-tokenizer",
  "memoffset",
  "once_cell",
  "pgrx",
@@ -3683,7 +3680,6 @@ dependencies = [
  "pretty_assertions",
  "reqwest",
  "rstest",
- "rust_icu_ubrk",
  "rustc-hash",
  "serde",
  "serde_json",
@@ -3695,6 +3691,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tiny_http",
+ "tokenizers",
  "tracing",
  "tracing-subscriber",
  "utoipa",
@@ -5526,6 +5523,22 @@ name = "to_method"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7c4ceeeca15c8384bbc3e011dbd8fccb7f068a440b752b7d9b32ceb0ca0e2e8"
+
+[[package]]
+name = "tokenizers"
+version = "0.1.0"
+dependencies = [
+ "lindera-core",
+ "lindera-dictionary",
+ "lindera-tokenizer",
+ "once_cell",
+ "rstest",
+ "rust_icu_ubrk",
+ "serde",
+ "serde_json",
+ "tantivy",
+ "tracing",
+]
 
 [[package]]
 name = "tokio"

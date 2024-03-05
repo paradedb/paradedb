@@ -1,11 +1,9 @@
 mod config;
 mod document;
-mod fields;
 
 pub use config::*;
 use derive_more::{AsRef, Display, From, Into};
 pub use document::*;
-pub use fields::*;
 use pgrx::{PgBuiltInOids, PgOid};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -15,6 +13,7 @@ use tantivy::schema::{
     TextOptions, FAST, INDEXED, STORED,
 };
 use thiserror::Error;
+use tokenizers::{SearchNormalizer, SearchTokenizer};
 
 use crate::query::AsFieldType;
 

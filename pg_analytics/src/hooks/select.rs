@@ -44,7 +44,7 @@ pub fn select(
                 (*tuple_attr).atttypmod = typmod;
             }
 
-            for _row_index in 0..recordbatch.num_rows() {
+            for row_index in 0..recordbatch.num_rows() {
                 let tuple_table_slot =
                     pg_sys::MakeTupleTableSlot(query_desc.tupDesc, &pg_sys::TTSOpsVirtual);
 
@@ -55,13 +55,12 @@ pub fn select(
                 u64_to_item_pointer(row_number as u64, &mut tid);
                 (*tuple_table_slot).tts_tid = tid;
 
-                for (col_index, _attr) in tuple_desc.iter().enumerate() {
+                for (col_index, _) in tuple_desc.iter().enumerate() {
                     let column = recordbatch.column(col_index);
-                    let _dt = column.data_type();
                     let tts_value = (*tuple_table_slot).tts_values.add(col_index);
                     let tts_isnull = (*tuple_table_slot).tts_isnull.add(col_index);
 
-                    match column.get_datum(col_index)? {
+                    match column.get_datum(row_index)? {
                         Some(datum) => {
                             *tts_value = datum;
                         }

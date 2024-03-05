@@ -67,10 +67,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
-      # We also push to ECR, because we list on AWS Marketplace
-      - name: Login to Amazon ECR
-        run: aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 709825985650.dkr.ecr.us-east-1.amazonaws.com
-
       # The pg_version-tag Docker tag syntax is necessary for our K8s CloudNativePG operator
       - name: Build and Push Docker Image to Docker Hub
         uses: depot/build-push-action@v1
@@ -91,9 +87,6 @@ jobs:
             paradedb/paradedb:${{ steps.version.outputs.tag }}
             paradedb/paradedb:${{ steps.version.outputs.version }}
             paradedb/paradedb:${{ matrix.pg_version }}-${{ steps.version.outputs.tag }}
-            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:latest
-            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.tag }}
-            709825985650.dkr.ecr.us-east-1.amazonaws.com/paradedb/paradedb:${{ steps.version.outputs.version }}
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}

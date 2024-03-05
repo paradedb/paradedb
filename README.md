@@ -92,13 +92,22 @@ docker run \
   paradedb/paradedb:latest
 ```
 
-This will start a ParadeDB instance with non-root user `<user>` and password `<password>`, and your ParadeDB data will be persisted across restarts in a Docker volume named `paradedb_data`. The `superuser_password` will be associated with superuser `postgres` and is necessary for ParadeDB extensions to install properly. You can then connect to the database using `psql`:
+This will start a ParadeDB instance with non-root user `<user>` and password `<password>`. The `superuser_password` will be associated with superuser `postgres` and is necessary for ParadeDB extensions to install properly.
+
+The `-v` flag enables your ParadeDB data to persist across restarts in a Docker volume named `paradedb_data`. The volume needs to be writable by a user with `uid = 1001`, which is a security requirement of the Bitnami PostgreSQL Docker image. You can do so with:
+
+```bash
+sudo useradd -u 1001 <user>
+sudo chown <user> </path/to/paradedb_data>
+```
+
+You can then connect to the database using `psql`:
 
 ```bash
 docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W
 ```
 
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt-out of telemetry by setting `PARADEDB_TELEMETRY` to `false` or by unsetting the variable.
+ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry by setting `PARADEDB_TELEMETRY` to `false` or by unsetting the variable.
 
 #### ParadeDB Helm Chart
 

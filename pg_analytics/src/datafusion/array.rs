@@ -2,12 +2,13 @@ use deltalake::arrow::{
     array::{
         Array, ArrayRef, AsArray, BooleanArray, BooleanBuilder, Decimal128Array, Float32Array,
         Float64Array, GenericByteBuilder, Int16Array, Int32Array, Int64Array, ListArray,
-        ListBuilder, PrimitiveBuilder, StringArray, UInt32Array,
+        ListBuilder, PrimitiveBuilder, StringArray, TimestampMicrosecondArray,
+        TimestampMillisecondArray, TimestampSecondArray,
     },
     datatypes::{
         ArrowPrimitiveType, ByteArrayType, Date32Type, Decimal128Type, Float32Type, Float64Type,
-        GenericStringType, Int16Type, Int32Type, Int64Type, TimestampMicrosecondType,
-        TimestampMillisecondType, TimestampSecondType, UInt32Type,
+        Int32Type, Int64Type, TimestampMicrosecondType, TimestampMillisecondType,
+        TimestampSecondType,
     },
 };
 use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
@@ -18,16 +19,61 @@ use super::datatype::{DataTypeError, PgTypeMod};
 use super::numeric::{scale_anynumeric, PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
 use super::timestamp::{into_unix, MicrosecondsUnix, MillisecondsUnix, SecondsUnix};
 
-type Column<T> = Vec<Option<T>>;
-type ColumnNested<T> = Vec<Option<Column<T>>>;
-
-pub trait IntoArray<T, A>
+pub trait IntoArray
 where
-    A: Array + FromIterator<Option<T>>,
-    Self: IntoIterator<Item = Option<T>> + Sized,
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_array(self) -> A {
-        A::from_iter(self)
+    fn into_array<T, A>(self) -> ArrayRef
+    where
+        T: FromDatum,
+        A: Array + FromIterator<Option<T>> + 'static,
+    {
+        Arc::new(A::from_iter(self.map(|datum| {
+            (!datum.is_null())
+                .then_some(datum)
+                .and_then(|datum| unsafe { T::from_datum(datum, false) })
+        })))
+    }
+}
+
+pub trait IntoNumericArray
+where
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
+{
+    fn into_numeric_array(self, typemod: PgTypeMod) -> ArrayRef {
+        let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = typemod.try_into().unwrap();
+
+        Arc::new(Decimal128Array::from_iter(self.map(|datum| {
+            (!datum.is_null()).then_some(datum).and_then(|datum| {
+                unsafe { AnyNumeric::from_datum(datum, false) }.map(|numeric| {
+                    i128::try_from(scale_anynumeric(numeric, precision, scale, true).unwrap())
+                        .unwrap()
+                })
+            })
+        })))
+    }
+}
+
+pub trait IntoTimestampArray
+where
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
+{
+    fn into_timestamp_array(self, typemod: PgTypeMod) -> ArrayRef {
+        let PgTypeMod(typemod) = typemod;
+
+        let iter = self.map(|datum| {
+            (!datum.is_null()).then_some(datum).and_then(|datum| {
+                let timestamp = unsafe { datum::Timestamp::from_datum(datum, false) };
+                into_unix(timestamp, typemod).unwrap_or_else(|err| panic!("{}", err))
+            })
+        });
+
+        match typemod {
+            -1 | 6 => Arc::new(TimestampMicrosecondArray::from_iter(iter)),
+            0 => Arc::new(TimestampSecondArray::from_iter(iter)),
+            3 => Arc::new(TimestampMillisecondArray::from_iter(iter)),
+            _ => todo!(),
+        }
     }
 }
 
@@ -94,70 +140,28 @@ where
     }
 }
 
-pub trait IntoPrimitiveArray {
-    fn into_primitive_array<Primitive>(self) -> Vec<Option<Primitive>>
-    where
-        Primitive: FromDatum;
-}
-
-impl<T> IntoPrimitiveArray for T
+pub trait IntoArrayRef
 where
-    T: Iterator<Item = pg_sys::Datum>,
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_primitive_array<Primitive>(self) -> Vec<Option<Primitive>>
-    where
-        Primitive: FromDatum,
-    {
-        self.map(|datum| {
-            (!datum.is_null())
-                .then_some(datum)
-                .and_then(|datum| unsafe { Primitive::from_datum(datum, false) })
+    fn into_array_ref(self, oid: PgOid, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
+        Ok(match oid {
+            PgOid::BuiltIn(builtin) => match builtin {
+                PgBuiltInOids::BOOLOID => self.into_array::<bool, BooleanArray>(),
+                PgBuiltInOids::TEXTOID => self.into_array::<String, StringArray>(),
+                PgBuiltInOids::INT2OID => self.into_array::<i16, Int16Array>(),
+                PgBuiltInOids::INT4OID => self.into_array::<i32, Int32Array>(),
+                PgBuiltInOids::INT8OID => self.into_array::<i64, Int64Array>(),
+                PgBuiltInOids::FLOAT4OID => self.into_array::<f32, Float32Array>(),
+                PgBuiltInOids::FLOAT8OID => self.into_array::<f64, Float64Array>(),
+                PgBuiltInOids::DATEOID => self.into_array::<i32, Int32Array>(),
+                PgBuiltInOids::TIMESTAMPOID => self.into_timestamp_array(typemod),
+                PgBuiltInOids::NUMERICOID => self.into_numeric_array(typemod),
+                unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
+            },
+            PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),
+            PgOid::Custom(_) => return Err(DataTypeError::UnsupportedCustomType),
         })
-        .collect::<Vec<Option<Primitive>>>()
-    }
-}
-
-pub trait IntoNumericArray {
-    fn into_numeric_array(self, typemod: PgTypeMod) -> Vec<Option<i128>>;
-}
-
-impl<T> IntoNumericArray for T
-where
-    T: Iterator<Item = pg_sys::Datum>,
-{
-    fn into_numeric_array(self, typemod: PgTypeMod) -> Vec<Option<i128>> {
-        let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = typemod.try_into().unwrap();
-
-        self.map(|datum| {
-            (!datum.is_null()).then_some(datum).and_then(|datum| {
-                unsafe { AnyNumeric::from_datum(datum, false) }.map(|numeric| {
-                    i128::try_from(scale_anynumeric(numeric, precision, scale, true).unwrap())
-                        .unwrap()
-                })
-            })
-        })
-        .collect::<Vec<Option<i128>>>()
-    }
-}
-
-pub trait IntoTimestampArray {
-    fn into_timestamp_array(self, typemod: PgTypeMod) -> Vec<Option<i64>>;
-}
-
-impl<T> IntoTimestampArray for T
-where
-    T: Iterator<Item = pg_sys::Datum>,
-{
-    fn into_timestamp_array(self, typemod: PgTypeMod) -> Vec<Option<i64>> {
-        let PgTypeMod(typemod) = typemod;
-
-        self.map(|datum| {
-            (!datum.is_null()).then_some(datum).and_then(|datum| {
-                let timestamp = unsafe { datum::Timestamp::from_datum(datum, false) };
-                into_unix(timestamp, typemod).unwrap_or_else(|err| panic!("{}", err))
-            })
-        })
-        .collect::<Vec<Option<i64>>>()
     }
 }
 
@@ -208,72 +212,28 @@ impl GetDatum for Arc<dyn Array> {
     }
 }
 
-pub trait IntoArrayRef {
-    fn into_array_ref(self, oid: PgOid, pg_typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError>;
-}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoArrayRef for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoNumericArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampArray for T {}
 
-impl<T> IntoArrayRef for T
-where
-    T: Iterator<Item = pg_sys::Datum>,
-{
-    fn into_array_ref(self, oid: PgOid, pg_typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
-        Ok(match oid {
-            PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::BOOLOID => {
-                    Arc::new(self.into_primitive_array::<bool>().into_array())
-                }
-                PgBuiltInOids::TEXTOID => {
-                    Arc::new(self.into_primitive_array::<String>().into_array())
-                }
-                PgBuiltInOids::INT2OID => Arc::new(self.into_primitive_array::<i16>().into_array()),
-                PgBuiltInOids::INT4OID => Arc::new(self.into_primitive_array::<i32>().into_array()),
-                PgBuiltInOids::INT8OID => Arc::new(self.into_primitive_array::<i64>().into_array()),
-                PgBuiltInOids::FLOAT4OID => {
-                    Arc::new(self.into_primitive_array::<f32>().into_array())
-                }
-                PgBuiltInOids::FLOAT8OID => {
-                    Arc::new(self.into_primitive_array::<f64>().into_array())
-                }
-                PgBuiltInOids::DATEOID => Arc::new(self.into_primitive_array::<i32>().into_array()),
-                PgBuiltInOids::TIMESTAMPOID => {
-                    Arc::new(self.into_timestamp_array(pg_typemod).into_array())
-                }
-                PgBuiltInOids::NUMERICOID => {
-                    Arc::new(self.into_numeric_array(pg_typemod).into_array())
-                }
-                unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
-            },
-            PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),
-            PgOid::Custom(_) => return Err(DataTypeError::UnsupportedCustomType),
-        })
-    }
-}
+// impl IntoBooleanListArray for ColumnNested<bool> {}
 
-impl IntoArray<bool, BooleanArray> for Column<bool> {}
-impl IntoBooleanListArray for ColumnNested<bool> {}
+// impl IntoGenericBytesListArray<String, GenericStringType<i32>> for ColumnNested<String> {}
 
-impl IntoArray<String, StringArray> for Column<String> {}
-impl IntoGenericBytesListArray<String, GenericStringType<i32>> for ColumnNested<String> {}
+// impl IntoPrimitiveListArray<Int16Type> for ColumnNested<i16> {}
 
-impl IntoArray<i16, Int16Array> for Column<i16> {}
-impl IntoPrimitiveListArray<Int16Type> for ColumnNested<i16> {}
+// impl IntoPrimitiveListArray<Int32Type> for ColumnNested<i32> {}
 
-impl IntoArray<i32, Int32Array> for Column<i32> {}
-impl IntoPrimitiveListArray<Int32Type> for ColumnNested<i32> {}
+// impl IntoPrimitiveListArray<Int64Type> for ColumnNested<i64> {}
 
-impl IntoArray<i64, Int64Array> for Column<i64> {}
-impl IntoPrimitiveListArray<Int64Type> for ColumnNested<i64> {}
+// impl IntoPrimitiveListArray<UInt32Type> for ColumnNested<u32> {}
 
-impl IntoArray<u32, UInt32Array> for Column<u32> {}
-impl IntoPrimitiveListArray<UInt32Type> for ColumnNested<u32> {}
+// impl IntoPrimitiveListArray<Float32Type> for ColumnNested<f32> {}
 
-impl IntoArray<f32, Float32Array> for Column<f32> {}
-impl IntoPrimitiveListArray<Float32Type> for ColumnNested<f32> {}
+// impl IntoPrimitiveListArray<Float64Type> for ColumnNested<f64> {}
 
-impl IntoArray<f64, Float64Array> for Column<f64> {}
-impl IntoPrimitiveListArray<Float64Type> for ColumnNested<f64> {}
+// impl IntoArray<i128> for Iterator<Item = pg_sys::Datum> {}
+// impl IntoPrimitiveListArray<Decimal128Type> for ColumnNested<i128> {}
 
-impl IntoArray<i128, Decimal128Array> for Column<i128> {}
-impl IntoPrimitiveListArray<Decimal128Type> for ColumnNested<i128> {}
-
-impl IntoPrimitiveListArray<TimestampMicrosecondType> for ColumnNested<i64> {}
+// impl IntoPrimitiveListArray<TimestampMicrosecondType> for ColumnNested<i64> {}

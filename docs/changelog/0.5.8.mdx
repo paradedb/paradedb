@@ -6,9 +6,9 @@ title: 0.5.8
 
 ### Bug Fixes
 
-- Fixed a bug where statements like `ALTER TABLE <table> ENABLE ROW LEVEL SECURITY` were failing on heap tables due to them being intercepted by `parquet` tables.
-- Fixed a bug where table rows appeared in reversed order in SELECT statements
-- Significantly improve INSERT performance by using transaction callbacks to flush at the end of the INSERT statement
+- Fixed a bug where statements like `ALTER TABLE <table> ENABLE ROW LEVEL SECURITY` were handled erroneously.
+- Fixed a bug where rows were reversed in SELECT statements.
+- Significantly improved INSERT speeds.
 
 ## pg_bm25
 
@@ -21,20 +21,20 @@ title: 0.5.8
 
 ### New Features
 
-- Added support for "query builders", which can be used to build complex queries that harness the full power of Tantivy.
+- Added support for query builders, which expose the entire surface area of the Tantivy API.
 
 ## pg_sparse
 
-## Bug Fixes
+### Bug Fixes
 
-- Fixed a bug where serializing/deserializing large vectors (length greater than 65536) would result in dropped values.
+- Fixed a bug where serializing/deserializing large vectors (length greater than 65536) resulted in dropped values.
 
 ## ParadeDB
 
 ### Bitnami PostgresSQL Docker Image
 
-- Converted the ParadeDB base Docker image to Bitnami PostgreSQL, based on Debian 11 and Postgres 16. This provides higher security guarantees, enables logical replication, and adds support for `pgaudit` and `postgis` Postgres extensions.
-- Added the `pg_cron` extension to the ParadeDB Docker image, which allows scheduling periodic jobs in PostgreSQL.
+- Converted the ParadeDB base Docker image to Bitnami PostgreSQL, based on Debian 11 and Postgres 16. This has higher security guarantees, enables logical replication over heap tables, and supports `pgaudit` and `postgis`.
+- Added `pg_cron` to the ParadeDB Docker image, which schedules periodic jobs in Postgres.
 
 ## Full Changelog
 

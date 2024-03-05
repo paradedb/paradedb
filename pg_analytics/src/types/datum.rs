@@ -130,9 +130,7 @@ where
             DataType::Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
             DataType::Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
             DataType::Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
-            DataType::Decimal128(precision, scale) => {
-                self.get_numeric_datum(index, precision, scale)?
-            }
+            DataType::Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
             _ => return Ok(None),
         };
 

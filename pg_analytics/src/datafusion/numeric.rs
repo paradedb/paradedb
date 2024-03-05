@@ -57,31 +57,7 @@ impl TryInto<Option<pg_sys::Datum>> for PgNumeric {
     }
 }
 
-pub trait IntoNumericArray {
-    fn into_numeric_array(self, typemod: PgTypeMod) -> Vec<Option<i128>>;
-}
-
-impl<T> IntoNumericArray for T
-where
-    T: Iterator<Item = pg_sys::Datum>,
-{
-    fn into_numeric_array(self, typemod: PgTypeMod) -> Vec<Option<i128>> {
-        let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = typemod.try_into().unwrap();
-
-        self.map(|datum| {
-            (!datum.is_null()).then_some(datum).and_then(|datum| {
-                unsafe { AnyNumeric::from_datum(datum, false) }.map(|numeric| {
-                    i128::try_from(scale_anynumeric(numeric, precision, scale, true).unwrap())
-                        .unwrap()
-                })
-            })
-        })
-        .collect::<Vec<Option<i128>>>()
-    }
-}
-
-#[inline]
-fn scale_anynumeric(
+pub fn scale_anynumeric(
     numeric: AnyNumeric,
     precision: u8,
     scale: i8,

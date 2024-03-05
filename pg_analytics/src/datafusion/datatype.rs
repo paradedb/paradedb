@@ -1,8 +1,6 @@
 use deltalake::datafusion::arrow::datatypes::*;
-
 use pgrx::*;
 use std::convert::TryInto;
-
 use thiserror::Error;
 
 use super::numeric::{NumericError, PgNumericTypeMod, PgPrecision, PgScale};
@@ -12,12 +10,12 @@ const DEFAULT_TYPE_MOD: i32 = -1;
 
 pub struct PgTypeMod(pub i32);
 pub struct PgAttribute(pub PgOid, pub PgTypeMod);
-pub struct ParadeDataType(pub DataType);
+pub struct ArrowDataType(pub DataType);
 
-impl TryInto<ParadeDataType> for PgAttribute {
+impl TryInto<ArrowDataType> for PgAttribute {
     type Error = DataTypeError;
 
-    fn try_into(self) -> Result<ParadeDataType, DataTypeError> {
+    fn try_into(self) -> Result<ArrowDataType, DataTypeError> {
         let PgAttribute(oid, typemod) = self;
 
         let datatype = match oid {
@@ -44,15 +42,15 @@ impl TryInto<ParadeDataType> for PgAttribute {
             PgOid::Custom(_) => return Err(DataTypeError::UnsupportedCustomType),
         };
 
-        Ok(ParadeDataType(datatype))
+        Ok(ArrowDataType(datatype))
     }
 }
 
-impl TryInto<PgAttribute> for ParadeDataType {
+impl TryInto<PgAttribute> for ArrowDataType {
     type Error = DataTypeError;
 
     fn try_into(self) -> Result<PgAttribute, DataTypeError> {
-        let ParadeDataType(datatype) = self;
+        let ArrowDataType(datatype) = self;
 
         let result = match datatype {
             DataType::Boolean => (PgBuiltInOids::BOOLOID, PgTypeMod(DEFAULT_TYPE_MOD)),

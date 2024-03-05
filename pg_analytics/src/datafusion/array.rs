@@ -6,7 +6,8 @@ use deltalake::arrow::{
     },
     datatypes::{
         ArrowPrimitiveType, ByteArrayType, Date32Type, Decimal128Type, Float32Type, Float64Type,
-        GenericStringType, Int16Type, Int32Type, Int64Type, TimestampMicrosecondType, UInt32Type,
+        GenericStringType, Int16Type, Int32Type, Int64Type, TimestampMicrosecondType,
+        TimestampMillisecondType, TimestampSecondType, UInt32Type,
     },
 };
 use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
@@ -14,8 +15,8 @@ use pgrx::*;
 use std::sync::Arc;
 
 use super::datatype::{DataTypeError, PgTypeMod};
-use super::numeric::{IntoNumericArray, PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
-use super::timestamp::Microseconds;
+use super::numeric::{scale_anynumeric, PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
+use super::timestamp::{into_unix, MicrosecondsUnix, MillisecondsUnix, SecondsUnix};
 
 type Column<T> = Vec<Option<T>>;
 type ColumnNested<T> = Vec<Option<Column<T>>>;
@@ -116,34 +117,49 @@ where
     }
 }
 
-impl IntoArray<bool, BooleanArray> for Column<bool> {}
-impl IntoBooleanListArray for ColumnNested<bool> {}
+pub trait IntoNumericArray {
+    fn into_numeric_array(self, typemod: PgTypeMod) -> Vec<Option<i128>>;
+}
 
-impl IntoArray<String, StringArray> for Column<String> {}
-impl IntoGenericBytesListArray<String, GenericStringType<i32>> for ColumnNested<String> {}
+impl<T> IntoNumericArray for T
+where
+    T: Iterator<Item = pg_sys::Datum>,
+{
+    fn into_numeric_array(self, typemod: PgTypeMod) -> Vec<Option<i128>> {
+        let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = typemod.try_into().unwrap();
 
-impl IntoArray<i16, Int16Array> for Column<i16> {}
-impl IntoPrimitiveListArray<Int16Type> for ColumnNested<i16> {}
+        self.map(|datum| {
+            (!datum.is_null()).then_some(datum).and_then(|datum| {
+                unsafe { AnyNumeric::from_datum(datum, false) }.map(|numeric| {
+                    i128::try_from(scale_anynumeric(numeric, precision, scale, true).unwrap())
+                        .unwrap()
+                })
+            })
+        })
+        .collect::<Vec<Option<i128>>>()
+    }
+}
 
-impl IntoArray<i32, Int32Array> for Column<i32> {}
-impl IntoPrimitiveListArray<Int32Type> for ColumnNested<i32> {}
+pub trait IntoTimestampArray {
+    fn into_timestamp_array(self, typemod: PgTypeMod) -> Vec<Option<i64>>;
+}
 
-impl IntoArray<i64, Int64Array> for Column<i64> {}
-impl IntoPrimitiveListArray<Int64Type> for ColumnNested<i64> {}
+impl<T> IntoTimestampArray for T
+where
+    T: Iterator<Item = pg_sys::Datum>,
+{
+    fn into_timestamp_array(self, typemod: PgTypeMod) -> Vec<Option<i64>> {
+        let PgTypeMod(typemod) = typemod;
 
-impl IntoArray<u32, UInt32Array> for Column<u32> {}
-impl IntoPrimitiveListArray<UInt32Type> for ColumnNested<u32> {}
-
-impl IntoArray<f32, Float32Array> for Column<f32> {}
-impl IntoPrimitiveListArray<Float32Type> for ColumnNested<f32> {}
-
-impl IntoArray<f64, Float64Array> for Column<f64> {}
-impl IntoPrimitiveListArray<Float64Type> for ColumnNested<f64> {}
-
-impl IntoArray<i128, Decimal128Array> for Column<i128> {}
-impl IntoPrimitiveListArray<Decimal128Type> for ColumnNested<i128> {}
-
-impl IntoPrimitiveListArray<TimestampMicrosecondType> for ColumnNested<i64> {}
+        self.map(|datum| {
+            (!datum.is_null()).then_some(datum).and_then(|datum| {
+                let timestamp = unsafe { datum::Timestamp::from_datum(datum, false) };
+                into_unix(timestamp, typemod).unwrap_or_else(|err| panic!("{}", err))
+            })
+        })
+        .collect::<Vec<Option<i64>>>()
+    }
+}
 
 pub trait GetDatum {
     fn get_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError>;
@@ -170,8 +186,15 @@ impl GetDatum for Arc<dyn Array> {
             DataType::Float64 => self.as_primitive::<Float64Type>().value(index).into_datum(),
             DataType::Date32 => self.as_primitive::<Date32Type>().value(index).into_datum(),
             DataType::Timestamp(TimeUnit::Microsecond, None) => {
-                Microseconds(self.as_primitive::<TimestampMicrosecondType>().value(index))
+                MicrosecondsUnix(self.as_primitive::<TimestampMicrosecondType>().value(index))
                     .try_into()?
+            }
+            DataType::Timestamp(TimeUnit::Millisecond, None) => {
+                MillisecondsUnix(self.as_primitive::<TimestampMillisecondType>().value(index))
+                    .try_into()?
+            }
+            DataType::Timestamp(TimeUnit::Second, None) => {
+                SecondsUnix(self.as_primitive::<TimestampSecondType>().value(index)).try_into()?
             }
             DataType::Decimal128(precision, scale) => PgNumeric(
                 AnyNumeric::from(self.as_primitive::<Decimal128Type>().value(index)),
@@ -212,7 +235,9 @@ where
                     Arc::new(self.into_primitive_array::<f64>().into_array())
                 }
                 PgBuiltInOids::DATEOID => Arc::new(self.into_primitive_array::<i32>().into_array()),
-                // PgBuiltInOids::TIMESTAMPOID => self.into_primitive_array().into_array(),
+                PgBuiltInOids::TIMESTAMPOID => {
+                    Arc::new(self.into_timestamp_array(pg_typemod).into_array())
+                }
                 PgBuiltInOids::NUMERICOID => {
                     Arc::new(self.into_numeric_array(pg_typemod).into_array())
                 }
@@ -223,3 +248,32 @@ where
         })
     }
 }
+
+impl IntoArray<bool, BooleanArray> for Column<bool> {}
+impl IntoBooleanListArray for ColumnNested<bool> {}
+
+impl IntoArray<String, StringArray> for Column<String> {}
+impl IntoGenericBytesListArray<String, GenericStringType<i32>> for ColumnNested<String> {}
+
+impl IntoArray<i16, Int16Array> for Column<i16> {}
+impl IntoPrimitiveListArray<Int16Type> for ColumnNested<i16> {}
+
+impl IntoArray<i32, Int32Array> for Column<i32> {}
+impl IntoPrimitiveListArray<Int32Type> for ColumnNested<i32> {}
+
+impl IntoArray<i64, Int64Array> for Column<i64> {}
+impl IntoPrimitiveListArray<Int64Type> for ColumnNested<i64> {}
+
+impl IntoArray<u32, UInt32Array> for Column<u32> {}
+impl IntoPrimitiveListArray<UInt32Type> for ColumnNested<u32> {}
+
+impl IntoArray<f32, Float32Array> for Column<f32> {}
+impl IntoPrimitiveListArray<Float32Type> for ColumnNested<f32> {}
+
+impl IntoArray<f64, Float64Array> for Column<f64> {}
+impl IntoPrimitiveListArray<Float64Type> for ColumnNested<f64> {}
+
+impl IntoArray<i128, Decimal128Array> for Column<i128> {}
+impl IntoPrimitiveListArray<Decimal128Type> for ColumnNested<i128> {}
+
+impl IntoPrimitiveListArray<TimestampMicrosecondType> for ColumnNested<i64> {}

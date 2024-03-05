@@ -2,7 +2,7 @@ use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
 use crate::datafusion::array::GetDatum;
-use crate::datafusion::datatype::{ParadeDataType, PgAttribute, PgTypeMod};
+use crate::datafusion::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
 use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
 
@@ -37,7 +37,7 @@ pub fn select(
             let tuple_attrs = (*query_desc.tupDesc).attrs.as_mut_ptr();
             for (col_index, _attr) in tuple_desc.iter().enumerate() {
                 let PgAttribute(typid, PgTypeMod(typmod)) =
-                    ParadeDataType(recordbatch.column(col_index).data_type().clone()).try_into()?;
+                    ArrowDataType(recordbatch.column(col_index).data_type().clone()).try_into()?;
 
                 let tuple_attr = tuple_attrs.add(col_index);
                 (*tuple_attr).atttypid = typid.value();

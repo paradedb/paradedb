@@ -19,7 +19,7 @@ use std::collections::{
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::datafusion::datatype::{ParadeDataType, PgAttribute, PgTypeMod};
+use crate::datafusion::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
@@ -54,7 +54,7 @@ impl DatafusionTable for PgRelation {
             };
 
             // Note: even if you have an int[][], the attribute-type is INT4ARRAYOID and the base is INT4OID
-            let ParadeDataType(datatype) =
+            let ArrowDataType(datatype) =
                 PgAttribute(base_oid, PgTypeMod(attribute.type_mod())).try_into()?;
             let field = if is_array {
                 Field::new_list(

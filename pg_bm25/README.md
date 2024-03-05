@@ -136,7 +136,7 @@ This will return:
 (5 rows)
 ```
 
-Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](http://localhost:3000/latest/search/bm25) and [quickstart](http://localhost:3000/latest/quickstart) for a more thorough overview of `pg_bm25`'s query support.
+Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](https://docs.paradedb.com) and [quickstart](https://docs.paradedb.com/search/quickstart) for a more thorough overview of `pg_bm25`'s query support.
 
 ## Development
 

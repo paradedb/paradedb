@@ -4,6 +4,7 @@ pub mod search;
 pub mod state;
 
 use crate::schema::{SearchConfig, SearchField, SearchFieldId};
+use core::panic;
 use derive_more::{AsRef, Display, From};
 use once_cell::sync::Lazy;
 use pgrx::pg_sys::Alias;
@@ -42,6 +43,10 @@ impl Default for SearchAlias {
     }
 }
 
+/// A singleton lookup that stores information about pg_search queries in the
+/// current transaction. Used by functions like `rank` and `hybrid` to lookup
+/// a search result given a key field. Expected to be fully cleared at the end
+/// of every transaction.
 pub struct CurrentSearch {
     /// A map from key_field value to document address.
     doc_map: HashMap<SearchAlias, HashMap<i64, DocAddress>>,
@@ -62,6 +67,7 @@ impl CurrentSearch {
             current_search.doc_map.drain();
             current_search.config_map.drain();
         })?;
+        pgrx::log!("registering callback!!!!");
         Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID, move || {
             pgrx::log!("IN THE ABORT CALLBACK");
             let mut current_search = CURRENT_SEARCH
@@ -107,7 +113,7 @@ impl CurrentSearch {
     fn set_doc_default(&mut self, key: i64, address: DocAddress) -> Result<(), CurrentSearchError> {
         self.doc_map
             .entry(SearchAlias::default())
-            .or_insert_with(|| HashMap::new())
+            .or_default()
             .insert(key, address);
         Ok(())
     }
@@ -121,10 +127,7 @@ impl CurrentSearch {
         if alias == SearchAlias::default() {
             Err(CurrentSearchError::EmptyAlias)
         } else {
-            self.doc_map
-                .entry(alias.into())
-                .or_insert_with(|| HashMap::new())
-                .insert(key, address);
+            self.doc_map.entry(alias).or_default().insert(key, address);
             Ok(())
         }
     }

@@ -108,7 +108,7 @@ pub extern "C" fn amgettuple(
             let key_field_name = state.config.key_field.borrow();
             let key_field = schema
                 .schema
-                .get_field(&key_field_name)
+                .get_field(key_field_name)
                 .unwrap_or_else(|err| {
                     panic!("error retrieving {key_field_name} field from schema: {err:?}")
                 });
@@ -117,7 +117,7 @@ pub extern "C" fn amgettuple(
             });
             match key_field_value {
                 tantivy::schema::Value::I64(key) => CurrentSearch::set_doc(
-                    key.clone(),
+                    *key,
                     doc_address,
                     state.config.alias.clone().map(SearchAlias::from),
                 )

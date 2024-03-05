@@ -28,7 +28,7 @@ impl SearchState {
             .query
             .clone()
             .into_tantivy_query(&schema, &mut parser)
-            .unwrap_or_else(|err| panic!("could not parse query: {err}"));
+            .expect("could not parse query");
         let key_field_name = schema.key_field().name.0;
         SearchState {
             schema,

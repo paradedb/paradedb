@@ -7,6 +7,7 @@ use thiserror::Error;
 use super::datatype::PgTypeMod;
 
 const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
+const MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
 pub struct MicrosecondsUnix(pub i64);
 pub struct MillisecondsUnix(pub i64);
@@ -147,18 +148,18 @@ fn get_naive_date(timestamp: &datum::Timestamp) -> Result<NaiveDate, TimestampEr
         timestamp.month().into(),
         timestamp.day().into(),
     )
-    .ok_or(TimestampError::ParseDate(*timestamp))
+    .ok_or(TimestampError::ParseDate(timestamp.to_iso_string()))
 }
 
 #[inline]
 fn get_naive_time(timestamp: &datum::Timestamp) -> Result<NaiveTime, TimestampError> {
-    NaiveTime::from_hms_milli_opt(
+    NaiveTime::from_hms_micro_opt(
         timestamp.hour().into(),
         timestamp.minute().into(),
         timestamp.second() as u32,
-        timestamp.microseconds(),
+        timestamp.microseconds() % MICROSECONDS_IN_SECOND,
     )
-    .ok_or(TimestampError::ParseTime(*timestamp))
+    .ok_or(TimestampError::ParseTime(timestamp.to_iso_string()))
 }
 
 #[inline]
@@ -180,10 +181,10 @@ pub enum TimestampError {
     DateTimeConversion(#[from] DateTimeConversionError),
 
     #[error("Failed to parse time from {0:?}")]
-    ParseTime(datum::Timestamp),
+    ParseTime(String),
 
     #[error("Failed to parse date from {0:?}")]
-    ParseDate(datum::Timestamp),
+    ParseDate(String),
 
     #[error("Failed to make datetime")]
     ParseDateTime(),
@@ -191,10 +192,10 @@ pub enum TimestampError {
     #[error("Failed to convert {0} microseconds to datetime")]
     MicrosecondsConversion(i64),
 
-    #[error("Failed to convert {0} microseconds to datetime")]
+    #[error("Failed to convert {0} milliseconds to datetime")]
     MillisecondsConversion(i64),
 
-    #[error("Failed to convert {0} microseconds to datetime")]
+    #[error("Failed to convert {0} seconds to datetime")]
     SecondsConversion(i64),
 
     #[error("Type timestamp({0}) is supported. Supported types are timestamp(0), timestamp(3), timestamp(6), and timestamp.")]

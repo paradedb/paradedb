@@ -6,6 +6,7 @@ use thiserror::Error;
 use super::numeric::{NumericError, PgNumericTypeMod, PgPrecision, PgScale};
 use super::timestamp::TimestampError;
 
+// By default, unspecified type mods in Postgres are -1
 const DEFAULT_TYPE_MOD: i32 = -1;
 
 pub struct PgTypeMod(pub i32);
@@ -68,7 +69,7 @@ impl TryInto<PgAttribute> for ArrowDataType {
                 PgBuiltInOids::NUMERICOID,
                 PgNumericTypeMod(PgPrecision(precision), PgScale(scale)).try_into()?,
             ),
-            unsupported => return Err(DataTypeError::UnsupportedDatafusionType(unsupported)),
+            unsupported => return Err(DataTypeError::UnsupportedArrowType(unsupported)),
         };
 
         Ok(PgAttribute(PgOid::BuiltIn(result.0), result.1))
@@ -96,5 +97,5 @@ pub enum DataTypeError {
     UnsupportedCustomType,
 
     #[error("DataFusion type {0} cannot be converted to Postgres type")]
-    UnsupportedDatafusionType(DataType),
+    UnsupportedArrowType(DataType),
 }

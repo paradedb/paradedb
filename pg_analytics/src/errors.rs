@@ -9,7 +9,7 @@ use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
-use crate::datafusion::datatype::DataTypeError;
+use crate::types::datatype::DataTypeError;
 
 #[derive(Error, Debug)]
 pub enum ParadeError {

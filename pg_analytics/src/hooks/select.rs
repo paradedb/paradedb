@@ -1,10 +1,10 @@
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
-use crate::datafusion::array::GetDatum;
-use crate::datafusion::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
 use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
+use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
+use crate::types::datum::GetDatum;
 
 pub fn select(
     mut query_desc: PgBox<pg_sys::QueryDesc>,

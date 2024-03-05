@@ -19,11 +19,11 @@ use std::collections::{
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::datafusion::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
+use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
 
 const BYTES_IN_MB: i64 = 1_048_576;
 

@@ -11,10 +11,10 @@ use pgrx::*;
 use std::any::type_name;
 use std::sync::Arc;
 
-use crate::datafusion::array::GetDatum;
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotFound, ParadeError};
+use crate::types::datum::GetDatum;
 
 struct DeltalakeScanDesc {
     rs_base: pg_sys::TableScanDescData,

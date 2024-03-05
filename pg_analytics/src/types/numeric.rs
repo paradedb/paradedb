@@ -1,4 +1,4 @@
-use crate::datafusion::datatype::PgTypeMod;
+use crate::types::datatype::PgTypeMod;
 use deltalake::datafusion::arrow::datatypes::{DECIMAL128_MAX_PRECISION, DECIMAL128_MAX_SCALE};
 use pgrx::*;
 use thiserror::Error;

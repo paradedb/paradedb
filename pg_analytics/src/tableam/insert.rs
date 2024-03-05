@@ -4,12 +4,12 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
 
-use crate::datafusion::array::IntoArrayRef;
 use crate::datafusion::commit::commit_writer;
-use crate::datafusion::datatype::PgTypeMod;
 use crate::datafusion::table::DatafusionTable;
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
+use crate::types::array::IntoArrayRef;
+use crate::types::datatype::PgTypeMod;
 
 #[pg_guard]
 pub extern "C" fn deltalake_slot_callbacks(

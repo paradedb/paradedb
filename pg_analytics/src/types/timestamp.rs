@@ -6,8 +6,8 @@ use thiserror::Error;
 
 use super::datatype::PgTypeMod;
 
-const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
 const MICROSECONDS_IN_SECOND: u32 = 1_000_000;
+const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
 
 pub struct MicrosecondsUnix(pub i64);
 pub struct MillisecondsUnix(pub i64);

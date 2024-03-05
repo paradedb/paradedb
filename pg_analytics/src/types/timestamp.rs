@@ -9,9 +9,9 @@ use super::datatype::PgTypeMod;
 const MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
 
-pub struct MicrosecondsUnix(pub i64);
-pub struct MillisecondsUnix(pub i64);
-pub struct SecondsUnix(pub i64);
+pub struct MicrosecondUnix(pub i64);
+pub struct MillisecondUnix(pub i64);
+pub struct SecondUnix(pub i64);
 
 impl TryInto<TimeUnit> for PgTypeMod {
     type Error = TimestampError;
@@ -41,50 +41,50 @@ impl TryInto<PgTypeMod> for TimeUnit {
     }
 }
 
-impl TryInto<MicrosecondsUnix> for datum::Timestamp {
+impl TryInto<MicrosecondUnix> for datum::Timestamp {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<MicrosecondsUnix, TimestampError> {
+    fn try_into(self) -> Result<MicrosecondUnix, TimestampError> {
         let date = get_naive_date(&self)?;
         let time = get_naive_time(&self)?;
         let unix = TimestampMicrosecondType::make_value(NaiveDateTime::new(date, time))
             .ok_or(TimestampError::ParseDateTime())?;
 
-        Ok(MicrosecondsUnix(unix))
+        Ok(MicrosecondUnix(unix))
     }
 }
 
-impl TryInto<MillisecondsUnix> for datum::Timestamp {
+impl TryInto<MillisecondUnix> for datum::Timestamp {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<MillisecondsUnix, TimestampError> {
+    fn try_into(self) -> Result<MillisecondUnix, TimestampError> {
         let date = get_naive_date(&self)?;
         let time = get_naive_time(&self)?;
         let unix = TimestampMillisecondType::make_value(NaiveDateTime::new(date, time))
             .ok_or(TimestampError::ParseDateTime())?;
 
-        Ok(MillisecondsUnix(unix))
+        Ok(MillisecondUnix(unix))
     }
 }
 
-impl TryInto<SecondsUnix> for datum::Timestamp {
+impl TryInto<SecondUnix> for datum::Timestamp {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<SecondsUnix, TimestampError> {
+    fn try_into(self) -> Result<SecondUnix, TimestampError> {
         let date = get_naive_date(&self)?;
         let time = get_naive_time(&self)?;
         let unix = TimestampSecondType::make_value(NaiveDateTime::new(date, time))
             .ok_or(TimestampError::ParseDateTime())?;
 
-        Ok(SecondsUnix(unix))
+        Ok(SecondUnix(unix))
     }
 }
 
-impl TryInto<Option<pg_sys::Datum>> for MicrosecondsUnix {
+impl TryInto<Option<pg_sys::Datum>> for MicrosecondUnix {
     type Error = TimestampError;
 
     fn try_into(self) -> Result<Option<pg_sys::Datum>, TimestampError> {
-        let MicrosecondsUnix(unix) = self;
+        let MicrosecondUnix(unix) = self;
         let datetime = NaiveDateTime::from_timestamp_micros(unix)
             .ok_or(TimestampError::MicrosecondsConversion(unix))?;
 
@@ -92,11 +92,11 @@ impl TryInto<Option<pg_sys::Datum>> for MicrosecondsUnix {
     }
 }
 
-impl TryInto<Option<pg_sys::Datum>> for MillisecondsUnix {
+impl TryInto<Option<pg_sys::Datum>> for MillisecondUnix {
     type Error = TimestampError;
 
     fn try_into(self) -> Result<Option<pg_sys::Datum>, TimestampError> {
-        let MillisecondsUnix(unix) = self;
+        let MillisecondUnix(unix) = self;
         let datetime = NaiveDateTime::from_timestamp_millis(unix)
             .ok_or(TimestampError::MillisecondsConversion(unix))?;
 
@@ -104,11 +104,11 @@ impl TryInto<Option<pg_sys::Datum>> for MillisecondsUnix {
     }
 }
 
-impl TryInto<Option<pg_sys::Datum>> for SecondsUnix {
+impl TryInto<Option<pg_sys::Datum>> for SecondUnix {
     type Error = TimestampError;
 
     fn try_into(self) -> Result<Option<pg_sys::Datum>, TimestampError> {
-        let SecondsUnix(unix) = self;
+        let SecondUnix(unix) = self;
         let datetime = NaiveDateTime::from_timestamp_opt(unix, 0)
             .ok_or(TimestampError::SecondsConversion(unix))?;
 
@@ -123,15 +123,15 @@ pub fn into_unix(
     if let Some(timestamp) = timestamp {
         match typemod {
             0 => {
-                let SecondsUnix(unix) = timestamp.try_into()?;
+                let SecondUnix(unix) = timestamp.try_into()?;
                 Ok(Some(unix))
             }
             3 => {
-                let MillisecondsUnix(unix) = timestamp.try_into()?;
+                let MillisecondUnix(unix) = timestamp.try_into()?;
                 Ok(Some(unix))
             }
             -1 | 6 => {
-                let MicrosecondsUnix(unix) = timestamp.try_into()?;
+                let MicrosecondUnix(unix) = timestamp.try_into()?;
                 Ok(Some(unix))
             }
             unsupported => Err(TimestampError::UnsupportedTypeMod(unsupported)),

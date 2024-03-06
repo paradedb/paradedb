@@ -5,8 +5,8 @@ use deltalake::arrow::array::{
     TimestampSecondArray,
 };
 use deltalake::arrow::datatypes::{
-    ArrowPrimitiveType, ByteArrayType, Float32Type, Float64Type, GenericStringType, Int16Type,
-    Int32Type, Int64Type,
+    ArrowPrimitiveType, Float32Type, Float64Type, GenericStringType, Int16Type, Int32Type,
+    Int64Type,
 };
 use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
@@ -17,7 +17,7 @@ use super::numeric::{scale_anynumeric, PgNumericTypeMod, PgPrecision, PgScale};
 use super::timestamp::{into_unix, TimestampError};
 
 type Column<T> = Vec<Option<T>>;
-type ColumnNested<T> = Vec<Option<Column<T>>>;
+// type ColumnNested<T> = Vec<Option<Column<T>>>;
 
 pub trait IntoPrimitiveArray
 where
@@ -39,15 +39,17 @@ where
     }
 }
 
-pub trait IntoPrimitiveArrayRef<T>
+pub trait IntoPrimitiveArrowArray
 where
-    Self: IntoIterator<Item = Option<T>> + Sized,
+    Self: Iterator<Item = pg_sys::Datum> + Sized + IntoPrimitiveArray,
 {
-    fn into_array_ref<A>(self) -> Result<ArrayRef, DataTypeError>
+    fn into_primitive_arrow_array<T, A>(self) -> Result<ArrayRef, DataTypeError>
     where
+        T: FromDatum,
         A: Array + FromIterator<Option<T>> + 'static,
     {
-        Ok(Arc::new(A::from_iter(self)))
+        let iter = self.into_array::<T>()?;
+        Ok(Arc::new(A::from_iter(iter)))
     }
 }
 
@@ -55,7 +57,11 @@ pub trait IntoNumericArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_num_array(self, precision: u8, scale: i8) -> Result<Vec<Option<i128>>, DataTypeError> {
+    fn into_numeric_array(
+        self,
+        precision: u8,
+        scale: i8,
+    ) -> Result<Vec<Option<i128>>, DataTypeError> {
         let array = self
             .map(|datum| {
                 (!datum.is_null()).then_some(datum).and_then(|datum| {
@@ -74,13 +80,16 @@ where
     }
 }
 
-pub trait IntoNumericArrayRef
+pub trait IntoNumericArrowArray
 where
-    Self: IntoIterator<Item = Option<i128>> + Sized,
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_num_array_ref(self, precision: u8, scale: i8) -> Result<ArrayRef, DataTypeError> {
+    fn into_numeric_arrow_array(self, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
+        let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = typemod.try_into()?;
+        let iter = self.into_numeric_array(precision, scale)?;
+
         Ok(Arc::new(
-            Decimal128Array::from_iter(self).with_precision_and_scale(precision, scale)?,
+            Decimal128Array::from_iter(iter).with_precision_and_scale(precision, scale)?,
         ))
     }
 }
@@ -89,7 +98,7 @@ pub trait IntoTimestampArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_ts_array(self, typemod: i32) -> Result<Vec<Option<i64>>, DataTypeError> {
+    fn into_timestamp_array(self, typemod: i32) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
             .map(|datum| {
                 (!datum.is_null()).then_some(datum).and_then(|datum| {
@@ -103,15 +112,18 @@ where
     }
 }
 
-pub trait IntoTimestampArrayRef
+pub trait IntoTimestampArrowArray
 where
-    Self: IntoIterator<Item = Option<i64>> + Sized,
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_ts_array_ref(self, typemod: i32) -> Result<ArrayRef, DataTypeError> {
+    fn into_timestamp_arrow_array(self, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
+        let PgTypeMod(typemod) = typemod;
+        let iter = self.into_timestamp_array(typemod)?;
+
         let array: ArrayRef = match typemod {
-            -1 | 6 => Arc::new(TimestampMicrosecondArray::from_iter(self)),
-            0 => Arc::new(TimestampSecondArray::from_iter(self)),
-            3 => Arc::new(TimestampMillisecondArray::from_iter(self)),
+            -1 | 6 => Arc::new(TimestampMicrosecondArray::from_iter(iter)),
+            0 => Arc::new(TimestampSecondArray::from_iter(iter)),
+            3 => Arc::new(TimestampMillisecondArray::from_iter(iter)),
             unsupported => return Err(TimestampError::UnsupportedTypeMod(unsupported).into()),
         };
 
@@ -119,15 +131,15 @@ where
     }
 }
 
-pub trait IntoGenericBytesListArrayRef<T, B>
+pub trait IntoGenericBytesListArrowArray
 where
-    B: ByteArrayType,
-    T: AsRef<B::Native>,
-    Self: IntoIterator<Item = Option<Vec<Option<T>>>> + Sized,
+    Self: Iterator<Item = pg_sys::Datum> + Sized + IntoPrimitiveArray,
 {
-    fn into_array_ref(self) -> Result<ArrayRef, DataTypeError> {
-        let mut builder = ListBuilder::new(GenericByteBuilder::<B>::new());
-        for opt_vec in self {
+    fn into_string_list_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        let iter = self.into_array::<Column<String>>()?;
+
+        let mut builder = ListBuilder::new(GenericByteBuilder::<GenericStringType<i32>>::new());
+        for opt_vec in iter {
             if let Some(vec) = opt_vec {
                 for opt_t in vec {
                     builder.values().append_option(opt_t);
@@ -141,13 +153,15 @@ where
     }
 }
 
-pub trait IntoBooleanListArrayRef
+pub trait IntoBooleanListArrowArray
 where
-    Self: IntoIterator<Item = Option<Vec<Option<bool>>>> + Sized,
+    Self: Iterator<Item = pg_sys::Datum> + Sized + IntoPrimitiveArray,
 {
-    fn into_array_ref(self) -> Result<ArrayRef, DataTypeError> {
+    fn into_bool_list_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        let iter = self.into_array::<Column<bool>>()?;
+
         let mut builder = ListBuilder::new(BooleanBuilder::new());
-        for opt_vec in self {
+        for opt_vec in iter {
             if let Some(vec) = opt_vec {
                 for opt_t in vec {
                     builder.values().append_option(opt_t);
@@ -161,14 +175,19 @@ where
     }
 }
 
-pub trait IntoPrimitiveListArrayRef<A>
+pub trait IntoPrimitiveListArrowArray
 where
-    A: ArrowPrimitiveType,
-    Self: IntoIterator<Item = Option<Vec<Option<A::Native>>>> + Sized,
+    Self: Iterator<Item = pg_sys::Datum> + Sized + IntoPrimitiveArray,
 {
-    fn into_array_ref(self) -> Result<ArrayRef, DataTypeError> {
+    fn into_primitive_list_arrow_array<T, A>(self) -> Result<ArrayRef, DataTypeError>
+    where
+        T: FromDatum,
+        A: ArrowPrimitiveType<Native = T>,
+    {
+        let iter = self.into_array::<Column<T>>()?;
+
         let mut builder = ListBuilder::new(PrimitiveBuilder::<A>::new());
-        for opt_vec in self {
+        for opt_vec in iter {
             if let Some(vec) = opt_vec {
                 for opt_t in vec {
                     builder.values().append_option(opt_t);
@@ -182,31 +201,34 @@ where
     }
 }
 
-pub trait IntoArrayRef
+pub trait IntoArrowArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_array_ref(self, oid: PgOid, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
+    fn into_arrow_array(self, oid: PgOid, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
         match oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                BOOLOID => self.into_array::<bool>()?.into_array_ref::<BooleanArray>(),
+                BOOLOID => self.into_primitive_arrow_array::<bool, BooleanArray>(),
+                BOOLARRAYOID => self.into_bool_list_arrow_array(),
                 TEXTOID | VARCHAROID | BPCHAROID => {
-                    self.into_array::<String>()?.into_array_ref::<StringArray>()
+                    self.into_primitive_arrow_array::<String, StringArray>()
                 }
-                INT2OID => self.into_array::<i16>()?.into_array_ref::<Int16Array>(),
-                INT4OID => self.into_array::<i32>()?.into_array_ref::<Int32Array>(),
-                INT8OID => self.into_array::<i64>()?.into_array_ref::<Int64Array>(),
-                FLOAT4OID => self.into_array::<f32>()?.into_array_ref::<Float32Array>(),
-                FLOAT8OID => self.into_array::<f64>()?.into_array_ref::<Float64Array>(),
-                DATEOID => self.into_array::<i32>()?.into_array_ref::<Date32Array>(),
-                TIMESTAMPOID => {
-                    let PgTypeMod(typemod) = typemod;
-                    self.into_ts_array(typemod)?.into_ts_array_ref(typemod)
+                TEXTARRAYOID | VARCHARARRAYOID | BPCHARARRAYOID => {
+                    self.into_string_list_arrow_array()
                 }
-                NUMERICOID => {
-                    let PgNumericTypeMod(PgPrecision(p), PgScale(s)) = typemod.try_into()?;
-                    self.into_num_array(p, s)?.into_num_array_ref(p, s)
-                }
+                INT2OID => self.into_primitive_arrow_array::<i16, Int16Array>(),
+                INT2ARRAYOID => self.into_primitive_list_arrow_array::<i16, Int16Type>(),
+                INT4OID => self.into_primitive_arrow_array::<i32, Int32Array>(),
+                INT4ARRAYOID => self.into_primitive_list_arrow_array::<i32, Int32Type>(),
+                INT8OID => self.into_primitive_arrow_array::<i64, Int64Array>(),
+                INT8ARRAYOID => self.into_primitive_list_arrow_array::<i64, Int64Type>(),
+                FLOAT4OID => self.into_primitive_arrow_array::<f32, Float32Array>(),
+                FLOAT4ARRAYOID => self.into_primitive_list_arrow_array::<f32, Float32Type>(),
+                FLOAT8OID => self.into_primitive_arrow_array::<f64, Float64Array>(),
+                FLOAT8ARRAYOID => self.into_primitive_list_arrow_array::<f64, Float64Type>(),
+                DATEOID => self.into_primitive_arrow_array::<i32, Date32Array>(),
+                TIMESTAMPOID => self.into_timestamp_arrow_array(typemod),
+                NUMERICOID => self.into_numeric_arrow_array(typemod),
                 unsupported => Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
             PgOid::Invalid => Err(DataTypeError::InvalidPostgresOid),
@@ -215,31 +237,15 @@ where
     }
 }
 
+impl<T: Iterator<Item = pg_sys::Datum>> IntoArrowArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoNumericArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampArray for T {}
-impl<T: Iterator<Item = pg_sys::Datum>> IntoArrayRef for T {}
 
-impl IntoPrimitiveArrayRef<String> for Column<String> {}
-impl IntoGenericBytesListArrayRef<String, GenericStringType<i32>> for ColumnNested<String> {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveArrowArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoNumericArrowArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampArrowArray for T {}
 
-impl IntoPrimitiveArrayRef<bool> for Column<bool> {}
-impl IntoBooleanListArrayRef for ColumnNested<bool> {}
-
-impl IntoPrimitiveArrayRef<i16> for Column<i16> {}
-impl IntoPrimitiveListArrayRef<Int16Type> for ColumnNested<i16> {}
-
-impl IntoPrimitiveArrayRef<i32> for Column<i32> {}
-impl IntoPrimitiveListArrayRef<Int32Type> for ColumnNested<i32> {}
-
-impl IntoPrimitiveArrayRef<i64> for Column<i64> {}
-impl IntoPrimitiveListArrayRef<Int64Type> for ColumnNested<i64> {}
-
-impl IntoPrimitiveArrayRef<f32> for Column<f32> {}
-impl IntoPrimitiveListArrayRef<Float32Type> for ColumnNested<f32> {}
-
-impl IntoPrimitiveArrayRef<f64> for Column<f64> {}
-impl IntoPrimitiveListArrayRef<Float64Type> for ColumnNested<f64> {}
-
-impl IntoNumericArrayRef for Column<i128> {}
-impl IntoTimestampArrayRef for Column<i64> {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveListArrowArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoBooleanListArrowArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoGenericBytesListArrowArray for T {}

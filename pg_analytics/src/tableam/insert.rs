@@ -8,7 +8,7 @@ use crate::datafusion::commit::commit_writer;
 use crate::datafusion::table::DatafusionTable;
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
-use crate::types::array::IntoArrayRef;
+use crate::types::array::IntoArrowArray;
 use crate::types::datatype::PgTypeMod;
 
 #[pg_guard]
@@ -83,7 +83,7 @@ async fn insert_tuples(
                     let datum = (*tuple_table_slot).tts_values.add(col_idx);
                     *datum
                 })
-                .into_array_ref(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
+                .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
         );
     }
 

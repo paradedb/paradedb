@@ -1,4 +1,0 @@
-#V2
-create table t (a timestamp);
-insert into t values (to_timestamp_seconds('0001-01-01 01:01:01'));
-\\q

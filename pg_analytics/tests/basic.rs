@@ -84,26 +84,6 @@ fn array_results(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn alter(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
-
-    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
-    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-
-    assert_eq!(column_names, vec!["a".to_string(), "b".to_string()]);
-
-    "ALTER TABLE t ADD COLUMN c int".execute(&mut conn);
-
-    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
-    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-
-    assert_eq!(
-        column_names,
-        vec!["a".to_string(), "b".to_string(), "c".to_string()]
-    );
-}
-
-#[rstest]
 fn delete(mut conn: PgConnection) {
     "CREATE TABLE employees (salary bigint, id smallint) USING parquet".execute(&mut conn);
 
@@ -432,17 +412,9 @@ fn add_column(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
 
     match "ALTER TABLE t ADD COLUMN a int".execute_result(&mut conn) {
-        Err(err) => assert_eq!(
-            err.to_string(),
-            "error returned from database: column \"a\" of relation \"t\" already exists"
-        ),
-        _ => panic!("Adding a column with the same name should not be supported"),
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: ADD COLUMN is not yet supported. Please recreate the table instead."),
+        _ => panic!("Adding a column should not be supported"),
     };
-
-    "ALTER TABLE t ADD COLUMN c int".execute(&mut conn);
-    "INSERT INTO t VALUES (1, 'a', 2)".execute(&mut conn);
-    let row: (i32, String, i32) = "SELECT * FROM t".fetch_one(&mut conn);
-    assert_eq!(row, (1, "a".into(), 2));
 }
 
 #[rstest]
@@ -480,31 +452,7 @@ fn multiline_query(mut conn: PgConnection) {
     let select_count: (i64,) = "SELECT COUNT(*) FROM employees".fetch_one(&mut conn);
     assert_eq!(select_count, (2,));
 
-    "CREATE TABLE test_table (id smallint) USING parquet; ALTER TABLE test_table ADD COLUMN name text; ALTER TABLE test_table ADD COLUMN age smallint;"
-        .execute(&mut conn);
-    let rows: Vec<(String,)> =
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'test_table'"
-            .fetch(&mut conn);
-    let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-    assert_eq!(
-        column_names.sort(),
-        ["id".to_string(), "age".to_string(), "name".to_string()].sort()
-    );
-
-    "CREATE TABLE test_table2 (id smallint) USING parquet; INSERT INTO test_table2 VALUES (1), (2), (3); ALTER TABLE test_table2 ADD COLUMN name text;"
-        .execute(&mut conn);
-    let count: (i64,) = "SELECT COUNT(*) FROM test_table2".fetch_one(&mut conn);
-    assert_eq!(count, (3,));
-    let rows: Vec<(String,)> =
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'test_table2'"
-            .fetch(&mut conn);
-    let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-    assert_eq!(
-        column_names.sort(),
-        ["id".to_string(), "name".to_string()].sort()
-    );
-
-    "CREATE TABLE test_table3 (id smallint) USING parquet; ALTER TABLE test_table3 ADD COLUMN name text; TRUNCATE TABLE test_table3;"
+    "CREATE TABLE test_table3 (id smallint) USING parquet; INSERT INTO test_table3 VALUES (1); TRUNCATE TABLE test_table3;"
         .execute(&mut conn);
     let count: (i64,) = "SELECT COUNT(*) FROM test_table3".fetch_one(&mut conn);
     assert_eq!(count, (0,));

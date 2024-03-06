@@ -1,12 +1,10 @@
-use deltalake::arrow::{
-    array::{
-        Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BooleanArray, Date32Array,
-        Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, StringArray,
-    },
-    datatypes::{
-        Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type,
-        TimestampMicrosecondType, TimestampMillisecondType, TimestampSecondType,
-    },
+use deltalake::arrow::array::{
+    Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BooleanArray, Date32Array,
+    Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, StringArray,
+};
+use deltalake::arrow::datatypes::{
+    Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type,
+    TimestampMicrosecondType, TimestampMillisecondType, TimestampSecondType,
 };
 use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
 use pgrx::*;

@@ -69,6 +69,9 @@ pub enum NotSupported {
     #[error("TEMP tables are not yet supported")]
     TempTable,
 
+    #[error("ADD COLUMN is not yet supported. Please recreate the table instead.")]
+    AddColumn,
+
     #[error("DROP COLUMN is not yet supported. Please recreate the table instead.")]
     DropColumn,
 

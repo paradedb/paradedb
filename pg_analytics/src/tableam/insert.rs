@@ -81,10 +81,30 @@ async fn insert_tuples(
             (0..nslots)
                 .map(move |row_idx| unsafe {
                     let tuple_table_slot = *slots.add(row_idx);
-                    let datum = (*tuple_table_slot).tts_values.add(col_idx);
-                    let is_null = (*tuple_table_slot).tts_isnull.add(col_idx);
-                    (*datum, *is_null)
+
+                    let datum = if (*tuple_table_slot).tts_ops == &pg_sys::TTSOpsBufferHeapTuple {
+                        let bslot = tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
+                        let tuple = (*bslot).base.tuple;
+                        htup::heap_getattr_raw(
+                            tuple,
+                            std::num::NonZeroUsize::new(col_idx + 1).ok_or(
+                                ParadeError::Generic("Could not convert usize".to_string()),
+                            )?,
+                            (*tuple_table_slot).tts_tupleDescriptor,
+                        )
+                        .ok_or(ParadeError::Generic(
+                            "Could not get value from buffer heap".to_string(),
+                        ))?
+                    } else {
+                        *(*tuple_table_slot).tts_values.add(col_idx)
+                    };
+
+                    let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
+
+                    Ok((datum, is_null))
                 })
+                .collect::<Result<Vec<(pg_sys::Datum, bool)>, ParadeError>>()?
+                .into_iter()
                 .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
         );
     }

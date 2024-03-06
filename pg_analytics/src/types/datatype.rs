@@ -4,6 +4,7 @@ use pgrx::*;
 use std::convert::TryInto;
 use thiserror::Error;
 
+use super::datum::DatumError;
 use super::numeric::{NumericError, PgNumericTypeMod, PgPrecision, PgScale};
 use super::timestamp::TimestampError;
 
@@ -70,6 +71,21 @@ impl TryInto<PgAttribute> for ArrowDataType {
                 PgBuiltInOids::NUMERICOID,
                 PgNumericTypeMod(PgPrecision(precision), PgScale(scale)).try_into()?,
             ),
+            DataType::List(ref field) => match field.data_type() {
+                DataType::Boolean => (PgBuiltInOids::BOOLARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                DataType::Utf8 => (PgBuiltInOids::TEXTARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                DataType::Int16 => (PgBuiltInOids::INT2ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                DataType::Int32 => (PgBuiltInOids::INT4ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                DataType::Int64 => (PgBuiltInOids::INT8ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                DataType::Float32 => (PgBuiltInOids::FLOAT4ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                DataType::Float64 => (PgBuiltInOids::FLOAT8ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                DataType::Date32 => (PgBuiltInOids::DATEARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                unsupported => {
+                    return Err(DataTypeError::UnsupportedArrowArrayType(
+                        unsupported.clone(),
+                    ))
+                }
+            },
             unsupported => return Err(DataTypeError::UnsupportedArrowType(unsupported)),
         };
 
@@ -83,13 +99,13 @@ pub enum DataTypeError {
     Arrow(#[from] ArrowError),
 
     #[error(transparent)]
+    Datum(#[from] DatumError),
+
+    #[error(transparent)]
     Timestamp(#[from] TimestampError),
 
     #[error(transparent)]
     Numeric(#[from] NumericError),
-
-    #[error("Could not downcast generic arrow array: {0}")]
-    DowncastGenericArray(DataType),
 
     #[error("Invalid Postgres OID")]
     InvalidPostgresOid,
@@ -100,6 +116,9 @@ pub enum DataTypeError {
     #[error("Custom Postgres types are not supported")]
     UnsupportedCustomType,
 
-    #[error("DataFusion type {0} cannot be converted to Postgres type")]
+    #[error("Could not convert arrow type {0:?} to Postgres type")]
     UnsupportedArrowType(DataType),
+
+    #[error("Could not convert arrow array with type {0:?} to Postgres array")]
+    UnsupportedArrowArrayType(DataType),
 }

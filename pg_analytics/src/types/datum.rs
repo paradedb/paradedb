@@ -4,7 +4,7 @@ use deltalake::arrow::{
         Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, StringArray,
     },
     datatypes::{
-        Date32Type, Decimal128Type, Float32Type, Float64Type, Int32Type, Int64Type,
+        Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type,
         TimestampMicrosecondType, TimestampMillisecondType, TimestampSecondType,
     },
 };
@@ -141,6 +141,7 @@ where
         let result = match self.data_type() {
             DataType::Boolean => self.get_generic_datum::<BooleanArray>(index)?,
             DataType::Utf8 => self.get_generic_datum::<StringArray>(index)?,
+            DataType::Int16 => self.get_primitive_datum::<Int16Type>(index)?,
             DataType::Int32 => self.get_primitive_datum::<Int32Type>(index)?,
             DataType::Int64 => self.get_primitive_datum::<Int64Type>(index)?,
             DataType::Float32 => self.get_primitive_datum::<Float32Type>(index)?,

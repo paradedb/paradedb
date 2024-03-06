@@ -326,31 +326,31 @@ fn types(mut conn: PgConnection) {
     assert_eq!(row.0, Date::parse("2024-01-29", fd).unwrap());
 
     match "CREATE TABLE t (a bytea) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("bytes should not be supported"),
     };
     match "CREATE TABLE t (a uuid) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("uuid should not be supported"),
     };
     match "CREATE TABLE t (a oid) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("oid should not be supported"),
     };
     match "CREATE TABLE t (a json) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("json should not be supported"),
     };
     match "CREATE TABLE t (a jsonb) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("jsonb should not be supported"),
     };
     match "CREATE TABLE t (a time) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("time should not be supported"),
     };
     match "CREATE TABLE t (a timetz) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("timetz should not be supported"),
     };
 }

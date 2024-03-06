@@ -575,3 +575,77 @@ fn big_insert(mut conn: PgConnection) {
     let count: (i64,) = "SELECT COUNT(*) FROM s".fetch_one(&mut conn);
     assert_eq!(count, (150000,));
 }
+
+#[rstest]
+#[rstest]
+fn date(mut conn: PgConnection) {
+    let timestamp_format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+    let date_format = format_description!("[year]-[month]-[day]");
+
+    r#"
+        CREATE TABLE dates (
+            date_column DATE,
+            timestamp_column TIMESTAMP
+        ) USING parquet;
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO dates (date_column, timestamp_column)
+        VALUES ('2022-01-01', '2022-01-01 12:00:00'),
+               ('0001-02-02', '0001-02-02 12:00:00'),
+               ('1230-02-03', '1230-02-03 12:00:00'),
+               ('1230-02-04', '1230-02-04 12:00:00'),
+               ('2000-02-04', '2000-02-04 12:00:00');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> = "SELECT * FROM dates".fetch(&mut conn);
+    assert_eq!(rows[0].0, Date::parse("2022-01-01", date_format).unwrap());
+    assert_eq!(rows[1].0, Date::parse("0001-02-02", date_format).unwrap());
+    assert_eq!(rows[2].0, Date::parse("1230-02-03", date_format).unwrap());
+    assert_eq!(rows[3].0, Date::parse("1230-02-04", date_format).unwrap());
+    assert_eq!(rows[4].0, Date::parse("2000-02-04", date_format).unwrap());
+    assert_eq!(
+        rows[0].1,
+        PrimitiveDateTime::parse("2022-01-01 12:00:00", timestamp_format).unwrap()
+    );
+    assert_eq!(
+        rows[1].1,
+        PrimitiveDateTime::parse("0001-02-02 12:00:00", timestamp_format).unwrap()
+    );
+    assert_eq!(
+        rows[2].1,
+        PrimitiveDateTime::parse("1230-02-03 12:00:00", timestamp_format).unwrap()
+    );
+    assert_eq!(
+        rows[3].1,
+        PrimitiveDateTime::parse("1230-02-04 12:00:00", timestamp_format).unwrap()
+    );
+    assert_eq!(
+        rows[4].1,
+        PrimitiveDateTime::parse("2000-02-04 12:00:00", timestamp_format).unwrap()
+    );
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE timestamp_column < '2000-02-04 12:00:01'::timestamp"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 4);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE timestamp_column < '2000-02-04 12:00:00'::timestamp"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE date_column = '2000-02-04'::date".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE date_column < '1230-02-04'::date".fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE date_column < '1230-02-03'::date".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+}

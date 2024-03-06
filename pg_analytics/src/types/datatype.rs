@@ -1,5 +1,7 @@
 use deltalake::arrow::error::ArrowError;
+use deltalake::datafusion::arrow::datatypes::DataType::*;
 use deltalake::datafusion::arrow::datatypes::*;
+use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
 use thiserror::Error;
 
@@ -23,23 +25,21 @@ impl TryFrom<PgAttribute> for ArrowDataType {
 
         let datatype = match oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::BOOLOID => DataType::Boolean,
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID | PgBuiltInOids::BPCHAROID => {
-                    DataType::Utf8
-                }
-                PgBuiltInOids::INT2OID => DataType::Int16,
-                PgBuiltInOids::INT4OID => DataType::Int32,
-                PgBuiltInOids::INT8OID => DataType::Int64,
-                PgBuiltInOids::FLOAT4OID => DataType::Float32,
-                PgBuiltInOids::FLOAT8OID => DataType::Float64,
-                PgBuiltInOids::DATEOID => DataType::Date32,
-                PgBuiltInOids::TIMESTAMPOID => {
-                    DataType::Timestamp(TimeUnit::try_from(typemod)?, None)
-                }
-                PgBuiltInOids::NUMERICOID => {
+                BOOLOID => Boolean,
+                TEXTOID => Utf8,
+                VARCHAROID => Utf8,
+                BPCHAROID => Utf8,
+                INT2OID => Int16,
+                INT4OID => Int32,
+                INT8OID => Int64,
+                FLOAT4OID => Float32,
+                FLOAT8OID => Float64,
+                DATEOID => Date32,
+                TIMESTAMPOID => Timestamp(TimeUnit::try_from(typemod)?, None),
+                NUMERICOID => {
                     let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) =
                         typemod.try_into()?;
-                    DataType::Decimal128(precision, scale)
+                    Decimal128(precision, scale)
                 }
                 unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
@@ -58,30 +58,28 @@ impl TryFrom<ArrowDataType> for PgAttribute {
         let ArrowDataType(datatype) = datatype;
 
         let result = match datatype {
-            DataType::Boolean => (PgBuiltInOids::BOOLOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            DataType::Utf8 => (PgBuiltInOids::TEXTOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            DataType::Int16 => (PgBuiltInOids::INT2OID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            DataType::Int32 => (PgBuiltInOids::INT4OID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            DataType::Int64 => (PgBuiltInOids::INT8OID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            DataType::Float32 => (PgBuiltInOids::FLOAT4OID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            DataType::Float64 => (PgBuiltInOids::FLOAT8OID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            DataType::Date32 => (PgBuiltInOids::DATEOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            DataType::Timestamp(timeunit, None) => {
-                (PgBuiltInOids::TIMESTAMPOID, PgTypeMod::try_from(timeunit)?)
-            }
-            DataType::Decimal128(precision, scale) => (
-                PgBuiltInOids::NUMERICOID,
+            Boolean => (BOOLOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+            Utf8 => (TEXTOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+            Int16 => (INT2OID, PgTypeMod(DEFAULT_TYPE_MOD)),
+            Int32 => (INT4OID, PgTypeMod(DEFAULT_TYPE_MOD)),
+            Int64 => (INT8OID, PgTypeMod(DEFAULT_TYPE_MOD)),
+            Float32 => (FLOAT4OID, PgTypeMod(DEFAULT_TYPE_MOD)),
+            Float64 => (FLOAT8OID, PgTypeMod(DEFAULT_TYPE_MOD)),
+            Date32 => (DATEOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+            Timestamp(timeunit, None) => (TIMESTAMPOID, PgTypeMod::try_from(timeunit)?),
+            Decimal128(precision, scale) => (
+                NUMERICOID,
                 PgTypeMod::try_from(PgNumericTypeMod(PgPrecision(precision), PgScale(scale)))?,
             ),
-            DataType::List(ref field) => match field.data_type() {
-                DataType::Boolean => (PgBuiltInOids::BOOLARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-                DataType::Utf8 => (PgBuiltInOids::TEXTARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-                DataType::Int16 => (PgBuiltInOids::INT2ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-                DataType::Int32 => (PgBuiltInOids::INT4ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-                DataType::Int64 => (PgBuiltInOids::INT8ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-                DataType::Float32 => (PgBuiltInOids::FLOAT4ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-                DataType::Float64 => (PgBuiltInOids::FLOAT8ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-                DataType::Date32 => (PgBuiltInOids::DATEARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+            List(ref field) => match field.data_type() {
+                Boolean => (BOOLARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                Utf8 => (TEXTARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                Int16 => (INT2ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                Int32 => (INT4ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                Int64 => (INT8ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                Float32 => (FLOAT4ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                Float64 => (FLOAT8ARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
+                Date32 => (DATEARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),
                 unsupported => {
                     return Err(DataTypeError::UnsupportedArrowArrayType(
                         unsupported.clone(),

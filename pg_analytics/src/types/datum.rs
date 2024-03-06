@@ -6,6 +6,7 @@ use deltalake::arrow::datatypes::{
     Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type,
     TimestampMicrosecondType, TimestampMillisecondType, TimestampSecondType,
 };
+use deltalake::datafusion::arrow::datatypes::DataType::*;
 use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
 use pgrx::*;
 use std::fmt::Debug;
@@ -154,27 +155,27 @@ where
 {
     fn get_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
         let result = match self.data_type() {
-            DataType::Boolean => self.get_generic_datum::<BooleanArray>(index)?,
-            DataType::Utf8 => self.get_generic_datum::<StringArray>(index)?,
-            DataType::Int16 => self.get_primitive_datum::<Int16Type>(index)?,
-            DataType::Int32 => self.get_primitive_datum::<Int32Type>(index)?,
-            DataType::Int64 => self.get_primitive_datum::<Int64Type>(index)?,
-            DataType::Float32 => self.get_primitive_datum::<Float32Type>(index)?,
-            DataType::Float64 => self.get_primitive_datum::<Float64Type>(index)?,
-            DataType::Date32 => self.get_date_datum(index)?,
-            DataType::Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
-            DataType::Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
-            DataType::Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
-            DataType::Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
-            DataType::List(ref field) => match field.data_type() {
-                DataType::Boolean => self.get_primitive_list_datum::<BooleanArray>(index)?,
-                DataType::Utf8 => self.get_primitive_list_datum::<StringArray>(index)?,
-                DataType::Int16 => self.get_primitive_list_datum::<Int16Array>(index)?,
-                DataType::Int32 => self.get_primitive_list_datum::<Int32Array>(index)?,
-                DataType::Int64 => self.get_primitive_list_datum::<Int64Array>(index)?,
-                DataType::Float32 => self.get_primitive_list_datum::<Float32Array>(index)?,
-                DataType::Float64 => self.get_primitive_list_datum::<Float64Array>(index)?,
-                DataType::Date32 => self.get_primitive_list_datum::<Date32Array>(index)?,
+            Boolean => self.get_generic_datum::<BooleanArray>(index)?,
+            Utf8 => self.get_generic_datum::<StringArray>(index)?,
+            Int16 => self.get_primitive_datum::<Int16Type>(index)?,
+            Int32 => self.get_primitive_datum::<Int32Type>(index)?,
+            Int64 => self.get_primitive_datum::<Int64Type>(index)?,
+            Float32 => self.get_primitive_datum::<Float32Type>(index)?,
+            Float64 => self.get_primitive_datum::<Float64Type>(index)?,
+            Date32 => self.get_date_datum(index)?,
+            Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
+            Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
+            Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
+            Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
+            List(ref field) => match field.data_type() {
+                Boolean => self.get_primitive_list_datum::<BooleanArray>(index)?,
+                Utf8 => self.get_primitive_list_datum::<StringArray>(index)?,
+                Int16 => self.get_primitive_list_datum::<Int16Array>(index)?,
+                Int32 => self.get_primitive_list_datum::<Int32Array>(index)?,
+                Int64 => self.get_primitive_list_datum::<Int64Array>(index)?,
+                Float32 => self.get_primitive_list_datum::<Float32Array>(index)?,
+                Float64 => self.get_primitive_list_datum::<Float64Array>(index)?,
+                Date32 => self.get_primitive_list_datum::<Date32Array>(index)?,
                 unsupported => {
                     return Err(DatumError::UnsupportedArrowArrayType(unsupported.clone()).into())
                 }

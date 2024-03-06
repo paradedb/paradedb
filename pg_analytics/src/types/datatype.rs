@@ -16,11 +16,11 @@ pub struct PgTypeMod(pub i32);
 pub struct PgAttribute(pub PgOid, pub PgTypeMod);
 pub struct ArrowDataType(pub DataType);
 
-impl TryInto<ArrowDataType> for PgAttribute {
+impl TryFrom<PgAttribute> for ArrowDataType {
     type Error = DataTypeError;
 
-    fn try_into(self) -> Result<ArrowDataType, DataTypeError> {
-        let PgAttribute(oid, typemod) = self;
+    fn try_from(attribute: PgAttribute) -> Result<Self, Self::Error> {
+        let PgAttribute(oid, typemod) = attribute;
 
         let datatype = match oid {
             PgOid::BuiltIn(builtin) => match builtin {
@@ -50,11 +50,11 @@ impl TryInto<ArrowDataType> for PgAttribute {
     }
 }
 
-impl TryInto<PgAttribute> for ArrowDataType {
+impl TryFrom<ArrowDataType> for PgAttribute {
     type Error = DataTypeError;
 
-    fn try_into(self) -> Result<PgAttribute, DataTypeError> {
-        let ArrowDataType(datatype) = self;
+    fn try_from(datatype: ArrowDataType) -> Result<Self, Self::Error> {
+        let ArrowDataType(datatype) = datatype;
 
         let result = match datatype {
             DataType::Boolean => (PgBuiltInOids::BOOLOID, PgTypeMod(DEFAULT_TYPE_MOD)),

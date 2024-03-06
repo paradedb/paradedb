@@ -21,11 +21,11 @@ impl TryFrom<DayUnix> for datum::Date {
     type Error = DateError;
 
     fn try_from(day: DayUnix) -> Result<Self, Self::Error> {
+        let DayUnix(days_since_epoch) = day;
         let epoch = NaiveDate::from_ymd_opt(EPOCH_YEAR, EPOCH_MONTH, EPOCH_DAY)
             .ok_or(DateError::InvalidEpoch)?;
-        let DayUnix(days_since_epoch) = day;
-
         let date = epoch + Duration::days(days_since_epoch.into());
+
         Ok(datum::Date::new(
             date.year(),
             date.month() as u8,
@@ -39,6 +39,6 @@ pub enum DateError {
     #[error(transparent)]
     DateTimeConversion(#[from] DateTimeConversionError),
 
-    #[error("Failed to set epoch")]
+    #[error("Failed to set epoch {}-{}-{}", EPOCH_YEAR, EPOCH_MONTH, EPOCH_DAY)]
     InvalidEpoch,
 }

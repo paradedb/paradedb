@@ -4,6 +4,7 @@ use pgrx::*;
 use std::convert::TryInto;
 use thiserror::Error;
 
+use super::date::DateError;
 use super::datum::DatumError;
 use super::numeric::{NumericError, PgNumericTypeMod, PgPrecision, PgScale};
 use super::timestamp::TimestampError;
@@ -97,6 +98,9 @@ impl TryInto<PgAttribute> for ArrowDataType {
 pub enum DataTypeError {
     #[error(transparent)]
     Arrow(#[from] ArrowError),
+
+    #[error(transparent)]
+    Date(#[from] DateError),
 
     #[error(transparent)]
     Datum(#[from] DatumError),

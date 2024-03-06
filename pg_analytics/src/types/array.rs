@@ -13,6 +13,7 @@ use pgrx::*;
 use std::sync::Arc;
 
 use super::datatype::{DataTypeError, PgTypeMod};
+use super::date::DayUnix;
 use super::numeric::{scale_anynumeric, PgNumericTypeMod, PgPrecision, PgScale};
 use super::timestamp::{MicrosecondUnix, MillisecondUnix, PgTimestampPrecision, SecondUnix};
 
@@ -93,6 +94,34 @@ where
     }
 }
 
+pub trait IntoDateArray
+where
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
+{
+    fn into_date_array(self) -> Result<Vec<Option<i32>>, DataTypeError> {
+        let array = self
+            .filter_map(|datum| {
+                (!datum.is_null()).then_some(datum).map(|datum| {
+                    unsafe { datum::Date::from_datum(datum, false) }
+                        .and_then(|date| DayUnix::try_from(date).ok())
+                        .map(|DayUnix(unix)| unix)
+                })
+            })
+            .collect::<Vec<Option<i32>>>();
+
+        Ok(array)
+    }
+}
+
+pub trait IntoDateArrowArray
+where
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
+{
+    fn into_date_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        Ok(Arc::new(Date32Array::from_iter(self.into_date_array()?)))
+    }
+}
+
 pub trait IntoTimestampMicrosecondArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
@@ -157,7 +186,7 @@ pub trait IntoTimestampSecondArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_ts_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
+    fn into_ts_second_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
             .filter_map(|datum| {
                 (!datum.is_null()).then_some(datum).map(|datum| {
@@ -176,9 +205,9 @@ pub trait IntoTimestampSecondArrowArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_ts_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+    fn into_ts_second_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(TimestampSecondArray::from_iter(
-            self.into_ts_array()?,
+            self.into_ts_second_array()?,
         )))
     }
 }
@@ -262,12 +291,12 @@ where
             PgOid::BuiltIn(builtin) => match builtin {
                 BOOLOID => self.into_primitive_arrow_array::<bool, BooleanArray>(),
                 BOOLARRAYOID => self.into_bool_list_arrow_array(),
-                TEXTOID | VARCHAROID | BPCHAROID => {
-                    self.into_primitive_arrow_array::<String, StringArray>()
-                }
-                TEXTARRAYOID | VARCHARARRAYOID | BPCHARARRAYOID => {
-                    self.into_string_list_arrow_array()
-                }
+                TEXTOID => self.into_primitive_arrow_array::<String, StringArray>(),
+                VARCHAROID => self.into_primitive_arrow_array::<String, StringArray>(),
+                BPCHAROID => self.into_primitive_arrow_array::<String, StringArray>(),
+                TEXTARRAYOID => self.into_string_list_arrow_array(),
+                VARCHARARRAYOID => self.into_string_list_arrow_array(),
+                BPCHARARRAYOID => self.into_string_list_arrow_array(),
                 INT2OID => self.into_primitive_arrow_array::<i16, Int16Array>(),
                 INT2ARRAYOID => self.into_primitive_list_arrow_array::<i16, Int16Type>(),
                 INT4OID => self.into_primitive_arrow_array::<i32, Int32Array>(),
@@ -278,10 +307,10 @@ where
                 FLOAT4ARRAYOID => self.into_primitive_list_arrow_array::<f32, Float32Type>(),
                 FLOAT8OID => self.into_primitive_arrow_array::<f64, Float64Array>(),
                 FLOAT8ARRAYOID => self.into_primitive_list_arrow_array::<f64, Float64Type>(),
-                DATEOID => self.into_primitive_arrow_array::<i32, Date32Array>(),
+                DATEOID => self.into_date_arrow_array(),
                 TIMESTAMPOID => match PgTimestampPrecision::try_from(typemod)? {
                     PgTimestampPrecision::Default => self.into_ts_micro_arrow_array(),
-                    PgTimestampPrecision::Second => self.into_ts_arrow_array(),
+                    PgTimestampPrecision::Second => self.into_ts_second_arrow_array(),
                     PgTimestampPrecision::Microsecond => self.into_ts_micro_arrow_array(),
                     PgTimestampPrecision::Millisecond => self.into_ts_milli_arrow_array(),
                 },
@@ -295,14 +324,16 @@ where
 }
 
 impl<T: Iterator<Item = pg_sys::Datum>> IntoArrowArray for T {}
-impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoDateArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoNumericArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampMicrosecondArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampMillisecondArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampSecondArray for T {}
 
-impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveArrowArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoDateArrowArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoNumericArrowArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveArrowArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampMicrosecondArrowArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampMillisecondArrowArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampSecondArrowArray for T {}

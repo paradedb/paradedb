@@ -12,6 +12,7 @@ use std::fmt::Debug;
 use thiserror::Error;
 
 use super::datatype::DataTypeError;
+use super::date::DayUnix;
 use super::numeric::{PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
 use super::timestamp::{MicrosecondUnix, MillisecondUnix, SecondUnix};
 
@@ -67,6 +68,18 @@ where
             .into_datum();
 
         Ok(datum)
+    }
+}
+
+pub trait GetDatumDate
+where
+    Self: Array + AsArray,
+{
+    fn get_date_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
+        Ok(
+            datum::Date::try_from(DayUnix(self.as_primitive::<Date32Type>().value(index)))
+                .into_datum(),
+        )
     }
 }
 
@@ -127,6 +140,7 @@ pub trait GetDatum
 where
     Self: Array
         + AsArray
+        + GetDatumDate
         + GetDatumGeneric
         + GetDatumPrimitive
         + GetDatumPrimitiveList
@@ -144,7 +158,7 @@ where
             DataType::Int64 => self.get_primitive_datum::<Int64Type>(index)?,
             DataType::Float32 => self.get_primitive_datum::<Float32Type>(index)?,
             DataType::Float64 => self.get_primitive_datum::<Float64Type>(index)?,
-            DataType::Date32 => self.get_primitive_datum::<Date32Type>(index)?,
+            DataType::Date32 => self.get_date_datum(index)?,
             DataType::Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
             DataType::Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
             DataType::Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
@@ -170,6 +184,7 @@ where
 }
 
 impl GetDatum for ArrayRef {}
+impl GetDatumDate for ArrayRef {}
 impl GetDatumGeneric for ArrayRef {}
 impl GetDatumPrimitive for ArrayRef {}
 impl GetDatumPrimitiveList for ArrayRef {}

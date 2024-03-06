@@ -48,8 +48,7 @@ where
         T: FromDatum,
         A: Array + FromIterator<Option<T>> + 'static,
     {
-        let iter = self.into_array::<T>()?;
-        Ok(Arc::new(A::from_iter(iter)))
+        Ok(Arc::new(A::from_iter(self.into_array::<T>()?)))
     }
 }
 

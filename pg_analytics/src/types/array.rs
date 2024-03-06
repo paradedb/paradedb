@@ -14,10 +14,9 @@ use std::sync::Arc;
 
 use super::datatype::{DataTypeError, PgTypeMod};
 use super::numeric::{scale_anynumeric, PgNumericTypeMod, PgPrecision, PgScale};
-use super::timestamp::{into_unix, TimestampError};
+use super::timestamp::{MicrosecondUnix, MillisecondUnix, PgTimestampPrecision, SecondUnix};
 
 type Column<T> = Vec<Option<T>>;
-// type ColumnNested<T> = Vec<Option<Column<T>>>;
 
 pub trait IntoPrimitiveArray
 where
@@ -94,16 +93,17 @@ where
     }
 }
 
-pub trait IntoTimestampArray
+pub trait IntoTimestampMicrosecondArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_timestamp_array(self, typemod: i32) -> Result<Vec<Option<i64>>, DataTypeError> {
+    fn into_ts_micro_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
-            .map(|datum| {
-                (!datum.is_null()).then_some(datum).and_then(|datum| {
-                    let timestamp = unsafe { datum::Timestamp::from_datum(datum, false) };
-                    into_unix(timestamp, typemod).unwrap_or_else(|err| panic!("{}", err))
+            .filter_map(|datum| {
+                (!datum.is_null()).then_some(datum).map(|datum| {
+                    unsafe { datum::Timestamp::from_datum(datum, false) }
+                        .and_then(|timestamp| timestamp.try_into().ok())
+                        .map(|MicrosecondUnix(unix)| unix)
                 })
             })
             .collect::<Vec<Option<i64>>>();
@@ -112,22 +112,74 @@ where
     }
 }
 
-pub trait IntoTimestampArrowArray
+pub trait IntoTimestampMicrosecondArrowArray
 where
     Self: Iterator<Item = pg_sys::Datum> + Sized,
 {
-    fn into_timestamp_arrow_array(self, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
-        let PgTypeMod(typemod) = typemod;
-        let iter = self.into_timestamp_array(typemod)?;
+    fn into_ts_micro_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        Ok(Arc::new(TimestampMicrosecondArray::from_iter(
+            self.into_ts_micro_array()?,
+        )))
+    }
+}
 
-        let array: ArrayRef = match typemod {
-            -1 | 6 => Arc::new(TimestampMicrosecondArray::from_iter(iter)),
-            0 => Arc::new(TimestampSecondArray::from_iter(iter)),
-            3 => Arc::new(TimestampMillisecondArray::from_iter(iter)),
-            unsupported => return Err(TimestampError::UnsupportedTypeMod(unsupported).into()),
-        };
+pub trait IntoTimestampMillisecondArray
+where
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
+{
+    fn into_ts_milli_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
+        let array = self
+            .filter_map(|datum| {
+                (!datum.is_null()).then_some(datum).map(|datum| {
+                    unsafe { datum::Timestamp::from_datum(datum, false) }
+                        .and_then(|timestamp| timestamp.try_into().ok())
+                        .map(|MillisecondUnix(unix)| unix)
+                })
+            })
+            .collect::<Vec<Option<i64>>>();
 
         Ok(array)
+    }
+}
+
+pub trait IntoTimestampMillisecondArrowArray
+where
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
+{
+    fn into_ts_milli_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        Ok(Arc::new(TimestampMillisecondArray::from_iter(
+            self.into_ts_milli_array()?,
+        )))
+    }
+}
+
+pub trait IntoTimestampSecondArray
+where
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
+{
+    fn into_ts_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
+        let array = self
+            .filter_map(|datum| {
+                (!datum.is_null()).then_some(datum).map(|datum| {
+                    unsafe { datum::Timestamp::from_datum(datum, false) }
+                        .and_then(|timestamp| timestamp.try_into().ok())
+                        .map(|SecondUnix(unix)| unix)
+                })
+            })
+            .collect::<Vec<Option<i64>>>();
+
+        Ok(array)
+    }
+}
+
+pub trait IntoTimestampSecondArrowArray
+where
+    Self: Iterator<Item = pg_sys::Datum> + Sized,
+{
+    fn into_ts_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        Ok(Arc::new(TimestampSecondArray::from_iter(
+            self.into_ts_array()?,
+        )))
     }
 }
 
@@ -227,7 +279,12 @@ where
                 FLOAT8OID => self.into_primitive_arrow_array::<f64, Float64Array>(),
                 FLOAT8ARRAYOID => self.into_primitive_list_arrow_array::<f64, Float64Type>(),
                 DATEOID => self.into_primitive_arrow_array::<i32, Date32Array>(),
-                TIMESTAMPOID => self.into_timestamp_arrow_array(typemod),
+                TIMESTAMPOID => match PgTimestampPrecision::try_from(typemod)? {
+                    PgTimestampPrecision::Default => self.into_ts_micro_arrow_array(),
+                    PgTimestampPrecision::Second => self.into_ts_arrow_array(),
+                    PgTimestampPrecision::Microsecond => self.into_ts_micro_arrow_array(),
+                    PgTimestampPrecision::Millisecond => self.into_ts_milli_arrow_array(),
+                },
                 NUMERICOID => self.into_numeric_arrow_array(typemod),
                 unsupported => Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
@@ -240,11 +297,15 @@ where
 impl<T: Iterator<Item = pg_sys::Datum>> IntoArrowArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoNumericArray for T {}
-impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampMicrosecondArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampMillisecondArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampSecondArray for T {}
 
 impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveArrowArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoNumericArrowArray for T {}
-impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampArrowArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampMicrosecondArrowArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampMillisecondArrowArray for T {}
+impl<T: Iterator<Item = pg_sys::Datum>> IntoTimestampSecondArrowArray for T {}
 
 impl<T: Iterator<Item = pg_sys::Datum>> IntoPrimitiveListArrowArray for T {}
 impl<T: Iterator<Item = pg_sys::Datum>> IntoBooleanListArrowArray for T {}

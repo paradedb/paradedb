@@ -4,26 +4,54 @@ use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::*;
 use thiserror::Error;
 
-use super::datatype::PgTypeMod;
-
 const MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
+
+use super::datatype::PgTypeMod;
 
 pub struct MicrosecondUnix(pub i64);
 pub struct MillisecondUnix(pub i64);
 pub struct SecondUnix(pub i64);
 
+#[derive(Copy, Clone)]
+pub enum PgTimestampPrecision {
+    Default = -1,
+    Second = 0,
+    Millisecond = 3,
+    Microsecond = 6,
+}
+
+impl PgTimestampPrecision {
+    pub fn value(&self) -> i32 {
+        *self as i32
+    }
+}
+
+impl TryFrom<PgTypeMod> for PgTimestampPrecision {
+    type Error = TimestampError;
+
+    fn try_from(typemod: PgTypeMod) -> Result<Self, Self::Error> {
+        let PgTypeMod(typemod) = typemod;
+
+        match typemod {
+            -1 => Ok(PgTimestampPrecision::Default),
+            0 => Ok(PgTimestampPrecision::Second),
+            3 => Ok(PgTimestampPrecision::Millisecond),
+            6 => Ok(PgTimestampPrecision::Microsecond),
+            unsupported => Err(TimestampError::UnsupportedTypeMod(unsupported)),
+        }
+    }
+}
+
 impl TryInto<TimeUnit> for PgTypeMod {
     type Error = TimestampError;
 
     fn try_into(self) -> Result<TimeUnit, TimestampError> {
-        let PgTypeMod(typemod) = self;
-
-        match typemod {
-            -1 | 6 => Ok(TimeUnit::Microsecond),
-            0 => Ok(TimeUnit::Second),
-            3 => Ok(TimeUnit::Millisecond),
-            unsupported => Err(TimestampError::UnsupportedTypeMod(unsupported)),
+        match PgTimestampPrecision::try_from(self)? {
+            PgTimestampPrecision::Default => Ok(TimeUnit::Microsecond),
+            PgTimestampPrecision::Second => Ok(TimeUnit::Second),
+            PgTimestampPrecision::Millisecond => Ok(TimeUnit::Millisecond),
+            PgTimestampPrecision::Microsecond => Ok(TimeUnit::Microsecond),
         }
     }
 }
@@ -33,9 +61,9 @@ impl TryInto<PgTypeMod> for TimeUnit {
 
     fn try_into(self) -> Result<PgTypeMod, TimestampError> {
         match self {
-            TimeUnit::Second => Ok(PgTypeMod(0)),
-            TimeUnit::Millisecond => Ok(PgTypeMod(3)),
-            TimeUnit::Microsecond => Ok(PgTypeMod(6)),
+            TimeUnit::Second => Ok(PgTypeMod(PgTimestampPrecision::Second.value())),
+            TimeUnit::Millisecond => Ok(PgTypeMod(PgTimestampPrecision::Millisecond.value())),
+            TimeUnit::Microsecond => Ok(PgTypeMod(PgTimestampPrecision::Microsecond.value())),
             TimeUnit::Nanosecond => Err(TimestampError::UnsupportedNanosecond()),
         }
     }
@@ -113,31 +141,6 @@ impl TryInto<Option<pg_sys::Datum>> for SecondUnix {
             .ok_or(TimestampError::SecondsConversion(unix))?;
 
         into_datum(&datetime)
-    }
-}
-
-pub fn into_unix(
-    timestamp: Option<datum::Timestamp>,
-    typemod: i32,
-) -> Result<Option<i64>, TimestampError> {
-    if let Some(timestamp) = timestamp {
-        match typemod {
-            0 => {
-                let SecondUnix(unix) = timestamp.try_into()?;
-                Ok(Some(unix))
-            }
-            3 => {
-                let MillisecondUnix(unix) = timestamp.try_into()?;
-                Ok(Some(unix))
-            }
-            -1 | 6 => {
-                let MicrosecondUnix(unix) = timestamp.try_into()?;
-                Ok(Some(unix))
-            }
-            unsupported => Err(TimestampError::UnsupportedTypeMod(unsupported)),
-        }
-    } else {
-        Ok(None)
     }
 }
 

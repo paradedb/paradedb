@@ -10,11 +10,11 @@ pub struct PgNumericTypeMod(pub PgPrecision, pub PgScale);
 pub struct PgPrecision(pub u8);
 pub struct PgScale(pub i8);
 
-impl TryInto<PgTypeMod> for PgNumericTypeMod {
+impl TryFrom<PgNumericTypeMod> for PgTypeMod {
     type Error = NumericError;
 
-    fn try_into(self) -> Result<PgTypeMod, NumericError> {
-        let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = self;
+    fn try_from(typemod: PgNumericTypeMod) -> Result<Self, Self::Error> {
+        let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = typemod;
 
         Ok(PgTypeMod(
             ((precision as i32) << 16) | (((scale as i32) & 0x7ff) + pg_sys::VARHDRSZ as i32),
@@ -22,11 +22,11 @@ impl TryInto<PgTypeMod> for PgNumericTypeMod {
     }
 }
 
-impl TryInto<PgNumericTypeMod> for PgTypeMod {
+impl TryFrom<PgTypeMod> for PgNumericTypeMod {
     type Error = NumericError;
 
-    fn try_into(self) -> Result<PgNumericTypeMod, NumericError> {
-        let PgTypeMod(typemod) = self;
+    fn try_from(typemod: PgTypeMod) -> Result<Self, Self::Error> {
+        let PgTypeMod(typemod) = typemod;
 
         match typemod {
             -1 => Ok(PgNumericTypeMod(
@@ -54,13 +54,12 @@ impl TryInto<PgNumericTypeMod> for PgTypeMod {
     }
 }
 
-impl TryInto<Option<pg_sys::Datum>> for PgNumeric {
+impl TryFrom<PgNumeric> for AnyNumeric {
     type Error = NumericError;
 
-    fn try_into(self) -> Result<Option<pg_sys::Datum>, NumericError> {
-        let PgNumeric(numeric, PgNumericTypeMod(PgPrecision(precision), PgScale(scale))) = self;
-
-        Ok(scale_anynumeric(numeric, precision, scale, false).into_datum())
+    fn try_from(numeric: PgNumeric) -> Result<Self, Self::Error> {
+        let PgNumeric(numeric, PgNumericTypeMod(PgPrecision(precision), PgScale(scale))) = numeric;
+        scale_anynumeric(numeric, precision, scale, false)
     }
 }
 

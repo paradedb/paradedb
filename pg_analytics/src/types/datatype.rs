@@ -1,7 +1,6 @@
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::datatypes::*;
 use pgrx::*;
-use std::convert::TryInto;
 use thiserror::Error;
 
 use super::date::DateError;
@@ -34,7 +33,9 @@ impl TryFrom<PgAttribute> for ArrowDataType {
                 PgBuiltInOids::FLOAT4OID => DataType::Float32,
                 PgBuiltInOids::FLOAT8OID => DataType::Float64,
                 PgBuiltInOids::DATEOID => DataType::Date32,
-                PgBuiltInOids::TIMESTAMPOID => DataType::Timestamp(typemod.try_into()?, None),
+                PgBuiltInOids::TIMESTAMPOID => {
+                    DataType::Timestamp(TimeUnit::try_from(typemod)?, None)
+                }
                 PgBuiltInOids::NUMERICOID => {
                     let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) =
                         typemod.try_into()?;
@@ -66,11 +67,11 @@ impl TryFrom<ArrowDataType> for PgAttribute {
             DataType::Float64 => (PgBuiltInOids::FLOAT8OID, PgTypeMod(DEFAULT_TYPE_MOD)),
             DataType::Date32 => (PgBuiltInOids::DATEOID, PgTypeMod(DEFAULT_TYPE_MOD)),
             DataType::Timestamp(timeunit, None) => {
-                (PgBuiltInOids::TIMESTAMPOID, timeunit.try_into()?)
+                (PgBuiltInOids::TIMESTAMPOID, PgTypeMod::try_from(timeunit)?)
             }
             DataType::Decimal128(precision, scale) => (
                 PgBuiltInOids::NUMERICOID,
-                PgNumericTypeMod(PgPrecision(precision), PgScale(scale)).try_into()?,
+                PgTypeMod::try_from(PgNumericTypeMod(PgPrecision(precision), PgScale(scale)))?,
             ),
             DataType::List(ref field) => match field.data_type() {
                 DataType::Boolean => (PgBuiltInOids::BOOLARRAYOID, PgTypeMod(DEFAULT_TYPE_MOD)),

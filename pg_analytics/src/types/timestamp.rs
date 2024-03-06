@@ -43,11 +43,11 @@ impl TryFrom<PgTypeMod> for PgTimestampPrecision {
     }
 }
 
-impl TryInto<TimeUnit> for PgTypeMod {
+impl TryFrom<PgTypeMod> for TimeUnit {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<TimeUnit, TimestampError> {
-        match PgTimestampPrecision::try_from(self)? {
+    fn try_from(typemod: PgTypeMod) -> Result<Self, Self::Error> {
+        match PgTimestampPrecision::try_from(typemod)? {
             PgTimestampPrecision::Default => Ok(TimeUnit::Microsecond),
             PgTimestampPrecision::Second => Ok(TimeUnit::Second),
             PgTimestampPrecision::Millisecond => Ok(TimeUnit::Millisecond),
@@ -56,11 +56,11 @@ impl TryInto<TimeUnit> for PgTypeMod {
     }
 }
 
-impl TryInto<PgTypeMod> for TimeUnit {
+impl TryFrom<TimeUnit> for PgTypeMod {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<PgTypeMod, TimestampError> {
-        match self {
+    fn try_from(unit: TimeUnit) -> Result<Self, Self::Error> {
+        match unit {
             TimeUnit::Second => Ok(PgTypeMod(PgTimestampPrecision::Second.value())),
             TimeUnit::Millisecond => Ok(PgTypeMod(PgTimestampPrecision::Millisecond.value())),
             TimeUnit::Microsecond => Ok(PgTypeMod(PgTimestampPrecision::Microsecond.value())),
@@ -69,12 +69,12 @@ impl TryInto<PgTypeMod> for TimeUnit {
     }
 }
 
-impl TryInto<MicrosecondUnix> for datum::Timestamp {
+impl TryFrom<datum::Timestamp> for MicrosecondUnix {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<MicrosecondUnix, TimestampError> {
-        let date = get_naive_date(&self)?;
-        let time = get_naive_time(&self)?;
+    fn try_from(timestamp: datum::Timestamp) -> Result<Self, Self::Error> {
+        let date = get_naive_date(&timestamp)?;
+        let time = get_naive_time(&timestamp)?;
         let unix = TimestampMicrosecondType::make_value(NaiveDateTime::new(date, time))
             .ok_or(TimestampError::ParseDateTime())?;
 
@@ -82,12 +82,12 @@ impl TryInto<MicrosecondUnix> for datum::Timestamp {
     }
 }
 
-impl TryInto<MillisecondUnix> for datum::Timestamp {
+impl TryFrom<datum::Timestamp> for MillisecondUnix {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<MillisecondUnix, TimestampError> {
-        let date = get_naive_date(&self)?;
-        let time = get_naive_time(&self)?;
+    fn try_from(timestamp: datum::Timestamp) -> Result<Self, Self::Error> {
+        let date = get_naive_date(&timestamp)?;
+        let time = get_naive_time(&timestamp)?;
         let unix = TimestampMillisecondType::make_value(NaiveDateTime::new(date, time))
             .ok_or(TimestampError::ParseDateTime())?;
 
@@ -95,12 +95,12 @@ impl TryInto<MillisecondUnix> for datum::Timestamp {
     }
 }
 
-impl TryInto<SecondUnix> for datum::Timestamp {
+impl TryFrom<datum::Timestamp> for SecondUnix {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<SecondUnix, TimestampError> {
-        let date = get_naive_date(&self)?;
-        let time = get_naive_time(&self)?;
+    fn try_from(timestamp: datum::Timestamp) -> Result<Self, Self::Error> {
+        let date = get_naive_date(&timestamp)?;
+        let time = get_naive_time(&timestamp)?;
         let unix = TimestampSecondType::make_value(NaiveDateTime::new(date, time))
             .ok_or(TimestampError::ParseDateTime())?;
 
@@ -108,39 +108,39 @@ impl TryInto<SecondUnix> for datum::Timestamp {
     }
 }
 
-impl TryInto<Option<pg_sys::Datum>> for MicrosecondUnix {
+impl TryFrom<MicrosecondUnix> for datum::Timestamp {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<Option<pg_sys::Datum>, TimestampError> {
-        let MicrosecondUnix(unix) = self;
+    fn try_from(micros: MicrosecondUnix) -> Result<Self, Self::Error> {
+        let MicrosecondUnix(unix) = micros;
         let datetime = NaiveDateTime::from_timestamp_micros(unix)
             .ok_or(TimestampError::MicrosecondsConversion(unix))?;
 
-        into_datum(&datetime)
+        to_timestamp(&datetime)
     }
 }
 
-impl TryInto<Option<pg_sys::Datum>> for MillisecondUnix {
+impl TryFrom<MillisecondUnix> for datum::Timestamp {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<Option<pg_sys::Datum>, TimestampError> {
-        let MillisecondUnix(unix) = self;
+    fn try_from(millis: MillisecondUnix) -> Result<Self, Self::Error> {
+        let MillisecondUnix(unix) = millis;
         let datetime = NaiveDateTime::from_timestamp_millis(unix)
             .ok_or(TimestampError::MillisecondsConversion(unix))?;
 
-        into_datum(&datetime)
+        to_timestamp(&datetime)
     }
 }
 
-impl TryInto<Option<pg_sys::Datum>> for SecondUnix {
+impl TryFrom<SecondUnix> for datum::Timestamp {
     type Error = TimestampError;
 
-    fn try_into(self) -> Result<Option<pg_sys::Datum>, TimestampError> {
-        let SecondUnix(unix) = self;
+    fn try_from(seconds: SecondUnix) -> Result<Self, Self::Error> {
+        let SecondUnix(unix) = seconds;
         let datetime = NaiveDateTime::from_timestamp_opt(unix, 0)
             .ok_or(TimestampError::SecondsConversion(unix))?;
 
-        into_datum(&datetime)
+        to_timestamp(&datetime)
     }
 }
 
@@ -166,7 +166,7 @@ fn get_naive_time(timestamp: &datum::Timestamp) -> Result<NaiveTime, TimestampEr
 }
 
 #[inline]
-fn into_datum(datetime: &NaiveDateTime) -> Result<Option<pg_sys::Datum>, TimestampError> {
+fn to_timestamp(datetime: &NaiveDateTime) -> Result<datum::Timestamp, TimestampError> {
     Ok(datum::Timestamp::new(
         datetime.year(),
         datetime.month() as u8,
@@ -174,8 +174,7 @@ fn into_datum(datetime: &NaiveDateTime) -> Result<Option<pg_sys::Datum>, Timesta
         datetime.hour() as u8,
         datetime.minute() as u8,
         (datetime.second() + datetime.nanosecond() / NANOSECONDS_IN_SECOND).into(),
-    )?
-    .into_datum())
+    )?)
 }
 
 #[derive(Error, Debug)]

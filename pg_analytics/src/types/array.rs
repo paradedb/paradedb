@@ -131,7 +131,7 @@ where
             .filter_map(|datum| {
                 (!datum.is_null()).then_some(datum).map(|datum| {
                     unsafe { datum::Timestamp::from_datum(datum, false) }
-                        .and_then(|timestamp| timestamp.try_into().ok())
+                        .and_then(|timestamp| MicrosecondUnix::try_from(timestamp).ok())
                         .map(|MicrosecondUnix(unix)| unix)
                 })
             })
@@ -161,7 +161,7 @@ where
             .filter_map(|datum| {
                 (!datum.is_null()).then_some(datum).map(|datum| {
                     unsafe { datum::Timestamp::from_datum(datum, false) }
-                        .and_then(|timestamp| timestamp.try_into().ok())
+                        .and_then(|timestamp| MillisecondUnix::try_from(timestamp).ok())
                         .map(|MillisecondUnix(unix)| unix)
                 })
             })
@@ -191,7 +191,7 @@ where
             .filter_map(|datum| {
                 (!datum.is_null()).then_some(datum).map(|datum| {
                     unsafe { datum::Timestamp::from_datum(datum, false) }
-                        .and_then(|timestamp| timestamp.try_into().ok())
+                        .and_then(|timestamp| SecondUnix::try_from(timestamp).ok())
                         .map(|SecondUnix(unix)| unix)
                 })
             })

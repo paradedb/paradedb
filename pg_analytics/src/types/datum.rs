@@ -88,10 +88,10 @@ where
     Self: Array + AsArray,
 {
     fn get_ts_micro_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
-        Ok(
-            MicrosecondUnix(self.as_primitive::<TimestampMicrosecondType>().value(index))
-                .try_into()?,
-        )
+        Ok(datum::Timestamp::try_from(MicrosecondUnix(
+            self.as_primitive::<TimestampMicrosecondType>().value(index),
+        ))
+        .into_datum())
     }
 }
 
@@ -100,10 +100,10 @@ where
     Self: Array + AsArray,
 {
     fn get_ts_milli_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
-        Ok(
-            MillisecondUnix(self.as_primitive::<TimestampMillisecondType>().value(index))
-                .try_into()?,
-        )
+        Ok(datum::Timestamp::try_from(MillisecondUnix(
+            self.as_primitive::<TimestampMillisecondType>().value(index),
+        ))
+        .into_datum())
     }
 }
 
@@ -112,7 +112,10 @@ where
     Self: Array + AsArray,
 {
     fn get_ts_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
-        Ok(SecondUnix(self.as_primitive::<TimestampSecondType>().value(index)).try_into()?)
+        Ok(datum::Timestamp::try_from(SecondUnix(
+            self.as_primitive::<TimestampSecondType>().value(index),
+        ))
+        .into_datum())
     }
 }
 
@@ -126,11 +129,11 @@ where
         precision: &u8,
         scale: &i8,
     ) -> Result<Option<pg_sys::Datum>, DataTypeError> {
-        let numeric = PgNumeric(
+        let numeric = AnyNumeric::try_from(PgNumeric(
             AnyNumeric::from(self.as_primitive::<Decimal128Type>().value(index)),
             PgNumericTypeMod(PgPrecision(*precision), PgScale(*scale)),
-        )
-        .try_into()?;
+        ))
+        .into_datum();
 
         Ok(numeric)
     }

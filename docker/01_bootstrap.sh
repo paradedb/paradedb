@@ -57,7 +57,7 @@ PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d template1 -c "CREATE EXTENSIO
 
 # We collect basic, anonymous telemetry to help us understand how many people are using
 # the project. We only do this if PARADEDB_TELEMETRY is set to "true"
-if [[ "$PARADEDB_TELEMETRY" == "true" ]]; then
+if [[ "$PARADEDB_TELEMETRY" == "true" ]] && [ "$POSTHOG_API_KEY" != "" ] && [ "$POSTHOG_HOST" != "" ]; then
   echo "Sending anonymous deployment telemetry. To turn off, unset PARADEDB_TELEMETRY..."
 
   # For privacy reasons, we generate an anonymous UUID for each new deployment
@@ -68,7 +68,6 @@ if [[ "$PARADEDB_TELEMETRY" == "true" ]]; then
   DISTINCT_ID=$(cat "$UUID_FILE")
 
   # Send the deployment event to PostHog
-  if [ "$POSTHOG_API_KEY" != "" ] && [ "$POSTHOG_HOST" != "" ]; then
     curl -s -L --header "Content-Type: application/json" -d '{
       "api_key": "'"$POSTHOG_API_KEY"'",
       "event": "ParadeDB Deployment",
@@ -77,7 +76,6 @@ if [[ "$PARADEDB_TELEMETRY" == "true" ]]; then
         "commit_sha": "'"$COMMIT_SHA"'"
       }
     }' "$POSTHOG_HOST/capture/"
-  fi
 
   # Mark telemetry as handled so we don't try to send it again when
   # initializing our PostgreSQL extensions. We use a file for IPC

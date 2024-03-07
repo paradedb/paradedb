@@ -1,12 +1,9 @@
-#![allow(unused)]
 use crate::env::needs_commit;
 use crate::index::state::{SearchAlias, SearchStateManager};
 use crate::schema::SearchConfig;
 use crate::writer::{WriterClient, WriterDirectory};
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
-use serde::{Deserialize, Serialize};
-use tantivy::{schema::FieldType, SnippetGenerator};
 
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
@@ -78,7 +75,7 @@ pub fn minmax_bm25(
 
     // Now that we have min and max, iterate over the collected results
     let mut field_rows = Vec::new();
-    for (score, doc_address) in top_docs {
+    for (score, _doc_address) in top_docs {
         let key = score.key;
         let normalized_score = if score_range == 0.0 {
             1.0 // Avoid division by zero

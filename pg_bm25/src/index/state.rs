@@ -5,16 +5,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::collector::TopDocs;
 use tantivy::schema::FieldType;
-use tantivy::{
-    query::{Query, QueryParser},
-    DocAddress, Score, Searcher,
-};
-use tantivy::{DocId, Document, SegmentReader, Snippet, SnippetGenerator};
+use tantivy::{query::Query, DocAddress, Score, Searcher};
+use tantivy::{DocId, SegmentReader, Snippet, SnippetGenerator};
 use thiserror::Error;
 
 use super::score::SearchIndexScore;
 use super::SearchIndex;
-use crate::schema::{SearchConfig, SearchField, SearchFieldName, SearchIndexSchema};
+use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 
 static SEARCH_STATE_MANAGER: Lazy<Arc<Mutex<SearchStateManager>>> = Lazy::new(|| {
     Arc::new(Mutex::new(SearchStateManager {
@@ -64,7 +61,7 @@ impl SearchStateManager {
         id: i64,
         alias: Option<SearchAlias>,
     ) -> Result<SearchIndexScore, SearchStateError> {
-        let mut manager = SEARCH_STATE_MANAGER
+        let manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;
         let state = manager.get_state(alias)?;
@@ -74,21 +71,13 @@ impl SearchStateManager {
         }
     }
 
-    pub fn get_min_max_score(alias: Option<SearchAlias>) -> Result<(f32, f32), SearchStateError> {
-        let mut manager = SEARCH_STATE_MANAGER
-            .lock()
-            .map_err(SearchStateError::from)?;
-        let state = manager.get_state(alias)?;
-        Ok((state.min_score, state.max_score))
-    }
-
     pub fn get_snippet(
         id: i64,
         field_name: &str,
         max_num_chars: Option<usize>,
         alias: Option<SearchAlias>,
     ) -> Result<Snippet, SearchStateError> {
-        let mut manager = SEARCH_STATE_MANAGER
+        let manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;
         let state = manager.get_state(alias)?;
@@ -126,7 +115,7 @@ impl SearchStateManager {
     }
 
     pub fn set_state(state: SearchState) -> Result<(), SearchStateError> {
-        Self::register_callback();
+        Self::register_callback().map_err(SearchStateError::from)?;
 
         let mut current_search = SEARCH_STATE_MANAGER
             .lock()
@@ -156,6 +145,8 @@ pub enum SearchStateError {
     AliasLookup(SearchAlias),
     #[error("could not lock the current search config lookup: {0}")]
     Lock(String),
+    #[error("could not register callback for search state manager: {0}")]
+    CallbackError(#[from] TransactionError),
 }
 
 impl<T> From<PoisonError<T>> for SearchStateError {

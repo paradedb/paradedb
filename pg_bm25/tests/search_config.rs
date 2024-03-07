@@ -1,4 +1,3 @@
-#![allow(unused_variables, unused_imports)]
 mod fixtures;
 
 use fixtures::*;

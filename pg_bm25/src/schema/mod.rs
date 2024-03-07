@@ -373,7 +373,7 @@ impl SearchIndexSchema {
 }
 
 // Index record schema
-#[allow(unused)]
+#[allow(unused)] // used by serde
 #[derive(utoipa::ToSchema)]
 pub enum IndexRecordOptionSchema {
     #[schema(rename = "basic")]

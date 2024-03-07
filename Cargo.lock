@@ -1398,6 +1398,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "datafusion-federation"
+version = "0.1.3"
+source = "git+https://github.com/paradedb/datafusion-federation.git?rev=2b3fd00#2b3fd00399b083589f77d53bc844db01afe61dd2"
+dependencies = [
+ "async-trait",
+ "datafusion",
+]
+
+[[package]]
+name = "datafusion-federation-sql"
+version = "0.1.3"
+source = "git+https://github.com/paradedb/datafusion-federation.git?rev=2b3fd00#2b3fd00399b083589f77d53bc844db01afe61dd2"
+dependencies = [
+ "async-trait",
+ "datafusion",
+ "datafusion-federation",
+ "futures",
+ "tokio",
+]
+
+[[package]]
 name = "datafusion-optimizer"
 version = "35.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3785,7 +3806,10 @@ dependencies = [
  "async-std",
  "async-trait",
  "chrono",
+ "datafusion-federation",
+ "datafusion-federation-sql",
  "deltalake",
+ "futures",
  "futures-util",
  "indexmap",
  "once_cell",

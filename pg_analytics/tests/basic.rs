@@ -759,4 +759,41 @@ fn null_values(mut conn: PgConnection) {
 
     let row: (i32, String) = "SELECT * FROM t".fetch_one(&mut conn);
     assert_eq!(row, (1, "test".into()));
+
+    r#"
+    CREATE TABLE s (
+        id SERIAL PRIMARY KEY,
+        my_bool BOOLEAN,
+        my_int INTEGER,
+        my_numeric NUMERIC(5, 5),
+        my_date DATE,
+        my_time TIMESTAMP,
+        my_array INTEGER[]
+    ) USING parquet;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    INSERT INTO s (my_bool, my_int, my_numeric, my_date, my_time, my_array)
+    VALUES (NULL, NULL, NULL, NULL, NULL, NULL);
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(
+        i32,
+        Option<bool>,
+        Option<i32>,
+        Option<BigDecimal>,
+        Option<Date>,
+        Option<PrimitiveDateTime>,
+        Option<Vec<Option<i32>>>,
+    )> = "SELECT * FROM s".fetch(&mut conn);
+
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[0].1, None);
+    assert_eq!(rows[0].2, None);
+    assert_eq!(rows[0].3, None);
+    assert_eq!(rows[0].4, None);
+    assert_eq!(rows[0].5, None);
+    assert_eq!(rows[0].6, None);
 }

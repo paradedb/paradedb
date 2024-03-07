@@ -662,7 +662,8 @@ fn numeric(mut conn: PgConnection) {
 
     r#"
         INSERT INTO t (num1, num2, num3)
-        VALUES (12.34, 123.67890, 1234.1234567890);
+        VALUES (12.34, 123.67890, 1234.1234567890),
+               (123.34, 123.45678, 12345.2234567890);
     "#
     .execute(&mut conn);
 
@@ -670,8 +671,15 @@ fn numeric(mut conn: PgConnection) {
     assert_eq!(rows[0].0, BigDecimal::from_str("12.34").unwrap());
     assert_eq!(rows[0].1, BigDecimal::from_str("123.67890").unwrap());
     assert_eq!(rows[0].2, BigDecimal::from_str("1234.1234567890").unwrap());
+    assert_eq!(rows[1].0, BigDecimal::from_str("123.34").unwrap());
+    assert_eq!(rows[1].1, BigDecimal::from_str("123.45678").unwrap());
+    assert_eq!(rows[1].2, BigDecimal::from_str("12345.2234567890").unwrap());
 
-    match "CREATE TABLE s (num1 NUMERIC)".fetch_result::<()>(&mut conn) {
+    let rows: Vec<(BigDecimal, BigDecimal, BigDecimal)> =
+        "SELECT * FROM t WHERE num2 = 123.45678".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    match "CREATE TABLE s (num1 NUMERIC) USING parquet".fetch_result::<()>(&mut conn) {
         Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("unbounded numerics should not be supported"),
     }

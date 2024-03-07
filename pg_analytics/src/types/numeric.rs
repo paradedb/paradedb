@@ -66,7 +66,7 @@ pub fn scale_anynumeric(
     scale: i8,
     scale_down: bool,
 ) -> Result<AnyNumeric, NumericError> {
-    let original_typemod = PgNumericTypeMod(PgPrecision(precision), PgScale(scale));
+    let original_typemod = PgNumericTypeMod(PgPrecision(precision + (scale as u8)), PgScale(scale));
     let PgTypeMod(original_pg_typemod) = original_typemod.try_into()?;
 
     let original_anynumeric: AnyNumeric = unsafe {

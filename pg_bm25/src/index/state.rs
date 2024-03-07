@@ -107,7 +107,7 @@ impl SearchStateManager {
         if alias == SearchAlias::default() {
             Err(SearchStateError::EmptyAlias)
         } else {
-            if let Some(_) = self.alias_map.insert(alias.clone(), state) {
+            if self.alias_map.insert(alias.clone(), state).is_some() {
                 return Err(SearchStateError::DuplicateAlias(alias));
             }
             Ok(())

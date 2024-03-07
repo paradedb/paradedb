@@ -577,7 +577,7 @@ fn big_insert(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn datetime(mut conn: PgConnection) {
+fn timestamp_unbounded(mut conn: PgConnection) {
     let timestamp_format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
     let date_format = format_description!("[year]-[month]-[day]");
 
@@ -650,6 +650,61 @@ fn datetime(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn timestamp_precision(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE timestamps (
+            timestamp_6 TIMESTAMP(6)
+        ) USING parquet;
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO timestamps (timestamp_6)
+        VALUES ('2022-01-01 12:00:00.123456'),
+               ('2022-02-02 12:00:00.456789');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(PrimitiveDateTime,)> = "SELECT * FROM timestamps".fetch(&mut conn);
+    assert_eq!(
+        rows[0].0,
+        PrimitiveDateTime::parse(
+            "2022-01-01 12:00:00",
+            format_description!("[year]-[month]-[day] [hour]:[minute]:[second]")
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        rows[1].0,
+        PrimitiveDateTime::parse(
+            "2022-02-02 12:00:00",
+            format_description!("[year]-[month]-[day] [hour]:[minute]:[second]")
+        )
+        .unwrap()
+    );
+
+    let count: (i64,) =
+        "SELECT COUNT(*) FROM timestamps where timestamp_6 < '2022-02-02 12:00:00.456788'::timestamp"
+            .fetch_one(&mut conn);
+    assert_eq!(count, (1,));
+
+    let count: (i64,) =
+        "SELECT COUNT(*) FROM timestamps where timestamp_6 < '2022-02-02 12:00:00.456790'::timestamp"
+            .fetch_one(&mut conn);
+    assert_eq!(count, (2,));
+
+    match "CREATE TABLE s (a timestamp(3)) USING parquet".fetch_result::<()>(&mut conn) {
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: Schema error: Invalid data type for Delta Lake: Timestamp(Millisecond, None)"),
+        _ => panic!("timestamp(3) should not be supported"),
+    }
+
+    match "CREATE TABLE s (a timestamp(2)) USING parquet".fetch_result::<()>(&mut conn) {
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: Only timestamp and timestamp(6), not timestamp(2), are supported"),
+        _ => panic!("timestamp(3) should not be supported"),
+    }
+}
+
+#[rstest]
 fn numeric(mut conn: PgConnection) {
     r#"
         CREATE TABLE t (
@@ -683,4 +738,25 @@ fn numeric(mut conn: PgConnection) {
         Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("unbounded numerics should not be supported"),
     }
+}
+
+#[rstest]
+#[ignore]
+fn alter(mut conn: PgConnection) {
+    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
+
+    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
+    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
+
+    assert_eq!(column_names, vec!["a".to_string(), "b".to_string()]);
+
+    "ALTER TABLE t ADD COLUMN c int".execute(&mut conn);
+
+    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
+    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
+
+    assert_eq!(
+        column_names,
+        vec!["a".to_string(), "b".to_string(), "c".to_string()]
+    );
 }

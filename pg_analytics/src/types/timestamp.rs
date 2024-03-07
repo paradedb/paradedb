@@ -200,7 +200,7 @@ pub enum TimestampError {
     #[error("Failed to convert {0} seconds to datetime")]
     SecondsConversion(i64),
 
-    #[error("Type timestamp({0}) is supported. Supported types are timestamp(0), timestamp(3), timestamp(6), and timestamp.")]
+    #[error("Only timestamp and timestamp(6), not timestamp({0}), are supported")]
     UnsupportedTypeMod(i32),
 
     #[error("Unexpected nanosecond TimeUnit")]

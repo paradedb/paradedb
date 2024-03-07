@@ -8,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use thiserror::Error;
+use walkdir::WalkDir;
 
 static PARADE_DATA_DIR_NAME: &str = "paradedb";
 static SEARCH_DIR_NAME: &str = "pg_search";
@@ -171,13 +172,36 @@ impl WriterDirectory {
         }
         match fs::remove_dir(path) {
             Ok(()) => Ok(()),
-            // The directory already doesn't exist, proceed.
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
-            Err(err) => Err(SearchDirectoryError::RemoveDirectory(
-                path.to_path_buf(),
-                err,
-            )),
+            Err(err) => {
+                // The directory already doesn't exist, proceed.
+                if err.kind() == io::ErrorKind::NotFound {
+                    return Ok(());
+                }
+
+                // We've done our best to delete everything.
+                // If there's still files hanging around or if Tantivy
+                // has created more, just ignore them.
+                if err.to_string().contains("not empty") {
+                    return Ok(());
+                }
+
+                let existing_files = Self::list_files(path);
+                Err(SearchDirectoryError::RemoveDirectory(
+                    path.to_path_buf(),
+                    err,
+                    existing_files,
+                ))
+            }
         }
+    }
+
+    fn list_files(directory: &Path) -> Vec<PathBuf> {
+        WalkDir::new(directory)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_file())
+            .map(|e| e.into_path())
+            .collect()
     }
 }
 
@@ -278,8 +302,8 @@ pub enum SearchDirectoryError {
     #[error("could not create directory at {0:?}: {1}")]
     CreateDirectory(PathBuf, #[source] std::io::Error),
 
-    #[error("could not remove directory at {0:?}: {1}")]
-    RemoveDirectory(PathBuf, #[source] std::io::Error),
+    #[error("could not remove directory at {0}, existing files: {2:#?}, {1}")]
+    RemoveDirectory(PathBuf, #[source] std::io::Error, Vec<PathBuf>),
 
     #[error("could not remove file at {0:?}: {1}")]
     RemoveFile(PathBuf, #[source] std::io::Error),

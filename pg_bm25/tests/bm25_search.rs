@@ -51,7 +51,7 @@ async fn basic_search_ids(mut conn: PgConnection) {
 fn with_bm25_scoring(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let rows: Vec<(i64, f32)> = "SELECT id, rank_bm25 FROM bm25_search.rank('category:electronics OR description:keyboard')"
+    let rows: Vec<(i32, f32)> = "SELECT id, paradedb.rank_bm25(id) FROM bm25_search.search('category:electronics OR description:keyboard')"
         .fetch(&mut conn);
 
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();

@@ -1,5 +1,5 @@
 use crate::env::needs_commit;
-use crate::index::{CurrentSearch, SearchAlias};
+use crate::index::state::SearchStateManager;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
 use pgrx::{prelude::PgHeapTuple, *};
@@ -16,29 +16,18 @@ fn search_tantivy(
         let search_config: SearchConfig = serde_json::from_value(search_config_json.clone())
             .expect("could not parse search config");
 
-        // Set the current search configuration
-        CurrentSearch::set_config(search_config.clone())
-            .expect("could not set current search config");
-
         let writer_client = WriterGlobal::client();
         let search_index = get_search_index(&search_config.index_name);
         let mut scan_state = search_index
             .search_state(&writer_client, &search_config, needs_commit())
             .unwrap();
         let top_docs = scan_state.search();
+        SearchStateManager::set_state(scan_state).expect("could not store search state in manager");
         let mut hs = FxHashSet::default();
 
-        for (_, doc_address) in top_docs {
-            let key_field_value = scan_state.key_field_value(doc_address);
+        for (score, _doc_address) in top_docs {
+            let key_field_value = score.key;
             hs.insert(key_field_value);
-
-            // Store the results in the currnent search lookup
-            CurrentSearch::set_doc(
-                key_field_value,
-                doc_address,
-                search_config.alias.clone().map(SearchAlias::from),
-            )
-            .expect("could not store search result in current search lookup");
         }
 
         (search_config, hs)

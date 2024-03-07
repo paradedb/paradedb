@@ -82,10 +82,9 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
 
     let rows: Vec<(String, String, f32)> = r#"
-    SELECT s.description, h.highlight_bm25, r.rank_bm25 FROM ngrams_idx.search('description:blue') as s
-    LEFT JOIN ngrams_idx.highlight('description:blue', highlight_field => 'description') as h ON s.id = h.id
-    LEFT JOIN ngrams_idx.rank('description:blue') as r ON s.id = r.id;
-    "#.fetch(&mut conn);
+    SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id) FROM ngrams_idx.search('description:blue')
+    "#
+    .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
     assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");

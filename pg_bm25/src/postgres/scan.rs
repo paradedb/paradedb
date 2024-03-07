@@ -1,10 +1,10 @@
-use std::borrow::Borrow;
-
 use crate::env::needs_commit;
-use crate::index::{CurrentSearch, SearchAlias};
+use crate::index::score::SearchIndexScore;
+use crate::index::state::SearchStateManager;
 use crate::schema::SearchConfig;
-use crate::{globals::WriterGlobal, index::state::SearchState, postgres::utils::get_search_index};
+use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
 use pgrx::*;
+use tantivy::DocAddress;
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -50,9 +50,6 @@ pub extern "C" fn amrescan(
         SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");
     let index_name = &search_config.index_name;
 
-    // Set the current search configuration
-    CurrentSearch::set_config(search_config.clone()).expect("could not set current search config");
-
     // Create the index and scan state
     let search_index = get_search_index(index_name);
     let writer_client = WriterGlobal::client();
@@ -61,14 +58,11 @@ pub extern "C" fn amrescan(
         .unwrap();
 
     let top_docs = state.search();
+    SearchStateManager::set_state(state).expect("could not store search state in manager");
 
-    // Store the search results in the scan state, ensuring they get freed when the current memory context is deleted.
-    state.iterator =
-        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(top_docs.into_iter());
-
-    // Save the scan state onto the current memory context.
-    scan.opaque =
-        PgMemoryContexts::CurrentMemoryContext.leak_and_drop_on_delete(state) as void_mut_ptr;
+    // Save the iterator onto the current memory context.
+    scan.opaque = PgMemoryContexts::CurrentMemoryContext
+        .leak_and_drop_on_delete(top_docs.into_iter()) as void_mut_ptr;
 
     // Return scan state back management to Postgres.
     scan.into_pg();
@@ -83,14 +77,15 @@ pub extern "C" fn amgettuple(
     _direction: pg_sys::ScanDirection,
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
-    let state = unsafe { (scan.opaque as *mut SearchState).as_mut() }.expect("no scandesc state");
+    let iter = unsafe {
+        (scan.opaque as *mut std::vec::IntoIter<(SearchIndexScore, DocAddress)>).as_mut()
+    }
+    .expect("no scandesc state");
 
     scan.xs_recheck = false;
 
-    let iter = unsafe { state.iterator.as_mut() }.expect("no iterator in state");
-
     match iter.next() {
-        Some((_score, doc_address)) => {
+        Some((score, _doc_address)) => {
             #[cfg(any(
                 feature = "pg12",
                 feature = "pg13",
@@ -99,50 +94,7 @@ pub extern "C" fn amgettuple(
                 feature = "pg16"
             ))]
             let tid = &mut scan.xs_heaptid;
-
-            let searcher = &state.searcher;
-            let schema = &state.schema;
-            let retrieved_doc = searcher.doc(doc_address).expect("could not find doc");
-
-            // Retrieve the key field value to store in the current search lookup.
-            let key_field_name = state.config.key_field.borrow();
-            let key_field = schema
-                .schema
-                .get_field(key_field_name)
-                .unwrap_or_else(|err| {
-                    panic!("error retrieving {key_field_name} field from schema: {err:?}")
-                });
-            let key_field_value = retrieved_doc.get_first(key_field).unwrap_or_else(|| {
-                panic!("cannot find {key_field_name} field on retrieved document")
-            });
-            match key_field_value {
-                tantivy::schema::Value::I64(key) => CurrentSearch::set_doc(
-                    *key,
-                    doc_address,
-                    state.config.alias.clone().map(SearchAlias::from),
-                )
-                .expect("could not store search result in current search lookup"),
-                _ => panic!("incorrect type in {key_field_name} field: {key_field_value:?}"),
-            };
-
-            // Retrieve the ctid value to pass to Postgres.
-            let ctid_name = "ctid";
-            let ctid_field = schema.schema.get_field(ctid_name).unwrap_or_else(|err| {
-                panic!("error retrieving {ctid_name} field from schema: {err:?}")
-            });
-            let ctid_field_value = retrieved_doc
-                .get_first(ctid_field)
-                .unwrap_or_else(|| panic!("cannot find {ctid_name} field on retrieved document"));
-
-            match ctid_field_value {
-                tantivy::schema::Value::U64(val) => {
-                    u64_to_item_pointer(*val, tid);
-                    if unsafe { !item_pointer_is_valid(tid) } {
-                        panic!("invalid item pointer: {:?}", item_pointer_get_both(*tid));
-                    }
-                }
-                _ => panic!("incorrect type in {ctid_name} field: {ctid_field_value:?}"),
-            };
+            u64_to_item_pointer(score.ctid, tid);
 
             true
         }

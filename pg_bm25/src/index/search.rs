@@ -62,6 +62,11 @@ impl SearchIndex {
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig)>,
     ) -> Result<&'static mut Self, SearchIndexError> {
+        // If the writer directory exists, remove it. We need a fresh directory to
+        // create an index. This can happen after a VACUUM FULL, where the index needs
+        // to be rebuilt and this method is called again.
+        directory.remove().map_err(SearchIndexError::from)?;
+
         let schema = SearchIndexSchema::new(fields)?;
         let settings = IndexSettings {
             // Fields should be returned in the order of their key_field (if their bm25 scores match).
@@ -73,11 +78,6 @@ impl SearchIndex {
             // docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
             ..Default::default()
         };
-
-        // If the writer directory exists, remove it. We need a fresh directory to
-        // create an index. This can happen after a VACUUM FULL, where the index needs
-        // to be rebuilt and this method is called again.
-        directory.remove().map_err(SearchIndexError::from)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
         let mut underlying_index = Index::builder()
@@ -419,6 +419,7 @@ mod tests {
             query: crate::query::SearchQueryInput::Parse {
                 query_string: "author:张".into(),
             },
+            key_field: "id".into(),
             ..Default::default()
         };
         let mut state = index.search_state(&client, &search_config, true).unwrap();
@@ -426,7 +427,7 @@ mod tests {
         let first = state
             .search()
             .iter()
-            .map(|(_, addr)| state.doc(*addr))
+            .map(|(_, addr)| state.searcher.doc(*addr))
             .next()
             .expect("query returned no results")
             .expect("query returned an error");

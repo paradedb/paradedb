@@ -27,10 +27,12 @@ impl Transaction {
         Ok(cache.contains(id))
     }
 
-    // The commit and abort events are mutually exclusive with each other.
-    // Either one or the other will fire, which means that we must clear both
-    // their caches at the same time.
     pub fn clear_commit_abort_caches(id: &str) -> Result<(), TransactionError> {
+        TRANSACTION_CALL_ONCE_ON_PRECOMMIT_CACHE
+            .clone()
+            .lock()
+            .expect("could not acquire lock in register transaction precommit callback")
+            .remove(id);
         TRANSACTION_CALL_ONCE_ON_ABORT_CACHE
             .clone()
             .lock()?

@@ -1,23 +1,193 @@
+use derive_more::{AsRef, Display, From};
+use once_cell::sync::Lazy;
+use shared::postgres::transaction::{Transaction, TransactionError};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::collector::TopDocs;
+use tantivy::schema::FieldType;
 use tantivy::{
     query::{Query, QueryParser},
     DocAddress, Score, Searcher,
 };
-use tantivy::{DocId, Document, SegmentReader};
+use tantivy::{DocId, Document, SegmentReader, Snippet, SnippetGenerator};
+use thiserror::Error;
 
 use super::score::SearchIndexScore;
 use super::SearchIndex;
-use crate::schema::{SearchConfig, SearchIndexSchema};
+use crate::schema::{SearchConfig, SearchField, SearchFieldName, SearchIndexSchema};
+
+static SEARCH_STATE_MANAGER: Lazy<Arc<Mutex<SearchStateManager>>> = Lazy::new(|| {
+    Arc::new(Mutex::new(SearchStateManager {
+        alias_map: HashMap::new(),
+    }))
+});
+
+const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_current_search";
+
+pub struct SearchStateManager {
+    alias_map: HashMap<SearchAlias, SearchState>,
+}
+
+impl SearchStateManager {
+    fn register_callback() -> Result<(), TransactionError> {
+        // Commit and abort are mutually exclusive. One of the two is guaranteed
+        // to be called on any transaction. We'll use that opportunity to clean
+        // up the cache.
+        Transaction::call_once_on_commit(TRANSACTION_CALLBACK_CACHE_ID, move || {
+            let mut current_search = SEARCH_STATE_MANAGER
+                .lock()
+                .expect("could not lock current search lookup in commit callback");
+            current_search.alias_map.drain();
+        })?;
+        Transaction::call_once_on_abort(TRANSACTION_CALLBACK_CACHE_ID, move || {
+            let mut current_search = SEARCH_STATE_MANAGER
+                .lock()
+                .expect("could not lock current search lookup in abort callback");
+            current_search.alias_map.drain();
+        })?;
+        Ok(())
+    }
+
+    fn get_state_default(&self) -> Result<&SearchState, SearchStateError> {
+        self.alias_map
+            .get(&SearchAlias::default())
+            .ok_or(SearchStateError::NoQuery)
+    }
+
+    fn get_state_alias(&self, alias: SearchAlias) -> Result<&SearchState, SearchStateError> {
+        self.alias_map
+            .get(&alias)
+            .ok_or(SearchStateError::AliasLookup(alias))
+    }
+
+    pub fn get_score(
+        id: i64,
+        alias: Option<SearchAlias>,
+    ) -> Result<SearchIndexScore, SearchStateError> {
+        let mut manager = SEARCH_STATE_MANAGER
+            .lock()
+            .map_err(SearchStateError::from)?;
+        let state = manager.get_state(alias)?;
+        match state.lookup.get(&id) {
+            Some((score, _)) => Ok(*score),
+            None => Err(SearchStateError::DocLookup(id)),
+        }
+    }
+
+    pub fn get_min_max_score(alias: Option<SearchAlias>) -> Result<(f32, f32), SearchStateError> {
+        let mut manager = SEARCH_STATE_MANAGER
+            .lock()
+            .map_err(SearchStateError::from)?;
+        let state = manager.get_state(alias)?;
+        Ok((state.min_score, state.max_score))
+    }
+
+    pub fn get_snippet(
+        id: i64,
+        field_name: &str,
+        max_num_chars: Option<usize>,
+        alias: Option<SearchAlias>,
+    ) -> Result<Snippet, SearchStateError> {
+        let mut manager = SEARCH_STATE_MANAGER
+            .lock()
+            .map_err(SearchStateError::from)?;
+        let state = manager.get_state(alias)?;
+        Ok(state.snippet(id, field_name, max_num_chars))
+    }
+
+    fn get_state(&self, alias: Option<SearchAlias>) -> Result<&SearchState, SearchStateError> {
+        if let Some(alias) = alias {
+            self.get_state_alias(alias)
+        } else {
+            self.get_state_default()
+        }
+    }
+
+    fn set_state_default(&mut self, state: SearchState) -> Result<(), SearchStateError> {
+        match self.alias_map.insert(SearchAlias::default(), state) {
+            None => Ok(()),
+            Some(_) => Err(SearchStateError::AliasRequired),
+        }
+    }
+
+    fn set_state_alias(
+        &mut self,
+        state: SearchState,
+        alias: SearchAlias,
+    ) -> Result<(), SearchStateError> {
+        if alias == SearchAlias::default() {
+            Err(SearchStateError::EmptyAlias)
+        } else {
+            self.alias_map
+                .insert(alias.clone(), state)
+                .ok_or(SearchStateError::DuplicateAlias(alias))?;
+            Ok(())
+        }
+    }
+
+    pub fn set_state(state: SearchState) -> Result<(), SearchStateError> {
+        Self::register_callback();
+
+        let mut current_search = SEARCH_STATE_MANAGER
+            .lock()
+            .map_err(SearchStateError::from)?;
+        if let Some(ref alias) = state.config.alias {
+            let alias = SearchAlias(alias.clone());
+            current_search.set_state_alias(state, alias)
+        } else {
+            current_search.set_state_default(state)
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum SearchStateError {
+    #[error("to use multiple pg_search queries, pass a query alias with the 'as' parameter")]
+    AliasRequired,
+    #[error("no pg_search query in current transaction")]
+    NoQuery,
+    #[error("a pg_search alias string cannot be empty")]
+    EmptyAlias,
+    #[error("a pg_search alias must be unique, found duplicate: '{0}'")]
+    DuplicateAlias(SearchAlias),
+    #[error("error looking up result data for document with id: '{0}'")]
+    DocLookup(i64),
+    #[error("no query found with alias: '{0}'")]
+    AliasLookup(SearchAlias),
+    #[error("could not lock the current search config lookup: {0}")]
+    Lock(String),
+}
+
+impl<T> From<PoisonError<T>> for SearchStateError {
+    fn from(err: PoisonError<T>) -> Self {
+        SearchStateError::Lock(format!("{err}"))
+    }
+}
+
+#[derive(Clone, Debug, Display, AsRef, Eq, PartialEq, Hash, From)]
+#[as_ref(forward)]
+pub struct SearchAlias(String);
+
+impl From<&str> for SearchAlias {
+    fn from(value: &str) -> Self {
+        SearchAlias(value.to_string())
+    }
+}
+
+impl Default for SearchAlias {
+    fn default() -> Self {
+        SearchAlias("".into())
+    }
+}
 
 pub struct SearchState {
-    pub schema: SearchIndexSchema,
     pub query: Box<dyn Query>,
-    pub parser: QueryParser,
     pub searcher: Searcher,
-    pub iterator: *mut std::vec::IntoIter<(SearchIndexScore, DocAddress)>,
     pub config: SearchConfig,
-    pub key_field_name: String,
+    pub lookup: HashMap<i64, (SearchIndexScore, DocAddress)>,
+    pub max_score: f32,
+    pub min_score: f32,
+    pub schema: SearchIndexSchema,
 }
 
 impl SearchState {
@@ -29,39 +199,44 @@ impl SearchState {
             .clone()
             .into_tantivy_query(&schema, &mut parser)
             .expect("could not parse query");
-        let key_field_name = schema.key_field().name.0;
         SearchState {
-            schema,
             query,
-            parser,
             config: config.clone(),
             searcher: search_index.searcher(),
-            iterator: std::ptr::null_mut(),
-            key_field_name,
+            lookup: HashMap::new(),
+            schema: schema.clone(),
+            max_score: f32::NEG_INFINITY,
+            min_score: f32::INFINITY,
         }
     }
 
-    pub fn key_field_value(&mut self, doc_address: DocAddress) -> i64 {
-        let retrieved_doc = self.searcher.doc(doc_address).expect("could not find doc");
-
-        let key_field = self
+    pub fn snippet(&self, id: i64, field_name: &str, max_num_chars: Option<usize>) -> Snippet {
+        let field = self
             .schema
-            .schema
-            .get_field(&self.key_field_name)
-            .expect("field '{key_field_name}' not found in schema");
+            .get_search_field(&SearchFieldName(field_name.into()))
+            .expect("cannot generate snippet, field does not exist");
 
-        if let tantivy::schema::Value::I64(key_field_value) =
-            retrieved_doc.get_first(key_field).unwrap_or_else(|| {
-                panic!(
-                    "value for key_field '{}' not found in doc",
-                    &self.key_field_name,
-                )
-            })
-        {
-            *key_field_value
-        } else {
-            panic!("error unwrapping ctid value")
+        let mut snippet_generator = match self.schema.schema.get_field_entry(field.into()).field_type() {
+            FieldType::Str(_) => {
+                SnippetGenerator::create(&self.searcher, &self.query, field.into())
+                    .unwrap_or_else(|err| panic!("failed to create snippet generator for field: {field_name}... {err}"))
+            },
+            _ => panic!("failed to create snippet generator for field: {field_name}... can only highlight text fields")
+        };
+
+        if let Some(max_num_chars) = max_num_chars {
+            snippet_generator.set_max_num_chars(max_num_chars)
         }
+
+        let (_, address) = self
+            .lookup
+            .get(&id)
+            .unwrap_or_else(|| panic!("could not find a search result with id {id}"));
+        let doc = self
+            .searcher
+            .doc(*address)
+            .expect("could not find document in searcher");
+        snippet_generator.snippet_from_doc(&doc)
     }
 
     /// Search the Tantivy index for matching documents. If used outside of Postgres
@@ -83,7 +258,7 @@ impl SearchState {
         });
 
         let offset = self.config.offset_rows.unwrap_or(0);
-        let key_field_name = self.key_field_name.clone();
+        let key_field_name = self.config.key_field.clone();
         let top_docs_by_custom_score = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
             // tweak_score expects a function that will return a function. A little unusual for
             // Rust, but not too much of a problem as long as you don't need to reference
@@ -93,20 +268,44 @@ impl SearchState {
                     .fast_fields()
                     .i64(&key_field_name)
                     .unwrap_or_else(|err| {
-                        panic!("key field {} is not a u64: {err:?}", &key_field_name)
+                        panic!("key field {} is not a i64: {err:?}", &key_field_name)
                     })
+                    .first_or_default_col(0);
+
+                let ctid_field_reader = segment_reader
+                    .fast_fields()
+                    .u64("ctid")
+                    .unwrap_or_else(|err| panic!("ctid field is not a u64: {err:?}"))
                     .first_or_default_col(0);
 
                 move |doc: DocId, original_score: Score| SearchIndexScore {
                     bm25: original_score,
                     key: key_field_reader.get_val(doc),
+                    ctid: ctid_field_reader.get_val(doc),
                 }
             },
         );
 
-        self.searcher
+        let top_docs = self
+            .searcher
             .search(&self.query, &top_docs_by_custom_score)
-            .expect("failed to search")
+            .expect("failed to search");
+
+        top_docs
+            .into_iter()
+            .map(|(score, address)| {
+                // We store the results so they can be looked up by
+                // rank + highlight functions.
+                self.lookup.insert(score.key, (score, address));
+                if score.bm25 > self.max_score {
+                    self.max_score = score.bm25
+                }
+                if score.bm25 < self.min_score {
+                    self.min_score = score.bm25
+                }
+                (score, address)
+            })
+            .collect()
     }
 
     /// A search method that deduplicates results based on key field. This is important for
@@ -133,10 +332,5 @@ impl SearchState {
         order_vec
             .into_iter()
             .filter_map(move |key| dedup_map.remove(&key))
-    }
-
-    #[allow(unused)]
-    pub fn doc(&self, doc_address: DocAddress) -> tantivy::Result<Document> {
-        self.searcher.doc(doc_address)
     }
 }

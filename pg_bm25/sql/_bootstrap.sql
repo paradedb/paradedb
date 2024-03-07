@@ -163,21 +163,6 @@ BEGIN
         index_json => index_json
     );
 
-    EXECUTE paradedb.format_bm25_function(
-        function_name => format('%I.highlight', index_name),
-        return_type => format('TABLE(%s bigint, highlight_bm25 text)', key_field),
-        function_body => 'RETURN QUERY SELECT * FROM paradedb.highlight_bm25(__paradedb_search_config__)',
-        index_json => index_json
-    );
-
-    EXECUTE paradedb.format_bm25_function(
-
-        function_name => format('%I.rank', index_name),
-        return_type => format('TABLE(%s bigint, rank_bm25 real)', key_field),
-        function_body => 'RETURN QUERY SELECT * FROM paradedb.rank_bm25(__paradedb_search_config__)',
-        index_json => index_json
-    );
-
     EXECUTE paradedb.format_empty_function(
         function_name => format('%I.schema', index_name),
         return_type => 'TABLE(name text, field_type text, stored bool, indexed bool, fast bool, fieldnorms bool, expand_dots bool, tokenizer text, record text, normalizer text)',

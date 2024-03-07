@@ -753,6 +753,7 @@ fn alter(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[allow(clippy::type_complexity)]
 fn null_values(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text NOT NULL) USING parquet".execute(&mut conn);
     "INSERT INTO t values (1, 'test');".execute(&mut conn);

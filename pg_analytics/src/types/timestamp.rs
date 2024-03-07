@@ -4,10 +4,10 @@ use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::*;
 use thiserror::Error;
 
+use super::datatype::PgTypeMod;
+
 const MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
-
-use super::datatype::PgTypeMod;
 
 pub struct MicrosecondUnix(pub i64);
 pub struct MillisecondUnix(pub i64);

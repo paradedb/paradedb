@@ -577,8 +577,7 @@ fn big_insert(mut conn: PgConnection) {
 }
 
 #[rstest]
-#[rstest]
-fn date(mut conn: PgConnection) {
+fn datetime(mut conn: PgConnection) {
     let timestamp_format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
     let date_format = format_description!("[year]-[month]-[day]");
 
@@ -648,4 +647,32 @@ fn date(mut conn: PgConnection) {
     let rows: Vec<(Date, PrimitiveDateTime)> =
         "SELECT * FROM dates WHERE date_column < '1230-02-03'::date".fetch(&mut conn);
     assert_eq!(rows.len(), 1);
+}
+
+#[rstest]
+fn numeric(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE t (
+            num1 NUMERIC(5, 2),
+            num2 NUMERIC(10, 5),
+            num3 NUMERIC(15, 10)
+        ) USING parquet;
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO t (num1, num2, num3)
+        VALUES (12.34, 123.67890, 1234.1234567890);
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(BigDecimal, BigDecimal, BigDecimal)> = "SELECT * FROM t".fetch(&mut conn);
+    assert_eq!(rows[0].0, BigDecimal::from_str("12.34").unwrap());
+    assert_eq!(rows[0].1, BigDecimal::from_str("123.67890").unwrap());
+    assert_eq!(rows[0].2, BigDecimal::from_str("1234.1234567890").unwrap());
+
+    match "CREATE TABLE s (num1 NUMERIC)".fetch_result::<()>(&mut conn) {
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
+        _ => panic!("unbounded numerics should not be supported"),
+    }
 }

@@ -29,10 +29,7 @@ impl TryFrom<PgTypeMod> for PgNumericTypeMod {
         let PgTypeMod(typemod) = typemod;
 
         match typemod {
-            -1 => Ok(PgNumericTypeMod(
-                PgPrecision(DECIMAL128_MAX_PRECISION),
-                PgScale(DECIMAL128_MAX_SCALE),
-            )),
+            -1 => Err(NumericError::UnboundedNumeric()),
             _ => {
                 let precision = ((typemod - pg_sys::VARHDRSZ as i32) >> 16) & 0xffff;
                 let scale = (((typemod - pg_sys::VARHDRSZ as i32) & 0x7ff) ^ 1024) - 1024;
@@ -121,4 +118,7 @@ pub enum NumericError {
 
     #[error("Scale {0} exceeds max scale {}", DECIMAL128_MAX_SCALE)]
     UnsupportedScale(i32),
+
+    #[error("Unbounded numeric types are not yet supported. A precision and scale must be provided, i.e. numeric(precision, scale).")]
+    UnboundedNumeric(),
 }

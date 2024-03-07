@@ -1,3 +1,4 @@
+use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
@@ -6,20 +7,15 @@ use crate::errors::{NotFound, ParadeError};
 use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
 use crate::types::datum::GetDatum;
 
-pub fn select(
+pub fn select_with_batches(
     mut query_desc: PgBox<pg_sys::QueryDesc>,
-    logical_plan: LogicalPlan,
+    batches: Vec<RecordBatch>,
 ) -> Result<(), ParadeError> {
-    // Execute the logical plan and collect the resulting batches
-    let batches = Session::with_session_context(|context| {
-        Box::pin(async move {
-            let dataframe = context.execute_logical_plan(logical_plan).await?;
-            Ok(dataframe.collect().await?)
-        })
-    })?;
-
     // Convert the DataFusion batches to Postgres tuples and send them to the destination
     unsafe {
+        let estate = query_desc.estate;
+        (*estate).es_processed = 0;
+
         let dest = query_desc.dest;
         let startup = (*dest)
             .rStartup
@@ -71,6 +67,7 @@ pub fn select(
                 }
 
                 receive(tuple_table_slot, dest);
+                (*estate).es_processed += 1;
                 pg_sys::ExecDropSingleTupleTableSlot(tuple_table_slot);
             }
         }
@@ -82,4 +79,19 @@ pub fn select(
     }
 
     Ok(())
+}
+
+pub fn select(
+    query_desc: PgBox<pg_sys::QueryDesc>,
+    logical_plan: LogicalPlan,
+) -> Result<(), ParadeError> {
+    // Execute the logical plan and collect the resulting batches
+    let batches = Session::with_session_context(|context| {
+        Box::pin(async move {
+            let dataframe = context.execute_logical_plan(logical_plan).await?;
+            Ok(dataframe.collect().await?)
+        })
+    })?;
+
+    select_with_batches(query_desc, batches)
 }

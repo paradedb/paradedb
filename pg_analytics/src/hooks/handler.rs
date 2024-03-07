@@ -1,30 +1,31 @@
 use pgrx::*;
 use std::ffi::{c_char, CString};
 
-use crate::errors::{NotSupported, ParadeError};
+use crate::errors::ParadeError;
 
 static COLUMN_HANDLER: &str = "parquet";
 
-pub trait IsColumn {
-    #[allow(clippy::wrong_self_convention)]
-    unsafe fn is_column(self) -> Result<bool, ParadeError>;
+pub struct ClassifiedTables {
+    pub col_tables: Vec<String>,
+    pub row_tables: Vec<String>,
 }
 
-impl IsColumn for *mut pg_sys::List {
-    unsafe fn is_column(self) -> Result<bool, ParadeError> {
-        let oid = column_oid()?;
+pub trait TableClassifier {
+    #[allow(clippy::wrong_self_convention)]
+    unsafe fn table_lists(self) -> Result<ClassifiedTables, ParadeError>;
+}
 
-        if oid == pg_sys::InvalidOid {
-            return Ok(false);
-        }
+impl TableClassifier for *mut pg_sys::List {
+    unsafe fn table_lists(self) -> Result<ClassifiedTables, ParadeError> {
+        let col_oid = column_oid()?;
 
         #[cfg(feature = "pg12")]
         let mut current_cell = (*self).head;
         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
         let elements = (*self).elements;
 
-        let mut using_noncol: bool = false;
-        let mut using_col: bool = false;
+        let mut row_tables = vec![];
+        let mut col_tables = vec![];
 
         for i in 0..(*self).length {
             let rte: *mut pg_sys::RangeTblEntry;
@@ -49,26 +50,23 @@ impl IsColumn for *mut pg_sys::List {
 
             let relation_handler_oid = (*relation).rd_amhandler;
 
-            // If any table uses the Table AM handler, then return true.
-            // TODO: If we support more operations, this will be more complex.
-            //       for example, if to support joins, some of the nodes will use
-            //       table AM for the nodes while others won't. In this case,
-            //       we'll have to process in postgres plan for part of it and
-            //       datafusion for the other part. For now, we'll simply
-            //       fail if we encounter an unsupported node, so this won't happen.
-            if relation_handler_oid == oid {
-                using_col = true;
+            if col_oid != pg_sys::InvalidOid && relation_handler_oid == col_oid {
+                col_tables.push(pg_relation.name().to_string());
             } else {
-                using_noncol = true;
+                row_tables.push(pg_relation.name().to_string());
             }
         }
 
-        if using_col && using_noncol {
-            return Err(NotSupported::MixedTables.into());
-        }
-
-        Ok(using_col)
+        Ok(ClassifiedTables {
+            row_tables,
+            col_tables,
+        })
     }
+}
+
+pub trait IsColumn {
+    #[allow(clippy::wrong_self_convention)]
+    unsafe fn is_column(self) -> Result<bool, ParadeError>;
 }
 
 impl IsColumn for *mut pg_sys::RelationData {

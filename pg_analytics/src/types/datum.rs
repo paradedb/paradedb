@@ -4,7 +4,7 @@ use deltalake::arrow::array::{
 };
 use deltalake::arrow::datatypes::{
     Date32Type, Decimal128Type, Float32Type, Float64Type, Int16Type, Int32Type, Int64Type,
-    TimestampMicrosecondType, TimestampMillisecondType, TimestampSecondType,
+    Time64MicrosecondType, TimestampMicrosecondType, TimestampMillisecondType, TimestampSecondType,
 };
 use deltalake::datafusion::arrow::datatypes::DataType::*;
 use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
@@ -15,6 +15,7 @@ use thiserror::Error;
 use super::datatype::DataTypeError;
 use super::date::DayUnix;
 use super::numeric::{PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
+use super::time::MicrosecondDay;
 use super::timestamp::{MicrosecondUnix, MillisecondUnix, SecondUnix};
 
 pub trait GetDatumGeneric
@@ -135,6 +136,22 @@ where
     }
 }
 
+pub trait GetDatumTimeMicrosecond
+where
+    Self: Array + AsArray,
+{
+    fn get_time_micro_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
+        match self
+            .as_primitive::<Time64MicrosecondType>()
+            .iter()
+            .nth(index)
+        {
+            Some(Some(value)) => Ok(datum::Time::try_from(MicrosecondDay(value)).into_datum()),
+            _ => Ok(None),
+        }
+    }
+}
+
 pub trait GetDatumNumeric
 where
     Self: Array + AsArray,
@@ -167,7 +184,8 @@ where
         + GetDatumNumeric
         + GetDatumTimestampMicrosecond
         + GetDatumTimestampMillisecond
-        + GetDatumTimestampSecond,
+        + GetDatumTimestampSecond
+        + GetDatumTimeMicrosecond,
 {
     fn get_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
         let result = match self.data_type() {
@@ -179,6 +197,7 @@ where
             Float32 => self.get_primitive_datum::<Float32Type>(index)?,
             Float64 => self.get_primitive_datum::<Float64Type>(index)?,
             Date32 => self.get_date_datum(index)?,
+            Time64(TimeUnit::Microsecond) => self.get_time_micro_datum(index)?,
             Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
             Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
             Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
@@ -212,6 +231,7 @@ impl GetDatumNumeric for ArrayRef {}
 impl GetDatumTimestampMicrosecond for ArrayRef {}
 impl GetDatumTimestampMillisecond for ArrayRef {}
 impl GetDatumTimestampSecond for ArrayRef {}
+impl GetDatumTimeMicrosecond for ArrayRef {}
 
 #[derive(Error, Debug)]
 pub enum DatumError {

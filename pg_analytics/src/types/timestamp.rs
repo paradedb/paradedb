@@ -9,8 +9,13 @@ use super::datatype::PgTypeMod;
 const MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
 
+#[derive(Copy, Clone, Debug)]
 pub struct MicrosecondUnix(pub i64);
+
+#[derive(Copy, Clone, Debug)]
 pub struct MillisecondUnix(pub i64);
+
+#[derive(Copy, Clone, Debug)]
 pub struct SecondUnix(pub i64);
 
 #[derive(Copy, Clone)]

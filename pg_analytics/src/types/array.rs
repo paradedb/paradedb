@@ -99,8 +99,8 @@ where
 {
     fn into_date_array(self) -> Result<Vec<Option<i32>>, DataTypeError> {
         let array = self
-            .filter_map(|datum| {
-                (!datum.is_null()).then_some(datum).map(|datum| {
+            .map(|datum| {
+                (!datum.is_null()).then_some(datum).and_then(|datum| {
                     unsafe { datum::Date::from_datum(datum, false) }
                         .and_then(|date| DayUnix::try_from(date).ok())
                         .map(|DayUnix(unix)| unix)
@@ -127,8 +127,8 @@ where
 {
     fn into_ts_micro_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
-            .filter_map(|datum| {
-                (!datum.is_null()).then_some(datum).map(|datum| {
+            .map(|datum| {
+                (!datum.is_null()).then_some(datum).and_then(|datum| {
                     unsafe { datum::Timestamp::from_datum(datum, false) }
                         .and_then(|timestamp| MicrosecondUnix::try_from(timestamp).ok())
                         .map(|MicrosecondUnix(unix)| unix)
@@ -157,8 +157,8 @@ where
 {
     fn into_ts_milli_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
-            .filter_map(|datum| {
-                (!datum.is_null()).then_some(datum).map(|datum| {
+            .map(|datum| {
+                (!datum.is_null()).then_some(datum).and_then(|datum| {
                     unsafe { datum::Timestamp::from_datum(datum, false) }
                         .and_then(|timestamp| MillisecondUnix::try_from(timestamp).ok())
                         .map(|MillisecondUnix(unix)| unix)
@@ -187,8 +187,8 @@ where
 {
     fn into_ts_second_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
-            .filter_map(|datum| {
-                (!datum.is_null()).then_some(datum).map(|datum| {
+            .map(|datum| {
+                (!datum.is_null()).then_some(datum).and_then(|datum| {
                     unsafe { datum::Timestamp::from_datum(datum, false) }
                         .and_then(|timestamp| SecondUnix::try_from(timestamp).ok())
                         .map(|SecondUnix(unix)| unix)

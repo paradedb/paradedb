@@ -24,15 +24,17 @@ where
     fn get_generic_datum<A>(&self, index: usize) -> Result<Option<pg_sys::Datum>, DatumError>
     where
         A: Array + Debug + 'static,
-        for<'a> &'a A: ArrayAccessor,
-        for<'a> <&'a A as ArrayAccessor>::Item: IntoDatum,
+        for<'a> &'a A: ArrayAccessor + IntoIterator,
+        for<'a> <&'a A as IntoIterator>::Item: IntoDatum,
     {
-        Ok(self
+        let value = self
             .as_any()
             .downcast_ref::<A>()
             .ok_or(DatumError::DowncastGenericArray(format!("{:?}", self)))?
-            .value(index)
-            .into_datum())
+            .into_iter()
+            .nth(index);
+
+        Ok(value.into_datum())
     }
 }
 
@@ -60,16 +62,16 @@ where
         for<'a> &'a A: IntoIterator,
         for<'a> <&'a A as IntoIterator>::Item: IntoDatum,
     {
-        let list = self.as_list::<i32>().value(index);
-        let datum = list
-            .as_any()
-            .downcast_ref::<A>()
-            .ok_or(DatumError::DowncastGenericArray(format!("{:?}", self)))?
-            .into_iter()
-            .collect::<Vec<_>>()
-            .into_datum();
-
-        Ok(datum)
+        match self.as_list::<i32>().iter().nth(index) {
+            Some(Some(list)) => Ok(list
+                .as_any()
+                .downcast_ref::<A>()
+                .ok_or(DatumError::DowncastGenericArray(format!("{:?}", self)))?
+                .into_iter()
+                .collect::<Vec<_>>()
+                .into_datum()),
+            _ => Ok(None),
+        }
     }
 }
 

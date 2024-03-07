@@ -193,15 +193,6 @@ fn rename(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn schema(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text NOT NULL) USING parquet".execute(&mut conn);
-    "INSERT INTO t values (1, 'test');".execute(&mut conn);
-
-    let row: (i32, String) = "SELECT * FROM t".fetch_one(&mut conn);
-    assert_eq!(row, (1, "test".into()));
-}
-
-#[rstest]
 fn select(mut conn: PgConnection) {
     UserSessionLogsTable::setup().execute(&mut conn);
 
@@ -759,4 +750,13 @@ fn alter(mut conn: PgConnection) {
         column_names,
         vec!["a".to_string(), "b".to_string(), "c".to_string()]
     );
+}
+
+#[rstest]
+fn null_values(mut conn: PgConnection) {
+    "CREATE TABLE t (a int, b text NOT NULL) USING parquet".execute(&mut conn);
+    "INSERT INTO t values (1, 'test');".execute(&mut conn);
+
+    let row: (i32, String) = "SELECT * FROM t".fetch_one(&mut conn);
+    assert_eq!(row, (1, "test".into()));
 }

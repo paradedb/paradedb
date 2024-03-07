@@ -25,6 +25,14 @@ SELECT *, paradedb.highlight(<key>, field => '<field>') FROM <index_name>.search
 ```sql
 SELECT *, paradedb.highlight(id, field => 'description')
 FROM search_idx.search('description:keyboard OR category:electronics');
+
+-- Multiple calls to search, alias is required.
+SELECT id, paradedb.highlight(id, field => 'description')
+FROM bm25_search.search('description:shoes')
+UNION
+SELECT id, paradedb.highlight(id, field => 'description', alias => 'speaker')
+FROM bm25_search.search('description:speaker', alias => 'speaker')
+ORDER BY id;
 ```
 
 </Accordion>

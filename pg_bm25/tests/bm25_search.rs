@@ -1,7 +1,7 @@
 mod fixtures;
 
+use approx::assert_relative_eq;
 use core::panic;
-
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
@@ -336,4 +336,21 @@ fn alias(mut conn: PgConnection) {
     assert_eq!(rows[1].1, "White jogging <b>shoes</b>");
     assert_eq!(rows[2].1, "Generic <b>shoes</b>");
     assert_eq!(rows[3].1, "Bluetooth-enabled <b>speaker</b>");
+
+    let rows: Vec<(i32, f32)> = "
+        SELECT id, paradedb.rank_bm25(id) FROM bm25_search.search('description:shoes')
+        UNION
+        SELECT id, paradedb.rank_bm25(id, alias => 'speaker')
+        FROM bm25_search.search('description:speaker', alias => 'speaker')
+        ORDER BY id;"
+        .fetch(&mut conn);
+
+    assert_eq!(rows[0].0, 3);
+    assert_eq!(rows[1].0, 4);
+    assert_eq!(rows[2].0, 5);
+    assert_eq!(rows[3].0, 32);
+    assert_relative_eq!(rows[0].1, 2.4849067, epsilon = 1e-6);
+    assert_relative_eq!(rows[1].1, 2.4849067, epsilon = 1e-6);
+    assert_relative_eq!(rows[2].1, 2.8772602, epsilon = 1e-6);
+    assert_relative_eq!(rows[3].1, 3.3322046, epsilon = 1e-6);
 }

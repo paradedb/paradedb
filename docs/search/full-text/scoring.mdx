@@ -28,6 +28,14 @@ FROM search_idx.search(
 		]
 	)
 );
+
+-- Multiple calls to search, alias is required.
+SELECT id, paradedb.rank_bm25(id)
+FROM search_idx.search('description:shoes')
+UNION
+SELECT id, paradedb.rank_bm25(id, alias => 'speaker')
+FROM search_idx.search('description:speaker', alias => 'speaker')
+ORDER BY id;
 ```
 
 </Accordion>

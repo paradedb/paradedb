@@ -68,14 +68,14 @@ if [[ "$PARADEDB_TELEMETRY" == "true" ]] && [ "$POSTHOG_API_KEY" != "" ] && [ "$
   DISTINCT_ID=$(cat "$UUID_FILE")
 
   # Send the deployment event to PostHog
-    curl -s -L --header "Content-Type: application/json" -d '{
-      "api_key": "'"$POSTHOG_API_KEY"'",
-      "event": "ParadeDB Deployment",
-      "distinct_id": "'"$DISTINCT_ID"'",
-      "properties": {
-        "commit_sha": "'"$COMMIT_SHA"'"
-      }
-    }' "$POSTHOG_HOST/capture/"
+  curl -s -L --header "Content-Type: application/json" -d '{
+    "api_key": "'"$POSTHOG_API_KEY"'",
+    "event": "ParadeDB Deployment",
+    "distinct_id": "'"$DISTINCT_ID"'",
+    "properties": {
+      "commit_sha": "'"$COMMIT_SHA"'"
+    }
+  }' "$POSTHOG_HOST/capture/"
 
   # Mark telemetry as handled so we don't try to send it again when
   # initializing our PostgreSQL extensions. We use a file for IPC

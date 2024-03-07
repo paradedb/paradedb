@@ -48,7 +48,7 @@ pub fn init(extension_name: &str) {
         }
 
         // For privacy reasons, we generate an anonymous UUID for each new deployment
-        let uuid_file = format!("/var/lib/postgresql/data/{}_uuid", extension_name);
+        let uuid_file = format!("/bitnami/postgresql/data/{}_uuid", extension_name);
 
         // Closure to generate a new UUID and write it to the file
         let generate_and_save_uuid = || {
@@ -98,7 +98,7 @@ pub fn connection_start() {
     // for opting out of all telemetry.
     if let Some(config) = Config::from_env() {
         if config.telemetry.as_deref() == Some("true") {
-            let uuid_dir = "/var/lib/postgresql/data";
+            let uuid_dir = "/bitnami/postgresql/data";
             let extension_name;
             let file_content = if Path::new(uuid_dir)
                 .join(format!("{}_uuid", PARADEDB_NAME.to_lowercase()))

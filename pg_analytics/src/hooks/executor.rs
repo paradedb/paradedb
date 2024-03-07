@@ -1,14 +1,10 @@
 use async_std::task;
-use deltalake::datafusion::error::DataFusionError;
-use deltalake::datafusion::logical_expr::LogicalPlan;
-use deltalake::datafusion::sql::parser::DFParser;
-use deltalake::datafusion::sql::planner::SqlToRel;
-use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
+use deltalake::datafusion::sql::parser;
+use deltalake::datafusion::sql::sqlparser::ast::Statement;
 use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
-use crate::datafusion::context::QueryContext;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::delete::delete;
 use crate::hooks::handler::IsColumn;
@@ -35,9 +31,8 @@ pub fn executor_run(
     unsafe {
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;
-        let query = query_desc
-            .plannedstmt
-            .current_query_string(CStr::from_ptr(query_desc.sourceText))?;
+        let pg_plan = query_desc.plannedstmt;
+        let query = pg_plan.get_query_string(CStr::from_ptr(query_desc.sourceText))?;
 
         if query_desc.operation == pg_sys::CmdType_CMD_INSERT {
             insert(rtable, query_desc.clone())?;
@@ -55,8 +50,20 @@ pub fn executor_run(
             return Ok(());
         }
 
+        // CREATE TABLE commands can reach the executor hook
+        // in the case of CREATE TABLE AS SELECT, and we should
+        // let them go through to the table access method
+        if let Ok(ast) = pg_plan.get_ast(&query) {
+            if let parser::Statement::Statement(inner_statement) = &ast[0] {
+                if let Statement::CreateTable { .. } = inner_statement.as_ref() {
+                    prev_hook(query_desc, direction, count, execute_once);
+                    return Ok(());
+                }
+            }
+        };
+
         // Parse the query into a LogicalPlan
-        let logical_plan = match create_logical_plan(&query) {
+        let logical_plan = match pg_plan.get_logical_plan(&query) {
             Ok(logical_plan) => logical_plan,
             // If DataFusion can't parse the query, let Postgres handle it
             Err(_) => {
@@ -76,18 +83,4 @@ pub fn executor_run(
             }
         }
     }
-}
-
-#[inline]
-fn create_logical_plan(query: &str) -> Result<LogicalPlan, ParadeError> {
-    let dialect = PostgreSqlDialect {};
-    let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-        .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
-    let statement = &ast[0];
-
-    // Convert the AST into a logical plan
-    let context_provider = QueryContext::new()?;
-    let sql_to_rel = SqlToRel::new(&context_provider);
-
-    Ok(sql_to_rel.statement_to_plan(statement.clone())?)
 }

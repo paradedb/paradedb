@@ -19,7 +19,7 @@ pg_test = []
 telemetry = ["shared/telemetry"]
 
 [dependencies]
-pgrx = "=0.11.2"
+pgrx = "=0.11.3"
 serde = "1.0.193"
 serde_json = "1.0.107"
 shared = { path = "../shared" }
@@ -33,6 +33,7 @@ once_cell = "1.19.0"
 datafusion-federation = { git = "https://github.com/paradedb/datafusion-federation.git", rev = "2d819a3" }
 datafusion-federation-sql = { git = "https://github.com/paradedb/datafusion-federation.git", rev = "2d819a3" }
 futures = "0.3.30"
+regex = "1.10.3"
 memoffset = "0.9.0"
 zstd-sys = "=2.0.9"
 walkdir = "2.5.0"
@@ -41,7 +42,7 @@ walkdir = "2.5.0"
 anyhow = "1.0.79"
 async-std = { version = "1.12.0", features = ["attributes"] }
 futures-util = "0.3.30"
-pgrx-tests = "=0.11.2"
+pgrx-tests = "=0.11.3"
 pretty_assertions = "1.4.0"
 rstest = "0.18.2"
 shared = { path = "../shared", features = ["fixtures"] }

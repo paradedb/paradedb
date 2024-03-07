@@ -298,3 +298,24 @@ fn highlight(mut conn: PgConnection) {
         .fetch_one(&mut conn);
     assert_eq!(row.0, "Generic <h1>shoes</h1>")
 }
+
+#[rstest]
+fn alias(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    let rows: Vec<(i32, String)> = "
+        SELECT id, paradedb.highlight(id, field => 'description') FROM bm25_search.search('description:shoes')
+        UNION
+        SELECT id, paradedb.highlight(id, field => 'description', alias => 'speaker')
+        FROM bm25_search.search('description:speaker', alias => 'speaker')
+        ORDER BY id"
+        .fetch(&mut conn);
+
+    assert_eq!(rows[0].0, 3);
+    assert_eq!(rows[1].0, 4);
+    assert_eq!(rows[2].0, 5);
+    assert_eq!(rows[3].0, 32);
+    assert_eq!(rows[0].1, "Sleek running <b>shoes</b>");
+    assert_eq!(rows[1].1, "White jogging <b>shoes</b>");
+    assert_eq!(rows[2].1, "Generic <b>shoes</b>");
+    assert_eq!(rows[3].1, "Bluetooth-enabled <b>speaker</b>");
+}

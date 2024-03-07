@@ -217,8 +217,7 @@ BEGIN
             query text, -- The search query
             offset_rows integer DEFAULT NULL, -- Offset for paginated results
             limit_rows integer DEFAULT NULL, -- Limit for paginated results
-            max_num_chars integer DEFAULT NULL, -- Maximum character limit for searches 
-            highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only) 
+            alias text DEFAULT NULL -- Alias for disambiguation
         ) RETURNS %s AS $func$
         BEGIN
             -- Explicitly cast the 'query' text parameter to 'paradedb.searchqueryinput' type
@@ -226,8 +225,7 @@ BEGIN
                 query => paradedb.parse(query),
                 offset_rows => offset_rows,
                 limit_rows => limit_rows,
-                max_num_chars => max_num_chars,
-                highlight_field => highlight_field
+                alias => alias
             );
         END
         $func$ LANGUAGE plpgsql;
@@ -236,8 +234,7 @@ BEGIN
             query paradedb.searchqueryinput, -- The search query
             offset_rows integer DEFAULT NULL, -- Offset for paginated results
             limit_rows integer DEFAULT NULL, -- Limit for paginated results
-            max_num_chars integer DEFAULT NULL, -- Maximum character limit for searches 
-            highlight_field text DEFAULT NULL -- Field name to highlight (highlight func only) 
+            alias text DEFAULT NULL -- Alias for disambiguation
         ) RETURNS %s AS $func$
         DECLARE
             __paradedb_search_config__ JSONB;
@@ -247,8 +244,7 @@ BEGIN
                 'query', query::text::jsonb,
                 'offset_rows', offset_rows,
                 'limit_rows', limit_rows,
-                'max_num_chars', max_num_chars,
-                'highlight_field', highlight_field
+                'alias', alias
             );
             %s; -- Execute the function body with the constructed JSONB parameter
         END

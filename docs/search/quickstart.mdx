@@ -142,14 +142,13 @@ FROM ngrams_idx.search('description:blue');
 Finally, let's examine the BM25 scores and generate highlighted snippets for our results.
 
 ```sql
-SELECT s.description, h.highlight_bm25, r.rank_bm25 FROM ngrams_idx.search('description:blue') as s
-LEFT JOIN ngrams_idx.highlight('description:blue', highlight_field => 'description') as h ON s.id = h.id
-LEFT JOIN ngrams_idx.rank('description:blue') as r ON s.id = r.id;
+SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)
+FROM ngrams_idx.search('description:blue');
 ```
 
 <Accordion title="Expected Response">
 ``` csv
-        description        |          highlight_bm25          | rank_bm25
+        description        |             highlight            | rank_bm25
 ---------------------------+----------------------------------+-----------
  Bluetooth-enabled speaker | <b>Blue</b>tooth-enabled speaker | 2.9903657
 (1 row)

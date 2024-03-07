@@ -82,7 +82,8 @@ fn quickstart(mut conn: PgConnection) {
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
 
     let rows: Vec<(String, String, f32)> = r#"
-    SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id) FROM ngrams_idx.search('description:blue')
+    SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)
+    FROM ngrams_idx.search('description:blue')
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);

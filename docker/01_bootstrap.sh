@@ -3,24 +3,18 @@
 # This script is executed at the initialization of the ParadeDB container
 # to configure it with required extensions and Postgres settings
 
-echo "test"
-
 # Exit on subcommand errors
 set -Eeuo pipefail
-
-echo "test2"
 
 # If no user is set, the default user will be the `postgres` superuser, so we
 # set the superuser password to default to the user password in that case
 SUPERUSER_PASSWORD=${POSTGRESQL_POSTGRES_PASSWORD:-$POSTGRESQL_PASSWORD}
 
-echo $PARADEDB_TELEMETRY
-
 # If the PARADEDB_TELEMETRY is not provided, we default to not sending telemetry
-# PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY:-"false"}
-# POSTHOG_API_KEY=${POSTHOG_API_KEY:-""}
-# POSTHOG_HOST=${POSTHOG_HOST:-""}
-# COMMIT_SHA=${COMMIT_SHA:-""}
+PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY:-"false"}
+POSTHOG_API_KEY=${POSTHOG_API_KEY:-""}
+POSTHOG_HOST=${POSTHOG_HOST:-""}
+COMMIT_SHA=${COMMIT_SHA:-""}
 
 echo "ParadeDB bootstrap started..."
 echo "Configuring PostgreSQL search path..."
@@ -61,32 +55,34 @@ PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d template1 -c "CREATE EXTENSIO
 PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS svector CASCADE;"
 PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector CASCADE;"
 
-echo "Sending anonymous deployment telemetry (to turn off, unset PARADEDB_TELEMETRY)..."
-
 # We collect basic, anonymous telemetry to help us understand how many people are using
 # the project. We only do this if PARADEDB_TELEMETRY is set to "true"
-# if [[ "$PARADEDB_TELEMETRY" == "true" ]]; then
-#   # For privacy reasons, we generate an anonymous UUID for each new deployment
-#   UUID_FILE="/bitnami/postgresql/data/paradedb_uuid"
-#   if [ ! -f "$UUID_FILE" ]; then
-#     uuidgen > "$UUID_FILE"
-#   fi
-#   DISTINCT_ID=$(cat "$UUID_FILE")
+if [[ "$PARADEDB_TELEMETRY" == "true" ]]; then
+  echo "Sending anonymous deployment telemetry. To turn off, unset PARADEDB_TELEMETRY..."
 
-#   # Send the deployment event to PostHog
-#   curl -s -L --header "Content-Type: application/json" -d '{
-#     "api_key": "'"$POSTHOG_API_KEY"'",
-#     "event": "ParadeDB Deployment",
-#     "distinct_id": "'"$DISTINCT_ID"'",
-#     "properties": {
-#       "commit_sha": "'"${COMMIT_SHA:-}"'"
-#     }
-#   }' "$POSTHOG_HOST/capture/"
+  # For privacy reasons, we generate an anonymous UUID for each new deployment
+  UUID_FILE="/bitnami/postgresql/data/paradedb_uuid"
+  if [ ! -f "$UUID_FILE" ]; then
+    uuidgen > "$UUID_FILE"
+  fi
+  DISTINCT_ID=$(cat "$UUID_FILE")
 
-#   # Mark telemetry as handled so we don't try to send it again when
-#   # initializing our PostgreSQL extensions. We use a file for IPC
-#   # between this script and our PostgreSQL extensions
-#   echo "true" > /tmp/telemetry
-# fi
+  # Send the deployment event to PostHog
+  if [ "$POSTHOG_API_KEY" != "" ] && [ "$POSTHOG_HOST" != "" ]; then
+    curl -s -L --header "Content-Type: application/json" -d '{
+      "api_key": "'"$POSTHOG_API_KEY"'",
+      "event": "ParadeDB Deployment",
+      "distinct_id": "'"$DISTINCT_ID"'",
+      "properties": {
+        "commit_sha": "'"$COMMIT_SHA"'"
+      }
+    }' "$POSTHOG_HOST/capture/"
+  fi
+
+  # Mark telemetry as handled so we don't try to send it again when
+  # initializing our PostgreSQL extensions. We use a file for IPC
+  # between this script and our PostgreSQL extensions
+  echo "true" > /tmp/telemetry
+fi
 
 echo "ParadeDB bootstrap completed!"

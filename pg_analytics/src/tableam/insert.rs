@@ -5,13 +5,11 @@ use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
 
 use crate::datafusion::commit::commit_writer;
-
-use crate::datafusion::datatype::DatafusionMapProducer;
-use crate::datafusion::datatype::DatafusionTypeTranslator;
-use crate::datafusion::datatype::PostgresTypeTranslator;
 use crate::datafusion::table::DatafusionTable;
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
+use crate::types::array::IntoArrowArray;
+use crate::types::datatype::PgTypeMod;
 
 #[pg_guard]
 pub extern "C" fn deltalake_slot_callbacks(
@@ -74,26 +72,27 @@ async fn insert_tuples(
 ) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let tuple_desc = pg_relation.tuple_desc();
-    let mut values: Vec<ArrayRef> = vec![];
+    let mut column_values: Vec<ArrayRef> = vec![];
 
     // Convert the TupleTableSlots into DataFusion arrays
     for (col_idx, attr) in tuple_desc.iter().enumerate() {
-        let sql_data_type = attr.type_oid().to_sql_data_type(attr.type_mod())?;
-        let datafusion_type = DatafusionTypeTranslator::from_sql_data_type(sql_data_type)?;
-
-        values.push(DatafusionMapProducer::array(
-            datafusion_type,
-            slots,
-            nslots,
-            col_idx,
-        )?);
+        column_values.push(
+            (0..nslots)
+                .map(move |row_idx| unsafe {
+                    let tuple_table_slot = *slots.add(row_idx);
+                    let datum = (*tuple_table_slot).tts_values.add(col_idx);
+                    let is_null = (*tuple_table_slot).tts_isnull.add(col_idx);
+                    (*datum, *is_null)
+                })
+                .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
+        );
     }
 
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
     let arrow_schema = pg_relation.arrow_schema()?;
-    let batch = RecordBatch::try_new(arrow_schema.clone(), values)?;
+    let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
 
     Writer::write(schema_name, &table_path, arrow_schema, &batch).await
 }

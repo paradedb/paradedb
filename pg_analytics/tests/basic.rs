@@ -84,26 +84,6 @@ fn array_results(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn alter(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
-
-    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
-    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-
-    assert_eq!(column_names, vec!["a".to_string(), "b".to_string()]);
-
-    "ALTER TABLE t ADD COLUMN c int".execute(&mut conn);
-
-    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
-    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-
-    assert_eq!(
-        column_names,
-        vec!["a".to_string(), "b".to_string(), "c".to_string()]
-    );
-}
-
-#[rstest]
 fn delete(mut conn: PgConnection) {
     "CREATE TABLE employees (salary bigint, id smallint) USING parquet".execute(&mut conn);
 
@@ -213,15 +193,6 @@ fn rename(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn schema(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text NOT NULL) USING parquet".execute(&mut conn);
-    "INSERT INTO t values (1, 'test');".execute(&mut conn);
-
-    let row: (i32, String) = "SELECT * FROM t".fetch_one(&mut conn);
-    assert_eq!(row, (1, "test".into()));
-}
-
-#[rstest]
 fn select(mut conn: PgConnection) {
     UserSessionLogsTable::setup().execute(&mut conn);
 
@@ -326,31 +297,31 @@ fn types(mut conn: PgConnection) {
     assert_eq!(row.0, Date::parse("2024-01-29", fd).unwrap());
 
     match "CREATE TABLE t (a bytea) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("bytes should not be supported"),
     };
     match "CREATE TABLE t (a uuid) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("uuid should not be supported"),
     };
     match "CREATE TABLE t (a oid) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("oid should not be supported"),
     };
     match "CREATE TABLE t (a json) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("json should not be supported"),
     };
     match "CREATE TABLE t (a jsonb) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("jsonb should not be supported"),
     };
     match "CREATE TABLE t (a time) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("time should not be supported"),
     };
     match "CREATE TABLE t (a timetz) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not supported")),
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("timetz should not be supported"),
     };
 }
@@ -432,17 +403,9 @@ fn add_column(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
 
     match "ALTER TABLE t ADD COLUMN a int".execute_result(&mut conn) {
-        Err(err) => assert_eq!(
-            err.to_string(),
-            "error returned from database: column \"a\" of relation \"t\" already exists"
-        ),
-        _ => panic!("Adding a column with the same name should not be supported"),
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: ADD COLUMN is not yet supported. Please recreate the table instead."),
+        _ => panic!("Adding a column should not be supported"),
     };
-
-    "ALTER TABLE t ADD COLUMN c int".execute(&mut conn);
-    "INSERT INTO t VALUES (1, 'a', 2)".execute(&mut conn);
-    let row: (i32, String, i32) = "SELECT * FROM t".fetch_one(&mut conn);
-    assert_eq!(row, (1, "a".into(), 2));
 }
 
 #[rstest]
@@ -480,31 +443,7 @@ fn multiline_query(mut conn: PgConnection) {
     let select_count: (i64,) = "SELECT COUNT(*) FROM employees".fetch_one(&mut conn);
     assert_eq!(select_count, (2,));
 
-    "CREATE TABLE test_table (id smallint) USING parquet; ALTER TABLE test_table ADD COLUMN name text; ALTER TABLE test_table ADD COLUMN age smallint;"
-        .execute(&mut conn);
-    let rows: Vec<(String,)> =
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'test_table'"
-            .fetch(&mut conn);
-    let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-    assert_eq!(
-        column_names.sort(),
-        ["id".to_string(), "age".to_string(), "name".to_string()].sort()
-    );
-
-    "CREATE TABLE test_table2 (id smallint) USING parquet; INSERT INTO test_table2 VALUES (1), (2), (3); ALTER TABLE test_table2 ADD COLUMN name text;"
-        .execute(&mut conn);
-    let count: (i64,) = "SELECT COUNT(*) FROM test_table2".fetch_one(&mut conn);
-    assert_eq!(count, (3,));
-    let rows: Vec<(String,)> =
-        "SELECT column_name FROM information_schema.columns WHERE table_name = 'test_table2'"
-            .fetch(&mut conn);
-    let mut column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-    assert_eq!(
-        column_names.sort(),
-        ["id".to_string(), "name".to_string()].sort()
-    );
-
-    "CREATE TABLE test_table3 (id smallint) USING parquet; ALTER TABLE test_table3 ADD COLUMN name text; TRUNCATE TABLE test_table3;"
+    "CREATE TABLE test_table3 (id smallint) USING parquet; INSERT INTO test_table3 VALUES (1); TRUNCATE TABLE test_table3;"
         .execute(&mut conn);
     let count: (i64,) = "SELECT COUNT(*) FROM test_table3".fetch_one(&mut conn);
     assert_eq!(count, (0,));
@@ -626,4 +565,236 @@ fn big_insert(mut conn: PgConnection) {
 
     let count: (i64,) = "SELECT COUNT(*) FROM s".fetch_one(&mut conn);
     assert_eq!(count, (150000,));
+}
+
+#[rstest]
+fn timestamp_unbounded(mut conn: PgConnection) {
+    let timestamp_format = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
+    let date_format = format_description!("[year]-[month]-[day]");
+
+    r#"
+        CREATE TABLE dates (
+            date_column DATE,
+            timestamp_column TIMESTAMP
+        ) USING parquet;
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO dates (date_column, timestamp_column)
+        VALUES ('2022-01-01', '2022-01-01 12:00:00'),
+               ('0001-02-02', '0001-02-02 12:00:00'),
+               ('1230-02-03', '1230-02-03 12:00:00'),
+               ('1230-02-04', '1230-02-04 12:00:00'),
+               ('2000-02-04', '2000-02-04 12:00:00');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> = "SELECT * FROM dates".fetch(&mut conn);
+    assert_eq!(rows[0].0, Date::parse("2022-01-01", date_format).unwrap());
+    assert_eq!(rows[1].0, Date::parse("0001-02-02", date_format).unwrap());
+    assert_eq!(rows[2].0, Date::parse("1230-02-03", date_format).unwrap());
+    assert_eq!(rows[3].0, Date::parse("1230-02-04", date_format).unwrap());
+    assert_eq!(rows[4].0, Date::parse("2000-02-04", date_format).unwrap());
+    assert_eq!(
+        rows[0].1,
+        PrimitiveDateTime::parse("2022-01-01 12:00:00", timestamp_format).unwrap()
+    );
+    assert_eq!(
+        rows[1].1,
+        PrimitiveDateTime::parse("0001-02-02 12:00:00", timestamp_format).unwrap()
+    );
+    assert_eq!(
+        rows[2].1,
+        PrimitiveDateTime::parse("1230-02-03 12:00:00", timestamp_format).unwrap()
+    );
+    assert_eq!(
+        rows[3].1,
+        PrimitiveDateTime::parse("1230-02-04 12:00:00", timestamp_format).unwrap()
+    );
+    assert_eq!(
+        rows[4].1,
+        PrimitiveDateTime::parse("2000-02-04 12:00:00", timestamp_format).unwrap()
+    );
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE timestamp_column < '2000-02-04 12:00:01'::timestamp"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 4);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE timestamp_column < '2000-02-04 12:00:00'::timestamp"
+            .fetch(&mut conn);
+    assert_eq!(rows.len(), 3);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE date_column = '2000-02-04'::date".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE date_column < '1230-02-04'::date".fetch(&mut conn);
+    assert_eq!(rows.len(), 2);
+
+    let rows: Vec<(Date, PrimitiveDateTime)> =
+        "SELECT * FROM dates WHERE date_column < '1230-02-03'::date".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+}
+
+#[rstest]
+fn timestamp_precision(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE timestamps (
+            timestamp_6 TIMESTAMP(6)
+        ) USING parquet;
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO timestamps (timestamp_6)
+        VALUES ('2022-01-01 12:00:00.123456'),
+               ('2022-02-02 12:00:00.456789');
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(PrimitiveDateTime,)> = "SELECT * FROM timestamps".fetch(&mut conn);
+    assert_eq!(
+        rows[0].0,
+        PrimitiveDateTime::parse(
+            "2022-01-01 12:00:00",
+            format_description!("[year]-[month]-[day] [hour]:[minute]:[second]")
+        )
+        .unwrap()
+    );
+    assert_eq!(
+        rows[1].0,
+        PrimitiveDateTime::parse(
+            "2022-02-02 12:00:00",
+            format_description!("[year]-[month]-[day] [hour]:[minute]:[second]")
+        )
+        .unwrap()
+    );
+
+    let count: (i64,) =
+        "SELECT COUNT(*) FROM timestamps where timestamp_6 < '2022-02-02 12:00:00.456788'::timestamp"
+            .fetch_one(&mut conn);
+    assert_eq!(count, (1,));
+
+    let count: (i64,) =
+        "SELECT COUNT(*) FROM timestamps where timestamp_6 < '2022-02-02 12:00:00.456790'::timestamp"
+            .fetch_one(&mut conn);
+    assert_eq!(count, (2,));
+
+    match "CREATE TABLE s (a timestamp(3)) USING parquet".fetch_result::<()>(&mut conn) {
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: Schema error: Invalid data type for Delta Lake: Timestamp(Millisecond, None)"),
+        _ => panic!("timestamp(3) should not be supported"),
+    }
+
+    match "CREATE TABLE s (a timestamp(2)) USING parquet".fetch_result::<()>(&mut conn) {
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: Only timestamp and timestamp(6), not timestamp(2), are supported"),
+        _ => panic!("timestamp(3) should not be supported"),
+    }
+}
+
+#[rstest]
+fn numeric(mut conn: PgConnection) {
+    r#"
+        CREATE TABLE t (
+            num1 NUMERIC(5, 2),
+            num2 NUMERIC(10, 5),
+            num3 NUMERIC(15, 10)
+        ) USING parquet;
+    "#
+    .execute(&mut conn);
+
+    r#"
+        INSERT INTO t (num1, num2, num3)
+        VALUES (12.34, 123.67890, 1234.1234567890),
+               (123.34, 123.45678, 12345.2234567890);
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(BigDecimal, BigDecimal, BigDecimal)> = "SELECT * FROM t".fetch(&mut conn);
+    assert_eq!(rows[0].0, BigDecimal::from_str("12.34").unwrap());
+    assert_eq!(rows[0].1, BigDecimal::from_str("123.67890").unwrap());
+    assert_eq!(rows[0].2, BigDecimal::from_str("1234.1234567890").unwrap());
+    assert_eq!(rows[1].0, BigDecimal::from_str("123.34").unwrap());
+    assert_eq!(rows[1].1, BigDecimal::from_str("123.45678").unwrap());
+    assert_eq!(rows[1].2, BigDecimal::from_str("12345.2234567890").unwrap());
+
+    let rows: Vec<(BigDecimal, BigDecimal, BigDecimal)> =
+        "SELECT * FROM t WHERE num2 = 123.45678".fetch(&mut conn);
+    assert_eq!(rows.len(), 1);
+
+    match "CREATE TABLE s (num1 NUMERIC) USING parquet".fetch_result::<()>(&mut conn) {
+        Err(err) => assert!(err.to_string().contains("not yet supported")),
+        _ => panic!("unbounded numerics should not be supported"),
+    }
+}
+
+#[rstest]
+#[ignore]
+fn alter(mut conn: PgConnection) {
+    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
+
+    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
+    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
+
+    assert_eq!(column_names, vec!["a".to_string(), "b".to_string()]);
+
+    "ALTER TABLE t ADD COLUMN c int".execute(&mut conn);
+
+    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
+    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
+
+    assert_eq!(
+        column_names,
+        vec!["a".to_string(), "b".to_string(), "c".to_string()]
+    );
+}
+
+#[rstest]
+#[allow(clippy::type_complexity)]
+fn null_values(mut conn: PgConnection) {
+    "CREATE TABLE t (a int, b text NOT NULL) USING parquet".execute(&mut conn);
+    "INSERT INTO t values (1, 'test');".execute(&mut conn);
+
+    let row: (i32, String) = "SELECT * FROM t".fetch_one(&mut conn);
+    assert_eq!(row, (1, "test".into()));
+
+    r#"
+    CREATE TABLE s (
+        id SERIAL PRIMARY KEY,
+        my_bool BOOLEAN,
+        my_int INTEGER,
+        my_numeric NUMERIC(5, 5),
+        my_date DATE,
+        my_time TIMESTAMP,
+        my_array INTEGER[]
+    ) USING parquet;
+    "#
+    .execute(&mut conn);
+
+    r#"
+    INSERT INTO s (my_bool, my_int, my_numeric, my_date, my_time, my_array)
+    VALUES (NULL, NULL, NULL, NULL, NULL, NULL);
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(
+        i32,
+        Option<bool>,
+        Option<i32>,
+        Option<BigDecimal>,
+        Option<Date>,
+        Option<PrimitiveDateTime>,
+        Option<Vec<Option<i32>>>,
+    )> = "SELECT * FROM s".fetch(&mut conn);
+
+    assert_eq!(rows[0].0, 1);
+    assert_eq!(rows[0].1, None);
+    assert_eq!(rows[0].2, None);
+    assert_eq!(rows[0].3, None);
+    assert_eq!(rows[0].4, None);
+    assert_eq!(rows[0].5, None);
+    assert_eq!(rows[0].6, None);
 }

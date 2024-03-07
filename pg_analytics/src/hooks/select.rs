@@ -1,11 +1,10 @@
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 
-use crate::datafusion::datatype::{
-    DatafusionMapProducer, DatafusionTypeTranslator, PostgresTypeTranslator,
-};
 use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
+use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
+use crate::types::datum::GetDatum;
 
 pub fn select(
     mut query_desc: PgBox<pg_sys::QueryDesc>,
@@ -37,8 +36,9 @@ pub fn select(
             // Convert the tuple_desc target types to the ones corresponding to the DataFusion column types
             let tuple_attrs = (*query_desc.tupDesc).attrs.as_mut_ptr();
             for (col_index, _attr) in tuple_desc.iter().enumerate() {
-                let dt = recordbatch.column(col_index).data_type();
-                let (typid, typmod) = PgOid::from_sql_data_type(dt.to_sql_data_type()?)?;
+                let PgAttribute(typid, PgTypeMod(typmod)) =
+                    ArrowDataType(recordbatch.column(col_index).data_type().clone()).try_into()?;
+
                 let tuple_attr = tuple_attrs.add(col_index);
                 (*tuple_attr).atttypid = typid.value();
                 (*tuple_attr).atttypmod = typmod;
@@ -55,17 +55,12 @@ pub fn select(
                 u64_to_item_pointer(row_number as u64, &mut tid);
                 (*tuple_table_slot).tts_tid = tid;
 
-                for (col_index, _attr) in tuple_desc.iter().enumerate() {
+                for (col_index, _) in tuple_desc.iter().enumerate() {
                     let column = recordbatch.column(col_index);
-                    let dt = column.data_type();
                     let tts_value = (*tuple_table_slot).tts_values.add(col_index);
                     let tts_isnull = (*tuple_table_slot).tts_isnull.add(col_index);
 
-                    match DatafusionMapProducer::index_datum(
-                        dt.to_sql_data_type()?,
-                        column,
-                        row_index,
-                    )? {
+                    match column.get_datum(row_index)? {
                         Some(datum) => {
                             *tts_value = datum;
                         }

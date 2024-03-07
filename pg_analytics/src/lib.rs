@@ -5,6 +5,7 @@ mod errors;
 mod guc;
 mod hooks;
 mod tableam;
+mod types;
 
 use pgrx::*;
 use shared::logs::ParadeLogsGlobal;

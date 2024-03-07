@@ -1,7 +1,5 @@
 use deltalake::arrow::error::ArrowError;
-use deltalake::datafusion::arrow::datatypes::DataType;
 use deltalake::datafusion::common::DataFusionError;
-use deltalake::datafusion::sql::sqlparser::ast::DataType as SQLDataType;
 use deltalake::errors::DeltaTableError;
 use pgrx::*;
 use shared::postgres::transaction::TransactionError;
@@ -10,6 +8,8 @@ use std::num::ParseIntError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
+
+use crate::types::datatype::DataTypeError;
 
 #[derive(Error, Debug)]
 pub enum ParadeError {
@@ -32,10 +32,10 @@ pub enum ParadeError {
     TransactionError(#[from] TransactionError),
 
     #[error(transparent)]
-    NotSupported(#[from] NotSupported),
+    DataType(#[from] DataTypeError),
 
-    #[error("Could not downcast generic arrow array: {0}")]
-    DowncastGenericArray(DataType),
+    #[error(transparent)]
+    NotSupported(#[from] NotSupported),
 
     #[error(
         "pg_analytics not found in shared_preload_libraries. Check your postgresql.conf file."
@@ -60,32 +60,17 @@ pub enum NotFound {
     #[error("No table registered with name {0}")]
     Table(String),
 
-    #[error("Failed to convert to datum {0}")]
-    Datum(String),
-
     #[error("Expected value of type {0} but found None")]
     Value(String),
 }
 
 #[derive(Error, Debug)]
 pub enum NotSupported {
-    #[error("DataType {0} not supported")]
-    DataType(DataType),
-
-    #[error("SQLDataType {0} not supported")]
-    SQLDataType(SQLDataType),
-
-    #[error("Postgres type {0:?} not supported")]
-    BuiltinPostgresType(pg_sys::BuiltinOid),
-
     #[error("TEMP tables are not yet supported")]
     TempTable,
 
-    #[error("Invalid Postgres type not supported")]
-    InvalidPostgresType,
-
-    #[error("Custom Postgres types are not supported")]
-    CustomPostgresType,
+    #[error("ADD COLUMN is not yet supported. Please recreate the table instead.")]
+    AddColumn,
 
     #[error("DROP COLUMN is not yet supported. Please recreate the table instead.")]
     DropColumn,

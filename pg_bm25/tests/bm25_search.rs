@@ -1,5 +1,7 @@
 mod fixtures;
 
+use core::panic;
+
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
@@ -302,6 +304,22 @@ fn highlight(mut conn: PgConnection) {
 #[rstest]
 fn alias(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
+
+    let rows = "
+        SELECT id, paradedb.highlight(id, field => 'description') FROM bm25_search.search('description:shoes')
+        UNION
+        SELECT id, paradedb.highlight(id, field => 'description')
+        FROM bm25_search.search('description:speaker')
+        ORDER BY id"
+        .fetch_result::<()>(&mut conn);
+
+    match rows {
+        Ok(_) => panic!("an alias should be required for multiple search calls"),
+        Err(err) => assert!(err
+            .to_string()
+            .contains("could not store search state in manager: AliasRequired")),
+    }
+
     let rows: Vec<(i32, String)> = "
         SELECT id, paradedb.highlight(id, field => 'description') FROM bm25_search.search('description:shoes')
         UNION

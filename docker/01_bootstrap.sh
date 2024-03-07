@@ -10,6 +10,12 @@ set -Eeuo pipefail
 # set the superuser password to default to the user password in that case
 SUPERUSER_PASSWORD=${POSTGRESQL_POSTGRES_PASSWORD:-$POSTGRESQL_PASSWORD}
 
+# If the PARADEDB_TELEMETRY is not provided, we default to not sending telemetry
+PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY:-"false"}
+POSTHOG_API_KEY=${POSTHOG_API_KEY:-""}
+POSTHOG_HOST=${POSTHOG_HOST:-""}
+COMMIT_SHA=${COMMIT_SHA:-""}
+
 echo "ParadeDB bootstrap started..."
 echo "Configuring PostgreSQL search path..."
 
@@ -49,11 +55,11 @@ PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d template1 -c "CREATE EXTENSIO
 PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS svector CASCADE;"
 PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d template1 -c "CREATE EXTENSION IF NOT EXISTS vector CASCADE;"
 
-echo "Sending anonymous deployment telemetry (to turn off, unset PARADEDB_TELEMETRY)..."
-
 # We collect basic, anonymous telemetry to help us understand how many people are using
 # the project. We only do this if PARADEDB_TELEMETRY is set to "true"
-if [[ ${PARADEDB_TELEMETRY:-} == "true" ]]; then
+if [[ "$PARADEDB_TELEMETRY" == "true" ]] && [ "$POSTHOG_API_KEY" != "" ] && [ "$POSTHOG_HOST" != "" ]; then
+  echo "Sending anonymous deployment telemetry. To turn off, unset PARADEDB_TELEMETRY..."
+
   # For privacy reasons, we generate an anonymous UUID for each new deployment
   UUID_FILE="/bitnami/postgresql/data/paradedb_uuid"
   if [ ! -f "$UUID_FILE" ]; then
@@ -67,7 +73,7 @@ if [[ ${PARADEDB_TELEMETRY:-} == "true" ]]; then
     "event": "ParadeDB Deployment",
     "distinct_id": "'"$DISTINCT_ID"'",
     "properties": {
-      "commit_sha": "'"${COMMIT_SHA:-}"'"
+      "commit_sha": "'"$COMMIT_SHA"'"
     }
   }' "$POSTHOG_HOST/capture/"
 

@@ -282,3 +282,19 @@ fn multi_tree(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![32, 5, 3, 4, 7, 34, 37, 10, 33, 39, 41]);
 }
+
+#[rstest]
+fn highlight(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    let row: (String,) = "
+        SELECT paradedb.highlight(id, 'description')
+        FROM bm25_search.search('description:shoes')"
+        .fetch_one(&mut conn);
+    assert_eq!(row.0, "Generic <b>shoes</b>");
+
+    let row: (String,) = "
+        SELECT paradedb.highlight(id, 'description', prefix => '<h1>', postfix => '</h1>')
+        FROM bm25_search.search('description:shoes')"
+        .fetch_one(&mut conn);
+    assert_eq!(row.0, "Generic <h1>shoes</h1>")
+}

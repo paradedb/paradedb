@@ -8,11 +8,11 @@ use deltalake::datafusion::logical_expr::{create_udf, ColumnarValue, Volatility}
 use std::cmp::max;
 use std::ffi::{CStr, CString};
 
-use crate::datafusion::datatype::DatafusionMapProducer;
-use crate::datafusion::datatype::DatafusionTypeTranslator;
-use crate::datafusion::datatype::PostgresTypeTranslator;
 use crate::datafusion::session::Session;
 use crate::errors::ParadeError;
+use crate::types::array::IntoArrowArray;
+use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
+use crate::types::datum::GetDatum;
 
 // NOTE: because we don't use argtypes yet (see TODO below), using this function on overloaded functions WILL
 //       throw a postgres error
@@ -64,7 +64,7 @@ unsafe fn func_list_from_name(funcname: &str) -> Result<pg_sys::FuncCandidateLis
         std::ptr::null_mut(),
         false,
         false,
-        #[cfg(any(feature = "pg15", feature = "pg16"))]
+        #[cfg(any(feature= "pg14", feature = "pg15", feature = "pg16"))]
         false,
         true,
     ))
@@ -81,8 +81,7 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFu
             pg_sys::palloc0(std::mem::size_of::<pg_sys::Oid>() * num_args) as *mut pg_sys::Oid;
         for (arg_index, arg) in args.iter().enumerate().take(num_args).skip(1) {
             let dt = arg.data_type();
-            let (oid, _typmod): (PgOid, Option<i32>) =
-                PostgresTypeTranslator::from_sql_data_type(dt.to_sql_data_type()?)?;
+            let PgAttribute(oid, _typmod) = ArrowDataType(dt).try_into()?;
             *(arg_oids.add(arg_index)) = oid.value();
 
             if let ColumnarValue::Array(arg_arr) = &args[arg_index] {
@@ -126,13 +125,9 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFu
             for row_index in 0..num_rows {
                 for arg_index in 1..num_args {
                     let fcinfo_arg = (*fcinfo).args.as_mut_ptr().add(arg_index - 1);
-                    // (*fcinfo_arg).value = DatafusionMapProducer::index_datum(
-                    //     arg_arrays[arg_index - 1].data_type().to_sql_data_type()?,
-                    //     &arg_arrays[arg_index - 1],
-                    //     row_index,
-                    // )?
-                    (*fcinfo_arg).value = arg_arrays[arg_index - 1].get_datum(row_index)?;
-                    .ok_or(DataFusionError::Internal("No datum for type".to_string()))?;
+                    (*fcinfo_arg).value = arg_arrays[arg_index - 1]
+                        .get_datum(row_index)?
+                        .ok_or(DataFusionError::Internal("No datum for type".to_string()))?;
                     (*fcinfo_arg).isnull = false;
                 }
 
@@ -141,22 +136,17 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFu
                     .ok_or(DataFusionError::Internal(
                         "Invalid function address for udf".to_string(),
                     ))?(fcinfo);
-                result_vec.push(result_datum);
+                result_vec.push((result_datum, false));
             }
 
             // UDF return type
             let rettype = pg_sys::get_func_rettype(func_oid);
 
-            // Ok(ColumnarValue::Array(DatafusionMapProducer::array(
-            //     DatafusionTypeTranslator::from_sql_data_type(
-            //         PgOid::from(rettype).to_sql_data_type(None)?,
-            //     )?,
-            //     None,
-            //     None,
-            //     Some(&result_vec),
-            //     0,
-            // )?))
-            Ok(result_vec.into_arrow_array()?)
+            Ok(ColumnarValue::Array(
+                result_vec
+                    .into_iter()
+                    .into_arrow_array(rettype.into(), PgTypeMod(-1))?,
+            ))
         } else {
             Err(DataFusionError::Internal("No funcname".to_string()))
         }
@@ -181,17 +171,12 @@ pub unsafe fn loadfunction(funcname: &str) -> Result<(), ParadeError> {
         input_types.push(DataType::Utf8); // function name
         for param_index in 0..nargs {
             let arg_oid = arg_types.add(param_index as usize);
-            input_types.push(ArrowDataType::try_from(PgAttribute(arg_oid, PgTypeMod(-1)))?);
-            // input_types.push(DatafusionTypeTranslator::from_sql_data_type(
-            //     PgOid::from(*arg_oid).to_sql_data_type(None)?,
-            // )?);
+            let ArrowDataType(datatype) =
+                PgAttribute((*arg_oid).into(), PgTypeMod(-1)).try_into()?;
+            input_types.push(datatype);
         }
 
-        // let return_type = DatafusionTypeTranslator::from_sql_data_type(
-        //     PgOid::from(ret_oid).to_sql_data_type(None)?,
-        // )?;
-
-        let return_type = ArrowDataType::try_from(PgAttribute(arg_oid, PgTypeMod(-1)))?
+        let ArrowDataType(return_type) = PgAttribute(ret_oid.into(), PgTypeMod(-1)).try_into()?;
 
         let udf = create_udf(
             funcname,

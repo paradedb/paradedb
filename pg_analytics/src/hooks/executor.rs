@@ -49,18 +49,6 @@ pub fn executor_run(
             return Ok(());
         }
 
-        // CREATE TABLE commands can reach the executor hook
-        // in the case of CREATE TABLE AS SELECT, and we should
-        // let them go through to the table access method
-        if let Ok(ast) = pg_plan.get_ast(&query) {
-            if let parser::Statement::Statement(inner_statement) = &ast[0] {
-                if let Statement::CreateTable { .. } = inner_statement.as_ref() {
-                    prev_hook(query_desc, direction, count, execute_once);
-                    return Ok(());
-                }
-            }
-        };
-
         // Parse the query into a LogicalPlan
         let logical_plan = match pg_plan.get_logical_plan(&query) {
             Ok(logical_plan) => logical_plan,

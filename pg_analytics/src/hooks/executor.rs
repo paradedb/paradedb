@@ -59,8 +59,8 @@ pub fn executor_run(
             }
         };
 
-        // CREATE TABLE commands can reach the executor hookin the case of
-        // CREATE TABLE AS SELECT. We should let them go through to the table access method.
+        // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
+        // We should let these queries go through to the table access method
         if let LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_)) = logical_plan {
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());

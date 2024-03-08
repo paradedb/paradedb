@@ -8,27 +8,27 @@ use time::{Date, PrimitiveDateTime};
 pub struct ResearchProjectArraysTable {
     #[sqlx(skip)]
     pub project_id: Uuid,
-    pub experiment_flags: Vec<bool>,
+    pub experiment_flags: Option<Vec<bool>>,
     #[sqlx(skip)]
-    pub binary_data: Vec<Vec<u8>>,
-    pub notes: Vec<String>,
-    pub keywords: Vec<String>,
-    pub short_descriptions: Vec<String>,
-    pub participant_ages: Vec<i16>,
-    pub participant_ids: Vec<i32>,
-    pub observation_counts: Vec<i64>,
+    pub binary_data: Option<Vec<Vec<u8>>>,
+    pub notes: Option<Vec<String>>,
+    pub keywords: Option<Vec<String>>,
+    pub short_descriptions: Option<Vec<String>>,
+    pub participant_ages: Option<Vec<i16>>,
+    pub participant_ids: Option<Vec<i32>>,
+    pub observation_counts: Option<Vec<i64>>,
     #[sqlx(skip)]
-    pub related_project_o_ids: Vec<Oid>,
-    pub measurement_errors: Vec<f32>,
-    pub precise_measurements: Vec<f64>,
+    pub related_project_o_ids: Option<Vec<Oid>>,
+    pub measurement_errors: Option<Vec<f32>>,
+    pub precise_measurements: Option<Vec<f64>>,
     #[sqlx(skip)]
-    pub observation_timestamps: Vec<PrimitiveDateTime>,
+    pub observation_timestamps: Option<Vec<PrimitiveDateTime>>,
     #[sqlx(skip)]
-    pub observation_dates: Vec<Date>,
+    pub observation_dates: Option<Vec<Date>>,
     #[sqlx(skip)]
-    pub budget_allocations: Vec<BigDecimal>,
+    pub budget_allocations: Option<Vec<BigDecimal>>,
     #[sqlx(skip)]
-    pub participant_uuids: Vec<Uuid>,
+    pub participant_uuids: Option<Vec<Uuid>>,
 }
 
 impl ResearchProjectArraysTable {

@@ -1,10 +1,6 @@
 use async_std::task;
-use deltalake::datafusion::error::DataFusionError;
-use deltalake::datafusion::sql::parser::{self, DFParser};
-use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::pg_sys::NodeTag;
 use pgrx::*;
-use std::collections::VecDeque;
 use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
@@ -46,8 +42,10 @@ pub fn process_utility(
         let plan = pstmt.utilityStmt;
 
         // Parse the query into an AST
-        let query = pstmt.clone().into_pg().current_query_string(query_string)?;
-        let ast = match create_ast(&query) {
+        let pg_plan = pstmt.clone().into_pg();
+        let query = pg_plan.get_query_string(query_string)?;
+
+        let ast = match pg_plan.get_ast(&query) {
             Ok(ast) => ast,
             // If DataFusion can't parse the query, let Postgres handle it
             Err(_) => {
@@ -98,11 +96,4 @@ pub fn process_utility(
 
         Ok(())
     }
-}
-
-#[inline]
-fn create_ast(query: &str) -> Result<VecDeque<parser::Statement>, ParadeError> {
-    let dialect = PostgreSqlDialect {};
-    DFParser::parse_sql_with_dialect(query, &dialect)
-        .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))
 }

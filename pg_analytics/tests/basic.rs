@@ -798,3 +798,35 @@ fn null_values(mut conn: PgConnection) {
     assert_eq!(rows[0].5, None);
     assert_eq!(rows[0].6, None);
 }
+
+#[rstest]
+fn copy_parquet_to_heap(mut conn: PgConnection) {
+    UserSessionLogsTable::setup().execute(&mut conn);
+    "CREATE TABLE heap AS SELECT * FROM user_session_logs".execute(&mut conn);
+
+    let ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    let event_names =
+        "Login,Purchase,Logout,Signup,ViewProduct,AddToCart,RemoveFromCart,Checkout,Payment,Review";
+
+    let columns: UserSessionLogsTableVec =
+        "SELECT * FROM heap ORDER BY id".fetch_collect(&mut conn);
+
+    assert_eq!(&columns.id[0..10], ids, "ids are in expected order");
+    assert_eq!(
+        &columns.event_name[0..10],
+        event_names.split(',').collect::<Vec<_>>(),
+        "event names are in expected order"
+    );
+
+    "SELECT * INTO heap2 from user_session_logs".execute(&mut conn);
+
+    let columns: UserSessionLogsTableVec =
+        "SELECT * FROM heap2 ORDER BY id".fetch_collect(&mut conn);
+
+    assert_eq!(&columns.id[0..10], ids, "ids are in expected order");
+    assert_eq!(
+        &columns.event_name[0..10],
+        event_names.split(',').collect::<Vec<_>>(),
+        "event names are in expected order"
+    );
+}

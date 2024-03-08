@@ -13,7 +13,7 @@ Call `paradedb.rank_bm25` in a SELECT statement, passing in the `key_field` colu
 If you are using two calls to `search` in the same transaction, you must pass a string `alias` argument to `search` and `rank_bm25` to identify which set of bm25 scores to use.
 
 ```sql
-SELECT *, paradedb.rank_bm25(<key>) FROM <index_name>.search('<query>');
+SELECT *, paradedb.rank_bm25(<key_field>) FROM <index_name>.search('<query>');
 ```
 
 <Accordion title="Example Usage">
@@ -40,7 +40,7 @@ ORDER BY id;
 
 </Accordion>
 
-<ParamField body="key" required>
+<ParamField body="key_field" required>
   The column that represents the `key_field` of the index.
 </ParamField>
 <ParamField body="alias">

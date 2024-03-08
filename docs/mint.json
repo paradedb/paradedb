@@ -101,8 +101,7 @@
             "search/full-text/bm25",
             "search/full-text/complex",
             "search/full-text/scoring",
-            "search/full-text/highlighting",
-            "search/full-text/autocomplete"
+            "search/full-text/highlighting"
           ]
         },
         {

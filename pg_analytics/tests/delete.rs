@@ -52,9 +52,7 @@ fn federated_delete(mut conn: PgConnection) {
     .execute(&mut conn);
 
     match "DELETE FROM u WHERE name IN (SELECT name FROM v)".execute_result(&mut conn) {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("This feature is not implemented: dml unsupported")),
-        _ => panic!("Federated DML shoudl not be supported"),
+        Err(err) => assert!(err.to_string().contains("dml unsupported")),
+        _ => panic!("Federated DML should not be supported"),
     };
 }

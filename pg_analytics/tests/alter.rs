@@ -53,6 +53,45 @@ fn rename_column(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn alter_rls(mut conn: PgConnection) {
+    // Makes sure that statements like ALTER TABLE <table> ENABLE ROW LEVEL SECURITY
+    // which are not supported by sqlparser are passed to Postgres successfully
+    r#"
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'engineering') THEN
+                EXECUTE 'DROP OWNED BY engineering CASCADE';
+                EXECUTE 'DROP ROLE engineering';
+            END IF;
+        END$$;
+        CREATE ROLE engineering LOGIN PASSWORD 'password';
+        CREATE TABLE employee (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(100),
+            salary INTEGER,
+            department VARCHAR(100)
+        );
+        ALTER TABLE employee ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY select_department ON employee
+        FOR SELECT
+        TO public
+        USING (department = current_user);
+        INSERT INTO employee (name, salary, department) VALUES
+            ('John Doe', 50000, 'engineering'),
+            ('Jane Smith', 55000, 'hr'),
+            ('Alice Johnson', 60000, 'engineering'),
+            ('Bob Brown', 45000, 'marketing');
+        GRANT SELECT ON TABLE employee TO engineering;
+        SET ROLE engineering;
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = "SELECT id FROM employee".fetch(&mut conn);
+    let ids: Vec<i32> = rows.into_iter().map(|r| r.0).collect();
+    assert_eq!(ids, [1, 3]);
+}
+
+#[rstest]
 #[ignore]
 fn alter(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);

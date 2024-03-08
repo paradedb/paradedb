@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
 use std::str::FromStr;
-use time::{macros::format_description, Date, PrimitiveDateTime};
+use time::{macros::format_description, Date};
 
 #[rstest]
 fn select_user_session_logs(mut conn: PgConnection) {

@@ -4,16 +4,6 @@ use soa_derive::StructOfArray;
 use sqlx::FromRow;
 use time::Date;
 
-pub type UserSessionLogsRows = Vec<(
-    Option<i32>,
-    Option<Date>,
-    Option<i32>,
-    Option<String>,
-    Option<i32>,
-    Option<i32>,
-    Option<BigDecimal>,
-)>;
-
 #[derive(Debug, PartialEq, FromRow, StructOfArray, Serialize, Deserialize)]
 pub struct UserSessionLogsTable {
     pub id: i32,

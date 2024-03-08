@@ -72,6 +72,6 @@ fn join_heap_and_parquet_table(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let count: (i64,) =
-        "SELECT COUNT(*) FROM t JOIN s ON t.department_id = s.id".fetch_one(&mut conn);
+        "SELECT COUNT(*) FROM u JOIN v ON u.department_id = v.id".fetch_one(&mut conn);
     assert_eq!(count, (4,));
 }

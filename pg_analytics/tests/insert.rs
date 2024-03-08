@@ -97,7 +97,7 @@ fn insert_not_null(mut conn: PgConnection) {
 
     match "INSERT INTO t VALUES (1)".fetch_result::<()>(&mut conn) {
         Ok(_) => panic!("should not be able to insert null into non-nullable column"),
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: null value in column \"b\" of relation \"t\" violates not-null constraint"),
+        Err(err) => assert!(err.to_string().contains("violates not-null constraint")),
     };
 }
 

@@ -32,8 +32,12 @@ pub struct ResearchProjectArraysTable {
 }
 
 impl ResearchProjectArraysTable {
-    pub fn setup() -> &'static str {
-        RESEARCH_PROJECT_ARRAYS_TABLE_SETUP
+    pub fn setup_parquet() -> String {
+        RESEARCH_PROJECT_ARRAYS_TABLE_SETUP.replace("{}", "parquet")
+    }
+
+    pub fn setup_heap() -> String {
+        RESEARCH_PROJECT_ARRAYS_TABLE_SETUP.replace("{}", "heap")
     }
 }
 
@@ -55,7 +59,7 @@ CREATE TABLE research_project_arrays (
     -- observation_dates DATE[],
     -- budget_allocations NUMERIC[],
     -- participant_uuids UUID[]
-) USING parquet;
+) USING {};
 
 INSERT INTO research_project_arrays (
     -- project_id,

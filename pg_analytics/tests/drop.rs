@@ -30,8 +30,8 @@ fn drop_parquet(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn drop_heap_and_parquet(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
+fn drop_heap(mut conn: PgConnection) {
+    "CREATE TABLE t (a int, b text)".execute(&mut conn);
     "CREATE TABLE s (a int, b text)".execute(&mut conn);
     "DROP TABLE s, t".execute(&mut conn);
 
@@ -47,8 +47,8 @@ fn drop_heap_and_parquet(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn drop_heap(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text)".execute(&mut conn);
+fn drop_heap_and_parquet(mut conn: PgConnection) {
+    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
     "CREATE TABLE s (a int, b text)".execute(&mut conn);
     "DROP TABLE s, t".execute(&mut conn);
 

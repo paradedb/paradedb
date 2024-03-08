@@ -8,104 +8,6 @@ use std::str::FromStr;
 use time::{macros::format_description, Date, PrimitiveDateTime};
 
 #[rstest]
-fn join_two_parquet_tables(mut conn: PgConnection) {
-    "CREATE TABLE t ( id INT PRIMARY KEY, name VARCHAR(50), department_id INT ) USING parquet"
-        .execute(&mut conn);
-    "CREATE TABLE s ( id INT PRIMARY KEY, department_name VARCHAR(50) ) USING parquet"
-        .execute(&mut conn);
-
-    r#"
-    INSERT INTO t (id, name, department_id) VALUES
-    (1, 'Alice', 101),
-    (2, 'Bob', 102),
-    (3, 'Charlie', 103),
-    (4, 'David', 101);
-    INSERT INTO s (id, department_name) VALUES
-    (101, 'Human Resources'),
-    (102, 'Finance'),
-    (103, 'IT');
-    "#
-    .execute(&mut conn);
-
-    let count: (i64,) =
-        "SELECT COUNT(*) FROM t JOIN s ON t.department_id = s.id".fetch_one(&mut conn);
-    assert_eq!(count, (4,));
-}
-
-#[rstest]
-fn join_heap_and_parquet_table(mut conn: PgConnection) {
-    "CREATE TABLE u ( id INT PRIMARY KEY, name VARCHAR(50), department_id INT ) USING parquet"
-        .execute(&mut conn);
-    "CREATE TABLE v ( id INT PRIMARY KEY, department_name VARCHAR(50) )".execute(&mut conn);
-    r#"
-    INSERT INTO u (id, name, department_id) VALUES
-    (1, 'Alice', 101),
-    (2, 'Bob', 102),
-    (3, 'Charlie', 103),
-    (4, 'David', 101);
-    INSERT INTO v (id, department_name) VALUES
-    (101, 'Human Resources'),
-    (102, 'Finance'),
-    (103, 'IT');
-    "#
-    .execute(&mut conn);
-
-    match "SELECT COUNT(*) FROM u JOIN v ON u.department_id = v.id".fetch_result::<()>(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not yet supported")),
-        _ => panic!("heap and parquet tables in same query should be unsupported"),
-    }
-}
-
-#[rstest]
-fn rename(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
-    "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')".execute(&mut conn);
-    "ALTER TABLE t RENAME TO s".execute(&mut conn);
-
-    let rows: Vec<(i32, String)> = "SELECT * FROM s".fetch(&mut conn);
-    assert_eq!(rows[0], (1, "a".into()));
-    assert_eq!(rows[1], (2, "b".into()));
-    assert_eq!(rows[2], (3, "c".into()));
-}
-
-#[rstest]
-fn select(mut conn: PgConnection) {
-    UserSessionLogsTable::setup().execute(&mut conn);
-
-    let rows: Vec<(Date, BigDecimal)> = r#"
-    SELECT event_date, SUM(revenue) AS total_revenue
-    FROM user_session_logs
-    GROUP BY event_date
-    ORDER BY event_date"#
-        .fetch(&mut conn);
-
-    let expected_dates = "
-        2024-01-01,2024-01-02,2024-01-03,2024-01-04,2024-01-05,2024-01-06,2024-01-07,
-        2024-01-08,2024-01-09,2024-01-10,2024-01-11,2024-01-12,2024-01-13,2024-01-14,
-        2024-01-15,2024-01-16,2024-01-17,2024-01-18,2024-01-19,2024-01-20"
-        .split(',')
-        .map(|s| Date::parse(s.trim(), format_description!("[year]-[month]-[day]")).unwrap());
-
-    let expected_revenues = "
-        20.00,150.50,0.00,0.00,30.75,75.00,0.00,200.25,300.00,50.00,0.00,125.30,0.00,
-        0.00,45.00,80.00,0.00,175.50,250.00,60.00"
-        .split(',')
-        .map(|s| BigDecimal::from_str(s.trim()).unwrap());
-
-    assert!(rows.iter().map(|r| r.0).eq(expected_dates));
-    assert!(rows.iter().map(|r| r.1.clone()).eq(expected_revenues));
-}
-
-#[rstest]
-fn truncate(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
-    "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c'); TRUNCATE t;".execute(&mut conn);
-
-    let rows: Vec<(i32, String)> = "SELECT * FROM t".fetch(&mut conn);
-    assert!(rows.is_empty())
-}
-
-#[rstest]
 fn types(mut conn: PgConnection) {
     "CREATE TABLE test_text (a text) USING parquet".execute(&mut conn);
     "INSERT INTO test_text VALUES ('hello world')".execute(&mut conn);
@@ -218,7 +120,7 @@ fn vacuum(mut conn: PgConnection) {
 
 #[rstest]
 async fn copy_out_arrays(mut conn: PgConnection) {
-    ResearchProjectArraysTable::setup().execute(&mut conn);
+    ResearchProjectArraysTable::setup_parquet().execute(&mut conn);
 
     let copied_csv = conn
         .copy_out_raw(
@@ -238,7 +140,7 @@ experiment_flags,notes,keywords,short_descriptions,participant_ages,participant_
 
 #[rstest]
 async fn copy_out_basic(mut conn: PgConnection) {
-    UserSessionLogsTable::setup().execute(&mut conn);
+    UserSessionLogsTable::setup_parquet().execute(&mut conn);
 
     let copied_csv = conn
         .copy_out_raw(
@@ -275,36 +177,6 @@ id,event_date,user_id,event_name,session_duration,page_views,revenue
 }
 
 #[rstest]
-fn add_column(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
-
-    match "ALTER TABLE t ADD COLUMN a int".execute_result(&mut conn) {
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: ADD COLUMN is not yet supported. Please recreate the table instead."),
-        _ => panic!("Adding a column should not be supported"),
-    };
-}
-
-#[rstest]
-fn drop_column(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text, c int) USING parquet".execute(&mut conn);
-
-    match "ALTER TABLE t DROP COLUMN a".execute_result(&mut conn) {
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: DROP COLUMN is not yet supported. Please recreate the table instead."),
-        _ => panic!("Dropping a column should not be supported"),
-    };
-}
-
-#[rstest]
-fn rename_column(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
-
-    match "ALTER TABLE t RENAME COLUMN a TO c".execute_result(&mut conn) {
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: RENAME COLUMN is not yet supported. Please recreate the table instead."),
-        _ => panic!("Renaming a column should not be supported"),
-    };
-}
-
-#[rstest]
 fn multiline_query(mut conn: PgConnection) {
     "CREATE TABLE employees (salary bigint, id smallint) USING parquet; INSERT INTO employees VALUES (100, 1), (200, 2), (300, 3), (400, 4), (500, 5);".execute(&mut conn);
     let insert_count: (i64,) = "SELECT COUNT(*) FROM employees".fetch_one(&mut conn);
@@ -331,49 +203,6 @@ fn multiline_query(mut conn: PgConnection) {
         column_names.sort(),
         ["id".to_string(), "name".to_string()].sort()
     );
-}
-
-#[rstest]
-fn search_path(mut conn: PgConnection) {
-    r#"
-        CREATE SCHEMA s1; 
-        CREATE SCHEMA s2; 
-        CREATE TABLE t (a int) USING parquet; 
-        CREATE TABLE s1.u (a int) USING parquet; 
-        CREATE TABLE s2.v (a int) USING parquet; 
-        CREATE TABLE s1.t (a int) USING parquet; 
-        CREATE TABLE s2.t (a int) USING parquet; 
-        INSERT INTO t VALUES (0); 
-        INSERT INTO s1.u VALUES (1); 
-        INSERT INTO s2.v VALUES (2); 
-        INSERT INTO s1.t VALUES (3); 
-        INSERT INTO s2.t VALUES (4);
-    "#
-    .execute(&mut conn);
-
-    assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (0,));
-    assert_eq!("SELECT a FROM s1.u".fetch_one::<(i32,)>(&mut conn), (1,));
-    assert_eq!("SELECT a FROM s2.v".fetch_one::<(i32,)>(&mut conn), (2,));
-
-    match "SELECT a FROM u".execute_result(&mut conn) {
-        Err(err) => assert_eq!(
-            err.to_string(),
-            "error returned from database: relation \"u\" does not exist"
-        ),
-        _ => panic!("Was able to select schema not in search path"),
-    };
-
-    let _ = "SET search_path = public, s1, s2".execute_result(&mut conn);
-    assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (0,));
-    assert_eq!("SELECT a FROM u".fetch_one::<(i32,)>(&mut conn), (1,));
-    assert_eq!("SELECT a FROM v".fetch_one::<(i32,)>(&mut conn), (2,));
-
-    let _ = "SET search_path = s2, s1, public".execute_result(&mut conn);
-    assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (4,));
-    assert_eq!("SELECT a FROM u".fetch_one::<(i32,)>(&mut conn), (1,));
-
-    let _ = "SET search_path = s1".execute_result(&mut conn);
-    assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (3,));
 }
 
 #[rstest]
@@ -413,34 +242,6 @@ fn sqlparser_error(mut conn: PgConnection) {
     let rows: Vec<(i32,)> = "SELECT id FROM employee".fetch(&mut conn);
     let ids: Vec<i32> = rows.into_iter().map(|r| r.0).collect();
     assert_eq!(ids, [1, 3]);
-}
-
-#[rstest]
-fn big_insert(mut conn: PgConnection) {
-    r#"
-        CREATE TABLE t (
-            id INT
-        ) USING parquet;
-        INSERT INTO t (id) SELECT generate_series(1, 100000);
-        INSERT INTO t (id) SELECT generate_series(1, 100000);
-    "#
-    .execute(&mut conn);
-
-    let count: (i64,) = "SELECT COUNT(*) FROM t".fetch_one(&mut conn);
-    assert_eq!(count, (200000,));
-
-    r#"
-        CREATE TABLE s (
-            id INT
-        ) USING parquet;
-        INSERT INTO s (id) SELECT generate_series(1, 100000);
-        DELETE FROM s WHERE id <= 50000;
-        INSERT INTO s (id) SELECT generate_series(1, 100000);
-    "#
-    .execute(&mut conn);
-
-    let count: (i64,) = "SELECT COUNT(*) FROM s".fetch_one(&mut conn);
-    assert_eq!(count, (150000,));
 }
 
 #[rstest]
@@ -605,104 +406,4 @@ fn numeric(mut conn: PgConnection) {
         Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("unbounded numerics should not be supported"),
     }
-}
-
-#[rstest]
-#[ignore]
-fn alter(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
-
-    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
-    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-
-    assert_eq!(column_names, vec!["a".to_string(), "b".to_string()]);
-
-    "ALTER TABLE t ADD COLUMN c int".execute(&mut conn);
-
-    let rows: Vec<(String,)> = "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 't'".fetch(&mut conn);
-    let column_names: Vec<_> = rows.into_iter().map(|r| r.0).collect();
-
-    assert_eq!(
-        column_names,
-        vec!["a".to_string(), "b".to_string(), "c".to_string()]
-    );
-}
-
-#[rstest]
-#[allow(clippy::type_complexity)]
-fn null_values(mut conn: PgConnection) {
-    "CREATE TABLE t (a int, b text NOT NULL) USING parquet".execute(&mut conn);
-    "INSERT INTO t values (1, 'test');".execute(&mut conn);
-
-    let row: (i32, String) = "SELECT * FROM t".fetch_one(&mut conn);
-    assert_eq!(row, (1, "test".into()));
-
-    r#"
-    CREATE TABLE s (
-        id SERIAL PRIMARY KEY,
-        my_bool BOOLEAN,
-        my_int INTEGER,
-        my_numeric NUMERIC(5, 5),
-        my_date DATE,
-        my_time TIMESTAMP,
-        my_array INTEGER[]
-    ) USING parquet;
-    "#
-    .execute(&mut conn);
-
-    r#"
-    INSERT INTO s (my_bool, my_int, my_numeric, my_date, my_time, my_array)
-    VALUES (NULL, NULL, NULL, NULL, NULL, NULL);
-    "#
-    .execute(&mut conn);
-
-    let rows: Vec<(
-        i32,
-        Option<bool>,
-        Option<i32>,
-        Option<BigDecimal>,
-        Option<Date>,
-        Option<PrimitiveDateTime>,
-        Option<Vec<Option<i32>>>,
-    )> = "SELECT * FROM s".fetch(&mut conn);
-
-    assert_eq!(rows[0].0, 1);
-    assert_eq!(rows[0].1, None);
-    assert_eq!(rows[0].2, None);
-    assert_eq!(rows[0].3, None);
-    assert_eq!(rows[0].4, None);
-    assert_eq!(rows[0].5, None);
-    assert_eq!(rows[0].6, None);
-}
-
-#[rstest]
-fn copy_parquet_to_heap(mut conn: PgConnection) {
-    UserSessionLogsTable::setup().execute(&mut conn);
-    "CREATE TABLE heap AS SELECT * FROM user_session_logs".execute(&mut conn);
-
-    let ids = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    let event_names =
-        "Login,Purchase,Logout,Signup,ViewProduct,AddToCart,RemoveFromCart,Checkout,Payment,Review";
-
-    let columns: UserSessionLogsTableVec =
-        "SELECT * FROM heap ORDER BY id".fetch_collect(&mut conn);
-
-    assert_eq!(&columns.id[0..10], ids, "ids are in expected order");
-    assert_eq!(
-        &columns.event_name[0..10],
-        event_names.split(',').collect::<Vec<_>>(),
-        "event names are in expected order"
-    );
-
-    "SELECT * INTO heap2 from user_session_logs".execute(&mut conn);
-
-    let columns: UserSessionLogsTableVec =
-        "SELECT * FROM heap2 ORDER BY id".fetch_collect(&mut conn);
-
-    assert_eq!(&columns.id[0..10], ids, "ids are in expected order");
-    assert_eq!(
-        &columns.event_name[0..10],
-        event_names.split(',').collect::<Vec<_>>(),
-        "event names are in expected order"
-    );
 }

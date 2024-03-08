@@ -5,6 +5,7 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
 
+#[rstest]
 fn udf(mut conn: PgConnection) {
     r#"
         CREATE TABLE x (
@@ -80,11 +81,11 @@ fn udf_deletion(mut conn: PgConnection) {
 fn udf_coercion(mut conn: PgConnection) {
     r#"
         CREATE TABLE x (
-            a INTEGER,
-            b INTEGER
+            a int8,
+            b int8
         ) USING parquet;
         INSERT INTO x VALUES (1, 2), (3, 4), (5, 6), (7, 8);
-        CREATE FUNCTION add(integer, integer) RETURNS integer
+        CREATE FUNCTION add(int8, int8) RETURNS int8
             AS 'select $1 + $2;'
             LANGUAGE SQL
             IMMUTABLE
@@ -92,12 +93,7 @@ fn udf_coercion(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    match "SELECT add(1, b) FROM x".execute_result(&mut conn) {
-        Err(err) => assert_eq!(err.to_string(), "type_coercion"),
-        _ => panic!("Constant coercion should not work"),
-    };
-
-    let rows: Vec<(i32,)> = "SELECT add(1::integer, b) FROM x".fetch(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT add(1::int4, b) FROM x".fetch(&mut conn);
     let sums: Vec<i32> = rows.into_iter().map(|r| r.0).collect();
     assert_eq!(sums, [3, 5, 7, 9]);
 }

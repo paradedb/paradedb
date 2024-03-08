@@ -7,4 +7,5 @@ pub mod schema;
 pub mod session;
 pub mod stream;
 pub mod table;
+pub mod udf;
 pub mod writer;

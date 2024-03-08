@@ -7,6 +7,7 @@ use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::datafusion::query::{ASTVec, QueryString};
 use crate::errors::ParadeError;
 use crate::hooks::alter::alter;
+use crate::hooks::createfunction::createfunction;
 use crate::hooks::drop::drop;
 use crate::hooks::query::Query;
 use crate::hooks::rename::rename;
@@ -53,6 +54,9 @@ pub fn process_utility(
                 if let Ok(ASTVec(ast)) = ast {
                     task::block_on(alter(plan as *mut pg_sys::AlterTableStmt, &ast[0]))?;
                 }
+            }
+            NodeTag::T_CreateFunctionStmt => {
+                createfunction(plan as *mut pg_sys::CreateFunctionStmt)?;
             }
             NodeTag::T_DropStmt => {
                 drop(plan as *mut pg_sys::DropStmt)?;

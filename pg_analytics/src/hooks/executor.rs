@@ -77,11 +77,11 @@ pub fn executor_run(
             }
         } else {
             // Parse the query into a LogicalPlan
-            let logical_plan = LogicalPlan::try_from(QueryString(&query));
+            let logical_plan_details = <(LogicalPlan, bool)>::try_from(QueryString(&query));
 
             // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
             // We should let these queries go through to the table access method
-            if let Ok(LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_))) = logical_plan {
+            if let Ok((LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_)), _)) = logical_plan_details {
                 prev_hook(query_desc, direction, count, execute_once);
                 return Ok(());
             }
@@ -89,8 +89,8 @@ pub fn executor_run(
             // Execute SELECT, DELETE, UPDATE
             match query_desc.operation {
                 pg_sys::CmdType_CMD_SELECT => {
-                    if let Ok(logical_plan) = logical_plan {
-                        get_datafusion_batches(query_desc, logical_plan)?;
+                    if let Ok((logical_plan, single_thread)) = logical_plan_details {
+                        get_datafusion_batches(query_desc, logical_plan, single_thread)?;
                     }
                 }
                 pg_sys::CmdType_CMD_UPDATE => return Err(NotSupported::Update.into()),

@@ -164,3 +164,9 @@ impl From<ParadeError> for DataFusionError {
         DataFusionError::Internal(err.to_string())
     }
 }
+
+impl From<DataTypeError> for DataFusionError {
+    fn from(err: DataTypeError) -> Self {
+        DataFusionError::Internal(err.to_string())
+    }
+}

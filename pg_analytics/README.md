@@ -45,7 +45,14 @@ SELECT COUNT(*) FROM t;
 
 ## Parquet Tables
 
-You can interact with `parquet` tables the same way as with normal Postgres tables. However, there are a few operations specific to `parquet` tables.
+You can interact with `parquet` tables the same way as with normal Postgres tables. However, there are a few
+exceptions.
+
+### Append Only
+
+Because column-oriented storage formats are not designed for fast updates, `parquet` tables are append only.
+This means that `parquet` tables do not support `UPDATE` and `DELETE` clauses. Data that is frequently updated
+should be stored in regular Postgres `heap` tables.
 
 ### Storage Optimization
 
@@ -60,27 +67,16 @@ files.
 
 `pg_analytics` is currently in beta.
 
-### Features Supported
-
-- [x] `parquet` tables behave like regular Postgres tables and support most Postgres queries (JOINs, CTEs, window functions, etc.)
-- [x] Vacuum and Parquet storage optimization
-- [x] `INSERT`, `TRUNCATE`, `DELETE`, `COPY`
-- [x] Physical backups with `pg_dump`
-
 ### Known Limitations
 
 As `pg_analytics` becomes production-ready, many of these will be resolved.
 
-- [ ] `UPDATE` statements
-- [ ] Nested `DELETE` statements
-- [ ] Partitioning tables by column
 - [ ] Some Postgres types like JSON, time, and timestamp with time zone
 - [ ] User-defined functions, aggregations, or types
-- [ ] Referencing `parquet` and regular Postgres `heap` tables in the same query
+- [ ] JOINing `parquet` and regular Postgres `heap` tables
 - [ ] Write-ahead-log (WAL) support/`ROLLBACK`/logical replication
-- [ ] Foreign keys
-- [ ] Index scans
 - [ ] Collations
+- [ ] Partitioning by specific columns
 - [ ] External object store integrations (S3/Azure/GCS/HDFS)
 - [ ] External Apache Iceberg and Delta Lake support
 - [ ] Full text search over `parquet` tables with `pg_bm25`

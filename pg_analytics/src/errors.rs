@@ -81,17 +81,14 @@ pub enum NotSupported {
     #[error("RENAME COLUMN is not yet supported. Please recreate the table instead.")]
     RenameColumn,
 
-    #[error("UPDATE is not yet supported for parquet tables")]
+    #[error("UPDATE is not supported because Parquet tables are append only.")]
     Update,
+
+    #[error("DELETE is not supported because Parquet tables are append only.")]
+    Delete,
 
     #[error("Heap and parquet tables in the same query is not yet supported")]
     MixedTables,
-
-    #[error("Nested DELETE queries are not yet supported for parquet tables")]
-    NestedDelete,
-
-    #[error("Run TRUNCATE <table_name> to delete all rows from a table")]
-    ScanDelete,
 }
 
 impl From<&str> for ParadeError {

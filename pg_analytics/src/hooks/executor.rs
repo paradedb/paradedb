@@ -5,7 +5,6 @@ use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::errors::{NotSupported, ParadeError};
-use crate::hooks::delete::delete;
 use crate::hooks::handler::IsColumn;
 use crate::hooks::insert::insert;
 use crate::hooks::query::Query;
@@ -68,7 +67,6 @@ pub fn executor_run(
 
         // Execute SELECT, DELETE, UPDATE
         match query_desc.operation {
-            pg_sys::CmdType_CMD_DELETE => delete(rtable, query_desc, logical_plan),
             pg_sys::CmdType_CMD_SELECT => select(query_desc, logical_plan),
             pg_sys::CmdType_CMD_UPDATE => Err(NotSupported::Update.into()),
             _ => {

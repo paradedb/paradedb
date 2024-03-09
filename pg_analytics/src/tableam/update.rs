@@ -1,5 +1,7 @@
 use pgrx::*;
 
+use crate::errors::NotSupported;
+
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
 pub extern "C" fn deltalake_tuple_update(
@@ -14,7 +16,7 @@ pub extern "C" fn deltalake_tuple_update(
     _lockmode: *mut pg_sys::LockTupleMode,
     _update_indexes: *mut bool,
 ) -> pg_sys::TM_Result {
-    0
+    panic!("{}", NotSupported::Update.to_string());
 }
 
 #[pg_guard]
@@ -31,5 +33,5 @@ pub extern "C" fn deltalake_tuple_update(
     _lockmode: *mut pg_sys::LockTupleMode,
     _update_indexes: *mut pg_sys::TU_UpdateIndexes,
 ) -> pg_sys::TM_Result {
-    0
+    panic!("{}", NotSupported::Update.to_string());
 }

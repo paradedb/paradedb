@@ -1,5 +1,7 @@
 use pgrx::*;
 
+use crate::errors::NotSupported;
+
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_delete(
     _rel: pg_sys::Relation,
@@ -11,5 +13,5 @@ pub extern "C" fn deltalake_tuple_delete(
     _tmfd: *mut pg_sys::TM_FailureData,
     _changingPart: bool,
 ) -> pg_sys::TM_Result {
-    0
+    panic!("{}", NotSupported::Delete.to_string());
 }

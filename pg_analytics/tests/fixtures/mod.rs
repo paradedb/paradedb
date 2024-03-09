@@ -3,6 +3,7 @@ use rstest::*;
 use sqlx::{self, PgConnection};
 
 pub use shared::fixtures::db::*;
+#[allow(unused_imports)]
 pub use shared::fixtures::tables::*;
 
 #[fixture]

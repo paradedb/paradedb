@@ -7,17 +7,21 @@ use time::Date;
 #[derive(Debug, PartialEq, FromRow, StructOfArray, Serialize, Deserialize)]
 pub struct UserSessionLogsTable {
     pub id: i32,
-    pub event_date: Date,
-    pub user_id: i32,
-    pub event_name: String,
-    pub session_duration: i32,
-    pub page_views: i32,
-    pub revenue: BigDecimal,
+    pub event_date: Option<Date>,
+    pub user_id: Option<i32>,
+    pub event_name: Option<String>,
+    pub session_duration: Option<i32>,
+    pub page_views: Option<i32>,
+    pub revenue: Option<BigDecimal>,
 }
 
 impl UserSessionLogsTable {
-    pub fn setup() -> &'static str {
-        USER_SESSION_LOGS_TABLE_SETUP
+    pub fn setup_parquet() -> String {
+        USER_SESSION_LOGS_TABLE_SETUP.replace("{}", "parquet")
+    }
+
+    pub fn setup_heap() -> String {
+        USER_SESSION_LOGS_TABLE_SETUP.replace("{}", "heap")
     }
 }
 
@@ -30,7 +34,7 @@ CREATE TABLE user_session_logs (
     session_duration INT,
     page_views INT,
     revenue DECIMAL(10, 2)
-) USING parquet;
+) USING {};
 
 INSERT INTO user_session_logs
 (event_date, user_id, event_name, session_duration, page_views, revenue)

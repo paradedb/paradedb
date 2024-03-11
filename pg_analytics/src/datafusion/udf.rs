@@ -64,7 +64,7 @@ unsafe fn func_list_from_name(funcname: &str) -> Result<pg_sys::FuncCandidateLis
         std::ptr::null_mut(),
         false,
         false,
-        #[cfg(any(feature= "pg14", feature = "pg15", feature = "pg16"))]
+        #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
         false,
         true,
     ))

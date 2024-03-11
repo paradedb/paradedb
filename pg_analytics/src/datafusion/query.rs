@@ -1,7 +1,7 @@
 use deltalake::datafusion::common::ScalarValue;
 use deltalake::datafusion::error::DataFusionError;
-use deltalake::datafusion::logical_expr::{Expr, LogicalPlan, ScalarFunctionDefinition};
 use deltalake::datafusion::logical_expr::expr::ScalarFunction;
+use deltalake::datafusion::logical_expr::{Expr, LogicalPlan, ScalarFunctionDefinition};
 use deltalake::datafusion::sql::parser::{self, DFParser};
 use deltalake::datafusion::sql::planner::SqlToRel;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;

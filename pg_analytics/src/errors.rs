@@ -87,9 +87,6 @@ pub enum NotSupported {
     #[error("DELETE is not supported because Parquet tables are append only.")]
     Delete,
 
-    #[error("Heap and parquet tables in the same query is not yet supported")]
-    MixedTables,
-
     #[error("Inserts with ON CONFLICT are not yet supported")]
     SpeculativeInsert,
 

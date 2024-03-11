@@ -43,6 +43,9 @@ impl TryFrom<PgAttribute> for ArrowDataType {
                 DATEOID => Date32,
                 TIMEOID => Time64(TimePrecision::try_from(typemod)?.0),
                 TIMESTAMPOID => Timestamp(TimestampPrecision::try_from(typemod)?.0, None),
+                TIMESTAMPTZOID => {
+                    Timestamp(TimestampPrecision::try_from(typemod)?.0, Some("UTC".into()))
+                }
                 NUMERICOID => {
                     let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) =
                         typemod.try_into()?;
@@ -76,6 +79,10 @@ impl TryFrom<ArrowDataType> for PgAttribute {
             Time64(timeunit) => (TIMEOID, PgTypeMod::try_from(TimePrecision(timeunit))?),
             Timestamp(timeunit, None) => (
                 TIMESTAMPOID,
+                PgTypeMod::try_from(TimestampPrecision(timeunit))?,
+            ),
+            Timestamp(timeunit, Some(timezone)) if timezone.as_ref() == "UTC" => (
+                TIMESTAMPTZOID,
                 PgTypeMod::try_from(TimestampPrecision(timeunit))?,
             ),
             Decimal128(precision, scale) => (

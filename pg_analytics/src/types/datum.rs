@@ -201,6 +201,9 @@ where
             Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
             Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
             Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
+            Timestamp(TimeUnit::Microsecond, Some(timezone)) if timezone.as_ref() == "UTC" => {
+                self.get_ts_micro_datum(index)?
+            }
             Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
             List(ref field) => match field.data_type() {
                 Boolean => self.get_primitive_list_datum::<BooleanArray>(index)?,

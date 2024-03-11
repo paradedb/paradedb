@@ -117,7 +117,12 @@
     },
     {
       "group": "Analytics",
-      "pages": ["analytics/quickstart", "analytics/types", "analytics/storage"]
+      "pages": [
+        "analytics/quickstart",
+        "analytics/types",
+        "analytics/storage",
+        "analytics/replication"
+      ]
     },
     {
       "group": "Changelog",

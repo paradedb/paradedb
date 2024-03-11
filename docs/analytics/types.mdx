@@ -1,0 +1,40 @@
+---
+title: Supported Types
+---
+
+`parquet` tables support most, but not all, built-in Postgres types. If a type is not listed below, it is not
+supported.
+
+| Postgres Type              | Type Supported | Array Supported |
+| -------------------------- | -------------- | --------------- |
+| `bytea`                    | 🚫             | 🚫              |
+| `text`                     | ✅             | ✅              |
+| `varchar`                  | ✅             | ✅              |
+| `"char"`                   | ✅             | ✅              |
+| `smallint`                 | ✅             | ✅              |
+| `integer`                  | ✅             | ✅              |
+| `bigint`                   | ✅             | ✅              |
+| `oid`                      | 🚫             |
+| `real`                     | ✅             | ✅              |
+| `double precision`         | ✅             | ✅              |
+| `bool`                     | ✅             | ✅              |
+| `json`                     | 🚫             | 🚫              |
+| `jsonb`                    | 🚫             | 🚫              |
+| `date`                     | ✅             | 🚫              |
+| `time`                     | ✅             | 🚫              |
+| `timestamp`                | ✅             | 🚫              |
+| `numeric`                  | ✅             | 🚫              |
+| `time with time zone`      | 🚫             | 🚫              |
+| `timestamp with time zone` | 🚫             | 🚫              |
+| `box`                      | 🚫             | 🚫              |
+| `point`                    | 🚫             | 🚫              |
+| `void`                     | 🚫             | 🚫              |
+| `int4range`                | 🚫             | 🚫              |
+| `int8range`                | 🚫             | 🚫              |
+| `numrange`                 | 🚫             | 🚫              |
+| `daterange`                | 🚫             | 🚫              |
+| `tsrange`                  | 🚫             | 🚫              |
+| `tstzrange`                | 🚫             | 🚫              |
+| `NULL`                     | 🚫             | 🚫              |
+| `internal`                 | 🚫             | 🚫              |
+| `uuid`                     | 🚫             | 🚫              |

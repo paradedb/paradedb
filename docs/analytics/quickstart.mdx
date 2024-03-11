@@ -9,29 +9,39 @@ it is inefficient for analytical queries, which often scan a large amount of dat
 in a table.
 
 ParadeDB introduces special tables called `parquet` tables. These tables behave like regular Postgres tables but
-use a column-oriented layout via Apache Arrow and Parquet and leverage Apache DataFusion, a query engine
-optimized for column-oriented data.
+have two primary advantages:
 
-## Using Parquet Tables
+1. Significantly faster aggregate queries due to a column-oriented layout and query engine
+2. Lower disk space due to Parquet as the storage format
+
+## How to Use Parquet Tables
 
 ```sql
 -- USING parquet must be provided
 CREATE TABLE movies (name text, rating int) USING parquet;
 
+-- Insert and query data
 INSERT INTO movies VALUES ('Star Wars', 9), ('Indiana Jones', 8);
 SELECT AVG(rating) FROM movies;
 
-DROP TABLE movies;
+-- Clear the table
+TRUNCATE movies;
 ```
 
 That's it! `parquet` tables accept standard Postgres queries, so there's nothing new to learn.
+
+## When to Use Parquet Tables
+
+Because column-oriented storage formats are not designed for fast updates, `parquet` tables are for **append-only data**.
+`UPDATE` and `DELETE` clauses are not supported. Data that is frequently updated
+should be stored in regular Postgres `heap` tables.
 
 ## Copying into a Parquet Table
 
 This example demonstrates how to copy data from an existing heap table into a `parquet` table.
 
 ```sql
--- Create heap table
+-- Create regular table
 CREATE TABLE heap (a int, b int);
 INSERT INTO heap VALUES (1, 2);
 
@@ -42,34 +52,19 @@ CREATE TABLE events (a int, b int) USING parquet;
 INSERT INTO events SELECT * FROM heap;
 ```
 
-## Use Cases
-
-`parquet` tables have two primary advantages over regular tables:
-
-1. Significantly faster aggregate queries
-2. Lower disk space, since data is stored as highly-compressed Parquet files
-
-They should be used for storing and querying large volumes of event or analytics data.
-
-## Non Use Cases
-
-Regular Postgres tables should be used for operational data that requires frequent updates
-or deletes.
-
 ## Known Limitations
 
 `parquet` tables are currently in beta. The following is a list of known limitations. Many of these
 will become resolved as `parquet` tables become production-ready.
 
-- [ ] `UPDATE` statements
-- [ ] Nested `DELETE` statements
-- [ ] Partitioning tables by column
-- [ ] Some Postgres types like JSON, time, and timestamp with time zone
+- [ ] Some Postgres types, notably `json` and `timestamptz`
 - [ ] User-defined functions, aggregations, or types
-- [ ] Referencing `parquet` and regular Postgres `heap` tables in the same query
-- [ ] Write-ahead-log (WAL) support and `ROLLBACK`
-- [ ] Foreign keys
-- [ ] Index scans
+- [ ] JOINing `parquet` and regular Postgres `heap` tables
+- [ ] Write-ahead-log (WAL) support/`ROLLBACK`/logical replication
 - [ ] Collations
-- [ ] Using an external data lake as a table storage provider
+- [ ] Partitioning by specific columns
+- [ ] `INSERT ... ON CONFLICT` clauses
+- [ ] Index creation
+- [ ] External object store integrations (S3/Azure/GCS/HDFS)
+- [ ] External Apache Iceberg and Delta Lake support
 - [ ] Full text search over `parquet` tables with `pg_bm25`

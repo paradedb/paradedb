@@ -7,7 +7,7 @@ use pgrx::*;
 use crate::datafusion::commit::commit_writer;
 use crate::datafusion::table::DatafusionTable;
 use crate::datafusion::writer::Writer;
-use crate::errors::ParadeError;
+use crate::errors::{NotSupported, ParadeError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::PgTypeMod;
 
@@ -62,6 +62,7 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
     _bistate: *mut pg_sys::BulkInsertStateData,
     _specToken: pg_sys::uint32,
 ) {
+    panic!("{}", NotSupported::SpeculativeInsert.to_string());
 }
 
 #[inline]

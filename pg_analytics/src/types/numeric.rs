@@ -5,9 +5,16 @@ use thiserror::Error;
 
 const NUMERIC_BASE: i128 = 10;
 
+#[derive(Clone, Debug)]
 pub struct PgNumeric(pub AnyNumeric, pub PgNumericTypeMod);
+
+#[derive(Copy, Clone, Debug)]
 pub struct PgNumericTypeMod(pub PgPrecision, pub PgScale);
+
+#[derive(Copy, Clone, Debug)]
 pub struct PgPrecision(pub u8);
+
+#[derive(Copy, Clone, Debug)]
 pub struct PgScale(pub i8);
 
 impl TryFrom<PgNumericTypeMod> for PgTypeMod {

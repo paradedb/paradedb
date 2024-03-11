@@ -1,8 +1,8 @@
 use deltalake::arrow::array::{
     Array, ArrayRef, BooleanArray, BooleanBuilder, Date32Array, Decimal128Array, Float32Array,
     Float64Array, GenericByteBuilder, Int16Array, Int32Array, Int64Array, ListBuilder,
-    PrimitiveBuilder, StringArray, TimestampMicrosecondArray, TimestampMillisecondArray,
-    TimestampSecondArray,
+    PrimitiveBuilder, StringArray, Time32MillisecondArray, Time64NanosecondArray,
+    TimestampMicrosecondArray, TimestampMillisecondArray, TimestampSecondArray,
 };
 use deltalake::arrow::datatypes::{
     ArrowPrimitiveType, Float32Type, Float64Type, GenericStringType, Int16Type, Int32Type,
@@ -15,6 +15,7 @@ use std::sync::Arc;
 use super::datatype::{DataTypeError, PgTypeMod};
 use super::date::DayUnix;
 use super::numeric::{scale_anynumeric, PgNumericTypeMod, PgPrecision, PgScale};
+use super::time::NanosecondDay;
 use super::timestamp::{MicrosecondUnix, MillisecondUnix, PgTimestampPrecision, SecondUnix};
 
 type Column<T> = Vec<Option<T>>;
@@ -211,6 +212,66 @@ where
     }
 }
 
+pub trait IntoTimeNanosecondArray
+where
+    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+{
+    fn into_time_nano_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
+        let array = self
+            .map(|(datum, is_null)| {
+                (!is_null).then_some(datum).and_then(|datum| {
+                    unsafe { datum::Time::from_datum(datum, false) }
+                        .and_then(|time| NanosecondDay::try_from(time).ok())
+                        .map(|NanosecondDay(nanos)| nanos)
+                })
+            })
+            .collect::<Vec<Option<i64>>>();
+
+        Ok(array)
+    }
+}
+
+pub trait IntoTimeNanosecondArrowArray
+where
+    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+{
+    fn into_time_nano_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        Ok(Arc::new(Time64NanosecondArray::from_iter(
+            self.into_time_nano_array()?,
+        )))
+    }
+}
+
+pub trait IntoTimeMillisecondArray
+where
+    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+{
+    fn into_time_milli_array(self) -> Result<Vec<Option<i32>>, DataTypeError> {
+        let array = self
+            .map(|(datum, is_null)| {
+                (!is_null).then_some(datum).and_then(|datum| {
+                    unsafe { datum::Time::from_datum(datum, false) }
+                        .and_then(|time| NanosecondDay::try_from(time).ok())
+                        .map(|NanosecondDay(nanos)| (nanos / 1_000_000) as i32)
+                })
+            })
+            .collect::<Vec<Option<i32>>>();
+
+        Ok(array)
+    }
+}
+
+pub trait IntoTimeMillisecondArrowArray
+where
+    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+{
+    fn into_time_milli_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        Ok(Arc::new(Time32MillisecondArray::from_iter(
+            self.into_time_milli_array()?,
+        )))
+    }
+}
+
 pub trait IntoGenericBytesListArrowArray
 where
     Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized + IntoPrimitiveArray,
@@ -313,6 +374,11 @@ where
                     PgTimestampPrecision::Microsecond => self.into_ts_micro_arrow_array(),
                     PgTimestampPrecision::Millisecond => self.into_ts_milli_arrow_array(),
                 },
+                TIMEOID => match PgTimestampPrecision::try_from(typemod)? {
+                    PgTimestampPrecision::Default => self.into_time_nano_arrow_array(),
+                    PgTimestampPrecision::Microsecond => self.into_time_nano_arrow_array(),
+                    _ => todo!(),
+                },
                 NUMERICOID => self.into_numeric_arrow_array(typemod),
                 unsupported => Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
@@ -329,6 +395,8 @@ impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoPrimitiveArray for T {}
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampMicrosecondArray for T {}
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampMillisecondArray for T {}
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampSecondArray for T {}
+impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimeNanosecondArray for T {}
+impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimeMillisecondArray for T {}
 
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoDateArrowArray for T {}
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoNumericArrowArray for T {}
@@ -336,6 +404,8 @@ impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoPrimitiveArrowArray for T {}
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampMicrosecondArrowArray for T {}
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampMillisecondArrowArray for T {}
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampSecondArrowArray for T {}
+impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimeNanosecondArrowArray for T {}
+impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimeMillisecondArrowArray for T {}
 
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoPrimitiveListArrowArray for T {}
 impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoBooleanListArrowArray for T {}

@@ -8,13 +8,19 @@ use thiserror::Error;
 use super::date::DateError;
 use super::datum::DatumError;
 use super::numeric::{NumericError, PgNumericTypeMod, PgPrecision, PgScale};
-use super::timestamp::TimestampError;
+use super::time::{TimeError, TimePrecision};
+use super::timestamp::{TimestampError, TimestampPrecision};
 
 // By default, unspecified type mods in Postgres are -1
 const DEFAULT_TYPE_MOD: i32 = -1;
 
+#[derive(Copy, Clone, Debug)]
 pub struct PgTypeMod(pub i32);
+
+#[derive(Copy, Clone, Debug)]
 pub struct PgAttribute(pub PgOid, pub PgTypeMod);
+
+#[derive(Clone, Debug)]
 pub struct ArrowDataType(pub DataType);
 
 impl TryFrom<PgAttribute> for ArrowDataType {
@@ -35,7 +41,8 @@ impl TryFrom<PgAttribute> for ArrowDataType {
                 FLOAT4OID => Float32,
                 FLOAT8OID => Float64,
                 DATEOID => Date32,
-                TIMESTAMPOID => Timestamp(TimeUnit::try_from(typemod)?, None),
+                TIMEOID => Time64(TimePrecision::try_from(typemod)?.0),
+                TIMESTAMPOID => Timestamp(TimestampPrecision::try_from(typemod)?.0, None),
                 NUMERICOID => {
                     let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) =
                         typemod.try_into()?;
@@ -66,7 +73,11 @@ impl TryFrom<ArrowDataType> for PgAttribute {
             Float32 => (FLOAT4OID, PgTypeMod(DEFAULT_TYPE_MOD)),
             Float64 => (FLOAT8OID, PgTypeMod(DEFAULT_TYPE_MOD)),
             Date32 => (DATEOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            Timestamp(timeunit, None) => (TIMESTAMPOID, PgTypeMod::try_from(timeunit)?),
+            Time64(timeunit) => (TIMEOID, PgTypeMod::try_from(TimePrecision(timeunit))?),
+            Timestamp(timeunit, None) => (
+                TIMESTAMPOID,
+                PgTypeMod::try_from(TimestampPrecision(timeunit))?,
+            ),
             Decimal128(precision, scale) => (
                 NUMERICOID,
                 PgTypeMod::try_from(PgNumericTypeMod(PgPrecision(precision), PgScale(scale)))?,
@@ -103,6 +114,9 @@ pub enum DataTypeError {
 
     #[error(transparent)]
     Datum(#[from] DatumError),
+
+    #[error(transparent)]
+    Time(#[from] TimeError),
 
     #[error(transparent)]
     Timestamp(#[from] TimestampError),

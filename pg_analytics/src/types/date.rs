@@ -7,6 +7,7 @@ const EPOCH_YEAR: i32 = 1970;
 const EPOCH_MONTH: u32 = 1;
 const EPOCH_DAY: u32 = 1;
 
+#[derive(Copy, Clone, Debug)]
 pub struct DayUnix(pub i32);
 
 impl TryFrom<datum::Date> for DayUnix {

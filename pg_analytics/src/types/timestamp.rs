@@ -9,9 +9,17 @@ use super::datatype::PgTypeMod;
 const MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
 
+#[derive(Copy, Clone, Debug)]
 pub struct MicrosecondUnix(pub i64);
+
+#[derive(Copy, Clone, Debug)]
 pub struct MillisecondUnix(pub i64);
+
+#[derive(Copy, Clone, Debug)]
 pub struct SecondUnix(pub i64);
+
+#[derive(Clone, Debug)]
+pub struct TimestampPrecision(pub TimeUnit);
 
 #[derive(Copy, Clone)]
 pub enum PgTimestampPrecision {
@@ -41,28 +49,30 @@ impl TryFrom<PgTypeMod> for PgTimestampPrecision {
     }
 }
 
-impl TryFrom<PgTypeMod> for TimeUnit {
+impl TryFrom<PgTypeMod> for TimestampPrecision {
     type Error = TimestampError;
 
     fn try_from(typemod: PgTypeMod) -> Result<Self, Self::Error> {
         match PgTimestampPrecision::try_from(typemod)? {
-            PgTimestampPrecision::Default => Ok(TimeUnit::Microsecond),
-            PgTimestampPrecision::Second => Ok(TimeUnit::Second),
-            PgTimestampPrecision::Millisecond => Ok(TimeUnit::Millisecond),
-            PgTimestampPrecision::Microsecond => Ok(TimeUnit::Microsecond),
+            PgTimestampPrecision::Default => Ok(TimestampPrecision(TimeUnit::Microsecond)),
+            PgTimestampPrecision::Second => Ok(TimestampPrecision(TimeUnit::Second)),
+            PgTimestampPrecision::Millisecond => Ok(TimestampPrecision(TimeUnit::Millisecond)),
+            PgTimestampPrecision::Microsecond => Ok(TimestampPrecision(TimeUnit::Microsecond)),
         }
     }
 }
 
-impl TryFrom<TimeUnit> for PgTypeMod {
+impl TryFrom<TimestampPrecision> for PgTypeMod {
     type Error = TimestampError;
 
-    fn try_from(unit: TimeUnit) -> Result<Self, Self::Error> {
+    fn try_from(unit: TimestampPrecision) -> Result<Self, Self::Error> {
+        let TimestampPrecision(unit) = unit;
+
         match unit {
             TimeUnit::Second => Ok(PgTypeMod(PgTimestampPrecision::Second.value())),
             TimeUnit::Millisecond => Ok(PgTypeMod(PgTimestampPrecision::Millisecond.value())),
             TimeUnit::Microsecond => Ok(PgTypeMod(PgTimestampPrecision::Microsecond.value())),
-            TimeUnit::Nanosecond => Err(TimestampError::UnsupportedNanosecond()),
+            TimeUnit::Nanosecond => Ok(PgTypeMod(PgTimestampPrecision::Microsecond.value())),
         }
     }
 }
@@ -200,7 +210,4 @@ pub enum TimestampError {
 
     #[error("Only timestamp and timestamp(6), not timestamp({0}), are supported")]
     UnsupportedTypeMod(i32),
-
-    #[error("Unexpected nanosecond TimeUnit")]
-    UnsupportedNanosecond(),
 }

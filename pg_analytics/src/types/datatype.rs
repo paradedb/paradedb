@@ -8,8 +8,8 @@ use thiserror::Error;
 use super::date::DateError;
 use super::datum::DatumError;
 use super::numeric::{NumericError, PgNumericTypeMod, PgPrecision, PgScale};
-use super::time::TimeError;
-use super::timestamp::TimestampError;
+use super::time::{TimeError, TimePrecision};
+use super::timestamp::{TimestampError, TimestampPrecision};
 
 // By default, unspecified type mods in Postgres are -1
 const DEFAULT_TYPE_MOD: i32 = -1;
@@ -41,13 +41,8 @@ impl TryFrom<PgAttribute> for ArrowDataType {
                 FLOAT4OID => Float32,
                 FLOAT8OID => Float64,
                 DATEOID => Date32,
-                TIMEOID => match TimeUnit::try_from(typemod)? {
-                    TimeUnit::Microsecond => Time64(TimeUnit::Microsecond),
-                    TimeUnit::Millisecond => Time32(TimeUnit::Millisecond),
-                    TimeUnit::Second => Time32(TimeUnit::Second),
-                    _ => return Err(TimeError::UnsupportedTypeMod(typemod.0).into()),
-                },
-                TIMESTAMPOID => Timestamp(TimeUnit::try_from(typemod)?, None),
+                TIMEOID => Time64(TimePrecision::try_from(typemod)?.0),
+                TIMESTAMPOID => Timestamp(TimestampPrecision::try_from(typemod)?.0, None),
                 NUMERICOID => {
                     let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) =
                         typemod.try_into()?;
@@ -78,9 +73,11 @@ impl TryFrom<ArrowDataType> for PgAttribute {
             Float32 => (FLOAT4OID, PgTypeMod(DEFAULT_TYPE_MOD)),
             Float64 => (FLOAT8OID, PgTypeMod(DEFAULT_TYPE_MOD)),
             Date32 => (DATEOID, PgTypeMod(DEFAULT_TYPE_MOD)),
-            Time32(timeunit) => (TIMEOID, PgTypeMod::try_from(timeunit)?),
-            Time64(timeunit) => (TIMEOID, PgTypeMod::try_from(timeunit)?),
-            Timestamp(timeunit, None) => (TIMESTAMPOID, PgTypeMod::try_from(timeunit)?),
+            Time64(timeunit) => (TIMEOID, PgTypeMod::try_from(TimePrecision(timeunit))?),
+            Timestamp(timeunit, None) => (
+                TIMESTAMPOID,
+                PgTypeMod::try_from(TimestampPrecision(timeunit))?,
+            ),
             Decimal128(precision, scale) => (
                 NUMERICOID,
                 PgTypeMod::try_from(PgNumericTypeMod(PgPrecision(precision), PgScale(scale)))?,

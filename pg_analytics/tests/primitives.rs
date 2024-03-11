@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::{types::BigDecimal, PgConnection};
 use std::str::FromStr;
-use time::{macros::format_description, Date, PrimitiveDateTime};
+use time::{macros::format_description, Date, PrimitiveDateTime, Time};
 
 #[rstest]
 fn text_type(mut conn: PgConnection) {
@@ -88,10 +88,19 @@ fn numeric_type(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn time_type(mut conn: PgConnection) {
+    "CREATE TABLE t (a time) USING parquet".execute(&mut conn);
+    "INSERT INTO t VALUES ('15:30:00')".execute(&mut conn);
+    let row: (Time,) = "SELECT * FROM t".fetch_one(&mut conn);
+    let fd = format_description!("[hour]:[minute]:[second]");
+    assert_eq!(row.0, Time::parse("15:30:00", fd).unwrap());
+}
+
+#[rstest]
 fn timestamp_type(mut conn: PgConnection) {
-    "CREATE TABLE test_timestamp (a timestamp) USING parquet".execute(&mut conn);
-    "INSERT INTO test_timestamp VALUES ('2024-01-29 15:30:00')".execute(&mut conn);
-    let row: (PrimitiveDateTime,) = "SELECT * FROM test_timestamp".fetch_one(&mut conn);
+    "CREATE TABLE t (a timestamp) USING parquet".execute(&mut conn);
+    "INSERT INTO t VALUES ('2024-01-29 15:30:00')".execute(&mut conn);
+    let row: (PrimitiveDateTime,) = "SELECT * FROM t".fetch_one(&mut conn);
     let fd = format_description!("[year]-[month]-[day] [hour]:[minute]:[second]");
     assert_eq!(
         row.0,
@@ -145,14 +154,6 @@ fn jsonb_type(mut conn: PgConnection) {
     match "CREATE TABLE t (a jsonb) USING parquet".execute_result(&mut conn) {
         Err(err) => assert!(err.to_string().contains("not yet supported")),
         _ => panic!("jsonb should not be supported"),
-    };
-}
-
-#[rstest]
-fn time_type(mut conn: PgConnection) {
-    match "CREATE TABLE t (a time) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not yet supported")),
-        _ => panic!("time should not be supported"),
     };
 }
 

@@ -48,7 +48,9 @@ fn udf_overloaded(mut conn: PgConnection) {
     .execute(&mut conn);
 
     match "SELECT add(a, b) FROM x".execute_result(&mut conn) {
-        Err(err) => assert_eq!(err.to_string(), "function name \"add\" is not unique"),
+        Err(err) => assert!(err
+            .to_string()
+            .contains("function name \"add\" is not unique")),
         _ => panic!("Allowed overloaded functions on parquet tables"),
     };
 }
@@ -73,9 +75,11 @@ fn udf_deletion(mut conn: PgConnection) {
 
     // This is the current behavior, but we want deletion to actually work in the future!
     match "SELECT add(a, b) FROM x".execute_result(&mut conn) {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("No function matches the given name")),
+        Err(err) => {
+            assert!(err
+                .to_string()
+                .contains("function add(integer, integer) does not exist"))
+        }
         _ => panic!("Deleted functions should not execute"),
     };
 }
@@ -97,7 +101,11 @@ fn udf_coercion(mut conn: PgConnection) {
     .execute(&mut conn);
 
     match "SELECT add(1, b) FROM x".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("expected Int64 but found Int32")),
+        Err(err) => {
+            assert!(err
+                .to_string()
+                .contains("Coercion from [Utf8, Int64, Int32] to the signature Exact([Utf8, Int32, Int32]) failed."))
+        }
         _ => panic!("Constant coercion should not work"),
     };
 

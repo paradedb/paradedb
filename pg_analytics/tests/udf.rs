@@ -5,7 +5,7 @@ use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
 
-#[rs_test]
+#[rstest]
 fn udf(mut conn: PgConnection) {
     r#"
         CREATE TABLE x (

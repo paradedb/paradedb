@@ -89,6 +89,9 @@ pub enum NotSupported {
 
     #[error("Heap and parquet tables in the same query is not yet supported")]
     MixedTables,
+
+    #[error("Inserts with ON CONFLICT are not yet supported")]
+    SpeculativeInsert,
 }
 
 impl From<&str> for ParadeError {

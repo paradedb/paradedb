@@ -171,3 +171,18 @@ fn insert_parquet_from_heap(mut conn: PgConnection) {
     assert!(rows.iter().take(10).map(|r| r.0).eq(ids));
     assert!(rows.iter().take(10).map(|r| r.1.clone()).eq(event_names));
 }
+
+#[rstest]
+fn insert_speculative(mut conn: PgConnection) {
+    UserSessionLogsTable::setup_parquet().execute(&mut conn);
+
+    match "INSERT INTO user_session_logs (id) VALUES (1) ON CONFLICT (id) DO NOTHING"
+        .fetch_result::<()>(&mut conn)
+    {
+        Ok(_) => panic!("INSERT ... ON CONFLICT should not be supported"),
+        Err(err) => assert_eq!(
+            err.to_string(),
+            "error returned from database: Inserts with ON CONFLICT are not yet supported"
+        ),
+    };
+}

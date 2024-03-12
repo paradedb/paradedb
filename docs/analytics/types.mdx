@@ -1,0 +1,34 @@
+---
+title: Supported Types
+---
+
+`parquet` tables support most, but not all, built-in Postgres types. If a type is not listed below, it is not
+supported.
+
+| Postgres Type      | Type Supported | Array Supported | Limitations                                                            |
+| ------------------ | -------------- | --------------- | ---------------------------------------------------------------------- |
+| `text`             | ✅             | ✅              |                                                                        |
+| `varchar`          | ✅             | ✅              |                                                                        |
+| `char`             | ✅             | ✅              |                                                                        |
+| `smallint`         | ✅             | ✅              |                                                                        |
+| `integer`          | ✅             | ✅              |                                                                        |
+| `bigint`           | ✅             | ✅              |                                                                        |
+| `real`             | ✅             | ✅              |                                                                        |
+| `double precision` | ✅             | ✅              |                                                                        |
+| `bool`             | ✅             | ✅              |                                                                        |
+| `numeric`          | ✅             | 🚫              | Unbounded numerics not supported, precision and scale must be provided |
+| `date`             | ✅             | 🚫              |                                                                        |
+| `time`             | ✅             | 🚫              | Only `time` and `time(6)` supported                                    |
+| `timestamp`        | ✅             | 🚫              | Only `timestamp` and `timestamp(6)` supported                          |
+| `timestamptz`      | 🚫             | 🚫              |                                                                        |
+| `json`             | 🚫             | 🚫              |                                                                        |
+| `jsonb`            | 🚫             | 🚫              |                                                                        |
+| `int4range`        | 🚫             | 🚫              |                                                                        |
+| `int8range`        | 🚫             | 🚫              |                                                                        |
+| `numrange`         | 🚫             | 🚫              |                                                                        |
+| `daterange`        | 🚫             | 🚫              |                                                                        |
+| `tsrange`          | 🚫             | 🚫              |                                                                        |
+| `tstzrange`        | 🚫             | 🚫              |                                                                        |
+| `uuid`             | 🚫             | 🚫              |                                                                        |
+| `oid`              | 🚫             | 🚫              |                                                                        |
+| `bytea`            | 🚫             | 🚫              |                                                                        |

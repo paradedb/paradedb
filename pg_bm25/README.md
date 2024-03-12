@@ -21,7 +21,7 @@ Check out the `pg_bm25` benchmarks [here](../benchmarks/README.md).
 - [x] Autocomplete
 - [x] Boosted queries
 - [x] Fuzzy search
-- [x] Custom tokenizers (Chinese, Japanese, Korean, Arabc, Ngram)
+- [x] Custom tokenizers and multi-language support
 - [x] JSON field search
 - [x] Hybrid search
 - [ ] Datetime fields

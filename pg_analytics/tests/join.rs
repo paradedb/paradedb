@@ -55,10 +55,9 @@ fn join_two_parquet_tables(mut conn: PgConnection) {
 
 #[rstest]
 fn join_heap_and_parquet_table(mut conn: PgConnection) {
-    "CREATE TABLE u ( id INT PRIMARY KEY, name VARCHAR(50), department_id INT ) USING parquet"
-        .execute(&mut conn);
-    "CREATE TABLE v ( id INT PRIMARY KEY, department_name VARCHAR(50) )".execute(&mut conn);
     r#"
+    CREATE TABLE u ( id INT PRIMARY KEY, name VARCHAR(50), department_id INT ) USING parquet;
+    CREATE TABLE v ( id INT PRIMARY KEY, department_name VARCHAR(50) );
     INSERT INTO u (id, name, department_id) VALUES
     (1, 'Alice', 101),
     (2, 'Bob', 102),
@@ -74,4 +73,17 @@ fn join_heap_and_parquet_table(mut conn: PgConnection) {
     let count: (i64,) =
         "SELECT COUNT(*) FROM u JOIN v ON u.department_id = v.id".fetch_one(&mut conn);
     assert_eq!(count, (4,));
+
+    // Different schemas
+    r#"
+    CREATE SCHEMA s1;
+    CREATE TABLE s1.v ( id INT PRIMARY KEY, department_name VARCHAR(50) );
+    INSERT INTO s1.v (id, department_name) VALUES
+    (101, 'Human Resources'),
+    "#
+    .execute(&mut conn);
+
+    let count: (i64,) =
+        "SELECT COUNT(*) FROM u JOIN s1.v ON u.department_id = v.id".fetch_one(&mut conn);
+    assert_eq!(count, (1,));
 }

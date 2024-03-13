@@ -16,11 +16,15 @@ use crate::errors::ParadeError;
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::PgTypeMod;
 
-pub struct ColumnExecutor {}
+pub struct ColumnExecutor {
+    schema_name: String,
+}
 
 impl ColumnExecutor {
-    pub fn new() -> Result<Self> {
-        Ok(Self {})
+    pub fn new(schema_name: String) -> Result<Self> {
+        Ok(Self {
+            schema_name: schema_name,
+        })
     }
 }
 #[async_trait]
@@ -58,11 +62,11 @@ impl SQLExecutor for ColumnExecutor {
     }
 
     async fn get_table_schema(&self, table_name: &str) -> Result<SchemaRef, DataFusionError> {
-        let relid = unsafe { pg_sys::RelnameGetRelid(table_name.as_ptr() as *const c_char) };
-        let relation = unsafe { pg_sys::RelationIdGetRelation(relid) };
-        let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
+        let pg_relation = unsafe {
+            PgRelation::open_with_name(format!("{}.{}", self.schema_name, table_name).as_str())
+                .map_err(|err| DataFusionError::External(err.into()))?
+        };
         let schema = pg_relation.arrow_schema()?;
-
         Ok(schema)
     }
 
@@ -71,11 +75,15 @@ impl SQLExecutor for ColumnExecutor {
     }
 }
 
-pub struct RowExecutor {}
+pub struct RowExecutor {
+    schema_name: String,
+}
 
 impl RowExecutor {
-    pub fn new() -> Result<Self> {
-        Ok(Self {})
+    pub fn new(schema_name: String) -> Result<Self> {
+        Ok(Self {
+            schema_name: schema_name,
+        })
     }
 }
 
@@ -149,11 +157,11 @@ impl SQLExecutor for RowExecutor {
     }
 
     async fn get_table_schema(&self, table_name: &str) -> Result<SchemaRef, DataFusionError> {
-        let relid = unsafe { pg_sys::RelnameGetRelid(table_name.as_ptr() as *const c_char) };
-        let relation = unsafe { pg_sys::RelationIdGetRelation(relid) };
-        let pg_relation = unsafe { PgRelation::from_pg_owned(relation) };
+        let pg_relation = unsafe {
+            PgRelation::open_with_name(format!("{}.{}", self.schema_name, table_name).as_str())
+                .map_err(|err| DataFusionError::External(err.into()))?
+        };
         let schema = pg_relation.arrow_schema()?;
-
         Ok(schema)
     }
 

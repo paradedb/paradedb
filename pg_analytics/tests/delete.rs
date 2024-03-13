@@ -52,7 +52,7 @@ fn federated_delete(mut conn: PgConnection) {
     .execute(&mut conn);
 
     match "DELETE FROM u WHERE name IN (SELECT name FROM v)".execute_result(&mut conn) {
-        Err(err) => assert!(!err.to_string().is_empty()), // was .contains("dml unsupported"), but CI being weird
+        Err(err) => assert!(err.to_string().contains("dml unsupported")),
         _ => panic!("Federated DML should not be supported"),
     };
 }

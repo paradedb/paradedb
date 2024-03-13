@@ -2,12 +2,13 @@ use pgrx::*;
 use std::ffi::{c_char, CString};
 
 use crate::errors::ParadeError;
+use crate::federation::TableDetails;
 
 static COLUMN_HANDLER: &str = "parquet";
 
 pub struct ClassifiedTables {
-    pub col_tables: Vec<String>,
-    pub row_tables: Vec<String>,
+    pub col_tables: Vec<TableDetails>,
+    pub row_tables: Vec<TableDetails>,
 }
 
 pub trait TableClassifier {
@@ -51,9 +52,15 @@ impl TableClassifier for *mut pg_sys::List {
             let relation_handler_oid = (*relation).rd_amhandler;
 
             if col_oid != pg_sys::InvalidOid && relation_handler_oid == col_oid {
-                col_tables.push(pg_relation.name().to_string());
+                col_tables.push(TableDetails {
+                    schema: pg_relation.namespace().to_string(),
+                    table: pg_relation.name().to_string(),
+                })
             } else {
-                row_tables.push(pg_relation.name().to_string());
+                row_tables.push(TableDetails {
+                    schema: pg_relation.namespace().to_string(),
+                    table: pg_relation.name().to_string(),
+                })
             }
         }
 

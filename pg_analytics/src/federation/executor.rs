@@ -8,7 +8,6 @@ use deltalake::datafusion::{
     physical_plan::{stream::RecordBatchStreamAdapter, SendableRecordBatchStream},
 };
 use pgrx::*;
-use std::ffi::c_char;
 
 use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;

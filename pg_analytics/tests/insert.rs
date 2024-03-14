@@ -185,6 +185,7 @@ fn insert_speculative(mut conn: PgConnection) {
             "error returned from database: Inserts with ON CONFLICT are not yet supported"
         ),
     };
+}
 
 #[rstest]
 fn federated_insert(mut conn: PgConnection) {

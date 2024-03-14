@@ -18,18 +18,17 @@ fn search_tantivy(
 
         let writer_client = WriterGlobal::client();
         let search_index = get_search_index(&search_config.index_name);
-        let mut scan_state = search_index
+        let scan_state = search_index
             .search_state(&writer_client, &search_config, needs_commit())
             .unwrap();
         let top_docs = scan_state.search();
-        SearchStateManager::set_state(scan_state).expect("could not store search state in manager");
         let mut hs = FxHashSet::default();
 
-        for (score, _doc_address) in top_docs {
-            let key_field_value = score.key;
-            hs.insert(key_field_value);
+        for (_score, _doc_address, key, _ctid) in top_docs {
+            hs.insert(key);
         }
 
+        SearchStateManager::set_state(scan_state).expect("could not store search state in manager");
         (search_config, hs)
     };
 

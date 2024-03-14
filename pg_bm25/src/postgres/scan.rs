@@ -1,10 +1,9 @@
 use crate::env::needs_commit;
-use crate::index::score::SearchIndexScore;
 use crate::index::state::SearchStateManager;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
 use pgrx::*;
-use tantivy::DocAddress;
+use tantivy::{DocAddress, Score};
 
 #[pg_guard]
 pub extern "C" fn ambeginscan(
@@ -53,12 +52,12 @@ pub extern "C" fn amrescan(
     // Create the index and scan state
     let search_index = get_search_index(index_name);
     let writer_client = WriterGlobal::client();
-    let mut state = search_index
+    let state = search_index
         .search_state(&writer_client, &search_config, needs_commit())
         .unwrap();
 
     let top_docs = state.search();
-    SearchStateManager::set_state(state).expect("could not store search state in manager");
+    SearchStateManager::set_state(state.clone()).expect("could not store search state in manager");
 
     // Save the iterator onto the current memory context.
     scan.opaque = PgMemoryContexts::CurrentMemoryContext
@@ -77,15 +76,14 @@ pub extern "C" fn amgettuple(
     _direction: pg_sys::ScanDirection,
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
-    let iter = unsafe {
-        (scan.opaque as *mut std::vec::IntoIter<(SearchIndexScore, DocAddress)>).as_mut()
-    }
-    .expect("no scandesc state");
+    let iter =
+        unsafe { (scan.opaque as *mut std::vec::IntoIter<(Score, DocAddress, i64, u64)>).as_mut() }
+            .expect("no scandesc state");
 
     scan.xs_recheck = false;
 
     match iter.next() {
-        Some((score, _doc_address)) => {
+        Some((_, _, _, ctid)) => {
             #[cfg(any(
                 feature = "pg12",
                 feature = "pg13",
@@ -94,7 +92,7 @@ pub extern "C" fn amgettuple(
                 feature = "pg16"
             ))]
             let tid = &mut scan.xs_heaptid;
-            u64_to_item_pointer(score.ctid, tid);
+            u64_to_item_pointer(ctid, tid);
 
             true
         }

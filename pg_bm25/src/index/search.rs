@@ -406,8 +406,10 @@ mod tests {
         // Insert fields into document.
         let mut doc = schema.new_document();
         let id_field = schema.key_field();
+        let ctid_field = schema.ctid_field();
         let author_field = schema.get_search_field(&"author".into()).unwrap();
         doc.insert(id_field.id, Value::I64(0));
+        doc.insert(ctid_field.id, Value::U64(0));
         doc.insert(author_field.id, Value::Str("张伟".into()));
 
         // Insert document into index.
@@ -421,16 +423,14 @@ mod tests {
             key_field: "id".into(),
             ..Default::default()
         };
-        let mut state = index.search_state(&client, &search_config, true).unwrap();
+        let state = index.search_state(&client, &search_config, true).unwrap();
 
-        let first = state
-            .search()
-            .iter()
-            .map(|(_, addr)| state.searcher.doc(*addr))
-            .next()
-            .expect("query returned no results")
-            .expect("query returned an error");
+        let (_, doc_address, _, _) = *state.search().first().expect("query returned no results");
+        let found = state
+            .searcher
+            .doc(doc_address)
+            .expect("no document at address");
 
-        assert_eq!(&first, &doc.doc);
+        assert_eq!(&found, &doc.doc);
     }
 }

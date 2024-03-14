@@ -10,9 +10,8 @@ const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
 #[pg_extern]
 pub fn rank_bm25(key: i64, alias: default!(Option<String>, "NULL")) -> f32 {
-    let score = SearchStateManager::get_score(key, alias.map(SearchAlias::from))
-        .expect("could not lookup doc address for search query");
-    score.bm25
+    SearchStateManager::get_score(key, alias.map(SearchAlias::from))
+        .expect("could not lookup doc address for search query")
 }
 
 #[pg_extern]
@@ -67,20 +66,20 @@ pub fn minmax_bm25(
     // Calculate min and max scores
     let (min_score, max_score) = top_docs
         .iter()
-        .map(|(score, _)| score.bm25)
+        .map(|(score, _)| score)
         .fold((f32::MAX, f32::MIN), |(min, max), bm25| {
-            (min.min(bm25), max.max(bm25))
+            (min.min(*bm25), max.max(*bm25))
         });
     let score_range = max_score - min_score;
 
     // Now that we have min and max, iterate over the collected results
     let mut field_rows = Vec::new();
-    for (score, _doc_address) in top_docs {
-        let key = score.key;
+    for (score, doc_address) in top_docs {
+        let key = scan_state.key_value(doc_address);
         let normalized_score = if score_range == 0.0 {
             1.0 // Avoid division by zero
         } else {
-            (score.bm25 - min_score) / score_range
+            (score - min_score) / score_range
         };
 
         field_rows.push((key, normalized_score));

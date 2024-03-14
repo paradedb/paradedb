@@ -1,4 +1,3 @@
-#![allow(unused)]
 use once_cell::sync::Lazy;
 use pgrx::{
     pg_sys::{Datum, ItemPointerData},
@@ -62,6 +61,11 @@ impl SearchIndex {
         directory: WriterDirectory,
         fields: Vec<(SearchFieldName, SearchFieldConfig)>,
     ) -> Result<&'static mut Self, SearchIndexError> {
+        // If the writer directory exists, remove it. We need a fresh directory to
+        // create an index. This can happen after a VACUUM FULL, where the index needs
+        // to be rebuilt and this method is called again.
+        directory.remove().map_err(SearchIndexError::from)?;
+
         let schema = SearchIndexSchema::new(fields)?;
         let settings = IndexSettings {
             // Fields should be returned in the order of their key_field (if their bm25 scores match).
@@ -73,11 +77,6 @@ impl SearchIndex {
             // docstore_compress_dedicated_thread: false, // Must run on single thread, or pgrx will panic
             ..Default::default()
         };
-
-        // If the writer directory exists, remove it. We need a fresh directory to
-        // create an index. This can happen after a VACUUM FULL, where the index needs
-        // to be rebuilt and this method is called again.
-        directory.remove().map_err(SearchIndexError::from)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
         let mut underlying_index = Index::builder()
@@ -407,8 +406,10 @@ mod tests {
         // Insert fields into document.
         let mut doc = schema.new_document();
         let id_field = schema.key_field();
+        let ctid_field = schema.ctid_field();
         let author_field = schema.get_search_field(&"author".into()).unwrap();
         doc.insert(id_field.id, Value::I64(0));
+        doc.insert(ctid_field.id, Value::U64(0));
         doc.insert(author_field.id, Value::Str("张伟".into()));
 
         // Insert document into index.
@@ -419,18 +420,17 @@ mod tests {
             query: crate::query::SearchQueryInput::Parse {
                 query_string: "author:张".into(),
             },
+            key_field: "id".into(),
             ..Default::default()
         };
-        let mut state = index.search_state(&client, &search_config, true).unwrap();
+        let state = index.search_state(&client, &search_config, true).unwrap();
 
-        let first = state
-            .search()
-            .iter()
-            .map(|(_, addr)| state.doc(*addr))
-            .next()
-            .expect("query returned no results")
-            .expect("query returned an error");
+        let (_, doc_address, _, _) = *state.search().first().expect("query returned no results");
+        let found = state
+            .searcher
+            .doc(doc_address)
+            .expect("no document at address");
 
-        assert_eq!(&first, &doc.doc);
+        assert_eq!(&found, &doc.doc);
     }
 }

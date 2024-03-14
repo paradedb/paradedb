@@ -3720,6 +3720,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "utoipa",
+ "walkdir",
 ]
 
 [[package]]

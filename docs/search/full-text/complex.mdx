@@ -166,7 +166,7 @@ SELECT * FROM search_idx.search(
 		field => 'description',
 		phrases => ARRAY['robot', 'building', 'kit']
 	)
-)
+);
 ```
 
 <ParamField body="field">
@@ -214,13 +214,13 @@ SELECT * FROM search_idx.search(
 
 Finds documents containing terms that match a specific regex pattern, enabling pattern-based searching.
 
-```
+```sql
 SELECT * FROM search_idx.search(
 	query => paradedb.regex(
 		field => 'description',
 		pattern => '(hardcover|plush|leather|running|wireless)'
 	)
-)
+);
 ```
 
 <ParamField body="field">
@@ -232,10 +232,10 @@ SELECT * FROM search_idx.search(
 
 Matches documents containing a specified term, with scoring based on term frequency, inverse document frequency, and field normalization. The term value passed is not tokenized for searching, it is matched directly against terms in the index.
 
-```
+```sql
 SELECT * FROM search_idx.search(
 	query => paradedb.term(field => 'description', value => 'shoes')
-)
+);
 ```
 
 <ParamField body="field">
@@ -247,15 +247,15 @@ SELECT * FROM search_idx.search(
 
 Matches documents containing any term from a specified set, offering flexibility in matching criteria.
 
-```
+```sql
 SELECT * FROM search_idx.search(
 	query => paradedb.term_set(
-	    fields => ARRAY[
+	    terms => ARRAY[
 	        paradedb.term(field => 'description', value => 'shoes'),
 	        paradedb.term(field => 'description', value => 'novel')
 	    ]
 	)
-)
+);
 ```
 
 <ParamField body="terms">

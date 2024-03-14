@@ -8,38 +8,43 @@ BM25 scores measure how relevant a score is for a given query. Higher scores ind
 
 ## Basic Usage
 
-After calling `create_bm25` to create a BM25 index and associated schema, you can use the new schema's `rank` function
-to return a table of scores for a given query.
+Call `paradedb.rank_bm25` in a SELECT statement, passing in the `key_field` column.
+
+If you are using two calls to `search` in the same transaction, you must pass a string `alias` argument to `search` and `rank_bm25` to identify which set of bm25 scores to use.
 
 ```sql
-SELECT * FROM <index_name>.rank('<query>');
-```
-
-The `rank_bm25` column contains each row’s BM25 score. Use a `LEFT JOIN` on a `search` query to join the scores with search results,
-matching the rows on the `key_field` column passed to `create_bm25`.
-
-```sql
-SELECT s.*, r.rank_bm25
-FROM <index_name>.search('<query>') as s
-LEFT JOIN <index_name>.rank('<query>') as r ON s.id = r.id;
+SELECT *, paradedb.rank_bm25(<key_field>) FROM <index_name>.search('<query>');
 ```
 
 <Accordion title="Example Usage">
 
 ```sql
-SELECT s.*, r.rank_bm25
-FROM search_idx.search('description:keyboard OR category:electronics', fuzzy_fields => 'description, category') as s
-LEFT JOIN search_idx.rank('description:keyboard OR category:electronics', fuzzy_fields => 'description, category') as r ON s.id = r.id;
+SELECT *, paradedb.rank_bm25(id)
+FROM search_idx.search(
+	query => paradedb.boolean(
+		should => ARRAY[
+			paradedb.fuzzy_term(field => 'description', value => 'keyboard'),
+			paradedb.fuzzy_term(field => 'category', value => 'electronics')
+		]
+	)
+);
+
+-- Multiple calls to search, alias is required.
+SELECT id, paradedb.rank_bm25(id)
+FROM search_idx.search('description:shoes')
+UNION
+SELECT id, paradedb.rank_bm25(id, alias => 'speaker')
+FROM search_idx.search('description:speaker', alias => 'speaker')
+ORDER BY id;
 ```
 
 </Accordion>
 
-<ParamField body="index_name" required>
-  The name of the index.
+<ParamField body="key_field" required>
+  The column that represents the `key_field` of the index.
 </ParamField>
-<ParamField body="query" required>
-  The query string.
+<ParamField body="alias">
+  A string identifier passed both to `search` and `rank_bm25`. This is required
+  only if you're using two `search` calls in one transaction, as `rank_bm25`
+  cannot otherwise know which set of scores to use.
 </ParamField>
-
-All parameters to the `search` function are applicable here. The `rank` function should receive identical
-arguments to the `search` function.

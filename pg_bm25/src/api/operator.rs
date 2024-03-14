@@ -1,4 +1,5 @@
 use crate::env::needs_commit;
+use crate::index::state::SearchStateManager;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
 use pgrx::{prelude::PgHeapTuple, *};
@@ -17,17 +18,17 @@ fn search_tantivy(
 
         let writer_client = WriterGlobal::client();
         let search_index = get_search_index(&search_config.index_name);
-        let mut scan_state = search_index
+        let scan_state = search_index
             .search_state(&writer_client, &search_config, needs_commit())
             .unwrap();
         let top_docs = scan_state.search();
         let mut hs = FxHashSet::default();
 
-        for (_, doc_address) in top_docs {
-            let key_field_value = scan_state.key_field_value(doc_address);
-            hs.insert(key_field_value);
+        for (_score, _doc_address, key, _ctid) in top_docs {
+            hs.insert(key);
         }
 
+        SearchStateManager::set_state(scan_state).expect("could not store search state in manager");
         (search_config, hs)
     };
 

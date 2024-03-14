@@ -255,6 +255,12 @@ pub struct SearchField {
     pub config: SearchFieldConfig,
 }
 
+impl From<&SearchField> for Field {
+    fn from(val: &SearchField) -> Self {
+        val.id.0
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Into)]
 pub struct SearchIndexSchema {
     /// The fields that are stored in the index.
@@ -367,7 +373,7 @@ impl SearchIndexSchema {
 }
 
 // Index record schema
-#[allow(unused)]
+#[allow(unused)] // used by serde
 #[derive(utoipa::ToSchema)]
 pub enum IndexRecordOptionSchema {
     #[schema(rename = "basic")]

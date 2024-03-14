@@ -6,36 +6,55 @@ title: Highlighting
 
 Highlighting refers to the practice of visually emphasizing the portions of a document that match a user's
 search query, which aids users in quickly identifying the relevance of the search results to
-their inquiry. In ParadeDB, highlighted snippets of text are wrapped in `<b></b>` tags.
+their inquiry. In ParadeDB, highlighted snippets of text are by default wrapped in `<b></b>` tags. This can
+be modified with the `prefix` and `postfix` arguments.
 
 ## Basic Usage
 
-After calling `create_bm25` to create a BM25 index and associated schema, you can use the new schema's `highlight` function
-to return a table of highlighted fragments of text that match your query. This function only works over text fields.
+Call `paradedb.highlight` in a `SELECT` statement, passing in the `key_field` column, the `field` to highlight,
+and other highlighting options. This function only works over text fields.
+
+If you are using two calls to `search` in the same transaction, you must pass a string `alias` argument to `search` and `highlight` to identify which results to highlight.
 
 ```sql
-SELECT * FROM <index_name>.highlight('<query>', highlight_field => '<field_name>');
+SELECT *, paradedb.highlight(<key_field>, field => '<field>')
+FROM <index_name>.search(<query>);
 ```
 
 <Accordion title="Example Usage">
 
 ```sql
-SELECT s.*, r.highlight_bm25
-FROM search_idx.search('description:keyboard OR category:electronics') as s
-LEFT JOIN search_idx.highlight('description:keyboard OR category:electronics', highlight_field => 'description') as r ON s.id = r.id;
+SELECT *, paradedb.highlight(id, field => 'description')
+FROM search_idx.search('description:keyboard OR category:electronics');
+
+-- Multiple calls to search, alias is required.
+SELECT id, paradedb.highlight(id, field => 'description')
+FROM bm25_search.search('description:shoes')
+UNION
+SELECT id, paradedb.highlight(id, field => 'description', alias => 'speaker')
+FROM bm25_search.search('description:speaker', alias => 'speaker')
+ORDER BY id;
 ```
 
 </Accordion>
 
-<ParamField body="index_name" required>
-  The name of the index.
+<ParamField body="key_field" required>
+  The column that represents the `key_field` of the index.
 </ParamField>
-<ParamField body="query" required>
-  The query string.
+<ParamField body="field" required>
+  The name of the field that will be highlighted in the result.
 </ParamField>
-<ParamField body="field_name" required>
-  The name of the indexed field to be highlighted in the returned fragment.
+<ParamField body="prefix" default="<b>">
+  The leading indicator around the highlighted region.
 </ParamField>
-
-All parameters to the `search` function are applicable here. The `highlight` function should receive identical
-arguments to the `search` function, along with an additional required `highlight_field` parameter.
+<ParamField body="postfix" default="</b>">
+  The trailing indicator around the highlighted region.
+</ParamField>
+<ParamField body="max_num_chars">
+  Max number of characters for a highlighted fragment.
+</ParamField>
+<ParamField body="alias">
+  A string identifier passed both to `search` and `highlight`. This is required
+  only if you're using two `search` calls in one transaction, as `highlight`
+  cannot otherwise know which set of highlights to use.
+</ParamField>

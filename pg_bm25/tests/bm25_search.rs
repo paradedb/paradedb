@@ -1,5 +1,7 @@
 mod fixtures;
 
+use approx::assert_relative_eq;
+use core::panic;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
@@ -51,7 +53,7 @@ async fn basic_search_ids(mut conn: PgConnection) {
 fn with_bm25_scoring(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let rows: Vec<(i64, f32)> = "SELECT id, rank_bm25 FROM bm25_search.rank('category:electronics OR description:keyboard')"
+    let rows: Vec<(i32, f32)> = "SELECT id, paradedb.rank_bm25(id) FROM bm25_search.search('category:electronics OR description:keyboard')"
         .fetch(&mut conn);
 
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
@@ -281,4 +283,74 @@ fn multi_tree(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![32, 5, 3, 4, 7, 34, 37, 10, 33, 39, 41]);
+}
+
+#[rstest]
+fn highlight(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    let row: (String,) = "
+        SELECT paradedb.highlight(id, 'description')
+        FROM bm25_search.search('description:shoes')"
+        .fetch_one(&mut conn);
+    assert_eq!(row.0, "Generic <b>shoes</b>");
+
+    let row: (String,) = "
+        SELECT paradedb.highlight(id, 'description', prefix => '<h1>', postfix => '</h1>')
+        FROM bm25_search.search('description:shoes')"
+        .fetch_one(&mut conn);
+    assert_eq!(row.0, "Generic <h1>shoes</h1>")
+}
+
+#[rstest]
+fn alias(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let rows = "
+        SELECT id, paradedb.highlight(id, field => 'description') FROM bm25_search.search('description:shoes')
+        UNION
+        SELECT id, paradedb.highlight(id, field => 'description')
+        FROM bm25_search.search('description:speaker')
+        ORDER BY id"
+        .fetch_result::<()>(&mut conn);
+
+    match rows {
+        Ok(_) => panic!("an alias should be required for multiple search calls"),
+        Err(err) => assert!(err
+            .to_string()
+            .contains("could not store search state in manager: AliasRequired")),
+    }
+
+    let rows: Vec<(i32, String)> = "
+        SELECT id, paradedb.highlight(id, field => 'description') FROM bm25_search.search('description:shoes')
+        UNION
+        SELECT id, paradedb.highlight(id, field => 'description', alias => 'speaker')
+        FROM bm25_search.search('description:speaker', alias => 'speaker')
+        ORDER BY id"
+        .fetch(&mut conn);
+
+    assert_eq!(rows[0].0, 3);
+    assert_eq!(rows[1].0, 4);
+    assert_eq!(rows[2].0, 5);
+    assert_eq!(rows[3].0, 32);
+    assert_eq!(rows[0].1, "Sleek running <b>shoes</b>");
+    assert_eq!(rows[1].1, "White jogging <b>shoes</b>");
+    assert_eq!(rows[2].1, "Generic <b>shoes</b>");
+    assert_eq!(rows[3].1, "Bluetooth-enabled <b>speaker</b>");
+
+    let rows: Vec<(i32, f32)> = "
+        SELECT id, paradedb.rank_bm25(id) FROM bm25_search.search('description:shoes')
+        UNION
+        SELECT id, paradedb.rank_bm25(id, alias => 'speaker')
+        FROM bm25_search.search('description:speaker', alias => 'speaker')
+        ORDER BY id;"
+        .fetch(&mut conn);
+
+    assert_eq!(rows[0].0, 3);
+    assert_eq!(rows[1].0, 4);
+    assert_eq!(rows[2].0, 5);
+    assert_eq!(rows[3].0, 32);
+    assert_relative_eq!(rows[0].1, 2.4849067, epsilon = 1e-6);
+    assert_relative_eq!(rows[1].1, 2.4849067, epsilon = 1e-6);
+    assert_relative_eq!(rows[2].1, 2.8772602, epsilon = 1e-6);
+    assert_relative_eq!(rows[3].1, 3.3322046, epsilon = 1e-6);
 }

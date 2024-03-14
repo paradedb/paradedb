@@ -2,7 +2,7 @@ use pgrx::JsonB;
 use serde::{de::DeserializeOwned, Deserialize, Deserializer};
 use std::str::FromStr;
 
-use crate::query::SearchQueryInput;
+use crate::{index::state::SearchAlias, query::SearchQueryInput};
 
 #[derive(Debug, Deserialize, Default, Clone, PartialEq)]
 pub struct SearchConfig {
@@ -13,6 +13,7 @@ pub struct SearchConfig {
     pub limit_rows: Option<usize>,
     pub max_num_chars: Option<usize>,
     pub highlight_field: Option<String>,
+    pub alias: Option<SearchAlias>,
 }
 
 impl SearchConfig {

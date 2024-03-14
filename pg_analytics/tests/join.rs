@@ -79,11 +79,11 @@ fn join_heap_and_parquet_table(mut conn: PgConnection) {
     CREATE SCHEMA s1;
     CREATE TABLE s1.v ( id INT PRIMARY KEY, department_name VARCHAR(50) );
     INSERT INTO s1.v (id, department_name) VALUES
-    (101, 'Human Resources'),
+    (101, 'Human Resources');
     "#
     .execute(&mut conn);
 
     let count: (i64,) =
         "SELECT COUNT(*) FROM u JOIN s1.v ON u.department_id = v.id".fetch_one(&mut conn);
-    assert_eq!(count, (1,));
+    assert_eq!(count, (2,));
 }

@@ -38,7 +38,7 @@ pub async fn execute_federated_query(
 
     // schema_name: map of (type: vec[table_name])
     let mut schema_map = HashMap::<String, HashMap<String, Vec<String>>>::new();
-    for (table_type, table_vec) in vec![
+    for (table_type, table_vec) in [
         ("row".to_string(), row_tables),
         ("col".to_string(), col_tables),
     ] {

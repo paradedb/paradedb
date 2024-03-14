@@ -15,8 +15,6 @@ use crate::errors::{NotFound, ParadeError};
 use crate::federation::executor::{ColumnExecutor, RowExecutor};
 use crate::federation::TableDetails;
 
-use pgrx::*;
-
 pub async fn execute_federated_query(
     query: String,
     row_tables: Vec<TableDetails>,

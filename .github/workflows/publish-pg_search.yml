@@ -1,9 +1,9 @@
-# workflows/publish-pg_bm25.yml
+# workflows/publish-pg_search.yml
 #
-# Publish pg_bm25
-# Build and publish the pg_bm25 extension as a .deb to GitHub Releases.
+# Publish pg_search
+# Build and publish the pg_search extension as a .deb to GitHub Releases.
 
-name: Publish pg_bm25
+name: Publish pg_search
 
 on:
   push:
@@ -12,17 +12,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "The version to set for the pg_bm25 release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
+        description: "The version to set for the pg_search release. This publishes the latest commit of the chosen branch and uploads it to the pre-existing GitHub Release of the provided version."
         required: true
         default: ""
 
 concurrency:
-  group: publish-pg_bm25-${{ github.head_ref || github.ref }}
+  group: publish-pg_search-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  publish-pg_bm25:
-    name: Publish pg_bm25 for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+  publish-pg_search:
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -70,19 +70,19 @@ jobs:
         run: cargo install --locked cargo-pgrx --version 0.11.2
 
       - name: Initialize pgrx for Current PostgreSQL Version
-        working-directory: pg_bm25/
+        working-directory: pg_search/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
-      - name: Package pg_bm25 Extension with pgrx
-        working-directory: pg_bm25/
+      - name: Package pg_search Extension with pgrx
+        working-directory: pg_search/
         run: cargo pgrx package --features "icu telemetry"
 
       - name: Create .deb Package
         run: |
           # Create installable package
           mkdir archive
-          cp `find target/release -type f -name "pg_bm25*"` archive
-          package_dir=pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}
+          cp `find target/release -type f -name "pg_search*"` archive
+          package_dir=pg_search-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
@@ -122,10 +122,10 @@ jobs:
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      - name: Upload pg_bm25 .deb to GitHub Release
+      - name: Upload pg_search .deb to GitHub Release
         uses: shogo82148/actions-upload-release-asset@v1
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_bm25-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
-          asset_name: pg_bm25-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
+          asset_path: ./pg_search-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
+          asset_name: pg_search-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb

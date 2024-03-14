@@ -1,8 +1,8 @@
-# ParadeDB pg_bm25 Benchmarks
+# ParadeDB pg_search Benchmarks
 
 This folder contains the results and scripts for benchmarking the search component of ParadeDB against other search engines and databases. Currently, the following systems are benchmarked:
 
-- [x] ParadeDB `pg_bm25`
+- [x] ParadeDB `pg_search`
 - [x] PostgreSQL tsquery/tsvector
 - [x] Elasticsearch
 
@@ -56,17 +56,17 @@ The query used for benchmarking is a simple search of the word "Canada" across a
 
 The versions of the systems used for benchmarking are:
 
-- ParadeDB `pg_bm25`: 0.2.18
+- ParadeDB `pg_search`: 0.2.18
 - PostgreSQL: 15.4
 - Elasticsearch: 8.9.2
 
 For any questions, clarifications, or suggestions regarding our benchmarking experimental setup, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
 
-### pg_bm25
+### pg_search
 
-<img src="../../docs/images/bm25_index_benchmark.png" alt="" width="100%">
+<img src="../../docs/images/pg_search_index_benchmark.png" alt="" width="100%">
 
-<img src="../../docs/images/bm25_search_benchmark.png" alt="" width="100%">
+<img src="../../docs/images/pg_search_benchmark.png" alt="" width="100%">
 
 ## Generating Benchmarks
 

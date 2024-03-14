@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "pg_bm25",
+    "pg_search",
     "pg_analytics",
     "shared",
     "tokenizers",

@@ -30,7 +30,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 ### Roadmap
 
 - [x] Search
-  - [x] Full-text search with BM25 with [pg_bm25](https://github.com/paradedb/paradedb/tree/dev/pg_bm25#overview)
+  - [x] Full-text search with BM25 with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
   - [x] Sparse vector search with [pg_sparse](https://github.com/paradedb/paradedb/tree/dev/pg_sparse#overview)
   - [x] Dense vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search

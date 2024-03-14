@@ -81,7 +81,7 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 - [ ] Index creation
 - [ ] External object store integrations (S3/Azure/GCS/HDFS)
 - [ ] External Apache Iceberg and Delta Lake support
-- [ ] Full text search over `parquet` tables with `pg_bm25`
+- [ ] Full text search over `parquet` tables with `pg_search`
 
 ## Development
 

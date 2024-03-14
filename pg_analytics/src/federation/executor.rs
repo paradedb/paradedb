@@ -21,9 +21,7 @@ pub struct ColumnExecutor {
 
 impl ColumnExecutor {
     pub fn new(schema_name: String) -> Result<Self> {
-        Ok(Self {
-            schema_name: schema_name,
-        })
+        Ok(Self { schema_name })
     }
 }
 #[async_trait]
@@ -80,9 +78,7 @@ pub struct RowExecutor {
 
 impl RowExecutor {
     pub fn new(schema_name: String) -> Result<Self> {
-        Ok(Self {
-            schema_name: schema_name,
-        })
+        Ok(Self { schema_name })
     }
 }
 

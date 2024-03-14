@@ -19,7 +19,8 @@ fn boolean_tree(mut conn: PgConnection) {
 			    paradedb.term(field => 'description', value => 'speaker'),
 			    paradedb.fuzzy_term(field => 'description', value => 'wolo')
 		    ]
-	    )
+	    ),
+	    stable_sort => true
 	);
     "#
     .fetch_collect(&mut conn);
@@ -31,14 +32,16 @@ fn fuzzy_fields(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-    	query => paradedb.fuzzy_term(field => 'category', value => 'elector')
+    	query => paradedb.fuzzy_term(field => 'category', value => 'elector'),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![1, 2, 12, 22, 32], "wrong results");
 
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-    	query => paradedb.term(field => 'category', value => 'electornics')
+    	query => paradedb.term(field => 'category', value => 'electornics'),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert!(columns.is_empty(), "without fuzzy field should be empty");
@@ -50,7 +53,8 @@ fn fuzzy_fields(mut conn: PgConnection) {
     	    value => 'keybaord',
     	    tranposition_cost_one => false,
     	    distance => 1
-    	)
+    	),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert!(
@@ -65,7 +69,8 @@ fn fuzzy_fields(mut conn: PgConnection) {
     	    value => 'keybaord',
     	    tranposition_cost_one => true,
     	    distance => 1
-    	)
+    	),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(
@@ -82,7 +87,8 @@ fn single_queries(mut conn: PgConnection) {
     // All
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-	    query => paradedb.all()
+	    query => paradedb.all(),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
@@ -90,7 +96,8 @@ fn single_queries(mut conn: PgConnection) {
     // Boost
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-	    query => paradedb.boost(query => paradedb.all(), boost => 1.5)
+	    query => paradedb.boost(query => paradedb.all(), boost => 1.5),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
@@ -98,7 +105,8 @@ fn single_queries(mut conn: PgConnection) {
     // ConstScore
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-	    query => paradedb.const_score(query => paradedb.all(), score => 3.9)
+	    query => paradedb.const_score(query => paradedb.all(), score => 3.9),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 41);
@@ -106,7 +114,8 @@ fn single_queries(mut conn: PgConnection) {
     // DisjunctionMax
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-    	query => paradedb.disjunction_max(disjuncts => ARRAY[paradedb.parse('description:shoes')])
+    	query => paradedb.disjunction_max(disjuncts => ARRAY[paradedb.parse('description:shoes')]),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
@@ -114,7 +123,8 @@ fn single_queries(mut conn: PgConnection) {
     // Empty
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-    	query => paradedb.empty()
+    	query => paradedb.empty(),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 0);
@@ -122,7 +132,8 @@ fn single_queries(mut conn: PgConnection) {
     // FuzzyTerm
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-    	query => paradedb.fuzzy_term(field => 'description', value => 'wolo')
+    	query => paradedb.fuzzy_term(field => 'description', value => 'wolo'),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 4);
@@ -130,7 +141,8 @@ fn single_queries(mut conn: PgConnection) {
     // Parse
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-    	query => paradedb.parse('description:teddy')
+    	query => paradedb.parse('description:teddy'),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
@@ -138,7 +150,8 @@ fn single_queries(mut conn: PgConnection) {
     // PhrasePrefix
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-    	query => paradedb.phrase_prefix(field => 'description', phrases => ARRAY['har'])
+    	query => paradedb.phrase_prefix(field => 'description', phrases => ARRAY['har']),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
@@ -146,7 +159,8 @@ fn single_queries(mut conn: PgConnection) {
     // Phrase with invalid term list
     match r#"
        SELECT * FROM bm25_search.search(
-       	query => paradedb.phrase(field => 'description', phrases => ARRAY['robot'])
+       	query => paradedb.phrase(field => 'description', phrases => ARRAY['robot']),
+	    stable_sort => true
     )"#
     .fetch_result::<SimpleProductsTable>(&mut conn)
     {
@@ -162,7 +176,8 @@ fn single_queries(mut conn: PgConnection) {
     	query => paradedb.phrase(
     		field => 'description',
     		phrases => ARRAY['robot', 'building', 'kit']
-    	)
+    	),
+	    stable_sort => true
 
 	)"#
     .fetch_collect(&mut conn);
@@ -174,7 +189,8 @@ fn single_queries(mut conn: PgConnection) {
     	query => paradedb.regex(
     		field => 'description',
     		pattern => '(hardcover|plush|leather|running|wireless)'
-    	)
+    	),
+	    stable_sort => true
 
 	)"#
     .fetch_collect(&mut conn);
@@ -183,7 +199,8 @@ fn single_queries(mut conn: PgConnection) {
     // Term
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(
-    	query => paradedb.term(field => 'description', value => 'shoes')
+    	query => paradedb.term(field => 'description', value => 'shoes'),
+	    stable_sort => true
 
 	)"#
     .fetch_collect(&mut conn);
@@ -196,7 +213,8 @@ fn single_queries(mut conn: PgConnection) {
     	    terms => ARRAY[
     	        paradedb.regex(field => 'description', pattern => '.+')
     	    ]
-    	)
+    	),
+	    stable_sort => true
 	)"#
     .fetch_result::<SimpleProductsTable>(&mut conn)
     {
@@ -214,7 +232,8 @@ fn single_queries(mut conn: PgConnection) {
     	        paradedb.term(field => 'description', value => 'shoes'),
     	        paradedb.term(field => 'description', value => 'novel')
     	    ]
-    	)
+    	),
+	    stable_sort => true
 	)"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 5);

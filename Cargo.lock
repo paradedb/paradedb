@@ -3658,7 +3658,7 @@ dependencies = [
 
 [[package]]
 name = "pg_analytics"
-version = "0.5.9"
+version = "0.5.10"
 dependencies = [
  "anyhow",
  "async-std",
@@ -3682,7 +3682,7 @@ dependencies = [
 
 [[package]]
 name = "pg_bm25"
-version = "0.5.9"
+version = "0.5.10"
 dependencies = [
  "anyhow",
  "approx",
@@ -3698,6 +3698,7 @@ dependencies = [
  "json5",
  "libc",
  "memoffset",
+ "num_cpus",
  "once_cell",
  "pgrx",
  "pgrx-tests",

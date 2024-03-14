@@ -14,6 +14,7 @@ pub struct SearchConfig {
     pub max_num_chars: Option<usize>,
     pub highlight_field: Option<String>,
     pub alias: Option<SearchAlias>,
+    pub stable_sort: Option<bool>,
 }
 
 impl SearchConfig {

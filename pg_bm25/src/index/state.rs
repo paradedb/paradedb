@@ -1,3 +1,4 @@
+use super::score::SearchIndexScore;
 use super::SearchIndex;
 use crate::schema::{SearchConfig, SearchFieldName, SearchIndexSchema};
 use derive_more::{AsRef, Display, From};
@@ -9,7 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::collector::TopDocs;
 use tantivy::schema::FieldType;
 use tantivy::{query::Query, DocAddress, Score, Searcher};
-use tantivy::{Snippet, SnippetGenerator};
+use tantivy::{Executor, Snippet, SnippetGenerator};
 use thiserror::Error;
 
 static SEARCH_STATE_MANAGER: Lazy<Arc<Mutex<SearchStateManager>>> = Lazy::new(|| {
@@ -253,7 +254,7 @@ impl SearchState {
     /// index access methods, this may return deleted rows until a VACUUM. If you need to scan
     /// the Tantivy index without a Postgres deduplication, you should use the `search_dedup`
     /// method instead.
-    pub fn search(&self) -> Vec<(Score, DocAddress, i64, u64)> {
+    pub fn search(&self, executor: &Executor) -> Vec<(Score, DocAddress, i64, u64)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
             // We use unwrap_or_else here so this block doesn't run unless
@@ -268,36 +269,82 @@ impl SearchState {
         });
 
         let offset = self.config.offset_rows.unwrap_or(0);
-        let top_docs_by_custom_score = TopDocs::with_limit(limit).and_offset(offset);
-        let mut results: Vec<_> = self
-            .searcher
-            .search(self.query.as_ref(), &top_docs_by_custom_score)
-            .expect("failed to search")
-            .into_iter()
-            .map(|(score, doc_address)| {
-                let (key, ctid) = self.key_and_ctid_value(doc_address);
-                SearchStateManager::set_result(key, score, doc_address, self.config.alias.clone())
+
+        if self.config.stable_sort.is_some_and(|stable| stable) {
+            // If the user requires a stable sort, we'll use tweak_score. This allows us to retrieve
+            // the value of a fast field and use that as a secondary sort key. In the case of a
+            // bm25 score tie, results will be ordered based on the value of their 'key_field'.
+            // This has a big performance impact, so the user needs to opt-in.
+            let key_field_name = self.config.key_field.clone();
+            let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
+                move |segment_reader: &tantivy::SegmentReader| {
+                    let key_field_reader = segment_reader
+                        .fast_fields()
+                        .i64(&key_field_name)
+                        .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", "id"))
+                        .first_or_default_col(0);
+
+                    // This function will be called on every document in the index that matches the
+                    // query, before limit + offset are applied. It's important that it's efficient.
+                    move |doc: tantivy::DocId, original_score: tantivy::Score| SearchIndexScore {
+                        bm25: original_score,
+                        key: key_field_reader.get_val(doc),
+                    }
+                },
+            );
+            self.searcher
+                .search_with_executor(
+                    self.query.as_ref(),
+                    &collector,
+                    executor,
+                    tantivy::query::EnableScoring::Enabled {
+                        searcher: &self.searcher,
+                        statistics_provider: &self.searcher,
+                    },
+                )
+                .expect("failed to search")
+                .into_iter()
+                .map(|(score, doc_address)| {
+                    // This iterator contains the results after limit + offset are applied.
+                    let ctid = self.ctid_value(doc_address);
+                    SearchStateManager::set_result(
+                        score.key,
+                        score.bm25,
+                        doc_address,
+                        self.config.alias.clone(),
+                    )
                     .expect("could not store search result in state manager");
-                (score, doc_address, key, ctid)
-            })
-            .collect();
-
-        // The search results are "mostly sorted". We'll get back the documents sorted by
-        // score, but in case of score ties, the results will be ordered by doc address...
-        // which is as good as random. We want our secondary sort to be the key, so we re-sort
-        // the results below.
-        //
-        // The standard library's sorting method is optimized for partially sorted data, so we
-        // expect this to be efficient.
-        results.sort_unstable_by(|a, b| {
-            // First compare by score in descending order
-            b.0.partial_cmp(&a.0)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                // If scores are equal, then compare by key in descending order
-                .then_with(|| a.2.cmp(&b.2))
-        });
-
-        results
+                    (score.bm25, doc_address, score.key, ctid)
+                })
+                .collect()
+        } else {
+            let collector = TopDocs::with_limit(limit).and_offset(offset);
+            self.searcher
+                .search_with_executor(
+                    self.query.as_ref(),
+                    &collector,
+                    executor,
+                    tantivy::query::EnableScoring::Enabled {
+                        searcher: &self.searcher,
+                        statistics_provider: &self.searcher,
+                    },
+                )
+                .expect("failed to search")
+                .into_iter()
+                .map(|(score, doc_address)| {
+                    // This iterator contains the results after limit + offset are applied.
+                    let (key, ctid) = self.key_and_ctid_value(doc_address);
+                    SearchStateManager::set_result(
+                        key,
+                        score,
+                        doc_address,
+                        self.config.alias.clone(),
+                    )
+                    .expect("could not store search result in state manager");
+                    (score, doc_address, key, ctid)
+                })
+                .collect()
+        }
     }
 
     pub fn key_value(&self, doc_address: DocAddress) -> i64 {
@@ -311,6 +358,19 @@ impl SearchState {
             .unwrap()
             .as_i64()
             .expect("could not access key field on document")
+    }
+
+    pub fn ctid_value(&self, doc_address: DocAddress) -> u64 {
+        let retrieved_doc = self
+            .searcher
+            .doc(doc_address)
+            .expect("could not retrieve document by address");
+
+        retrieved_doc
+            .get_first(self.schema.ctid_field().id.0)
+            .unwrap()
+            .as_u64()
+            .expect("could not access ctid field on document")
     }
 
     pub fn key_and_ctid_value(&self, doc_address: DocAddress) -> (i64, u64) {
@@ -337,8 +397,11 @@ impl SearchState {
     /// searches into the Tantivy index outside of Postgres index access methods. Postgres will
     /// filter out stale rows when using the index scan, but when scanning Tantivy directly,
     /// we risk returning deleted documents if a VACUUM hasn't been performed yet.
-    pub fn search_dedup(&mut self) -> impl Iterator<Item = (Score, DocAddress)> {
-        let search_results = self.search();
+    pub fn search_dedup(
+        &mut self,
+        executor: &Executor,
+    ) -> impl Iterator<Item = (Score, DocAddress)> {
+        let search_results = self.search(executor);
         let mut dedup_map: HashMap<i64, (Score, DocAddress)> = HashMap::new();
         let mut order_vec: Vec<i64> = Vec::new();
 

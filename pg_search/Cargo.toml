@@ -1,5 +1,5 @@
 [package]
-name = "pg_bm25"
+name = "pg_search"
 description = "Full text search for PostgreSQL using BM25"
 version = "0.5.11"
 edition = "2021"

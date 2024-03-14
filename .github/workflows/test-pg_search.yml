@@ -1,9 +1,9 @@
-# workflows/test-pg_bm25.yml
+# workflows/test-pg_search.yml
 #
-# Test pg_bm25
-# Run unit and integration tests for the pg_bm25 extension.
+# Test pg_search
+# Run unit and integration tests for the pg_search extension.
 
-name: Test pg_bm25
+name: Test pg_search
 
 on:
   pull_request:
@@ -12,27 +12,27 @@ on:
       - staging
       - main
     paths:
-      - "pg_bm25/**"
+      - "pg_search/**"
       - "tokenizers/**"
-      - "!pg_bm25/README.md"
-      - ".github/workflows/test-pg_bm25.yml"
+      - "!pg_search/README.md"
+      - ".github/workflows/test-pg_search.yml"
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
   workflow_dispatch:
     inputs:
       test_upgrade_version:
-        description: "Upcoming pg_bm25 version to test upgrading against"
+        description: "Upcoming pg_search version to test upgrading against"
         required: false
         default: ""
 
 concurrency:
-  group: test-pg_bm25-${{ github.head_ref || github.ref }}
+  group: test-pg_search-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-pg_bm25:
-    name: Test pg_bm25 on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
+  test-pg_search:
+    name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -77,7 +77,7 @@ jobs:
       # on PRs to main, which are our release promotion PRs.
       - name: Check version in Cargo.toml
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_bm25/
+        working-directory: pg_search/
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
           NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
@@ -99,7 +99,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1"
-          shared-key: ${{ runner.os }}-rust-cache-pg_bm25-${{ HashFiles('Cargo.lock') }}
+          shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
           cache-targets: true
           cache-on-failure: true
           cache-all-crates: true
@@ -130,18 +130,18 @@ jobs:
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
 
-      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_bm25 extension. Since we
+      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
-      # clean any cached pg_bm25 & dependencies build artifacts before running the tests
+      # clean any cached pg_search & dependencies build artifacts before running the tests
       - name: Clean Cached Build Artifacts
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
-        working-directory: pg_bm25/
+        working-directory: pg_search/
         run: cargo clean
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
-      - name: Run pg_bm25 Cargo Test Suite
+      - name: Run pg_search Cargo Test Suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_bm25/
+        working-directory: pg_search/
         run: |
           # Add the code coverage flags to the config.toml file
           echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
@@ -164,7 +164,7 @@ jobs:
           fi
 
       # On promotion PRs, we test packaging the extension with production features enabled
-      - name: Test Packaging pg_bm25
+      - name: Test Packaging pg_search
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_bm25/
+        working-directory: pg_search/
         run: cargo clean && cargo pgrx package --features "icu telemetry"

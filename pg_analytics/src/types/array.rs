@@ -22,16 +22,15 @@ type Column<T> = Vec<Option<T>>;
 
 pub trait IntoPrimitiveArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_array<T>(self) -> Result<Vec<Option<T>>, DataTypeError>
     where
         T: FromDatum,
     {
         let array = self
-            .map(|(datum, is_null)| {
-                (!is_null)
-                    .then_some(datum)
+            .map(|datum| {
+                datum
                     .and_then(|datum| unsafe { T::from_datum(datum, false) })
             })
             .collect::<Vec<Option<T>>>();
@@ -42,7 +41,7 @@ where
 
 pub trait IntoPrimitiveArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized + IntoPrimitiveArray,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
 {
     fn into_primitive_arrow_array<T, A>(self) -> Result<ArrayRef, DataTypeError>
     where
@@ -55,7 +54,7 @@ where
 
 pub trait IntoNumericArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_numeric_array(
         self,
@@ -63,8 +62,8 @@ where
         scale: i8,
     ) -> Result<Vec<Option<i128>>, DataTypeError> {
         let array = self
-            .map(|(datum, is_null)| {
-                (!is_null).then_some(datum).and_then(|datum| {
+            .map(|datum| {
+                datum.and_then(|datum| {
                     unsafe { AnyNumeric::from_datum(datum, false) }.map(|numeric| {
                         i128::try_from(
                             scale_anynumeric(numeric, precision, scale, true)
@@ -82,7 +81,7 @@ where
 
 pub trait IntoNumericArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_numeric_arrow_array(self, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
         let PgNumericTypeMod(PgPrecision(precision), PgScale(scale)) = typemod.try_into()?;
@@ -96,12 +95,12 @@ where
 
 pub trait IntoDateArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_date_array(self) -> Result<Vec<Option<i32>>, DataTypeError> {
         let array = self
-            .map(|(datum, is_null)| {
-                (!is_null).then_some(datum).and_then(|datum| {
+            .map(|datum| {
+                datum.and_then(|datum| {
                     unsafe { datum::Date::from_datum(datum, false) }
                         .and_then(|date| DayUnix::try_from(date).ok())
                         .map(|DayUnix(unix)| unix)
@@ -115,7 +114,7 @@ where
 
 pub trait IntoDateArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_date_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(Date32Array::from_iter(self.into_date_array()?)))
@@ -124,12 +123,12 @@ where
 
 pub trait IntoTimestampMicrosecondArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_ts_micro_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
-            .map(|(datum, is_null)| {
-                (!is_null).then_some(datum).and_then(|datum| {
+            .map(|datum| {
+                datum.and_then(|datum| {
                     unsafe { datum::Timestamp::from_datum(datum, false) }
                         .and_then(|timestamp| MicrosecondUnix::try_from(timestamp).ok())
                         .map(|MicrosecondUnix(unix)| unix)
@@ -143,7 +142,7 @@ where
 
 pub trait IntoTimestampMicrosecondArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_ts_micro_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(TimestampMicrosecondArray::from_iter(
@@ -154,12 +153,12 @@ where
 
 pub trait IntoTimestampMillisecondArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_ts_milli_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
-            .map(|(datum, is_null)| {
-                (!is_null).then_some(datum).and_then(|datum| {
+            .map(|datum| {
+                datum.and_then(|datum| {
                     unsafe { datum::Timestamp::from_datum(datum, false) }
                         .and_then(|timestamp| MillisecondUnix::try_from(timestamp).ok())
                         .map(|MillisecondUnix(unix)| unix)
@@ -173,7 +172,7 @@ where
 
 pub trait IntoTimestampMillisecondArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_ts_milli_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(TimestampMillisecondArray::from_iter(
@@ -184,12 +183,12 @@ where
 
 pub trait IntoTimestampSecondArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_ts_second_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
-            .map(|(datum, is_null)| {
-                (!is_null).then_some(datum).and_then(|datum| {
+            .map(|datum| {
+                datum.and_then(|datum| {
                     unsafe { datum::Timestamp::from_datum(datum, false) }
                         .and_then(|timestamp| SecondUnix::try_from(timestamp).ok())
                         .map(|SecondUnix(unix)| unix)
@@ -203,7 +202,7 @@ where
 
 pub trait IntoTimestampSecondArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_ts_second_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(TimestampSecondArray::from_iter(
@@ -214,12 +213,12 @@ where
 
 pub trait IntoTimeNanosecondArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_time_nano_array(self) -> Result<Vec<Option<i64>>, DataTypeError> {
         let array = self
-            .map(|(datum, is_null)| {
-                (!is_null).then_some(datum).and_then(|datum| {
+            .map(|datum| {
+                datum.and_then(|datum| {
                     unsafe { datum::Time::from_datum(datum, false) }
                         .and_then(|time| NanosecondDay::try_from(time).ok())
                         .map(|NanosecondDay(nanos)| nanos)
@@ -233,7 +232,7 @@ where
 
 pub trait IntoTimeNanosecondArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_time_nano_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(Time64NanosecondArray::from_iter(
@@ -244,12 +243,12 @@ where
 
 pub trait IntoTimeMillisecondArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_time_milli_array(self) -> Result<Vec<Option<i32>>, DataTypeError> {
         let array = self
-            .map(|(datum, is_null)| {
-                (!is_null).then_some(datum).and_then(|datum| {
+            .map(|datum| {
+                datum.and_then(|datum| {
                     unsafe { datum::Time::from_datum(datum, false) }
                         .and_then(|time| NanosecondDay::try_from(time).ok())
                         .map(|NanosecondDay(nanos)| (nanos / 1_000_000) as i32)
@@ -263,7 +262,7 @@ where
 
 pub trait IntoTimeMillisecondArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_time_milli_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(Time32MillisecondArray::from_iter(
@@ -274,7 +273,7 @@ where
 
 pub trait IntoGenericBytesListArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized + IntoPrimitiveArray,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
 {
     fn into_string_list_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         let iter = self.into_array::<Column<String>>()?;
@@ -296,7 +295,7 @@ where
 
 pub trait IntoBooleanListArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized + IntoPrimitiveArray,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
 {
     fn into_bool_list_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         let iter = self.into_array::<Column<bool>>()?;
@@ -318,7 +317,7 @@ where
 
 pub trait IntoPrimitiveListArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized + IntoPrimitiveArray,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
 {
     fn into_primitive_list_arrow_array<T, A>(self) -> Result<ArrayRef, DataTypeError>
     where
@@ -344,7 +343,7 @@ where
 
 pub trait IntoArrowArray
 where
-    Self: Iterator<Item = (pg_sys::Datum, bool)> + Sized,
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
     fn into_arrow_array(self, oid: PgOid, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
         match oid {
@@ -388,25 +387,25 @@ where
     }
 }
 
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoDateArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoNumericArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoPrimitiveArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampMicrosecondArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampMillisecondArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampSecondArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimeNanosecondArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimeMillisecondArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoDateArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoNumericArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoPrimitiveArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMicrosecondArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMillisecondArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampSecondArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimeNanosecondArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimeMillisecondArray for T {}
 
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoDateArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoNumericArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoPrimitiveArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampMicrosecondArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampMillisecondArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimestampSecondArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimeNanosecondArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoTimeMillisecondArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoDateArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoNumericArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoPrimitiveArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMicrosecondArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMillisecondArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampSecondArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimeNanosecondArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimeMillisecondArrowArray for T {}
 
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoPrimitiveListArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoBooleanListArrowArray for T {}
-impl<T: Iterator<Item = (pg_sys::Datum, bool)>> IntoGenericBytesListArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoPrimitiveListArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoBooleanListArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoGenericBytesListArrowArray for T {}

@@ -83,7 +83,7 @@ async fn insert_tuples(
                     let tuple_table_slot = *slots.add(row_idx);
                     let datum = (*tuple_table_slot).tts_values.add(col_idx);
                     let is_null = (*tuple_table_slot).tts_isnull.add(col_idx);
-                    (*datum, *is_null)
+                    (!*is_null).then_some(*datum)
                 })
                 .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
         );

@@ -103,7 +103,7 @@ impl SQLExecutor for RowExecutor {
             let mut cursor = client.open_cursor(sql, None);
             let schema_tuple_table = cursor.fetch(0)?;
 
-            let mut cols: Vec<Vec<pg_sys::Datum>> = vec![];
+            let mut cols: Vec<Vec<Option<pg_sys::Datum>>> = vec![];
             let mut col_oids: Vec<pg_sys::PgOid> = vec![];
             let num_cols = schema_tuple_table.columns()?;
 
@@ -122,9 +122,7 @@ impl SQLExecutor for RowExecutor {
                 }
                 tuple_table = tuple_table.first();
                 for (col_idx, col) in cols.iter_mut().enumerate().take(num_cols) {
-                    col.push(tuple_table.get_datum_by_ordinal(col_idx + 1)?.ok_or(
-                        ParadeError::Generic(format!("Cannot get datum from {:?}", sql)),
-                    )?);
+                    col.push(tuple_table.get_datum_by_ordinal(col_idx + 1)?);
                 }
             }
 
@@ -133,7 +131,6 @@ impl SQLExecutor for RowExecutor {
                     cols[col_idx]
                         .clone()
                         .into_iter()
-                        .map(move |datum| (datum, false))
                         .into_arrow_array(col_oids[col_idx], PgTypeMod(-1))?,
                 );
             }

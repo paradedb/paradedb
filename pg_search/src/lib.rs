@@ -107,7 +107,10 @@ pub extern "C" fn pg_search_insert_worker(_arg: pg_sys::Datum) {
 #[pg_guard]
 #[no_mangle]
 pub extern "C" fn pg_search_shutdown_worker(_arg: pg_sys::Datum) {
-    pgrx::log!("starting pg_search shutdown worker at PID {}", process::id());
+    pgrx::log!(
+        "starting pg_search shutdown worker at PID {}",
+        process::id()
+    );
     // These are the signals we want to receive.  If we don't attach the SIGTERM handler, then
     // we'll never be able to exit via an external notification.
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGTERM);

@@ -1,4 +1,4 @@
-use async_std::task;
+use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -13,12 +13,11 @@ use deltalake::datafusion::prelude::SessionContext;
 
 use crate::errors::{NotFound, ParadeError};
 use crate::federation::executor::{ColumnExecutor, RowExecutor};
-use crate::federation::TableDetails;
+use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
 
 pub async fn execute_federated_query(
     query: String,
-    row_tables: Vec<TableDetails>,
-    col_tables: Vec<TableDetails>,
+    classified_tables: HashMap<&'static str, Vec<PgRelation>>,
 ) -> Result<Vec<RecordBatch>, ParadeError> {
     // Create a separate session context to process the federated query
     // Can only use one partition because pgrx cannot work on multiple threads
@@ -36,65 +35,52 @@ pub async fn execute_federated_query(
             options.default_catalog.clone(),
         )))?;
 
-    // schema_name: map of (type: vec[table_name])
-    let mut schema_map = HashMap::<String, HashMap<String, Vec<String>>>::new();
-    for (table_type, table_vec) in [
-        ("row".to_string(), row_tables),
-        ("col".to_string(), col_tables),
-    ] {
-        for table_details in table_vec {
-            let table_name = table_details.table;
-            let schema_name = table_details.schema;
-            match schema_map.get(&schema_name) {
-                Some(type_map) => {
-                    let mut type_map = type_map.clone();
-                    match type_map.get(&table_type) {
-                        Some(table_type_vec) => {
-                            let mut table_type_vec = table_type_vec.clone();
-                            table_type_vec.push(table_name);
-                            type_map.insert(table_type.clone(), table_type_vec);
-                        }
-                        None => {
-                            type_map.insert(table_type.clone(), vec![table_name]);
-                        }
-                    }
-                    schema_map.insert(schema_name, type_map);
-                }
-                None => {
-                    let mut type_map = HashMap::<String, Vec<String>>::new();
-                    type_map.insert(table_type.clone(), vec![table_name]);
-                    schema_map.insert(schema_name, type_map);
-                }
-            }
+    // Map schema names to maps of table type to vectors of table names
+    let mut schema_map = HashMap::<String, HashMap<&'static str, Vec<String>>>::new();
+    for (table_type, table_vec) in classified_tables.iter() {
+        for table_relation in table_vec {
+            let table_name = table_relation.name().to_string();
+            let schema_name = table_relation.namespace().to_string();
+            schema_map
+                .entry(schema_name)
+                .or_insert_with(HashMap::<&'static str, Vec<String>>::new)
+                .entry(table_type)
+                .or_insert_with(Vec::new)
+                .push(table_name)
         }
     }
 
+    // Register a MultiSchemaProvider for each schema with SQLSchemaProviders for each table type
     for (schema_name, table_map) in schema_map.iter() {
+        let mut federation_providers: HashMap<&str, Arc<SQLFederationProvider>> = HashMap::new();
+        federation_providers.insert(
+            ROW_FEDERATION_KEY,
+            Arc::new(SQLFederationProvider::new(Arc::new(RowExecutor::new(
+                schema_name.clone(),
+            )?))),
+        );
+        federation_providers.insert(
+            COLUMN_FEDERATION_KEY,
+            Arc::new(SQLFederationProvider::new(Arc::new(ColumnExecutor::new(
+                schema_name.clone(),
+            )?))),
+        );
+
         let mut schema_providers: Vec<Arc<dyn SchemaProvider>> = vec![];
-        let row_executor = RowExecutor::new(schema_name.to_string())?;
-        let col_executor = ColumnExecutor::new(schema_name.to_string())?;
-        let row_federation_provider = Arc::new(SQLFederationProvider::new(Arc::new(row_executor)));
-        let col_federation_provider = Arc::new(SQLFederationProvider::new(Arc::new(col_executor)));
         for (table_type, table_vec) in table_map.iter() {
-            match table_type.as_str() {
-                "row" => schema_providers.push(Arc::new(task::block_on(
-                    SQLSchemaProvider::new_with_tables(
-                        row_federation_provider.clone(),
-                        table_vec.to_vec(),
-                    ),
-                )?)),
-                "col" => schema_providers.push(Arc::new(task::block_on(
-                    SQLSchemaProvider::new_with_tables(
-                        col_federation_provider.clone(),
-                        table_vec.to_vec(),
-                    ),
-                )?)),
-                _ => {
-                    return Err(ParadeError::Generic(
-                        "Only row and col table types can be federated".to_string(),
-                    ))
-                }
-            }
+            schema_providers.push(Arc::new(
+                SQLSchemaProvider::new_with_tables(
+                    federation_providers
+                        .get(table_type)
+                        .ok_or(ParadeError::Generic(format!(
+                            "No federation provider for table type {:?}",
+                            table_type
+                        )))?
+                        .clone(),
+                    table_vec.clone(),
+                )
+                .await?,
+            ))
         }
         let federation_schema_provider = MultiSchemaProvider::new(schema_providers);
         catalog.register_schema(schema_name, Arc::new(federation_schema_provider))?;

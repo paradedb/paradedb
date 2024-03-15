@@ -33,8 +33,6 @@ once_cell = "1.19.0"
 datafusion-federation = { git = "https://github.com/paradedb/datafusion-federation.git", rev = "2d819a3" }
 datafusion-federation-sql = { git = "https://github.com/paradedb/datafusion-federation.git", rev = "2d819a3" }
 futures = "0.3.30"
-simple-logging = "2.0.2"
-log = "0.4.21"
 
 [dev-dependencies]
 anyhow = "1.0.79"

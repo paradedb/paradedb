@@ -1,14 +1,15 @@
-use crate::datafusion::plan::create_logical_plan;
 use async_trait::async_trait;
 use datafusion_federation_sql::SQLExecutor;
-use deltalake::datafusion::{
-    arrow::datatypes::SchemaRef,
-    arrow::record_batch::RecordBatch,
-    error::{DataFusionError, Result},
-    physical_plan::{stream::RecordBatchStreamAdapter, SendableRecordBatchStream},
+use deltalake::datafusion::arrow::datatypes::SchemaRef;
+use deltalake::datafusion::arrow::record_batch::RecordBatch;
+use deltalake::datafusion::error::{DataFusionError, Result};
+use deltalake::datafusion::logical_expr::LogicalPlan;
+use deltalake::datafusion::physical_plan::{
+    stream::RecordBatchStreamAdapter, SendableRecordBatchStream,
 };
 use pgrx::*;
 
+use crate::datafusion::query::QueryString;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
@@ -39,7 +40,7 @@ impl SQLExecutor for ColumnExecutor {
         sql: &str,
         schema: SchemaRef,
     ) -> Result<SendableRecordBatchStream, DataFusionError> {
-        let logical_plan = create_logical_plan(sql)?;
+        let logical_plan = LogicalPlan::try_from(QueryString(sql))?;
         let batch_stream = Session::with_session_context(|context| {
             Box::pin(async move {
                 let dataframe = context.execute_logical_plan(logical_plan.clone()).await?;

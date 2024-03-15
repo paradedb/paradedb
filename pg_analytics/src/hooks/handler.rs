@@ -1,23 +1,19 @@
 use pgrx::*;
+use std::collections::HashMap;
 use std::ffi::{c_char, CString};
 
 use crate::errors::ParadeError;
-use crate::federation::TableDetails;
+use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
 
 static COLUMN_HANDLER: &str = "parquet";
 
-pub struct ClassifiedTables {
-    pub col_tables: Vec<TableDetails>,
-    pub row_tables: Vec<TableDetails>,
-}
-
 pub trait TableClassifier {
     #[allow(clippy::wrong_self_convention)]
-    unsafe fn table_lists(self) -> Result<ClassifiedTables, ParadeError>;
+    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, ParadeError>;
 }
 
 impl TableClassifier for *mut pg_sys::List {
-    unsafe fn table_lists(self) -> Result<ClassifiedTables, ParadeError> {
+    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, ParadeError> {
         let col_oid = column_oid()?;
 
         #[cfg(feature = "pg12")]
@@ -52,22 +48,17 @@ impl TableClassifier for *mut pg_sys::List {
             let relation_handler_oid = (*relation).rd_amhandler;
 
             if col_oid != pg_sys::InvalidOid && relation_handler_oid == col_oid {
-                col_tables.push(TableDetails {
-                    schema: pg_relation.namespace().to_string(),
-                    table: pg_relation.name().to_string(),
-                })
+                col_tables.push(pg_relation)
             } else {
-                row_tables.push(TableDetails {
-                    schema: pg_relation.namespace().to_string(),
-                    table: pg_relation.name().to_string(),
-                })
+                row_tables.push(pg_relation)
             }
         }
 
-        Ok(ClassifiedTables {
-            row_tables,
-            col_tables,
-        })
+        let mut classified_tables = HashMap::new();
+        classified_tables.insert(ROW_FEDERATION_KEY, row_tables);
+        classified_tables.insert(COLUMN_FEDERATION_KEY, col_tables);
+
+        Ok(classified_tables)
     }
 }
 

@@ -4,8 +4,10 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
+use crate::datafusion::query::QueryString;
 use crate::errors::{NotSupported, ParadeError};
 use crate::federation::handler::execute_federated_query;
+use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
 use crate::hooks::handler::TableClassifier;
 use crate::hooks::insert::insert;
 use crate::hooks::query::Query;
@@ -34,8 +36,17 @@ pub fn executor_run(
         let query = pg_plan.get_query_string(CStr::from_ptr(query_desc.sourceText))?;
 
         let classified_tables = rtable.table_lists()?;
-        let col_tables = classified_tables.col_tables;
-        let row_tables = classified_tables.row_tables;
+        let col_tables =
+            classified_tables
+                .get(COLUMN_FEDERATION_KEY)
+                .ok_or(ParadeError::Generic(
+                    "Table classifier did not return a column list".to_string(),
+                ))?;
+        let row_tables = classified_tables
+            .get(ROW_FEDERATION_KEY)
+            .ok_or(ParadeError::Generic(
+                "Table classifier did not return a column list".to_string(),
+            ))?;
 
         if query_desc.operation == pg_sys::CmdType_CMD_INSERT {
             insert(rtable, query_desc.clone())?;
@@ -56,7 +67,7 @@ pub fn executor_run(
         // If tables of different types are both present in the query, federate the query.
         if !row_tables.is_empty() && !col_tables.is_empty() {
             let batches =
-                async_std::task::block_on(execute_federated_query(query, row_tables, col_tables))?;
+                async_std::task::block_on(execute_federated_query(query, classified_tables))?;
 
             match query_desc.operation {
                 pg_sys::CmdType_CMD_SELECT => select_with_batches(query_desc, batches),
@@ -66,7 +77,7 @@ pub fn executor_run(
             }
         } else {
             // Parse the query into a LogicalPlan
-            let logical_plan = pg_plan.get_logical_plan(&query);
+            let logical_plan = LogicalPlan::try_from(QueryString(&query));
 
             // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
             // We should let these queries go through to the table access method

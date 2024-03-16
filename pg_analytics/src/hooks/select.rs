@@ -7,7 +7,7 @@ use crate::errors::{NotFound, ParadeError};
 use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
 use crate::types::datum::GetDatum;
 
-pub fn select_with_batches(
+pub fn write_batches_to_slots(
     mut query_desc: PgBox<pg_sys::QueryDesc>,
     batches: Vec<RecordBatch>,
 ) -> Result<(), ParadeError> {
@@ -81,7 +81,7 @@ pub fn select_with_batches(
     Ok(())
 }
 
-pub fn select(
+pub fn get_datafusion_batches(
     query_desc: PgBox<pg_sys::QueryDesc>,
     logical_plan: LogicalPlan,
 ) -> Result<(), ParadeError> {
@@ -93,5 +93,5 @@ pub fn select(
         })
     })?;
 
-    select_with_batches(query_desc, batches)
+    write_batches_to_slots(query_desc, batches)
 }

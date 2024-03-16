@@ -3658,7 +3658,7 @@ dependencies = [
 
 [[package]]
 name = "pg_analytics"
-version = "0.5.9"
+version = "0.5.11"
 dependencies = [
  "anyhow",
  "async-std",
@@ -3682,7 +3682,7 @@ dependencies = [
 
 [[package]]
 name = "pg_bm25"
-version = "0.5.9"
+version = "0.5.11"
 dependencies = [
  "anyhow",
  "approx",

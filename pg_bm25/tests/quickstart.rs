@@ -44,7 +44,7 @@ fn quickstart(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
-    FROM search_idx.search('description:keyboard OR category:electronics')
+    FROM search_idx.search('description:keyboard OR category:electronics', stable_sort => true)
     LIMIT 5;
     "#
     .fetch(&mut conn);
@@ -57,7 +57,7 @@ fn quickstart(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
-    FROM search_idx.search('description:"bluetooth speaker"~1')
+    FROM search_idx.search('description:"bluetooth speaker"~1', stable_sort => true)
     LIMIT 5;
     "#
     .fetch(&mut conn);
@@ -75,7 +75,7 @@ fn quickstart(mut conn: PgConnection) {
     "#.execute(&mut conn);
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
-    FROM ngrams_idx.search('description:blue');
+    FROM ngrams_idx.search('description:blue', stable_sort => true);
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -83,7 +83,7 @@ fn quickstart(mut conn: PgConnection) {
 
     let rows: Vec<(String, String, f32)> = r#"
     SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)
-    FROM ngrams_idx.search('description:blue')
+    FROM ngrams_idx.search('description:blue', stable_sort => true)
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);
@@ -209,16 +209,20 @@ fn identical_queries(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows1: SimpleProductsTableVec =
-        "SELECT * FROM search_idx.search('description:shoes')".fetch_collect(&mut conn);
-    let rows2: SimpleProductsTableVec =
-        "SELECT * FROM search_idx.search(query => paradedb.parse('description:shoes'))"
+        "SELECT * FROM search_idx.search('description:shoes', stable_sort => true)"
             .fetch_collect(&mut conn);
+    let rows2: SimpleProductsTableVec = "SELECT * FROM search_idx.search(
+            query => paradedb.parse('description:shoes'),
+            stable_sort => true
+        )"
+    .fetch_collect(&mut conn);
     let rows3: SimpleProductsTableVec = r#"
         SELECT * FROM search_idx.search(
 	        query => paradedb.term(
 	        	field => 'description',
 	        	value => 'shoes'
-	        )
+	        ),
+	        stable_sort => true
         )"#
     .fetch_collect(&mut conn);
 

@@ -2,11 +2,12 @@ use std::cmp::Ordering;
 
 use serde::{Deserialize, Serialize};
 
+/// A custom score struct for ordering Tantivy results.
+/// For use with the `stable` sorting feature.
 #[derive(Debug, Copy, Clone, Serialize, Deserialize)]
 pub struct SearchIndexScore {
     pub bm25: f32,
     pub key: i64,
-    pub ctid: u64,
 }
 
 // We do these custom trait impls, because we want these to be sortable so:

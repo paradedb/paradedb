@@ -7,7 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use shared::telemetry;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
-use tantivy::{query::QueryParser, Index, IndexSettings, Searcher};
+use tantivy::{query::QueryParser, Executor, Index, IndexSettings, Searcher};
 use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
 use thiserror::Error;
 use tracing::{error, info};
@@ -46,12 +46,19 @@ const CACHE_NUM_BLOCKS: usize = 10;
 pub static mut SEARCH_INDEX_MEMORY: Lazy<HashMap<WriterDirectory, SearchIndex>> =
     Lazy::new(HashMap::new);
 
+pub static mut SEARCH_EXECUTOR: Lazy<Executor> = Lazy::new(|| {
+    let num_threads = num_cpus::get();
+    Executor::multi_thread(num_threads, "prefix-here").expect("could not create search executor")
+});
+
 #[derive(Serialize)]
 pub struct SearchIndex {
     pub schema: SearchIndexSchema,
     pub directory: WriterDirectory,
     #[serde(skip_serializing)]
     pub reader: IndexReader,
+    #[serde(skip_serializing)]
+    pub executor: &'static Executor,
     #[serde(skip_serializing)]
     underlying_index: Index,
 }
@@ -92,6 +99,7 @@ impl SearchIndex {
             underlying_index,
             directory: directory.clone(),
             schema,
+            executor: Self::executor(),
         };
 
         // Serialize SearchIndex to disk so it can be initialized by other connections.
@@ -111,6 +119,10 @@ impl SearchIndex {
             .unwrap_or_else(|err| panic!("error loading index from directory: {err}"));
 
         Ok(new_self_ref)
+    }
+
+    fn executor() -> &'static Executor {
+        unsafe { &SEARCH_EXECUTOR }
     }
 
     fn setup_tokenizers(underlying_index: &mut Index, schema: &SearchIndexSchema) {
@@ -341,6 +353,7 @@ impl<'de> Deserialize<'de> for SearchIndex {
             underlying_index,
             directory,
             schema,
+            executor: Self::executor(),
         })
     }
 }
@@ -425,7 +438,10 @@ mod tests {
         };
         let state = index.search_state(&client, &search_config, true).unwrap();
 
-        let (_, doc_address, _, _) = *state.search().first().expect("query returned no results");
+        let (_, doc_address, _, _) = *state
+            .search(index.executor)
+            .first()
+            .expect("query returned no results");
         let found = state
             .searcher
             .doc(doc_address)

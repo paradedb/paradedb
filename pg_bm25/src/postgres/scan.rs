@@ -56,7 +56,7 @@ pub extern "C" fn amrescan(
         .search_state(&writer_client, &search_config, needs_commit())
         .unwrap();
 
-    let top_docs = state.search();
+    let top_docs = state.search(search_index.executor);
     SearchStateManager::set_state(state.clone()).expect("could not store search state in manager");
 
     // Save the iterator onto the current memory context.

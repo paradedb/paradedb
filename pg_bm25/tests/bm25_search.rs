@@ -12,7 +12,7 @@ async fn basic_search_query(mut conn: PgConnection) -> Result<(), sqlx::Error> {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')"
+        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics', stable_sort => true)"
             .fetch_collect(&mut conn);
 
     assert_eq!(
@@ -40,12 +40,13 @@ async fn basic_search_ids(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics')"
+        "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics', stable_sort => true)"
             .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 1, 12, 22, 32]);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('description:keyboard')".fetch_collect(&mut conn);
+        "SELECT * FROM bm25_search.search('description:keyboard', stable_sort => true)"
+            .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 1]);
 }
 
@@ -53,7 +54,7 @@ async fn basic_search_ids(mut conn: PgConnection) {
 fn with_bm25_scoring(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    let rows: Vec<(i32, f32)> = "SELECT id, paradedb.rank_bm25(id) FROM bm25_search.search('category:electronics OR description:keyboard')"
+    let rows: Vec<(i32, f32)> = "SELECT id, paradedb.rank_bm25(id) FROM bm25_search.search('category:electronics OR description:keyboard', stable_sort => true)"
         .fetch(&mut conn);
 
     let ids: Vec<_> = rows.iter().map(|r| r.0).collect();
@@ -70,7 +71,8 @@ fn json_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
     let columns: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('metadata.color:white')".fetch_collect(&mut conn);
+        "SELECT * FROM bm25_search.search('metadata.color:white', stable_sort => true)"
+            .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![4, 15, 25]);
 }
 
@@ -83,7 +85,7 @@ fn real_time_search(mut conn: PgConnection) {
     "DELETE FROM paradedb.bm25_search WHERE id = 1".execute(&mut conn);
     "UPDATE paradedb.bm25_search SET description = 'PVC Keyboard' WHERE id = 2".execute(&mut conn);
 
-    let columns: SimpleProductsTableVec = "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics') ORDER BY id"
+    let columns: SimpleProductsTableVec = "SELECT * FROM bm25_search.search('description:keyboard OR category:electronics', stable_sort => true) ORDER BY id"
         .fetch_collect(&mut conn);
     assert_eq!(columns.id, vec![2, 12, 22, 32, 42]);
 }
@@ -128,7 +130,7 @@ fn quoted_table_name(mut conn: PgConnection) {
     )"#
     .execute(&mut conn);
     let row: (i32, String, i32) =
-        "SELECT * FROM activity.search('name:alice')".fetch_one(&mut conn);
+        "SELECT * FROM activity.search('name:alice', stable_sort => true)".fetch_one(&mut conn);
 
     assert_eq!(row, (1, "Alice".into(), 29));
 }
@@ -278,7 +280,8 @@ fn multi_tree(mut conn: PgConnection) {
 			    paradedb.term(field => 'description', value => 'speaker'),
 			    paradedb.fuzzy_term(field => 'description', value => 'wolo')
 		    ]
-	    )
+	    ),
+	    stable_sort => true
 	);
     "#
     .fetch_collect(&mut conn);
@@ -290,13 +293,13 @@ fn highlight(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let row: (String,) = "
         SELECT paradedb.highlight(id, 'description')
-        FROM bm25_search.search('description:shoes')"
+        FROM bm25_search.search('description:shoes', stable_sort => true)"
         .fetch_one(&mut conn);
     assert_eq!(row.0, "Generic <b>shoes</b>");
 
     let row: (String,) = "
         SELECT paradedb.highlight(id, 'description', prefix => '<h1>', postfix => '</h1>')
-        FROM bm25_search.search('description:shoes')"
+        FROM bm25_search.search('description:shoes', stable_sort => true)"
         .fetch_one(&mut conn);
     assert_eq!(row.0, "Generic <h1>shoes</h1>")
 }
@@ -342,7 +345,7 @@ fn alias(mut conn: PgConnection) {
         UNION
         SELECT id, paradedb.rank_bm25(id, alias => 'speaker')
         FROM bm25_search.search('description:speaker', alias => 'speaker')
-        ORDER BY id;"
+        ORDER BY id"
         .fetch(&mut conn);
 
     assert_eq!(rows[0].0, 3);

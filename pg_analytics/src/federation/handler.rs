@@ -15,7 +15,7 @@ use crate::errors::{NotFound, ParadeError};
 use crate::federation::executor::{ColumnExecutor, RowExecutor};
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
 
-pub async fn execute_federated_query(
+pub async fn get_federated_batches(
     query: String,
     classified_tables: HashMap<&'static str, Vec<PgRelation>>,
 ) -> Result<Vec<RecordBatch>, ParadeError> {

@@ -6,12 +6,12 @@ use std::ffi::CStr;
 use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::datafusion::query::QueryString;
 use crate::errors::{NotSupported, ParadeError};
-use crate::federation::handler::execute_federated_query;
+use crate::federation::handler::get_federated_batches;
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
 use crate::hooks::handler::TableClassifier;
 use crate::hooks::insert::insert;
 use crate::hooks::query::Query;
-use crate::hooks::select::{select, select_with_batches};
+use crate::hooks::select::{get_datafusion_batches, write_batches_to_slots};
 
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
@@ -67,10 +67,10 @@ pub fn executor_run(
         // If tables of different types are both present in the query, federate the query.
         if !row_tables.is_empty() && !col_tables.is_empty() {
             let batches =
-                async_std::task::block_on(execute_federated_query(query, classified_tables))?;
+                async_std::task::block_on(get_federated_batches(query, classified_tables))?;
 
             match query_desc.operation {
-                pg_sys::CmdType_CMD_SELECT => select_with_batches(query_desc, batches),
+                pg_sys::CmdType_CMD_SELECT => write_batches_to_slots(query_desc, batches),
                 _ => Err(ParadeError::NotSupported(NotSupported::Join(
                     query_desc.operation,
                 ))),
@@ -90,7 +90,7 @@ pub fn executor_run(
             match query_desc.operation {
                 pg_sys::CmdType_CMD_SELECT => {
                     if let Ok(logical_plan) = logical_plan {
-                        select(query_desc, logical_plan)?;
+                        get_datafusion_batches(query_desc, logical_plan)?;
                     }
                 }
                 pg_sys::CmdType_CMD_UPDATE => return Err(NotSupported::Update.into()),

@@ -103,35 +103,37 @@ impl SQLExecutor for RowExecutor {
             let mut cursor = client.open_cursor(sql, None);
             let schema_tuple_table = cursor.fetch(0)?;
 
-            let mut cols: Vec<Vec<Option<pg_sys::Datum>>> = vec![];
-            let mut col_oids: Vec<pg_sys::PgOid> = vec![];
             let num_cols = schema_tuple_table.columns()?;
+            let mut col_datums: Vec<Vec<Option<pg_sys::Datum>>> =
+                (0..num_cols).map(|_| vec![]).collect();
 
-            // Get the result schema
-            for i in 0..num_cols {
-                // TODO: typmod?
-                let type_oid = schema_tuple_table.column_type_oid(i + 1)?;
-                col_oids.push(type_oid);
-                cols.push(vec![]);
-            }
+            // We can only get the typmod from the raw tuptable
+            let raw_schema_tuple_table = unsafe { pg_sys::SPI_tuptable };
+            let tuple_attrs = unsafe { (*(*raw_schema_tuple_table).tupdesc).attrs.as_mut_ptr() };
 
+            // Fill all columns with the appropriate datums
+            let mut tuple_table;
             loop {
-                let mut tuple_table = cursor.fetch(1)?;
+                tuple_table = cursor.fetch(1)?;
                 if tuple_table.is_empty() {
                     break;
                 }
                 tuple_table = tuple_table.first();
-                for (col_idx, col) in cols.iter_mut().enumerate().take(num_cols) {
+                for (col_idx, col) in col_datums.iter_mut().enumerate().take(num_cols) {
                     col.push(tuple_table.get_datum_by_ordinal(col_idx + 1)?);
                 }
             }
 
+            // Convert datum columns to arrow arrays
             for col_idx in 0..num_cols {
+                let oid = tuple_table.column_type_oid(col_idx + 1)?;
+                let typmod = unsafe { (*tuple_attrs.add(col_idx)).atttypmod };
+
                 col_arrays.push(
-                    cols[col_idx]
+                    col_datums[col_idx]
                         .clone()
                         .into_iter()
-                        .into_arrow_array(col_oids[col_idx], PgTypeMod(-1))?,
+                        .into_arrow_array(oid, PgTypeMod(typmod))?,
                 );
             }
 

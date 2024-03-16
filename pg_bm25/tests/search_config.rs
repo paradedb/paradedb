@@ -9,23 +9,26 @@ use sqlx::PgConnection;
 fn basic_search_query(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let rows: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('category:electronics')".fetch_collect(&mut conn);
+        "SELECT * FROM bm25_search.search('category:electronics', stable_sort => true)"
+            .fetch_collect(&mut conn);
 
     assert_eq!(rows.id, vec![1, 2, 12, 22, 32])
 }
 
-#[ignore = "will fail until stable sorting is implemented"]
 #[rstest]
 fn with_limit_and_offset(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
-    let rows: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('category:electronics', limit_rows => 2)"
-            .fetch_collect(&mut conn);
+    let rows: SimpleProductsTableVec = "SELECT * FROM bm25_search.search(
+            'category:electronics',
+            limit_rows => 2,
+            stable_sort => true
+    )"
+    .fetch_collect(&mut conn);
 
     assert_eq!(rows.id, vec![1, 2]);
 
     let rows: SimpleProductsTableVec =
-        "SELECT * FROM bm25_search.search('category:electronics', limit_rows => 2, offset_rows => 1)"
+        "SELECT * FROM bm25_search.search('category:electronics', limit_rows => 2, offset_rows => 1, stable_sort => true)"
             .fetch_collect(&mut conn);
 
     assert_eq!(rows.id, vec![2, 12]);
@@ -46,7 +49,8 @@ fn default_tokenizer_config(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<()> =
-        "SELECT * FROM tokenizer_config.search('description:earbud')".fetch(&mut conn);
+        "SELECT * FROM tokenizer_config.search('description:earbud', stable_sort => true)"
+            .fetch(&mut conn);
 
     assert!(rows.is_empty());
 }
@@ -66,7 +70,8 @@ fn en_stem_tokenizer_config(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM tokenizer_config.search('description:earbud')".fetch(&mut conn);
+        "SELECT id FROM tokenizer_config.search('description:earbud', stable_sort => true)"
+            .fetch(&mut conn);
 
     assert_eq!(rows[0], (12,));
 }
@@ -86,7 +91,8 @@ fn ngram_tokenizer_config(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM tokenizer_config.search('description:boa')".fetch(&mut conn);
+        "SELECT id FROM tokenizer_config.search('description:boa', stable_sort => true)"
+            .fetch(&mut conn);
 
     assert_eq!(rows[0], (2,));
     assert_eq!(rows[1], (20,));
@@ -110,7 +116,8 @@ fn chinese_compatible_tokenizer_config(mut conn: PgConnection) {
     .execute(&mut conn);
 
     let rows: Vec<(i32,)> =
-        "SELECT id FROM tokenizer_config.search('description:电脑')".fetch(&mut conn);
+        "SELECT id FROM tokenizer_config.search('description:电脑', stable_sort => true)"
+            .fetch(&mut conn);
 
     assert_eq!(rows[0], (42,));
 }

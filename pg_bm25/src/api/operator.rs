@@ -21,7 +21,7 @@ fn search_tantivy(
         let scan_state = search_index
             .search_state(&writer_client, &search_config, needs_commit())
             .unwrap();
-        let top_docs = scan_state.search();
+        let top_docs = scan_state.search(search_index.executor);
         let mut hs = FxHashSet::default();
 
         for (_score, _doc_address, key, _ctid) in top_docs {

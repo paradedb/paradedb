@@ -33,13 +33,16 @@ async fn lindera_korean_tokenizer(mut conn: PgConnection) {
     )"#
     .execute(&mut conn);
 
-    let row: (i32,) = r#"SELECT id FROM korean.search('author:김민준')"#.fetch_one(&mut conn);
+    let row: (i32,) = r#"SELECT id FROM korean.search('author:김민준', stable_sort => true)"#
+        .fetch_one(&mut conn);
     assert_eq!(row.0, 1);
 
-    let row: (i32,) = r#"SELECT id FROM korean.search('title:"경기"')"#.fetch_one(&mut conn);
+    let row: (i32,) =
+        r#"SELECT id FROM korean.search('title:"경기"', stable_sort => true)"#.fetch_one(&mut conn);
     assert_eq!(row.0, 2);
 
-    let row: (i32,) = r#"SELECT id FROM korean.search('message:"지역 축제"')"#.fetch_one(&mut conn);
+    let row: (i32,) = r#"SELECT id FROM korean.search('message:"지역 축제"', stable_sort => true)"#
+        .fetch_one(&mut conn);
     assert_eq!(row.0, 3);
 }
 
@@ -68,13 +71,16 @@ async fn lindera_chinese_tokenizer(mut conn: PgConnection) {
     )"#
     .execute(&mut conn);
 
-    let row: (i32,) = r#"SELECT id FROM chinese.search('author:华')"#.fetch_one(&mut conn);
+    let row: (i32,) =
+        r#"SELECT id FROM chinese.search('author:华', stable_sort => true)"#.fetch_one(&mut conn);
     assert_eq!(row.0, 1);
 
-    let row: (i32,) = r#"SELECT id FROM chinese.search('title:北京')"#.fetch_one(&mut conn);
+    let row: (i32,) =
+        r#"SELECT id FROM chinese.search('title:北京', stable_sort => true)"#.fetch_one(&mut conn);
     assert_eq!(row.0, 1);
 
-    let row: (i32,) = r#"SELECT id FROM chinese.search('message:文化节')"#.fetch_one(&mut conn);
+    let row: (i32,) = r#"SELECT id FROM chinese.search('message:文化节', stable_sort => true)"#
+        .fetch_one(&mut conn);
     assert_eq!(row.0, 3);
 }
 
@@ -104,12 +110,15 @@ async fn lindera_japenese_tokenizer(mut conn: PgConnection) {
     )"#
     .execute(&mut conn);
 
-    let row: (i32,) = r#"SELECT id FROM japanese.search('author:佐藤')"#.fetch_one(&mut conn);
+    let row: (i32,) = r#"SELECT id FROM japanese.search('author:佐藤', stable_sort => true)"#
+        .fetch_one(&mut conn);
     assert_eq!(row.0, 1);
 
-    let row: (i32,) = r#"SELECT id FROM japanese.search('title:サッカー')"#.fetch_one(&mut conn);
+    let row: (i32,) = r#"SELECT id FROM japanese.search('title:サッカー', stable_sort => true)"#
+        .fetch_one(&mut conn);
     assert_eq!(row.0, 2);
 
-    let row: (i32,) = r#"SELECT id FROM japanese.search('message:祭り')"#.fetch_one(&mut conn);
+    let row: (i32,) = r#"SELECT id FROM japanese.search('message:祭り', stable_sort => true)"#
+        .fetch_one(&mut conn);
     assert_eq!(row.0, 3);
 }

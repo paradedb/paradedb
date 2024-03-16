@@ -157,6 +157,25 @@ FROM <index_name>.search(
 )
 ```
 
+## Stable Ordering
+
+Search results are always ordered based on their BM25 score, but we can use the `stable_sort`
+parameter for control over the order of equally-scored results.
+
+If `false`, equally-scored results will be ordered based on their insertion order into the index.
+This is the default, and allows for the fastest possible query times.
+
+If `true`, equally-scored results will be ordered based on their `key_field`, but query times will be slower.
+This is useful for testing or anytime where results need to be deterministic.
+
+```sql
+SELECT *
+FROM <index_name>.search(
+  '<query>',
+  stable_sort => true
+)
+```
+
 <ParamField body="index_name" required>
   The name of the index.
 </ParamField>
@@ -166,4 +185,8 @@ FROM <index_name>.search(
 <ParamField body="limit_rows">The maximum number of rows to return.</ParamField>
 <ParamField body="offset_rows">
   The number of rows to skip before starting to return rows.
+</ParamField>
+<ParamField body="stable_sort" default={false}>
+  A boolean specifying whether ParadeDB should stabilize the order of
+  equally-scored results, at the cost of performance.
 </ParamField>

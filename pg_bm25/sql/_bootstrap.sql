@@ -217,7 +217,8 @@ BEGIN
             query text, -- The search query
             offset_rows integer DEFAULT NULL, -- Offset for paginated results
             limit_rows integer DEFAULT NULL, -- Limit for paginated results
-            alias text DEFAULT NULL -- Alias for disambiguation
+            alias text DEFAULT NULL, -- Alias for disambiguation
+            stable_sort boolean DEFAULT NULL -- Stable sort order of results
         ) RETURNS %s AS $func$
         BEGIN
             -- Explicitly cast the 'query' text parameter to 'paradedb.searchqueryinput' type
@@ -225,7 +226,8 @@ BEGIN
                 query => paradedb.parse(query),
                 offset_rows => offset_rows,
                 limit_rows => limit_rows,
-                alias => alias
+                alias => alias,
+                stable_sort => stable_sort
             );
         END
         $func$ LANGUAGE plpgsql;
@@ -234,7 +236,8 @@ BEGIN
             query paradedb.searchqueryinput, -- The search query
             offset_rows integer DEFAULT NULL, -- Offset for paginated results
             limit_rows integer DEFAULT NULL, -- Limit for paginated results
-            alias text DEFAULT NULL -- Alias for disambiguation
+            alias text DEFAULT NULL, -- Alias for disambiguation
+            stable_sort boolean DEFAULT NULL -- Stable sort order of results
         ) RETURNS %s AS $func$
         DECLARE
             __paradedb_search_config__ JSONB;
@@ -244,7 +247,8 @@ BEGIN
                 'query', query::text::jsonb,
                 'offset_rows', offset_rows,
                 'limit_rows', limit_rows,
-                'alias', alias
+                'alias', alias,
+                'stable_sort', stable_sort
             );
             %s; -- Execute the function body with the constructed JSONB parameter
         END

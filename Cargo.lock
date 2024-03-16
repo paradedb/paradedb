@@ -3698,6 +3698,7 @@ dependencies = [
  "json5",
  "libc",
  "memoffset",
+ "num_cpus",
  "once_cell",
  "pgrx",
  "pgrx-tests",

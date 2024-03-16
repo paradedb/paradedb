@@ -29,10 +29,7 @@ where
         T: FromDatum,
     {
         let array = self
-            .map(|datum| {
-                datum
-                    .and_then(|datum| unsafe { T::from_datum(datum, false) })
-            })
+            .map(|datum| datum.and_then(|datum| unsafe { T::from_datum(datum, false) }))
             .collect::<Vec<Option<T>>>();
 
         Ok(array)

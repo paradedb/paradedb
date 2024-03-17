@@ -1,7 +1,7 @@
 [package]
 name = "pg_analytics"
 description = "Real-time analytics for PostgreSQL using columnar storage and vectorized execution"
-version = "0.5.10"
+version = "0.5.11"
 edition = "2021"
 license = "AGPL-3.0"
 

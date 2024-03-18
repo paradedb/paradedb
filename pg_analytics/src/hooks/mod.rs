@@ -1,5 +1,4 @@
 mod alter;
-mod createfunction;
 mod drop;
 mod executor;
 mod handler;
@@ -9,6 +8,7 @@ mod query;
 mod rename;
 mod select;
 mod truncate;
+mod udf;
 mod vacuum;
 
 use pgrx::hooks::PgHooks;

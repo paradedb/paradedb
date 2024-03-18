@@ -12,7 +12,7 @@ use std::ffi::CStr;
 
 use crate::datafusion::context::QueryContext;
 use crate::errors::ParadeError;
-use crate::hooks::createfunction::loadfunction;
+use crate::hooks::udf::loadfunction;
 
 pub trait Query {
     // Extracts the query string from a PlannedStmt,

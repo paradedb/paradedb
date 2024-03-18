@@ -7,11 +7,11 @@ use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::datafusion::query::{ASTVec, QueryString};
 use crate::errors::ParadeError;
 use crate::hooks::alter::alter;
-use crate::hooks::createfunction::createfunction;
 use crate::hooks::drop::drop;
 use crate::hooks::query::Query;
 use crate::hooks::rename::rename;
 use crate::hooks::truncate::truncate;
+use crate::hooks::udf::createfunction;
 use crate::hooks::vacuum::vacuum;
 
 #[allow(clippy::type_complexity)]

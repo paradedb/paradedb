@@ -178,6 +178,9 @@ pub unsafe fn loadfunction(funcname: &str) -> Result<(), ParadeError> {
 
         let ArrowDataType(return_type) = PgAttribute(ret_oid.into(), PgTypeMod(-1)).try_into()?;
 
+        // Hardcoded typmod of -1 is okay for input and return types because it will immediately get
+        //     converted back into an Oid ignoring the typmod in `udf_datafusion` when the function
+        //     is called.
         let udf = create_udf(
             funcname,
             input_types,

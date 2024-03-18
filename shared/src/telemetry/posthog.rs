@@ -1,7 +1,6 @@
-use crate::telemetry::data::read_telemetry_data;
-
 use super::data::Directory;
 use super::TelemetryError;
+use crate::telemetry::data::DirSize;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
@@ -108,9 +107,13 @@ impl<C: HttpClient> PosthogClient<C> {
 
     pub fn send_directory_data(&self) -> Result<(), TelemetryError> {
         let event = format!("{} Directory Data", self.config.extension_name);
+        let extension_dir = Directory::extension(&self.config.extension_name)?;
         let properties = json!({
             "commit_sha": self.config.commit_sha,
-            "telemetry_data": read_telemetry_data(&self.config.extension_name)?
+            "telemetry_data": json!({
+                "directory": extension_dir.to_str(),
+                "size": extension_dir.dir_size()
+            })
         });
         self.send(&event, Some(properties))
     }

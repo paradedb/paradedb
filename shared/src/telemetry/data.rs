@@ -1,5 +1,3 @@
-use serde_json::json; // Ensure you have `serde_json` in your Cargo.toml
-use serde_json::Value;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
@@ -23,21 +21,17 @@ impl Directory {
     }
 }
 
-pub fn read_telemetry_data(extension_name: &str) -> Result<Value, TelemetryError> {
-    // Customize the path based on the extension name
-    let directory_path = Directory::extension(extension_name)?;
-    let dir_size = WalkDir::new(&directory_path)
-        .into_iter()
-        .filter_map(|entry| entry.ok())
-        .filter_map(|entry| entry.metadata().ok())
-        .filter(|metadata| metadata.is_file())
-        .fold(0, |acc, m| acc + m.len());
+pub trait DirSize {
+    fn dir_size(&self) -> u64;
+}
 
-    // Create a JSON object with the directory size
-    let json_data = json!({
-        "directory": directory_path.to_str(),
-        "size": dir_size,
-    });
-
-    Ok(json_data)
+impl DirSize for PathBuf {
+    fn dir_size(&self) -> u64 {
+        WalkDir::new(&self)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| entry.metadata().ok())
+            .filter(|metadata| metadata.is_file())
+            .fold(0, |acc, m| acc + m.len())
+    }
 }

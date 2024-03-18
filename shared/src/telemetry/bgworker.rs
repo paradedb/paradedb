@@ -34,7 +34,7 @@ pub fn setup_telemetry_background_worker(extension_name: &str) {
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     let extension_name = detoast_string(extension_name_datum).expect("Failed to convert to string");
-    tracing::info!(
+    pgrx::log!(
         "starting {extension_name} telemetry worker at PID {}",
         process::id()
     );
@@ -46,7 +46,7 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     let posthog_client = match PosthogClient::from_extension_name(&extension_name) {
         Ok(client) => client,
         Err(err) => {
-            tracing::warn!("error initializing telemetry client in bgworker for extension: {extension_name}: {err}");
+            pgrx::log!("error initializing telemetry client in bgworker for extension: {extension_name}: {err}");
             return;
         }
     };
@@ -62,13 +62,14 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
 
         // Check if the wait_duration has passed since the last time we sent telemetry data
         if Instant::now().duration_since(last_action_time) >= wait_duration {
-            posthog_client.send_directory_data().unwrap_or_else(|err| tracing::warn!("error sending directory data in bgworker for externsion: {extension_name}: {err} "));
+            posthog_client.send_directory_data()
+                .unwrap_or_else(|err| pgrx::warning!("error sending directory data in bgworker for externsion: {extension_name}: {err} "));
             last_action_time = Instant::now();
         }
 
         // Listen for SIGTERM, to allow for a clean shutdown
         if BackgroundWorker::sigterm_received() {
-            tracing::info!("{extension_name} telemetry worker received sigterm, shutting down");
+            pgrx::log!("{extension_name} telemetry worker received sigterm, shutting down");
             return; // Exit the worker
         }
     }

@@ -43,9 +43,9 @@ pub async fn get_federated_batches(
             let schema_name = table_relation.namespace().to_string();
             schema_map
                 .entry(schema_name)
-                .or_insert_with(HashMap::<&'static str, Vec<String>>::new)
+                .or_default()
                 .entry(table_type)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(table_name)
         }
     }

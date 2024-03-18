@@ -125,12 +125,12 @@ impl SQLExecutor for RowExecutor {
             }
 
             // Convert datum columns to arrow arrays
-            for col_idx in 0..num_cols {
+            for (col_idx, col_datum_vec) in col_datums.iter().enumerate().take(num_cols) {
                 let oid = tuple_table.column_type_oid(col_idx + 1)?;
                 let typmod = unsafe { (*tuple_attrs.add(col_idx)).atttypmod };
 
                 col_arrays.push(
-                    col_datums[col_idx]
+                    col_datum_vec
                         .clone()
                         .into_iter()
                         .into_arrow_array(oid, PgTypeMod(typmod))?,

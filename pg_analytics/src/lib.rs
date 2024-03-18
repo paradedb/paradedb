@@ -9,7 +9,7 @@ mod types;
 
 use pgrx::*;
 use shared::logs::ParadeLogsGlobal;
-use shared::telemetry::bgworker::setup_telemetry_background_worker;
+use shared::telemetry::{setup_telemetry_background_worker, PosthogClient};
 
 use crate::guc::PARADE_GUC;
 use crate::hooks::ParadeHook;
@@ -26,7 +26,10 @@ static mut PARADE_HOOK: ParadeHook = ParadeHook;
 
 #[pg_guard]
 pub extern "C" fn _PG_init() {
-    telemetry::posthog::init(EXTENSION_NAME);
+    PosthogClient::from_extension_name(EXTENSION_NAME)
+        .and_then(|client| client.send_deployment())
+        .unwrap_or_else(|err| pgrx::log!("error initializing telemetry: {err}"));
+
     PARADE_LOGS_GLOBAL.init();
     PARADE_GUC.init();
 

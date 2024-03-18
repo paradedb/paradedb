@@ -1,204 +1,125 @@
-use serde::Deserialize;
-use serde_json::json;
-use std::fs;
-use std::path::Path;
+use crate::telemetry::data::read_telemetry_data;
 
-use crate::telemetry::data::{get_postgres_data_directory, read_telemetry_data};
+use super::data::Directory;
+use super::TelemetryError;
+use serde::Deserialize;
+use serde_json::{json, Value};
+use std::fs;
+use uuid::Uuid;
 
 #[derive(Deserialize, Debug)]
-struct Config {
-    telemetry_handled: Option<String>, // This won't be set if running the extension standalone
-    telemetry: Option<String>,         // This won't be set if PARADEDB_TELEMETRY is disabled
-    commit_sha: Option<String>,        // Don't block sending telemetry if COMMIT_SHA is unset
-    posthog_api_key: String,
-    posthog_host: String,
+pub struct Config {
+    pub id: String,
+    pub extension_name: String,
+    pub commit_sha: Option<String>, // Don't block sending telemetry if COMMIT_SHA is unset
+    pub posthog_api_key: String,
+    pub posthog_host: String,
+    pub enabled: bool,
 }
 
 impl Config {
-    fn from_env() -> Option<Self> {
-        let telemetry_handled = std::fs::read_to_string("/tmp/telemetry")
-            .map(|content| content.trim().to_string())
-            .ok();
-
-        #[cfg(feature = "telemetry")]
-        let default_telemetry = "true";
-
-        #[cfg(not(feature = "telemetry"))]
-        let default_telemetry = "false";
-
-        let telemetry =
-            Some(std::env::var("PARADEDB_TELEMETRY").unwrap_or(default_telemetry.to_string()));
-
-        envy::from_env::<Config>().ok().map(|config| Config {
-            telemetry_handled,
-            telemetry,
-            ..config
+    fn new(extension_name: &str) -> Result<Self, TelemetryError> {
+        Ok(Self {
+            id: Self::id(extension_name)?,
+            extension_name: extension_name.to_string(),
+            commit_sha: std::env::var("COMMIT_SHA").ok(),
+            posthog_api_key: std::env::var("POSTHOG_API_KEY")
+                .map_err(|_| TelemetryError::PosthogApiKey)?,
+            posthog_host: std::env::var("POSTHOG_HOST").map_err(|_| TelemetryError::PosthogHost)?,
+            enabled: std::env::var("PARADEDB_TELEMETRY")
+                .map(|e| e.to_lowercase().trim() == "true")
+                .unwrap_or(cfg!(telemetry)),
         })
+    }
+
+    fn id(extension_name: &str) -> Result<String, TelemetryError> {
+        let uuid_file =
+            Directory::extension(extension_name)?.join(format!("{extension_name}_uuid"));
+
+        match fs::read_to_string(&uuid_file)
+            .map_err(TelemetryError::ReadUuid)
+            .and_then(|s| Uuid::parse_str(&s).map_err(TelemetryError::ParseUuid))
+        {
+            Ok(uuid) => Ok(uuid.to_string()),
+            _ => {
+                let new_uuid = Uuid::new_v4().to_string();
+                fs::write(&uuid_file, &new_uuid).expect("Unable to write UUID to file");
+                Ok(new_uuid)
+            }
+        }
+    }
+
+    fn handled() -> Result<bool, TelemetryError> {
+        std::fs::read_to_string("/tmp/telemetry")
+            .map(|content| content.to_lowercase().trim() == "true")
+            .map_err(TelemetryError::HandledCheck)
     }
 }
 
-pub fn init(extension_name: &str) {
-    if let Some(config) = Config::from_env() {
-        // Exit early if telemetry is not enabled or has already been handled
-        if config.telemetry.as_deref() != Some("true")
-            || config.telemetry_handled.as_deref() == Some("true")
-        {
-            return;
+pub trait HttpClient {
+    fn post(&self, url: String, body: String) -> Result<(), TelemetryError>;
+}
+
+// Implement the trait for `reqwest::blocking::Client`
+impl HttpClient for reqwest::blocking::Client {
+    fn post(&self, url: String, body: String) -> Result<(), TelemetryError> {
+        self.post(url)
+            .header("Content-Type", "application/json")
+            .body(body)
+            .send()
+            .map(|_| ())
+            .map_err(TelemetryError::from)
+    }
+}
+
+pub struct PosthogClient<C: HttpClient> {
+    client: C,
+    config: Config,
+}
+
+impl<C: HttpClient> PosthogClient<C> {
+    pub fn new(client: C, config: Config) -> Self {
+        Self { client, config }
+    }
+
+    fn send(&self, event: &str, properties: Option<Value>) -> Result<(), TelemetryError> {
+        if Config::handled()? || !self.config.enabled {
+            return Ok(());
         }
 
-        // Retrieve the PostgreSQL data directory
-        let pg_data_directory = match get_postgres_data_directory() {
-            Some(dir) => dir,
-            None => {
-                eprintln!("PGDATA environment variable is not set");
-                return; // Early return from the function
-            }
-        };
-
-        // Construct the uuid_file path using the dynamically retrieved PGDATA path
-        // For privacy reasons, we generate an anonymous UUID for each new deployment
-        let uuid_file = format!("/bitnami/postgresql/data/{}_uuid", extension_name);
-
-        // Closure to generate a new UUID and write it to the file
-        let generate_and_save_uuid = || {
-            let new_uuid = uuid::Uuid::new_v4().to_string();
-            fs::write(&uuid_file, &new_uuid).expect("Unable to write UUID to file");
-            new_uuid
-        };
-
-        let distinct_id = if Path::new(&uuid_file).exists() {
-            match fs::read_to_string(&uuid_file) {
-                Ok(uuid_str) => match uuid::Uuid::parse_str(&uuid_str) {
-                    Ok(uuid) => uuid.to_string(),
-                    Err(_) => generate_and_save_uuid(),
-                },
-                Err(_) => generate_and_save_uuid(),
-            }
-        } else {
-            generate_and_save_uuid()
-        };
-
-        let endpoint = format!("{}/capture", config.posthog_host);
+        let endpoint = format!("{}/capture", self.config.posthog_host);
         let data = json!({
-            "api_key": config.posthog_api_key,
-            "event": format!("{} Deployment", extension_name),
-            "distinct_id": distinct_id,
-            "properties": {
-                "commit_sha": config.commit_sha
-            }
+            "api_key": self.config.posthog_api_key,
+            "event": event,
+            "distinct_id": self.config.id,
+            "properties": properties,
         });
 
+        self.client.post(endpoint, data.to_string())
+    }
+
+    pub fn send_deployment(&self) -> Result<(), TelemetryError> {
+        let event = format!("{} Deployment", self.config.extension_name);
+        let properties = json!({
+            "commit_sha": self.config.commit_sha
+        });
+        self.send(&event, Some(properties))
+    }
+
+    pub fn send_directory_data(&self) -> Result<(), TelemetryError> {
+        let event = format!("{} Directory Data", self.config.extension_name);
+        let properties = json!({
+            "commit_sha": self.config.commit_sha,
+            "telemetry_data": read_telemetry_data(&self.config.extension_name)?
+        });
+        self.send(&event, Some(properties))
+    }
+}
+
+impl PosthogClient<reqwest::blocking::Client> {
+    pub fn from_extension_name(extension_name: &str) -> Result<Self, TelemetryError> {
+        let config = Config::new(extension_name)?;
         let client = reqwest::blocking::Client::new();
-        let response = client
-            .post(endpoint)
-            .header("Content-Type", "application/json")
-            .body(data.to_string())
-            .send();
-
-        if let Err(e) = response {
-            info!("Error sending request: {}", e);
-        }
-    }
-}
-
-pub fn connection_start() {
-    // This function shares configuration with the `init` function on this file.
-    // The PARADEDB_TELEMETRY environment variable controls both functions, allowing it to be used
-    // for opting out of all telemetry.
-    if let Some(config) = Config::from_env() {
-        if config.telemetry.as_deref() == Some("true") {
-            let uuid_dir = "/bitnami/postgresql/data";
-            let extension_name;
-            let file_content = if Path::new(uuid_dir)
-                .join(format!("{}_uuid", PARADEDB_NAME.to_lowercase()))
-                .exists()
-            {
-                extension_name = PARADEDB_NAME;
-                fs::read_to_string(
-                    Path::new(uuid_dir).join(format!("{}_uuid", PARADEDB_NAME.to_lowercase())),
-                )
-            } else {
-                extension_name = PG_BM25_NAME;
-                fs::read_to_string(Path::new(uuid_dir).join(format!("{}_uuid", PG_BM25_NAME)))
-            };
-
-// A structure to hold the necessary configuration for sending telemetry
-struct TelemetrySettings {
-    distinct_id: String,
-    posthog_host: String,
-    posthog_api_key: String,
-    commit_sha: String,
-}
-
-fn initialize_telemetry(extension_name: String) -> Option<TelemetrySettings> {
-    let config = Config::from_env();
-    pgrx::log!("config: {:?}", config);
-
-    if let Some(config) = config {
-        if config.telemetry.as_deref() != Some("true")
-            || config.telemetry_handled.as_deref() == Some("true")
-        {
-            return None;
-        }
-
-        let pg_data_directory = get_postgres_data_directory()?;
-        let uuid_file = format!("{}/{}_uuid", pg_data_directory, extension_name);
-
-        let distinct_id = if Path::new(&uuid_file).exists() {
-            fs::read_to_string(&uuid_file)
-                .ok()
-                .and_then(|uuid_str| {
-                    uuid::Uuid::parse_str(&uuid_str)
-                        .ok()
-                        .map(|uuid| uuid.to_string())
-                })
-                .unwrap_or_else(|| generate_and_save_uuid(&uuid_file))
-        } else {
-            generate_and_save_uuid(&uuid_file)
-        };
-
-        Some(TelemetrySettings {
-            distinct_id,
-            posthog_host: config.posthog_host,
-            posthog_api_key: config.posthog_api_key,
-            commit_sha: config.commit_sha?,
-        })
-    } else {
-        None
-    }
-
-    // TODO: Make it send an init ping here to keep up with current deployment framework
-}
-
-fn generate_and_save_uuid(uuid_file: &str) -> String {
-    let new_uuid = uuid::Uuid::new_v4().to_string();
-    fs::write(uuid_file, &new_uuid).expect("Unable to write UUID to file");
-    new_uuid
-}
-
-fn send_telemetry_data(settings: &TelemetrySettings, extension_name: &str) {
-    let telemetry_data = read_telemetry_data(extension_name);
-    pgrx::log!("telemetry data: {:?}", telemetry_data);
-
-    let endpoint = format!("{}/capture", settings.posthog_host);
-    let data = json!({
-        "api_key": settings.posthog_api_key,
-        "event": format!("{} Deployment", extension_name),
-        "distinct_id": settings.distinct_id,
-        "properties": {
-            "commit_sha": settings.commit_sha,
-            "telemetry_data": telemetry_data
-        }
-    });
-
-    let client = reqwest::blocking::Client::new();
-    let response = client
-        .post(endpoint)
-        .header("Content-Type", "application/json")
-        .body(data.to_string())
-        .send();
-
-    if let Err(e) = response {
-        eprintln!("Error sending request: {}", e);
+        Ok(Self::new(client, config))
     }
 }

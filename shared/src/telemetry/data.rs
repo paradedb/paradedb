@@ -1,56 +1,41 @@
 use serde_json::json; // Ensure you have `serde_json` in your Cargo.toml
 use serde_json::Value;
-use std::env;
-use std::fs;
 use std::path::PathBuf;
+use walkdir::WalkDir;
 
-// Function to get the PostgreSQL data directory from the PGDATA environment variable. This
-// environment variable is set by Postgres when it starts up, and is present on every Postgres
-// instance (Bitnami, Postgres, pgrx, etc.). We use it rather than pg_sys because pg_sys requires
-// the crate to be a proper Postgres extension, with a .control file
-pub fn get_postgres_data_directory() -> Option<String> {
-    env::var("PGDATA").ok()
-}
+use super::TelemetryError;
 
-pub fn read_telemetry_data(extension_name: &str) -> Result<Value, String> {
-    // Determine the base PostgreSQL data directory
-    let pg_data_directory =
-        get_postgres_data_directory().ok_or("PGDATA environment variable is not set")?;
+pub struct Directory;
 
-    // Customize the path based on the extension name
-    let directory_path = PathBuf::from(pg_data_directory).join(match extension_name.as_str() {
-        "pg_bm25" => "paradedb",
-        "pg_analytics" => "deltalake",
-        _ => return Err("Unknown extension name".to_string()),
-    });
-
-    // Convert the PathBuf back to a String for use in error messages and JSON object
-    let directory_path_str = directory_path
-        .to_str()
-        .ok_or("Failed to convert directory path to string")?;
-
-    // Get the metadata for the specified directory
-    let dir_metadata = fs::metadata(&directory_path)
-        .map_err(|e| format!("Error getting metadata for {}: {}", directory_path_str, e))?;
-
-    // Check if the specified path is a directory
-    if !dir_metadata.is_dir() {
-        return Err(format!("{} is not a directory", directory_path_str));
+impl Directory {
+    pub fn postgres() -> Result<PathBuf, TelemetryError> {
+        std::env::var("PGDATA")
+            .map(PathBuf::from)
+            .map_err(TelemetryError::NoPgData)
     }
 
-    // Calculate total size of files in the directory
-    let dir_size: u64 = fs::read_dir(&directory_path)
-        .map_err(|e| format!("Error reading directory {}: {}", directory_path_str, e))?
-        .filter_map(Result::ok) // Filter out any Err results during iteration
-        .map(|entry| entry.path())
-        .filter_map(|path| fs::metadata(path).ok()) // Ignore errors in metadata retrieval
-        .filter(|metadata| metadata.is_file()) // Consider only files for size calculation
-        .map(|metadata| metadata.len()) // Extract file size
-        .sum(); // Explicitly telling the compiler we are summing u64 values
+    pub fn extension(extension_name: &str) -> Result<PathBuf, TelemetryError> {
+        Ok(Self::postgres()?.join(match extension_name {
+            "pg_bm25" => "paradedb",
+            "pg_analytics" => "deltalake",
+            _ => return Err(TelemetryError::UnknownExtension(extension_name.to_string())),
+        }))
+    }
+}
+
+pub fn read_telemetry_data(extension_name: &str) -> Result<Value, TelemetryError> {
+    // Customize the path based on the extension name
+    let directory_path = Directory::extension(extension_name)?;
+    let dir_size = WalkDir::new(&directory_path)
+        .into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| entry.metadata().ok())
+        .filter(|metadata| metadata.is_file())
+        .fold(0, |acc, m| acc + m.len());
 
     // Create a JSON object with the directory size
     let json_data = json!({
-        "directory": directory_path_str,
+        "directory": directory_path.to_str(),
         "size": dir_size,
     });
 

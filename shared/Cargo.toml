@@ -6,6 +6,13 @@ edition = "2021"
 license = "AGPL-3.0"
 
 [features]
+default = ["pg16"]
+pg12 = ["pgrx/pg12", "pgrx-tests/pg12"]
+pg13 = ["pgrx/pg13", "pgrx-tests/pg13"]
+pg14 = ["pgrx/pg14", "pgrx-tests/pg14"]
+pg15 = ["pgrx/pg15", "pgrx-tests/pg15"]
+pg16 = ["pgrx/pg16", "pgrx-tests/pg16"]
+pg_test = []
 telemetry = []
 fixtures = ["async-std", "rstest", "soa_derive", "sqlx", "bigdecimal"]
 
@@ -37,4 +44,6 @@ derive_builder = "0.20.0"
 walkdir = "2.5.0"
 
 [dev-dependencies]
+mockall = "0.12.1"
 pgrx-tests = "0.11.2"
+tempfile = "3.10.1"

@@ -13,7 +13,7 @@ pub mod fixtures;
 use crate::globals::{PARADE_LOGS_GLOBAL, WRITER_GLOBAL};
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
-use shared::telemetry::{setup_telemetry_background_worker, PosthogClient};
+use shared::telemetry::setup_telemetry_background_worker;
 use std::process;
 use std::time::Duration;
 
@@ -27,9 +27,7 @@ extension_sql_file!("../sql/_bootstrap.sql");
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
-    PosthogClient::from_extension_name(EXTENSION_NAME)
-        .and_then(|client| client.send_deployment())
-        .unwrap_or_else(|err| pgrx::log!("error initializing telemetry: {err}"));
+    pgrx::log!("starting pg_bm25");
 
     postgres::options::init();
     PARADE_LOGS_GLOBAL.init();
@@ -41,7 +39,8 @@ pub unsafe extern "C" fn _PG_init() {
     // can be used in test suites.
     setup_background_workers();
 
-    setup_telemetry_background_worker("pg_bm25");
+    pgrx::log!("starting telemetry worker");
+    setup_telemetry_background_worker(EXTENSION_NAME);
 }
 
 #[pg_guard]

@@ -1,6 +1,0 @@
-#V2
-create table t (a timestamptz);
-insert into t values('2000-12-01 04:04:12');
-select * from t;
-select a AT TIME ZONE 'UTC' from t;
-\\q

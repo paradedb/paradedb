@@ -195,7 +195,7 @@ Cosine distance:
 CREATE INDEX ON items USING shnsw (embedding svector_cosine_ops);
 ```
 
-Sparse vectors with up to 2,000 non-zero dimensions can be indexed.
+Sparse vectors with up to `2,000` nonzero dimensions can be indexed.
 
 ### Index Options
 

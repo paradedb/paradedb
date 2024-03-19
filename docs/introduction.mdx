@@ -17,14 +17,14 @@ service like Elasticsearch, which is powerful but painful to run, tune, and sync
 search and aggregations, which lack functionality and perform poorly over large datasets.
 
 ParadeDB aims to be the best of both worlds, providing developers with the familiarity of Postgres and the
-performance of Elasticsearch. It's a drop-in solution for fast search and analytics without the need to
-extract, transform, and load (ETL) data to a non-Postgres system.
+performance of a dedicated search and analytical database.
 
 ParadeDB is a good fit for:
 
-- Latency-sensitive applications that require real-time search or analytical queries
+- Developers who trust Postgres and want to stay within the Postgres ecosystem
 - Full-text, similarity, or hybrid search over large volumes of Postgres data
 - Backends that store billions of event or analytics data points and are bottlenecked by Postgres' analytical performance
+- OLAP-style workloads that also require an OLTP data store for frequently-updated data or metadata storage
 
 ## Get Started
 

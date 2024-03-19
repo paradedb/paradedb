@@ -1,20 +1,11 @@
 ---
-title: HNSW Index
+title: Index Creation
 ---
-
-## What is HNSW?
-
-HNSW (Hierarchical Navigable Small World) is an algorithm used for efficient approximate nearest neighbor
-search in high-dimensional spaces. It constructs a multi-layered graph structure, where each layer is a
-subset of the previous one, enabling faster navigation through the data points. This approach allows
-HNSW to achieve state-of-the-art search speed and accuracy, especially for large-scale datasets.
-
-ParadeDB uses the `pgvector` HNSW index, which offers a significant performance boost over the original
-IVFFlat `pgvector` index.
 
 ## Creating a HNSW Index
 
-The following command creates an HNSW index over a column:
+An HNSW index can be created over any column with the `vector` type.
+Vectors with up to `2,000` dimensions can be indexed.
 
 ```sql
 CREATE INDEX ON <schema_name>.<table_name>
@@ -22,14 +13,14 @@ USING hnsw (<column_name> <distance_metric>);
 ```
 
 <ParamField body="schema_name">
-  The name of the schema, or namespace, of the table. The schema name only needs
-  to be provided if the table is not in the `public` schema.
+  The name of the schema, or namespace, of the table. If not provided, the
+  search path is used as a default.
 </ParamField>
 <ParamField body="table_name" required>
   The name of the table being indexed.
 </ParamField>
 <ParamField body="column_name" required>
-  The name of the column being indexed.
+  The name of the column being indexed. Must be of type `vector`.
 </ParamField>
 <ParamField body="distance_metric" required>
   The distance metric used for measuring similarity between two vectors. Use
@@ -70,5 +61,5 @@ DROP INDEX <index_name>;
 
 ## Recreating a HNSW Index
 
-Like a BM25 index, an HNSW index only needs to be recreated if the name of the indexed column changes.
+An HNSW index only needs to be recreated if the name of the indexed column changes.
 To recreate the index, simply delete and create it using the SQL commands above.

@@ -68,3 +68,14 @@ will become resolved as `parquet` tables become production-ready.
 - [ ] External object store integrations (S3/Azure/GCS/HDFS)
 - [ ] External Apache Iceberg and Delta Lake support
 - [ ] Full text search over `parquet` tables with `pg_bm25`
+
+## For Further Assistance
+
+The `paradedb.help` function opens a Github Discussion that the ParadeDB team will respond to.
+
+```sql
+SELECT paradedb.help(
+  subject => $$Something isn't working$$,
+  body => $$Issue description$$
+);
+```

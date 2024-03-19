@@ -3691,6 +3691,7 @@ dependencies = [
  "futures",
  "futures-util",
  "indexmap",
+ "memoffset",
  "once_cell",
  "pgrx",
  "pgrx-tests",

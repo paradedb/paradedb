@@ -7,6 +7,7 @@ use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::physical_plan::{
     stream::RecordBatchStreamAdapter, SendableRecordBatchStream,
 };
+use memoffset::offset_of;
 use pgrx::*;
 
 use crate::datafusion::query::QueryString;
@@ -113,14 +114,32 @@ impl SQLExecutor for RowExecutor {
 
             // Fill all columns with the appropriate datums
             let mut tuple_table;
+            // Calculate MAX_TUPLES_PER_PAGE and fetch that many tuples at a time
+            let max_tuples = unsafe {
+                (pg_sys::BLCKSZ as usize - offset_of!(pg_sys::PageHeaderData, pd_linp))
+                    / (pg_sys::MAXALIGN(offset_of!(pg_sys::HeapTupleHeaderData, t_bits))
+                        + std::mem::size_of::<pg_sys::ItemIdData>())
+            };
             loop {
-                tuple_table = cursor.fetch(1)?;
+                tuple_table = cursor.fetch(max_tuples as i64)?;
+                tuple_table = tuple_table.first();
                 if tuple_table.is_empty() {
                     break;
                 }
-                tuple_table = tuple_table.first();
-                for (col_idx, col) in col_datums.iter_mut().enumerate().take(num_cols) {
-                    col.push(tuple_table.get_datum_by_ordinal(col_idx + 1)?);
+                loop {
+                    match tuple_table.get_heap_tuple()? {
+                        Some(_) => {
+                            for (col_idx, col) in col_datums.iter_mut().enumerate().take(num_cols) {
+                                col.push(tuple_table.get_datum_by_ordinal(col_idx + 1)?);
+                            }
+                        }
+                        None => {
+                            break;
+                        }
+                    }
+                    if let None = tuple_table.next() {
+                        break;
+                    }
                 }
             }
 

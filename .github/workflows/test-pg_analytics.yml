@@ -76,7 +76,7 @@ jobs:
       # on PRs to main, which are our release promotion PRs.
       - name: Check version in Cargo.toml
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_bm25/
+        working-directory: pg_analytics/
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
           NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))

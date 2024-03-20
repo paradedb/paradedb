@@ -1,17 +1,17 @@
 <h1 align="center">
-  <img src="../docs/logo/pg_bm25.svg" alt="pg_bm25" width="500px"></a>
+  <img src="../docs/logo/pg_search.svg" alt="pg_search" width="500px"></a>
 <br>
 </h1>
 
-[![Test pg_bm25](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_bm25.yml)
+[![Test pg_search](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/test-pg_search.yml)
 
 ## Overview
 
-`pg_bm25` is a PostgreSQL extension that enables full text search over SQL tables using the BM25 algorithm, the state-of-the-art ranking function for full text search. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`.
+`pg_search` is a PostgreSQL extension that enables full text search over SQL tables using the BM25 algorithm, the state-of-the-art ranking function for full text search. It is built on top of Tantivy, the Rust-based alternative to Apache Lucene, using `pgrx`.
 
-`pg_bm25` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 12+.
+`pg_search` is supported on all versions supported by the PostgreSQL Global Development Group, which includes PostgreSQL 12+.
 
-Check out the `pg_bm25` benchmarks [here](../benchmarks/README.md).
+Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 
 ### Roadmap
 
@@ -49,19 +49,19 @@ docker run \
   paradedb/paradedb:latest
 ```
 
-This will spin up a Postgres instance with `pg_bm25` preinstalled.
+This will spin up a Postgres instance with `pg_search` preinstalled.
 
 ### From Self-Hosted PostgreSQL
 
 If you are self-hosting Postgres and would like to use the extension within your existing Postgres, follow the steps below.
 
-It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_bm25` must be in the list of `shared_preload_libraries`:
+It's **very important** to make the following change to your `postgresql.conf` configuration file. `pg_search` must be in the list of `shared_preload_libraries`:
 
 ```c
-shared_preload_libraries = 'pg_bm25'
+shared_preload_libraries = 'pg_search'
 ```
 
-This enables the extension to spawn a background worker process that performs writes to the index. If this background process is not started because of an incorrect `postgresql.conf` configuration, your database connection will crash or hang when you attempt to create a `pg_bm25` index.
+This enables the extension to spawn a background worker process that performs writes to the index. If this background process is not started because of an incorrect `postgresql.conf` configuration, your database connection will crash or hang when you attempt to create a `pg_search` index.
 
 #### Debian/Ubuntu
 
@@ -73,15 +73,15 @@ ParadeDB collects anonymous telemetry to help us understand how many people are 
 
 #### macOS
 
-We don't suggest running production workloads on macOS. As a result, we don't provide prebuilt binaries for macOS. If you are running Postgres on macOS and want to install `pg_bm25`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
+We don't suggest running production workloads on macOS. As a result, we don't provide prebuilt binaries for macOS. If you are running Postgres on macOS and want to install `pg_search`, please follow the [development](#development) instructions, but do `cargo pgrx install --release` instead of `cargo pgrx run`. This will build the extension from source and install it in your Postgres instance.
 
 You can then create the extension in your database by running:
 
 ```sql
-CREATE EXTENSION pg_bm25;
+CREATE EXTENSION pg_search;
 ```
 
-Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_bm25` until the Postgres service explicitly supports it.
+Note: If you are using a managed Postgres service like Amazon RDS, you will not be able to install `pg_search` until the Postgres service explicitly supports it.
 
 #### Windows
 
@@ -91,7 +91,7 @@ Windows is not supported. This restriction is [inherited from pgrx not supportin
 
 ### Indexing
 
-`pg_bm25` comes with a helper function that creates a test table that you can use for quick experimentation.
+`pg_search` comes with a helper function that creates a test table that you can use for quick experimentation.
 
 ```sql
 CALL paradedb.create_bm25_test_table(
@@ -139,7 +139,7 @@ This will return:
 (5 rows)
 ```
 
-Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](https://docs.paradedb.com) and [quickstart](https://docs.paradedb.com/search/quickstart) for a more thorough overview of `pg_bm25`'s query support.
+Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](https://docs.paradedb.com) and [quickstart](https://docs.paradedb.com/search/quickstart) for a more thorough overview of `pg_search`'s query support.
 
 ## Development
 
@@ -197,7 +197,7 @@ Note: While it is possible to develop using pgrx's own Postgres installation(s),
 
 #### ICU Tokenizer
 
-`pg_bm25` comes with multiple tokenizers for different languages. The ICU tokenizer, which enables tokenization for Arabic, Amharic, and Greek, is not enabled by default in development due to the additional dependencies it requires. To develop with the ICU tokenizer enabled, first:
+`pg_search` comes with multiple tokenizers for different languages. The ICU tokenizer, which enables tokenization for Arabic, Amharic, and Greek, is not enabled by default in development due to the additional dependencies it requires. To develop with the ICU tokenizer enabled, first:
 
 Ensure that the `icu4c` library is installed. It should come preinstalled on most distros, but you can install it with your system package manager if it isn't:
 
@@ -232,7 +232,7 @@ cargo pgrx run
 This will launch an interactive connection to Postgres. Inside Postgres, create the extension by running:
 
 ```sql
-CREATE EXTENSION pg_bm25;
+CREATE EXTENSION pg_search;
 ```
 
 Now, you have access to all the extension functions.
@@ -250,8 +250,8 @@ cargo pgrx run
 2. Recreate the extension to load the latest changes:
 
 ```sql
-DROP EXTENSION pg_bm25;
-CREATE EXTENSION pg_bm25;
+DROP EXTENSION pg_search;
+CREATE EXTENSION pg_search;
 ```
 
 ### Testing
@@ -276,4 +276,4 @@ Note: the bash script takes arguments and allows you to run tests either sequent
 
 ## License
 
-`pg_bm25` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).
+`pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

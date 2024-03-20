@@ -8,7 +8,7 @@ ParadeDB ships all of its functionality via Postgres extensions. All updates to 
 received by updating one or more of the following extensions:
 
 1. `pg_analytics` for accelerated analytical queries
-2. `pg_bm25` for full text search
+2. `pg_search` for full text search
 3. `pgvector` for dense vector search
 4. `pg_sparse` for sparse vector search
 
@@ -22,17 +22,17 @@ SELECT extversion FROM pg_extension WHERE extname = '<extension_name>';
 
 <Accordion title="Example Usage">
   ```sql
-  SELECT extversion FROM pg_extension WHERE extname = 'pg_bm25';
+  SELECT extversion FROM pg_extension WHERE extname = 'pg_search';
   ```
 </Accordion>
 
 ## Updating to a New Version
 
-If a new version of `pg_bm25` or `pg_sparse` is available, it will be listed in the [changelog](/changelog).
+If a new version of `pg_search` or `pg_sparse` is available, it will be listed in the [changelog](/changelog).
 Here, you can view the changes made and decide if you want to upgrade. Note that some updates may alter an
 extension's API interface.
 
-The latest `pg_bm25` and `pg_sparse` will always be pegged to the same version. `pgvector`, on the other hand, is
+The latest `pg_search` and `pg_sparse` will always be pegged to the same version. `pgvector`, on the other hand, is
 created and maintained outside of ParadeDB, so it maintains its own version. Users should refer to the `pgvector`
 [README](https://github.com/pgvector/pgvector) for documentation on its latest changes.
 
@@ -46,7 +46,7 @@ ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
 
 <Accordion title="Example Usage">
   ```sql
-  ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1';
+  ALTER EXTENSION pg_search UPDATE TO '0.4.1';
   ```
 </Accordion>
 
@@ -70,6 +70,6 @@ ALTER EXTENSION <extension_name> UPDATE TO '<version_number>';
 
 <Accordion title="Example Usage">
   ```sql
-  ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1';
+  ALTER EXTENSION pg_search UPDATE TO '0.4.1';
   ```
 </Accordion>

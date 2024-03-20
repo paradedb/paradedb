@@ -48,17 +48,17 @@ RUN cargo install cargo-get && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
-# pg_bm25
+# pg_search
 ######################
 
-FROM builder as builder-pg_bm25
+FROM builder as builder-pg_search
 
-COPY pg_bm25/ /tmp/pg_bm25
+COPY pg_search/ /tmp/pg_search
 COPY shared/ /tmp/shared
 COPY tokenizers/ /tmp/tokenizers
 
 # Build the extension
-WORKDIR /tmp/pg_bm25
+WORKDIR /tmp/pg_search
 RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
@@ -152,8 +152,8 @@ COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /opt/bitnami/postgresql/share/ext
 COPY --from=builder-pg_sparse /tmp/pg_sparse/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_sparse /tmp/pg_sparse/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_sparse /tmp/pg_sparse/sql/*.sql /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
-COPY --from=builder-pg_bm25 /tmp/pg_bm25/target/release/pg_bm25-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
+COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 
@@ -167,7 +167,7 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
-ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_bm25,pg_analytics"
+ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_search,pg_analytics"
 
 # We set a default password to enable users to get started quickly, as it is a required
 # environment variable for the Bitnami image.

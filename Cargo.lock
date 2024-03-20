@@ -3681,7 +3681,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "pg_bm25"
+name = "pg_search"
 version = "0.5.11"
 dependencies = [
  "anyhow",

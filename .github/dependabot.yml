@@ -38,14 +38,14 @@ updates:
   #         - "*"
 
   # - package-ecosystem: "cargo"
-  #   directory: "/pg_bm25"
+  #   directory: "/pg_search"
   #   schedule:
   #     interval: "monthly"
   #   ignore:
   #     - dependency-name: "*"
   #       update-types: ["version-update:semver-patch"]
   #   groups:
-  #     pg_bm25-dependencies:
+  #     pg_search-dependencies:
   #       patterns:
   #         - "*"
 

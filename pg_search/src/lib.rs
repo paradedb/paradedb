@@ -41,11 +41,11 @@ pub unsafe extern "C" fn _PG_init() {
 #[pg_guard]
 pub fn setup_background_workers() {
     // A background worker to perform the insert work for the Tantivy index.
-    BackgroundWorkerBuilder::new("pg_bm25_insert_worker")
+    BackgroundWorkerBuilder::new("pg_search_insert_worker")
         // Must be the name of a function in this file.
-        .set_function("pg_bm25_insert_worker")
+        .set_function("pg_search_insert_worker")
         // Must be the name of this library.
-        .set_library("pg_bm25")
+        .set_library("pg_search")
         // The argument will be unused. You just need to pass something.
         .set_argument(0.into_datum())
         // Necessary for using plog!.
@@ -62,11 +62,11 @@ pub fn setup_background_workers() {
     // as waiting for incoming http requests, so we start a second worker
     // who will listen for Postgres shutdown signals, and then send a special
     // HTTP request to the insert background worker, allowing it to shut down.
-    BackgroundWorkerBuilder::new("pg_bm25_shutdown_worker")
+    BackgroundWorkerBuilder::new("pg_search_shutdown_worker")
         // Must be the name of a function in this file.
-        .set_function("pg_bm25_shutdown_worker")
+        .set_function("pg_search_shutdown_worker")
         // Must be the name of this library.
-        .set_library("pg_bm25")
+        .set_library("pg_search")
         // The argument will be unused. You just need to pass something.
         .set_argument(0.into_datum())
         // Necessary for using plog!.
@@ -77,8 +77,8 @@ pub fn setup_background_workers() {
 
 #[pg_guard]
 #[no_mangle]
-pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
-    pgrx::log!("starting pg_bm25 insert worker at PID {}", process::id());
+pub extern "C" fn pg_search_insert_worker(_arg: pg_sys::Datum) {
+    pgrx::log!("starting pg_search insert worker at PID {}", process::id());
     let writer = writer::Writer::new();
     let mut server = writer::Server::new(writer).expect("error starting writer server");
 
@@ -106,8 +106,11 @@ pub extern "C" fn pg_bm25_insert_worker(_arg: pg_sys::Datum) {
 
 #[pg_guard]
 #[no_mangle]
-pub extern "C" fn pg_bm25_shutdown_worker(_arg: pg_sys::Datum) {
-    pgrx::log!("starting pg_bm25 shutdown worker at PID {}", process::id());
+pub extern "C" fn pg_search_shutdown_worker(_arg: pg_sys::Datum) {
+    pgrx::log!(
+        "starting pg_search shutdown worker at PID {}",
+        process::id()
+    );
     // These are the signals we want to receive.  If we don't attach the SIGTERM handler, then
     // we'll never be able to exit via an external notification.
     BackgroundWorker::attach_signal_handlers(SignalWakeFlags::SIGTERM);

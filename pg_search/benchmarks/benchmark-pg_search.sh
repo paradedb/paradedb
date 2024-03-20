@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This script benchmarks the performance of ParadeDB, specifically pg_bm25, for index
+# This script benchmarks the performance of ParadeDB, specifically pg_search, for index
 # and search time.
 
 # Exit on subcommand errors
@@ -35,7 +35,7 @@ do
 done
 
 PORT=5431
-OUTPUT_CSV=out/benchmark_pg_bm25.csv
+OUTPUT_CSV=out/benchmark_pg_search.csv
 
 # Ensure the "out" directory exists
 mkdir -p out/

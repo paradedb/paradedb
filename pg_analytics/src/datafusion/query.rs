@@ -46,36 +46,29 @@ impl TryFrom<QueryString<'_>> for (LogicalPlan, bool) {
         let context_provider = QueryContext::new()?;
         let sql_to_rel = SqlToRel::new(&context_provider);
 
-        let logical_plan: LogicalPlan;
-
         // If functions are undefined, then try to find and register the function and then try to get the plan again
         let re = Regex::new(r"Invalid function '(.+)'")?;
-        loop {
+        let logical_plan = loop {
             match sql_to_rel.statement_to_plan(statement.clone()) {
-                Ok(plan) => {
-                    logical_plan = plan;
-                    break;
+                Ok(plan) => break plan,
+                Err(DataFusionError::Plan(err_string)) => {
+                    // This regex checks for "Invalid function" in the plan error and
+                    //     otherwise pushes the plan error up, breaking the loop.
+                    let missing_func_name = re
+                        .captures(&err_string)
+                        .ok_or(DataFusionError::Plan(err_string.clone()))?
+                        .get(1)
+                        .ok_or(DataFusionError::Plan(err_string.clone()))?
+                        .as_str();
+
+                    // If we are unable to load the function, we push the error up, breaking the loop
+                    unsafe { loadfunction(missing_func_name)? };
+
+                    // Loop again
                 }
-                Err(err) => match err {
-                    DataFusionError::Plan(err_string) => {
-                        // This regex checks for "Invalid function" in the plan error and
-                        //     otherwise pushes the plan error up, breaking the loop.
-                        let missing_func_name = re
-                            .captures(&err_string)
-                            .ok_or(DataFusionError::Plan(err_string.clone()))?
-                            .get(1)
-                            .ok_or(DataFusionError::Plan(err_string.clone()))?
-                            .as_str();
-
-                        // If we are unable to load the function, we push the error up, breaking the loop
-                        unsafe { loadfunction(missing_func_name)? };
-
-                        // Loop again
-                    }
-                    _ => return Err(ParadeError::DataFusion(err)),
-                },
+                Err(err) => return Err(ParadeError::DataFusion(err)),
             };
-        }
+        };
 
         // Pass UDF name as another argument to UDFs
         let exprs = logical_plan.expressions();
@@ -105,12 +98,12 @@ impl TryFrom<QueryString<'_>> for (LogicalPlan, bool) {
             }
         }
 
-        let mut new_inputs = vec![];
-        for input in logical_plan.inputs().iter() {
-            #[allow(suspicious_double_ref_op)]
-            new_inputs.push(input.clone().clone());
-        }
-
+        let new_inputs = logical_plan
+            .inputs()
+            .iter()
+            .cloned()
+            .cloned()
+            .collect::<Vec<_>>();
         let new_logical_plan = logical_plan.with_new_exprs(new_exprs, new_inputs.as_slice())?;
 
         Ok((new_logical_plan, includes_udf))

@@ -121,6 +121,9 @@ function run_tests() {
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_directory TO '$BASEDIR/test/';" -d test_db
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db
 
+  # Don't send telemetry when running tests
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET paradedb.pg_analytics.telemetry = OFF;" -d test_db
+
   # Configure search_path to include the paradedb schema
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER USER $PGUSER SET search_path TO public,paradedb;" -d test_db
 
@@ -135,8 +138,6 @@ function run_tests() {
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integration tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
-    # Don't send telemetry when running tests
-    export PARADEDB_TELEMETRY=false
 
     # First, download & install the first release at which we started supporting upgrades for Postgres 16 (v0.5.2)
     BASE_RELEASE="0.5.2"

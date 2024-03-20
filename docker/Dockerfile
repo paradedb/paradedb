@@ -53,6 +53,15 @@ RUN cargo install cargo-get && \
 
 FROM builder as builder-pg_search
 
+ARG POSTHOG_API_KEY
+ARG POSTHOG_HOST
+ARG COMMIT_SHA
+
+# Declare compile-time environment variables
+ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
+    POSTHOG_HOST=${POSTHOG_HOST} \
+    COMMIT_SHA=${COMMIT_SHA}
+
 COPY pg_search/ /tmp/pg_search
 COPY shared/ /tmp/shared
 COPY tokenizers/ /tmp/tokenizers
@@ -66,6 +75,15 @@ RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERS
 ######################
 
 FROM builder as builder-pg_analytics
+
+ARG POSTHOG_API_KEY
+ARG POSTHOG_HOST
+ARG COMMIT_SHA
+
+# Declare compile-time environment variables
+ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
+    POSTHOG_HOST=${POSTHOG_HOST} \
+    COMMIT_SHA=${COMMIT_SHA}
 
 COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
@@ -128,17 +146,9 @@ RUN echo "trusted = true" >> pg_cron.control && \
 FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-11 as paradedb
 
 ARG PG_VERSION_MAJOR=16
-ARG POSTHOG_API_KEY
-ARG POSTHOG_HOST
-ARG COMMIT_SHA
-ARG PARADEDB_TELEMETRY
 
 # Declare runtime environment variables
-ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \
-    POSTHOG_API_KEY=${POSTHOG_API_KEY} \
-    POSTHOG_HOST=${POSTHOG_HOST} \
-    COMMIT_SHA=${COMMIT_SHA} \
-    PARADEDB_TELEMETRY=${PARADEDB_TELEMETRY}
+ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR}
 
 # Copy third-party extensions from their builder stages
 COPY --from=builder-pgvector /tmp/pgvector/*.so /opt/bitnami/postgresql/lib/

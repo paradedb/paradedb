@@ -17,7 +17,7 @@ pub enum ParadeExtension {
 impl ParadeExtension {
     fn name(&self) -> String {
         match self {
-            Self::PgSearch => "pg_bm25",
+            Self::PgSearch => "pg_search",
             Self::PgAnalytics => "pg_analytics",
         }
         .into()

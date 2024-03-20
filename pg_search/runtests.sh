@@ -122,7 +122,7 @@ function run_tests() {
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET log_filename TO 'test_logs.log';" -d test_db
 
    # Don't send telemetry when running tests
-  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET paradedb.pg_bm25.telemetry = OFF;" -d test_db
+  "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET paradedb.pg_search.telemetry = OFF;" -d test_db
 
   # Configure search_path to include the paradedb schema
   "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER USER $PGUSER SET search_path TO public,paradedb;" -d test_db

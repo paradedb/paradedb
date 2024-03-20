@@ -1,4 +1,3 @@
-pub mod constants;
 pub mod github;
 pub mod logs;
 pub mod postgres;

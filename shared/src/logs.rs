@@ -1,5 +1,5 @@
 #![allow(clippy::crate_in_macro_def)]
-use pgrx::{extension_sql, GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum};
+use pgrx::{extension_sql, IntoDatum};
 use serde::{Deserialize, Serialize};
 use std::fmt::{Display, Formatter};
 
@@ -38,11 +38,6 @@ extension_sql!(
 /// A logging macro designed for use within the ParadeDB system. It facilitates logging
 /// messages at various levels, optionally including additional JSON data. This macro supports
 /// three forms of invocation, allowing for flexibility in log detail.
-///
-/// Any extension calling `plog!` must have `crate::PARADE_LOGS_GLOBAL` initialized, example:
-/// ```
-/// static mut PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("<extension_name>");
-/// ```
 ///
 /// # Forms
 ///
@@ -103,8 +98,7 @@ macro_rules! plog {
         plog!($crate::logs::DEFAULT_LOG_LEVEL, $msg, $json)
     };
     ($level:expr, $msg:expr, $json:expr) => {
-        // Any crate calling plog! must have the static var `PARADE_LOGS_GLOBAL` initialized.
-        if crate::PARADE_LOGS_GLOBAL.guc_setting.get() {
+        if crate::GUCS.telemetry_enabled() {
             use pgrx::*;
             use $crate::logs::*;
 
@@ -207,43 +201,6 @@ impl Display for LogJson {
     }
 }
 
-pub struct ParadeLogsGlobal {
-    pub guc_setting: GucSetting<bool>,
-    pub name: &'static str,
-}
-
-impl ParadeLogsGlobal {
-    /// You should intialize `ParadeLogsGlobal` in a static variable called `PARADE_LOGS_GLOBAL`
-    /// at the crate root of each extention. The variable name is crucial, as `plog!`` refers
-    /// to it directly. Example initialization:
-    /// ```
-    /// static mut PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("<extension_name>");
-    /// ```
-    pub const fn new(name: &'static str) -> Self {
-        Self {
-            guc_setting: GucSetting::<bool>::new(false),
-            name,
-        }
-    }
-
-    /// To use plog!, you must call this `init` function in the extension's `_PG_init()`.
-    /// Make sure you've first called `ParadeLogsGlobal::new()` into a static variable.
-    /// Example in _PG_init():
-    /// ```
-    /// PARADE_LOGS_GLOBAL::init();
-    /// ```
-    pub fn init(&self) {
-        GucRegistry::define_bool_guc(
-            &format!("paradedb.{}.logs", &self.name),
-            "Enable logging to the paradedb.logs table?",
-            "This incurs some overhead, so only recommended when debugging.",
-            &self.guc_setting,
-            GucContext::Userset,
-            GucFlags::default(),
-        );
-    }
-}
-
 /// Tests for `plog!` are written here, but each extension must run the tests
 /// on its own, as the shared crate is not itself a Postgres extension.
 /// Example test run:
@@ -265,13 +222,19 @@ macro_rules! test_plog {
         use $crate::plog;
 
         let guc_name: &str = &format!("paradedb.{}.logs", $extension_name);
-        let guc_setting = &crate::PARADE_LOGS_GLOBAL.guc_setting;
+        let guc_setting = &crate::GUCS;
         // Default should be false.
-        assert!(!guc_setting.get(), "default is not set to false");
+        assert!(
+            !guc_setting.telemetry_enabled(),
+            "default is not set to false"
+        );
 
         // Setting to on should work.
         Spi::run(&format!("SET {guc_name} = on",)).expect("SPI failed");
-        assert!(guc_setting.get(), "setting parameter to on didn't work");
+        assert!(
+            guc_setting.telemetry_enabled(),
+            "setting parameter to on didn't work"
+        );
 
         // Setting to default should set to off.
         Spi::run(&format!("SET {guc_name} TO DEFAULT;")).expect("SPI failed");

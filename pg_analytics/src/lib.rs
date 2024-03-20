@@ -7,26 +7,22 @@ mod hooks;
 mod tableam;
 mod types;
 
-use pgrx::*;
-use shared::logs::ParadeLogsGlobal;
-use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
-
-use crate::guc::PARADE_GUC;
 use crate::hooks::ParadeHook;
+use guc::PostgresPgAnalyticsGucSettings;
+use pgrx::*;
+use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
 
 pgrx::pg_module_magic!();
 extension_sql_file!("../sql/_bootstrap.sql");
 
-// This is a flag that can be set by the user in a session to enable logs.
-// You need to initialize this in every extension that uses `plog!`.
-static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_analytics");
+// A static variable is required to host grand unified configuration settings.
+pub static GUCS: PostgresPgAnalyticsGucSettings = PostgresPgAnalyticsGucSettings::new();
 // These are the hooks that we register with Postgres.
 static mut PARADE_HOOK: ParadeHook = ParadeHook;
 
 #[pg_guard]
 pub extern "C" fn _PG_init() {
-    PARADE_LOGS_GLOBAL.init();
-    PARADE_GUC.init();
+    GUCS.init("pg_analytics");
 
     #[allow(unknown_lints)]
     #[allow(static_mut_ref)]

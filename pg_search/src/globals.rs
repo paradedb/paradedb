@@ -1,16 +1,11 @@
 use once_cell::sync::Lazy;
 use pgrx::{PGRXSharedMemory, PgLwLock};
-use shared::logs::ParadeLogsGlobal;
 use std::{
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
 
 use crate::writer::{self, WriterRequest};
-
-// This is a flag that can be set by the user in a session to enable logs.
-// You need to initialize this in every extension that uses `plog!`.
-pub static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_search");
 
 // This is global shared state for the writer background worker.
 pub static WRITER_GLOBAL: PgLwLock<WriterGlobal> = PgLwLock::new();

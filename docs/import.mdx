@@ -85,4 +85,11 @@ SELECT * FROM actors;
 
 ## For Further Assistance
 
-Please contact our support team using the live chat button at the bottom right corner of the screen.
+The `paradedb.help` function opens a Github Discussion that the ParadeDB team will respond to.
+
+```sql
+SELECT paradedb.help(
+  subject => $$Something isn't working$$,
+  body => $$Issue description$$
+);
+```

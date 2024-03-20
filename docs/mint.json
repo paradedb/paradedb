@@ -79,7 +79,8 @@
           "group": "Deployment",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         },
-        "upgrading"
+        "upgrading",
+        "support"
       ]
     },
     {
@@ -161,8 +162,5 @@
       "measurementId": "G-GB3C03LVY5"
     }
   },
-  "backgroundImage": "/background.png",
-  "integrations": {
-    "intercom": "d3sdz6rs"
-  }
+  "backgroundImage": "/background.png"
 }

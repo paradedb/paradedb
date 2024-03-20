@@ -74,7 +74,8 @@ pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
 pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     let extension_i32 = unsafe { i32::from_datum(extension_name_datum, false) }
         .expect("extension enum i32 not passed to bgworker");
-    let extension = ParadeExtension::from_i32(extension_i32).unwrap_or_else(|| panic!("unexpected extension i32 passed to bgworker {extension_i32}"));
+    let extension = ParadeExtension::from_i32(extension_i32)
+        .unwrap_or_else(|| panic!("unexpected extension i32 passed to bgworker {extension_i32}"));
     let extension_name = extension.name();
 
     pgrx::log!(

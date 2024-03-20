@@ -126,17 +126,11 @@ impl SQLExecutor for RowExecutor {
                 if tuple_table.is_empty() {
                     break;
                 }
-                loop {
-                    match tuple_table.get_heap_tuple()? {
-                        Some(_) => {
-                            for (col_idx, col) in col_datums.iter_mut().enumerate().take(num_cols) {
-                                col.push(tuple_table.get_datum_by_ordinal(col_idx + 1)?);
-                            }
-                        }
-                        None => {
-                            break;
-                        }
+                while let Some(_) = tuple_table.get_heap_tuple()? {
+                    for (col_idx, col) in col_datums.iter_mut().enumerate().take(num_cols) {
+                        col.push(tuple_table.get_datum_by_ordinal(col_idx + 1)?);
                     }
+
                     if let None = tuple_table.next() {
                         break;
                     }

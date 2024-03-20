@@ -103,8 +103,7 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     };
     let controller = TelemetryController {
         sender,
-        directory_check_interval: Duration::from_secs(30), // 12 hours
-        // directory_check_interval: Duration::from_secs(12 * 3600), // 12 hours
+        directory_check_interval: Duration::from_secs(12 * 3600), // 12 hours
         sleep_interval: Duration::from_secs(1),
         term_poll: Box::new(sigterm_handler),
     };

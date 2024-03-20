@@ -1,6 +1,7 @@
 use pgrx::*;
 use std::sync::Arc;
 
+use deltalake::arrow::array::ArrayRef;
 use deltalake::datafusion::arrow::datatypes::DataType;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::common::ScalarValue;
@@ -94,10 +95,13 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFu
         // Get function name - will always be a scalar value
         if let ColumnarValue::Scalar(ScalarValue::Utf8(Some(funcname))) = &args[0] {
             // Turn all arguments into arrays of result length
-            let mut arg_arrays = vec![];
-            for arg in args.iter().take(num_args).skip(1) {
-                arg_arrays.push(arg.clone().into_array(num_rows)?);
-            }
+            let arg_arrays: Vec<ArrayRef> = args
+                .iter()
+                .take(num_args)
+                .skip(1)
+                .cloned()
+                .map(|arg| arg.into_array(num_rows))
+                .collect::<Result<Vec<_>, _>>()?;
 
             // Call function!
             // Follows the internal logic of FunctionCall9Coll
@@ -151,8 +155,6 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFu
             Err(DataFusionError::Internal("No funcname".to_string()))
         }
     });
-
-    drop(memory_context);
 
     ret
 }

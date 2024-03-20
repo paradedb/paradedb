@@ -56,7 +56,7 @@ pub struct TelemetrySender {
 impl TelemetrySender {
     pub fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError> {
         let conn = self.telemetry_store.get_connection()?;
-        if self.settings_store.enabled() {
+        if option_env!("TELEMETRY") != Some("false") && self.settings_store.enabled() {
             conn.send(uuid, event)
         } else {
             pgrx::log!(

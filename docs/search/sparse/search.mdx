@@ -1,0 +1,26 @@
+---
+title: Sparse Vector Search
+---
+
+## Basic Usage
+
+<Note>
+  Creating a [sparse HNSW index](/search/sparse/index) over a table can
+  significantly improve query times.
+</Note>
+
+Sparse vectors can be searched using L2 distance, cosine distance, or inner product.
+
+```sql
+-- L2 distance
+SELECT * FROM mock_items ORDER BY sparse_embedding <-> '[1,2,3]'::svector;
+
+-- Cosine distance
+SELECT * FROM mock_items ORDER BY sparse_embedding <=> '[1,2,3]'::svector;
+
+-- Inner product
+SELECT * FROM mock_items ORDER BY sparse_embedding <#> '[1,2,3]'::svector;
+```
+
+Under the hood, ParadeDB uses `pg_sparse` for sparse vector search, which is ParadeDB's fork of `pgvector`.
+Please refer to the [`pg_sparse` documentation](https://github.com/paradedb/paradedb/tree/dev/pg_sparse) for more details.

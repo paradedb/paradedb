@@ -79,7 +79,8 @@
           "group": "Deployment",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         },
-        "upgrading"
+        "upgrading",
+        "support"
       ]
     },
     {
@@ -87,17 +88,10 @@
       "pages": [
         "search/quickstart",
         {
-          "group": "Indexing",
-          "pages": [
-            "search/indexing/overview",
-            "search/indexing/bm25",
-            "search/indexing/hnsw",
-            "search/indexing/sparse"
-          ]
-        },
-        {
           "group": "Full Text Search",
           "pages": [
+            "search/full-text/overview",
+            "search/full-text/index",
             "search/full-text/bm25",
             "search/full-text/complex",
             "search/full-text/scoring",
@@ -105,8 +99,20 @@
           ]
         },
         {
-          "group": "Similarity Search",
-          "pages": ["search/similarity/hnsw", "search/similarity/sparse"]
+          "group": "Dense Vector Search",
+          "pages": [
+            "search/dense/overview",
+            "search/dense/index",
+            "search/dense/search"
+          ]
+        },
+        {
+          "group": "Sparse Vector Search",
+          "pages": [
+            "search/sparse/overview",
+            "search/sparse/index",
+            "search/sparse/search"
+          ]
         },
         {
           "group": "Hybrid Search",
@@ -156,8 +162,5 @@
       "measurementId": "G-GB3C03LVY5"
     }
   },
-  "backgroundImage": "/background.png",
-  "integrations": {
-    "intercom": "d3sdz6rs"
-  }
+  "backgroundImage": "/background.png"
 }

@@ -284,6 +284,13 @@ As we can see, results with the word `keyboard` scored higher than results with 
 Minmax normalization transforms the lowest and highest scores in a dataset to `0` and `1`, respectively. Because of this, the lowest-ranking BM25 or similarity score may be overlooked, as it is transformed to `0`.
 </Note>
 
-## Congratulations!
+## For Further Assistance
 
-You've now seen how ParadeDB serves as both a Postgres database and search engine.
+The `paradedb.help` function opens a Github Discussion that the ParadeDB team will respond to.
+
+```sql
+SELECT paradedb.help(
+  subject => $$Something isn't working$$,
+  body => $$Issue description$$
+);
+```

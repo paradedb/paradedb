@@ -1,20 +1,16 @@
 ---
-title: BM25 Index
+title: Index Creation
 ---
 
-## What is BM25?
+## Overview
 
-BM25, which stands for Best Matching 25, is the go-to choice for many modern search engines like Elasticsearch.
-It ranks documents by considering how often a term appears and how unique that term is across all
-documents. BM25 is especially useful when you need to find exact keywords or phrases within documents.
-
-The BM25 index enables full text search over a table and relevance scoring using the BM25 algorithm.
+A BM25 index must be created over a table before it can be searched.
 This index is strongly consistent, which means that new data is immediately searchable across all connections.
+Once an index is created, it automatically stays in sync with the underlying table as the data changes.
 
 ## Creating a BM25 Index
 
 The following command creates a BM25 index over a table along with a new schema containing query functions.
-Once an index is created, it automatically stays in sync with the underlying table as the data changes.
 
 ```sql
 paradedb.create_bm25(

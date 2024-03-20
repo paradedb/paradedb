@@ -57,7 +57,7 @@ impl TelemetrySender {
     pub fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError> {
         let conn = self.telemetry_store.get_connection()?;
         if self.settings_store.enabled() {
-            conn.send(&uuid, &event)
+            conn.send(uuid, event)
         } else {
             pgrx::log!(
                 "paradedb telemetry is disabled, not sending event: {}",

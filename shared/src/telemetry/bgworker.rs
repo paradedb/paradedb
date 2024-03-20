@@ -52,10 +52,11 @@ impl TermPoll for SigtermHandler {
 #[pg_guard]
 #[no_mangle]
 pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
+    let extension_name = extension.name();
     GucRegistry::define_bool_guc(
-        &format!("paradedb.{}.telemetry", extension.name()),
-        "Enable telemetry on ParadeDB extensions.",
-        "Enable telemetry on ParadeDB extensions.",
+        &format!("{extension_name}_telemetry"),
+        &format!("Enable telemetry on the ParadeDB {extension_name} extension.",),
+        &format!("Enable telemetry on the ParadeDB {extension_name} extension.",),
         &TELEMETRY_ENABLED,
         GucContext::Userset,
         GucFlags::default(),

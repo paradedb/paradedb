@@ -43,7 +43,9 @@ impl PostgresGlobalGucSettings {
 
 impl GlobalGucSettings for PostgresGlobalGucSettings {
     fn telemetry_enabled(&self) -> bool {
-        self.telemetry.get()
+        // If TELEMETRY is false at compile time, then we will never enable.
+        // This is useful for test builds and CI.
+        option_env!("TELEMETRY") != Some("false") && self.telemetry.get()
     }
 
     fn logs_enabled(&self) -> bool {

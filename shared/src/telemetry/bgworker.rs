@@ -1,5 +1,6 @@
 use super::TermPoll;
-use crate::telemetry::postgres::{GucSettings, PostgresDirectoryStore};
+use crate::gucs::PostgresGlobalGucSettings;
+use crate::telemetry::postgres::PostgresDirectoryStore;
 use crate::telemetry::posthog::PosthogStore;
 use crate::telemetry::{TelemetryController, TelemetrySender};
 use pgrx::bgworkers::{self, BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
@@ -98,7 +99,7 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     // These are the signals we want to receive. If we don't attach the SIGTERM handler, then
     // we'll never be able to exit via an external notification.
     let sigterm_handler = SigtermHandler::new();
-    let settings_store = Box::new(GucSettings::new());
+    let settings_store = Box::new(PostgresGlobalGucSettings::new());
     let telemetry_store = match PosthogStore::from_env().map(Box::new) {
         Ok(store) => store,
         Err(err) => {

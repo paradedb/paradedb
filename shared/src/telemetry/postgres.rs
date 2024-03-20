@@ -1,27 +1,7 @@
+use super::{DirectoryStore, TelemetryError};
 use std::{fs, path::PathBuf};
-
 use uuid::Uuid;
 use walkdir::WalkDir;
-
-use super::{bgworker::TELEMETRY_ENABLED, DirectoryStore, TelemetryError, TelemetrySettings};
-
-pub struct GucSettings {
-    pub enabled: &'static pgrx::GucSetting<bool>,
-}
-
-impl GucSettings {
-    pub fn new() -> Self {
-        Self {
-            enabled: &TELEMETRY_ENABLED,
-        }
-    }
-}
-
-impl TelemetrySettings for GucSettings {
-    fn enabled(&self) -> bool {
-        self.enabled.get()
-    }
-}
 
 pub struct PostgresDirectoryStore {
     extension_name: String,

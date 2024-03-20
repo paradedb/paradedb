@@ -3,6 +3,8 @@ mod event;
 mod postgres;
 mod posthog;
 
+use crate::gucs::GlobalGucSettings;
+
 use self::event::TelemetryEvent;
 pub use bgworker::{setup_telemetry_background_worker, ParadeExtension};
 use std::{
@@ -50,13 +52,13 @@ pub struct TelemetrySender {
     pub extension_name: String,
     pub directory_store: Box<dyn DirectoryStore<Error = TelemetryError>>,
     pub telemetry_store: Box<dyn TelemetryStore<Error = TelemetryError>>,
-    pub settings_store: Box<dyn TelemetrySettings>,
+    pub settings_store: Box<dyn GlobalGucSettings>,
 }
 
 impl TelemetrySender {
     pub fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError> {
         let conn = self.telemetry_store.get_connection()?;
-        if option_env!("TELEMETRY") != Some("false") && self.settings_store.enabled() {
+        if self.settings_store.telemetry_enabled() {
             conn.send(uuid, event)
         } else {
             pgrx::log!(

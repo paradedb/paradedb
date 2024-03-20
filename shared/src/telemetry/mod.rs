@@ -3,7 +3,8 @@ mod event;
 mod postgres;
 mod posthog;
 
-pub use bgworker::setup_telemetry_background_worker;
+use self::event::TelemetryEvent;
+pub use bgworker::{setup_telemetry_background_worker, ParadeExtension};
 use std::{
     env::VarError,
     path::PathBuf,
@@ -12,8 +13,6 @@ use std::{
     time::{Duration, Instant},
 };
 use thiserror::Error;
-
-use self::event::TelemetryEvent;
 
 pub trait TelemetryStore {
     type Error;
@@ -34,8 +33,9 @@ pub trait DirectoryStore {
 
     fn root_path(&self) -> Result<PathBuf, Self::Error>;
     fn extension_path(&self) -> Result<PathBuf, Self::Error>;
-    fn extension_uuid(&self) -> Result<String, Self::Error>;
     fn extension_size(&self) -> Result<u64, Self::Error>;
+    fn extension_uuid(&self) -> Result<String, Self::Error>;
+    fn extension_uuid_path(&self) -> Result<PathBuf, Self::Error>;
 }
 
 pub trait TermPoll {
@@ -43,15 +43,22 @@ pub trait TermPoll {
 }
 
 pub struct TelemetrySender {
+    pub extension_name: String,
     pub directory_store: Box<dyn DirectoryStore<Error = TelemetryError>>,
     pub telemetry_store: Box<dyn TelemetryStore<Error = TelemetryError>>,
 }
 
 impl TelemetrySender {
     pub fn send_deployment(&self) -> Result<(), TelemetryError> {
+        if self.directory_store.extension_uuid_path()?.exists() {
+            pgrx::log!("extension has been deployed before, skipping deployment telemetry");
+            return Ok(());
+        }
         let conn = self.telemetry_store.get_connection()?;
         let uuid = self.directory_store.extension_uuid()?;
-        let event = TelemetryEvent::Deployment;
+        let event = TelemetryEvent::Deployment {
+            extension: self.extension_name.clone(),
+        };
 
         conn.send(&uuid, &event)
     }
@@ -61,7 +68,11 @@ impl TelemetrySender {
         let uuid = self.directory_store.extension_uuid()?;
         let size = self.directory_store.extension_size()?;
         let path = self.directory_store.extension_path()?;
-        let event = TelemetryEvent::DirectoryStatus { path, size };
+        let event = TelemetryEvent::DirectoryStatus {
+            path,
+            size,
+            extension: self.extension_name.clone(),
+        };
 
         conn.send(&uuid, &event)
     }

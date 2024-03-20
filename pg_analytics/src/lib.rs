@@ -9,7 +9,7 @@ mod types;
 
 use pgrx::*;
 use shared::logs::ParadeLogsGlobal;
-use shared::telemetry::setup_telemetry_background_worker;
+use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
 
 use crate::guc::PARADE_GUC;
 use crate::hooks::ParadeHook;
@@ -17,10 +17,9 @@ use crate::hooks::ParadeHook;
 pgrx::pg_module_magic!();
 extension_sql_file!("../sql/_bootstrap.sql");
 
-const EXTENSION_NAME: &str = "pg_analytics";
 // This is a flag that can be set by the user in a session to enable logs.
 // You need to initialize this in every extension that uses `plog!`.
-static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new(EXTENSION_NAME);
+static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_bm25");
 // These are the hooks that we register with Postgres.
 static mut PARADE_HOOK: ParadeHook = ParadeHook;
 
@@ -35,7 +34,7 @@ pub extern "C" fn _PG_init() {
         register_hook(&mut PARADE_HOOK)
     };
 
-    setup_telemetry_background_worker("pg_analytics");
+    setup_telemetry_background_worker(ParadeExtension::PgAnalytics);
 }
 
 #[cfg(test)]

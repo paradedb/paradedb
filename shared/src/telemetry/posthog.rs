@@ -28,13 +28,14 @@ pub struct PosthogStore {
 }
 
 impl PosthogStore {
-    const API_KEY: &'static str = "POSTHOG_API_KEY";
-    const HOST: &'static str = "POSTHOG_HOST";
-
     pub fn from_env() -> Result<Self, TelemetryError> {
         Ok(Self {
-            api_key: std::env::var(Self::API_KEY).map_err(|_| TelemetryError::PosthogApiKey)?,
-            host: std::env::var(Self::HOST).map_err(|_| TelemetryError::PosthogHost)?,
+            api_key: option_env!("POSTHOG_API_KEY")
+                .map(|s| s.to_string())
+                .ok_or(TelemetryError::PosthogApiKey)?,
+            host: option_env!("POSTHOG_HOST")
+                .map(|s| s.to_string())
+                .ok_or(TelemetryError::PosthogHost)?,
         })
     }
 }
@@ -62,12 +63,20 @@ impl TelemetryConnection for PosthogConnection {
                 "telemetry_data": event.to_json(),
             },
         });
-        self.client
-            .post(self.endpoint())
-            .header("Content-Type", "application/json")
-            .body(data.to_string())
-            .send()
-            .map(|_| ())
-            .map_err(TelemetryError::from)
+        if event.enabled() {
+            self.client
+                .post(self.endpoint())
+                .header("Content-Type", "application/json")
+                .body(data.to_string())
+                .send()
+                .map(|_| ())
+                .map_err(TelemetryError::from)
+        } else {
+            pgrx::log!(
+                "paradedb telemetry is disabled, not sending event: {}",
+                event.name()
+            );
+            Ok(())
+        }
     }
 }

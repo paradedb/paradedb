@@ -4,22 +4,28 @@ use serde_json::json;
 
 #[derive(Clone)]
 pub enum TelemetryEvent {
-    Deployment,
-    DirectoryStatus { path: PathBuf, size: u64 },
+    Deployment {
+        extension: String,
+    },
+    DirectoryStatus {
+        extension: String,
+        path: PathBuf,
+        size: u64,
+    },
 }
 
 impl TelemetryEvent {
     pub fn name(&self) -> String {
         match self {
-            Self::Deployment { .. } => "Deployment".into(),
-            Self::DirectoryStatus { .. } => "Directory Status".into(),
+            Self::Deployment { extension } => format!("{extension} Deployment"),
+            Self::DirectoryStatus { extension, .. } => format!("{extension} Directory Status"),
         }
     }
 
     pub fn to_json(&self) -> serde_json::Value {
         match self {
-            Self::Deployment => json!(serde_json::Value::Null),
-            Self::DirectoryStatus { path, size } => json!({
+            Self::Deployment { .. } => json!(serde_json::Value::Null),
+            Self::DirectoryStatus { path, size, .. } => json!({
                 "path": path.to_str(),
                 "size": size
             }),
@@ -27,6 +33,12 @@ impl TelemetryEvent {
     }
 
     pub fn commit_sha(&self) -> Option<String> {
-        std::env::var("COMMIT_SHA").ok()
+        option_env!("COMMIT_SHA").map(String::from)
+    }
+
+    pub fn enabled(&self) -> bool {
+        option_env!("PARADEDB_TELEMETRY")
+            .map(|s| s.trim().to_lowercase() == "true")
+            .unwrap_or(cfg!(telemetry))
     }
 }

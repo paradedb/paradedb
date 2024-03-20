@@ -26,8 +26,6 @@ extension_sql_file!("../sql/_bootstrap.sql");
 #[allow(non_snake_case)]
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
-    pgrx::log!("starting pg_bm25");
-
     postgres::options::init();
     PARADE_LOGS_GLOBAL.init();
 

@@ -14,6 +14,10 @@ use std::{
 };
 use thiserror::Error;
 
+pub trait TelemetrySettings {
+    fn enabled(&self) -> bool;
+}
+
 pub trait TelemetryStore {
     type Error;
 
@@ -46,25 +50,36 @@ pub struct TelemetrySender {
     pub extension_name: String,
     pub directory_store: Box<dyn DirectoryStore<Error = TelemetryError>>,
     pub telemetry_store: Box<dyn TelemetryStore<Error = TelemetryError>>,
+    pub settings_store: Box<dyn TelemetrySettings>,
 }
 
 impl TelemetrySender {
+    pub fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError> {
+        let conn = self.telemetry_store.get_connection()?;
+        if self.settings_store.enabled() {
+            conn.send(&uuid, &event)
+        } else {
+            pgrx::log!(
+                "paradedb telemetry is disabled, not sending event: {}",
+                event.name()
+            );
+            Ok(())
+        }
+    }
     pub fn send_deployment(&self) -> Result<(), TelemetryError> {
         if self.directory_store.extension_uuid_path()?.exists() {
             pgrx::log!("extension has been deployed before, skipping deployment telemetry");
             return Ok(());
         }
-        let conn = self.telemetry_store.get_connection()?;
         let uuid = self.directory_store.extension_uuid()?;
         let event = TelemetryEvent::Deployment {
             extension: self.extension_name.clone(),
         };
 
-        conn.send(&uuid, &event)
+        self.send(&uuid, &event)
     }
 
     pub fn send_directory_check(&self) -> Result<(), TelemetryError> {
-        let conn = self.telemetry_store.get_connection()?;
         let uuid = self.directory_store.extension_uuid()?;
         let size = self.directory_store.extension_size()?;
         let path = self.directory_store.extension_path()?;
@@ -74,7 +89,7 @@ impl TelemetrySender {
             extension: self.extension_name.clone(),
         };
 
-        conn.send(&uuid, &event)
+        self.send(&uuid, &event)
     }
 }
 

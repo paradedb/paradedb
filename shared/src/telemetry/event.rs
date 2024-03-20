@@ -35,10 +35,4 @@ impl TelemetryEvent {
     pub fn commit_sha(&self) -> Option<String> {
         option_env!("COMMIT_SHA").map(String::from)
     }
-
-    pub fn enabled(&self) -> bool {
-        option_env!("PARADEDB_TELEMETRY")
-            .map(|s| s.trim().to_lowercase() == "true")
-            .unwrap_or(cfg!(telemetry))
-    }
 }

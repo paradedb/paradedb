@@ -19,7 +19,7 @@ extension_sql_file!("../sql/_bootstrap.sql");
 
 // This is a flag that can be set by the user in a session to enable logs.
 // You need to initialize this in every extension that uses `plog!`.
-static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_bm25");
+static PARADE_LOGS_GLOBAL: ParadeLogsGlobal = ParadeLogsGlobal::new("pg_analytics");
 // These are the hooks that we register with Postgres.
 static mut PARADE_HOOK: ParadeHook = ParadeHook;
 

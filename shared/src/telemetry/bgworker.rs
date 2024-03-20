@@ -1,11 +1,13 @@
 use super::TermPoll;
-use crate::telemetry::postgres::PostgresDirectoryStore;
+use crate::telemetry::postgres::{GucSettings, PostgresDirectoryStore};
 use crate::telemetry::posthog::PosthogStore;
 use crate::telemetry::{TelemetryController, TelemetrySender};
 use pgrx::bgworkers::{self, BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
-use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum};
+use pgrx::{pg_guard, pg_sys, FromDatum, GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum};
 use std::process;
 use std::time::Duration;
+
+pub static TELEMETRY_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
 
 pub enum ParadeExtension {
     PgSearch = 1,
@@ -50,6 +52,15 @@ impl TermPoll for SigtermHandler {
 #[pg_guard]
 #[no_mangle]
 pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
+    GucRegistry::define_bool_guc(
+        &format!("paradedb.{}.telemetry", extension.name()),
+        "Enable telemetry on ParadeDB extensions.",
+        "Enable telemetry on ParadeDB extensions.",
+        &TELEMETRY_ENABLED,
+        GucContext::Userset,
+        GucFlags::default(),
+    );
+
     // A background worker to read and send telemetry data to PostHog.
     BackgroundWorkerBuilder::new(&format!("{}_telemetry_worker", extension.name()))
         // Must be the name of a function in this file.
@@ -86,6 +97,7 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     // These are the signals we want to receive. If we don't attach the SIGTERM handler, then
     // we'll never be able to exit via an external notification.
     let sigterm_handler = SigtermHandler::new();
+    let settings_store = Box::new(GucSettings::new());
     let telemetry_store = match PosthogStore::from_env().map(Box::new) {
         Ok(store) => store,
         Err(err) => {
@@ -100,6 +112,7 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
         extension_name: extension_name.to_string(),
         telemetry_store,
         directory_store,
+        settings_store,
     };
     let controller = TelemetryController {
         sender,

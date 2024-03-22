@@ -14,14 +14,13 @@ struct IndexScanDesc {
     rs_base: pg_sys::IndexFetchTableData,
     curr_batch: Option<Arc<RecordBatch>>,
     curr_batch_idx: usize,
-    completed: bool
+    completed: bool,
 }
 
 #[pg_guard]
 pub extern "C" fn deltalake_index_fetch_begin(
     rel: pg_sys::Relation,
 ) -> *mut pg_sys::IndexFetchTableData {
-    info!("begin scan");
     unsafe {
         PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
             let mut scan = PgBox::<IndexScanDesc>::alloc0();
@@ -67,7 +66,7 @@ pub extern "C" fn deltalake_index_fetch_tuple(
 async unsafe fn index_fetch_tuple_impl(
     scan: *mut pg_sys::IndexFetchTableData,
     slot: *mut pg_sys::TupleTableSlot,
-    tid: pg_sys::ItemPointer
+    tid: pg_sys::ItemPointer,
 ) -> Result<bool, ParadeError> {
     let dscan = scan as *mut IndexScanDesc;
     if (*dscan).completed {
@@ -101,13 +100,11 @@ async unsafe fn index_fetch_tuple_impl(
         (*dscan).curr_batch_idx = 0;
 
         (*dscan).curr_batch = match Stream::get_next_batch(schema_name, &table_path).await? {
-            Some(batch) => {
-                Some(Arc::new(batch))
-            },
+            Some(batch) => Some(Arc::new(batch)),
             None => {
                 (*dscan).completed = true;
-                return Ok(false)
-            },
+                return Ok(false);
+            }
         };
     }
 

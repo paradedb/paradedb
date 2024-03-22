@@ -7,7 +7,7 @@ use pgrx::*;
 use crate::datafusion::commit::commit_writer;
 use crate::datafusion::table::DatafusionTable;
 use crate::datafusion::writer::Writer;
-use crate::errors::{NotFound, NotSupported, ParadeError};
+use crate::errors::{NotSupported, ParadeError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::PgTypeMod;
 
@@ -87,14 +87,13 @@ async fn insert_tuples(
                         let bslot = tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
                         let tuple = (*bslot).base.tuple;
                         std::num::NonZeroUsize::new(col_idx + 1)
-                            .map(|attr_num| {
+                            .and_then(|attr_num| {
                                 htup::heap_getattr_raw(
                                     tuple,
                                     attr_num,
                                     (*tuple_table_slot).tts_tupleDescriptor,
                                 )
                             })
-                            .flatten()
                     } else {
                         Some(*(*tuple_table_slot).tts_values.add(col_idx))
                     };

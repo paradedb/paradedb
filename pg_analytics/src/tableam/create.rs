@@ -4,6 +4,8 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::CatalogProvider;
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
+use shared::postgres::tid::FIRST_ROW_NUMBER;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use crate::datafusion::directory::ParadeDirectory;
@@ -11,6 +13,12 @@ use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
+
+const FIRST_BLOCK_NUMBER: u32 = 0;
+
+pub struct TableMetadata {
+    max_row_number: u64,
+}
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
@@ -100,4 +108,30 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
             })
         }
     }
+}
+
+#[inline]
+unsafe fn init_metadata(rel: pg_sys::Relation) -> Result<(), ParadeError> {
+    let buffer = pg_sys::ReadBufferExtended(
+        rel,
+        pg_sys::ForkNumber_MAIN_FORKNUM,
+        pg_sys::InvalidBlockNumber,
+        pg_sys::ReadBufferMode_RBM_NORMAL,
+        std::ptr::null_mut(),
+    );
+
+    assert!(pg_sys::BufferGetBlockNumber(buffer) == FIRST_BLOCK_NUMBER);
+
+    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+    let page = pg_sys::BufferGetPage(buffer);
+    pg_sys::PageInit(page, pg_sys::BLCKSZ as usize, size_of::<TableMetadata>());
+
+    let page_header = page as pg_sys::PageHeader;
+    let metadata = pg_sys::PageGetSpecialPointer(page) as *mut TableMetadata;
+    (*metadata).max_row_number = FIRST_ROW_NUMBER;
+
+    pg_sys::MarkBufferDirty(buffer);
+    pg_sys::UnlockReleaseBuffer(buffer);
+
+    Ok(())
 }

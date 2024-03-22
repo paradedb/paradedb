@@ -82,18 +82,18 @@ impl IsColumn for *mut pg_sys::RelationData {
 }
 
 unsafe fn column_oid() -> Result<pg_sys::Oid, ParadeError> {
-    let deltalake_handler_str = CString::new(COLUMN_HANDLER)?;
-    let deltalake_handler_ptr = deltalake_handler_str.as_ptr() as *const c_char;
+    let parquet_handler_str = CString::new(COLUMN_HANDLER)?;
+    let parquet_handler_ptr = parquet_handler_str.as_ptr() as *const c_char;
 
-    let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
+    let parquet_oid = pg_sys::get_am_oid(parquet_handler_ptr, true);
 
-    if deltalake_oid == pg_sys::InvalidOid {
-        return Ok(deltalake_oid);
+    if parquet_oid == pg_sys::InvalidOid {
+        return Ok(parquet_oid);
     }
 
     let heap_tuple_data = pg_sys::SearchSysCache1(
         pg_sys::SysCacheIdentifier_AMOID as i32,
-        pg_sys::Datum::from(deltalake_oid),
+        pg_sys::Datum::from(parquet_oid),
     );
     let catalog = pg_sys::heap_tuple_get_struct::<pg_sys::FormData_pg_am>(heap_tuple_data);
     pg_sys::ReleaseSysCache(heap_tuple_data);

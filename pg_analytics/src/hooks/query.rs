@@ -1,7 +1,7 @@
 use deltalake::datafusion::common::ScalarValue;
 use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::logical_expr::expr::ScalarFunction;
-use deltalake::datafusion::logical_expr::{Expr, LogicalPlan, ScalarFunctionDefinition};
+use deltalake::datafusion::logical_expr::{Expr, ScalarFunctionDefinition};
 use deltalake::datafusion::sql::parser::{self, DFParser};
 use deltalake::datafusion::sql::planner::SqlToRel;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
@@ -11,6 +11,7 @@ use std::collections::VecDeque;
 use std::ffi::CStr;
 
 use crate::datafusion::context::QueryContext;
+use crate::datafusion::plan::LogicalPlanDetails;
 use crate::errors::ParadeError;
 use crate::hooks::udf::loadfunction;
 
@@ -24,7 +25,10 @@ pub trait Query {
     fn get_ast(self, query_string: &str) -> Result<VecDeque<parser::Statement>, ParadeError>;
 
     // Parses the query string into a DataFusion LogicalPlan
-    fn get_logical_plan(self, query_string: &str) -> Result<(LogicalPlan, bool), ParadeError>;
+    fn get_logical_plan_details(
+        self,
+        query_string: &str,
+    ) -> Result<LogicalPlanDetails, ParadeError>;
 }
 
 impl Query for *mut pg_sys::PlannedStmt {
@@ -51,7 +55,7 @@ impl Query for *mut pg_sys::PlannedStmt {
             .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))
     }
 
-    fn get_logical_plan(self, query: &str) -> Result<(LogicalPlan, bool), ParadeError> {
+    fn get_logical_plan_details(self, query: &str) -> Result<LogicalPlanDetails, ParadeError> {
         let dialect = PostgreSqlDialect {};
         let ast = DFParser::parse_sql_with_dialect(query, &dialect)
             .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
@@ -121,6 +125,9 @@ impl Query for *mut pg_sys::PlannedStmt {
             .collect::<Vec<_>>();
         let new_logical_plan = logical_plan.with_new_exprs(new_exprs, new_inputs.as_slice())?;
 
-        Ok((new_logical_plan, includes_udf))
+        Ok(LogicalPlanDetails {
+            logical_plan: new_logical_plan,
+            includes_udf,
+        })
     }
 }

@@ -4,6 +4,7 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
+use crate::datafusion::plan::LogicalPlanDetails;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
 use crate::hooks::insert::insert;
@@ -49,7 +50,10 @@ pub fn executor_run(
         }
 
         // Parse the query into a LogicalPlan
-        let (logical_plan, single_thread) = match pg_plan.get_logical_plan(&query) {
+        let LogicalPlanDetails {
+            logical_plan,
+            includes_udf,
+        } = match pg_plan.get_logical_plan_details(&query) {
             Ok(logical_plan_results) => logical_plan_results,
             // If DataFusion can't parse the query, let Postgres handle it
             Err(_) => {
@@ -64,6 +68,8 @@ pub fn executor_run(
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }
+
+        let single_thread = includes_udf;
 
         // Execute SELECT, DELETE, UPDATE
         match query_desc.operation {

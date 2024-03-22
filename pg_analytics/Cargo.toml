@@ -6,7 +6,11 @@ edition = "2021"
 license = "AGPL-3.0"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "pgrx_embed_pg_analytics"
+path = "./src/bin/pgrx_embed.rs"
 
 [features]
 default = ["pg16"]

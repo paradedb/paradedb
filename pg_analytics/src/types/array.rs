@@ -320,7 +320,7 @@ where
     where
         T: FromDatum,
         A: ArrowPrimitiveType<Native = T>,
-        Vec<Option<T>>: FromDatum
+        Vec<Option<T>>: FromDatum,
     {
         let iter = self.into_array::<Column<T>>()?;
 

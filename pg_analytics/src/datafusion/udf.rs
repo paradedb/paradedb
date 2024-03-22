@@ -77,7 +77,7 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFu
 
     let mut memory_context = PgMemoryContexts::new("udf_df_alloc");
 
-    let ret = memory_context.switch_to(|_context| {
+    memory_context.switch_to(|_context| {
         let arg_oids =
             pg_sys::palloc0(std::mem::size_of::<pg_sys::Oid>() * num_args) as *mut pg_sys::Oid;
         for (arg_index, arg) in args.iter().enumerate().take(num_args).skip(1) {
@@ -154,9 +154,7 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFu
         } else {
             Err(DataFusionError::Internal("No funcname".to_string()))
         }
-    });
-
-    ret
+    })
 }
 
 pub unsafe fn loadfunction(funcname: &str) -> Result<(), ParadeError> {

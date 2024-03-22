@@ -3,13 +3,13 @@ use datafusion_federation_sql::SQLExecutor;
 use deltalake::datafusion::arrow::datatypes::SchemaRef;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::error::{DataFusionError, Result};
-use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::physical_plan::{
     stream::RecordBatchStreamAdapter, SendableRecordBatchStream,
 };
 use memoffset::offset_of;
 use pgrx::*;
 
+use crate::datafusion::plan::LogicalPlanDetails;
 use crate::datafusion::query::QueryString;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
@@ -41,7 +41,7 @@ impl SQLExecutor for ColumnExecutor {
         sql: &str,
         schema: SchemaRef,
     ) -> Result<SendableRecordBatchStream, DataFusionError> {
-        let (logical_plan, _) = <(LogicalPlan, bool)>::try_from(QueryString(sql))?;
+        let LogicalPlanDetails{ logical_plan, .. } = LogicalPlanDetails::try_from(QueryString(sql))?;
         let batch_stream = Session::with_session_context(|context| {
             Box::pin(async move {
                 let dataframe = context.execute_logical_plan(logical_plan.clone()).await?;

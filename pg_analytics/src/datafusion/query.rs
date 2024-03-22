@@ -1,7 +1,7 @@
 use deltalake::datafusion::common::ScalarValue;
 use deltalake::datafusion::error::DataFusionError;
 use deltalake::datafusion::logical_expr::expr::ScalarFunction;
-use deltalake::datafusion::logical_expr::{Expr, LogicalPlan, ScalarFunctionDefinition};
+use deltalake::datafusion::logical_expr::{Expr, ScalarFunctionDefinition};
 use deltalake::datafusion::sql::parser::{self, DFParser};
 use deltalake::datafusion::sql::planner::SqlToRel;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
@@ -9,6 +9,7 @@ use regex::Regex;
 use std::collections::VecDeque;
 
 use crate::datafusion::context::QueryContext;
+use crate::datafusion::plan::LogicalPlanDetails;
 use crate::datafusion::udf::loadfunction;
 use crate::errors::ParadeError;
 
@@ -31,7 +32,7 @@ impl TryFrom<QueryString<'_>> for ASTVec {
 }
 
 // Parses the query string into a DataFusion LogicalPlan
-impl TryFrom<QueryString<'_>> for (LogicalPlan, bool) {
+impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
     type Error = ParadeError;
 
     fn try_from(query: QueryString) -> Result<Self, Self::Error> {
@@ -106,6 +107,6 @@ impl TryFrom<QueryString<'_>> for (LogicalPlan, bool) {
             .collect::<Vec<_>>();
         let new_logical_plan = logical_plan.with_new_exprs(new_exprs, new_inputs.as_slice())?;
 
-        Ok((new_logical_plan, includes_udf))
+        Ok(LogicalPlanDetails{ logical_plan: new_logical_plan, includes_udf })
     }
 }

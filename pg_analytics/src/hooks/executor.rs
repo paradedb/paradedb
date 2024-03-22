@@ -5,6 +5,7 @@ use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::datafusion::query::QueryString;
+use crate::datafusion::plan::LogicalPlanDetails;
 use crate::errors::{NotSupported, ParadeError};
 use crate::federation::handler::get_federated_batches;
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
@@ -77,11 +78,14 @@ pub fn executor_run(
             }
         } else {
             // Parse the query into a LogicalPlan
-            let logical_plan_details = <(LogicalPlan, bool)>::try_from(QueryString(&query));
+            let logical_plan_details = LogicalPlanDetails::try_from(QueryString(&query));
 
             // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
             // We should let these queries go through to the table access method
-            if let Ok((LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_)), _)) = logical_plan_details {
+            if let Ok(LogicalPlanDetails {
+                logical_plan: LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_)),
+                includes_udf: _,
+            }) = logical_plan_details {
                 prev_hook(query_desc, direction, count, execute_once);
                 return Ok(());
             }
@@ -89,7 +93,8 @@ pub fn executor_run(
             // Execute SELECT, DELETE, UPDATE
             match query_desc.operation {
                 pg_sys::CmdType_CMD_SELECT => {
-                    if let Ok((logical_plan, single_thread)) = logical_plan_details {
+                    if let Ok(LogicalPlanDetails{logical_plan, includes_udf}) = logical_plan_details {
+                        let single_thread = includes_udf;
                         get_datafusion_batches(query_desc, logical_plan, single_thread)?;
                     }
                 }
@@ -97,7 +102,7 @@ pub fn executor_run(
                 _ => {
                     prev_hook(query_desc, direction, count, execute_once);
                 }
-            };
+            }
 
             Ok(())
         }

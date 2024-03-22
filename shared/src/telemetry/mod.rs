@@ -1,24 +1,14 @@
 mod bgworker;
+mod controller;
 mod event;
 mod postgres;
 mod posthog;
 
-use crate::gucs::GlobalGucSettings;
-
 use self::event::TelemetryEvent;
 pub use bgworker::{setup_telemetry_background_worker, ParadeExtension};
-use std::{
-    env::VarError,
-    path::PathBuf,
-    str::Utf8Error,
-    thread,
-    time::{Duration, Instant},
-};
+use pgrx::spi::SpiError;
+use std::{env::VarError, path::PathBuf, str::Utf8Error};
 use thiserror::Error;
-
-pub trait TelemetrySettings {
-    fn enabled(&self) -> bool;
-}
 
 pub trait TelemetryStore {
     type Error;
@@ -48,80 +38,12 @@ pub trait TermPoll {
     fn term_poll(&self) -> bool;
 }
 
-pub struct TelemetrySender {
-    pub extension_name: String,
-    pub directory_store: Box<dyn DirectoryStore<Error = TelemetryError>>,
-    pub telemetry_store: Box<dyn TelemetryStore<Error = TelemetryError>>,
-    pub settings_store: Box<dyn GlobalGucSettings>,
-}
-
-impl TelemetrySender {
-    pub fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError> {
-        let conn = self.telemetry_store.get_connection()?;
-        if self.settings_store.telemetry_enabled() {
-            conn.send(uuid, event)
-        } else {
-            pgrx::log!(
-                "paradedb telemetry is disabled, not sending event: {}",
-                event.name()
-            );
-            Ok(())
-        }
-    }
-    pub fn send_deployment(&self) -> Result<(), TelemetryError> {
-        if self.directory_store.extension_uuid_path()?.exists() {
-            pgrx::log!("extension has been deployed before, skipping deployment telemetry");
-            return Ok(());
-        }
-        let uuid = self.directory_store.extension_uuid()?;
-        let event = TelemetryEvent::Deployment {
-            extension: self.extension_name.clone(),
-        };
-
-        self.send(&uuid, &event)
-    }
-
-    pub fn send_directory_check(&self) -> Result<(), TelemetryError> {
-        let uuid = self.directory_store.extension_uuid()?;
-        let size = self.directory_store.extension_size()?;
-        let path = self.directory_store.extension_path()?;
-        let event = TelemetryEvent::DirectoryStatus {
-            path,
-            size,
-            extension: self.extension_name.clone(),
-        };
-
-        self.send(&uuid, &event)
-    }
-}
-
-pub struct TelemetryController {
-    pub sender: TelemetrySender,
-    pub directory_check_interval: Duration,
-    pub sleep_interval: Duration,
-    pub term_poll: Box<dyn TermPoll>,
-}
-
-impl TelemetryController {
-    pub fn run(&self) -> Result<(), TelemetryError> {
-        let mut last_action_time = Instant::now();
-        self.sender.send_deployment()?;
-        loop {
-            // Sleep for a short period to remain responsive to SIGTERM
-            thread::sleep(self.sleep_interval);
-
-            // Check if the wait_duration has passed since the last time we sent telemetry data
-            if Instant::now().duration_since(last_action_time) >= self.directory_check_interval {
-                self.sender.send_directory_check()?;
-                last_action_time = Instant::now();
-            }
-
-            // Check for shutdown
-            if self.term_poll.term_poll() {
-                return Ok(());
-            }
-        }
-    }
+pub trait TelemetryConfigStore {
+    fn telemetry_enabled(&self) -> Result<bool, TelemetryError>;
+    fn extension_name(&self) -> Result<String, TelemetryError>;
+    fn telemetry_api_key(&self) -> Result<String, TelemetryError>;
+    fn telemetry_host_url(&self) -> Result<String, TelemetryError>;
+    fn root_data_directory(&self) -> Result<PathBuf, TelemetryError>;
 }
 
 #[derive(Error, Debug)]
@@ -148,4 +70,8 @@ pub enum TelemetryError {
     PosthogHost,
     #[error("unknown extension name: {0}")]
     UnknownExtension(String),
+    #[error("error checking telemetry enabled guc config: {0}")]
+    EnabledCheck(#[source] SpiError),
+    #[error("could not lock spi connection in telemetry config")]
+    SpiConnectLock(String),
 }

@@ -1,15 +1,18 @@
-use super::TermPoll;
-use crate::gucs::PostgresGlobalGucSettings;
+use super::{TelemetryConfigStore, TelemetryError, TermPoll};
+use crate::telemetry::controller::{TelemetryController, TelemetrySender};
 use crate::telemetry::postgres::PostgresDirectoryStore;
 use crate::telemetry::posthog::PosthogStore;
-use crate::telemetry::{TelemetryController, TelemetrySender};
 use pgrx::bgworkers::{self, BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
-use pgrx::{pg_guard, pg_sys, FromDatum, GucContext, GucFlags, GucRegistry, GucSetting, IntoDatum};
+use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum};
+use std::path::PathBuf;
 use std::process;
+use std::sync::Mutex;
 use std::time::Duration;
 
-pub static TELEMETRY_ENABLED: GucSetting<bool> = GucSetting::<bool>::new(true);
-
+/// Enumerating our extensions. It's important that these can be enumerated as integers
+/// so that this enum can be passed as an i32 datum to a background worker.
+/// Only primitive integers and booleans can be passed to workers, so we there's no
+/// way otherwise for a background worker to tell which extension it is working for.
 pub enum ParadeExtension {
     PgSearch = 1,
     PgAnalytics = 2,
@@ -37,8 +40,13 @@ pub struct SigtermHandler {}
 
 impl SigtermHandler {
     fn new() -> Self {
+        // You must listen to both SIGTERM and to SIGHUP.
+        // Without SIGTERM, the background worker has no way to know when to terminate.
+        // Without SIGHUP, the background worker will not be able to see configuration changes.
+        // You need to poll for SIGTERM as a check for whether to quit.
+        // You don't need to poll SIGHUP, you just need to have it here.
         BackgroundWorker::attach_signal_handlers(
-            SignalWakeFlags::SIGHUP | SignalWakeFlags::SIGTERM,
+            SignalWakeFlags::SIGTERM | SignalWakeFlags::SIGHUP,
         );
         Self {}
     }
@@ -46,23 +54,13 @@ impl SigtermHandler {
 
 impl TermPoll for SigtermHandler {
     fn term_poll(&self) -> bool {
-        BackgroundWorker::sigterm_received() || BackgroundWorker::sighup_received()
+        BackgroundWorker::sigterm_received()
     }
 }
 
 #[pg_guard]
 #[no_mangle]
 pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
-    let extension_name = extension.name();
-    GucRegistry::define_bool_guc(
-        &format!("paradedb.{extension_name}.telemetry"),
-        &format!("Enable telemetry on the ParadeDB {extension_name} extension.",),
-        &format!("Enable telemetry on the ParadeDB {extension_name} extension.",),
-        &TELEMETRY_ENABLED,
-        GucContext::Userset,
-        GucFlags::default(),
-    );
-
     // A background worker to read and send telemetry data to PostHog.
     BackgroundWorkerBuilder::new(&format!("{}_telemetry_worker", extension.name()))
         // Must be the name of a function in this file.
@@ -96,26 +94,28 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
         process::id()
     );
 
+    let config_store = BgWorkerTelemetryConfig::new(&extension_name)
+        .map(Box::new)
+        .expect("could not initialize telemetry config");
+
+    let telemetry_store = Box::new(PosthogStore {
+        config_store: config_store.clone(),
+    });
+
+    let directory_store = Box::new(PostgresDirectoryStore {
+        config_store: config_store.clone(),
+    });
+
+    let sender = TelemetrySender {
+        telemetry_store,
+        directory_store,
+        config_store,
+    };
+
     // These are the signals we want to receive. If we don't attach the SIGTERM handler, then
     // we'll never be able to exit via an external notification.
     let sigterm_handler = SigtermHandler::new();
-    let settings_store = Box::new(PostgresGlobalGucSettings::new());
-    let telemetry_store = match PosthogStore::from_env().map(Box::new) {
-        Ok(store) => store,
-        Err(err) => {
-            pgrx::warning!("could not initialize posthog, exiting telemetry worker: {err}");
-            return;
-        }
-    };
-    let directory_store = PostgresDirectoryStore::new(&extension_name)
-        .map(Box::new)
-        .unwrap();
-    let sender = TelemetrySender {
-        extension_name: extension_name.to_string(),
-        telemetry_store,
-        directory_store,
-        settings_store,
-    };
+
     let controller = TelemetryController {
         sender,
         directory_check_interval: Duration::from_secs(12 * 3600), // 12 hours
@@ -124,5 +124,92 @@ pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
     };
 
     pgrx::log!("starting {extension_name} telemetry event loop");
-    controller.run().unwrap()
+    controller.run().expect("error in telemetry server");
+    pgrx::log!("exiting {extension_name} telemetry event loop");
+}
+
+// The bgworker must only connect once to SPI, or it will segfault. We'll
+// use this global variable to track whether that connection has happened.
+static CONNECTED_TO_SPI: Mutex<bool> = Mutex::new(false);
+
+#[derive(Clone)]
+pub struct BgWorkerTelemetryConfig {
+    pub posthog_api_key: String,
+    pub posthog_host_url: String,
+    pub extension_name: String,
+    pub root_data_directory: PathBuf,
+}
+
+impl BgWorkerTelemetryConfig {
+    pub fn new(extension_name: &str) -> Result<Self, TelemetryError> {
+        Ok(Self {
+            posthog_api_key: option_env!("POSTHOG_API_KEY")
+                .map(|s| s.to_string())
+                .ok_or(TelemetryError::PosthogApiKey)?,
+            posthog_host_url: option_env!("POSTHOG_HOST")
+                .map(|s| s.to_string())
+                .ok_or(TelemetryError::PosthogHost)?,
+            extension_name: extension_name.to_string(),
+            root_data_directory: std::env::var("PGDATA")
+                .map(PathBuf::from)
+                .map_err(TelemetryError::NoPgData)?,
+        })
+    }
+
+    pub fn check_telemetry_setting(&self) -> Result<bool, TelemetryError> {
+        // PGRX seems to have a problem with GUC variables in background workers.
+        // This means that we can't check if telemetry has been disabled by ALTER SYSTEM.
+        // Instead, we need to connect to an existing database to check with an SPI query.
+        // Users aren't supposed to delete the template1 database, so we'll connect to that.
+        // If for some reason it doesn't exist, the telemetry worker will crash,
+        // but other extension operations will be unaffected.
+        let mut has_connected_to_spi = CONNECTED_TO_SPI
+            .lock()
+            .map_err(|err| TelemetryError::SpiConnectLock(err.to_string()))?;
+
+        if *has_connected_to_spi == false {
+            // This must be the only time in the background worker that you call
+            // `connect_worker_to_spi`. If it is called again, the worker will segfault.
+            BackgroundWorker::connect_worker_to_spi(Some("template1"), None);
+            *has_connected_to_spi = true
+        }
+
+        // If telemetry is not enabled at compile time, we will never enable.
+        if option_env!("TELEMETRY") != Some("true") {
+            return Ok(false);
+        }
+
+        // Check the GUC setting for telemetry.
+        let enabled = BackgroundWorker::transaction(|| {
+            match pgrx::Spi::get_one::<&str>(&format!(
+                "SHOW paradedb.{}_telemetry",
+                self.extension_name
+            )) {
+                Ok(Some("true")) => Ok(true),
+                Ok(Some("on")) => Ok(true),
+                Err(err) => Err(TelemetryError::EnabledCheck(err)),
+                _ => Ok(false),
+            }
+        });
+        pgrx::log!("TELEMETRY ENABLED?: {enabled:?}");
+        enabled
+    }
+}
+
+impl TelemetryConfigStore for BgWorkerTelemetryConfig {
+    fn telemetry_enabled(&self) -> Result<bool, TelemetryError> {
+        self.check_telemetry_setting()
+    }
+    fn extension_name(&self) -> Result<String, TelemetryError> {
+        Ok(self.extension_name.to_string())
+    }
+    fn telemetry_api_key(&self) -> Result<String, TelemetryError> {
+        Ok(self.posthog_api_key.to_string())
+    }
+    fn telemetry_host_url(&self) -> Result<String, TelemetryError> {
+        Ok(self.posthog_host_url.to_string())
+    }
+    fn root_data_directory(&self) -> Result<PathBuf, TelemetryError> {
+        Ok(self.root_data_directory.clone())
+    }
 }

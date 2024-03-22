@@ -1,40 +1,27 @@
-use super::{DirectoryStore, TelemetryError};
+use super::{DirectoryStore, TelemetryConfigStore, TelemetryError};
 use std::{fs, path::PathBuf};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
 pub struct PostgresDirectoryStore {
-    extension_name: String,
-    root_path: PathBuf,
-}
-
-impl PostgresDirectoryStore {
-    pub fn new(extension_name: &str) -> Result<Self, TelemetryError> {
-        let root_path = std::env::var("PGDATA")
-            .map(PathBuf::from)
-            .map_err(TelemetryError::NoPgData)?;
-        Ok(Self {
-            extension_name: extension_name.to_string(),
-            root_path,
-        })
-    }
+    pub config_store: Box<dyn TelemetryConfigStore>,
 }
 
 impl DirectoryStore for PostgresDirectoryStore {
     type Error = TelemetryError;
 
     fn root_path(&self) -> Result<PathBuf, Self::Error> {
-        Ok(self.root_path.clone())
+        Ok(self.config_store.root_data_directory()?)
     }
 
     fn extension_path(&self) -> Result<PathBuf, Self::Error> {
-        Ok(self.root_path()?.join(&self.extension_name))
+        Ok(self.root_path()?.join(&self.config_store.extension_name()?))
     }
 
     fn extension_uuid_path(&self) -> Result<PathBuf, Self::Error> {
         Ok(self
             .extension_path()?
-            .join(format!("{}_uuid", self.extension_name)))
+            .join(format!("{}_uuid", self.config_store.extension_name()?)))
     }
 
     fn extension_uuid(&self) -> Result<String, Self::Error> {

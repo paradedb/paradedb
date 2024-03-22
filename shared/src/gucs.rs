@@ -19,6 +19,10 @@ impl PostgresGlobalGucSettings {
     }
 
     pub fn init(&self, extension_name: &str) {
+        // Note that Postgres is very specific about the naming convention of variables.
+        // They must be namespaced... we use 'paradedb.<variable>' below.
+        // They cannot have more than one '.' - paradedb.pg_search.telemetry will not work.
+
         // telemetry
         GucRegistry::define_bool_guc(
             &format!("paradedb.{extension_name}_telemetry"),
@@ -43,9 +47,9 @@ impl PostgresGlobalGucSettings {
 
 impl GlobalGucSettings for PostgresGlobalGucSettings {
     fn telemetry_enabled(&self) -> bool {
-        // If TELEMETRY is false at compile time, then we will never enable.
+        // If TELEMETRY is not 'true' at compile time, then we will never enable.
         // This is useful for test builds and CI.
-        option_env!("TELEMETRY") != Some("false") && self.telemetry.get()
+        option_env!("TELEMETRY") == Some("true") && self.telemetry.get()
     }
 
     fn logs_enabled(&self) -> bool {

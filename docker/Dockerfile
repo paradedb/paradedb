@@ -56,11 +56,13 @@ FROM builder as builder-pg_search
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
+ARG TELEMETRY
 
 # Declare compile-time environment variables
 ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
-    COMMIT_SHA=${COMMIT_SHA}
+    COMMIT_SHA=${COMMIT_SHA} \
+    TELEMETRY=${TELEMETRY}
 
 COPY pg_search/ /tmp/pg_search
 COPY shared/ /tmp/shared
@@ -79,11 +81,13 @@ FROM builder as builder-pg_analytics
 ARG POSTHOG_API_KEY
 ARG POSTHOG_HOST
 ARG COMMIT_SHA
+ARG TELEMETRY
 
 # Declare compile-time environment variables
 ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     POSTHOG_HOST=${POSTHOG_HOST} \
-    COMMIT_SHA=${COMMIT_SHA}
+    COMMIT_SHA=${COMMIT_SHA} \
+    TELEMETRY=${TELEMETRY}
 
 COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared

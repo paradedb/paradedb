@@ -1,6 +1,9 @@
 use serde_json::json;
 
-use super::{event::TelemetryEvent, TelemetryConnection, TelemetryError, TelemetryStore};
+use super::{
+    event::TelemetryEvent, TelemetryConfigStore, TelemetryConnection, TelemetryError,
+    TelemetryStore,
+};
 
 struct PosthogConnection {
     api_key: String,
@@ -23,21 +26,7 @@ impl PosthogConnection {
 }
 
 pub struct PosthogStore {
-    api_key: String,
-    host: String,
-}
-
-impl PosthogStore {
-    pub fn from_env() -> Result<Self, TelemetryError> {
-        Ok(Self {
-            api_key: option_env!("POSTHOG_API_KEY")
-                .map(|s| s.to_string())
-                .ok_or(TelemetryError::PosthogApiKey)?,
-            host: option_env!("POSTHOG_HOST")
-                .map(|s| s.to_string())
-                .ok_or(TelemetryError::PosthogHost)?,
-        })
-    }
+    pub config_store: Box<dyn TelemetryConfigStore>,
 }
 
 impl TelemetryStore for PosthogStore {
@@ -46,7 +35,10 @@ impl TelemetryStore for PosthogStore {
     fn get_connection(
         &self,
     ) -> Result<Box<dyn TelemetryConnection<Error = Self::Error>>, Self::Error> {
-        Ok(Box::new(PosthogConnection::new(&self.api_key, &self.host)))
+        Ok(Box::new(PosthogConnection::new(
+            &self.config_store.telemetry_api_key()?,
+            &self.config_store.telemetry_host_url()?,
+        )))
     }
 }
 

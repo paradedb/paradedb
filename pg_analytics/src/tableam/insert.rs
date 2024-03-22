@@ -1,14 +1,17 @@
 use async_std::task;
 use core::ffi::c_int;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use deltalake::datafusion::common::arrow::array::ArrayRef;
+use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
+use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use pgrx::*;
 use std::cell::RefCell;
+use std::sync::Arc;
 
 use crate::datafusion::commit::commit_writer;
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::datafusion::writer::Writer;
 use crate::errors::{NotSupported, ParadeError};
+use crate::tableam::{TableMetadata, FIRST_BLOCK_NUMBER};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::PgTypeMod;
 
@@ -146,6 +149,19 @@ async unsafe fn insert_tuples(
             })
         })?;
 
+    column_values.push(Arc::new(Int64Array::from(
+        (0..nslots)
+            .map(|_| next_row_number(rel))
+            .collect::<Vec<i64>>(),
+    )));
+
+    let pg_relation = unsafe { PgRelation::from_pg(rel) };
+    let schema_name = pg_relation.namespace();
+    let table_path = pg_relation.table_path()?;
+    let arrow_schema = Arc::new(ArrowSchema::try_merge(vec![
+        pg_relation.arrow_schema()?,
+        ArrowSchema::new(vec![Field::new(RESERVED_TID_FIELD, DataType::Int64, false)]),
+    ])?);
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
 
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
@@ -156,4 +172,28 @@ async unsafe fn insert_tuples(
     });
 
     Ok(())
+}
+
+#[inline]
+fn next_row_number(rel: pg_sys::Relation) -> i64 {
+    unsafe {
+        let buffer = pg_sys::ReadBufferExtended(
+            rel,
+            pg_sys::ForkNumber_MAIN_FORKNUM,
+            FIRST_BLOCK_NUMBER,
+            pg_sys::ReadBufferMode_RBM_NORMAL,
+            std::ptr::null_mut(),
+        );
+
+        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+        let page = pg_sys::BufferGetPage(buffer);
+        let metadata = pg_sys::PageGetSpecialPointer(page) as *mut TableMetadata;
+        let next_row_number = (*metadata).max_row_number + 1;
+        (*metadata).max_row_number = next_row_number;
+
+        pg_sys::MarkBufferDirty(buffer);
+        pg_sys::UnlockReleaseBuffer(buffer);
+
+        next_row_number
+    }
 }

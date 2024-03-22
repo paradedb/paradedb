@@ -1,4 +1,4 @@
-use deltalake::datafusion::arrow::datatypes::{Field, Schema as ArrowSchema};
+use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::logical_expr::Expr;
@@ -25,15 +25,17 @@ use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
 
+pub static RESERVED_TID_FIELD: &str = "parade_tid";
+
 const BYTES_IN_MB: i64 = 1_048_576;
 
 pub trait DatafusionTable {
-    fn arrow_schema(&self) -> Result<Arc<ArrowSchema>, ParadeError>;
+    fn arrow_schema(&self) -> Result<ArrowSchema, ParadeError>;
     fn table_path(&self) -> Result<PathBuf, ParadeError>;
 }
 
 impl DatafusionTable for PgRelation {
-    fn arrow_schema(&self) -> Result<Arc<ArrowSchema>, ParadeError> {
+    fn arrow_schema(&self) -> Result<ArrowSchema, ParadeError> {
         let tupdesc = self.tuple_desc();
         let mut fields = Vec::with_capacity(tupdesc.len());
 
@@ -43,6 +45,11 @@ impl DatafusionTable for PgRelation {
             }
 
             let attname = attribute.name();
+
+            if attname == RESERVED_TID_FIELD {
+                return Err(ParadeError::ReservedFieldName);
+            }
+
             let attribute_type_oid = attribute.type_oid();
             let nullability = !attribute.attnotnull;
 
@@ -72,7 +79,7 @@ impl DatafusionTable for PgRelation {
             fields.push(field);
         }
 
-        Ok(Arc::new(ArrowSchema::new(fields)))
+        Ok(ArrowSchema::new(fields))
     }
 
     fn table_path(&self) -> Result<PathBuf, ParadeError> {

@@ -10,12 +10,16 @@ mod writer;
 #[cfg(test)]
 pub mod fixtures;
 
-use crate::globals::{PARADE_LOGS_GLOBAL, WRITER_GLOBAL};
+use crate::globals::WRITER_GLOBAL;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
-use shared::telemetry;
+use shared::gucs::PostgresGlobalGucSettings;
+use shared::telemetry::setup_telemetry_background_worker;
 use std::process;
 use std::time::Duration;
+
+// A static variable is required to host grand unified configuration settings.
+pub static GUCS: PostgresGlobalGucSettings = PostgresGlobalGucSettings::new();
 
 pgrx::pg_module_magic!();
 
@@ -27,8 +31,7 @@ extension_sql_file!("../sql/_bootstrap.sql");
 #[pg_guard]
 pub unsafe extern "C" fn _PG_init() {
     postgres::options::init();
-    telemetry::posthog::init(shared::constants::PG_BM25_NAME);
-    PARADE_LOGS_GLOBAL.init();
+    GUCS.init("pg_search");
 
     // Set up the writer bgworker shared state.
     pg_shmem_init!(WRITER_GLOBAL);
@@ -36,6 +39,7 @@ pub unsafe extern "C" fn _PG_init() {
     // We call this in a helper function to the bgworker initialization
     // can be used in test suites.
     setup_background_workers();
+    setup_telemetry_background_worker(shared::telemetry::ParadeExtension::PgSearch);
 }
 
 #[pg_guard]

@@ -128,6 +128,9 @@ function run_tests() {
   echo "Reloading PostgreSQL configuration..."
   "$PG_BIN_PATH/pg_ctl" restart
 
+  # Don't send telemetry when running tests
+  export TELEMETRY=false
+
   # Configure pgrx to use system PostgreSQL
   echo "Initializing pgrx environment..."
   cargo pgrx init "--pg$PG_VERSION=$PG_BIN_PATH/pg_config"
@@ -135,8 +138,6 @@ function run_tests() {
   # This block runs a test whether our extension can upgrade to the current version, and then runs our integration tests
   if [ -n "$FLAG_UPGRADE_VER" ]; then
     echo "Running extension upgrade test..."
-    # Don't send telemetry when running tests
-    export PARADEDB_TELEMETRY=false
 
     # First, download & install the first release at which we started supporting upgrades for Postgres 16 (v0.5.2)
     BASE_RELEASE="0.5.2"

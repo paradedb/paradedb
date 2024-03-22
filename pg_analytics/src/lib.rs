@@ -25,7 +25,7 @@ pub extern "C" fn _PG_init() {
     GUCS.init("pg_analytics");
 
     #[allow(unknown_lints)]
-    #[allow(static_mut_ref)]
+    #[allow(static_mut_refs)]
     unsafe {
         register_hook(&mut PARADE_HOOK)
     };

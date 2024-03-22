@@ -2,6 +2,7 @@ use async_std::task;
 use core::ffi::c_char;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::CatalogProvider;
+use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
 use shared::postgres::tid::FIRST_ROW_NUMBER;
@@ -11,25 +12,34 @@ use std::sync::Arc;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::errors::{NotSupported, ParadeError};
 
-const FIRST_BLOCK_NUMBER: u32 = 0;
+pub static FIRST_BLOCK_NUMBER: u32 = 0;
 
 pub struct TableMetadata {
-    max_row_number: u64,
+    pub max_row_number: i64,
 }
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
 pub extern "C" fn deltalake_relation_set_new_filenode(
     rel: pg_sys::Relation,
-    _newrnode: *const pg_sys::RelFileNode,
+    newrnode: *const pg_sys::RelFileNode,
     persistence: c_char,
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    task::block_on(create_file_node(rel, persistence)).unwrap_or_else(|err| {
+    unsafe {
+        let srel = pg_sys::RelationCreateStorage(*newrnode, persistence);
+        pg_sys::smgrclose(srel);
+    }
+
+    init_metadata(rel).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
+
+    task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -38,18 +48,30 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
 #[cfg(feature = "pg16")]
 pub extern "C" fn deltalake_relation_set_new_filelocator(
     rel: pg_sys::Relation,
-    _newrlocator: *const pg_sys::RelFileLocator,
+    newrlocator: *const pg_sys::RelFileLocator,
     persistence: c_char,
     _freezeXid: *mut pg_sys::TransactionId,
     _minmulti: *mut pg_sys::MultiXactId,
 ) {
-    task::block_on(create_file_node(rel, persistence)).unwrap_or_else(|err| {
+    unsafe {
+        let srel = pg_sys::RelationCreateStorage(*newrlocator, persistence, true);
+        pg_sys::smgrclose(srel);
+    }
+
+    init_metadata(rel).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
+
+    task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
 
 #[inline]
-async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), ParadeError> {
+async fn create_deltalake_file_node(
+    rel: pg_sys::Relation,
+    persistence: c_char,
+) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 
     match persistence as u8 {
@@ -58,7 +80,6 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
             let table_name = pg_relation.name().to_string();
             let schema_name = pg_relation.namespace().to_string();
             let table_path = pg_relation.table_path()?;
-            let arrow_schema = pg_relation.arrow_schema()?;
             let catalog_name = Session::catalog_name()?;
 
             Session::with_catalog(|catalog| {
@@ -94,9 +115,16 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
             let schema_name = pg_relation.namespace().to_string();
             Session::with_tables(&schema_name, |mut tables| {
                 Box::pin(async move {
-                    tables
-                        .create(&table_path, pg_relation.arrow_schema()?)
-                        .await?;
+                    let arrow_schema = Arc::new(ArrowSchema::try_merge(vec![
+                        pg_relation.arrow_schema()?,
+                        ArrowSchema::new(vec![Field::new(
+                            RESERVED_TID_FIELD,
+                            DataType::Int64,
+                            false,
+                        )]),
+                    ])?);
+
+                    tables.create(&table_path, arrow_schema.clone()).await?;
 
                     // Write an empty batch to the table so that a Parquet file is written
                     let batch = RecordBatch::new_empty(arrow_schema.clone());
@@ -111,27 +139,29 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
 }
 
 #[inline]
-unsafe fn init_metadata(rel: pg_sys::Relation) -> Result<(), ParadeError> {
-    let buffer = pg_sys::ReadBufferExtended(
-        rel,
-        pg_sys::ForkNumber_MAIN_FORKNUM,
-        pg_sys::InvalidBlockNumber,
-        pg_sys::ReadBufferMode_RBM_NORMAL,
-        std::ptr::null_mut(),
-    );
+fn init_metadata(rel: pg_sys::Relation) -> Result<(), ParadeError> {
+    unsafe {
+        let buffer = pg_sys::ReadBufferExtended(
+            rel,
+            pg_sys::ForkNumber_MAIN_FORKNUM,
+            pg_sys::InvalidBlockNumber,
+            pg_sys::ReadBufferMode_RBM_NORMAL,
+            std::ptr::null_mut(),
+        );
 
-    assert!(pg_sys::BufferGetBlockNumber(buffer) == FIRST_BLOCK_NUMBER);
+        assert!(pg_sys::BufferGetBlockNumber(buffer) == FIRST_BLOCK_NUMBER);
 
-    pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
-    let page = pg_sys::BufferGetPage(buffer);
-    pg_sys::PageInit(page, pg_sys::BLCKSZ as usize, size_of::<TableMetadata>());
+        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+        let page = pg_sys::BufferGetPage(buffer);
+        pg_sys::PageInit(page, pg_sys::BLCKSZ as usize, size_of::<TableMetadata>());
 
-    let page_header = page as pg_sys::PageHeader;
-    let metadata = pg_sys::PageGetSpecialPointer(page) as *mut TableMetadata;
-    (*metadata).max_row_number = FIRST_ROW_NUMBER;
+        let page_header = page as pg_sys::PageHeader;
+        let metadata = pg_sys::PageGetSpecialPointer(page) as *mut TableMetadata;
+        (*metadata).max_row_number = FIRST_ROW_NUMBER;
 
-    pg_sys::MarkBufferDirty(buffer);
-    pg_sys::UnlockReleaseBuffer(buffer);
+        pg_sys::MarkBufferDirty(buffer);
+        pg_sys::UnlockReleaseBuffer(buffer);
+    }
 
     Ok(())
 }

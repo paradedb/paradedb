@@ -11,11 +11,11 @@ impl DirectoryStore for PostgresDirectoryStore {
     type Error = TelemetryError;
 
     fn root_path(&self) -> Result<PathBuf, Self::Error> {
-        Ok(self.config_store.root_data_directory()?)
+        self.config_store.root_data_directory()
     }
 
     fn extension_path(&self) -> Result<PathBuf, Self::Error> {
-        Ok(self.root_path()?.join(&self.config_store.extension_name()?))
+        Ok(self.root_path()?.join(self.config_store.extension_name()?))
     }
 
     fn extension_uuid_path(&self) -> Result<PathBuf, Self::Error> {

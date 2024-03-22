@@ -167,7 +167,7 @@ impl BgWorkerTelemetryConfig {
             .lock()
             .map_err(|err| TelemetryError::SpiConnectLock(err.to_string()))?;
 
-        if *has_connected_to_spi == false {
+        if !(*has_connected_to_spi) {
             // This must be the only time in the background worker that you call
             // `connect_worker_to_spi`. If it is called again, the worker will segfault.
             BackgroundWorker::connect_worker_to_spi(Some("template1"), None);

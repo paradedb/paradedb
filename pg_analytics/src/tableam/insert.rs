@@ -82,26 +82,26 @@ async fn insert_tuples(
                 .map(move |row_idx| unsafe {
                     let tuple_table_slot = *slots.add(row_idx);
 
-                    let datum = if (*tuple_table_slot).tts_ops == &pg_sys::TTSOpsBufferHeapTuple {
+                    let datum_opt = if (*tuple_table_slot).tts_ops == &pg_sys::TTSOpsBufferHeapTuple
+                    {
                         let bslot = tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
                         let tuple = (*bslot).base.tuple;
-                        htup::heap_getattr_raw(
-                            tuple,
-                            std::num::NonZeroUsize::new(col_idx + 1)
-                                .ok_or(NotFound::Value("non-zero usize".to_string()))?,
-                            (*tuple_table_slot).tts_tupleDescriptor,
-                        )
-                        .ok_or(NotFound::Value("Datum".to_string()))?
+                        std::num::NonZeroUsize::new(col_idx + 1)
+                            .map(|attr_num| {
+                                htup::heap_getattr_raw(
+                                    tuple,
+                                    attr_num,
+                                    (*tuple_table_slot).tts_tupleDescriptor,
+                                )
+                            })
+                            .flatten()
                     } else {
-                        *(*tuple_table_slot).tts_values.add(col_idx)
+                        Some(*(*tuple_table_slot).tts_values.add(col_idx))
                     };
 
                     let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
-
-                    Ok((datum, is_null))
+                    (!is_null).then_some(datum_opt).flatten()
                 })
-                .collect::<Result<Vec<(pg_sys::Datum, bool)>, ParadeError>>()?
-                .into_iter()
                 .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
         );
     }

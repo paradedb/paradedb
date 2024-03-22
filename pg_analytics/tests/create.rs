@@ -48,7 +48,7 @@ fn create_parquet_from_heap(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let mut rows: Vec<(i32,)> = "SELECT id FROM t_heap_parquet_copy".fetch(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT id FROM t_heap_parquet_copy".fetch(&mut conn);
     let mut ids: Vec<i32> = rows.into_iter().map(|r| r.0).collect();
     ids.sort();
     assert_eq!(ids, [1, 2, 3]);

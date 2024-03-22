@@ -86,14 +86,13 @@ async fn insert_tuples(
                     {
                         let bslot = tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
                         let tuple = (*bslot).base.tuple;
-                        std::num::NonZeroUsize::new(col_idx + 1)
-                            .and_then(|attr_num| {
-                                htup::heap_getattr_raw(
-                                    tuple,
-                                    attr_num,
-                                    (*tuple_table_slot).tts_tupleDescriptor,
-                                )
-                            })
+                        std::num::NonZeroUsize::new(col_idx + 1).and_then(|attr_num| {
+                            htup::heap_getattr_raw(
+                                tuple,
+                                attr_num,
+                                (*tuple_table_slot).tts_tupleDescriptor,
+                            )
+                        })
                     } else {
                         Some(*(*tuple_table_slot).tts_values.add(col_idx))
                     };

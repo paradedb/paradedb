@@ -58,6 +58,12 @@ cd "$BASEDIR/"
 
 # Cleanup function to reset the environment
 cleanup() {
+  # If the container successfully started, print the logs. This is
+  # helpful to debug scenarios where the container starts but the
+  # Postgres server crashes.
+  echo ""
+  echo "Printing Docker logs..."
+  docker logs paradedb
   echo ""
   echo "Cleaning up benchmark environment..."
   if [ "$FLAG_TAG" == "pgrx" ]; then

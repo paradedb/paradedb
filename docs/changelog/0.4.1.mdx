@@ -4,7 +4,9 @@ title: 0.4.1
 
 ## pg_search
 
-### Brand New API Interface
+### Features
+
+#### Brand New API Interface
 
 `0.4.1` introduces a major API overhaul of `pg_search`. All queries have been rewritten
 to use a consistent dynamic function interface. For instance, the old way to create a BM25
@@ -43,26 +45,28 @@ SELECT * FROM <index_name>.search('<query>');
 Not only is this new API interface more pleasant to look at, it helps unlock several new
 features and bug fixes (continue reading below).
 
-### Searching Over JOINed Tables
+#### Searching Over JOINed Tables
 
 The new `create_bm25` function requires a `key_field` parameter, which is a unique integer column.
 This is necessary for unlocking search over JOINed tables. Previously, `pg_search` relied on the
 Postgres-internal `ctid` column, which doesn't exist in a JOINed table.
 
-### Multiple Concurrent Indexes
+#### Multiple Concurrent Indexes
 
 The new interface allows multiple indexes to exist over the same table. Previously, only one
 `BM25` index was allowed per table. This prevented use cases where users
 wanted to create multiple different tokenizers over the same column.
 
-### Sequential Scan Fix
+#### Sequential Scan Fix
 
 The sequential scan code path was completely broken, which led to queries
 unexpectedly failing. This issue has been addressed.
 
 ## pg_sparse
 
-`pg_sparse` has been introduced to the ParadeDB Docker Image and to ParadeDB Cloud.
+### Features
+
+- `pg_sparse` has been introduced to the ParadeDB Docker Image and to ParadeDB Cloud.
 
 ## Full Changelog
 

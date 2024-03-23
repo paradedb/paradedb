@@ -1,4 +1,4 @@
-\echo Use "ALTER EXTENSION pg_bm25 UPDATE TO '0.4.1'" to load this file. \quit
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.4.1'" to load this file. \quit
 
 CREATE OR REPLACE PROCEDURE paradedb.create_bm25_test_table(table_name VARCHAR DEFAULT 'bm25_test_table', schema_name VARCHAR DEFAULT 'paradedb')
 LANGUAGE plpgsql

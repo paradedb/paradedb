@@ -2,11 +2,11 @@
 title: 0.4.1
 ---
 
-## pg_bm25
+## pg_search
 
 ### Brand New API Interface
 
-`0.4.1` introduces a major API overhaul of `pg_bm25`. All queries have been rewritten
+`0.4.1` introduces a major API overhaul of `pg_search`. All queries have been rewritten
 to use a consistent dynamic function interface. For instance, the old way to create a BM25
 index was:
 
@@ -46,7 +46,7 @@ features and bug fixes (continue reading below).
 ### Searching Over JOINed Tables
 
 The new `create_bm25` function requires a `key_field` parameter, which is a unique integer column.
-This is necessary for unlocking search over JOINed tables. Previously, `pg_bm25` relied on the
+This is necessary for unlocking search over JOINed tables. Previously, `pg_search` relied on the
 Postgres-internal `ctid` column, which doesn't exist in a JOINed table.
 
 ### Multiple Concurrent Indexes

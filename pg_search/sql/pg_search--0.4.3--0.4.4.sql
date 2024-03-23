@@ -1,4 +1,4 @@
-\echo Use "ALTER EXTENSION pg_bm25 UPDATE TO '0.4.4'" to load this file. \quit
+\echo Use "ALTER EXTENSION pg_search UPDATE TO '0.4.4'" to load this file. \quit
 
 -- Use this create_bm25 function to dynamically create index and query functions.
 -- This call will create a new function called 'dynamicbm25', which can be used to query.

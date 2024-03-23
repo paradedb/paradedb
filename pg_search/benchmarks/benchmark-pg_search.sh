@@ -45,6 +45,14 @@ source "helpers/get_data.sh"
 
 # Cleanup function to stop and remove the Docker container
 cleanup() {
+  # If the container successfully started, print the logs. This is
+  # helpful to debug scenarios where the container starts but the
+  # Postgres server crashes.
+  if docker ps -q --filter "name=paradedb" | grep -q .; then
+    echo ""
+    echo "Printing Docker logs..."
+    docker logs paradedb
+  fi
   if [ -s query_error.log ]; then
     echo "!!! Benchmark cleanup triggered !!!"
     cat query_error.log

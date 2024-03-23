@@ -129,13 +129,19 @@ async unsafe fn deltalake_scan_getnextslot_impl(
         .as_ref()
         .ok_or(NotFound::Value(type_name::<RecordBatch>().to_string()))?;
 
+    info!("got batch {:?}", current_batch);
+
     for col_index in 0..current_batch.num_columns() {
         let column = current_batch.column(col_index);
 
         unsafe {
             let tts_value = (*slot).tts_values.add(col_index);
+            let tts_isnull = (*slot).tts_isnull.add(col_index);
+
             if let Some(datum) = column.get_datum((*dscan).curr_batch_idx)? {
                 *tts_value = datum;
+            } else {
+                *tts_isnull = true;
             }
         }
     }

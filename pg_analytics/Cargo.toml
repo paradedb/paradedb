@@ -34,6 +34,8 @@ datafusion-federation = { git = "https://github.com/paradedb/datafusion-federati
 datafusion-federation-sql = { git = "https://github.com/paradedb/datafusion-federation.git", rev = "2d819a3" }
 futures = "0.3.30"
 memoffset = "0.9.0"
+log = "0.4.21"
+simple-logging = "2.0.2"
 
 [dev-dependencies]
 anyhow = "1.0.79"

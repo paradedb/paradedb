@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use async_std::task;
 use datafusion_federation_sql::SQLExecutor;
 use deltalake::datafusion::arrow::datatypes::SchemaRef;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
@@ -7,13 +8,13 @@ use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::physical_plan::{
     stream::RecordBatchStreamAdapter, SendableRecordBatchStream,
 };
-use memoffset::offset_of;
 use pgrx::*;
 
 use crate::datafusion::query::QueryString;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
+use crate::federation::handler::set_active_query;
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::PgTypeMod;
 
@@ -41,17 +42,8 @@ impl SQLExecutor for ColumnExecutor {
         sql: &str,
         schema: SchemaRef,
     ) -> Result<SendableRecordBatchStream, DataFusionError> {
-        let logical_plan = LogicalPlan::try_from(QueryString(sql))?;
-        let batch_stream = Session::with_session_context(|context| {
-            Box::pin(async move {
-                let dataframe = context.execute_logical_plan(logical_plan.clone()).await?;
-                Ok(dataframe.execute_stream().await?)
-            })
-        })?;
-        Ok(Box::pin(RecordBatchStreamAdapter::new(
-            schema,
-            batch_stream,
-        )))
+        let ret = task::block_on(set_active_query(sql, schema, false));
+        ret
     }
 
     async fn table_names(&self) -> Result<Vec<String>> {
@@ -99,63 +91,8 @@ impl SQLExecutor for RowExecutor {
         sql: &str,
         schema: SchemaRef,
     ) -> Result<SendableRecordBatchStream, DataFusionError> {
-        let mut col_arrays = vec![];
-        Spi::connect(|client| {
-            let mut cursor = client.open_cursor(sql, None);
-            let schema_tuple_table = cursor.fetch(0)?;
-
-            let num_cols = schema_tuple_table.columns()?;
-            let mut col_datums: Vec<Vec<Option<pg_sys::Datum>>> =
-                (0..num_cols).map(|_| vec![]).collect();
-
-            // We can only get the typmod from the raw tuptable
-            let raw_schema_tuple_table = unsafe { pg_sys::SPI_tuptable };
-            let tuple_attrs = unsafe { (*(*raw_schema_tuple_table).tupdesc).attrs.as_mut_ptr() };
-
-            // Fill all columns with the appropriate datums
-            let mut tuple_table;
-            // Calculate MAX_TUPLES_PER_PAGE and fetch that many tuples at a time
-            let max_tuples = unsafe {
-                (pg_sys::BLCKSZ as usize - offset_of!(pg_sys::PageHeaderData, pd_linp))
-                    / (pg_sys::MAXALIGN(offset_of!(pg_sys::HeapTupleHeaderData, t_bits))
-                        + std::mem::size_of::<pg_sys::ItemIdData>())
-            };
-            loop {
-                tuple_table = cursor.fetch(max_tuples as i64)?;
-                tuple_table = tuple_table.first();
-                if tuple_table.is_empty() {
-                    break;
-                }
-                while tuple_table.get_heap_tuple()?.is_some() {
-                    for (col_idx, col) in col_datums.iter_mut().enumerate().take(num_cols) {
-                        col.push(tuple_table.get_datum_by_ordinal(col_idx + 1)?);
-                    }
-
-                    if tuple_table.next().is_none() {
-                        break;
-                    }
-                }
-            }
-
-            // Convert datum columns to arrow arrays
-            for (col_idx, col_datum_vec) in col_datums.iter().enumerate().take(num_cols) {
-                let oid = tuple_table.column_type_oid(col_idx + 1)?;
-                let typmod = unsafe { (*tuple_attrs.add(col_idx)).atttypmod };
-
-                col_arrays.push(
-                    col_datum_vec
-                        .clone()
-                        .into_iter()
-                        .into_arrow_array(oid, PgTypeMod(typmod))?,
-                );
-            }
-
-            Ok::<(), ParadeError>(())
-        })?;
-
-        let record_batch = RecordBatch::try_new(schema.clone(), col_arrays)?;
-        let stream = futures::stream::once(async move { Ok(record_batch) });
-        Ok(Box::pin(RecordBatchStreamAdapter::new(schema, stream)))
+        let ret = task::block_on(set_active_query(sql, schema, true));
+        ret
     }
 
     async fn table_names(&self) -> Result<Vec<String>> {

@@ -89,7 +89,9 @@ pub fn get_datafusion_batches(
     let batches = Session::with_session_context(|context| {
         Box::pin(async move {
             let dataframe = context.execute_logical_plan(logical_plan).await?;
-            Ok(dataframe.collect().await?)
+            let now = std::time::Instant::now();
+            let res = dataframe.collect().await?;
+            Ok(res)
         })
     })?;
 

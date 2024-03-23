@@ -68,9 +68,9 @@ async unsafe fn index_fetch_tuple_impl(
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
 ) -> Result<bool, ParadeError> {
+    info!("fetch tuple");
     let dscan = scan as *mut IndexScanDesc;
     if (*dscan).completed {
-        info!("completed");
         return Ok(false);
     }
 
@@ -118,16 +118,18 @@ async unsafe fn index_fetch_tuple_impl(
 
         unsafe {
             let tts_value = (*slot).tts_values.add(col_index);
+            let tts_isnull = (*slot).tts_isnull.add(col_index);
+
             if let Some(datum) = column.get_datum((*dscan).curr_batch_idx)? {
                 *tts_value = datum;
+            } else {
+                *tts_isnull = true;
             }
         }
     }
 
     (*slot).tts_tid = *tid;
     pg_sys::ExecStoreVirtualTuple(slot);
-
-    info!("returning");
 
     (*dscan).curr_batch_idx += 1;
 

@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Official ClickBench Benchmark
-        working-directory: pg_analytics/benchmarks/clickbench/
+        working-directory: pg_analytics/benchmarks/
         run: ./benchmark.sh -t local
 
       - name: Notify Slack on Failure

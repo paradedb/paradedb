@@ -129,8 +129,6 @@ async unsafe fn deltalake_scan_getnextslot_impl(
         .as_ref()
         .ok_or(NotFound::Value(type_name::<RecordBatch>().to_string()))?;
 
-    info!("got batch {:?}", current_batch);
-
     for col_index in 0..current_batch.num_columns() {
         let column = current_batch.column(col_index);
 
@@ -261,6 +259,7 @@ pub extern "C" fn deltalake_tuple_tid_valid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) -> bool {
+    info!("is valid");
     false
 }
 
@@ -269,6 +268,7 @@ pub extern "C" fn deltalake_tuple_get_latest_tid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) {
+    info!("latest tid");
 }
 
 #[pg_guard]

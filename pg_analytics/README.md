@@ -192,4 +192,4 @@ rustup override unset
 
 ### Run Benchmarks
 
-To run benchmarks locally, enter the `pg_analytics/` directory and run `cargo clickbench`. This runs a minified version of the ClickBench benchmark suite on `pg_analytics`.
+To run benchmarks locally, enter the `pg_analytics/benchmarks/` directory and run `./benchmark.sh -t <flag>`. The `-t` flag is the version to benchmark, either `x.y.z` or `latest` to pull a version from DockerHub, or `local` to build the Docker image locally.

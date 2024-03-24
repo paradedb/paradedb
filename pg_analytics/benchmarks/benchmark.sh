@@ -111,8 +111,8 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg POSTGRESQL_PASSWORD=mypassword \
     --build-arg POSTGRESQL_DATABASE=mydatabase \
     --build-arg POSTGRESQL_POSTGRES_PASSWORD=postgres \
-    --file "../../../docker/Dockerfile" \
-    "../../../"
+    --file "../../docker/Dockerfile" \
+    "../../"
   echo ""
 fi
 

@@ -56,7 +56,6 @@ cleanup() {
     docker kill paradedb > /dev/null 2>&1
   fi
   docker rm paradedb > /dev/null 2>&1
-  fi
 
   # Delete the log.txt file, if it exists
   if [ -f "log.txt" ]; then

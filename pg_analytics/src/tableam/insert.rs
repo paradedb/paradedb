@@ -5,6 +5,7 @@ use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use pgrx::*;
 use std::cell::RefCell;
+use shared::postgres::tid::RowNumber;
 use std::sync::Arc;
 
 use crate::datafusion::commit::commit_writer;
@@ -149,11 +150,19 @@ async unsafe fn insert_tuples(
             })
         })?;
 
-    column_values.push(Arc::new(Int64Array::from(
-        (0..nslots)
-            .map(|_| next_row_number(rel))
-            .collect::<Vec<i64>>(),
-    )));
+    let mut row_numbers: Vec<i64> = vec![];
+
+    for row_idx in 0..nslots {
+        unsafe {
+            let tuple_table_slot = *slots.add(row_idx);
+            let row_number = next_row_number(rel);
+            (*tuple_table_slot).tts_tid =
+                pg_sys::ItemPointerData::try_from(RowNumber(row_number)).unwrap();
+            row_numbers.push(row_number);
+        }
+    }
+
+    column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
 
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();

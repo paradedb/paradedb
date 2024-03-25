@@ -61,6 +61,5 @@ pub extern "C" fn deltalake_compute_xid_horizon_for_tuples(
     _items: *mut pg_sys::ItemPointerData,
     _nitems: c_int,
 ) -> pg_sys::TransactionId {
-    info!("horizon");
     0
 }

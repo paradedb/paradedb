@@ -15,7 +15,6 @@ pub extern "C" fn deltalake_relation_size(
     _rel: pg_sys::Relation,
     _forkNumber: pg_sys::ForkNumber,
 ) -> pg_sys::uint64 {
-    info!("relation size");
     0
 }
 
@@ -27,7 +26,6 @@ pub extern "C" fn deltalake_relation_needs_toast_table(_rel: pg_sys::Relation) -
 #[pg_guard]
 #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
 pub extern "C" fn deltalake_relation_toast_am(_rel: pg_sys::Relation) -> pg_sys::Oid {
-    info!("toast am");
     pg_sys::Oid::INVALID
 }
 
@@ -51,7 +49,6 @@ pub extern "C" fn deltalake_relation_estimate_size(
     _tuples: *mut f64,
     _allvisfrac: *mut f64,
 ) {
-    info!("size st");
 }
 
 #[pg_guard]

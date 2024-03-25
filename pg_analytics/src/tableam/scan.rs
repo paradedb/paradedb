@@ -8,7 +8,7 @@ use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;
 use deltalake::arrow::datatypes::Int64Type;
-use deltalake::datafusion::common::arrow::array::{AsArray, RecordBatch};
+use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBatch};
 use pgrx::*;
 use shared::postgres::tid::{RowNumber, TIDError};
 use std::any::type_name;
@@ -25,6 +25,7 @@ use crate::types::datum::GetDatum;
 struct DeltalakeScanDesc {
     rs_base: pg_sys::TableScanDescData,
     curr_batch: Option<Arc<Mutex<RecordBatch>>>,
+    tids: Option<Arc<Mutex<Int64Array>>>,
     curr_batch_idx: usize,
 }
 
@@ -49,6 +50,7 @@ fn scan_begin(
 
             scan.curr_batch = None;
             scan.curr_batch_idx = 0;
+            scan.tids = None;
 
             Ok(scan.into_pg() as pg_sys::TableScanDesc)
         })
@@ -86,16 +88,29 @@ pub async unsafe fn scan_getnextslot(
     {
         (*dscan).curr_batch_idx = 0;
 
-        (*dscan).curr_batch = match Stream::get_next_batch(schema_name, &table_path).await? {
-            Some(batch) => Some(Arc::new(Mutex::new(batch))),
+        let mut next_batch = match Stream::get_next_batch(schema_name, &table_path).await? {
+            Some(batch) => batch,
             None => return Ok(false),
         };
+
+        let tids = next_batch.remove_tid_column()?;
+        let tid_array = tids.as_primitive::<Int64Type>();
+
+        (*dscan).curr_batch = Some(Arc::new(Mutex::new(next_batch)));
+        (*dscan).tids = Some(Arc::new(Mutex::new(tid_array.clone())));
     }
 
     let mut current_batch = (*dscan)
         .curr_batch
         .as_mut()
         .ok_or(TableScanError::RecordBatchNotFound)?
+        .lock()
+        .await;
+
+    let tids = (*dscan)
+        .tids
+        .as_mut()
+        .ok_or(TableScanError::TIDNotFound)?
         .lock()
         .await;
 
@@ -114,8 +129,7 @@ pub async unsafe fn scan_getnextslot(
         }
     }
 
-    let tids = current_batch.remove_tid_column()?;
-    let row_number = tids.as_primitive::<Int64Type>().value((*dscan).curr_batch_idx);
+    let row_number = tids.value((*dscan).curr_batch_idx);
     let tts_tid = pg_sys::ItemPointerData::try_from(RowNumber(row_number))?;
 
     (*slot).tts_tid = tts_tid;
@@ -336,5 +350,8 @@ pub enum TableScanError {
     SlotOpsNotFound,
 
     #[error("Unexpected error: No RecordBatch found in table scan")]
-    RecordBatchNotFound
+    RecordBatchNotFound,
+
+    #[error("Unexpected error: No TID found in table scan")]
+    TIDNotFound,
 }

@@ -37,7 +37,6 @@ pub extern "C" fn deltalake_tuple_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
-    info!("insert");
     // unsafe {
     //     let mut ctid = pg_sys::ItemPointerData::default();
     //     pgrx::u64_to_item_pointer(1, &mut ctid);

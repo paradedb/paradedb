@@ -9,6 +9,8 @@ use pgrx::*;
 use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 
+use shared::postgres::tid::RowNumber;
+
 // For now just pass the count on the build callback state
 struct BuildState {
     count: usize,
@@ -216,8 +218,6 @@ unsafe fn build_callback_internal(
                 .unwrap_or_else(|err| {
                     panic!("error creating index entries for index '{index_name}': {err:?}",)
                 });
-
-            info!("inserting {:?}", search_document);
 
             let writer_client = WriterGlobal::client();
 

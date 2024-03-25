@@ -26,49 +26,8 @@ struct IndexScanDesc {
     rs_base: pg_sys::IndexFetchTableData,
 }
 
-#[pg_guard]
-pub extern "C" fn deltalake_index_fetch_begin(
-    rel: pg_sys::Relation,
-) -> *mut pg_sys::IndexFetchTableData {
-    unsafe {
-        PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
-            let mut scan = PgBox::<IndexScanDesc>::alloc0();
-            scan.rs_base.rel = rel;
-            scan.into_pg() as *mut pg_sys::IndexFetchTableData
-        })
-    }
-}
-
-#[pg_guard]
-pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {}
-
-#[pg_guard]
-pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {}
-
-#[pg_guard]
-pub extern "C" fn deltalake_index_fetch_tuple(
-    scan: *mut pg_sys::IndexFetchTableData,
-    tid: pg_sys::ItemPointer,
-    _snapshot: pg_sys::Snapshot,
-    slot: *mut pg_sys::TupleTableSlot,
-    call_again: *mut bool,
-    all_dead: *mut bool,
-) -> bool {
-    unsafe {
-        *call_again = false;
-
-        if !all_dead.is_null() {
-            *all_dead = false;
-        }
-
-        task::block_on(index_fetch_tuple_impl(scan, slot, tid)).unwrap_or_else(|err| {
-            panic!("{}", err);
-        })
-    }
-}
-
 #[inline]
-async unsafe fn index_fetch_tuple_impl(
+async unsafe fn index_fetch_tuple(
     scan: *mut pg_sys::IndexFetchTableData,
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
@@ -84,7 +43,7 @@ async unsafe fn index_fetch_tuple_impl(
         clear(slot);
     }
 
-    let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rel) };
+    let pg_relation = PgRelation::from_pg((*dscan).rs_base.rel);
     let oid = pg_relation.oid();
     let table_name = pg_relation.name().to_string();
     let schema_name = pg_relation.namespace().to_string();
@@ -114,16 +73,13 @@ async unsafe fn index_fetch_tuple_impl(
 
             for col_index in 0..batch.num_columns() {
                 let column = batch.column(col_index);
+                let tts_value = (*slot).tts_values.add(col_index);
+                let tts_isnull = (*slot).tts_isnull.add(col_index);
 
-                unsafe {
-                    let tts_value = (*slot).tts_values.add(col_index);
-                    let tts_isnull = (*slot).tts_isnull.add(col_index);
-
-                    if let Some(datum) = column.get_datum(0)? {
-                        *tts_value = datum;
-                    } else {
-                        *tts_isnull = true;
-                    }
+                if let Some(datum) = column.get_datum(0)? {
+                    *tts_value = datum;
+                } else {
+                    *tts_isnull = true;
                 }
             }
 
@@ -135,47 +91,6 @@ async unsafe fn index_fetch_tuple_impl(
         }
         _ => Err(IndexScanError::DuplicateBatch(row_number)),
     }
-}
-
-#[pg_guard]
-#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
-pub extern "C" fn deltalake_index_delete_tuples(
-    _rel: pg_sys::Relation,
-    _delstate: *mut pg_sys::TM_IndexDeleteOp,
-) -> pg_sys::TransactionId {
-    0
-}
-
-#[pg_guard]
-pub extern "C" fn deltalake_index_build_range_scan(
-    table_rel: pg_sys::Relation,
-    index_rel: pg_sys::Relation,
-    index_info: *mut pg_sys::IndexInfo,
-    allow_sync: bool,
-    anyvisible: bool,
-    progress: bool,
-    start_blockno: pg_sys::BlockNumber,
-    numblocks: pg_sys::BlockNumber,
-    callback: pg_sys::IndexBuildCallback,
-    callback_state: *mut c_void,
-    scan: pg_sys::TableScanDesc,
-) -> f64 {
-    task::block_on(index_build_range_scan(
-        table_rel,
-        index_rel,
-        index_info,
-        allow_sync,
-        anyvisible,
-        progress,
-        start_blockno,
-        numblocks,
-        callback,
-        callback_state,
-        scan,
-    ))
-    .unwrap_or_else(|err| {
-        panic!("{}", err);
-    })
 }
 
 #[inline]
@@ -278,6 +193,88 @@ async fn index_build_range_scan(
 
         Ok(tuple_count)
     }
+}
+
+#[pg_guard]
+pub extern "C" fn deltalake_index_fetch_begin(
+    rel: pg_sys::Relation,
+) -> *mut pg_sys::IndexFetchTableData {
+    unsafe {
+        PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
+            let mut scan = PgBox::<IndexScanDesc>::alloc0();
+            scan.rs_base.rel = rel;
+            scan.into_pg() as *mut pg_sys::IndexFetchTableData
+        })
+    }
+}
+
+#[pg_guard]
+pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {}
+
+#[pg_guard]
+pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {}
+
+#[pg_guard]
+pub extern "C" fn deltalake_index_fetch_tuple(
+    scan: *mut pg_sys::IndexFetchTableData,
+    tid: pg_sys::ItemPointer,
+    _snapshot: pg_sys::Snapshot,
+    slot: *mut pg_sys::TupleTableSlot,
+    call_again: *mut bool,
+    all_dead: *mut bool,
+) -> bool {
+    unsafe {
+        *call_again = false;
+
+        if !all_dead.is_null() {
+            *all_dead = false;
+        }
+
+        task::block_on(index_fetch_tuple(scan, slot, tid)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        })
+    }
+}
+
+#[pg_guard]
+#[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
+pub extern "C" fn deltalake_index_delete_tuples(
+    _rel: pg_sys::Relation,
+    _delstate: *mut pg_sys::TM_IndexDeleteOp,
+) -> pg_sys::TransactionId {
+    0
+}
+
+#[pg_guard]
+pub extern "C" fn deltalake_index_build_range_scan(
+    table_rel: pg_sys::Relation,
+    index_rel: pg_sys::Relation,
+    index_info: *mut pg_sys::IndexInfo,
+    allow_sync: bool,
+    anyvisible: bool,
+    progress: bool,
+    start_blockno: pg_sys::BlockNumber,
+    numblocks: pg_sys::BlockNumber,
+    callback: pg_sys::IndexBuildCallback,
+    callback_state: *mut c_void,
+    scan: pg_sys::TableScanDesc,
+) -> f64 {
+    task::block_on(index_build_range_scan(
+        table_rel,
+        index_rel,
+        index_info,
+        allow_sync,
+        anyvisible,
+        progress,
+        start_blockno,
+        numblocks,
+        callback,
+        callback_state,
+        scan,
+    ))
+    .unwrap_or_else(|err| {
+        panic!("{}", err);
+    })
 }
 
 #[pg_guard]

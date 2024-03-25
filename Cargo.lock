@@ -2483,7 +2483,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.6",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -2800,7 +2800,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c2a198fb6b0eada2a8df47933734e6d35d350665a33a3593d7164fa52c75c19"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.4",
 ]
 
 [[package]]
@@ -3796,7 +3796,7 @@ dependencies = [
 [[package]]
 name = "pgrx"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#5d92a90d71b09e4e77c007edf5cb73800a882737"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "atomic-traits",
  "bitflags 2.4.2",
@@ -3820,7 +3820,7 @@ dependencies = [
 [[package]]
 name = "pgrx-macros"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#5d92a90d71b09e4e77c007edf5cb73800a882737"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -3831,7 +3831,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-config"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#5d92a90d71b09e4e77c007edf5cb73800a882737"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "cargo_toml",
  "eyre",
@@ -3849,7 +3849,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-sys"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#5d92a90d71b09e4e77c007edf5cb73800a882737"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "bindgen 0.69.4",
  "clang-sys",
@@ -3871,7 +3871,7 @@ dependencies = [
 [[package]]
 name = "pgrx-sql-entity-graph"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#5d92a90d71b09e4e77c007edf5cb73800a882737"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "convert_case 0.6.0",
  "eyre",
@@ -3886,7 +3886,7 @@ dependencies = [
 [[package]]
 name = "pgrx-tests"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#5d92a90d71b09e4e77c007edf5cb73800a882737"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "clap-cargo",
  "eyre",

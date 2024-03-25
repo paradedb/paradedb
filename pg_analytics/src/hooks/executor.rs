@@ -63,6 +63,8 @@ pub fn executor_run(
             pg_sys::CmdType_CMD_SELECT => {
                 if let Ok(logical_plan) = logical_plan {
                     select(query_desc, logical_plan)?;
+                } else {
+                    prev_hook(query_desc, direction, count, execute_once);
                 }
             }
             pg_sys::CmdType_CMD_UPDATE => return Err(NotSupported::Update.into()),

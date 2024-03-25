@@ -155,7 +155,7 @@ fn init_metadata(rel: pg_sys::Relation) -> Result<(), ParadeError> {
         let page = pg_sys::BufferGetPage(buffer);
         pg_sys::PageInit(page, pg_sys::BLCKSZ as usize, size_of::<TableMetadata>());
 
-        let page_header = page as pg_sys::PageHeader;
+        let _page_header = page as pg_sys::PageHeader;
         let metadata = pg_sys::PageGetSpecialPointer(page) as *mut TableMetadata;
         (*metadata).max_row_number = FIRST_ROW_NUMBER;
 

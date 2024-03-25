@@ -22,21 +22,8 @@ struct DeltalakeScanDesc {
     curr_batch_idx: usize,
 }
 
-#[pg_guard]
-pub extern "C" fn deltalake_scan_begin(
-    rel: pg_sys::Relation,
-    snapshot: pg_sys::Snapshot,
-    nkeys: c_int,
-    key: *mut pg_sys::ScanKeyData,
-    pscan: pg_sys::ParallelTableScanDesc,
-    flags: pg_sys::uint32,
-) -> pg_sys::TableScanDesc {
-    info!("1");
-    delta_scan_begin_impl(rel, snapshot, nkeys, key, pscan, flags).expect("Failed to begin scan")
-}
-
 #[inline]
-fn delta_scan_begin_impl(
+fn scan_begin(
     rel: pg_sys::Relation,
     snapshot: pg_sys::Snapshot,
     nkeys: c_int,
@@ -62,38 +49,8 @@ fn delta_scan_begin_impl(
     }
 }
 
-#[pg_guard]
-pub extern "C" fn deltalake_scan_end(_scan: pg_sys::TableScanDesc) {
-    info!("1");
-}
-
-#[pg_guard]
-pub extern "C" fn deltalake_scan_rescan(
-    _scan: pg_sys::TableScanDesc,
-    _key: *mut pg_sys::ScanKeyData,
-    _set_params: bool,
-    _allow_strat: bool,
-    _allow_sync: bool,
-    _allow_pagemode: bool,
-) {
-    info!("1");
-}
-
-#[pg_guard]
-pub unsafe extern "C" fn deltalake_scan_getnextslot(
-    scan: pg_sys::TableScanDesc,
-    _direction: pg_sys::ScanDirection,
-    slot: *mut pg_sys::TupleTableSlot,
-) -> bool {
-    info!("1");
-    unsafe {
-        task::block_on(deltalake_scan_getnextslot_impl(scan, slot))
-            .expect("Failed to get next slot")
-    }
-}
-
 #[inline]
-async unsafe fn deltalake_scan_getnextslot_impl(
+pub async unsafe fn scan_getnextslot(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Result<bool, ParadeError> {
@@ -156,13 +113,53 @@ async unsafe fn deltalake_scan_getnextslot_impl(
 }
 
 #[pg_guard]
+pub extern "C" fn deltalake_scan_begin(
+    rel: pg_sys::Relation,
+    snapshot: pg_sys::Snapshot,
+    nkeys: c_int,
+    key: *mut pg_sys::ScanKeyData,
+    pscan: pg_sys::ParallelTableScanDesc,
+    flags: pg_sys::uint32,
+) -> pg_sys::TableScanDesc {
+    scan_begin(rel, snapshot, nkeys, key, pscan, flags).unwrap_or_else(|err| {
+        panic!("{}", err);
+    })
+}
+
+#[pg_guard]
+pub extern "C" fn deltalake_scan_end(_scan: pg_sys::TableScanDesc) {}
+
+#[pg_guard]
+pub extern "C" fn deltalake_scan_rescan(
+    _scan: pg_sys::TableScanDesc,
+    _key: *mut pg_sys::ScanKeyData,
+    _set_params: bool,
+    _allow_strat: bool,
+    _allow_sync: bool,
+    _allow_pagemode: bool,
+) {
+}
+
+#[pg_guard]
+pub unsafe extern "C" fn deltalake_scan_getnextslot(
+    scan: pg_sys::TableScanDesc,
+    _direction: pg_sys::ScanDirection,
+    slot: *mut pg_sys::TupleTableSlot,
+) -> bool {
+    unsafe {
+        task::block_on(scan_getnextslot(scan, slot)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        })
+    }
+}
+
+#[pg_guard]
 #[cfg(any(feature = "pg14", feature = "pg15", feature = "pg16"))]
 pub extern "C" fn deltalake_scan_set_tidrange(
     _scan: pg_sys::TableScanDesc,
     _mintid: pg_sys::ItemPointer,
     _maxtid: pg_sys::ItemPointer,
 ) {
-    info!("1");
 }
 
 #[pg_guard]
@@ -172,7 +169,6 @@ pub extern "C" fn deltalake_scan_getnextslot_tidrange(
     _direction: pg_sys::ScanDirection,
     _slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    info!("1");
     false
 }
 
@@ -186,7 +182,6 @@ pub extern "C" fn deltalake_parallelscan_initialize(
     rel: pg_sys::Relation,
     pscan: pg_sys::ParallelTableScanDesc,
 ) -> pg_sys::Size {
-    info!("parallel");
     unsafe { pg_sys::table_block_parallelscan_initialize(rel, pscan) }
 }
 
@@ -204,7 +199,6 @@ pub extern "C" fn deltalake_scan_analyze_next_block(
     _blockno: pg_sys::BlockNumber,
     _bstrategy: pg_sys::BufferAccessStrategy,
 ) -> bool {
-    info!("1");
     false
 }
 
@@ -216,7 +210,6 @@ pub extern "C" fn deltalake_scan_analyze_next_tuple(
     _deadrows: *mut f64,
     _slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    info!("1");
     false
 }
 
@@ -225,7 +218,6 @@ pub extern "C" fn deltalake_scan_bitmap_next_block(
     _scan: pg_sys::TableScanDesc,
     _tbmres: *mut pg_sys::TBMIterateResult,
 ) -> bool {
-    info!("bitmap");
     false
 }
 
@@ -263,7 +255,6 @@ pub extern "C" fn deltalake_tuple_fetch_row_version(
     _snapshot: pg_sys::Snapshot,
     _slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    info!("1");
     false
 }
 
@@ -272,7 +263,6 @@ pub extern "C" fn deltalake_tuple_tid_valid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) -> bool {
-    info!("is valid");
     false
 }
 
@@ -281,7 +271,6 @@ pub extern "C" fn deltalake_tuple_get_latest_tid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) {
-    info!("latest tid");
 }
 
 #[pg_guard]
@@ -300,7 +289,6 @@ pub extern "C" fn deltalake_tuple_complete_speculative(
     _specToken: pg_sys::uint32,
     _succeeded: bool,
 ) {
-    info!("speculative");
 }
 
 #[pg_guard]
@@ -315,6 +303,5 @@ pub extern "C" fn deltalake_tuple_lock(
     _flags: pg_sys::uint8,
     _tmfd: *mut pg_sys::TM_FailureData,
 ) -> pg_sys::TM_Result {
-    info!("1");
     0
 }

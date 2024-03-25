@@ -9,10 +9,12 @@ use deltalake::datafusion::logical_expr::{col, LogicalPlanBuilder};
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
 use shared::postgres::tid::{RowNumber, TIDError};
+use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
 use std::sync::Arc;
 use thiserror::Error;
 
+use super::scan::scan_getnextslot;
 use crate::datafusion::session::Session;
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
@@ -167,7 +169,7 @@ pub extern "C" fn deltalake_index_build_range_scan(
     callback_state: *mut c_void,
     scan: pg_sys::TableScanDesc,
 ) -> f64 {
-    index_build_range_scan(
+    task::block_on(index_build_range_scan(
         table_rel,
         index_rel,
         index_info,
@@ -179,14 +181,14 @@ pub extern "C" fn deltalake_index_build_range_scan(
         callback,
         callback_state,
         scan,
-    )
+    ))
     .unwrap_or_else(|err| {
         panic!("{}", err);
     })
 }
 
 #[inline]
-fn index_build_range_scan(
+async fn index_build_range_scan(
     table_rel: pg_sys::Relation,
     index_rel: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
@@ -214,7 +216,7 @@ fn index_build_range_scan(
         );
 
         if progress {
-            todo!()
+            // todo!()
         }
 
         let executor_state = pg_sys::CreateExecutorState();
@@ -225,10 +227,64 @@ fn index_build_range_scan(
         (*context).ecxt_scantuple = pg_sys::table_slot_create(table_rel, null_mut());
         let predicate = pg_sys::ExecPrepareQual((*index_info).ii_Predicate, executor_state);
 
-        pg_sys::table_endscan(scan);
-    }
+        let mut tuple_count = 0.0;
+        let mut last_block_number = pg_sys::InvalidBlockNumber;
+        let slot = (*context).ecxt_scantuple;
 
-    Ok(0.0)
+        while scan_getnextslot(scan, slot).await? {
+            check_for_interrupts!();
+
+            let current_block_number =
+                item_pointer_get_block_number(&(*slot).tts_tid as *const pg_sys::ItemPointerData);
+
+            if progress && current_block_number != last_block_number {
+                last_block_number = current_block_number;
+            }
+
+            pg_sys::MemoryContextReset((*context).ecxt_per_tuple_memory);
+
+            if !predicate.is_null() && !pg_sys::ExecQual(predicate, context) {
+                continue;
+            }
+
+            let values = pg_sys::palloc0(pg_sys::INDEX_MAX_KEYS as usize * size_of::<pg_sys::Datum>())
+                as *mut pg_sys::Datum;
+            let nulls = pg_sys::palloc0(pg_sys::INDEX_MAX_KEYS as usize * size_of::<bool>()) as *mut bool;
+
+            pg_sys::FormIndexDatum(index_info, slot, executor_state, values, nulls);
+
+            #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+            if let Some(callback) = callback {
+                callback(
+                    index_rel,
+                    &mut (*slot).tts_tid as *mut pg_sys::ItemPointerData,
+                    values,
+                    nulls,
+                    true,
+                    callback_state,
+                );
+            }
+
+            // #[cfg(feature = "pg12")]
+            // todo!();
+
+            tuple_count += 1.0;
+        }
+
+        pg_sys::table_endscan(scan);
+
+        if progress {
+            // todo!();
+        }
+
+        pg_sys::ExecDropSingleTupleTableSlot((*context).ecxt_scantuple);
+        pg_sys::FreeExecutorState(executor_state);
+        
+        (*index_info).ii_PredicateState = null_mut();
+        (*index_info).ii_ExpressionsState = null_mut();
+
+        Ok(tuple_count)
+    }
 }
 
 #[pg_guard]

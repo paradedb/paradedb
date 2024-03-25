@@ -2493,7 +2493,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.6",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -2810,7 +2810,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0c2a198fb6b0eada2a8df47933734e6d35d350665a33a3593d7164fa52c75c19"
 dependencies = [
  "cfg-if",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.4",
 ]
 
 [[package]]
@@ -3822,9 +3822,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2102faa5ef4a7bf096fefcf67692b293583efd18f9236340ad3169807dfc2b73"
+version = "0.12.0"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "atomic-traits",
  "bitflags 2.5.0",
@@ -3847,9 +3846,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-macros"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c26810d09910ec987a6708d48d243efb5f879331e01c6fec0893714d0eb12bae"
+version = "0.12.0"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -3859,9 +3857,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-config"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b0099ba4b635dfe1e34afc8bca8be43e9577c5d726aaf1dc7dd23a78f6c8a60"
+version = "0.12.0"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "cargo_toml",
  "eyre",
@@ -3878,9 +3875,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-pg-sys"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f40315259c41fede51eb23b791b48d0a112b0f47d0dcb6862b798d1fa1db6ea"
+version = "0.12.0"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "bindgen 0.69.4",
  "clang-sys",
@@ -3901,9 +3897,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-sql-entity-graph"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d47a4e991c8c66162c5d6b0fc2bd382e43a58fc893ce05a6a15ddcb1bf7eee4"
+version = "0.12.0"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "convert_case 0.6.0",
  "eyre",
@@ -3917,9 +3912,8 @@ dependencies = [
 
 [[package]]
 name = "pgrx-tests"
-version = "0.11.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab3abc01e2bb930b072bd660d04c8eaa69a29d4727d5b2a641f946c603c1605e"
+version = "0.12.0"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
 dependencies = [
  "clap-cargo",
  "eyre",

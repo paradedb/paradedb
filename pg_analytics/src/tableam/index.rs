@@ -1,6 +1,5 @@
 use async_std::task;
 use core::ffi::c_void;
-
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::common::ScalarValue;
 use deltalake::datafusion::logical_expr::col;
@@ -10,13 +9,11 @@ use pgrx::*;
 use shared::postgres::tid::{RowNumber, TIDError};
 use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
-
 use thiserror::Error;
 
 use super::scan::{scan_getnextslot, TableScanError};
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::session::Session;
-
 use crate::datafusion::table::RESERVED_TID_FIELD;
 use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;

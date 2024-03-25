@@ -11,7 +11,6 @@ use deltalake::arrow::datatypes::Int64Type;
 use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBatch};
 use pgrx::*;
 use shared::postgres::tid::{RowNumber, TIDError};
-
 use std::sync::Arc;
 use thiserror::Error;
 

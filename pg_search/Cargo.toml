@@ -7,7 +7,11 @@ license = "AGPL-3.0"
 
 [lib]
 # Must be cdylib for Postgres, and rlib for Rust tests.
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "pgrx_embed_pg_search"
+path = "./src/bin/pgrx_embed.rs"
 
 [features]
 default = ["pg16"]

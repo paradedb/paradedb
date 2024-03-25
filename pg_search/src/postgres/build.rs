@@ -217,6 +217,8 @@ unsafe fn build_callback_internal(
                     panic!("error creating index entries for index '{index_name}': {err:?}",)
                 });
 
+            info!("inserting {:?}", search_document);
+
             let writer_client = WriterGlobal::client();
 
             search_index

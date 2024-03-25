@@ -1,24 +1,23 @@
 use async_std::task;
-use core::ffi::{c_int, c_void};
-use deltalake::arrow::datatypes::Int64Type;
-use deltalake::datafusion::common::arrow::array::{AsArray, RecordBatch};
+use core::ffi::c_void;
+
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::common::ScalarValue;
+use deltalake::datafusion::logical_expr::col;
 use deltalake::datafusion::logical_expr::expr::Expr;
-use deltalake::datafusion::logical_expr::{col, LogicalPlanBuilder};
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
 use shared::postgres::tid::{RowNumber, TIDError};
 use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
-use std::sync::Arc;
+
 use thiserror::Error;
 
 use super::scan::{scan_getnextslot, TableScanError};
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::session::Session;
-use crate::datafusion::stream::Stream;
-use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
+
+use crate::datafusion::table::RESERVED_TID_FIELD;
 use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
@@ -185,13 +184,13 @@ async fn index_build_range_scan(
     index_rel: pg_sys::Relation,
     index_info: *mut pg_sys::IndexInfo,
     allow_sync: bool,
-    anyvisible: bool,
+    _anyvisible: bool,
     progress: bool,
     start_blockno: pg_sys::BlockNumber,
     numblocks: pg_sys::BlockNumber,
     callback: pg_sys::IndexBuildCallback,
     callback_state: *mut c_void,
-    scan: pg_sys::TableScanDesc,
+    _scan: pg_sys::TableScanDesc,
 ) -> Result<f64, IndexScanError> {
     if start_blockno != 0 || numblocks != pg_sys::InvalidBlockNumber {
         return Err(IndexScanError::IndexNotSupported);
@@ -200,7 +199,7 @@ async fn index_build_range_scan(
     unsafe {
         let scan = pg_sys::table_beginscan_strat(
             table_rel,
-            addr_of_mut!(pg_sys::SnapshotAnyData) as *mut pg_sys::SnapshotData,
+            addr_of_mut!(pg_sys::SnapshotAnyData),
             0,
             null_mut(),
             true,

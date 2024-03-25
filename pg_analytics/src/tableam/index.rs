@@ -14,6 +14,7 @@ use std::ptr::{addr_of_mut, null_mut};
 use std::sync::Arc;
 use thiserror::Error;
 
+use super::scan::{scan_getnextslot, TableScanError};
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::session::Session;
 use crate::datafusion::stream::Stream;
@@ -21,7 +22,6 @@ use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
-use super::scan::{scan_getnextslot, TableScanError};
 
 struct IndexScanDesc {
     rs_base: pg_sys::IndexFetchTableData,
@@ -229,8 +229,6 @@ async fn index_build_range_scan(
             let current_block_number =
                 item_pointer_get_block_number(&(*slot).tts_tid as *const pg_sys::ItemPointerData);
 
-            info!("block number {:?}", (*slot).tts_tid);
-
             if progress && current_block_number != last_block_number {
                 last_block_number = current_block_number;
             }
@@ -251,7 +249,6 @@ async fn index_build_range_scan(
 
             #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
             if let Some(callback) = callback {
-                info!("callback");
                 callback(
                     index_rel,
                     &mut (*slot).tts_tid as *mut pg_sys::ItemPointerData,
@@ -292,7 +289,6 @@ pub extern "C" fn deltalake_index_validate_scan(
     _snapshot: pg_sys::Snapshot,
     _state: *mut pg_sys::ValidateIndexState,
 ) {
-    info!("validate scan");
 }
 
 #[derive(Error, Debug)]

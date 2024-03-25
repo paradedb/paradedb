@@ -30,7 +30,6 @@ pub extern "C" fn deltalake_tuple_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
-    info!("insert");
     // unsafe {
     //     let mut ctid = pg_sys::ItemPointerData::default();
     //     pgrx::u64_to_item_pointer(1, &mut ctid);
@@ -130,8 +129,6 @@ async fn insert_tuples(
     }
 
     column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
-
-    info!("inserting {:?}", row_numbers);
 
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();

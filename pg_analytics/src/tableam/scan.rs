@@ -4,21 +4,27 @@
     The ones implemented are called as part of DELETE and UPDATE operations.
 */
 
+use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;
-use deltalake::datafusion::common::arrow::array::RecordBatch;
+use deltalake::arrow::datatypes::Int64Type;
+use deltalake::datafusion::common::arrow::array::{AsArray, RecordBatch};
 use pgrx::*;
+use shared::postgres::tid::{RowNumber, TIDError};
 use std::any::type_name;
 use std::sync::Arc;
+use thiserror::Error;
 
+use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::DatafusionTable;
-use crate::errors::{NotFound, ParadeError};
+use crate::errors::ParadeError;
+use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
 struct DeltalakeScanDesc {
     rs_base: pg_sys::TableScanDescData,
-    curr_batch: Option<Arc<RecordBatch>>,
+    curr_batch: Option<Arc<Mutex<RecordBatch>>>,
     curr_batch_idx: usize,
 }
 
@@ -30,7 +36,7 @@ fn scan_begin(
     key: *mut pg_sys::ScanKeyData,
     pscan: pg_sys::ParallelTableScanDesc,
     flags: pg_sys::uint32,
-) -> Result<pg_sys::TableScanDesc, ParadeError> {
+) -> Result<pg_sys::TableScanDesc, TableScanError> {
     unsafe {
         PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
             let mut scan = PgBox::<DeltalakeScanDesc>::alloc0();
@@ -53,13 +59,11 @@ fn scan_begin(
 pub async unsafe fn scan_getnextslot(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
-) -> Result<bool, ParadeError> {
+) -> Result<bool, TableScanError> {
     if let Some(clear) = (*slot)
         .tts_ops
         .as_ref()
-        .ok_or(NotFound::Value(
-            type_name::<pg_sys::TupleTableSlotOps>().to_string(),
-        ))?
+        .ok_or(TableScanError::SlotOpsNotFound)?
         .clear
     {
         clear(slot);
@@ -75,21 +79,25 @@ pub async unsafe fn scan_getnextslot(
             >= (*dscan)
                 .curr_batch
                 .as_ref()
-                .ok_or(NotFound::Value(type_name::<RecordBatch>().to_string()))?
+                .ok_or(TableScanError::RecordBatchNotFound)?
+                .lock()
+                .await
                 .num_rows()
     {
         (*dscan).curr_batch_idx = 0;
 
         (*dscan).curr_batch = match Stream::get_next_batch(schema_name, &table_path).await? {
-            Some(batch) => Some(Arc::new(batch)),
+            Some(batch) => Some(Arc::new(Mutex::new(batch))),
             None => return Ok(false),
         };
     }
 
-    let current_batch = (*dscan)
+    let mut current_batch = (*dscan)
         .curr_batch
-        .as_ref()
-        .ok_or(NotFound::Value(type_name::<RecordBatch>().to_string()))?;
+        .as_mut()
+        .ok_or(TableScanError::RecordBatchNotFound)?
+        .lock()
+        .await;
 
     for col_index in 0..current_batch.num_columns() {
         let column = current_batch.column(col_index);
@@ -106,6 +114,11 @@ pub async unsafe fn scan_getnextslot(
         }
     }
 
+    let tids = current_batch.remove_tid_column()?;
+    let row_number = tids.as_primitive::<Int64Type>().value((*dscan).curr_batch_idx);
+    let tts_tid = pg_sys::ItemPointerData::try_from(RowNumber(row_number))?;
+
+    (*slot).tts_tid = tts_tid;
     pg_sys::ExecStoreVirtualTuple(slot);
 
     (*dscan).curr_batch_idx += 1;
@@ -244,7 +257,6 @@ pub extern "C" fn deltalake_scan_sample_next_tuple(
     _scanstate: *mut pg_sys::SampleScanState,
     _slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    info!("1");
     false
 }
 
@@ -304,4 +316,25 @@ pub extern "C" fn deltalake_tuple_lock(
     _tmfd: *mut pg_sys::TM_FailureData,
 ) -> pg_sys::TM_Result {
     0
+}
+
+#[derive(Error, Debug)]
+pub enum TableScanError {
+    #[error(transparent)]
+    DataTypeError(#[from] DataTypeError),
+
+    #[error(transparent)]
+    ParadeError(#[from] ParadeError),
+
+    #[error(transparent)]
+    RecordBatchError(#[from] RecordBatchError),
+
+    #[error(transparent)]
+    TIDError(#[from] TIDError),
+
+    #[error("TupleTableSlotOps not found in table scan")]
+    SlotOpsNotFound,
+
+    #[error("Unexpected error: No RecordBatch found in table scan")]
+    RecordBatchNotFound
 }

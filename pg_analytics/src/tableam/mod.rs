@@ -6,6 +6,8 @@ mod index;
 mod insert;
 mod plan;
 mod scan;
+mod toast;
+mod truncate;
 mod update;
 mod vacuum;
 
@@ -18,6 +20,8 @@ use crate::tableam::index::*;
 use crate::tableam::insert::*;
 use crate::tableam::plan::*;
 use crate::tableam::scan::*;
+use crate::tableam::toast::*;
+use crate::tableam::truncate::*;
 use crate::tableam::update::*;
 use crate::tableam::vacuum::*;
 

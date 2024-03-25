@@ -30,14 +30,6 @@ pub extern "C" fn deltalake_tuple_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
-    // unsafe {
-    //     let mut ctid = pg_sys::ItemPointerData::default();
-    //     pgrx::u64_to_item_pointer(1, &mut ctid);
-
-    //     (*slot).tts_tid = ctid;
-
-    // }
-
     let mut mut_slot = slot;
     task::block_on(insert_tuples(rel, &mut mut_slot, 1)).unwrap_or_else(|err| {
         panic!("{}", err);
@@ -87,7 +79,7 @@ async fn insert_tuples(
     let tuple_desc = pg_relation.tuple_desc();
     let mut column_values: Vec<ArrayRef> = vec![];
 
-    // Convert the TupleTableSlots into DataFusion arrays
+    // Convert the TupleTableSlots into Arrow arrays
     for (col_idx, attr) in tuple_desc.iter().enumerate() {
         column_values.push(
             (0..nslots)
@@ -116,6 +108,7 @@ async fn insert_tuples(
         );
     }
 
+    // Assign TID to each row
     let mut row_numbers: Vec<i64> = vec![];
 
     for row_idx in 0..nslots {
@@ -130,6 +123,7 @@ async fn insert_tuples(
 
     column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
 
+    // Write Arrow arrays to buffer
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;

@@ -855,9 +855,9 @@ dependencies = [
 
 [[package]]
 name = "cargo-platform"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "694c8807f2ae16faecc43dc17d74b3eb042482789fd0eb64b39a2e04e087053f"
+checksum = "24b1f0365a6c6bb4020cd05806fd0d33c44d38046b8bd7f0e40814b9763cabfc"
 dependencies = [
  "serde",
 ]
@@ -3823,7 +3823,7 @@ dependencies = [
 [[package]]
 name = "pgrx"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#99405128f6e05dacecc380ca52e128b0d4f94dd4"
 dependencies = [
  "atomic-traits",
  "bitflags 2.5.0",
@@ -3847,18 +3847,18 @@ dependencies = [
 [[package]]
 name = "pgrx-macros"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#99405128f6e05dacecc380ca52e128b0d4f94dd4"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
  "quote",
- "syn 2.0.52",
+ "syn 2.0.55",
 ]
 
 [[package]]
 name = "pgrx-pg-config"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#99405128f6e05dacecc380ca52e128b0d4f94dd4"
 dependencies = [
  "cargo_toml",
  "eyre",
@@ -3876,7 +3876,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-sys"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#99405128f6e05dacecc380ca52e128b0d4f94dd4"
 dependencies = [
  "bindgen 0.69.4",
  "clang-sys",
@@ -3891,21 +3891,21 @@ dependencies = [
  "serde",
  "shlex",
  "sptr",
- "syn 2.0.52",
+ "syn 2.0.55",
  "walkdir",
 ]
 
 [[package]]
 name = "pgrx-sql-entity-graph"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#99405128f6e05dacecc380ca52e128b0d4f94dd4"
 dependencies = [
  "convert_case 0.6.0",
  "eyre",
  "petgraph",
  "proc-macro2",
  "quote",
- "syn 2.0.52",
+ "syn 2.0.55",
  "thiserror",
  "unescape",
 ]
@@ -3913,7 +3913,7 @@ dependencies = [
 [[package]]
 name = "pgrx-tests"
 version = "0.12.0"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#2692f9ffd537e652e76169720df9c2d678dd36a4"
+source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#99405128f6e05dacecc380ca52e128b0d4f94dd4"
 dependencies = [
  "clap-cargo",
  "eyre",

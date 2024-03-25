@@ -9,8 +9,6 @@ use pgrx::*;
 use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 
-use shared::postgres::tid::RowNumber;
-
 // For now just pass the count on the build callback state
 struct BuildState {
     count: usize,

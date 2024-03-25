@@ -1,4 +1,4 @@
-use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+use deltalake::datafusion::arrow::datatypes::{Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::logical_expr::Expr;

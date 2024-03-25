@@ -11,7 +11,7 @@ use deltalake::arrow::datatypes::Int64Type;
 use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBatch};
 use pgrx::*;
 use shared::postgres::tid::{RowNumber, TIDError};
-use std::any::type_name;
+
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -100,7 +100,7 @@ pub async unsafe fn scan_getnextslot(
         (*dscan).tids = Some(Arc::new(Mutex::new(tid_array.clone())));
     }
 
-    let mut current_batch = (*dscan)
+    let current_batch = (*dscan)
         .curr_batch
         .as_mut()
         .ok_or(TableScanError::RecordBatchNotFound)?

@@ -11,27 +11,19 @@ use std::{env::VarError, path::PathBuf, str::Utf8Error};
 use thiserror::Error;
 
 pub trait TelemetryStore {
-    type Error;
-
-    fn get_connection(
-        &self,
-    ) -> Result<Box<dyn TelemetryConnection<Error = Self::Error>>, Self::Error>;
+    fn get_connection(&self) -> Result<Box<dyn TelemetryConnection>, TelemetryError>;
 }
 
 pub trait TelemetryConnection {
-    type Error;
-
-    fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), Self::Error>;
+    fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError>;
 }
 
 pub trait DirectoryStore {
-    type Error;
-
-    fn root_path(&self) -> Result<PathBuf, Self::Error>;
-    fn extension_path(&self) -> Result<PathBuf, Self::Error>;
-    fn extension_size(&self) -> Result<u64, Self::Error>;
-    fn extension_uuid(&self) -> Result<String, Self::Error>;
-    fn extension_uuid_path(&self) -> Result<PathBuf, Self::Error>;
+    fn root_path(&self) -> Result<PathBuf, TelemetryError>;
+    fn extension_path(&self) -> Result<PathBuf, TelemetryError>;
+    fn extension_size(&self) -> Result<u64, TelemetryError>;
+    fn extension_uuid(&self) -> Result<String, TelemetryError>;
+    fn extension_uuid_path(&self) -> Result<PathBuf, TelemetryError>;
 }
 
 pub trait TermPoll {
@@ -74,4 +66,6 @@ pub enum TelemetryError {
     EnabledCheck(#[source] SpiError),
     #[error("could not lock spi connection in telemetry config")]
     SpiConnectLock(String),
+    #[error("could not serialize telemetry data to JSON: {0}")]
+    ToJson(#[source] serde_json::Error),
 }

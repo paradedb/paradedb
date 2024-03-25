@@ -1,6 +1,7 @@
+use pgrx::pg_sys::{PG_MAJORVERSION_NUM, PG_MINORVERSION_NUM};
 use std::{
     thread,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use super::{
@@ -9,8 +10,8 @@ use super::{
 };
 
 pub struct TelemetrySender {
-    pub directory_store: Box<dyn DirectoryStore<Error = TelemetryError>>,
-    pub telemetry_store: Box<dyn TelemetryStore<Error = TelemetryError>>,
+    pub directory_store: Box<dyn DirectoryStore>,
+    pub telemetry_store: Box<dyn TelemetryStore>,
     pub config_store: Box<dyn TelemetryConfigStore>,
 }
 
@@ -33,8 +34,15 @@ impl TelemetrySender {
             return Ok(());
         }
         let uuid = self.directory_store.extension_uuid()?;
+        let os_info = os_info::get();
         let event = TelemetryEvent::Deployment {
-            extension: self.config_store.extension_name()?,
+            timestamp: SystemTime::now(),
+            arch: os_info.architecture().unwrap_or_default().to_string(),
+            extension_name: self.config_store.extension_name()?,
+            extension_version: env!("CARGO_PKG_VERSION").to_string(),
+            os_type: os_info.os_type().to_string(),
+            os_version: os_info.version().to_string(),
+            postgres_version: format!("{PG_MAJORVERSION_NUM}.{PG_MINORVERSION_NUM}"),
         };
 
         self.send(&uuid, &event)
@@ -47,7 +55,7 @@ impl TelemetrySender {
         let event = TelemetryEvent::DirectoryStatus {
             path,
             size,
-            extension: self.config_store.extension_name()?,
+            extension_name: self.config_store.extension_name()?,
         };
 
         self.send(&uuid, &event)

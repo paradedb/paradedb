@@ -1,14 +1,21 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, time::SystemTime};
 
-use serde_json::json;
+use serde::Serialize;
 
-#[derive(Clone)]
+#[derive(Clone, Serialize)]
+#[serde(untagged)]
 pub enum TelemetryEvent {
     Deployment {
-        extension: String,
+        timestamp: SystemTime,
+        arch: String,
+        extension_name: String,
+        extension_version: String,
+        os_type: String,
+        os_version: String,
+        postgres_version: String,
     },
     DirectoryStatus {
-        extension: String,
+        extension_name: String,
         path: PathBuf,
         size: u64,
     },
@@ -17,18 +24,10 @@ pub enum TelemetryEvent {
 impl TelemetryEvent {
     pub fn name(&self) -> String {
         match self {
-            Self::Deployment { extension } => format!("{extension} Deployment"),
-            Self::DirectoryStatus { extension, .. } => format!("{extension} Directory Status"),
-        }
-    }
-
-    pub fn to_json(&self) -> serde_json::Value {
-        match self {
-            Self::Deployment { .. } => json!(serde_json::Value::Null),
-            Self::DirectoryStatus { path, size, .. } => json!({
-                "path": path.to_str(),
-                "size": size
-            }),
+            Self::Deployment { extension_name, .. } => format!("{extension_name} Deployment"),
+            Self::DirectoryStatus { extension_name, .. } => {
+                format!("{extension_name} Directory Status")
+            }
         }
     }
 

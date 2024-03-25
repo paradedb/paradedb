@@ -8,23 +8,21 @@ pub struct PostgresDirectoryStore {
 }
 
 impl DirectoryStore for PostgresDirectoryStore {
-    type Error = TelemetryError;
-
-    fn root_path(&self) -> Result<PathBuf, Self::Error> {
+    fn root_path(&self) -> Result<PathBuf, TelemetryError> {
         self.config_store.root_data_directory()
     }
 
-    fn extension_path(&self) -> Result<PathBuf, Self::Error> {
+    fn extension_path(&self) -> Result<PathBuf, TelemetryError> {
         Ok(self.root_path()?.join(self.config_store.extension_name()?))
     }
 
-    fn extension_uuid_path(&self) -> Result<PathBuf, Self::Error> {
+    fn extension_uuid_path(&self) -> Result<PathBuf, TelemetryError> {
         Ok(self
             .extension_path()?
             .join(format!("{}_uuid", self.config_store.extension_name()?)))
     }
 
-    fn extension_uuid(&self) -> Result<String, Self::Error> {
+    fn extension_uuid(&self) -> Result<String, TelemetryError> {
         let uuid_file = self.extension_uuid_path()?;
         match fs::read_to_string(&uuid_file)
             .map_err(TelemetryError::ReadUuid)
@@ -42,7 +40,7 @@ impl DirectoryStore for PostgresDirectoryStore {
         }
     }
 
-    fn extension_size(&self) -> Result<u64, Self::Error> {
+    fn extension_size(&self) -> Result<u64, TelemetryError> {
         Ok(WalkDir::new(self.extension_path()?)
             .into_iter()
             .filter_map(|entry| entry.ok())

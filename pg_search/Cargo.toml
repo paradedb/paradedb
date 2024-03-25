@@ -41,7 +41,7 @@ rustc-hash = "1.1.0"
 serde = "1.0.188"
 serde_json = "1.0.105"
 serde_path_to_error = "0.1.14"
-shared = { version = "0.1.0", path = "../shared" }
+shared = { path = "../shared" }
 tantivy = { git = "https://github.com/paradedb/tantivy.git", package = "tantivy", rev = "e678820" }
 tantivy-common = { git = "https://github.com/paradedb/tantivy.git", rev = "e678820" }
 thiserror = "1.0.56"

@@ -30,11 +30,7 @@ pub struct PosthogStore {
 }
 
 impl TelemetryStore for PosthogStore {
-    type Error = TelemetryError;
-
-    fn get_connection(
-        &self,
-    ) -> Result<Box<dyn TelemetryConnection<Error = Self::Error>>, Self::Error> {
+    fn get_connection(&self) -> Result<Box<dyn TelemetryConnection>, TelemetryError> {
         Ok(Box::new(PosthogConnection::new(
             &self.config_store.telemetry_api_key()?,
             &self.config_store.telemetry_host_url()?,
@@ -43,16 +39,14 @@ impl TelemetryStore for PosthogStore {
 }
 
 impl TelemetryConnection for PosthogConnection {
-    type Error = TelemetryError;
-
-    fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), Self::Error> {
+    fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError> {
         let data = json!({
             "api_key": self.api_key,
             "event": event.name(),
             "distinct_id": uuid,
             "properties": {
                 "commit_sha": event.commit_sha(),
-                "telemetry_data": event.to_json(),
+                "telemetry_data": serde_json::to_value(event).map_err(|err| TelemetryError::ToJson(err))?,
             },
         });
         self.client

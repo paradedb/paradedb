@@ -14,13 +14,14 @@ use std::ptr::{addr_of_mut, null_mut};
 use std::sync::Arc;
 use thiserror::Error;
 
-use super::scan::scan_getnextslot;
+use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::session::Session;
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
+use super::scan::{scan_getnextslot, TableScanError};
 
 struct IndexScanDesc {
     rs_base: pg_sys::IndexFetchTableData,
@@ -40,14 +41,10 @@ pub extern "C" fn deltalake_index_fetch_begin(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {
-    info!("fetch reset");
-}
+pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {}
 
 #[pg_guard]
-pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {
-    info!("scan done");
-}
+pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {}
 
 #[pg_guard]
 pub extern "C" fn deltalake_index_fetch_tuple(
@@ -82,7 +79,7 @@ async unsafe fn index_fetch_tuple_impl(
     if let Some(clear) = (*slot)
         .tts_ops
         .as_ref()
-        .ok_or(IndexScanError::NoTupleTableSlotOps)?
+        .ok_or(IndexScanError::SlotOpsNotFound)?
         .clear
     {
         clear(slot);
@@ -97,29 +94,24 @@ async unsafe fn index_fetch_tuple_impl(
 
     let dataframe = Session::with_session_context(|context| {
         Box::pin(async move {
-            let arrow_schema = pg_relation.arrow_schema()?;
-            let column_names = arrow_schema
-                .fields()
-                .iter()
-                .map(|field| field.name().as_str())
-                .filter(|&name| name != RESERVED_TID_FIELD)
-                .collect::<Vec<&str>>();
-
             let reference = TableReference::full(catalog_name, schema_name, table_name);
             let table = context.table(reference).await?;
 
             Ok(table
-                .filter(col(RESERVED_TID_FIELD).eq(Expr::Literal(ScalarValue::from(row_number))))?
-                .select_columns(&column_names)?)
+                .filter(col(RESERVED_TID_FIELD).eq(Expr::Literal(ScalarValue::from(row_number))))?)
         })
     })?;
 
-    match dataframe.collect().await?.as_slice() {
-        [] => Ok(false),
-        [batch] => {
+    match dataframe.collect().await? {
+        batches if batches.is_empty() => Ok(false),
+        mut batches if batches.len() == 1 => {
+            let batch = &mut batches[0];
+
             if batch.num_rows() > 1 {
                 return Err(IndexScanError::DuplicateRowNumber(row_number));
             }
+
+            batch.remove_tid_column()?;
 
             for col_index in 0..batch.num_columns() {
                 let column = batch.column(col_index);
@@ -237,6 +229,8 @@ async fn index_build_range_scan(
             let current_block_number =
                 item_pointer_get_block_number(&(*slot).tts_tid as *const pg_sys::ItemPointerData);
 
+            info!("block number {:?}", (*slot).tts_tid);
+
             if progress && current_block_number != last_block_number {
                 last_block_number = current_block_number;
             }
@@ -247,9 +241,11 @@ async fn index_build_range_scan(
                 continue;
             }
 
-            let values = pg_sys::palloc0(pg_sys::INDEX_MAX_KEYS as usize * size_of::<pg_sys::Datum>())
-                as *mut pg_sys::Datum;
-            let nulls = pg_sys::palloc0(pg_sys::INDEX_MAX_KEYS as usize * size_of::<bool>()) as *mut bool;
+            let values =
+                pg_sys::palloc0(pg_sys::INDEX_MAX_KEYS as usize * size_of::<pg_sys::Datum>())
+                    as *mut pg_sys::Datum;
+            let nulls =
+                pg_sys::palloc0(pg_sys::INDEX_MAX_KEYS as usize * size_of::<bool>()) as *mut bool;
 
             pg_sys::FormIndexDatum(index_info, slot, executor_state, values, nulls);
 
@@ -279,7 +275,7 @@ async fn index_build_range_scan(
 
         pg_sys::ExecDropSingleTupleTableSlot((*context).ecxt_scantuple);
         pg_sys::FreeExecutorState(executor_state);
-        
+
         (*index_info).ii_PredicateState = null_mut();
         (*index_info).ii_ExpressionsState = null_mut();
 
@@ -310,6 +306,12 @@ pub enum IndexScanError {
     ParadeError(#[from] ParadeError),
 
     #[error(transparent)]
+    RecordBatchError(#[from] RecordBatchError),
+
+    #[error(transparent)]
+    TableScanError(#[from] TableScanError),
+
+    #[error(transparent)]
     TIDError(#[from] TIDError),
 
     #[error("More than one row with row number {0} was found")]
@@ -318,9 +320,9 @@ pub enum IndexScanError {
     #[error("More than one batch with row number {0} was found")]
     DuplicateBatch(i64),
 
-    #[error("This index is not supported because it is not suited for column-oriented data")]
+    #[error("This index type is not suited for column-oriented data")]
     IndexNotSupported,
 
-    #[error("TupleTableSlotOps not found")]
-    NoTupleTableSlotOps,
+    #[error("TupleTableSlotOps not found in index scan")]
+    SlotOpsNotFound,
 }

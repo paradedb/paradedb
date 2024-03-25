@@ -251,6 +251,7 @@ async fn index_build_range_scan(
 
             #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
             if let Some(callback) = callback {
+                info!("callback");
                 callback(
                     index_rel,
                     &mut (*slot).tts_tid as *mut pg_sys::ItemPointerData,

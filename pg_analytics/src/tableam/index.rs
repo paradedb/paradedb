@@ -30,8 +30,6 @@ async unsafe fn index_fetch_tuple(
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
 ) -> Result<bool, IndexScanError> {
-    info!("fetch tuple");
-
     let dscan = scan as *mut IndexScanDesc;
 
     if let Some(clear) = (*slot)
@@ -87,8 +85,6 @@ async unsafe fn index_fetch_tuple(
             (*slot).tts_tid = *tid;
             pg_sys::ExecStoreVirtualTuple(slot);
 
-            info!("got tid {:?}", row_number);
-
             Ok(true)
         }
         _ => Err(IndexScanError::DuplicateBatch(row_number)),
@@ -109,8 +105,6 @@ async fn index_build_range_scan(
     callback_state: *mut c_void,
     _scan: pg_sys::TableScanDesc,
 ) -> Result<f64, IndexScanError> {
-    info!("range scan");
-
     if start_blockno != 0 || numblocks != pg_sys::InvalidBlockNumber {
         return Err(IndexScanError::IndexNotSupported);
     }
@@ -215,14 +209,10 @@ pub extern "C" fn deltalake_index_fetch_begin(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {
-    info!("index reset");
-}
+pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {}
 
 #[pg_guard]
-pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {
-    info!("index end");
-}
+pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {}
 
 #[pg_guard]
 pub extern "C" fn deltalake_index_fetch_tuple(
@@ -234,7 +224,11 @@ pub extern "C" fn deltalake_index_fetch_tuple(
     all_dead: *mut bool,
 ) -> bool {
     unsafe {
-        info!("snapshot {:?}", (*snapshot).snapshot_type);
+        // Tech debt: This hack forces xmax to be invalid, otherwise Postgres will think that
+        // another transaction is updating this tuple and index_fetch_tuple will be
+        // called indefinitely
+        (*snapshot).xmin = 0;
+        (*snapshot).xmax = 0;
 
         *call_again = false;
 
@@ -254,7 +248,6 @@ pub extern "C" fn deltalake_index_delete_tuples(
     _rel: pg_sys::Relation,
     _delstate: *mut pg_sys::TM_IndexDeleteOp,
 ) -> pg_sys::TransactionId {
-    info!("delete tuple");
     0
 }
 
@@ -298,7 +291,6 @@ pub extern "C" fn deltalake_index_validate_scan(
     _snapshot: pg_sys::Snapshot,
     _state: *mut pg_sys::ValidateIndexState,
 ) {
-    info!("validate scan");
 }
 
 #[derive(Error, Debug)]

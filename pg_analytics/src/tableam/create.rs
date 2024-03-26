@@ -14,7 +14,6 @@ use crate::datafusion::session::Session;
 use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::errors::{NotSupported, ParadeError};
 use crate::storage::metadata::PgMetadata;
-use crate::storage::tid::FIRST_ROW_NUMBER;
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
@@ -27,12 +26,12 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
 ) {
     unsafe {
         let srel = pg_sys::RelationCreateStorage(*newrnode, persistence);
+        rel.init_metadata(srel);
+
         *freezeXid = pg_sys::RecentXmin;
         *minmulti = pg_sys::GetOldestMultiXactId();
         pg_sys::smgrclose(srel);
     }
-
-    rel.write_next_row_number(FIRST_ROW_NUMBER);
 
     task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
@@ -50,12 +49,12 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
 ) {
     unsafe {
         let srel = pg_sys::RelationCreateStorage(*newrlocator, persistence, true);
+        rel.init_metadata(srel);
+
         *freezeXid = pg_sys::RecentXmin;
         *minmulti = pg_sys::GetOldestMultiXactId();
         pg_sys::smgrclose(srel);
     }
-
-    rel.write_next_row_number(FIRST_ROW_NUMBER);
 
     task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
@@ -108,6 +107,7 @@ async fn create_deltalake_file_node(
             )?;
 
             let schema_name = pg_relation.namespace().to_string();
+
             Session::with_tables(&schema_name, |mut tables| {
                 Box::pin(async move {
                     let arrow_schema = Arc::new(ArrowSchema::try_merge(vec![
@@ -120,7 +120,6 @@ async fn create_deltalake_file_node(
                     ])?);
 
                     tables.create(&table_path, arrow_schema.clone()).await?;
-
                     // Write an empty batch to the table so that a Parquet file is written
                     let batch = RecordBatch::new_empty(arrow_schema.clone());
                     let mut delta_table = tables.alter_schema(&table_path, batch).await?;

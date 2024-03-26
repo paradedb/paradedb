@@ -25,7 +25,7 @@ use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
 
-pub static RESERVED_TID_FIELD: &str = "parade_tid";
+pub static RESERVED_TID_FIELD: &str = "parade_ctid";
 
 const BYTES_IN_MB: i64 = 1_048_576;
 

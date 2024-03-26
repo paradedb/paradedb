@@ -58,6 +58,6 @@ jobs:
         run: cat benchmark_${{ steps.system.outputs.system_to_benchmark }}.csv
 
       - name: Notify Slack on Failure
-        if: failure()
+        if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_search Workflow failed on ${{ steps.system.outputs.system_to_benchmark }} -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -64,7 +64,10 @@ async unsafe fn index_fetch_tuple(
             let batch = &mut batches[0];
 
             if batch.num_rows() > 1 {
-                return Err(IndexScanError::DuplicateRowNumber(row_number));
+                return Err(IndexScanError::DuplicateRowNumber(
+                    batch.num_rows(),
+                    row_number,
+                ));
             }
 
             batch.remove_tid_column()?;
@@ -224,7 +227,7 @@ pub extern "C" fn deltalake_index_fetch_tuple(
     all_dead: *mut bool,
 ) -> bool {
     unsafe {
-        // Tech debt: This hack forces xmax to be invalid, otherwise Postgres will think that
+        // Tech debt: This hack forces xmin/xmax to be invalid, otherwise Postgres will think that
         // another transaction is updating this tuple and index_fetch_tuple will be
         // called indefinitely
         (*snapshot).xmin = 0;
@@ -313,10 +316,10 @@ pub enum IndexScanError {
     #[error(transparent)]
     TIDError(#[from] TIDError),
 
-    #[error("More than one row with row number {0} was found")]
-    DuplicateRowNumber(i64),
+    #[error("Unexpected index scan error: {0} rows with row number {1} was found")]
+    DuplicateRowNumber(usize, i64),
 
-    #[error("More than one batch with row number {0} was found")]
+    #[error("Unexpected index scan error: More than one batch with row number {0} was found")]
     DuplicateBatch(i64),
 
     #[error("This index type is not suited for column-oriented data")]

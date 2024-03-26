@@ -22,11 +22,13 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
     rel: pg_sys::Relation,
     newrnode: *const pg_sys::RelFileNode,
     persistence: c_char,
-    _freezeXid: *mut pg_sys::TransactionId,
-    _minmulti: *mut pg_sys::MultiXactId,
+    freezeXid: *mut pg_sys::TransactionId,
+    minmulti: *mut pg_sys::MultiXactId,
 ) {
     unsafe {
         let srel = pg_sys::RelationCreateStorage(*newrnode, persistence);
+        *freezeXid = pg_sys::RecentXmin;
+        *minmulti = pg_sys::GetOldestMultiXactId();
         pg_sys::smgrclose(srel);
     }
 
@@ -43,11 +45,13 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
     rel: pg_sys::Relation,
     newrlocator: *const pg_sys::RelFileLocator,
     persistence: c_char,
-    _freezeXid: *mut pg_sys::TransactionId,
-    _minmulti: *mut pg_sys::MultiXactId,
+    freezeXid: *mut pg_sys::TransactionId,
+    minmulti: *mut pg_sys::MultiXactId,
 ) {
     unsafe {
         let srel = pg_sys::RelationCreateStorage(*newrlocator, persistence, true);
+        *freezeXid = pg_sys::RecentXmin;
+        *minmulti = pg_sys::GetOldestMultiXactId();
         pg_sys::smgrclose(srel);
     }
 

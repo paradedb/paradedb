@@ -152,7 +152,7 @@ async unsafe fn insert_tuples(
             let next_row_number = rel.read_next_row_number();
 
             (*tuple_table_slot).tts_tid =
-                pg_sys::ItemPointerData::try_from(RowNumber(next_row_number)).unwrap();
+                pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
 
             row_numbers.push(next_row_number);
             rel.write_next_row_number(next_row_number + 1);

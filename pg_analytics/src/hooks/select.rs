@@ -7,7 +7,7 @@ use deltalake::datafusion::prelude::SessionContext;
 use pgrx::*;
 use thiserror::Error;
 
-use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
+use crate::datafusion::batch::RecordBatchError;
 use crate::datafusion::session::Session;
 use crate::errors::ParadeError;
 use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
@@ -33,9 +33,6 @@ pub fn write_batches_to_slots(
             .ok_or(SelectHookError::ReceiveSlotNotFound)?;
 
         for batch in batches.iter_mut() {
-            let tids = batch.remove_tid_column()?;
-            let tid_array = tids.as_primitive::<Int64Type>();
-
             // Convert the tuple_desc target types to the ones corresponding to the DataFusion column types
             let tuple_attrs = (*query_desc.tupDesc).attrs.as_mut_ptr();
             for (col_index, _) in tuple_desc.iter().enumerate() {
@@ -52,9 +49,6 @@ pub fn write_batches_to_slots(
                     pg_sys::MakeTupleTableSlot(query_desc.tupDesc, &pg_sys::TTSOpsVirtual);
 
                 pg_sys::ExecStoreVirtualTuple(tuple_table_slot);
-
-                let tid = pg_sys::ItemPointerData::try_from(RowNumber(tid_array.value(row_index)))?;
-                (*tuple_table_slot).tts_tid = tid;
 
                 for (col_index, _) in tuple_desc.iter().enumerate() {
                     let column = batch.column(col_index);
@@ -119,9 +113,6 @@ pub enum SelectHookError {
 
     #[error(transparent)]
     RecordBatchError(#[from] RecordBatchError),
-
-    #[error(transparent)]
-    TIDError(#[from] TIDError),
 
     #[error("Unexpected error: rShutdown not found")]
     RShutdownNotFound,

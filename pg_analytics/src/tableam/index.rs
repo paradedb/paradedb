@@ -17,7 +17,6 @@ use crate::datafusion::session::Session;
 use crate::datafusion::table::RESERVED_TID_FIELD;
 use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;
-use crate::types::datum::GetDatum;
 
 struct IndexScanDesc {
     rs_base: pg_sys::IndexFetchTableData,
@@ -69,22 +68,22 @@ async unsafe fn index_fetch_tuple(
             batch.remove_tid_column()?;
 
             for col_index in 0..batch.num_columns() {
-                let column = batch.column(col_index);
-                let tts_value = (*slot).tts_values.add(col_index);
-                let tts_isnull = (*slot).tts_isnull.add(col_index);
+                let _column = batch.column(col_index);
+                let _tts_value = (*slot).tts_values.add(col_index);
+                let _tts_isnull = (*slot).tts_isnull.add(col_index);
 
-                if let Some(datum) = column.get_datum(0)? {
-                    *tts_value = datum;
-                } else {
-                    *tts_isnull = true;
-                }
+                // if let Some(datum) = column.get_datum(0)? {
+                //     *tts_value = datum;
+                // } else {
+                //     *tts_isnull = true;
+                // }
             }
 
             (*slot).tts_tableOid = oid;
             (*slot).tts_tid = *tid;
             pg_sys::ExecStoreVirtualTuple(slot);
 
-            Ok(true)
+            Ok(false)
         }
         _ => Err(IndexScanError::DuplicateBatch(row_number)),
     }

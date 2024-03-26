@@ -199,24 +199,24 @@ pub extern "C" fn deltalake_scan_getnextslot_tidrange(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_parallelscan_estimate(rel: pg_sys::Relation) -> pg_sys::Size {
-    unsafe { pg_sys::table_block_parallelscan_estimate(rel) }
+pub extern "C" fn deltalake_parallelscan_estimate(_rel: pg_sys::Relation) -> pg_sys::Size {
+    panic!("{}", TableScanError::ParallelScanNotSupported.to_string());
 }
 
 #[pg_guard]
 pub extern "C" fn deltalake_parallelscan_initialize(
-    rel: pg_sys::Relation,
-    pscan: pg_sys::ParallelTableScanDesc,
+    _rel: pg_sys::Relation,
+    _pscan: pg_sys::ParallelTableScanDesc,
 ) -> pg_sys::Size {
-    unsafe { pg_sys::table_block_parallelscan_initialize(rel, pscan) }
+    panic!("{}", TableScanError::ParallelScanNotSupported.to_string());
 }
 
 #[pg_guard]
 pub extern "C" fn deltalake_parallelscan_reinitialize(
-    rel: pg_sys::Relation,
-    pscan: pg_sys::ParallelTableScanDesc,
+    _rel: pg_sys::Relation,
+    _pscan: pg_sys::ParallelTableScanDesc,
 ) {
-    unsafe { pg_sys::table_block_parallelscan_reinitialize(rel, pscan) }
+    panic!("{}", TableScanError::ParallelScanNotSupported.to_string());
 }
 
 #[pg_guard]
@@ -225,34 +225,28 @@ pub extern "C" fn deltalake_scan_analyze_next_block(
     _blockno: pg_sys::BlockNumber,
     _bstrategy: pg_sys::BufferAccessStrategy,
 ) -> bool {
-    false
+    true
 }
 
 #[pg_guard]
 pub extern "C" fn deltalake_scan_analyze_next_tuple(
-    _scan: pg_sys::TableScanDesc,
+    scan: pg_sys::TableScanDesc,
     _OldestXmin: pg_sys::TransactionId,
-    _liverows: *mut f64,
+    liverows: *mut f64,
     _deadrows: *mut f64,
-    _slot: *mut pg_sys::TupleTableSlot,
+    slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    false
-}
+    unsafe {
+        let next_slot = task::block_on(scan_getnextslot(scan, slot)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
 
-#[pg_guard]
-pub extern "C" fn deltalake_scan_bitmap_next_block(
-    _scan: pg_sys::TableScanDesc,
-    _tbmres: *mut pg_sys::TBMIterateResult,
-) -> bool {
-    false
-}
+        if next_slot {
+            (*liverows) += 1.0;
+            return true;
+        }
+    }
 
-#[pg_guard]
-pub extern "C" fn deltalake_scan_bitmap_next_tuple(
-    _scan: pg_sys::TableScanDesc,
-    _tbmres: *mut pg_sys::TBMIterateResult,
-    _slot: *mut pg_sys::TupleTableSlot,
-) -> bool {
     false
 }
 
@@ -261,7 +255,10 @@ pub extern "C" fn deltalake_scan_sample_next_block(
     _scan: pg_sys::TableScanDesc,
     _scanstate: *mut pg_sys::SampleScanState,
 ) -> bool {
-    false
+    panic!(
+        "{}",
+        TableScanError::SampleNextBlockNotSupported.to_string()
+    );
 }
 
 #[pg_guard]
@@ -270,7 +267,10 @@ pub extern "C" fn deltalake_scan_sample_next_tuple(
     _scanstate: *mut pg_sys::SampleScanState,
     _slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    false
+    panic!(
+        "{}",
+        TableScanError::SampleNextTupleNotSupported.to_string()
+    );
 }
 
 #[pg_guard]
@@ -280,6 +280,7 @@ pub extern "C" fn deltalake_tuple_fetch_row_version(
     _snapshot: pg_sys::Snapshot,
     _slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
+    info!("fetch row version");
     false
 }
 
@@ -288,7 +289,7 @@ pub extern "C" fn deltalake_tuple_tid_valid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) -> bool {
-    false
+    panic!("{}", TableScanError::TIDValidNotSupported.to_string());
 }
 
 #[pg_guard]
@@ -296,6 +297,7 @@ pub extern "C" fn deltalake_tuple_get_latest_tid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) {
+    panic!("{}", TableScanError::LatestTIDNotSupported.to_string());
 }
 
 #[pg_guard]
@@ -304,6 +306,7 @@ pub extern "C" fn deltalake_tuple_satisfies_snapshot(
     _slot: *mut pg_sys::TupleTableSlot,
     _snapshot: pg_sys::Snapshot,
 ) -> bool {
+    info!("satisfies snapshot");
     false
 }
 
@@ -314,6 +317,7 @@ pub extern "C" fn deltalake_tuple_complete_speculative(
     _specToken: pg_sys::uint32,
     _succeeded: bool,
 ) {
+    info!("complete speculative");
 }
 
 #[pg_guard]
@@ -328,6 +332,7 @@ pub extern "C" fn deltalake_tuple_lock(
     _flags: pg_sys::uint8,
     _tmfd: *mut pg_sys::TM_FailureData,
 ) -> pg_sys::TM_Result {
+    info!("tuple lock");
     0
 }
 
@@ -345,11 +350,26 @@ pub enum TableScanError {
     #[error(transparent)]
     TIDError(#[from] TIDError),
 
+    #[error("Parallel scans are not implemented")]
+    ParallelScanNotSupported,
+
     #[error("TupleTableSlotOps not found in table scan")]
     SlotOpsNotFound,
 
     #[error("Unexpected error: No RecordBatch found in table scan")]
     RecordBatchNotFound,
+
+    #[error("sample_next_block not implemented")]
+    SampleNextBlockNotSupported,
+
+    #[error("sample_next_tuple not implemented")]
+    SampleNextTupleNotSupported,
+
+    #[error("tuple_tid_valid not implemented")]
+    TIDValidNotSupported,
+
+    #[error("get_latest_tid not implemented")]
+    LatestTIDNotSupported,
 
     #[error("Unexpected error: No TID found in table scan")]
     TIDNotFound,

@@ -2,7 +2,12 @@ use async_std::task;
 use deltalake::datafusion::logical_expr::{DdlStatement, LogicalPlan};
 use pgrx::*;
 use std::ffi::CStr;
+use thiserror::Error;
 
+use super::handler::IsColumn;
+use super::insert::insert;
+use super::query::Query;
+use super::select::{select, SelectHookError};
 use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::datafusion::plan::LogicalPlanDetails;
 use crate::datafusion::query::QueryString;
@@ -25,7 +30,7 @@ pub fn executor_run(
         count: u64,
         execute_once: bool,
     ) -> HookResult<()>,
-) -> Result<(), ParadeError> {
+) -> Result<(), ExecutorHookError> {
     if needs_commit()? {
         task::block_on(commit_writer())?;
     }
@@ -105,8 +110,24 @@ pub fn executor_run(
                     prev_hook(query_desc, direction, count, execute_once);
                 }
             }
+            pg_sys::CmdType_CMD_UPDATE => return Err(ExecutorHookError::UpdateNotSupported),
+            _ => {
+                prev_hook(query_desc, direction, count, execute_once);
+            }
+        };
 
-            Ok(())
-        }
+        Ok(())
     }
+}
+
+#[derive(Error, Debug)]
+pub enum ExecutorHookError {
+    #[error(transparent)]
+    ParadeError(#[from] ParadeError),
+
+    #[error(transparent)]
+    SelectHookError(#[from] SelectHookError),
+
+    #[error("UPDATE is not supported because Parquet tables are append only.")]
+    UpdateNotSupported,
 }

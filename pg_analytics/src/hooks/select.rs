@@ -1,59 +1,63 @@
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
+use deltalake::arrow::datatypes::Int64Type;
+use deltalake::datafusion::common::arrow::array::AsArray;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::prelude::SessionContext;
 use pgrx::*;
+use shared::postgres::tid::{RowNumber, TIDError};
+use thiserror::Error;
 
+use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::session::Session;
-use crate::errors::{NotFound, ParadeError};
-use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
+use crate::errors::ParadeError;
+use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
 use crate::types::datum::GetDatum;
 
 pub fn write_batches_to_slots(
     mut query_desc: PgBox<pg_sys::QueryDesc>,
     batches: Vec<RecordBatch>,
-) -> Result<(), ParadeError> {
+) -> Result<(), SelectHookError> {
     // Convert the DataFusion batches to Postgres tuples and send them to the destination
     unsafe {
         let estate = query_desc.estate;
         (*estate).es_processed = 0;
 
         let dest = query_desc.dest;
-        let startup = (*dest)
-            .rStartup
-            .ok_or(NotFound::Value("rStartup".to_string()))?;
+        let startup = (*dest).rStartup.ok_or(SelectHookError::RStartupNotFound)?;
 
         startup(dest, query_desc.operation as i32, query_desc.tupDesc);
 
         let tuple_desc = PgTupleDesc::from_pg_unchecked(query_desc.tupDesc);
         let receive = (*dest)
             .receiveSlot
-            .ok_or(NotFound::Value("receive".to_string()))?;
+            .ok_or(SelectHookError::ReceiveSlotNotFound)?;
 
-        for (row_number, recordbatch) in batches.iter().enumerate() {
+        for batch in batches.iter_mut() {
+            let tids = batch.remove_tid_column()?;
+            let tid_array = tids.as_primitive::<Int64Type>();
+
             // Convert the tuple_desc target types to the ones corresponding to the DataFusion column types
             let tuple_attrs = (*query_desc.tupDesc).attrs.as_mut_ptr();
-            for (col_index, _attr) in tuple_desc.iter().enumerate() {
+            for (col_index, _) in tuple_desc.iter().enumerate() {
                 let PgAttribute(typid, PgTypeMod(typmod)) =
-                    ArrowDataType(recordbatch.column(col_index).data_type().clone()).try_into()?;
+                    ArrowDataType(batch.column(col_index).data_type().clone()).try_into()?;
 
                 let tuple_attr = tuple_attrs.add(col_index);
                 (*tuple_attr).atttypid = typid.value();
                 (*tuple_attr).atttypmod = typmod;
             }
 
-            for row_index in 0..recordbatch.num_rows() {
+            for row_index in 0..batch.num_rows() {
                 let tuple_table_slot =
                     pg_sys::MakeTupleTableSlot(query_desc.tupDesc, &pg_sys::TTSOpsVirtual);
 
                 pg_sys::ExecStoreVirtualTuple(tuple_table_slot);
 
-                // Assign TID to the tuple table slot
-                let mut tid = pg_sys::ItemPointerData::default();
-                u64_to_item_pointer(row_number as u64, &mut tid);
+                let tid = pg_sys::ItemPointerData::try_from(RowNumber(tid_array.value(row_index)))?;
                 (*tuple_table_slot).tts_tid = tid;
 
                 for (col_index, _) in tuple_desc.iter().enumerate() {
-                    let column = recordbatch.column(col_index);
+                    let column = batch.column(col_index);
                     let tts_value = (*tuple_table_slot).tts_values.add(col_index);
                     let tts_isnull = (*tuple_table_slot).tts_isnull.add(col_index);
 
@@ -75,7 +79,7 @@ pub fn write_batches_to_slots(
 
         let shutdown = (*dest)
             .rShutdown
-            .ok_or(NotFound::Value("rShutdown".to_string()))?;
+            .ok_or(SelectHookError::RShutdownNotFound)?;
         shutdown(dest);
     }
 
@@ -86,7 +90,7 @@ pub fn get_datafusion_batches(
     query_desc: PgBox<pg_sys::QueryDesc>,
     logical_plan: LogicalPlan,
     single_thread: bool,
-) -> Result<(), ParadeError> {
+) -> Result<(), SelectHookError> {
     // Execute the logical plan and collect the resulting batches
     let batches = Session::with_session_context(|context| {
         Box::pin(async move {
@@ -103,4 +107,28 @@ pub fn get_datafusion_batches(
     })?;
 
     write_batches_to_slots(query_desc, batches)
+}
+
+#[derive(Error, Debug)]
+pub enum SelectHookError {
+    #[error(transparent)]
+    DataTypeError(#[from] DataTypeError),
+
+    #[error(transparent)]
+    ParadeError(#[from] ParadeError),
+
+    #[error(transparent)]
+    RecordBatchError(#[from] RecordBatchError),
+
+    #[error(transparent)]
+    TIDError(#[from] TIDError),
+
+    #[error("Unexpected error: rShutdown not found")]
+    RShutdownNotFound,
+
+    #[error("Unexpected error: receiveSlot not found")]
+    ReceiveSlotNotFound,
+
+    #[error("Unexpected error: rStartup not found")]
+    RStartupNotFound,
 }

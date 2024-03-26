@@ -1,10 +1,10 @@
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
+use crate::storage::tid::{RowNumber, TIDError};
 use deltalake::arrow::datatypes::Int64Type;
 use deltalake::datafusion::common::arrow::array::AsArray;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::prelude::SessionContext;
 use pgrx::*;
-use shared::postgres::tid::{RowNumber, TIDError};
 use thiserror::Error;
 
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};

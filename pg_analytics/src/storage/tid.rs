@@ -3,6 +3,7 @@ use thiserror::Error;
 
 pub static TUPLES_PER_PAGE: u16 = pg_sys::MaxOffsetNumber - pg_sys::FirstOffsetNumber;
 pub static FIRST_ROW_NUMBER: i64 = 1;
+pub static FIRST_BLOCK_NUMBER: u32 = 0;
 
 #[derive(Copy, Clone, Debug)]
 pub struct RowNumber(pub i64);

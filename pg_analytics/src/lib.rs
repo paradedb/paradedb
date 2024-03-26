@@ -5,6 +5,7 @@ mod errors;
 mod federation;
 mod guc;
 mod hooks;
+mod storage;
 mod tableam;
 mod types;
 

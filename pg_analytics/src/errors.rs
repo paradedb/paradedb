@@ -1,8 +1,8 @@
+use crate::storage::tid::TIDError;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use pgrx::*;
-use shared::postgres::tid::TIDError;
 use shared::postgres::transaction::TransactionError;
 use std::ffi::{IntoStringError, NulError, OsString};
 use std::num::ParseIntError;

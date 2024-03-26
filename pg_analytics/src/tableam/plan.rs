@@ -4,7 +4,7 @@ use pgrx::*;
 use std::ptr::addr_of_mut;
 use thiserror::Error;
 
-use super::create::{TableMetadata, FIRST_BLOCK_NUMBER};
+use crate::storage::metadata::PgMetadata;
 
 #[pg_guard]
 pub extern "C" fn deltalake_relation_size(
@@ -65,19 +65,7 @@ pub extern "C" fn deltalake_relation_estimate_size(
         }
 
         // Set tuple count
-        let buffer = pg_sys::ReadBufferExtended(
-            rel,
-            pg_sys::ForkNumber_MAIN_FORKNUM,
-            FIRST_BLOCK_NUMBER,
-            pg_sys::ReadBufferMode_RBM_NORMAL,
-            std::ptr::null_mut(),
-        );
-
-        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
-        let page = pg_sys::BufferGetPage(buffer);
-        let metadata = pg_sys::PageGetSpecialPointer(page) as *mut TableMetadata;
-        *tuples = (*metadata).max_row_number as f64;
-        pg_sys::UnlockReleaseBuffer(buffer);
+        *tuples = (rel.read_next_row_number() - 1) as f64;
 
         // Set page count and visibility
         *pages = pg_sys::smgrnblocks((*rel).rd_smgr, pg_sys::ForkNumber_MAIN_FORKNUM);

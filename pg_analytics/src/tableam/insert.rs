@@ -1,3 +1,4 @@
+use crate::storage::tid::RowNumber;
 use async_std::task;
 use core::ffi::c_int;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
@@ -12,7 +13,7 @@ use crate::datafusion::commit::commit_writer;
 use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::datafusion::writer::Writer;
 use crate::errors::{NotSupported, ParadeError};
-use crate::tableam::{TableMetadata, FIRST_BLOCK_NUMBER};
+use crate::storage::metadata::PgMetadata;
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::PgTypeMod;
 
@@ -148,10 +149,13 @@ async unsafe fn insert_tuples(
     for row_idx in 0..nslots {
         unsafe {
             let tuple_table_slot = *slots.add(row_idx);
-            let row_number = next_row_number(rel);
+            let next_row_number = rel.read_next_row_number();
+
             (*tuple_table_slot).tts_tid =
-                pg_sys::ItemPointerData::try_from(RowNumber(row_number)).unwrap();
-            row_numbers.push(row_number);
+                pg_sys::ItemPointerData::try_from(RowNumber(next_row_number)).unwrap();
+
+            row_numbers.push(next_row_number);
+            rel.write_next_row_number(next_row_number + 1);
         }
     }
 
@@ -175,28 +179,4 @@ async unsafe fn insert_tuples(
     });
 
     Ok(())
-}
-
-#[inline]
-fn next_row_number(rel: pg_sys::Relation) -> i64 {
-    unsafe {
-        let buffer = pg_sys::ReadBufferExtended(
-            rel,
-            pg_sys::ForkNumber_MAIN_FORKNUM,
-            FIRST_BLOCK_NUMBER,
-            pg_sys::ReadBufferMode_RBM_NORMAL,
-            std::ptr::null_mut(),
-        );
-
-        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
-        let page = pg_sys::BufferGetPage(buffer);
-        let metadata = pg_sys::PageGetSpecialPointer(page) as *mut TableMetadata;
-        let next_row_number = (*metadata).max_row_number + 1;
-        (*metadata).max_row_number = next_row_number;
-
-        pg_sys::MarkBufferDirty(buffer);
-        pg_sys::UnlockReleaseBuffer(buffer);
-
-        next_row_number
-    }
 }

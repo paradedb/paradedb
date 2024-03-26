@@ -1,3 +1,4 @@
+use crate::storage::tid::{RowNumber, TIDError};
 use async_std::task;
 use core::ffi::c_void;
 use deltalake::datafusion::common::DataFusionError;
@@ -6,7 +7,6 @@ use deltalake::datafusion::logical_expr::col;
 use deltalake::datafusion::logical_expr::expr::Expr;
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
-use shared::postgres::tid::{RowNumber, TIDError};
 use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
 use thiserror::Error;
@@ -16,7 +16,9 @@ use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::session::Session;
 use crate::datafusion::table::RESERVED_TID_FIELD;
 use crate::errors::ParadeError;
+
 use crate::types::datatype::DataTypeError;
+use crate::types::datum::GetDatum;
 
 struct IndexScanDesc {
     rs_base: pg_sys::IndexFetchTableData,
@@ -28,6 +30,8 @@ async unsafe fn index_fetch_tuple(
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
 ) -> Result<bool, IndexScanError> {
+    info!("fetch tuple");
+
     let dscan = scan as *mut IndexScanDesc;
 
     if let Some(clear) = (*slot)
@@ -68,22 +72,24 @@ async unsafe fn index_fetch_tuple(
             batch.remove_tid_column()?;
 
             for col_index in 0..batch.num_columns() {
-                let _column = batch.column(col_index);
-                let _tts_value = (*slot).tts_values.add(col_index);
-                let _tts_isnull = (*slot).tts_isnull.add(col_index);
+                let column = batch.column(col_index);
+                let tts_value = (*slot).tts_values.add(col_index);
+                let tts_isnull = (*slot).tts_isnull.add(col_index);
 
-                // if let Some(datum) = column.get_datum(0)? {
-                //     *tts_value = datum;
-                // } else {
-                //     *tts_isnull = true;
-                // }
+                if let Some(datum) = column.get_datum(0)? {
+                    *tts_value = datum;
+                } else {
+                    *tts_isnull = true;
+                }
             }
 
             (*slot).tts_tableOid = oid;
             (*slot).tts_tid = *tid;
             pg_sys::ExecStoreVirtualTuple(slot);
 
-            Ok(false)
+            info!("got tid {:?}", row_number);
+
+            Ok(true)
         }
         _ => Err(IndexScanError::DuplicateBatch(row_number)),
     }
@@ -103,6 +109,8 @@ async fn index_build_range_scan(
     callback_state: *mut c_void,
     _scan: pg_sys::TableScanDesc,
 ) -> Result<f64, IndexScanError> {
+    info!("range scan");
+
     if start_blockno != 0 || numblocks != pg_sys::InvalidBlockNumber {
         return Err(IndexScanError::IndexNotSupported);
     }
@@ -196,30 +204,38 @@ pub extern "C" fn deltalake_index_fetch_begin(
     rel: pg_sys::Relation,
 ) -> *mut pg_sys::IndexFetchTableData {
     unsafe {
-        PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
+        let scan = PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
             let mut scan = PgBox::<IndexScanDesc>::alloc0();
             scan.rs_base.rel = rel;
-            scan.into_pg() as *mut pg_sys::IndexFetchTableData
-        })
+            scan.into_pg()
+        });
+
+        &mut (*scan).rs_base
     }
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {}
+pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {
+    info!("index reset");
+}
 
 #[pg_guard]
-pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {}
+pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {
+    info!("index end");
+}
 
 #[pg_guard]
 pub extern "C" fn deltalake_index_fetch_tuple(
     scan: *mut pg_sys::IndexFetchTableData,
     tid: pg_sys::ItemPointer,
-    _snapshot: pg_sys::Snapshot,
+    snapshot: pg_sys::Snapshot,
     slot: *mut pg_sys::TupleTableSlot,
     call_again: *mut bool,
     all_dead: *mut bool,
 ) -> bool {
     unsafe {
+        info!("snapshot {:?}", (*snapshot).snapshot_type);
+
         *call_again = false;
 
         if !all_dead.is_null() {
@@ -238,6 +254,7 @@ pub extern "C" fn deltalake_index_delete_tuples(
     _rel: pg_sys::Relation,
     _delstate: *mut pg_sys::TM_IndexDeleteOp,
 ) -> pg_sys::TransactionId {
+    info!("delete tuple");
     0
 }
 
@@ -281,6 +298,7 @@ pub extern "C" fn deltalake_index_validate_scan(
     _snapshot: pg_sys::Snapshot,
     _state: *mut pg_sys::ValidateIndexState,
 ) {
+    info!("validate scan");
 }
 
 #[derive(Error, Debug)]

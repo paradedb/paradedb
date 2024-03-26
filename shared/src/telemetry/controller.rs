@@ -1,7 +1,8 @@
-use pgrx::pg_sys::{PG_MAJORVERSION_NUM, PG_MINORVERSION_NUM};
+use chrono::Utc;
+use pgrx::pg_sys::{PG_VERSION, PG_VERSION_STR};
 use std::{
     thread,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant},
 };
 
 use super::{
@@ -34,15 +35,24 @@ impl TelemetrySender {
             return Ok(());
         }
         let uuid = self.directory_store.extension_uuid()?;
+        let path = self.directory_store.extension_path()?;
         let os_info = os_info::get();
         let event = TelemetryEvent::Deployment {
-            timestamp: SystemTime::now(),
+            timestamp: Utc::now().to_rfc3339(),
             arch: os_info.architecture().unwrap_or_default().to_string(),
             extension_name: self.config_store.extension_name()?,
             extension_version: env!("CARGO_PKG_VERSION").to_string(),
+            extension_path: path,
             os_type: os_info.os_type().to_string(),
             os_version: os_info.version().to_string(),
-            postgres_version: format!("{PG_MAJORVERSION_NUM}.{PG_MINORVERSION_NUM}"),
+            postgres_version: std::str::from_utf8(PG_VERSION)
+                .map_err(TelemetryError::VersionInfo)?
+                .trim_end_matches('\0')
+                .to_owned(),
+            postgres_version_details: std::str::from_utf8(PG_VERSION_STR)
+                .map_err(TelemetryError::VersionInfo)?
+                .trim_end_matches('\0')
+                .to_owned(),
         };
 
         self.send(&uuid, &event)

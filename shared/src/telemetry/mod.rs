@@ -68,4 +68,6 @@ pub enum TelemetryError {
     SpiConnectLock(String),
     #[error("could not serialize telemetry data to JSON: {0}")]
     ToJson(#[source] serde_json::Error),
+    #[error("could not parse postgres version information: {0}")]
+    VersionInfo(#[source] Utf8Error),
 }

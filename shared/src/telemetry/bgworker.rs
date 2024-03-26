@@ -180,7 +180,7 @@ impl BgWorkerTelemetryConfig {
         }
 
         // Check the GUC setting for telemetry.
-        let enabled = BackgroundWorker::transaction(|| {
+        BackgroundWorker::transaction(|| {
             match pgrx::Spi::get_one::<&str>(&format!(
                 "SHOW paradedb.{}_telemetry",
                 self.extension_name
@@ -190,9 +190,7 @@ impl BgWorkerTelemetryConfig {
                 Err(err) => Err(TelemetryError::EnabledCheck(err)),
                 _ => Ok(false),
             }
-        });
-        pgrx::log!("TELEMETRY ENABLED?: {enabled:?}");
-        enabled
+        })
     }
 }
 

@@ -46,7 +46,7 @@ impl TelemetryConnection for PosthogConnection {
             "distinct_id": uuid,
             "properties": {
                 "commit_sha": event.commit_sha(),
-                "telemetry_data": serde_json::to_value(event).map_err(|err| TelemetryError::ToJson(err))?,
+                "telemetry_data": serde_json::to_value(event).map_err(TelemetryError::ToJson)?,
             },
         });
         self.client

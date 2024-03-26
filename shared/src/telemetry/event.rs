@@ -1,18 +1,20 @@
-use std::{path::PathBuf, time::SystemTime};
+use std::path::PathBuf;
 
 use serde::Serialize;
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum TelemetryEvent {
     Deployment {
-        timestamp: SystemTime,
+        timestamp: String,
         arch: String,
         extension_name: String,
         extension_version: String,
+        extension_path: PathBuf,
         os_type: String,
         os_version: String,
         postgres_version: String,
+        postgres_version_details: String,
     },
     DirectoryStatus {
         extension_name: String,

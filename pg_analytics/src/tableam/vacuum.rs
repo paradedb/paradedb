@@ -10,6 +10,7 @@ pub extern "C" fn deltalake_relation_vacuum(
     _params: *mut pg_sys::VacuumParams,
     _bstrategy: pg_sys::BufferAccessStrategy,
 ) {
+    info!("vacuum");
 }
 
 #[pg_guard]
@@ -18,6 +19,7 @@ pub extern "C" fn deltalake_relation_copy_data(
     _rel: pg_sys::Relation,
     _newrnode: *const pg_sys::RelFileNode,
 ) {
+    info!("copy");
 }
 
 #[pg_guard]
@@ -26,6 +28,7 @@ pub extern "C" fn deltalake_relation_copy_data(
     _rel: pg_sys::Relation,
     _newrnode: *const pg_sys::RelFileLocator,
 ) {
+    info!("copy");
 }
 
 #[pg_guard]
@@ -41,4 +44,5 @@ pub extern "C" fn deltalake_relation_copy_for_cluster(
     _tups_vacuumed: *mut f64,
     _tups_recently_dead: *mut f64,
 ) {
+    info!("copy");
 }

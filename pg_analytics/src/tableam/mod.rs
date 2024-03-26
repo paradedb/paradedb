@@ -62,8 +62,8 @@ pub static mut DELTALAKE_TABLE_AM_ROUTINE: pg_sys::TableAmRoutine = pg_sys::Tabl
     relation_size: Some(deltalake_relation_size),
     relation_needs_toast_table: Some(deltalake_relation_needs_toast_table),
     relation_estimate_size: Some(deltalake_relation_estimate_size),
-    scan_bitmap_next_block: Some(deltalake_scan_bitmap_next_block),
-    scan_bitmap_next_tuple: Some(deltalake_scan_bitmap_next_tuple),
+    scan_bitmap_next_block: None,
+    scan_bitmap_next_tuple: None,
     scan_sample_next_block: Some(deltalake_scan_sample_next_block),
     scan_sample_next_tuple: Some(deltalake_scan_sample_next_tuple),
     #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]

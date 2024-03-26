@@ -62,7 +62,6 @@ pub async unsafe fn scan_getnextslot(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Result<bool, TableScanError> {
-    info!("scan");
     if let Some(clear) = (*slot)
         .tts_ops
         .as_ref()
@@ -282,7 +281,6 @@ pub extern "C" fn deltalake_tuple_fetch_row_version(
     _snapshot: pg_sys::Snapshot,
     _slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    info!("fetch row version");
     false
 }
 
@@ -308,7 +306,6 @@ pub extern "C" fn deltalake_tuple_satisfies_snapshot(
     _slot: *mut pg_sys::TupleTableSlot,
     _snapshot: pg_sys::Snapshot,
 ) -> bool {
-    info!("satisfies snapshot");
     false
 }
 
@@ -319,7 +316,6 @@ pub extern "C" fn deltalake_tuple_complete_speculative(
     _specToken: pg_sys::uint32,
     _succeeded: bool,
 ) {
-    info!("complete speculative");
 }
 
 #[pg_guard]
@@ -334,7 +330,6 @@ pub extern "C" fn deltalake_tuple_lock(
     _flags: pg_sys::uint8,
     _tmfd: *mut pg_sys::TM_FailureData,
 ) -> pg_sys::TM_Result {
-    info!("tuple lock");
     0
 }
 

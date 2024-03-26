@@ -4,13 +4,13 @@
     The ones implemented are called as part of DELETE and UPDATE operations.
 */
 
+use crate::storage::tid::{RowNumber, TIDError};
 use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;
 use deltalake::arrow::datatypes::Int64Type;
 use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBatch};
 use pgrx::*;
-use shared::postgres::tid::{RowNumber, TIDError};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -18,6 +18,7 @@ use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::DatafusionTable;
 use crate::errors::ParadeError;
+
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
@@ -61,6 +62,7 @@ pub async unsafe fn scan_getnextslot(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Result<bool, TableScanError> {
+    info!("scan");
     if let Some(clear) = (*slot)
         .tts_ops
         .as_ref()

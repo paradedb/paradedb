@@ -5,8 +5,7 @@ use deltalake::datafusion::catalog::CatalogProvider;
 use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
-use shared::postgres::tid::FIRST_ROW_NUMBER;
-use std::mem::size_of;
+
 use std::sync::Arc;
 
 use crate::datafusion::directory::ParadeDirectory;
@@ -14,12 +13,8 @@ use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::errors::{NotSupported, ParadeError};
-
-pub static FIRST_BLOCK_NUMBER: u32 = 0;
-
-pub struct TableMetadata {
-    pub max_row_number: i64,
-}
+use crate::storage::metadata::PgMetadata;
+use crate::storage::tid::FIRST_ROW_NUMBER;
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
@@ -35,9 +30,7 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
         pg_sys::smgrclose(srel);
     }
 
-    init_metadata(rel).unwrap_or_else(|err| {
-        panic!("{}", err);
-    });
+    rel.write_next_row_number(FIRST_ROW_NUMBER);
 
     task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
@@ -58,9 +51,7 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
         pg_sys::smgrclose(srel);
     }
 
-    init_metadata(rel).unwrap_or_else(|err| {
-        panic!("{}", err);
-    });
+    rel.write_next_row_number(FIRST_ROW_NUMBER);
 
     task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
@@ -136,32 +127,4 @@ async fn create_deltalake_file_node(
             })
         }
     }
-}
-
-#[inline]
-fn init_metadata(rel: pg_sys::Relation) -> Result<(), ParadeError> {
-    unsafe {
-        let buffer = pg_sys::ReadBufferExtended(
-            rel,
-            pg_sys::ForkNumber_MAIN_FORKNUM,
-            pg_sys::InvalidBlockNumber,
-            pg_sys::ReadBufferMode_RBM_NORMAL,
-            std::ptr::null_mut(),
-        );
-
-        assert!(pg_sys::BufferGetBlockNumber(buffer) == FIRST_BLOCK_NUMBER);
-
-        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
-        let page = pg_sys::BufferGetPage(buffer);
-        pg_sys::PageInit(page, pg_sys::BLCKSZ as usize, size_of::<TableMetadata>());
-
-        let _page_header = page as pg_sys::PageHeader;
-        let metadata = pg_sys::PageGetSpecialPointer(page) as *mut TableMetadata;
-        (*metadata).max_row_number = FIRST_ROW_NUMBER;
-
-        pg_sys::MarkBufferDirty(buffer);
-        pg_sys::UnlockReleaseBuffer(buffer);
-    }
-
-    Ok(())
 }

@@ -4,6 +4,7 @@ mod datafusion;
 mod errors;
 mod guc;
 mod hooks;
+mod storage;
 mod tableam;
 mod types;
 

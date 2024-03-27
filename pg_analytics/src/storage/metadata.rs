@@ -1,6 +1,8 @@
 use pgrx::*;
 use std::ffi::c_void;
 use std::mem::size_of;
+use std::ptr::addr_of_mut;
+use thiserror::Error;
 
 use super::tid::{FIRST_BLOCK_NUMBER, FIRST_ROW_NUMBER};
 
@@ -9,14 +11,38 @@ pub struct RelationMetadata {
 }
 
 pub trait PgMetadata {
-    fn read_next_row_number(self) -> i64;
-    fn write_next_row_number(self, next_row_number: i64);
-    fn init_metadata(self, smgr: pg_sys::SMgrRelation);
+    fn read_next_row_number(self) -> Result<i64, MetadataError>;
+    fn write_next_row_number(self, next_row_number: i64) -> Result<(), MetadataError>;
+    fn init_metadata(self, smgr: pg_sys::SMgrRelation) -> Result<(), MetadataError>;
 }
 
 impl PgMetadata for pg_sys::Relation {
-    fn read_next_row_number(self) -> i64 {
+    fn read_next_row_number(self) -> Result<i64, MetadataError> {
         unsafe {
+            if (*self).rd_smgr.is_null() {
+                #[cfg(feature = "pg16")]
+                pg_sys::smgrsetowner(
+                    addr_of_mut!((*self).rd_smgr),
+                    pg_sys::smgropen((*self).rd_locator, (*self).rd_backend),
+                );
+                #[cfg(any(
+                    feature = "pg12",
+                    feature = "pg13",
+                    feature = "pg14",
+                    feature = "pg15"
+                ))]
+                pg_sys::smgrsetowner(
+                    addr_of_mut!((*self).rd_smgr),
+                    pg_sys::smgropen((*self).rd_node, (*self).rd_backend),
+                );
+            }
+
+            let nblocks = pg_sys::smgrnblocks((*self).rd_smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
+
+            if nblocks == 0 {
+                return Err(MetadataError::MetadataNotFound);
+            }
+
             let buffer = pg_sys::ReadBuffer(self, FIRST_BLOCK_NUMBER);
 
             pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
@@ -25,12 +51,36 @@ impl PgMetadata for pg_sys::Relation {
             let next_row_number = (*metadata).next_row_number;
             pg_sys::UnlockReleaseBuffer(buffer);
 
-            next_row_number
+            Ok(next_row_number)
         }
     }
 
-    fn write_next_row_number(self, next_row_number: i64) {
+    fn write_next_row_number(self, next_row_number: i64) -> Result<(), MetadataError> {
         unsafe {
+            if (*self).rd_smgr.is_null() {
+                #[cfg(feature = "pg16")]
+                pg_sys::smgrsetowner(
+                    addr_of_mut!((*self).rd_smgr),
+                    pg_sys::smgropen((*self).rd_locator, (*self).rd_backend),
+                );
+                #[cfg(any(
+                    feature = "pg12",
+                    feature = "pg13",
+                    feature = "pg14",
+                    feature = "pg15"
+                ))]
+                pg_sys::smgrsetowner(
+                    addr_of_mut!((*self).rd_smgr),
+                    pg_sys::smgropen((*self).rd_node, (*self).rd_backend),
+                );
+            }
+
+            let nblocks = pg_sys::smgrnblocks((*self).rd_smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
+
+            if nblocks == 0 {
+                return Err(MetadataError::MetadataAlreadyExists(nblocks));
+            }
+
             let buffer = pg_sys::ReadBuffer(self, FIRST_BLOCK_NUMBER);
             let state = pg_sys::GenericXLogStart(self);
 
@@ -46,33 +96,45 @@ impl PgMetadata for pg_sys::Relation {
 
             pg_sys::GenericXLogFinish(state);
             pg_sys::UnlockReleaseBuffer(buffer);
+
+            Ok(())
         }
     }
 
-    fn init_metadata(self, smgr: pg_sys::SMgrRelation) {
+    fn init_metadata(self, smgr: pg_sys::SMgrRelation) -> Result<(), MetadataError> {
         unsafe {
-            let mut buffer = pg_sys::ReadBufferExtended(
-                self,
-                pg_sys::ForkNumber_MAIN_FORKNUM,
-                pg_sys::InvalidBlockNumber,
-                pg_sys::ReadBufferMode_RBM_NORMAL,
-                std::ptr::null_mut(),
-            );
+            let nblocks = pg_sys::smgrnblocks(smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
 
-            if pg_sys::BufferGetBlockNumber(buffer) != FIRST_BLOCK_NUMBER {
-                buffer = pg_sys::ReadBuffer(self, FIRST_BLOCK_NUMBER);
+            if nblocks > 0 {
+                return Err(MetadataError::MetadataAlreadyExists(nblocks));
             }
 
-            let state = pg_sys::GenericXLogStart(self);
-
-            pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
-            let page = pg_sys::GenericXLogRegisterBuffer(
-                state,
-                buffer,
-                pg_sys::GENERIC_XLOG_FULL_IMAGE as i32,
-            );
+            let mut block: pg_sys::PGAlignedBlock = Default::default();
+            let page = block.data.as_mut_ptr();
 
             pg_sys::PageInit(page, pg_sys::BLCKSZ as usize, size_of::<RelationMetadata>());
+
+            let metadata = pg_sys::PageGetSpecialPointer(page) as *mut RelationMetadata;
+            (*metadata).next_row_number = FIRST_ROW_NUMBER;
+
+            #[cfg(feature = "pg16")]
+            pg_sys::log_newpage(
+                addr_of_mut!((*smgr).smgr_rlocator.locator),
+                pg_sys::ForkNumber_MAIN_FORKNUM,
+                FIRST_BLOCK_NUMBER,
+                page,
+                true,
+            );
+            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+            pg_sys::log_newpage(
+                addr_of_mut!((*smgr).smgr_rnode.node),
+                pg_sys::ForkNumber_MAIN_FORKNUM,
+                FIRST_BLOCK_NUMBER,
+                page,
+                true,
+            );
+
+            pg_sys::PageSetChecksumInplace(page, FIRST_BLOCK_NUMBER);
             pg_sys::smgrextend(
                 smgr,
                 pg_sys::ForkNumber_MAIN_FORKNUM,
@@ -80,12 +142,18 @@ impl PgMetadata for pg_sys::Relation {
                 page as *const c_void,
                 true,
             );
+            pg_sys::smgrimmedsync(smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
 
-            let metadata = pg_sys::PageGetSpecialPointer(page) as *mut RelationMetadata;
-            (*metadata).next_row_number = FIRST_ROW_NUMBER;
-
-            pg_sys::GenericXLogFinish(state);
-            pg_sys::UnlockReleaseBuffer(buffer);
+            Ok(())
         }
     }
+}
+
+#[derive(Error, Debug)]
+pub enum MetadataError {
+    #[error("Unexpected error: {0} blocks already exist when creating table metadata")]
+    MetadataAlreadyExists(u32),
+
+    #[error("Unexpected error: Table metadata not found")]
+    MetadataNotFound,
 }

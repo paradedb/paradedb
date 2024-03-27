@@ -4,7 +4,42 @@ use pgrx::*;
 use std::ptr::addr_of_mut;
 use thiserror::Error;
 
-use crate::storage::metadata::PgMetadata;
+use crate::storage::metadata::{MetadataError, PgMetadata};
+
+#[inline]
+fn relation_estimate_size(
+    rel: pg_sys::Relation,
+    attr_widths: *mut pg_sys::int32,
+    pages: *mut pg_sys::BlockNumber,
+    tuples: *mut f64,
+    allvisfrac: *mut f64,
+) -> Result<(), MetadataError> {
+    unsafe {
+        if (*rel).rd_smgr.is_null() {
+            #[cfg(feature = "pg16")]
+            pg_sys::smgrsetowner(
+                addr_of_mut!((*rel).rd_smgr),
+                pg_sys::smgropen((*rel).rd_locator, (*rel).rd_backend),
+            );
+            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+            pg_sys::smgrsetowner(
+                addr_of_mut!((*rel).rd_smgr),
+                pg_sys::smgropen((*rel).rd_node, (*rel).rd_backend),
+            );
+        }
+
+        // Set tuple count
+        *tuples = (rel.read_next_row_number()? - 1) as f64;
+
+        // Set page count and visibility
+        *pages = pg_sys::smgrnblocks((*rel).rd_smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
+        *allvisfrac = 1.0;
+
+        pg_sys::get_rel_data_width(rel, attr_widths);
+    }
+
+    Ok(())
+}
 
 #[pg_guard]
 pub extern "C" fn deltalake_relation_size(
@@ -50,29 +85,9 @@ pub extern "C" fn deltalake_relation_estimate_size(
     tuples: *mut f64,
     allvisfrac: *mut f64,
 ) {
-    unsafe {
-        if (*rel).rd_smgr.is_null() {
-            #[cfg(feature = "pg16")]
-            pg_sys::smgrsetowner(
-                addr_of_mut!((*rel).rd_smgr),
-                pg_sys::smgropen((*rel).rd_locator, (*rel).rd_backend),
-            );
-            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-            pg_sys::smgrsetowner(
-                addr_of_mut!((*rel).rd_smgr),
-                pg_sys::smgropen((*rel).rd_node, (*rel).rd_backend),
-            );
-        }
-
-        // Set tuple count
-        *tuples = (rel.read_next_row_number() - 1) as f64;
-
-        // Set page count and visibility
-        *pages = pg_sys::smgrnblocks((*rel).rd_smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
-        *allvisfrac = 1.0;
-
-        pg_sys::get_rel_data_width(rel, attr_widths);
-    }
+    relation_estimate_size(rel, attr_widths, pages, tuples, allvisfrac).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }
 
 #[pg_guard]

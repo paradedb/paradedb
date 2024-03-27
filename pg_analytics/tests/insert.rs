@@ -176,7 +176,7 @@ fn insert_parquet_from_heap(mut conn: PgConnection) {
 fn insert_speculative(mut conn: PgConnection) {
     UserSessionLogsTable::setup_parquet().execute(&mut conn);
 
-    match "INSERT INTO user_session_logs (id) VALUES (1) ON CONFLICT (id) DO NOTHING"
+    match "INSERT INTO user_session_logs (id) VALUES (21) ON CONFLICT (id) DO NOTHING"
         .fetch_result::<()>(&mut conn)
     {
         Ok(_) => panic!("INSERT ... ON CONFLICT should not be supported"),

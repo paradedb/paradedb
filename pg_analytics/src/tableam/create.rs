@@ -2,26 +2,40 @@ use async_std::task;
 use core::ffi::c_char;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::CatalogProvider;
+use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
+
 use std::sync::Arc;
 
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::errors::{NotSupported, ParadeError};
+use crate::storage::metadata::PgMetadata;
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
 pub extern "C" fn deltalake_relation_set_new_filenode(
     rel: pg_sys::Relation,
-    _newrnode: *const pg_sys::RelFileNode,
+    newrnode: *const pg_sys::RelFileNode,
     persistence: c_char,
-    _freezeXid: *mut pg_sys::TransactionId,
-    _minmulti: *mut pg_sys::MultiXactId,
+    freezeXid: *mut pg_sys::TransactionId,
+    minmulti: *mut pg_sys::MultiXactId,
 ) {
-    task::block_on(create_file_node(rel, persistence)).unwrap_or_else(|err| {
+    unsafe {
+        let smgr = pg_sys::RelationCreateStorage(*newrnode, persistence);
+        rel.init_metadata(smgr).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+
+        *freezeXid = pg_sys::RecentXmin;
+        *minmulti = pg_sys::GetOldestMultiXactId();
+        pg_sys::smgrclose(smgr);
+    }
+
+    task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
@@ -30,18 +44,32 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
 #[cfg(feature = "pg16")]
 pub extern "C" fn deltalake_relation_set_new_filelocator(
     rel: pg_sys::Relation,
-    _newrlocator: *const pg_sys::RelFileLocator,
+    newrlocator: *const pg_sys::RelFileLocator,
     persistence: c_char,
-    _freezeXid: *mut pg_sys::TransactionId,
-    _minmulti: *mut pg_sys::MultiXactId,
+    freezeXid: *mut pg_sys::TransactionId,
+    minmulti: *mut pg_sys::MultiXactId,
 ) {
-    task::block_on(create_file_node(rel, persistence)).unwrap_or_else(|err| {
+    unsafe {
+        let smgr = pg_sys::RelationCreateStorage(*newrlocator, persistence, true);
+        rel.init_metadata(smgr).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+
+        *freezeXid = pg_sys::RecentXmin;
+        *minmulti = pg_sys::GetOldestMultiXactId();
+        pg_sys::smgrclose(smgr);
+    }
+
+    task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }
 
 #[inline]
-async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<(), ParadeError> {
+async fn create_deltalake_file_node(
+    rel: pg_sys::Relation,
+    persistence: c_char,
+) -> Result<(), ParadeError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 
     match persistence as u8 {
@@ -50,7 +78,6 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
             let table_name = pg_relation.name().to_string();
             let schema_name = pg_relation.namespace().to_string();
             let table_path = pg_relation.table_path()?;
-            let arrow_schema = pg_relation.arrow_schema()?;
             let catalog_name = Session::catalog_name()?;
 
             Session::with_catalog(|catalog| {
@@ -84,12 +111,19 @@ async fn create_file_node(rel: pg_sys::Relation, persistence: c_char) -> Result<
             )?;
 
             let schema_name = pg_relation.namespace().to_string();
+
             Session::with_tables(&schema_name, |mut tables| {
                 Box::pin(async move {
-                    tables
-                        .create(&table_path, pg_relation.arrow_schema()?)
-                        .await?;
+                    let arrow_schema = Arc::new(ArrowSchema::try_merge(vec![
+                        pg_relation.arrow_schema()?,
+                        ArrowSchema::new(vec![Field::new(
+                            RESERVED_TID_FIELD,
+                            DataType::Int64,
+                            false,
+                        )]),
+                    ])?);
 
+                    tables.create(&table_path, arrow_schema.clone()).await?;
                     // Write an empty batch to the table so that a Parquet file is written
                     let batch = RecordBatch::new_empty(arrow_schema.clone());
                     let mut delta_table = tables.alter_schema(&table_path, batch).await?;

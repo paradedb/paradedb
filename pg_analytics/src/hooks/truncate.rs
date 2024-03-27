@@ -1,7 +1,10 @@
+use deltalake::datafusion::arrow::record_batch::RecordBatch;
+use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use pgrx::*;
+use std::sync::Arc;
 
 use crate::datafusion::session::Session;
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 
@@ -50,12 +53,23 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
 
+        pg_sys::RelationTruncate(relation, 0);
         pg_sys::RelationClose(relation);
 
         Session::with_tables(schema_name, |mut tables| {
             Box::pin(async move {
-                let (delta_table, _) = tables.delete(&table_path, None).await?;
+                let pg_relation = PgRelation::from_pg(relation);
+                let _ = tables.delete(&table_path, None).await?;
 
+                let arrow_schema = Arc::new(ArrowSchema::try_merge(vec![
+                    pg_relation.arrow_schema()?,
+                    ArrowSchema::new(vec![Field::new(RESERVED_TID_FIELD, DataType::Int64, false)]),
+                ])?);
+
+                let batch = RecordBatch::new_empty(arrow_schema.clone());
+                let mut delta_table = tables.alter_schema(&table_path, batch).await?;
+
+                delta_table.update().await?;
                 tables.register(&table_path, delta_table)
             })
         })?;

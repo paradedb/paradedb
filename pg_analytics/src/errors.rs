@@ -9,6 +9,8 @@ use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
+use crate::datafusion::table::RESERVED_TID_FIELD;
+use crate::storage::tid::TIDError;
 use crate::types::datatype::DataTypeError;
 
 #[derive(Error, Debug)]
@@ -29,6 +31,9 @@ pub enum ParadeError {
     NotFound(#[from] NotFound),
 
     #[error(transparent)]
+    TIDError(#[from] TIDError),
+
+    #[error(transparent)]
     TransactionError(#[from] TransactionError),
 
     #[error(transparent)]
@@ -41,6 +46,9 @@ pub enum ParadeError {
         "pg_analytics not found in shared_preload_libraries. Check your postgresql.conf file."
     )]
     SharedPreload,
+
+    #[error("Column name {} is reserved by pg_analytics", RESERVED_TID_FIELD)]
+    ReservedFieldName,
 
     #[error("{0}")]
     Generic(String),
@@ -89,9 +97,6 @@ pub enum NotSupported {
 
     #[error("Heap and parquet tables in the same query is not yet supported")]
     MixedTables,
-
-    #[error("Inserts with ON CONFLICT are not yet supported")]
-    SpeculativeInsert,
 }
 
 impl From<&str> for ParadeError {

@@ -6,7 +6,11 @@ edition = "2021"
 license = "AGPL-3.0"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "pgrx_embed_pg_analytics"
+path = "./src/bin/pgrx_embed.rs"
 
 [features]
 default = ["pg16"]
@@ -19,7 +23,7 @@ pg_test = []
 telemetry = ["shared/telemetry"]
 
 [dependencies]
-pgrx = "=0.11.2"
+pgrx = { git = "https://github.com/paradedb/pgrx.git", branch = "cshim-bindings" }
 serde = "1.0.193"
 serde_json = "1.0.107"
 shared = { path = "../shared" }
@@ -35,7 +39,7 @@ once_cell = "1.19.0"
 anyhow = "1.0.79"
 async-std = { version = "1.12.0", features = ["attributes"] }
 futures-util = "0.3.30"
-pgrx-tests = "=0.11.2"
+pgrx-tests = { git = "https://github.com/paradedb/pgrx.git", branch = "cshim-bindings" }
 pretty_assertions = "1.4.0"
 rstest = "0.18.2"
 shared = { path = "../shared", features = ["fixtures"] }

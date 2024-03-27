@@ -86,6 +86,7 @@ async unsafe fn index_fetch_tuple(
 
             (*slot).tts_tableOid = oid;
             (*slot).tts_tid = *tid;
+
             pg_sys::ExecStoreVirtualTuple(slot);
 
             Ok(true)
@@ -230,8 +231,10 @@ pub extern "C" fn deltalake_index_fetch_tuple(
         // Tech debt: This hack forces xmin/xmax to be invalid, otherwise Postgres will think that
         // another transaction is updating this tuple and index_fetch_tuple will be
         // called indefinitely
-        (*snapshot).xmin = 0;
-        (*snapshot).xmax = 0;
+        if (*snapshot).snapshot_type == pg_sys::SnapshotType_SNAPSHOT_DIRTY {
+            (*snapshot).xmin = 0;
+            (*snapshot).xmax = 0;
+        }
 
         *call_again = false;
 

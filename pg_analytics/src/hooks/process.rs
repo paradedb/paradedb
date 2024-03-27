@@ -4,6 +4,7 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
+use crate::datafusion::query::{ASTVec, QueryString};
 use crate::errors::ParadeError;
 use crate::hooks::alter::alter;
 use crate::hooks::drop::drop;
@@ -45,8 +46,8 @@ pub fn process_utility(
         let pg_plan = pstmt.clone().into_pg();
         let query = pg_plan.get_query_string(query_string)?;
 
-        let ast = match pg_plan.get_ast(&query) {
-            Ok(ast) => ast,
+        let ast = match ASTVec::try_from(QueryString(&query)) {
+            Ok(ASTVec(ast)) => ast,
             // If DataFusion can't parse the query, let Postgres handle it
             Err(_) => {
                 let _ = prev_hook(

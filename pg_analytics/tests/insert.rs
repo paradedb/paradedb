@@ -186,3 +186,21 @@ fn insert_speculative(mut conn: PgConnection) {
         ),
     };
 }
+
+#[rstest]
+fn federated_insert(mut conn: PgConnection) {
+    "CREATE TABLE u ( name TEXT, age INTEGER ) USING parquet".execute(&mut conn);
+    "CREATE TABLE v ( name TEXT, age INTEGER )".execute(&mut conn);
+    r#"
+    INSERT INTO u (name, age) VALUES
+    ('Alice', 101),
+    ('Bob', 102),
+    ('Charlie', 103),
+    ('David', 101);
+    INSERT INTO v SELECT * FROM u WHERE u.age = 101;
+    "#
+    .execute(&mut conn);
+
+    let count: (i64,) = "SELECT COUNT(*) FROM v".fetch_one(&mut conn);
+    assert_eq!(count, (2,));
+}

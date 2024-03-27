@@ -34,3 +34,25 @@ fn truncate(mut conn: PgConnection) {
     let rows: Vec<(i32, String)> = "SELECT * FROM user_session_logs".fetch(&mut conn);
     assert!(rows.is_empty())
 }
+
+#[rstest]
+fn federated_delete(mut conn: PgConnection) {
+    "CREATE TABLE u ( name TEXT, age INTEGER ) USING parquet".execute(&mut conn);
+    "CREATE TABLE v ( name TEXT )".execute(&mut conn);
+    r#"
+    INSERT INTO u (name, age) VALUES
+    ('Alice', 101),
+    ('Bob', 102),
+    ('Charlie', 103),
+    ('David', 101);
+    INSERT INTO v (name) VALUES
+    ('Alice'),
+    ('Bob');
+    "#
+    .execute(&mut conn);
+
+    match "DELETE FROM u WHERE name IN (SELECT name FROM v)".execute_result(&mut conn) {
+        Err(err) => assert!(err.to_string().contains("dml unsupported")),
+        _ => panic!("Federated DML should not be supported"),
+    };
+}

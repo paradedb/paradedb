@@ -87,11 +87,11 @@ pub enum NotSupported {
     #[error("DELETE is not supported because Parquet tables are append only.")]
     Delete,
 
-    #[error("Heap and parquet tables in the same query is not yet supported")]
-    MixedTables,
-
     #[error("Inserts with ON CONFLICT are not yet supported")]
     SpeculativeInsert,
+
+    #[error("JOIN with operation {0} not yet supported")]
+    Join(pg_sys::CmdType),
 }
 
 impl From<&str> for ParadeError {
@@ -133,5 +133,17 @@ impl From<numeric::Error> for ParadeError {
 impl From<OsString> for ParadeError {
     fn from(err: OsString) -> Self {
         ParadeError::Generic(err.to_string_lossy().to_string())
+    }
+}
+
+impl From<spi::SpiError> for ParadeError {
+    fn from(err: spi::SpiError) -> Self {
+        ParadeError::Generic(err.to_string())
+    }
+}
+
+impl From<ParadeError> for DataFusionError {
+    fn from(err: ParadeError) -> Self {
+        DataFusionError::Internal(err.to_string())
     }
 }

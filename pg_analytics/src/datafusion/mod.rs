@@ -2,6 +2,7 @@ pub mod catalog;
 pub mod commit;
 pub mod context;
 pub mod directory;
+pub mod query;
 pub mod schema;
 pub mod session;
 pub mod stream;

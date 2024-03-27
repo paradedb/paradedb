@@ -1,4 +1,5 @@
 use deltalake::datafusion::logical_expr::LogicalPlan;
+use deltalake::datafusion::prelude::SessionContext;
 use pgrx::*;
 
 use crate::datafusion::session::Session;
@@ -9,11 +10,19 @@ use crate::types::datum::GetDatum;
 pub fn select(
     mut query_desc: PgBox<pg_sys::QueryDesc>,
     logical_plan: LogicalPlan,
+    single_thread: bool,
 ) -> Result<(), ParadeError> {
     // Execute the logical plan and collect the resulting batches
     let batches = Session::with_session_context(|context| {
         Box::pin(async move {
-            let dataframe = context.execute_logical_plan(logical_plan).await?;
+            let dataframe = if single_thread {
+                let config = context.copied_config();
+                SessionContext::new_with_config(config.with_target_partitions(1))
+                    .execute_logical_plan(logical_plan)
+                    .await?
+            } else {
+                context.execute_logical_plan(logical_plan).await?
+            };
             Ok(dataframe.collect().await?)
         })
     })?;

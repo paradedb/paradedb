@@ -10,6 +10,7 @@ use crate::hooks::drop::drop;
 use crate::hooks::query::Query;
 use crate::hooks::rename::rename;
 use crate::hooks::truncate::truncate;
+use crate::hooks::udf::createfunction;
 use crate::hooks::vacuum::vacuum;
 
 #[allow(clippy::type_complexity)]
@@ -67,6 +68,9 @@ pub fn process_utility(
         match (*plan).type_ {
             NodeTag::T_AlterTableStmt => {
                 task::block_on(alter(plan as *mut pg_sys::AlterTableStmt, &ast[0]))?;
+            }
+            NodeTag::T_CreateFunctionStmt => {
+                createfunction(plan as *mut pg_sys::CreateFunctionStmt)?;
             }
             NodeTag::T_DropStmt => {
                 drop(plan as *mut pg_sys::DropStmt)?;

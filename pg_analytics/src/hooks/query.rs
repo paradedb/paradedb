@@ -1,14 +1,19 @@
+use deltalake::datafusion::common::ScalarValue;
 use deltalake::datafusion::error::DataFusionError;
-use deltalake::datafusion::logical_expr::LogicalPlan;
+use deltalake::datafusion::logical_expr::expr::ScalarFunction;
+use deltalake::datafusion::logical_expr::{Expr, ScalarFunctionDefinition};
 use deltalake::datafusion::sql::parser::{self, DFParser};
 use deltalake::datafusion::sql::planner::SqlToRel;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use pgrx::*;
+use regex::Regex;
 use std::collections::VecDeque;
 use std::ffi::CStr;
 
 use crate::datafusion::context::QueryContext;
+use crate::datafusion::plan::LogicalPlanDetails;
 use crate::errors::ParadeError;
+use crate::hooks::udf::loadfunction;
 
 pub trait Query {
     // Extracts the query string from a PlannedStmt,
@@ -20,7 +25,10 @@ pub trait Query {
     fn get_ast(self, query_string: &str) -> Result<VecDeque<parser::Statement>, ParadeError>;
 
     // Parses the query string into a DataFusion LogicalPlan
-    fn get_logical_plan(self, query_string: &str) -> Result<LogicalPlan, ParadeError>;
+    fn get_logical_plan_details(
+        self,
+        query_string: &str,
+    ) -> Result<LogicalPlanDetails, ParadeError>;
 }
 
 impl Query for *mut pg_sys::PlannedStmt {
@@ -47,15 +55,79 @@ impl Query for *mut pg_sys::PlannedStmt {
             .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))
     }
 
-    fn get_logical_plan(self, query: &str) -> Result<LogicalPlan, ParadeError> {
+    fn get_logical_plan_details(self, query: &str) -> Result<LogicalPlanDetails, ParadeError> {
         let dialect = PostgreSqlDialect {};
         let ast = DFParser::parse_sql_with_dialect(query, &dialect)
             .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
         let statement = &ast[0];
 
+        // Convert the AST into a logical plan
         let context_provider = QueryContext::new()?;
         let sql_to_rel = SqlToRel::new(&context_provider);
 
-        Ok(sql_to_rel.statement_to_plan(statement.clone())?)
+        // If functions are undefined, then try to find and register the function and then try to get the plan again
+        let re = Regex::new(r"Invalid function '(.+)'")?;
+        let logical_plan = loop {
+            match sql_to_rel.statement_to_plan(statement.clone()) {
+                Ok(plan) => break plan,
+                Err(DataFusionError::Plan(err_string)) => {
+                    // This regex checks for "Invalid function" in the plan error and
+                    //     otherwise pushes the plan error up, breaking the loop.
+                    let missing_func_name = re
+                        .captures(&err_string)
+                        .ok_or(DataFusionError::Plan(err_string.clone()))?
+                        .get(1)
+                        .ok_or(DataFusionError::Plan(err_string.clone()))?
+                        .as_str();
+
+                    // If we are unable to load the function, we push the error up, breaking the loop
+                    unsafe { loadfunction(missing_func_name)? };
+
+                    // Loop again
+                }
+                Err(err) => return Err(ParadeError::DataFusion(err)),
+            };
+        };
+
+        // Pass UDF name as another argument to UDFs
+        let exprs = logical_plan.expressions();
+        let mut new_exprs = vec![];
+        let mut includes_udf = false;
+        for expr in exprs.iter() {
+            if let Expr::ScalarFunction(ScalarFunction {
+                func_def: ScalarFunctionDefinition::UDF(udf),
+                args,
+            }) = expr
+            {
+                // Pass funcname to udf
+                let mut new_args = args.clone();
+                new_args.splice(
+                    0..0,
+                    vec![Expr::Literal(ScalarValue::Utf8(Some(
+                        udf.name().to_string(),
+                    )))],
+                );
+                new_exprs.push(Expr::ScalarFunction(ScalarFunction {
+                    func_def: ScalarFunctionDefinition::UDF(udf.clone()),
+                    args: new_args,
+                }));
+                includes_udf = true;
+            } else {
+                new_exprs.push(expr.clone());
+            }
+        }
+
+        let new_inputs = logical_plan
+            .inputs()
+            .iter()
+            .cloned()
+            .cloned()
+            .collect::<Vec<_>>();
+        let new_logical_plan = logical_plan.with_new_exprs(new_exprs, new_inputs.as_slice())?;
+
+        Ok(LogicalPlanDetails {
+            logical_plan: new_logical_plan,
+            includes_udf,
+        })
     }
 }

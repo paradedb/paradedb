@@ -4,6 +4,7 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
+use crate::datafusion::plan::LogicalPlanDetails;
 use crate::errors::{NotSupported, ParadeError};
 use crate::hooks::handler::IsColumn;
 use crate::hooks::insert::insert;
@@ -49,28 +50,35 @@ pub fn executor_run(
         }
 
         // Parse the query into a LogicalPlan
-        let logical_plan = pg_plan.get_logical_plan(&query);
+        let LogicalPlanDetails {
+            logical_plan,
+            includes_udf,
+        } = match pg_plan.get_logical_plan_details(&query) {
+            Ok(logical_plan_results) => logical_plan_results,
+            // If DataFusion can't parse the query, let Postgres handle it
+            Err(_) => {
+                prev_hook(query_desc, direction, count, execute_once);
+                return Ok(());
+            }
+        };
 
         // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
         // We should let these queries go through to the table access method
-        if let Ok(LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_))) = logical_plan {
+        if let LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_)) = logical_plan {
             prev_hook(query_desc, direction, count, execute_once);
             return Ok(());
         }
 
+        let single_thread = includes_udf;
+
         // Execute SELECT, DELETE, UPDATE
         match query_desc.operation {
-            pg_sys::CmdType_CMD_SELECT => {
-                if let Ok(logical_plan) = logical_plan {
-                    select(query_desc, logical_plan)?;
-                }
-            }
-            pg_sys::CmdType_CMD_UPDATE => return Err(NotSupported::Update.into()),
+            pg_sys::CmdType_CMD_SELECT => select(query_desc, logical_plan, single_thread),
+            pg_sys::CmdType_CMD_UPDATE => Err(NotSupported::Update.into()),
             _ => {
                 prev_hook(query_desc, direction, count, execute_once);
+                Ok(())
             }
-        };
-
-        Ok(())
+        }
     }
 }

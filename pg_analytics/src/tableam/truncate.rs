@@ -1,13 +1,37 @@
 use pgrx::*;
-use thiserror::Error;
+use std::ptr::addr_of_mut;
 
-#[pg_guard]
-pub extern "C" fn deltalake_relation_nontransactional_truncate(_rel: pg_sys::Relation) {
-    panic!("{}", TruncateError::TruncateNotSupported.to_string());
+use crate::storage::metadata::{MetadataError, PgMetadata};
+
+#[inline]
+fn relation_nontransactional_truncate(rel: pg_sys::Relation) -> Result<(), MetadataError> {
+    unsafe {
+        pg_sys::RelationTruncate(rel, 0);
+
+        if (*rel).rd_smgr.is_null() {
+            #[cfg(feature = "pg16")]
+            pg_sys::smgrsetowner(
+                addr_of_mut!((*rel).rd_smgr),
+                pg_sys::smgropen((*rel).rd_locator, (*rel).rd_backend),
+            );
+            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+            pg_sys::smgrsetowner(
+                addr_of_mut!((*rel).rd_smgr),
+                pg_sys::smgropen((*rel).rd_node, (*rel).rd_backend),
+            );
+        }
+
+        rel.init_metadata((*rel).rd_smgr).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+    }
+
+    Ok(())
 }
 
-#[derive(Error, Debug)]
-pub enum TruncateError {
-    #[error("relation_nontransactional_truncate not yet implemented")]
-    TruncateNotSupported,
+#[pg_guard]
+pub extern "C" fn deltalake_relation_nontransactional_truncate(rel: pg_sys::Relation) {
+    relation_nontransactional_truncate(rel).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }

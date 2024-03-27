@@ -1,4 +1,3 @@
-use crate::storage::tid::TIDError;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
@@ -11,6 +10,7 @@ use std::string::FromUtf8Error;
 use thiserror::Error;
 
 use crate::datafusion::table::RESERVED_TID_FIELD;
+use crate::storage::tid::TIDError;
 use crate::types::datatype::DataTypeError;
 
 #[derive(Error, Debug)]
@@ -97,9 +97,6 @@ pub enum NotSupported {
 
     #[error("Heap and parquet tables in the same query is not yet supported")]
     MixedTables,
-
-    #[error("Inserts with ON CONFLICT are not yet supported")]
-    SpeculativeInsert,
 }
 
 impl From<&str> for ParadeError {

@@ -1,19 +1,22 @@
 use crate::storage::tid::RowNumber;
 use async_std::task;
 use core::ffi::c_int;
+use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use pgrx::*;
 use std::sync::Arc;
+use thiserror::Error;
 
 use crate::datafusion::commit::commit_writer;
 use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
 use crate::datafusion::writer::Writer;
-use crate::errors::{NotSupported, ParadeError};
-use crate::storage::metadata::PgMetadata;
+use crate::errors::ParadeError;
+use crate::storage::metadata::{MetadataError, PgMetadata};
+use crate::storage::tid::TIDError;
 use crate::types::array::IntoArrowArray;
-use crate::types::datatype::PgTypeMod;
+use crate::types::datatype::{DataTypeError, PgTypeMod};
 
 #[pg_guard]
 pub extern "C" fn deltalake_slot_callbacks(
@@ -66,7 +69,10 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
     _bistate: *mut pg_sys::BulkInsertStateData,
     _specToken: pg_sys::uint32,
 ) {
-    panic!("{}", NotSupported::SpeculativeInsert.to_string());
+    panic!(
+        "{}",
+        TableInsertError::SpeculativeInsertNotSupported.to_string()
+    );
 }
 
 #[inline]
@@ -74,7 +80,7 @@ async fn insert_tuples(
     rel: pg_sys::Relation,
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
-) -> Result<(), ParadeError> {
+) -> Result<(), TableInsertError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let tuple_desc = pg_relation.tuple_desc();
     let mut column_values: Vec<ArrayRef> = vec![];
@@ -114,13 +120,13 @@ async fn insert_tuples(
     for row_idx in 0..nslots {
         unsafe {
             let tuple_table_slot = *slots.add(row_idx);
-            let next_row_number = rel.read_next_row_number();
+            let next_row_number = rel.read_next_row_number()?;
 
             (*tuple_table_slot).tts_tid =
                 pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
 
             row_numbers.push(next_row_number);
-            rel.write_next_row_number(next_row_number + 1);
+            rel.write_next_row_number(next_row_number + 1)?;
         }
     }
 
@@ -136,5 +142,26 @@ async fn insert_tuples(
     ])?);
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
 
-    Writer::write(schema_name, &table_path, arrow_schema, &batch).await
+    Ok(Writer::write(schema_name, &table_path, arrow_schema, &batch).await?)
+}
+
+#[derive(Error, Debug)]
+pub enum TableInsertError {
+    #[error(transparent)]
+    ArrowError(#[from] ArrowError),
+
+    #[error(transparent)]
+    DataTypeError(#[from] DataTypeError),
+
+    #[error(transparent)]
+    MetadataError(#[from] MetadataError),
+
+    #[error(transparent)]
+    ParadeError(#[from] ParadeError),
+
+    #[error(transparent)]
+    TIDError(#[from] TIDError),
+
+    #[error("Inserts with ON CONFLICT are not yet supported")]
+    SpeculativeInsertNotSupported,
 }

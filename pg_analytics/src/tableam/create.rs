@@ -25,12 +25,14 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
     minmulti: *mut pg_sys::MultiXactId,
 ) {
     unsafe {
-        let srel = pg_sys::RelationCreateStorage(*newrnode, persistence);
-        rel.init_metadata(srel);
+        let smgr = pg_sys::RelationCreateStorage(*newrnode, persistence);
+        rel.init_metadata(smgr).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
 
         *freezeXid = pg_sys::RecentXmin;
         *minmulti = pg_sys::GetOldestMultiXactId();
-        pg_sys::smgrclose(srel);
+        pg_sys::smgrclose(smgr);
     }
 
     task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
@@ -48,12 +50,14 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
     minmulti: *mut pg_sys::MultiXactId,
 ) {
     unsafe {
-        let srel = pg_sys::RelationCreateStorage(*newrlocator, persistence, true);
-        rel.init_metadata(srel);
+        let smgr = pg_sys::RelationCreateStorage(*newrlocator, persistence, true);
+        rel.init_metadata(smgr).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
 
         *freezeXid = pg_sys::RecentXmin;
         *minmulti = pg_sys::GetOldestMultiXactId();
-        pg_sys::smgrclose(srel);
+        pg_sys::smgrclose(smgr);
     }
 
     task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {

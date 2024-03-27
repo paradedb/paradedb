@@ -76,6 +76,7 @@ async unsafe fn index_fetch_tuple(
             }
 
             batch.remove_tid_column()?;
+            batch.remove_xmin_column()?;
 
             for col_index in 0..batch.num_columns() {
                 let column = batch.column(col_index);

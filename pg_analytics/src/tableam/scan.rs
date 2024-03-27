@@ -26,6 +26,7 @@ struct DeltalakeScanDesc {
     rs_base: pg_sys::TableScanDescData,
     curr_batch: Option<Arc<Mutex<RecordBatch>>>,
     tids: Option<Arc<Mutex<Int64Array>>>,
+    xmins: Option<Arc<Mutex<Int64Array>>>,
     curr_batch_idx: usize,
 }
 
@@ -51,6 +52,7 @@ fn scan_begin(
             scan.curr_batch = None;
             scan.curr_batch_idx = 0;
             scan.tids = None;
+            scan.xmins = None;
 
             Ok(scan.into_pg() as pg_sys::TableScanDesc)
         })
@@ -96,8 +98,12 @@ pub async unsafe fn scan_getnextslot(
         let tids = next_batch.remove_tid_column()?;
         let tid_array = tids.as_primitive::<Int64Type>();
 
+        let xmins = next_batch.remove_xmin_column()?;
+        let xmin_array = xmins.as_primitive::<Int64Type>();
+
         (*dscan).curr_batch = Some(Arc::new(Mutex::new(next_batch)));
         (*dscan).tids = Some(Arc::new(Mutex::new(tid_array.clone())));
+        (*dscan).xmins = Some(Arc::new(Mutex::new(xmin_array.clone())));
     }
 
     let current_batch = (*dscan)
@@ -113,6 +119,15 @@ pub async unsafe fn scan_getnextslot(
         .ok_or(TableScanError::TIDNotFound)?
         .lock()
         .await;
+
+    let _xmins = (*dscan)
+        .xmins
+        .as_mut()
+        .ok_or(TableScanError::XminNotFound)?
+        .lock()
+        .await;
+
+    // TODO: Skip rows with non visible xmins
 
     for col_index in 0..current_batch.num_columns() {
         let column = current_batch.column(col_index);
@@ -370,4 +385,7 @@ pub enum TableScanError {
 
     #[error("Unexpected error: No TID found in table scan")]
     TIDNotFound,
+
+    #[error("Unexpected error: No xmin found in table found")]
+    XminNotFound,
 }

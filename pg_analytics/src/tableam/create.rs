@@ -2,7 +2,7 @@ use async_std::task;
 use core::ffi::c_char;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::CatalogProvider;
-use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
 
@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
+use crate::datafusion::table::DatafusionTable;
 use crate::errors::{NotSupported, ParadeError};
 use crate::storage::metadata::PgMetadata;
 
@@ -114,15 +114,7 @@ async fn create_deltalake_file_node(
 
             Session::with_tables(&schema_name, |mut tables| {
                 Box::pin(async move {
-                    let arrow_schema = Arc::new(ArrowSchema::try_merge(vec![
-                        pg_relation.arrow_schema()?,
-                        ArrowSchema::new(vec![Field::new(
-                            RESERVED_TID_FIELD,
-                            DataType::Int64,
-                            false,
-                        )]),
-                    ])?);
-
+                    let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
                     tables.create(&table_path, arrow_schema.clone()).await?;
                     // Write an empty batch to the table so that a Parquet file is written
                     let batch = RecordBatch::new_empty(arrow_schema.clone());

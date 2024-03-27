@@ -9,7 +9,6 @@ use std::str::Utf8Error;
 use std::string::FromUtf8Error;
 use thiserror::Error;
 
-use crate::datafusion::table::RESERVED_TID_FIELD;
 use crate::storage::tid::TIDError;
 use crate::types::datatype::DataTypeError;
 
@@ -47,8 +46,8 @@ pub enum ParadeError {
     )]
     SharedPreload,
 
-    #[error("Column name {} is reserved by pg_analytics", RESERVED_TID_FIELD)]
-    ReservedFieldName,
+    #[error("Column name {0} is reserved by pg_analytics")]
+    ReservedFieldName(String),
 
     #[error("{0}")]
     Generic(String),

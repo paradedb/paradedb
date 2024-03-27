@@ -4,7 +4,7 @@ use core::ffi::c_int;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
-use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
+
 use pgrx::*;
 use std::cell::RefCell;
 use shared::postgres::tid::RowNumber;
@@ -12,7 +12,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use crate::datafusion::commit::commit_writer;
-use crate::datafusion::table::{DatafusionTable, RESERVED_TID_FIELD};
+use crate::datafusion::table::DatafusionTable;
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
 use crate::storage::metadata::{MetadataError, PgMetadata};
@@ -167,14 +167,16 @@ async unsafe fn insert_tuples(
 
     column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
 
+    // Assign xmin to each row
+    let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
+    let xmins: Vec<i64> = vec![transaction_id; nslots];
+    column_values.push(Arc::new(Int64Array::from(xmins)));
+
     // Write Arrow arrays to buffer
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
-    let arrow_schema = Arc::new(ArrowSchema::try_merge(vec![
-        pg_relation.arrow_schema()?,
-        ArrowSchema::new(vec![Field::new(RESERVED_TID_FIELD, DataType::Int64, false)]),
-    ])?);
+    let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
 
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;

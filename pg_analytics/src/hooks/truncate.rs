@@ -4,7 +4,7 @@ use pgrx::*;
 use std::sync::Arc;
 
 use crate::datafusion::session::Session;
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::{DatafusionTable, PgTableProvider};
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 
@@ -66,7 +66,7 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
                 let mut delta_table = tables.alter_schema(&table_path, batch).await?;
 
                 delta_table.update().await?;
-                tables.register(&table_path, delta_table)
+                tables.register(&table_path, PgTableProvider::new(delta_table))
             })
         })?;
     }

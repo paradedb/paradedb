@@ -13,10 +13,11 @@ use std::future::IntoFuture;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::session::Session;
-use crate::datafusion::table::Tables;
 use crate::errors::{NotFound, ParadeError};
+
+use super::directory::ParadeDirectory;
+use super::session::Session;
+use super::table::{PgTableProvider, Tables};
 
 pub struct ParadeSchemaProvider {
     schema_name: String,
@@ -120,10 +121,12 @@ async fn table_impl(
     table_path: &Path,
 ) -> Result<Arc<dyn TableProvider>, ParadeError> {
     let mut tables = tables.lock().await;
-    let table_ref = tables.get_ref(table_path).await?;
-    let delta_table = UpdateBuilder::new(
-        table_ref.log_store(),
-        table_ref
+    let provider = tables.get_ref(table_path).await?;
+    let delta_table = provider.table();
+
+    let updated_table = UpdateBuilder::new(
+        delta_table.log_store(),
+        delta_table
             .state
             .clone()
             .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
@@ -132,5 +135,5 @@ async fn table_impl(
     .await?
     .0;
 
-    Ok(Arc::new(delta_table.clone()) as Arc<dyn TableProvider>)
+    Ok(Arc::new(PgTableProvider::new(updated_table)) as Arc<dyn TableProvider>)
 }

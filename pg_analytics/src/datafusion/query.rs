@@ -107,6 +107,9 @@ impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
             .collect::<Vec<_>>();
         let new_logical_plan = logical_plan.with_new_exprs(new_exprs, new_inputs.as_slice())?;
 
-        Ok(LogicalPlanDetails{ logical_plan: new_logical_plan, includes_udf })
+        Ok(LogicalPlanDetails {
+            logical_plan: new_logical_plan,
+            includes_udf,
+        })
     }
 }

@@ -4,8 +4,8 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::commit::{commit_writer, needs_commit};
-use crate::datafusion::query::QueryString;
 use crate::datafusion::plan::LogicalPlanDetails;
+use crate::datafusion::query::QueryString;
 use crate::errors::{NotSupported, ParadeError};
 use crate::federation::handler::get_federated_batches;
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
@@ -85,7 +85,8 @@ pub fn executor_run(
             if let Ok(LogicalPlanDetails {
                 logical_plan: LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_)),
                 includes_udf: _,
-            }) = logical_plan_details {
+            }) = logical_plan_details
+            {
                 prev_hook(query_desc, direction, count, execute_once);
                 return Ok(());
             }
@@ -93,7 +94,11 @@ pub fn executor_run(
             // Execute SELECT, DELETE, UPDATE
             match query_desc.operation {
                 pg_sys::CmdType_CMD_SELECT => {
-                    if let Ok(LogicalPlanDetails{logical_plan, includes_udf}) = logical_plan_details {
+                    if let Ok(LogicalPlanDetails {
+                        logical_plan,
+                        includes_udf,
+                    }) = logical_plan_details
+                    {
                         let single_thread = includes_udf;
                         get_datafusion_batches(query_desc, logical_plan, single_thread)?;
                     }

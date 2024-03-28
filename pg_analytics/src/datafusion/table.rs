@@ -303,6 +303,9 @@ impl TableProvider for PgTableProvider {
         let url: &Url = object_store_url.as_ref();
         env.register_object_store(url, store.object_store());
 
+        // TODO: Add UDF to check transaction ID as filter
+        // let xmin_filter = call_fn()
+
         let filter_expr = conjunction(filters.iter().cloned());
 
         let scan = DeltaScanBuilder::new(self.table.snapshot()?, store, session)

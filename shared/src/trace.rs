@@ -2,10 +2,13 @@ use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{Level, Subscriber};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+
+static INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 struct JsonVisitor<'a>(&'a mut HashMap<String, serde_json::Value>);
 
@@ -195,6 +198,12 @@ fn sqlite_logger_connection(path: &Path) -> Result<Connection, Box<dyn Error>> {
 
 #[allow(unused)]
 pub fn init_sqlite_logger() {
+    if INITIALIZED.load(Ordering::SeqCst) {
+        return;
+    }
+
+    INITIALIZED.store(true, Ordering::SeqCst);
+
     let path = match std::env::var("PGDATA") {
         Ok(dir) => PathBuf::from(dir).join("paradedb").join("logs.db"),
         Err(err) => {
@@ -222,6 +231,12 @@ pub fn init_sqlite_logger() {
 
 #[allow(unused)]
 pub fn init_ereport_logger() {
+    if INITIALIZED.load(Ordering::SeqCst) {
+        return;
+    }
+
+    INITIALIZED.store(true, Ordering::SeqCst);
+
     tracing_subscriber::registry()
         .with(EreportLogger)
         .with(EnvFilter::from_default_env())

@@ -1,7 +1,16 @@
+use async_trait::async_trait;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
+use deltalake::datafusion::common::{Result as DataFusionResult, Statistics};
+use deltalake::datafusion::datasource::provider::TableProvider;
 use deltalake::datafusion::error::Result;
-use deltalake::datafusion::logical_expr::Expr;
+use deltalake::datafusion::execution::context::SessionState;
+use deltalake::datafusion::logical_expr::utils::conjunction;
+use deltalake::datafusion::logical_expr::{
+    Expr, LogicalPlan, TableProviderFilterPushDown, TableType,
+};
+use deltalake::datafusion::physical_plan::ExecutionPlan;
+use deltalake::delta_datafusion::DeltaScanBuilder;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
 use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
@@ -11,13 +20,14 @@ use deltalake::table::state::DeltaTableState;
 use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
 use deltalake::DeltaTable;
 use pgrx::*;
-use std::any::type_name;
+use std::any::{type_name, Any};
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use url::Url;
 
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
@@ -228,5 +238,76 @@ impl Tables {
         .0;
 
         Ok(vacuumed_table)
+    }
+}
+
+pub struct PgTableProvider {
+    table: DeltaTable,
+}
+
+impl PgTableProvider {
+    #[allow(dead_code)]
+    pub fn new(table: DeltaTable) -> Self {
+        Self { table }
+    }
+}
+
+#[async_trait]
+impl TableProvider for PgTableProvider {
+    fn as_any(&self) -> &dyn Any {
+        self.table.as_any()
+    }
+
+    fn schema(&self) -> Arc<ArrowSchema> {
+        self.table.snapshot().unwrap().arrow_schema().unwrap()
+    }
+
+    fn table_type(&self) -> TableType {
+        self.table.table_type()
+    }
+
+    fn get_table_definition(&self) -> Option<&str> {
+        self.table.get_table_definition()
+    }
+
+    fn get_logical_plan(&self) -> Option<&LogicalPlan> {
+        self.table.get_logical_plan()
+    }
+
+    async fn scan(
+        &self,
+        session: &SessionState,
+        projection: Option<&Vec<usize>>,
+        filters: &[Expr],
+        limit: Option<usize>,
+    ) -> DataFusionResult<Arc<dyn ExecutionPlan>> {
+        let store = self.table.log_store();
+        let env = session.runtime_env();
+        let object_store_url = store.object_store_url();
+        let url: &Url = object_store_url.as_ref();
+        env.register_object_store(url, store.object_store());
+
+        let filter_expr = conjunction(filters.iter().cloned());
+
+        let scan = DeltaScanBuilder::new(self.table.snapshot()?, store, session)
+            .with_projection(projection)
+            .with_limit(limit)
+            .with_filter(filter_expr)
+            .build()
+            .await?;
+
+        Ok(Arc::new(scan))
+    }
+
+    #[allow(deprecated)]
+    fn supports_filter_pushdown(
+        &self,
+        filter: &Expr,
+    ) -> DataFusionResult<TableProviderFilterPushDown> {
+        self.table.supports_filter_pushdown(filter)
+    }
+
+    fn statistics(&self) -> Option<Statistics> {
+        self.table.statistics()
     }
 }

@@ -128,6 +128,7 @@ pub async unsafe fn scan_getnextslot(
         .await;
 
     // TODO: Skip rows with non visible xmins
+    // todo!();
 
     for col_index in 0..current_batch.num_columns() {
         let column = current_batch.column(col_index);

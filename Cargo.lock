@@ -1514,7 +1514,7 @@ dependencies = [
 [[package]]
 name = "deltalake"
 version = "0.17.1"
-source = "git+https://github.com/paradedb/delta-rs.git?branch=feat/time#30d5edc1765373dbf8392ad2fc8fcbeb38aeab72"
+source = "git+https://github.com/paradedb/delta-rs.git?branch=deltascan#bfd87a95d9dbad65b164ad3220ad873679b195b6"
 dependencies = [
  "deltalake-core",
 ]
@@ -1522,7 +1522,7 @@ dependencies = [
 [[package]]
 name = "deltalake-core"
 version = "0.17.1"
-source = "git+https://github.com/paradedb/delta-rs.git?branch=feat/time#30d5edc1765373dbf8392ad2fc8fcbeb38aeab72"
+source = "git+https://github.com/paradedb/delta-rs.git?branch=deltascan#bfd87a95d9dbad65b164ad3220ad873679b195b6"
 dependencies = [
  "arrow",
  "arrow-arith",
@@ -3735,6 +3735,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "time",
+ "url",
 ]
 
 [[package]]

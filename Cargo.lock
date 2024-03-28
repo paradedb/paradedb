@@ -3802,6 +3802,7 @@ dependencies = [
  "sqlx",
  "thiserror",
  "time",
+ "zstd-sys",
 ]
 
 [[package]]

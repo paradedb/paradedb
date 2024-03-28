@@ -15,9 +15,10 @@ use std::collections::{
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::datafusion::session::Session;
 use crate::errors::ParadeError;
 use crate::guc::PARADE_GUC;
+
+use super::session::Session;
 
 const BYTES_IN_MB: i64 = 1_048_576;
 const WRITER_ID: &str = "delta_writer";
@@ -88,10 +89,15 @@ impl Writer {
             Vacant(entry) => {
                 let writer = Self::create(schema_name, table_path, arrow_schema).await?;
                 let table_path_cloned = table_path.to_path_buf();
-                let table = Session::with_tables(schema_name, |mut tables| {
+                let provider = Session::with_tables(schema_name, |mut tables| {
                     Box::pin(async move { tables.get_owned(&table_path_cloned).await })
                 })?;
-                entry.insert(WriterCache::new(writer, table, schema_name, table_path)?)
+                entry.insert(WriterCache::new(
+                    writer,
+                    provider.table(),
+                    schema_name,
+                    table_path,
+                )?)
             }
         };
 
@@ -123,10 +129,13 @@ impl Writer {
         );
 
         let table_path = table_path.to_path_buf();
-        let delta_table = Session::with_tables(schema_name, |mut tables| {
+        let provider = Session::with_tables(schema_name, |mut tables| {
             Box::pin(async move { tables.get_owned(&table_path).await })
         })?;
 
-        Ok(DeltaWriter::new(delta_table.object_store(), writer_config))
+        Ok(DeltaWriter::new(
+            provider.table().object_store(),
+            writer_config,
+        ))
     }
 }

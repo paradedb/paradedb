@@ -110,7 +110,7 @@ impl DatafusionTable for PgRelation {
 }
 
 pub struct Tables {
-    tables: HashMap<PathBuf, DeltaTable>,
+    tables: HashMap<PathBuf, PgTableProvider>,
 }
 
 impl Tables {
@@ -125,7 +125,8 @@ impl Tables {
         table_path: &Path,
         batch: RecordBatch,
     ) -> Result<DeltaTable, ParadeError> {
-        let mut delta_table = Self::get_owned(self, table_path).await?;
+        let provider = Self::get_owned(self, table_path).await?;
+        let mut delta_table = provider.table();
 
         // Write the RecordBatch to the DeltaTable
         let mut writer = RecordBatchWriter::for_table(&delta_table)?;
@@ -157,11 +158,12 @@ impl Tables {
         table_path: &Path,
         predicate: Option<Expr>,
     ) -> Result<(DeltaTable, DeleteMetrics), ParadeError> {
-        let old_table = Self::get_owned(self, table_path).await?;
+        let provider = Self::get_owned(self, table_path).await?;
+        let delta_table = provider.table();
 
         let mut delete_builder = DeleteBuilder::new(
-            old_table.log_store(),
-            old_table
+            delta_table.log_store(),
+            delta_table
                 .state
                 .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
         );
@@ -178,27 +180,36 @@ impl Tables {
         Ok(())
     }
 
-    pub async fn get_owned(&mut self, table_path: &Path) -> Result<DeltaTable, ParadeError> {
+    pub async fn get_owned(&mut self, table_path: &Path) -> Result<PgTableProvider, ParadeError> {
         let table = match self.tables.entry(table_path.to_path_buf()) {
             Occupied(entry) => entry.remove(),
-            Vacant(_) => deltalake::open_table(table_path.to_string_lossy()).await?,
-        };
-
-        Ok(table)
-    }
-
-    pub async fn get_ref(&mut self, table_path: &Path) -> Result<&mut DeltaTable, ParadeError> {
-        let table = match self.tables.entry(table_path.to_path_buf()) {
-            Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => {
-                entry.insert(deltalake::open_table(table_path.to_string_lossy()).await?)
+            Vacant(_) => {
+                PgTableProvider::new(deltalake::open_table(table_path.to_string_lossy()).await?)
             }
         };
 
         Ok(table)
     }
 
-    pub fn register(&mut self, table_path: &Path, table: DeltaTable) -> Result<(), ParadeError> {
+    pub async fn get_ref(
+        &mut self,
+        table_path: &Path,
+    ) -> Result<&mut PgTableProvider, ParadeError> {
+        let table = match self.tables.entry(table_path.to_path_buf()) {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => entry.insert(PgTableProvider::new(
+                deltalake::open_table(table_path.to_string_lossy()).await?,
+            )),
+        };
+
+        Ok(table)
+    }
+
+    pub fn register(
+        &mut self,
+        table_path: &Path,
+        table: PgTableProvider,
+    ) -> Result<(), ParadeError> {
         self.tables.insert(table_path.to_path_buf(), table);
         Ok(())
     }
@@ -208,12 +219,13 @@ impl Tables {
         table_path: &Path,
         optimize: bool,
     ) -> Result<DeltaTable, ParadeError> {
-        let mut old_table = Self::get_owned(self, table_path).await?;
+        let mut provider = Self::get_owned(self, table_path).await?;
 
         if optimize {
             let optimized_table = OptimizeBuilder::new(
-                old_table.log_store(),
-                old_table
+                provider.table.log_store(),
+                provider
+                    .table
                     .state
                     .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
             )
@@ -221,12 +233,13 @@ impl Tables {
             .await?
             .0;
 
-            old_table = optimized_table;
+            provider = PgTableProvider::new(optimized_table);
         }
 
         let vacuumed_table = VacuumBuilder::new(
-            old_table.log_store(),
-            old_table
+            provider.table.log_store(),
+            provider
+                .table
                 .state
                 .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
         )
@@ -246,9 +259,12 @@ pub struct PgTableProvider {
 }
 
 impl PgTableProvider {
-    #[allow(dead_code)]
     pub fn new(table: DeltaTable) -> Self {
         Self { table }
+    }
+
+    pub fn table(&self) -> DeltaTable {
+        self.table.clone()
     }
 }
 

@@ -11,7 +11,7 @@ use std::sync::Arc;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::{DatafusionTable, PgTableProvider};
 use crate::errors::{NotSupported, ParadeError};
 use crate::storage::metadata::PgMetadata;
 
@@ -121,7 +121,7 @@ async fn create_deltalake_file_node(
                     let mut delta_table = tables.alter_schema(&table_path, batch).await?;
 
                     delta_table.update().await?;
-                    tables.register(&table_path, delta_table)
+                    tables.register(&table_path, PgTableProvider::new(delta_table))
                 })
             })
         }

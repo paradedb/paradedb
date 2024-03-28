@@ -5,7 +5,7 @@ use std::fs::remove_dir_all;
 
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::{DatafusionTable, PgTableProvider};
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 
@@ -114,7 +114,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                                     let delta_table =
                                         tables.vacuum(&table_path, vacuum_options.full).await?;
 
-                                    tables.register(&table_path, delta_table)
+                                    tables.register(&table_path, PgTableProvider::new(delta_table))
                                 })
                             })?;
                         }
@@ -174,7 +174,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                     Box::pin(async move {
                         let delta_table = tables.vacuum(&table_path, vacuum_options.full).await?;
 
-                        tables.register(&table_path, delta_table)
+                        tables.register(&table_path, PgTableProvider::new(delta_table))
                     })
                 })?;
 

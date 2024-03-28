@@ -3,6 +3,7 @@ use core::ffi::c_int;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::ArrayRef;
 use pgrx::*;
+use std::cell::RefCell;
 
 use crate::datafusion::commit::commit_writer;
 use crate::datafusion::table::DatafusionTable;
@@ -10,6 +11,12 @@ use crate::datafusion::writer::Writer;
 use crate::errors::{NotSupported, ParadeError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::PgTypeMod;
+
+thread_local! {
+    static INSERT_MEM_CTX: RefCell<PgMemoryContexts> = RefCell::new(
+        PgMemoryContexts::new("pg_analytics_insert_tuples")
+    );
+}
 
 #[pg_guard]
 pub extern "C" fn deltalake_slot_callbacks(
@@ -27,9 +34,11 @@ pub extern "C" fn deltalake_tuple_insert(
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
     let mut mut_slot = slot;
-    task::block_on(insert_tuples(rel, &mut mut_slot, 1)).unwrap_or_else(|err| {
-        panic!("{}", err);
-    });
+    unsafe {
+        task::block_on(insert_tuples(rel, &mut mut_slot, 1)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+    }
 }
 
 #[pg_guard]
@@ -41,9 +50,11 @@ pub extern "C" fn deltalake_multi_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
-    task::block_on(insert_tuples(rel, slots, nslots as usize)).unwrap_or_else(|err| {
-        panic!("{}", err);
-    });
+    unsafe {
+        task::block_on(insert_tuples(rel, slots, nslots as usize)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+    }
 }
 
 #[pg_guard]
@@ -66,49 +77,67 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
 }
 
 #[inline]
-async fn insert_tuples(
+async unsafe fn insert_tuples(
     rel: pg_sys::Relation,
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
 ) -> Result<(), ParadeError> {
-    let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let tuple_desc = pg_relation.tuple_desc();
-    let mut column_values: Vec<ArrayRef> = vec![];
+    let (schema_name, table_path, arrow_schema, column_values) =
+        INSERT_MEM_CTX.with(|memcxt_ref| {
+            let mut memcxt = memcxt_ref.borrow_mut();
+            memcxt.reset();
+            memcxt.switch_to(|_| -> Result<_, ParadeError> {
+                let pg_relation = PgRelation::from_pg(rel);
+                let tuple_desc = pg_relation.tuple_desc();
+                let mut column_values: Vec<ArrayRef> = vec![];
 
-    // Convert the TupleTableSlots into DataFusion arrays
-    for (col_idx, attr) in tuple_desc.iter().enumerate() {
-        column_values.push(
-            (0..nslots)
-                .map(move |row_idx| unsafe {
-                    let tuple_table_slot = *slots.add(row_idx);
+                // Convert the TupleTableSlots into DataFusion arrays
+                for (col_idx, attr) in tuple_desc.iter().enumerate() {
+                    column_values.push(
+                        (0..nslots)
+                            .map(move |row_idx| unsafe {
+                                let tuple_table_slot = *slots.add(row_idx);
 
-                    let datum_opt = if (*tuple_table_slot).tts_ops == &pg_sys::TTSOpsBufferHeapTuple
-                    {
-                        let bslot = tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
-                        let tuple = (*bslot).base.tuple;
-                        std::num::NonZeroUsize::new(col_idx + 1).and_then(|attr_num| {
-                            htup::heap_getattr_raw(
-                                tuple,
-                                attr_num,
-                                (*tuple_table_slot).tts_tupleDescriptor,
-                            )
-                        })
-                    } else {
-                        Some(*(*tuple_table_slot).tts_values.add(col_idx))
-                    };
+                                let datum_opt = if (*tuple_table_slot).tts_ops
+                                    == &pg_sys::TTSOpsBufferHeapTuple
+                                {
+                                    let bslot =
+                                        tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
+                                    let tuple = (*bslot).base.tuple;
+                                    std::num::NonZeroUsize::new(col_idx + 1).and_then(|attr_num| {
+                                        htup::heap_getattr_raw(
+                                            tuple,
+                                            attr_num,
+                                            (*tuple_table_slot).tts_tupleDescriptor,
+                                        )
+                                    })
+                                } else {
+                                    Some(*(*tuple_table_slot).tts_values.add(col_idx))
+                                };
 
-                    let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
-                    (!is_null).then_some(datum_opt).flatten()
-                })
-                .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
-        );
-    }
+                                let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
+                                (!is_null).then_some(datum_opt).flatten()
+                            })
+                            .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
+                    );
+                }
 
-    let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let schema_name = pg_relation.namespace();
-    let table_path = pg_relation.table_path()?;
-    let arrow_schema = pg_relation.arrow_schema()?;
+                let schema_name = pg_relation.namespace().to_string();
+                let table_path = pg_relation.table_path()?;
+                let arrow_schema = pg_relation.arrow_schema()?;
+
+                Ok((schema_name, table_path, arrow_schema, column_values))
+            })
+        })?;
+
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
 
-    Writer::write(schema_name, &table_path, arrow_schema, &batch).await
+    Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
+
+    INSERT_MEM_CTX.with(|memcxt_ref| {
+        let mut memcxt = memcxt_ref.borrow_mut();
+        memcxt.reset();
+    });
+
+    Ok(())
 }

@@ -51,6 +51,7 @@ tracing-subscriber = "0.3.18"
 utoipa = "4.2.0"
 walkdir = "2.5.0"
 num_cpus = "1.16.0"
+zstd-sys = "=2.0.9"
 
 [dev-dependencies]
 approx = "0.5.1"

@@ -40,44 +40,40 @@ jobs:
             echo "Using dev configuration..."
           fi
 
-      - name: Retrieve & Increment Current Version Number
+      # We store the GitHub Release version number in GitHub Actions Variables. Since it's
+      # not possible for a GHA variable to be negative, we store the version of the next
+      # release, to allow 0-indexing. This is why we immediately release the version stored,
+      # and increment it after the GitHub release is created.
+      - name: Retrieve & Increment Release Version Number
         id: version
         run: |
-          echo "Current prod version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
-          echo "Current staging version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${{ vars.VERSION_STAGING_RC }}"
-          echo "Current dev version: ${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
-
           if [[ "${{ steps.env.outputs.environment }}" == "prod" ]]; then
             echo 'Using prod configuration...'
+            CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
 
-            # increment version by 0.0.1
-            NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
-            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}"
+            # Increment GHA variable version by 0.0.1 for next release
             GHA_VAR_NAME="VERSION_PATCH"
-            GHA_VAR_VALUE="${NEW_PATCH}"
+            GHA_VAR_VALUE="$(( ${{ vars.VERSION_PATCH }} + 1 ))"
           elif [[ "${{ steps.env.outputs.environment }}" == "staging" ]]; then
             echo 'Using staging configuration...'
+            CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${{ vars.VERSION_STAGING_RC }}"
 
-            # increment version by staging-rc.1
-            NEW_STAGING_RC=$(( ${{ vars.VERSION_STAGING_RC }} + 1 ))
-            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-staging-rc.${NEW_STAGING_RC}"
+            # Increment GHA variable version by staging-rc.1 for next release
             GHA_VAR_NAME="VERSION_STAGING_RC"
-            GHA_VAR_VALUE="${NEW_STAGING_RC}"
+            GHA_VAR_VALUE="$(( ${{ vars.VERSION_STAGING_RC }} + 1 ))"
           elif [[ "${{ steps.env.outputs.environment }}" == "dev" ]]; then
             echo 'Using dev configuration...'
+            CURRENT_RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${{ vars.VERSION_DEV_RC }}"
 
-            # increment version by dev-rc.1
-            NEW_DEV_RC=$(( ${{ vars.VERSION_DEV_RC }} + 1 ))
-            NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}-dev-rc.${NEW_DEV_RC}"
+            # Increment GHA variable version by dev-rc.1 for next release
             GHA_VAR_NAME="VERSION_DEV_RC"
-            GHA_VAR_VALUE="${NEW_DEV_RC}"
+            GHA_VAR_VALUE="$(( ${{ vars.VERSION_DEV_RC }} + 1 ))"
           else
             echo "Error: Invalid branch" && false
           fi
 
-          # Output the new version to create the GitHub Release tag and update GitHub Actions variables
-          echo "New version: ${NEW_VERSION}"
-          echo "version=${NEW_VERSION}" >> $GITHUB_OUTPUT
+          # Output the current release version to create the GitHub Release tag, and the new version to update GitHub Actions variable
+          echo "version=${CURRENT_RELEASE_VERSION}" >> $GITHUB_OUTPUT
           echo "gha_var_name=${GHA_VAR_NAME}" >> $GITHUB_OUTPUT
           echo "gha_var_value=${GHA_VAR_VALUE}" >> $GITHUB_OUTPUT
 
@@ -123,6 +119,7 @@ jobs:
             echo "Error: Invalid branch" && false
           fi
 
+      # We create the GitHub release last in case of failure in previous steps
       - name: Create GitHub Release (prod only)
         if: steps.env.outputs.environment == 'prod'
         uses: softprops/action-gh-release@v2

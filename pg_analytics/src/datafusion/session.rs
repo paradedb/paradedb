@@ -1,9 +1,8 @@
 use async_std::sync::{Mutex, MutexGuard};
 use async_std::task;
-use deltalake::datafusion::common::arrow::datatypes::DataType;
-use deltalake::datafusion::common::{DataFusionError, ScalarValue};
+
 use deltalake::datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
-use deltalake::datafusion::logical_expr::{create_udf, ColumnarValue, Volatility};
+
 use deltalake::datafusion::prelude::{SessionConfig, SessionContext};
 use once_cell::sync::Lazy;
 use pgrx::*;

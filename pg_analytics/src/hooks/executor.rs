@@ -78,33 +78,31 @@ pub fn executor_run(
             }
         } else {
             // Parse the query into a LogicalPlan
-            let logical_plan_details = LogicalPlanDetails::try_from(QueryString(&query));
+            match LogicalPlanDetails::try_from(QueryString(&query)) {
+                Ok(logical_plan_details) => {
+                    let logical_plan = logical_plan_details.logical_plan();
 
-            // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
-            // We should let these queries go through to the table access method
-            if let Ok(LogicalPlanDetails {
-                logical_plan: LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_)),
-                includes_udf: _,
-            }) = logical_plan_details
-            {
-                prev_hook(query_desc, direction, count, execute_once);
-                return Ok(());
-            }
+                    // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
+                    // We should let these queries go through to the table access method
+                    if let LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_)) = logical_plan {
+                        prev_hook(query_desc, direction, count, execute_once);
+                        return Ok(());
+                    }
 
-            // Execute SELECT, DELETE, UPDATE
-            match query_desc.operation {
-                pg_sys::CmdType_CMD_SELECT => {
-                    if let Ok(LogicalPlanDetails {
-                        logical_plan,
-                        includes_udf,
-                    }) = logical_plan_details
-                    {
-                        let single_thread = includes_udf;
-                        get_datafusion_batches(query_desc, logical_plan, single_thread)?;
+                    // Execute SELECT, DELETE, UPDATE
+                    match query_desc.operation {
+                        pg_sys::CmdType_CMD_SELECT => {
+                            let single_thread = logical_plan_details.includes_udf();
+
+                            get_datafusion_batches(query_desc, logical_plan, single_thread)?;
+                        }
+                        pg_sys::CmdType_CMD_UPDATE => return Err(NotSupported::Update.into()),
+                        _ => {
+                            prev_hook(query_desc, direction, count, execute_once);
+                        }
                     }
                 }
-                pg_sys::CmdType_CMD_UPDATE => return Err(NotSupported::Update.into()),
-                _ => {
+                Err(_) => {
                     prev_hook(query_desc, direction, count, execute_once);
                 }
             }

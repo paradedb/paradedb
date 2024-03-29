@@ -41,8 +41,7 @@ impl SQLExecutor for ColumnExecutor {
         sql: &str,
         schema: SchemaRef,
     ) -> Result<SendableRecordBatchStream, DataFusionError> {
-        let LogicalPlanDetails { logical_plan, .. } =
-            LogicalPlanDetails::try_from(QueryString(sql))?;
+        let logical_plan = LogicalPlanDetails::try_from(QueryString(sql))?.logical_plan();
         let batch_stream = Session::with_session_context(|context| {
             Box::pin(async move {
                 let dataframe = context.execute_logical_plan(logical_plan.clone()).await?;

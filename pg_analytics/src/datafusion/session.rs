@@ -1,6 +1,9 @@
 use async_std::sync::{Mutex, MutexGuard};
 use async_std::task;
+use deltalake::datafusion::common::arrow::datatypes::DataType;
+use deltalake::datafusion::common::{DataFusionError, ScalarValue};
 use deltalake::datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
+use deltalake::datafusion::logical_expr::{create_udf, ColumnarValue, Volatility};
 use deltalake::datafusion::prelude::{SessionConfig, SessionContext};
 use once_cell::sync::Lazy;
 use pgrx::*;
@@ -142,6 +145,9 @@ impl Session {
         catalog.init().await?;
         context.register_catalog(&Self::catalog_name()?, Arc::new(catalog));
 
+        // Register UDFs
+        // register_postgres_udfs(&context);
+
         Ok(context)
     }
 
@@ -158,3 +164,19 @@ impl Session {
         Ok(unsafe { pg_sys::MyDatabaseId })
     }
 }
+
+// #[inline]
+// fn register_postgres_udfs(context: &SessionContext) {
+//     context.register_udf(create_udf(
+//         "GetTransactionIdDidAbort",
+//         vec![DataType::Int64],
+//         Arc::new(DataType::Boolean),
+//         Volatility::Immutable,
+//         Arc::new(|args| transaction_did_abort(args)),
+//     ));
+// }
+
+// fn transaction_did_abort(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFusionError> {
+//     info!("got args {:?}", args);
+//     Ok(ColumnarValue::Scalar(ScalarValue::Boolean(Some(true))))
+// }

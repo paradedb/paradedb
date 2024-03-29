@@ -1,13 +1,17 @@
 use async_trait::async_trait;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use deltalake::datafusion::common::{Result as DataFusionResult, Statistics};
+use deltalake::datafusion::common::{
+    DataFusionError, Result as DataFusionResult, ScalarValue, Statistics,
+};
 use deltalake::datafusion::datasource::provider::TableProvider;
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::execution::context::SessionState;
+use deltalake::datafusion::logical_expr::expr::ScalarFunction;
 use deltalake::datafusion::logical_expr::utils::conjunction;
 use deltalake::datafusion::logical_expr::{
-    Expr, LogicalPlan, TableProviderFilterPushDown, TableType,
+    call_fn, col, lit,create_udf, ColumnarValue, Expr, LogicalPlan, ScalarFunctionDefinition,
+    TableProviderFilterPushDown, TableType, Volatility,
 };
 use deltalake::datafusion::physical_plan::ExecutionPlan;
 use deltalake::delta_datafusion::DeltaScanBuilder;
@@ -25,6 +29,7 @@ use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
+use std::iter::once;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use url::Url;
@@ -34,6 +39,8 @@ use crate::datafusion::session::Session;
 use crate::errors::{NotFound, ParadeError};
 use crate::guc::PARADE_GUC;
 use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
+
+use deltalake::datafusion::datasource::file_format::parquet::ParquetFormat;
 
 pub static RESERVED_TID_FIELD: &str = "parade_ctid";
 pub static RESERVED_XMIN_FIELD: &str = "parade_xmin";
@@ -304,9 +311,20 @@ impl TableProvider for PgTableProvider {
         env.register_object_store(url, store.object_store());
 
         // TODO: Add UDF to check transaction ID as filter
-        // let xmin_filter = call_fn()
+        // let xmin_filter = Expr::ScalarFunction(ScalarFunction::new_udf(
+        //     Arc::new(create_udf(
+        //         "GetTransactionIdDidAbort",
+        //         vec![DataType::Int64],
+        //         Arc::new(DataType::Boolean),
+        //         Volatility::Immutable,
+        //         Arc::new(|args| transaction_did_abort(args)),
+        //     )),
+        //     vec![Expr::Literal(ScalarValue::Int64(Some(1)))],
+        // ));
 
-        let filter_expr = conjunction(filters.iter().cloned());
+        // let filter_expr = conjunction(filters.iter().cloned().chain(once(xmin_filter)));
+
+        let filter_expr = Some(col("a").eq(lit(1)));
 
         let scan = DeltaScanBuilder::new(self.table.snapshot()?, store, session)
             .with_projection(projection)
@@ -314,7 +332,7 @@ impl TableProvider for PgTableProvider {
             .with_filter(filter_expr)
             .build()
             .await?;
-
+        
         Ok(Arc::new(scan))
     }
 
@@ -329,4 +347,8 @@ impl TableProvider for PgTableProvider {
     fn statistics(&self) -> Option<Statistics> {
         self.table.statistics()
     }
+}
+
+fn transaction_did_abort(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFusionError> {
+    Ok(ColumnarValue::Scalar(ScalarValue::Boolean(Some(false))))
 }

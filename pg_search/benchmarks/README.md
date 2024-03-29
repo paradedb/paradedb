@@ -60,7 +60,7 @@ The versions of the systems used for benchmarking are:
 - PostgreSQL: 15.4
 - Elasticsearch: 8.9.2
 
-For any questions, clarifications, or suggestions regarding our benchmarking experimental setup, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack]().
+For any questions, clarifications, or suggestions regarding our benchmarking experimental setup, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
 
 ### pg_search
 

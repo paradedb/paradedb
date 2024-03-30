@@ -1,16 +1,14 @@
 use async_trait::async_trait;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use deltalake::datafusion::common::{
-    DataFusionError, Result as DataFusionResult, ScalarValue, Statistics,
-};
+use deltalake::datafusion::common::{Result as DataFusionResult, Statistics};
 
 use deltalake::datafusion::datasource::provider::TableProvider;
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::execution::context::SessionState;
 
 use deltalake::datafusion::logical_expr::{
-    ColumnarValue, Expr, LogicalPlan, TableProviderFilterPushDown, TableType,
+    Expr, LogicalPlan, TableProviderFilterPushDown, TableType,
 };
 use deltalake::datafusion::physical_plan::ExecutionPlan;
 use deltalake::datafusion::sql::TableReference;
@@ -274,13 +272,10 @@ pub struct PgTableProvider {
 
 impl PgTableProvider {
     pub fn new(table: DeltaTable) -> Self {
-        Self {
-            table,
-            plan: None,
-        }
+        Self { table, plan: None }
     }
 
-    pub fn with_logical_plan(mut self, plan: LogicalPlan) -> Self {        
+    pub fn with_logical_plan(mut self, plan: LogicalPlan) -> Self {
         self.plan = Some(plan);
         self
     }

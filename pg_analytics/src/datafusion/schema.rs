@@ -16,6 +16,7 @@ use std::sync::Arc;
 use crate::errors::{NotFound, ParadeError};
 
 use super::directory::ParadeDirectory;
+use super::plan::xmin_filter_plan;
 use super::session::Session;
 use super::table::{PgTableProvider, Tables};
 
@@ -57,11 +58,13 @@ impl SchemaProvider for ParadeSchemaProvider {
         });
 
         match table_path {
-            Some(table_path) => {
-                Some(table_impl(tables, &table_path).await.unwrap_or_else(|_| {
-                    panic!("Failed to get {}.{}", self.schema_name, table_name)
-                }))
-            }
+            Some(table_path) => Some(
+                table_impl(table_name, &self.schema_name, tables, &table_path)
+                    .await
+                    .unwrap_or_else(|_| {
+                        panic!("Failed to get {}.{}", self.schema_name, table_name)
+                    }),
+            ),
             None => None,
         }
     }
@@ -117,6 +120,8 @@ fn table_names_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
 
 #[inline]
 async fn table_impl(
+    table_name: &str,
+    schema_name: &str,
     tables: Arc<Mutex<Tables>>,
     table_path: &Path,
 ) -> Result<Arc<dyn TableProvider>, ParadeError> {
@@ -135,5 +140,12 @@ async fn table_impl(
     .await?
     .0;
 
-    Ok(Arc::new(PgTableProvider::new(updated_table)) as Arc<dyn TableProvider>)
+    Ok(Arc::new(
+        PgTableProvider::new(updated_table.clone()).with_logical_plan(
+            xmin_filter_plan(table_name, schema_name, updated_table, unsafe {
+                pg_sys::GetCurrentTransactionId()
+            } as i64)
+            .unwrap(),
+        ),
+    ) as Arc<dyn TableProvider>)
 }

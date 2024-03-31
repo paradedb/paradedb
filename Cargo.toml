@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "cargo-paradedb",
     "pg_analytics",
     "pg_search",
     "shared",

@@ -60,7 +60,7 @@ impl SchemaProvider for ParadeSchemaProvider {
 
         match table_path {
             Some(table_path) => Some(
-                table_impl(table_name, &self.schema_name, tables, &table_path)
+                table_impl(tables, &table_path)
                     .await
                     .unwrap_or_else(|_| {
                         panic!("Failed to get {}.{}", self.schema_name, table_name)
@@ -121,8 +121,6 @@ fn table_names_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
 
 #[inline]
 async fn table_impl(
-    _table_name: &str,
-    _schema_name: &str,
     tables: Arc<Mutex<Tables>>,
     table_path: &Path,
 ) -> Result<Arc<dyn TableProvider>, ParadeError> {

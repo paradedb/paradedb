@@ -11,15 +11,13 @@ use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
 use thiserror::Error;
 
-use super::scan::{scan_getnextslot, TableScanError};
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
-
 use crate::datafusion::session::Session;
 use crate::datafusion::table::RESERVED_TID_FIELD;
 use crate::errors::ParadeError;
-
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
+use super::scan::{scan_getnextslot, TableScanError};
 
 struct IndexScanDesc {
     rs_base: pg_sys::IndexFetchTableData,

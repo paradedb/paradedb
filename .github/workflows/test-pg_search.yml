@@ -11,7 +11,6 @@ on:
       - dev
       - staging
       - main
-      - phil/upgrade
     paths:
       - "pg_search/**"
       - "tokenizers/**"
@@ -150,13 +149,13 @@ jobs:
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             # Retrieve the version to test upgrading to
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
-              echo "New version not provided, assuming the next release is incrementing patch..."
+              echo "New version not provided, assuming the next release is the GitHub Actions Variable version..."
               NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}
             else
               echo "Using the provided new version (likely a manual major or minor version increment)..."
               NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
-              echo "$NEW_VERSION"
             fi
+            echo "Version to test upgrading to: $NEW_VERSION"
             ./runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION" -a "${{ matrix.arch }}"
           else
             ./runtests.sh -p sequential -v "${{ matrix.pg_version }}"

@@ -155,7 +155,7 @@ function run_tests() {
     cargo pgrx install --features icu --pg-config="$PG_BIN_PATH/pg_config" --release
 
     # Fourth, upgrade the extension installed on the test database to the current version
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "ALTER EXTENSION pg_bm25 UPDATE TO '$FLAG_UPGRADE_VER';" -d test_db
   else
     # Use cargo-pgrx to install the extension for the specified version
     echo "Installing pg_search extension onto the test database..."

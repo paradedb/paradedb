@@ -3,7 +3,7 @@ use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use pgrx::*;
 use shared::postgres::transaction::TransactionError;
-use std::ffi::{NulError, OsString};
+use std::ffi::{IntoStringError, NulError, OsString};
 use std::num::ParseIntError;
 use std::str::Utf8Error;
 use std::string::FromUtf8Error;
@@ -62,6 +62,9 @@ pub enum NotFound {
 
     #[error("Expected value of type {0} but found None")]
     Value(String),
+
+    #[error("No function exists with name {0}")]
+    Function(String),
 }
 
 #[derive(Error, Debug)]
@@ -142,8 +145,28 @@ impl From<spi::SpiError> for ParadeError {
     }
 }
 
+impl From<regex::Error> for ParadeError {
+    fn from(err: regex::Error) -> Self {
+        ParadeError::Generic(err.to_string())
+    }
+}
+
+impl From<IntoStringError> for ParadeError {
+    fn from(err: IntoStringError) -> Self {
+        ParadeError::Generic(err.to_string())
+    }
+}
+
+// ParadeError into other types
+
 impl From<ParadeError> for DataFusionError {
     fn from(err: ParadeError) -> Self {
+        DataFusionError::Internal(err.to_string())
+    }
+}
+
+impl From<DataTypeError> for DataFusionError {
+    fn from(err: DataTypeError) -> Self {
         DataFusionError::Internal(err.to_string())
     }
 }

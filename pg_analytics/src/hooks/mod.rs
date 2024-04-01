@@ -8,6 +8,7 @@ mod query;
 mod rename;
 mod select;
 mod truncate;
+mod udf;
 mod vacuum;
 
 use pgrx::hooks::PgHooks;

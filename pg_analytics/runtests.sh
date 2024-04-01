@@ -139,7 +139,7 @@ function run_tests() {
   BASE_RELEASE="0.5.2"
 
   # This block runs a test whether our extension can upgrade to the current version
-  if [ -n "$FLAG_UPGRADE_VER" && ("$FLAG_UPGRADE_VER" != "$BASE_RELEASE") ]; then
+  if [ -n "$FLAG_UPGRADE_VER" ] && [ "$FLAG_UPGRADE_VER" != "$BASE_RELEASE" ]; then
     echo "Running extension upgrade test..."
     DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_analytics-v$BASE_RELEASE-pg$PG_VERSION-$FLAG_ARCH-ubuntu2204.deb"
     curl -LOJ "$DOWNLOAD_URL"

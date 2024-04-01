@@ -79,10 +79,9 @@ jobs:
         working-directory: pg_analytics/
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
-          NEW_PATCH=$(( ${{ vars.VERSION_PATCH }} + 1 ))
-          NEW_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${NEW_PATCH}"
-          if [ "$CARGO_VERSION" != "$NEW_VERSION" ]; then
-            echo "Version in Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($NEW_VERSION), did you forget to increment it?"
+          RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
+          if [ "$CARGO_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "Version in Cargo.toml ($CARGO_VERSION) does not match upcoming release version ($RELEASE_VERSION), did you forget to increment it?"
             exit 1
           fi
           echo "Version check passed!"

@@ -47,8 +47,8 @@ impl SchemaProvider for ParadeSchemaProvider {
 
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
         let tables = Self::tables(self).expect("Failed to get tables");
-        let table_path =
-            ParadeDirectory::table_path(&self.schema_name, table_name).unwrap_or_else(|err| {
+        let table_path = ParadeDirectory::table_path_from_name(&self.schema_name, table_name)
+            .unwrap_or_else(|err| {
                 panic!("{}", err);
             });
 
@@ -62,7 +62,7 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     fn table_exist(&self, table_name: &str) -> bool {
-        ParadeDirectory::table_path(&self.schema_name, table_name).is_ok()
+        ParadeDirectory::table_path_from_name(&self.schema_name, table_name).is_ok()
     }
 }
 

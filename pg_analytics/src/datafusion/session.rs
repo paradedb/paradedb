@@ -67,6 +67,8 @@ impl Session {
                 Self::catalog_name()?.to_string(),
             ))?;
 
+        drop(lock);
+
         f(parade_catalog)
     }
 
@@ -97,6 +99,8 @@ impl Session {
             .as_any()
             .downcast_ref::<ParadeSchemaProvider>()
             .ok_or(CatalogError::SchemaNotFound(schema_name.to_string()))?;
+
+        drop(lock);
 
         task::block_on(f(parade_provider))
     }

@@ -28,7 +28,10 @@ impl ParadeDirectory {
         Ok(schema_dir)
     }
 
-    pub fn table_path(schema_name: &str, table_name: &str) -> Result<PathBuf, DirectoryError> {
+    pub fn table_path_from_name(
+        schema_name: &str,
+        table_name: &str,
+    ) -> Result<PathBuf, DirectoryError> {
         let pg_relation =
             match unsafe { PgRelation::open_with_name(&format!("{}.{}", schema_name, table_name)) }
             {
@@ -41,9 +44,15 @@ impl ParadeDirectory {
                 }
             };
 
-        let schema_dir =
-            ParadeDirectory::schema_path(Session::catalog_oid(), pg_relation.namespace_oid())?;
-        let table_dir = schema_dir.join(pg_relation.oid().as_u32().to_string());
+        Self::table_path_from_oid(pg_relation.namespace_oid(), pg_relation.oid())
+    }
+
+    pub fn table_path_from_oid(
+        schema_oid: pg_sys::Oid,
+        table_oid: pg_sys::Oid,
+    ) -> Result<PathBuf, DirectoryError> {
+        let schema_dir = ParadeDirectory::schema_path(Session::catalog_oid(), schema_oid)?;
+        let table_dir = schema_dir.join(table_oid.as_u32().to_string());
 
         Ok(table_dir)
     }

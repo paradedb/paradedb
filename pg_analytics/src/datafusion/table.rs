@@ -112,7 +112,10 @@ impl DatafusionTable for PgRelation {
     }
 
     fn table_path(&self) -> Result<PathBuf, DataFusionTableError> {
-        Ok(ParadeDirectory::table_path(self.namespace(), self.name())?)
+        Ok(ParadeDirectory::table_path_from_oid(
+            self.namespace_oid(),
+            self.oid(),
+        )?)
     }
 }
 
@@ -149,7 +152,6 @@ impl Tables {
         table_path: &Path,
         arrow_schema: Arc<ArrowSchema>,
     ) -> Result<DeltaTable, DataFusionTableError> {
-        info!("creating table");
         let delta_schema = DeltaSchema::try_from(arrow_schema.as_ref())?;
 
         let delta_table = CreateBuilder::new()
@@ -264,16 +266,17 @@ impl Tables {
 
 pub struct PgTableProvider {
     table: DeltaTable,
+    dataframe: DataFrame,
     plan: Option<LogicalPlan>,
 }
 
 impl PgTableProvider {
     pub async fn new(
         table: DeltaTable,
-        table_name: &str,
         schema_name: &str,
+        table_name: &str,
     ) -> Result<Self, CatalogError> {
-        let table_path = ParadeDirectory::table_path(schema_name, table_name)?;
+        let table_path = ParadeDirectory::table_path_from_name(schema_name, table_name)?;
         let listing_table_url = ListingTableUrl::parse(table_path.to_str().unwrap())?;
         let file_format = ParquetFormat::new();
         let listing_options =
@@ -317,12 +320,17 @@ impl PgTableProvider {
 
         Ok(Self {
             table,
+            dataframe: dataframe.clone(),
             plan: Some(dataframe.logical_plan().clone()),
         })
     }
 
     pub fn table(&self) -> DeltaTable {
         self.table.clone()
+    }
+
+    pub fn dataframe(&self) -> DataFrame {
+        self.dataframe.clone()
     }
 }
 

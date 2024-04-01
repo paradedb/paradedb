@@ -120,7 +120,7 @@ fn get_source(schema_name: &str, table_name: &str) -> Result<Arc<dyn TableSource
 
     Session::with_tables(&schema_name.clone(), |mut tables| {
         Box::pin(async move {
-            let table_path = ParadeDirectory::table_path(&schema_name, &table_name)?;
+            let table_path = ParadeDirectory::table_path_from_name(&schema_name, &table_name)?;
             let delta_table = tables.get_ref(&table_path).await?;
             let provider =
                 PgTableProvider::new(delta_table.clone(), &schema_name, &table_name).await?;

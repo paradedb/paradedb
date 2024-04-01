@@ -121,6 +121,7 @@ impl Writer {
                 let delta_table = Session::with_tables(schema_name, |mut tables| {
                     Box::pin(async move { Ok(tables.get_owned(&table_path_cloned).await?) })
                 })?;
+
                 entry.insert(WriterCache::new(
                     writer,
                     delta_table,

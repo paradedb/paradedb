@@ -2,10 +2,7 @@ use crate::storage::tid::{RowNumber, TIDError};
 use async_std::task;
 use core::ffi::c_void;
 use deltalake::datafusion::common::DataFusionError;
-use deltalake::datafusion::common::ScalarValue;
-use deltalake::datafusion::logical_expr::col;
-use deltalake::datafusion::logical_expr::expr::Expr;
-use deltalake::datafusion::sql::TableReference;
+
 use pgrx::*;
 use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
@@ -14,8 +11,9 @@ use thiserror::Error;
 use super::scan::{scan_getnextslot, TableScanError};
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::catalog::CatalogError;
+use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::RESERVED_TID_FIELD;
+use crate::datafusion::table::PgTableProvider;
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;
@@ -48,16 +46,17 @@ async unsafe fn index_fetch_tuple(
     let oid = pg_relation.oid();
     let table_name = pg_relation.name().to_string();
     let schema_name = pg_relation.namespace().to_string();
-    let catalog_name = Session::catalog_name()?;
+    let _catalog_name = Session::catalog_name()?;
     let RowNumber(row_number) = RowNumber::try_from(*tid)?;
 
-    let dataframe = Session::with_session_context(|context| {
+    let dataframe = Session::with_tables(&schema_name.clone(), |mut tables| {
         Box::pin(async move {
-            let reference = TableReference::full(catalog_name, schema_name, table_name);
-            let table = context.table(reference).await?;
+            let table_path = ParadeDirectory::table_path_from_name(&schema_name, &table_name)?;
+            let delta_table = tables.get_ref(&table_path).await?;
+            let provider =
+                PgTableProvider::new(delta_table.clone(), &schema_name, &table_name).await?;
 
-            Ok(table
-                .filter(col(RESERVED_TID_FIELD).eq(Expr::Literal(ScalarValue::from(row_number))))?)
+            Ok(provider.dataframe())
         })
     })?;
 
@@ -92,8 +91,6 @@ async unsafe fn index_fetch_tuple(
             (*slot).tts_tid = *tid;
 
             pg_sys::ExecStoreVirtualTuple(slot);
-
-            info!("returning {:?}", batch);
 
             Ok(true)
         }

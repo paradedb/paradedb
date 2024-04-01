@@ -141,13 +141,13 @@ function run_tests() {
 
     # First, download & install the first release at which we started supporting upgrades for Postgres 16 (v0.5.2)
     BASE_RELEASE="0.5.2"
-    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg$PG_VERSION-$FLAG_ARCH-ubuntu2204.deb"
+    DOWNLOAD_URL="https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-$FLAG_ARCH-ubuntu2204.deb"
     curl -LOJ "$DOWNLOAD_URL" > /dev/null
-    sudo dpkg -i "pg_search-v$BASE_RELEASE-pg$PG_VERSION-$FLAG_ARCH-ubuntu2204.deb" > /dev/null
+    sudo dpkg -i "pg_bm25-v$BASE_RELEASE-pg$PG_VERSION-$FLAG_ARCH-ubuntu2204.deb" > /dev/null
 
     # Second, load the extension into the test database
     echo "Loading pg_search extension version v$BASE_RELEASE into the test database..."
-    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE';" -d test_db
+    "$PG_BIN_PATH/psql" -v ON_ERROR_STOP=1 -c "CREATE EXTENSION pg_bm25 VERSION '$BASE_RELEASE';" -d test_db
 
     # Third, build & install the current version of the extension
     echo "Building & installing the current version of the pg_search extension..."

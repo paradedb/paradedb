@@ -11,7 +11,7 @@ pub trait Query {
 }
 
 impl Query for *mut pg_sys::PlannedStmt {
-    fn get_query_string(self, source_text: &CStr) -> Result<String, ParadeError> {
+    fn get_query_string(self, source_text: &CStr) -> Result<String, CatalogError> {
         let query_start_index = unsafe { (*self).stmt_location };
         let query_len = unsafe { (*self).stmt_len };
         let mut query = source_text.to_str()?;

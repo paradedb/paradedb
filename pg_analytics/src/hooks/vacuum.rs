@@ -2,12 +2,13 @@ use deltalake::datafusion::catalog::CatalogProvider;
 use pgrx::*;
 use std::ffi::{CStr, CString};
 use std::fs::remove_dir_all;
+use thiserror::Error;
 
-use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::catalog::CatalogError;
+use crate::datafusion::directory::{DirectoryError, ParadeDirectory};
 use crate::datafusion::session::Session;
-use crate::datafusion::table::{DatafusionTable, PgTableProvider};
-use crate::errors::ParadeError;
-use crate::hooks::handler::IsColumn;
+use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
+use crate::hooks::handler::{HandlerError, IsColumn};
 
 #[derive(Debug)]
 struct VacuumOptions {
@@ -23,7 +24,7 @@ impl VacuumOptions {
         }
     }
 
-    unsafe fn init(&mut self, options: *mut pg_sys::List) -> Result<(), ParadeError> {
+    unsafe fn init(&mut self, options: *mut pg_sys::List) -> Result<(), VacuumHookError> {
         if !options.is_null() {
             let num_options = (*options).length;
 
@@ -58,7 +59,7 @@ impl VacuumOptions {
     }
 }
 
-pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeError> {
+pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), VacuumHookError> {
     // Read VACUUM options
     let mut vacuum_options = VacuumOptions::new();
     vacuum_options.init((*vacuum_stmt).options)?;
@@ -86,8 +87,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 let schema_oid = unsafe {
                     pg_sys::get_namespace_oid(CString::new(schema_name.clone())?.as_ptr(), true)
                 };
-                let schema_path =
-                    ParadeDirectory::schema_path(Session::catalog_oid()?, schema_oid)?;
+                let schema_path = ParadeDirectory::schema_path(Session::catalog_oid(), schema_oid)?;
                 let directory = std::fs::read_dir(schema_path.clone())?;
 
                 // Vacuum all tables in the schema directory and delete directories for dropped tables
@@ -111,10 +111,7 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
 
                             Session::with_tables(&schema_name, |mut tables| {
                                 Box::pin(async move {
-                                    let delta_table =
-                                        tables.vacuum(&table_path, vacuum_options.full).await?;
-
-                                    tables.register(&table_path, PgTableProvider::new(delta_table))
+                                    Ok(tables.vacuum(&table_path, vacuum_options.full).await?)
                                 })
                             })?;
                         }
@@ -171,11 +168,9 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
                 let table_path = pg_relation.table_path()?;
 
                 Session::with_tables(schema_name, |mut tables| {
-                    Box::pin(async move {
-                        let delta_table = tables.vacuum(&table_path, vacuum_options.full).await?;
-
-                        tables.register(&table_path, PgTableProvider::new(delta_table))
-                    })
+                    Box::pin(
+                        async move { Ok(tables.vacuum(&table_path, vacuum_options.full).await?) },
+                    )
                 })?;
 
                 pg_sys::RelationClose(relation);
@@ -183,5 +178,38 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), ParadeE
 
             Ok(())
         }
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum VacuumHookError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    DirectoryError(#[from] DirectoryError),
+
+    #[error(transparent)]
+    DataFusionTableError(#[from] DataFusionTableError),
+
+    #[error(transparent)]
+    HandlerError(#[from] HandlerError),
+
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+
+    #[error(transparent)]
+    NulError(#[from] std::ffi::NulError),
+
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
+
+    #[error("{0}")]
+    OsString(String),
+}
+
+impl From<std::ffi::OsString> for VacuumHookError {
+    fn from(err: std::ffi::OsString) -> Self {
+        VacuumHookError::OsString(err.to_string_lossy().to_string())
     }
 }

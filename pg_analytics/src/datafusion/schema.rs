@@ -3,20 +3,17 @@ use async_trait::async_trait;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
-
 use pgrx::*;
 use std::any::Any;
 use std::ffi::{CStr, CString};
 use std::fs::read_dir;
-
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
+use super::catalog::CatalogError;
 use super::directory::ParadeDirectory;
-
 use super::session::Session;
 use super::table::{PgTableProvider, Tables};
-use crate::errors::ParadeError;
 
 pub struct ParadeSchemaProvider {
     schema_name: String,
@@ -24,14 +21,14 @@ pub struct ParadeSchemaProvider {
 }
 
 impl ParadeSchemaProvider {
-    pub async fn try_new(schema_name: &str) -> Result<Self, ParadeError> {
+    pub async fn try_new(schema_name: &str) -> Result<Self, CatalogError> {
         Ok(Self {
             schema_name: schema_name.to_string(),
             tables: Arc::new(Mutex::new(Tables::new()?)),
         })
     }
 
-    pub fn tables(&self) -> Result<Arc<Mutex<Tables>>, ParadeError> {
+    pub fn tables(&self) -> Result<Arc<Mutex<Tables>>, CatalogError> {
         Ok(self.tables.clone())
     }
 }
@@ -43,57 +40,39 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     fn table_names(&self) -> Vec<String> {
-        table_names_impl(&self.schema_name).expect("Failed to get table names")
+        table_names_impl(&self.schema_name).unwrap_or_else(|err| {
+            panic!("{}", err);
+        })
     }
 
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
         let tables = Self::tables(self).expect("Failed to get tables");
-        let table_path = table_path(&self.schema_name, table_name).unwrap_or_else(|_| {
-            panic!(
-                "Failed to get table path for {}.{}",
-                self.schema_name, table_name
-            )
-        });
+        let table_path =
+            ParadeDirectory::table_path(&self.schema_name, table_name).unwrap_or_else(|err| {
+                panic!("{}", err);
+            });
 
-        match table_path {
-            Some(table_path) => {
-                Some(table_impl(tables, &table_path).await.unwrap_or_else(|_| {
-                    panic!("Failed to get {}.{}", self.schema_name, table_name)
-                }))
-            }
-            None => None,
-        }
+        Some(
+            table_impl(tables, &table_path, &self.schema_name, table_name)
+                .await
+                .unwrap_or_else(|err| {
+                    panic!("{}", err);
+                }),
+        )
     }
 
     fn table_exist(&self, table_name: &str) -> bool {
-        matches!(table_path(&self.schema_name, table_name), Ok(Some(_)))
+        ParadeDirectory::table_path(&self.schema_name, table_name).is_ok()
     }
 }
 
 #[inline]
-fn table_path(schema_name: &str, table_name: &str) -> Result<Option<PathBuf>, ParadeError> {
-    let pg_relation =
-        match unsafe { PgRelation::open_with_name(&format!("{}.{}", schema_name, table_name)) } {
-            Ok(relation) => relation,
-            Err(_) => {
-                return Ok(None);
-            }
-        };
-
-    Ok(Some(ParadeDirectory::table_path(
-        Session::catalog_oid()?,
-        pg_relation.namespace_oid(),
-        pg_relation.oid(),
-    )?))
-}
-
-#[inline]
-fn table_names_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
+fn table_names_impl(schema_name: &str) -> Result<Vec<String>, CatalogError> {
     let mut names = vec![];
 
     let schema_oid =
         unsafe { pg_sys::get_namespace_oid(CString::new(schema_name)?.as_ptr(), true) };
-    let schema_path = ParadeDirectory::schema_path(Session::catalog_oid()?, schema_oid)?;
+    let schema_path = ParadeDirectory::schema_path(Session::catalog_oid(), schema_oid)?;
 
     for file in read_dir(schema_path)? {
         if let Ok(oid) = file?.file_name().into_string()?.parse::<u32>() {
@@ -118,10 +97,14 @@ fn table_names_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
 async fn table_impl(
     tables: Arc<Mutex<Tables>>,
     table_path: &Path,
-) -> Result<Arc<dyn TableProvider>, ParadeError> {
+    schema_name: &str,
+    table_name: &str,
+) -> Result<Arc<dyn TableProvider>, CatalogError> {
     let mut tables = tables.lock().await;
-    let provider = tables.get_ref(table_path).await?;
-    let delta_table = provider.table();
+    let delta_table = tables.get_ref(table_path).await?.clone();
 
-    Ok(Arc::new(PgTableProvider::new(delta_table)) as Arc<dyn TableProvider>)
+    Ok(
+        Arc::new(PgTableProvider::new(delta_table, schema_name, table_name).await?)
+            as Arc<dyn TableProvider>,
+    )
 }

@@ -1,17 +1,17 @@
 use async_std::task;
+use crate::datafusion::query::{ASTVec, QueryString};
 use pgrx::pg_sys::NodeTag;
 use pgrx::*;
 use std::ffi::CStr;
+use thiserror::Error;
 
-use crate::datafusion::query::{ASTVec, QueryString};
-use crate::errors::ParadeError;
-use crate::hooks::alter::alter;
-use crate::hooks::drop::drop;
-use crate::hooks::query::Query;
-use crate::hooks::rename::rename;
-use crate::hooks::truncate::truncate;
-use crate::hooks::udf::createfunction;
-use crate::hooks::vacuum::vacuum;
+use super::alter::{alter, AlterHookError};
+use super::drop::{drop, DropHookError};
+use super::query::Query;
+use super::rename::{rename, RenameHookError};
+use super::truncate::{truncate, TruncateHookError};
+use super::vacuum::{vacuum, VacuumHookError};
+use crate::datafusion::catalog::CatalogError;
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -34,7 +34,7 @@ pub fn process_utility(
         dest: PgBox<pg_sys::DestReceiver>,
         completion_tag: *mut pg_sys::QueryCompletion,
     ) -> HookResult<()>,
-) -> Result<(), ParadeError> {
+) -> Result<(), ProcessHookError> {
     unsafe {
         let plan = pstmt.utilityStmt;
 
@@ -83,4 +83,25 @@ pub fn process_utility(
 
         Ok(())
     }
+}
+
+#[derive(Error, Debug)]
+pub enum ProcessHookError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    AlterHookError(#[from] AlterHookError),
+
+    #[error(transparent)]
+    DropHookError(#[from] DropHookError),
+
+    #[error(transparent)]
+    RenameHookError(#[from] RenameHookError),
+
+    #[error(transparent)]
+    TruncateHookError(#[from] TruncateHookError),
+
+    #[error(transparent)]
+    VacuumHookError(#[from] VacuumHookError),
 }

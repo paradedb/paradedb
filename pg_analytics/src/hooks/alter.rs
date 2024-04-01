@@ -1,14 +1,14 @@
 use deltalake::datafusion::sql::parser;
 use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, Statement};
 use pgrx::*;
+use thiserror::Error;
 
-use crate::errors::{NotSupported, ParadeError};
-use crate::hooks::handler::IsColumn;
+use crate::hooks::handler::{HandlerError, IsColumn};
 
 pub async unsafe fn alter(
     alter_stmt: *mut pg_sys::AlterTableStmt,
     statement: &parser::Statement,
-) -> Result<(), ParadeError> {
+) -> Result<(), AlterHookError> {
     let rangevar = (*alter_stmt).relation;
     let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
         rangevar,
@@ -35,13 +35,13 @@ pub async unsafe fn alter(
             for operation in operations {
                 match operation {
                     AddColumn { .. } => {
-                        return Err(NotSupported::AddColumn.into());
+                        return Err(AlterHookError::AddColumnNotSupported);
                     }
                     DropColumn { .. } => {
-                        return Err(NotSupported::DropColumn.into());
+                        return Err(AlterHookError::DropColumnNotSupported);
                     }
                     AlterColumn { .. } | ChangeColumn { .. } => {
-                        return Err(NotSupported::AlterColumn.into());
+                        return Err(AlterHookError::AlterColumnNotSupported);
                     }
                     _ => {}
                 }
@@ -50,4 +50,19 @@ pub async unsafe fn alter(
     }
 
     Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum AlterHookError {
+    #[error(transparent)]
+    HandlerError(#[from] HandlerError),
+
+    #[error("ADD COLUMN is not yet supported. Please recreate the table instead.")]
+    AddColumnNotSupported,
+
+    #[error("DROP COLUMN is not yet supported. Please recreate the table instead.")]
+    DropColumnNotSupported,
+
+    #[error("ALTER COLUMN is not yet supported. Please recreate the table instead.")]
+    AlterColumnNotSupported,
 }

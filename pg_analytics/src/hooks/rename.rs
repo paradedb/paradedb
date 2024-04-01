@@ -1,14 +1,14 @@
 use deltalake::datafusion::sql::parser;
 use deltalake::datafusion::sql::sqlparser::ast::{AlterTableOperation::*, Statement};
 use pgrx::*;
+use thiserror::Error;
 
-use crate::errors::{NotSupported, ParadeError};
-use crate::hooks::handler::IsColumn;
+use crate::hooks::handler::{HandlerError, IsColumn};
 
 pub unsafe fn rename(
     rename_stmt: *mut pg_sys::RenameStmt,
     statement: &parser::Statement,
-) -> Result<(), ParadeError> {
+) -> Result<(), RenameHookError> {
     let rangevar = (*rename_stmt).relation;
     let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
         rangevar,
@@ -34,11 +34,20 @@ pub unsafe fn rename(
         if let Statement::AlterTable { operations, .. } = statement.as_ref() {
             for operation in operations {
                 if let RenameColumn { .. } = operation {
-                    return Err(NotSupported::RenameColumn.into());
+                    return Err(RenameHookError::RenameColumnNotSupported);
                 }
             }
         }
     }
 
     Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum RenameHookError {
+    #[error(transparent)]
+    HandlerError(#[from] HandlerError),
+
+    #[error("RENAME COLUMN is not yet supported. Please recreate the table instead.")]
+    RenameColumnNotSupported,
 }

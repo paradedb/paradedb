@@ -3,8 +3,10 @@ use pgrx::*;
 use std::ffi::CStr;
 use thiserror::Error;
 
-use super::handler::IsColumn;
-use super::insert::insert;
+use crate::datafusion::catalog::CatalogError;
+
+use super::handler::{HandlerError, IsColumn};
+use super::insert::{insert, InsertHookError};
 use super::query::Query;
 use super::select::{select, SelectHookError};
 use crate::datafusion::commit::{commit_writer, needs_commit};
@@ -117,6 +119,15 @@ pub fn executor_run(
 
 #[derive(Error, Debug)]
 pub enum ExecutorHookError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    HandlerError(#[from] HandlerError),
+
+    #[error(transparent)]
+    InsertHookError(#[from] InsertHookError),
+
     #[error(transparent)]
     ParadeError(#[from] ParadeError),
 

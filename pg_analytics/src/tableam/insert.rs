@@ -11,7 +11,8 @@ use shared::postgres::tid::RowNumber;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::catalog::CatalogError;
+use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
 use crate::storage::metadata::{MetadataError, PgMetadata};
@@ -40,7 +41,6 @@ pub extern "C" fn deltalake_tuple_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
-    info!("insert");
     let mut mut_slot = slot;
     unsafe {
         task::block_on(insert_tuples(rel, &mut mut_slot, 1)).unwrap_or_else(|err| {
@@ -193,6 +193,12 @@ async unsafe fn insert_tuples(
 pub enum TableInsertError {
     #[error(transparent)]
     ArrowError(#[from] ArrowError),
+
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    DataFusionTableError(#[from] DataFusionTableError),
 
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),

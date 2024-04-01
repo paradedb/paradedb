@@ -1,16 +1,16 @@
 use async_std::task;
 use pgrx::*;
-use shared::postgres::transaction::Transaction;
+use shared::postgres::transaction::{Transaction, TransactionError};
 use std::panic::AssertUnwindSafe;
+use thiserror::Error;
 
 use crate::datafusion::writer::{Writer, TRANSACTION_CALLBACK_CACHE_ID};
-use crate::errors::ParadeError;
-use crate::hooks::handler::IsColumn;
+use crate::hooks::handler::{HandlerError, IsColumn};
 
 pub fn insert(
     rtable: *mut pg_sys::List,
     _query_desc: PgBox<pg_sys::QueryDesc>,
-) -> Result<(), ParadeError> {
+) -> Result<(), InsertHookError> {
     let rte: *mut pg_sys::RangeTblEntry;
 
     #[cfg(feature = "pg12")]
@@ -39,7 +39,7 @@ pub fn insert(
 
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,
-        AssertUnwindSafe(move || {         
+        AssertUnwindSafe(move || {
             task::block_on(Writer::flush()).unwrap_or_else(|err| {
                 panic!("{}", err);
             });
@@ -50,5 +50,16 @@ pub fn insert(
         }),
     )?;
 
+    // TODO: Clear writer on abort
+
     Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum InsertHookError {
+    #[error(transparent)]
+    HandlerError(#[from] HandlerError),
+
+    #[error(transparent)]
+    TransactionError(#[from] TransactionError),
 }

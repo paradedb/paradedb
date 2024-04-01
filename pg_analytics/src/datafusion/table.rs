@@ -1,40 +1,46 @@
 use async_trait::async_trait;
+use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::{Result as DataFusionResult, Statistics};
-
-use deltalake::datafusion::datasource::provider::TableProvider;
+use deltalake::datafusion::dataframe::DataFrame;
+use deltalake::datafusion::datasource::file_format::parquet::ParquetFormat;
+use deltalake::datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
+use deltalake::datafusion::datasource::{provider_as_source, TableProvider};
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::execution::context::SessionState;
-
 use deltalake::datafusion::logical_expr::{
-    Expr, LogicalPlan, TableProviderFilterPushDown, TableType,
+    col, lit, Expr, LogicalPlan, LogicalPlanBuilder, TableProviderFilterPushDown, TableSource,
+    TableType,
 };
 use deltalake::datafusion::physical_plan::ExecutionPlan;
 use deltalake::datafusion::sql::TableReference;
+use deltalake::errors::DeltaTableError;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
 use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::vacuum::VacuumBuilder;
-use deltalake::table::state::DeltaTableState;
+
 use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
 use deltalake::DeltaTable;
 use pgrx::*;
-use std::any::{type_name, Any};
+use std::any::Any;
 use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
-
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use thiserror::Error;
 
-use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::session::Session;
-use crate::errors::{NotFound, ParadeError};
+use super::catalog::CatalogError;
+use super::directory::{DirectoryError, ParadeDirectory};
+use super::session::Session;
 use crate::guc::PARADE_GUC;
-use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
+use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
 
 pub static RESERVED_TID_FIELD: &str = "parade_ctid";
 pub static RESERVED_XMIN_FIELD: &str = "parade_xmin";
@@ -42,14 +48,13 @@ pub static RESERVED_XMIN_FIELD: &str = "parade_xmin";
 const BYTES_IN_MB: i64 = 1_048_576;
 
 pub trait DatafusionTable {
-    fn arrow_schema(&self) -> Result<ArrowSchema, ParadeError>;
-    fn arrow_schema_with_reserved_fields(&self) -> Result<ArrowSchema, ParadeError>;
-    fn table_path(&self) -> Result<PathBuf, ParadeError>;
-    fn table_reference(&self) -> Result<TableReference, ParadeError>;
+    fn arrow_schema(&self) -> Result<ArrowSchema, DataFusionTableError>;
+    fn arrow_schema_with_reserved_fields(&self) -> Result<ArrowSchema, DataFusionTableError>;
+    fn table_path(&self) -> Result<PathBuf, DataFusionTableError>;
 }
 
 impl DatafusionTable for PgRelation {
-    fn arrow_schema(&self) -> Result<ArrowSchema, ParadeError> {
+    fn arrow_schema(&self) -> Result<ArrowSchema, DataFusionTableError> {
         let tupdesc = self.tuple_desc();
         let mut fields = Vec::with_capacity(tupdesc.len());
 
@@ -61,7 +66,7 @@ impl DatafusionTable for PgRelation {
             let attname = attribute.name();
 
             if attname == RESERVED_TID_FIELD || attname == RESERVED_XMIN_FIELD {
-                return Err(ParadeError::ReservedFieldName(attname.to_string()));
+                return Err(DataFusionTableError::ReservedFieldName(attname.to_string()));
             }
 
             let attribute_type_oid = attribute.type_oid();
@@ -96,7 +101,7 @@ impl DatafusionTable for PgRelation {
         Ok(ArrowSchema::new(fields))
     }
 
-    fn arrow_schema_with_reserved_fields(&self) -> Result<ArrowSchema, ParadeError> {
+    fn arrow_schema_with_reserved_fields(&self) -> Result<ArrowSchema, DataFusionTableError> {
         Ok(ArrowSchema::try_merge(vec![
             self.arrow_schema()?,
             ArrowSchema::new(vec![
@@ -106,25 +111,17 @@ impl DatafusionTable for PgRelation {
         ])?)
     }
 
-    fn table_path(&self) -> Result<PathBuf, ParadeError> {
-        ParadeDirectory::table_path(Session::catalog_oid()?, self.namespace_oid(), self.oid())
-    }
-
-    fn table_reference(&self) -> Result<TableReference, ParadeError> {
-        Ok(TableReference::full(
-            Session::catalog_name()?,
-            self.namespace(),
-            self.name(),
-        ))
+    fn table_path(&self) -> Result<PathBuf, DataFusionTableError> {
+        Ok(ParadeDirectory::table_path(self.namespace(), self.name())?)
     }
 }
 
 pub struct Tables {
-    tables: HashMap<PathBuf, PgTableProvider>,
+    tables: HashMap<PathBuf, DeltaTable>,
 }
 
 impl Tables {
-    pub fn new() -> Result<Self, ParadeError> {
+    pub fn new() -> Result<Self, DataFusionTableError> {
         Ok(Self {
             tables: HashMap::new(),
         })
@@ -134,9 +131,8 @@ impl Tables {
         &mut self,
         table_path: &Path,
         batch: RecordBatch,
-    ) -> Result<DeltaTable, ParadeError> {
-        let provider = Self::get_owned(self, table_path).await?;
-        let mut delta_table = provider.table();
+    ) -> Result<DeltaTable, DataFusionTableError> {
+        let mut delta_table = Self::get_owned(self, table_path).await?;
 
         // Write the RecordBatch to the DeltaTable
         let mut writer = RecordBatchWriter::for_table(&delta_table)?;
@@ -152,7 +148,8 @@ impl Tables {
         &self,
         table_path: &Path,
         arrow_schema: Arc<ArrowSchema>,
-    ) -> Result<DeltaTable, ParadeError> {
+    ) -> Result<DeltaTable, DataFusionTableError> {
+        info!("creating table");
         let delta_schema = DeltaSchema::try_from(arrow_schema.as_ref())?;
 
         let delta_table = CreateBuilder::new()
@@ -167,15 +164,14 @@ impl Tables {
         &mut self,
         table_path: &Path,
         predicate: Option<Expr>,
-    ) -> Result<(DeltaTable, DeleteMetrics), ParadeError> {
-        let provider = Self::get_owned(self, table_path).await?;
-        let delta_table = provider.table();
+    ) -> Result<(DeltaTable, DeleteMetrics), DataFusionTableError> {
+        let delta_table = Self::get_owned(self, table_path).await?;
 
         let mut delete_builder = DeleteBuilder::new(
             delta_table.log_store(),
             delta_table
                 .state
-                .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
+                .ok_or(DataFusionTableError::DeltaTableStateNotFound)?,
         );
 
         if let Some(predicate) = predicate {
@@ -185,32 +181,36 @@ impl Tables {
         Ok(delete_builder.await?)
     }
 
-    pub fn deregister(&mut self, table_path: &Path) -> Result<(), ParadeError> {
+    pub fn deregister(&mut self, table_path: &Path) -> Result<(), DataFusionTableError> {
         self.tables.remove(table_path);
         Ok(())
     }
 
-    pub async fn get_owned(&mut self, table_path: &Path) -> Result<PgTableProvider, ParadeError> {
-        let table = match self.tables.entry(table_path.to_path_buf()) {
+    pub async fn get_owned(
+        &mut self,
+        table_path: &Path,
+    ) -> Result<DeltaTable, DataFusionTableError> {
+        let mut table = match self.tables.entry(table_path.to_path_buf()) {
             Occupied(entry) => entry.remove(),
-            Vacant(_) => {
-                PgTableProvider::new(deltalake::open_table(table_path.to_string_lossy()).await?)
-            }
+            Vacant(_) => deltalake::open_table(table_path.to_string_lossy()).await?,
         };
 
+        table.update().await?;
         Ok(table)
     }
 
     pub async fn get_ref(
         &mut self,
         table_path: &Path,
-    ) -> Result<&mut PgTableProvider, ParadeError> {
+    ) -> Result<&mut DeltaTable, DataFusionTableError> {
         let table = match self.tables.entry(table_path.to_path_buf()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(PgTableProvider::new(
-                deltalake::open_table(table_path.to_string_lossy()).await?,
-            )),
+            Vacant(entry) => {
+                entry.insert(deltalake::open_table(table_path.to_string_lossy()).await?)
+            }
         };
+
+        // TODO: Update table
 
         Ok(table)
     }
@@ -218,8 +218,8 @@ impl Tables {
     pub fn register(
         &mut self,
         table_path: &Path,
-        table: PgTableProvider,
-    ) -> Result<(), ParadeError> {
+        table: DeltaTable,
+    ) -> Result<(), DataFusionTableError> {
         self.tables.insert(table_path.to_path_buf(), table);
         Ok(())
     }
@@ -228,30 +228,28 @@ impl Tables {
         &mut self,
         table_path: &Path,
         optimize: bool,
-    ) -> Result<DeltaTable, ParadeError> {
-        let mut provider = Self::get_owned(self, table_path).await?;
+    ) -> Result<DeltaTable, DataFusionTableError> {
+        let mut delta_table = Self::get_owned(self, table_path).await?;
 
         if optimize {
             let optimized_table = OptimizeBuilder::new(
-                provider.table.log_store(),
-                provider
-                    .table
+                delta_table.log_store(),
+                delta_table
                     .state
-                    .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
+                    .ok_or(DataFusionTableError::DeltaTableStateNotFound)?,
             )
             .with_target_size(PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB)
             .await?
             .0;
 
-            provider = PgTableProvider::new(optimized_table);
+            delta_table = optimized_table;
         }
 
         let vacuumed_table = VacuumBuilder::new(
-            provider.table.log_store(),
-            provider
-                .table
+            delta_table.log_store(),
+            delta_table
                 .state
-                .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
+                .ok_or(DataFusionTableError::DeltaTableStateNotFound)?,
         )
         .with_retention_period(chrono::Duration::days(
             PARADE_GUC.vacuum_retention_days.get() as i64,
@@ -270,13 +268,57 @@ pub struct PgTableProvider {
 }
 
 impl PgTableProvider {
-    pub fn new(table: DeltaTable) -> Self {
-        Self { table, plan: None }
-    }
+    pub async fn new(
+        table: DeltaTable,
+        table_name: &str,
+        schema_name: &str,
+    ) -> Result<Self, CatalogError> {
+        let table_path = ParadeDirectory::table_path(schema_name, table_name)?;
+        let listing_table_url = ListingTableUrl::parse(table_path.to_str().unwrap())?;
+        let file_format = ParquetFormat::new();
+        let listing_options =
+            ListingOptions::new(Arc::new(file_format)).with_file_extension(".parquet");
 
-    pub fn with_logical_plan(mut self, plan: LogicalPlan) -> Self {
-        self.plan = Some(plan);
-        self
+        let state =
+            Session::with_session_context(|context| Box::pin(async move { Ok(context.state()) }))?;
+
+        let resolved_schema = listing_options
+            .infer_schema(&state, &listing_table_url)
+            .await?;
+
+        let config = ListingTableConfig::new(listing_table_url)
+            .with_listing_options(listing_options)
+            .with_schema(resolved_schema);
+
+        let listing_provider = Arc::new(ListingTable::try_new(config)?);
+        let dataframe = Session::with_session_context(|context| {
+            Box::pin(async move { Ok(context.read_table(listing_provider.clone())?) })
+        })?;
+
+        let current_transaction_rows = dataframe.filter(
+            col(RESERVED_XMIN_FIELD).eq(lit(unsafe { pg_sys::GetCurrentTransactionId() })),
+        )?;
+
+        let reference = TableReference::full(
+            Session::catalog_name()?,
+            schema_name.to_string(),
+            table_name.to_string(),
+        );
+
+        let table_scan = LogicalPlanBuilder::scan(
+            reference,
+            provider_as_source(Arc::new(table.clone()) as Arc<dyn TableProvider>),
+            None,
+        )?
+        .build()?;
+
+        let committed_rows = DataFrame::new(state, table_scan);
+        let dataframe = current_transaction_rows.union(committed_rows)?;
+
+        Ok(Self {
+            table,
+            plan: Some(dataframe.logical_plan().clone()),
+        })
     }
 
     pub fn table(&self) -> DeltaTable {
@@ -331,4 +373,25 @@ impl TableProvider for PgTableProvider {
     fn statistics(&self) -> Option<Statistics> {
         self.table.statistics()
     }
+}
+
+#[derive(Error, Debug)]
+pub enum DataFusionTableError {
+    #[error(transparent)]
+    ArrowError(#[from] ArrowError),
+
+    #[error(transparent)]
+    DataTypeError(#[from] DataTypeError),
+
+    #[error(transparent)]
+    DeltaTableError(#[from] DeltaTableError),
+
+    #[error(transparent)]
+    DirectoryError(#[from] DirectoryError),
+
+    #[error("Delta table state not found")]
+    DeltaTableStateNotFound,
+
+    #[error("Column name {0} is reserved by pg_analytics")]
+    ReservedFieldName(String),
 }

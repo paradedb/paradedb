@@ -13,6 +13,7 @@ use thiserror::Error;
 
 use super::scan::{scan_getnextslot, TableScanError};
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
+use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::RESERVED_TID_FIELD;
 use crate::datafusion::writer::Writer;
@@ -30,7 +31,6 @@ async unsafe fn index_fetch_tuple(
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
 ) -> Result<bool, IndexScanError> {
-    info!("index fetch tuple");
     Writer::flush().await?;
 
     let dscan = scan as *mut IndexScanDesc;
@@ -307,6 +307,9 @@ pub extern "C" fn deltalake_index_validate_scan(
 
 #[derive(Error, Debug)]
 pub enum IndexScanError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
     #[error(transparent)]
     DataFusion(#[from] DataFusionError),
 

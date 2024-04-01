@@ -1,14 +1,14 @@
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-
 use pgrx::*;
 use std::sync::Arc;
+use thiserror::Error;
 
+use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::{DatafusionTable, PgTableProvider};
-use crate::errors::ParadeError;
-use crate::hooks::handler::IsColumn;
+use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
+use crate::hooks::handler::{HandlerError, IsColumn};
 
-pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), ParadeError> {
+pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), TruncateHookError> {
     let rels = (*truncate_stmt).relations;
     let num_rels = (*rels).length;
 
@@ -63,13 +63,25 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
 
                 let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
                 let batch = RecordBatch::new_empty(arrow_schema);
-                let mut delta_table = tables.alter_schema(&table_path, batch).await?;
 
-                delta_table.update().await?;
-                tables.register(&table_path, PgTableProvider::new(delta_table))
+                tables.alter_schema(&table_path, batch).await?;
+
+                Ok(())
             })
         })?;
     }
 
     Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum TruncateHookError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    DataFusionTableError(#[from] DataFusionTableError),
+
+    #[error(transparent)]
+    HandlerError(#[from] HandlerError),
 }

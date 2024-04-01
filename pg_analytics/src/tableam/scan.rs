@@ -15,10 +15,10 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
+use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::stream::Stream;
-use crate::datafusion::table::DatafusionTable;
+use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::errors::ParadeError;
-
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
@@ -351,6 +351,12 @@ pub extern "C" fn deltalake_tuple_lock(
 
 #[derive(Error, Debug)]
 pub enum TableScanError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    DataFusionTableError(#[from] DataFusionTableError),
+
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),
 

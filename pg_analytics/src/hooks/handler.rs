@@ -4,6 +4,7 @@ use std::ffi::{c_char, CString};
 
 use crate::errors::ParadeError;
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
+use thiserror::Error;
 
 static COLUMN_HANDLER: &str = "parquet";
 
@@ -68,7 +69,7 @@ pub trait IsColumn {
 }
 
 impl IsColumn for *mut pg_sys::RelationData {
-    unsafe fn is_column(self) -> Result<bool, ParadeError> {
+    unsafe fn is_column(self) -> Result<bool, HandlerError> {
         if self.is_null() {
             return Ok(false);
         }
@@ -81,7 +82,7 @@ impl IsColumn for *mut pg_sys::RelationData {
     }
 }
 
-unsafe fn column_oid() -> Result<pg_sys::Oid, ParadeError> {
+unsafe fn column_oid() -> Result<pg_sys::Oid, HandlerError> {
     let parquet_handler_str = CString::new(COLUMN_HANDLER)?;
     let parquet_handler_ptr = parquet_handler_str.as_ptr() as *const c_char;
 
@@ -99,4 +100,13 @@ unsafe fn column_oid() -> Result<pg_sys::Oid, ParadeError> {
     pg_sys::ReleaseSysCache(heap_tuple_data);
 
     Ok((*catalog).amhandler)
+}
+
+#[derive(Error, Debug)]
+pub enum HandlerError {
+    #[error(transparent)]
+    NulError(#[from] std::ffi::NulError),
+
+    #[error("Heap and parquet tables in the same query is not yet supported")]
+    MixedTablesNotSupported,
 }

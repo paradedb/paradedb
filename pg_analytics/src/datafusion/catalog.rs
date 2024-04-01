@@ -3,13 +3,16 @@ use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::catalog::{CatalogList, CatalogProvider};
 use deltalake::datafusion::common::DataFusionError;
+use deltalake::errors::DeltaTableError;
 use pgrx::*;
-use std::{any::type_name, any::Any, collections::HashMap, ffi::CStr, ffi::OsStr, sync::Arc};
+use std::path::PathBuf;
+use std::{any::Any, collections::HashMap, ffi::CStr, sync::Arc};
+use thiserror::Error;
 
-use crate::datafusion::directory::ParadeDirectory;
-use crate::datafusion::schema::ParadeSchemaProvider;
-use crate::datafusion::session::Session;
-use crate::errors::{NotFound, ParadeError};
+use super::directory::{DirectoryError, ParadeDirectory};
+use super::schema::ParadeSchemaProvider;
+use super::session::Session;
+use super::table::DataFusionTableError;
 
 pub struct ParadeCatalog {
     schemas: RwLock<HashMap<String, Arc<dyn SchemaProvider>>>,
@@ -20,14 +23,14 @@ pub struct ParadeCatalogList {
 }
 
 impl ParadeCatalog {
-    pub fn try_new() -> Result<Self, ParadeError> {
+    pub fn try_new() -> Result<Self, CatalogError> {
         Ok(Self {
             schemas: RwLock::new(HashMap::new()),
         })
     }
 
-    pub async fn init(&self) -> Result<(), ParadeError> {
-        let delta_dir = ParadeDirectory::catalog_path(Session::catalog_oid()?)?;
+    pub async fn init(&self) -> Result<(), CatalogError> {
+        let delta_dir = ParadeDirectory::catalog_path(Session::catalog_oid())?;
 
         for entry in std::fs::read_dir(delta_dir)? {
             let entry = entry?;
@@ -36,9 +39,9 @@ impl ParadeCatalog {
             if path.is_dir() {
                 let schema_oid = path
                     .file_name()
-                    .ok_or(NotFound::Value(type_name::<OsStr>().to_string()))?
+                    .ok_or(CatalogError::FileNameNotFound(path.clone()))?
                     .to_str()
-                    .ok_or(NotFound::Value(type_name::<str>().to_string()))?
+                    .ok_or(CatalogError::FileNameToString(path.clone()))?
                     .parse::<u32>()?;
 
                 let pg_oid = pg_sys::Oid::from(schema_oid);
@@ -96,7 +99,7 @@ impl CatalogProvider for ParadeCatalog {
 }
 
 impl ParadeCatalogList {
-    pub fn try_new() -> Result<Self, ParadeError> {
+    pub fn try_new() -> Result<Self, CatalogError> {
         Ok(Self {
             catalogs: RwLock::new(HashMap::new()),
         })
@@ -126,5 +129,73 @@ impl CatalogList for ParadeCatalogList {
     fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
         let catalog_map = task::block_on(self.catalogs.read());
         catalog_map.get(name).cloned()
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum CatalogError {
+    #[error(transparent)]
+    DataFusionError(#[from] DataFusionError),
+
+    #[error(transparent)]
+    DataFusionTableError(#[from] DataFusionTableError),
+
+    #[error(transparent)]
+    DeltaTableError(#[from] DeltaTableError),
+
+    #[error(transparent)]
+    DirectoryError(#[from] DirectoryError),
+
+    #[error(transparent)]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
+
+    #[error(transparent)]
+    IO(#[from] std::io::Error),
+
+    #[error(transparent)]
+    NulError(#[from] std::ffi::NulError),
+
+    #[error(transparent)]
+    ParseIntError(#[from] std::num::ParseIntError),
+
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
+
+    #[error("Catalog {0} not found")]
+    CatalogNotFound(String),
+
+    #[error("Catalog provider {0} not found")]
+    CatalogProviderNotFound(String),
+
+    #[error("Database {0} not found")]
+    DatabaseNotFound(String),
+
+    #[error("File name not found for {0:?}")]
+    FileNameNotFound(PathBuf),
+
+    #[error("Could not convert {0:?} to string")]
+    FileNameToString(PathBuf),
+
+    #[error("{0}")]
+    OsString(String),
+
+    #[error("Schema {0} not found")]
+    SchemaNotFound(String),
+
+    #[error("Schema provider {0} not found")]
+    SchemaProviderNotFound(String),
+
+    #[error("No table registered with name {0}")]
+    TableNotFound(String),
+
+    #[error(
+        "pg_analytics not found in shared_preload_libraries. Check your postgresql.conf file."
+    )]
+    SharedPreload,
+}
+
+impl From<std::ffi::OsString> for CatalogError {
+    fn from(err: std::ffi::OsString) -> Self {
+        CatalogError::OsString(err.to_string_lossy().to_string())
     }
 }

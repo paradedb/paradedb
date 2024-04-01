@@ -2,17 +2,16 @@ use async_std::task;
 use core::ffi::c_char;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::CatalogProvider;
-
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
-
 use std::sync::Arc;
+use thiserror::Error;
 
-use crate::datafusion::directory::ParadeDirectory;
+use crate::datafusion::catalog::CatalogError;
+use crate::datafusion::directory::{DirectoryError, ParadeDirectory};
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::{DatafusionTable, PgTableProvider};
-use crate::errors::{NotSupported, ParadeError};
+use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::storage::metadata::PgMetadata;
 
 #[pg_guard]
@@ -69,11 +68,11 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
 async fn create_deltalake_file_node(
     rel: pg_sys::Relation,
     persistence: c_char,
-) -> Result<(), ParadeError> {
+) -> Result<(), CreateTableError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 
     match persistence as u8 {
-        pg_sys::RELPERSISTENCE_TEMP => Err(NotSupported::TempTable.into()),
+        pg_sys::RELPERSISTENCE_TEMP => Err(CreateTableError::TempTableNotSupported),
         _ => {
             let table_name = pg_relation.name().to_string();
             let schema_name = pg_relation.namespace().to_string();
@@ -106,24 +105,38 @@ async fn create_deltalake_file_node(
             }
 
             ParadeDirectory::create_schema_path(
-                Session::catalog_oid()?,
+                Session::catalog_oid(),
                 pg_relation.namespace_oid(),
             )?;
 
             let schema_name = pg_relation.namespace().to_string();
 
-            Session::with_tables(&schema_name, |mut tables| {
+            Ok(Session::with_tables(&schema_name, |mut tables| {
                 Box::pin(async move {
                     let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
                     tables.create(&table_path, arrow_schema.clone()).await?;
                     // Write an empty batch to the table so that a Parquet file is written
                     let batch = RecordBatch::new_empty(arrow_schema.clone());
-                    let mut delta_table = tables.alter_schema(&table_path, batch).await?;
+                    tables.alter_schema(&table_path, batch).await?;
 
-                    delta_table.update().await?;
-                    tables.register(&table_path, PgTableProvider::new(delta_table))
+                    Ok(())
                 })
-            })
+            })?)
         }
     }
+}
+
+#[derive(Error, Debug)]
+pub enum CreateTableError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    DirectoryError(#[from] DirectoryError),
+
+    #[error(transparent)]
+    DataFusionTableError(#[from] DataFusionTableError),
+
+    #[error("TEMP tables are not yet supported")]
+    TempTableNotSupported,
 }

@@ -8,6 +8,7 @@ use pgrx::*;
 use thiserror::Error;
 
 use crate::datafusion::batch::RecordBatchError;
+use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
 use crate::errors::ParadeError;
 use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
@@ -105,6 +106,9 @@ pub fn get_datafusion_batches(
 
 #[derive(Error, Debug)]
 pub enum SelectHookError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),
 

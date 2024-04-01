@@ -13,7 +13,7 @@ use thiserror::Error;
 
 use super::scan::{scan_getnextslot, TableScanError};
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
-use crate::datafusion::commit::{commit_writer, needs_commit};
+
 use crate::datafusion::session::Session;
 use crate::datafusion::table::RESERVED_TID_FIELD;
 use crate::errors::ParadeError;
@@ -31,10 +31,6 @@ async unsafe fn index_fetch_tuple(
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
 ) -> Result<bool, IndexScanError> {
-    if needs_commit()? {
-        commit_writer().await?;
-    }
-
     let dscan = scan as *mut IndexScanDesc;
 
     if let Some(clear) = (*slot)

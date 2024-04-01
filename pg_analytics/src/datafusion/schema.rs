@@ -1,24 +1,25 @@
 use async_std::sync::Mutex;
 use async_trait::async_trait;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
-use deltalake::datafusion::datasource::TableProvider;
+use deltalake::datafusion::datasource::{TableProvider};
 use deltalake::datafusion::error::Result;
-use deltalake::operations::update::UpdateBuilder;
-use deltalake::table::state::DeltaTableState;
+
+
+
+
 use pgrx::*;
-use std::any::{type_name, Any};
+use std::any::{Any};
 use std::ffi::{CStr, CString};
 use std::fs::read_dir;
-use std::future::IntoFuture;
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::errors::{NotFound, ParadeError};
-
 use super::directory::ParadeDirectory;
-use super::plan::xmin_filter_plan;
+
 use super::session::Session;
 use super::table::{PgTableProvider, Tables};
+use crate::errors::{ParadeError};
 
 pub struct ParadeSchemaProvider {
     schema_name: String,
@@ -120,8 +121,8 @@ fn table_names_impl(schema_name: &str) -> Result<Vec<String>, ParadeError> {
 
 #[inline]
 async fn table_impl(
-    table_name: &str,
-    schema_name: &str,
+    _table_name: &str,
+    _schema_name: &str,
     tables: Arc<Mutex<Tables>>,
     table_path: &Path,
 ) -> Result<Arc<dyn TableProvider>, ParadeError> {
@@ -129,23 +130,5 @@ async fn table_impl(
     let provider = tables.get_ref(table_path).await?;
     let delta_table = provider.table();
 
-    let updated_table = UpdateBuilder::new(
-        delta_table.log_store(),
-        delta_table
-            .state
-            .clone()
-            .ok_or(NotFound::Value(type_name::<DeltaTableState>().to_string()))?,
-    )
-    .into_future()
-    .await?
-    .0;
-
-    Ok(Arc::new(
-        PgTableProvider::new(updated_table.clone()).with_logical_plan(
-            xmin_filter_plan(table_name, schema_name, updated_table, unsafe {
-                pg_sys::GetCurrentTransactionId()
-            } as i64)
-            .unwrap(),
-        ),
-    ) as Arc<dyn TableProvider>)
+    Ok(Arc::new(PgTableProvider::new(delta_table)) as Arc<dyn TableProvider>)
 }

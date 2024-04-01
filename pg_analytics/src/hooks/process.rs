@@ -3,7 +3,6 @@ use pgrx::pg_sys::NodeTag;
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::datafusion::query::{ASTVec, QueryString};
 use crate::errors::ParadeError;
 use crate::hooks::alter::alter;
@@ -36,10 +35,6 @@ pub fn process_utility(
         completion_tag: *mut pg_sys::QueryCompletion,
     ) -> HookResult<()>,
 ) -> Result<(), ParadeError> {
-    if needs_commit()? {
-        task::block_on(commit_writer())?;
-    }
-
     unsafe {
         let plan = pstmt.utilityStmt;
 

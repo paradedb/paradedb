@@ -1,4 +1,4 @@
-use async_std::task;
+
 use deltalake::datafusion::logical_expr::{DdlStatement, LogicalPlan};
 use pgrx::*;
 use std::ffi::CStr;
@@ -31,10 +31,6 @@ pub fn executor_run(
         execute_once: bool,
     ) -> HookResult<()>,
 ) -> Result<(), ExecutorHookError> {
-    if needs_commit()? {
-        task::block_on(commit_writer())?;
-    }
-
     unsafe {
         let ps = query_desc.plannedstmt;
         let rtable = (*ps).rtable;

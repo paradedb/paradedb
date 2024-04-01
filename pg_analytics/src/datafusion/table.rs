@@ -12,7 +12,6 @@ use deltalake::datafusion::logical_expr::{
 };
 use deltalake::datafusion::physical_plan::ExecutionPlan;
 use deltalake::datafusion::sql::TableReference;
-
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
 use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
@@ -305,6 +304,7 @@ impl TableProvider for PgTableProvider {
 
     fn get_logical_plan(&self) -> Option<&LogicalPlan> {
         self.plan.as_ref()
+        // None
     }
 
     async fn scan(

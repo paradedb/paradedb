@@ -1,8 +1,7 @@
 use async_std::sync::Mutex;
-
 use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use deltalake::kernel::Action;
+use deltalake::kernel::{Action, Add};
 use deltalake::operations::transaction::commit as commit_delta;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
@@ -19,6 +18,8 @@ use crate::errors::ParadeError;
 use crate::guc::PARADE_GUC;
 
 use super::session::Session;
+
+pub static TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_parquet_table";
 
 const BYTES_IN_MB: i64 = 1_048_576;
 const WRITER_ID: &str = "delta_writer";
@@ -45,12 +46,42 @@ impl WriterCache {
         })
     }
 
-    pub async fn commit(self) -> Result<(String, PathBuf, DeltaTable), ParadeError> {
-        let actions = self.writer.close().await?;
+    pub async fn flush(self) -> Result<Vec<Add>, ParadeError> {
+        Ok(self.writer.close().await?)
+    }
 
+    pub fn table(&self) -> Result<DeltaTable, ParadeError> {
+        Ok(self.table.clone())
+    }
+
+    pub fn table_path(&self) -> Result<PathBuf, ParadeError> {
+        Ok(self.table_path.clone())
+    }
+
+    pub async fn write(&mut self, batch: &RecordBatch) -> Result<(), ParadeError> {
+        self.writer.write(batch).await?;
+        Ok(())
+    }
+}
+
+struct ActionCache {
+    table: DeltaTable,
+    actions: Vec<Add>,
+}
+
+impl ActionCache {
+    pub fn new(table: DeltaTable, actions: Vec<Add>) -> Result<Self, ParadeError> {
+        Ok(Self { table, actions })
+    }
+
+    pub async fn commit(self) -> Result<(), ParadeError> {
         commit_delta(
             self.table.log_store().as_ref(),
-            &actions.iter().map(|a| Action::Add(a.clone())).collect(),
+            &self
+                .actions
+                .iter()
+                .map(|a| Action::Add(a.clone()))
+                .collect(),
             DeltaOperation::Write {
                 mode: SaveMode::Append,
                 partition_by: None,
@@ -61,16 +92,14 @@ impl WriterCache {
         )
         .await?;
 
-        Ok((self.schema_name, self.table_path, self.table))
-    }
-
-    pub async fn write(&mut self, batch: &RecordBatch) -> Result<(), ParadeError> {
-        self.writer.write(batch).await?;
         Ok(())
     }
 }
 
 static WRITER_CACHE: Lazy<Arc<Mutex<HashMap<String, WriterCache>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+static ACTIONS_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ActionCache>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub struct Writer;
@@ -104,13 +133,28 @@ impl Writer {
         writer_cache.write(batch).await
     }
 
-    pub async fn commit() -> Result<Option<(String, PathBuf, DeltaTable)>, ParadeError> {
-        let mut cache = WRITER_CACHE.lock().await;
+    pub async fn commit() -> Result<(), ParadeError> {
+        let mut actions_cache = ACTIONS_CACHE.lock().await;
 
-        match cache.remove(WRITER_ID) {
-            Some(writer_cache) => Ok(Some(writer_cache.commit().await?)),
-            None => Ok(None),
+        for (_, action_cache) in actions_cache.drain() {
+            action_cache.commit().await?;
         }
+
+        Ok(())
+    }
+
+    pub async fn flush() -> Result<(), ParadeError> {
+        let mut writer_cache = WRITER_CACHE.lock().await;
+        let mut actions_cache = ACTIONS_CACHE.lock().await;
+
+        if let Some(writer_cache) = writer_cache.remove(WRITER_ID) {
+            let table = writer_cache.table()?;
+            let table_path = writer_cache.table_path()?;
+            let actions = writer_cache.flush().await?;
+            actions_cache.insert(table_path, ActionCache::new(table, actions)?);
+        }
+
+        Ok(())
     }
 
     async fn create(

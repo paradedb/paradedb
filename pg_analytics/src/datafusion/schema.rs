@@ -1,14 +1,11 @@
 use async_std::sync::Mutex;
 use async_trait::async_trait;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
-use deltalake::datafusion::datasource::{TableProvider};
+use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
 
-
-
-
 use pgrx::*;
-use std::any::{Any};
+use std::any::Any;
 use std::ffi::{CStr, CString};
 use std::fs::read_dir;
 
@@ -19,7 +16,7 @@ use super::directory::ParadeDirectory;
 
 use super::session::Session;
 use super::table::{PgTableProvider, Tables};
-use crate::errors::{ParadeError};
+use crate::errors::ParadeError;
 
 pub struct ParadeSchemaProvider {
     schema_name: String,
@@ -59,13 +56,11 @@ impl SchemaProvider for ParadeSchemaProvider {
         });
 
         match table_path {
-            Some(table_path) => Some(
-                table_impl(tables, &table_path)
-                    .await
-                    .unwrap_or_else(|_| {
-                        panic!("Failed to get {}.{}", self.schema_name, table_name)
-                    }),
-            ),
+            Some(table_path) => {
+                Some(table_impl(tables, &table_path).await.unwrap_or_else(|_| {
+                    panic!("Failed to get {}.{}", self.schema_name, table_name)
+                }))
+            }
             None => None,
         }
     }

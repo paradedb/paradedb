@@ -1,4 +1,3 @@
-
 use deltalake::datafusion::logical_expr::{DdlStatement, LogicalPlan};
 use pgrx::*;
 use std::ffi::CStr;

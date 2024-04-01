@@ -11,13 +11,14 @@ use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
 use thiserror::Error;
 
+use super::scan::{scan_getnextslot, TableScanError};
 use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::session::Session;
 use crate::datafusion::table::RESERVED_TID_FIELD;
+use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
-use super::scan::{scan_getnextslot, TableScanError};
 
 struct IndexScanDesc {
     rs_base: pg_sys::IndexFetchTableData,
@@ -29,6 +30,9 @@ async unsafe fn index_fetch_tuple(
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
 ) -> Result<bool, IndexScanError> {
+    info!("index fetch tuple");
+    Writer::flush().await?;
+
     let dscan = scan as *mut IndexScanDesc;
 
     if let Some(clear) = (*slot)
@@ -88,6 +92,8 @@ async unsafe fn index_fetch_tuple(
             (*slot).tts_tid = *tid;
 
             pg_sys::ExecStoreVirtualTuple(slot);
+
+            info!("returning {:?}", batch);
 
             Ok(true)
         }

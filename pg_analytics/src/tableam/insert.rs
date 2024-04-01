@@ -11,7 +11,6 @@ use shared::postgres::tid::RowNumber;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::datafusion::commit::commit_writer;
 use crate::datafusion::table::DatafusionTable;
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
@@ -41,6 +40,7 @@ pub extern "C" fn deltalake_tuple_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
+    info!("insert");
     let mut mut_slot = slot;
     unsafe {
         task::block_on(insert_tuples(rel, &mut mut_slot, 1)).unwrap_or_else(|err| {
@@ -67,7 +67,7 @@ pub extern "C" fn deltalake_multi_insert(
 
 #[pg_guard]
 pub extern "C" fn deltalake_finish_bulk_insert(_rel: pg_sys::Relation, _options: c_int) {
-    task::block_on(commit_writer()).unwrap_or_else(|err| {
+    task::block_on(Writer::flush()).unwrap_or_else(|err| {
         panic!("{}", err);
     });
 }

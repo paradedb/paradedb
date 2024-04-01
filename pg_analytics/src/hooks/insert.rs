@@ -3,7 +3,7 @@ use pgrx::*;
 use shared::postgres::transaction::Transaction;
 use std::panic::AssertUnwindSafe;
 
-use crate::datafusion::commit::{commit_writer, TRANSACTION_CALLBACK_CACHE_ID};
+use crate::datafusion::writer::{Writer, TRANSACTION_CALLBACK_CACHE_ID};
 use crate::errors::ParadeError;
 use crate::hooks::handler::IsColumn;
 
@@ -39,8 +39,14 @@ pub fn insert(
 
     Transaction::call_once_on_precommit(
         TRANSACTION_CALLBACK_CACHE_ID,
-        AssertUnwindSafe(move || {
-            task::block_on(commit_writer()).expect("Precommit callback failed");
+        AssertUnwindSafe(move || {         
+            task::block_on(Writer::flush()).unwrap_or_else(|err| {
+                panic!("{}", err);
+            });
+
+            task::block_on(Writer::commit()).unwrap_or_else(|err| {
+                panic!("{}", err);
+            });
         }),
     )?;
 

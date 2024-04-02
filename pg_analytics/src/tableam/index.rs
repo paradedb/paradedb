@@ -3,7 +3,6 @@ use async_std::task;
 use core::ffi::c_void;
 use deltalake::datafusion::common::{DataFusionError, ScalarValue};
 use deltalake::datafusion::logical_expr::{col, Expr};
-
 use pgrx::*;
 use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
@@ -358,7 +357,7 @@ pub enum IndexScanError {
     #[error("Unexpected index scan error: More than one batch with row number {0} was found")]
     DuplicateBatch(i64),
 
-    #[error("This index type is not suited for column-oriented data")]
+    #[error("This index type is not well suited for column-oriented data")]
     IndexNotSupported,
 
     #[error("TupleTableSlotOps not found in index scan")]

@@ -132,7 +132,9 @@ async fn index_build_range_scan(
             allow_sync,
         );
 
-        let highest_row_number: i64 = index_rel.read_next_row_number()? - 1;
+        let next_row_number = index_rel.read_next_row_number().unwrap_or(1);
+
+        let highest_row_number: i64 = next_row_number - 1;
         let BlockNumber(highest_block_number) = BlockNumber::from(RowNumber(highest_row_number));
 
         if progress {

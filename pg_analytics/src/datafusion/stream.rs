@@ -2,7 +2,6 @@ use async_std::stream::StreamExt;
 use async_std::sync::Mutex;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 
-use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
 use once_cell::sync::Lazy;
 use std::collections::{
@@ -13,7 +12,9 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::catalog::CatalogError;
+
 use super::session::Session;
+use super::table::PgTableProvider;
 
 const STREAM_ID: &str = "delta_stream";
 
@@ -24,14 +25,15 @@ pub struct Stream;
 
 impl Stream {
     pub async fn get_next_batch(
-        schema_name: &str,
         table_path: &Path,
+        schema_name: &str,
+        table_name: &str,
     ) -> Result<Option<RecordBatch>, CatalogError> {
         let mut cache = STREAM_CACHE.lock().await;
 
         let stream = match cache.entry(STREAM_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(Self::create(schema_name, table_path).await?),
+            Vacant(entry) => entry.insert(Self::create(table_path, schema_name, table_name).await?),
         };
 
         match stream.next().await {
@@ -45,25 +47,22 @@ impl Stream {
     }
 
     async fn create(
-        schema_name: &str,
         table_path: &Path,
+        schema_name: &str,
+        table_name: &str,
     ) -> Result<SendableRecordBatchStream, CatalogError> {
         let table_path = table_path.to_path_buf();
-        let delta_table = Session::with_tables(schema_name, |mut tables| {
-            Box::pin(async move { Ok(tables.get_owned(&table_path).await?) })
-        })?;
+        let schema_name = schema_name.to_string();
+        let table_name = table_name.to_string();
 
-        let (state, task_context) = Session::with_session_context(|context| {
+        let table_provider = Session::with_tables(&schema_name.clone(), |mut tables| {
             Box::pin(async move {
-                let state = context.state();
-                let task_context = context.task_ctx();
-                Ok((state, task_context))
+                let delta_table = tables.get_ref(&table_path).await?;
+
+                PgTableProvider::new(delta_table.clone(), &schema_name, &table_name).await
             })
         })?;
 
-        Ok(delta_table
-            .scan(&state, None, &[], None)
-            .await
-            .map(|plan| plan.execute(0, task_context))??)
+        Ok(table_provider.dataframe().execute_stream().await?)
     }
 }

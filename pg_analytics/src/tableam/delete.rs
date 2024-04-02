@@ -17,6 +17,6 @@ pub extern "C" fn deltalake_tuple_delete(
 
 #[derive(Error, Debug)]
 pub enum DeleteError {
-    #[error("DELETE is currently supported because Parquet tables are append-only.")]
+    #[error("DELETE is not currently supported because Parquet tables are append only.")]
     DeleteNotSupported,
 }

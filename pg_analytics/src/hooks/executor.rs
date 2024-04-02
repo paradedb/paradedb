@@ -120,6 +120,6 @@ pub enum ExecutorHookError {
     #[error("JOINs with operation {0} are not yet supported")]
     JoinNotSupported(pg_sys::CmdType),
 
-    #[error("UPDATE is not supported because Parquet tables are append only.")]
+    #[error("UPDATE is not currently supported because Parquet tables are append only.")]
     UpdateNotSupported,
 }

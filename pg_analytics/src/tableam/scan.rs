@@ -4,7 +4,6 @@
     The ones implemented are called as part of DELETE and UPDATE operations.
 */
 
-use crate::storage::tid::{RowNumber, TIDError};
 use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;
@@ -18,6 +17,8 @@ use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
+use crate::datafusion::writer::Writer;
+use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
@@ -30,7 +31,7 @@ struct DeltalakeScanDesc {
 }
 
 #[inline]
-fn scan_begin(
+async fn scan_begin(
     rel: pg_sys::Relation,
     snapshot: pg_sys::Snapshot,
     nkeys: c_int,
@@ -38,6 +39,8 @@ fn scan_begin(
     pscan: pg_sys::ParallelTableScanDesc,
     flags: pg_sys::uint32,
 ) -> Result<pg_sys::TableScanDesc, TableScanError> {
+    Writer::flush().await?;
+
     unsafe {
         PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
             let mut scan = PgBox::<DeltalakeScanDesc>::alloc0();
@@ -74,6 +77,7 @@ pub async unsafe fn scan_getnextslot(
 
     let dscan = scan as *mut DeltalakeScanDesc;
     let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
+    let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
 
@@ -89,10 +93,11 @@ pub async unsafe fn scan_getnextslot(
     {
         (*dscan).curr_batch_idx = 0;
 
-        let mut next_batch = match Stream::get_next_batch(schema_name, &table_path).await? {
-            Some(batch) => batch,
-            None => return Ok(false),
-        };
+        let mut next_batch =
+            match Stream::get_next_batch(&table_path, schema_name, table_name).await? {
+                Some(batch) => batch,
+                None => return Ok(false),
+            };
 
         let tids = next_batch.remove_tid_column()?;
         let tid_array = tids.as_primitive::<Int64Type>();
@@ -163,7 +168,7 @@ pub extern "C" fn deltalake_scan_begin(
     pscan: pg_sys::ParallelTableScanDesc,
     flags: pg_sys::uint32,
 ) -> pg_sys::TableScanDesc {
-    scan_begin(rel, snapshot, nkeys, key, pscan, flags).unwrap_or_else(|err| {
+    task::block_on(scan_begin(rel, snapshot, nkeys, key, pscan, flags)).unwrap_or_else(|err| {
         panic!("{}", err);
     })
 }

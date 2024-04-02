@@ -10,7 +10,7 @@ async fn update_simple(mut conn: PgConnection) {
     UserSessionLogsTable::setup_parquet().execute(&mut conn);
 
     match "UPDATE user_session_logs SET revenue = 100.0 WHERE user_id > 1".execute_result(&mut conn) {
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: UPDATE is not supported because Parquet tables are append only."),
+        Err(err) => assert_eq!(err.to_string(), "error returned from database: UPDATE is not currently supported because Parquet tables are append only."),
         _ => panic!("UPDATE should not be supported"),
     };
 }

@@ -58,7 +58,6 @@ impl Stream {
         let table_provider = Session::with_tables(&schema_name.clone(), |mut tables| {
             Box::pin(async move {
                 let delta_table = tables.get_ref(&table_path).await?;
-
                 PgTableProvider::new(delta_table.clone(), &schema_name, &table_name).await
             })
         })?;

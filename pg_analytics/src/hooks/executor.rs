@@ -125,9 +125,6 @@ pub enum ExecutorHookError {
     HandlerError(#[from] HandlerError),
 
     #[error(transparent)]
-    ParadeError(#[from] ParadeError),
-
-    #[error(transparent)]
     SelectHookError(#[from] SelectHookError),
 
     #[error("UPDATE is not supported because Parquet tables are append only.")]

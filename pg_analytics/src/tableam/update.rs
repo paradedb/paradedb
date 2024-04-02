@@ -1,6 +1,5 @@
 use pgrx::*;
-
-use crate::errors::NotSupported;
+use thiserror::Error;
 
 #[pg_guard]
 #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
@@ -16,7 +15,7 @@ pub extern "C" fn deltalake_tuple_update(
     _lockmode: *mut pg_sys::LockTupleMode,
     _update_indexes: *mut bool,
 ) -> pg_sys::TM_Result {
-    panic!("{}", NotSupported::Update.to_string());
+    panic!("{}", UpdateError::UpdateNotsupported.to_string());
 }
 
 #[pg_guard]
@@ -33,5 +32,11 @@ pub extern "C" fn deltalake_tuple_update(
     _lockmode: *mut pg_sys::LockTupleMode,
     _update_indexes: *mut pg_sys::TU_UpdateIndexes,
 ) -> pg_sys::TM_Result {
-    panic!("{}", NotSupported::Update.to_string());
+    panic!("{}", UpdateError::UpdateNotsupported.to_string());
+}
+
+#[derive(Error, Debug)]
+pub enum UpdateError {
+    #[error("UPDATE is not supported because Parquet tables are append only.")]
+    UpdateNotsupported,
 }

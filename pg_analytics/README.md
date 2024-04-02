@@ -72,16 +72,13 @@ files.
 As `pg_analytics` becomes production-ready, many of these will be resolved.
 
 - [ ] Some Postgres types, notably `json` and `timestamptz`
-- [ ] User-defined functions, aggregations, or types
-- [ ] JOINing `parquet` and regular Postgres `heap` tables
-- [ ] Write-ahead-log (WAL) support/`ROLLBACK`/logical replication
+- [ ] User-defined aggregations and types
+- [ ] Logical replication
 - [ ] Collations
 - [ ] Partitioning by specific columns
 - [ ] `INSERT ... ON CONFLICT` clauses
-- [ ] Index creation
 - [ ] External object store integrations (S3/Azure/GCS/HDFS)
 - [ ] External Apache Iceberg and Delta Lake support
-- [ ] Full text search over `parquet` tables with `pg_search`
 
 ## Development
 

@@ -10,7 +10,6 @@ use thiserror::Error;
 use crate::datafusion::batch::RecordBatchError;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
-use crate::errors::ParadeError;
 use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
 use crate::types::datum::GetDatum;
 
@@ -111,9 +110,6 @@ pub enum SelectHookError {
 
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),
-
-    #[error(transparent)]
-    ParadeError(#[from] ParadeError),
 
     #[error(transparent)]
     RecordBatchError(#[from] RecordBatchError),

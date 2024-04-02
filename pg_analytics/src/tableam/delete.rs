@@ -1,6 +1,5 @@
 use pgrx::*;
-
-use crate::errors::NotSupported;
+use thiserror::Error;
 
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_delete(
@@ -13,5 +12,11 @@ pub extern "C" fn deltalake_tuple_delete(
     _tmfd: *mut pg_sys::TM_FailureData,
     _changingPart: bool,
 ) -> pg_sys::TM_Result {
-    panic!("{}", NotSupported::Delete.to_string());
+    panic!("{}", DeleteError::DeleteNotSupported.to_string());
+}
+
+#[derive(Error, Debug)]
+pub enum DeleteError {
+    #[error("DELETE is currently supported because Parquet tables are append-only.")]
+    DeleteNotSupported,
 }

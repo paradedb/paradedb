@@ -18,7 +18,6 @@ use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
-use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
@@ -359,9 +358,6 @@ pub enum TableScanError {
 
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),
-
-    #[error(transparent)]
-    ParadeError(#[from] ParadeError),
 
     #[error(transparent)]
     RecordBatchError(#[from] RecordBatchError),

@@ -14,7 +14,6 @@ use thiserror::Error;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
-use crate::errors::ParadeError;
 use crate::storage::metadata::{MetadataError, PgMetadata};
 use crate::storage::tid::TIDError;
 use crate::types::array::IntoArrowArray;
@@ -205,9 +204,6 @@ pub enum TableInsertError {
 
     #[error(transparent)]
     MetadataError(#[from] MetadataError),
-
-    #[error(transparent)]
-    ParadeError(#[from] ParadeError),
 
     #[error(transparent)]
     TIDError(#[from] TIDError),

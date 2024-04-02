@@ -16,7 +16,6 @@ use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::{PgTableProvider, RESERVED_TID_FIELD};
 use crate::datafusion::writer::Writer;
-use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
@@ -315,9 +314,6 @@ pub enum IndexScanError {
 
     #[error(transparent)]
     DataType(#[from] DataTypeError),
-
-    #[error(transparent)]
-    ParadeError(#[from] ParadeError),
 
     #[error(transparent)]
     RecordBatchError(#[from] RecordBatchError),

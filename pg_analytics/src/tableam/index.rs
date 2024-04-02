@@ -1,7 +1,8 @@
 use crate::storage::tid::{RowNumber, TIDError};
 use async_std::task;
 use core::ffi::c_void;
-use deltalake::datafusion::common::DataFusionError;
+use deltalake::datafusion::common::{DataFusionError, ScalarValue};
+use deltalake::datafusion::logical_expr::{col, Expr};
 
 use pgrx::*;
 use std::mem::size_of;
@@ -13,7 +14,7 @@ use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::PgTableProvider;
+use crate::datafusion::table::{PgTableProvider, RESERVED_TID_FIELD};
 use crate::datafusion::writer::Writer;
 use crate::errors::ParadeError;
 use crate::types::datatype::DataTypeError;
@@ -46,10 +47,9 @@ async unsafe fn index_fetch_tuple(
     let oid = pg_relation.oid();
     let table_name = pg_relation.name().to_string();
     let schema_name = pg_relation.namespace().to_string();
-    let _catalog_name = Session::catalog_name()?;
     let RowNumber(row_number) = RowNumber::try_from(*tid)?;
 
-    let dataframe = Session::with_tables(&schema_name.clone(), |mut tables| {
+    let full_dataframe = Session::with_tables(&schema_name.clone(), |mut tables| {
         Box::pin(async move {
             let table_path = ParadeDirectory::table_path_from_name(&schema_name, &table_name)?;
             let delta_table = tables.get_ref(&table_path).await?;
@@ -60,7 +60,10 @@ async unsafe fn index_fetch_tuple(
         })
     })?;
 
-    match dataframe.collect().await? {
+    let filtered_dataframe = full_dataframe
+        .filter(col(RESERVED_TID_FIELD).eq(Expr::Literal(ScalarValue::from(row_number))))?;
+
+    match filtered_dataframe.collect().await? {
         batches if batches.is_empty() => Ok(false),
         mut batches if batches.len() == 1 => {
             let batch = &mut batches[0];

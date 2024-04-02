@@ -4,20 +4,14 @@ use std::ffi::CStr;
 use thiserror::Error;
 
 use crate::datafusion::catalog::CatalogError;
-
-use super::handler::{HandlerError, IsColumn};
-use super::query::Query;
-use super::select::{select, SelectHookError};
-use crate::datafusion::commit::{commit_writer, needs_commit};
 use crate::datafusion::plan::LogicalPlanDetails;
 use crate::datafusion::query::QueryString;
-use crate::errors::{NotSupported, ParadeError};
-use crate::federation::handler::get_federated_batches;
+use crate::federation::handler::{get_federated_batches, FederatedHandlerError};
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
-use crate::hooks::handler::TableClassifier;
-use crate::hooks::insert::insert;
-use crate::hooks::query::Query;
-use crate::hooks::select::{get_datafusion_batches, write_batches_to_slots};
+
+use super::handler::{HandlerError, TableClassifier};
+use super::query::{Query, QueryStringError};
+use super::select::{get_datafusion_batches, write_batches_to_slots, SelectHookError};
 
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
@@ -38,21 +32,12 @@ pub fn executor_run(
         let query = pg_plan.get_query_string(CStr::from_ptr(query_desc.sourceText))?;
 
         let classified_tables = rtable.table_lists()?;
-        let col_tables =
-            classified_tables
-                .get(COLUMN_FEDERATION_KEY)
-                .ok_or(ParadeError::Generic(
-                    "Table classifier did not return a column list".to_string(),
-                ))?;
+        let col_tables = classified_tables
+            .get(COLUMN_FEDERATION_KEY)
+            .ok_or(ExecutorHookError::ColumnListNotFound)?;
         let row_tables = classified_tables
             .get(ROW_FEDERATION_KEY)
-            .ok_or(ParadeError::Generic(
-                "Table classifier did not return a column list".to_string(),
-            ))?;
-
-        if query_desc.operation == pg_sys::CmdType_CMD_INSERT {
-            insert(rtable, query_desc.clone())?;
-        }
+            .ok_or(ExecutorHookError::ColumnListNotFound)?;
 
         // Only use this hook for deltalake tables
         // Allow INSERTs to go through
@@ -72,10 +57,8 @@ pub fn executor_run(
                 async_std::task::block_on(get_federated_batches(query, classified_tables))?;
 
             match query_desc.operation {
-                pg_sys::CmdType_CMD_SELECT => write_batches_to_slots(query_desc, batches),
-                _ => Err(ParadeError::NotSupported(NotSupported::Join(
-                    query_desc.operation,
-                ))),
+                pg_sys::CmdType_CMD_SELECT => write_batches_to_slots(query_desc, batches)?,
+                _ => return Err(ExecutorHookError::JoinNotSupported(query_desc.operation)),
             }
         } else {
             // Parse the query into a LogicalPlan
@@ -96,7 +79,9 @@ pub fn executor_run(
                             let single_thread = logical_plan_details.includes_udf();
                             get_datafusion_batches(query_desc, logical_plan, single_thread)?;
                         }
-                        pg_sys::CmdType_CMD_UPDATE => return Err(NotSupported::Update.into()),
+                        pg_sys::CmdType_CMD_UPDATE => {
+                            return Err(ExecutorHookError::UpdateNotSupported);
+                        }
                         _ => {
                             prev_hook(query_desc, direction, count, execute_once);
                         }
@@ -105,12 +90,8 @@ pub fn executor_run(
                 Err(_) => {
                     prev_hook(query_desc, direction, count, execute_once);
                 }
-            }
-            pg_sys::CmdType_CMD_UPDATE => return Err(ExecutorHookError::UpdateNotSupported),
-            _ => {
-                prev_hook(query_desc, direction, count, execute_once);
-            }
-        };
+            };
+        }
 
         Ok(())
     }
@@ -122,10 +103,22 @@ pub enum ExecutorHookError {
     CatalogError(#[from] CatalogError),
 
     #[error(transparent)]
+    FederatedHandlerError(#[from] FederatedHandlerError),
+
+    #[error(transparent)]
     HandlerError(#[from] HandlerError),
 
     #[error(transparent)]
     SelectHookError(#[from] SelectHookError),
+
+    #[error(transparent)]
+    QueryStringError(#[from] QueryStringError),
+
+    #[error("Table classifier did not return a column list")]
+    ColumnListNotFound,
+
+    #[error("JOINs with operation {0} are not yet supported")]
+    JoinNotSupported(pg_sys::CmdType),
 
     #[error("UPDATE is not supported because Parquet tables are append only.")]
     UpdateNotSupported,

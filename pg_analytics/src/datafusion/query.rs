@@ -5,42 +5,40 @@ use deltalake::datafusion::logical_expr::{Expr, ScalarFunctionDefinition};
 use deltalake::datafusion::sql::parser::{self, DFParser};
 use deltalake::datafusion::sql::planner::SqlToRel;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
+use deltalake::datafusion::sql::sqlparser::parser::ParserError;
 use regex::Regex;
 use std::collections::VecDeque;
+use thiserror::Error;
 
-use crate::datafusion::context::QueryContext;
-use crate::datafusion::plan::LogicalPlanDetails;
-use crate::datafusion::udf::loadfunction;
-use crate::errors::ParadeError;
+use super::catalog::CatalogError;
+use super::context::QueryContext;
+use super::plan::LogicalPlanDetails;
+use super::udf::{loadfunction, UDFError};
 
 pub struct QueryString<'a>(pub &'a str);
 pub struct ASTVec(pub VecDeque<parser::Statement>);
 
 // Parses a query string into an AST
 impl TryFrom<QueryString<'_>> for ASTVec {
-    type Error = ParadeError;
+    type Error = QueryParserError;
 
     fn try_from(query: QueryString) -> Result<Self, Self::Error> {
         let QueryString(query) = query;
 
         let dialect = PostgreSqlDialect {};
-        Ok(ASTVec(
-            DFParser::parse_sql_with_dialect(query, &dialect)
-                .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?,
-        ))
+        Ok(ASTVec(DFParser::parse_sql_with_dialect(query, &dialect)?))
     }
 }
 
 // Parses the query string into a DataFusion LogicalPlan
 impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
-    type Error = ParadeError;
+    type Error = QueryParserError;
 
     fn try_from(query: QueryString) -> Result<Self, Self::Error> {
         let QueryString(query) = query;
 
         let dialect = PostgreSqlDialect {};
-        let ast = DFParser::parse_sql_with_dialect(query, &dialect)
-            .map_err(|err| ParadeError::DataFusion(DataFusionError::SQL(err, None)))?;
+        let ast = DFParser::parse_sql_with_dialect(query, &dialect)?;
         let statement = &ast[0];
 
         // Convert the AST into a logical plan
@@ -57,9 +55,9 @@ impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
                     //     otherwise pushes the plan error up, breaking the loop.
                     let missing_func_name = re
                         .captures(&err_string)
-                        .ok_or(DataFusionError::Plan(err_string.clone()))?
+                        .ok_or(QueryParserError::GenericRegexError(err_string.clone()))?
                         .get(1)
-                        .ok_or(DataFusionError::Plan(err_string.clone()))?
+                        .ok_or(QueryParserError::GenericRegexError(err_string.clone()))?
                         .as_str();
 
                     // If we are unable to load the function, we push the error up, breaking the loop
@@ -67,7 +65,7 @@ impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
 
                     // Loop again
                 }
-                Err(err) => return Err(ParadeError::DataFusion(err)),
+                Err(err) => return Err(QueryParserError::DataFusion(err)),
             };
         };
 
@@ -109,4 +107,25 @@ impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
 
         Ok(LogicalPlanDetails::new(new_logical_plan, includes_udf))
     }
+}
+
+#[derive(Error, Debug)]
+pub enum QueryParserError {
+    #[error(transparent)]
+    Catalog(#[from] CatalogError),
+
+    #[error(transparent)]
+    DataFusion(#[from] DataFusionError),
+
+    #[error(transparent)]
+    Regex(#[from] regex::Error),
+
+    #[error(transparent)]
+    Parser(#[from] ParserError),
+
+    #[error(transparent)]
+    Udf(#[from] UDFError),
+
+    #[error("{0}")]
+    GenericRegexError(String),
 }

@@ -1,5 +1,5 @@
-use async_std::task;
 use crate::datafusion::query::{ASTVec, QueryString};
+use async_std::task;
 use pgrx::pg_sys::NodeTag;
 use pgrx::*;
 use std::ffi::CStr;
@@ -7,11 +7,12 @@ use thiserror::Error;
 
 use super::alter::{alter, AlterHookError};
 use super::drop::{drop, DropHookError};
-use super::query::Query;
+use super::query::{Query, QueryStringError};
 use super::rename::{rename, RenameHookError};
 use super::truncate::{truncate, TruncateHookError};
 use super::vacuum::{vacuum, VacuumHookError};
 use crate::datafusion::catalog::CatalogError;
+use crate::datafusion::udf::{createfunction, UDFError};
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -97,6 +98,9 @@ pub enum ProcessHookError {
     DropHook(#[from] DropHookError),
 
     #[error(transparent)]
+    QueryString(#[from] QueryStringError),
+
+    #[error(transparent)]
     RenameHook(#[from] RenameHookError),
 
     #[error(transparent)]
@@ -104,4 +108,7 @@ pub enum ProcessHookError {
 
     #[error(transparent)]
     VacuumHook(#[from] VacuumHookError),
+
+    #[error(transparent)]
+    Udf(#[from] UDFError),
 }

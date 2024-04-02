@@ -2,7 +2,6 @@ use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
 
-use crate::errors::ParadeError;
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
 use thiserror::Error;
 
@@ -10,11 +9,11 @@ static COLUMN_HANDLER: &str = "parquet";
 
 pub trait TableClassifier {
     #[allow(clippy::wrong_self_convention)]
-    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, ParadeError>;
+    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, HandlerError>;
 }
 
 impl TableClassifier for *mut pg_sys::List {
-    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, ParadeError> {
+    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, HandlerError> {
         let col_oid = column_oid()?;
 
         #[cfg(feature = "pg12")]
@@ -65,7 +64,7 @@ impl TableClassifier for *mut pg_sys::List {
 
 pub trait IsColumn {
     #[allow(clippy::wrong_self_convention)]
-    unsafe fn is_column(self) -> Result<bool, ParadeError>;
+    unsafe fn is_column(self) -> Result<bool, HandlerError>;
 }
 
 impl IsColumn for *mut pg_sys::RelationData {
@@ -106,7 +105,4 @@ unsafe fn column_oid() -> Result<pg_sys::Oid, HandlerError> {
 pub enum HandlerError {
     #[error(transparent)]
     NulError(#[from] std::ffi::NulError),
-
-    #[error("Heap and parquet tables in the same query is not yet supported")]
-    MixedTablesNotSupported,
 }

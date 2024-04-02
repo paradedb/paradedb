@@ -1,7 +1,5 @@
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use crate::storage::tid::{RowNumber, TIDError};
-use deltalake::arrow::datatypes::Int64Type;
-use deltalake::datafusion::common::arrow::array::AsArray;
+
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::prelude::SessionContext;
 use pgrx::*;
@@ -15,7 +13,7 @@ use crate::types::datum::GetDatum;
 
 pub fn write_batches_to_slots(
     mut query_desc: PgBox<pg_sys::QueryDesc>,
-    batches: Vec<RecordBatch>,
+    mut batches: Vec<RecordBatch>,
 ) -> Result<(), SelectHookError> {
     // Convert the DataFusion batches to Postgres tuples and send them to the destination
     unsafe {

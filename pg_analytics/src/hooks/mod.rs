@@ -7,7 +7,6 @@ mod query;
 mod rename;
 mod select;
 mod truncate;
-mod udf;
 mod vacuum;
 
 use async_std::task;

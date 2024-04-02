@@ -1,13 +1,10 @@
-use crate::storage::tid::RowNumber;
 use async_std::task;
 use core::ffi::c_int;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
-
 use pgrx::*;
 use std::cell::RefCell;
-use shared::postgres::tid::RowNumber;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -15,7 +12,7 @@ use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
 use crate::storage::metadata::{MetadataError, PgMetadata};
-use crate::storage::tid::TIDError;
+use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::{DataTypeError, PgTypeMod};
 
@@ -91,7 +88,7 @@ async unsafe fn insert_tuples(
     rel: pg_sys::Relation,
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
-) -> Result<(), ParadeError> {
+) -> Result<(), TableInsertError> {
     // In the block below, we switch to the memory context we've defined as a static
     // variable, resetting it before and after we access the column values. We do this
     // because PgTupleDesc "supposed" to free the corresponding Postgres memory when it
@@ -100,11 +97,11 @@ async unsafe fn insert_tuples(
     //
     // By running in our own memory context, we can force the memory to be freed with
     // the call to reset().
-    let (schema_name, table_path, arrow_schema, column_values) =
+    let (_schema_name, _table_path, _arrow_schema, mut column_values) =
         INSERT_MEM_CTX.with(|memcxt_ref| {
             let mut memcxt = memcxt_ref.borrow_mut();
             memcxt.reset();
-            memcxt.switch_to(|_| -> Result<_, ParadeError> {
+            memcxt.switch_to(|_| -> Result<_, TableInsertError> {
                 let pg_relation = PgRelation::from_pg(rel);
                 let tuple_desc = pg_relation.tuple_desc();
                 let mut column_values: Vec<ArrayRef> = vec![];
@@ -178,7 +175,7 @@ async unsafe fn insert_tuples(
     let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
 
-    Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
+    Writer::write(schema_name, &table_path, arrow_schema, &batch).await?;
 
     INSERT_MEM_CTX.with(|memcxt_ref| {
         let mut memcxt = memcxt_ref.borrow_mut();

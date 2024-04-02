@@ -1,17 +1,16 @@
 use pgrx::*;
 use std::ffi::CStr;
-
-use crate::errors::ParadeError;
+use thiserror::Error;
 
 pub trait Query {
     // Extracts the query string from a PlannedStmt,
     // accounting for multi-line queries where we only want a
     // specific line of the entire query.
-    fn get_query_string(self, source_text: &CStr) -> Result<String, ParadeError>;
+    fn get_query_string(self, source_text: &CStr) -> Result<String, QueryStringError>;
 }
 
 impl Query for *mut pg_sys::PlannedStmt {
-    fn get_query_string(self, source_text: &CStr) -> Result<String, CatalogError> {
+    fn get_query_string(self, source_text: &CStr) -> Result<String, QueryStringError> {
         let query_start_index = unsafe { (*self).stmt_location };
         let query_len = unsafe { (*self).stmt_len };
         let mut query = source_text.to_str()?;
@@ -27,4 +26,10 @@ impl Query for *mut pg_sys::PlannedStmt {
 
         Ok(query.to_string())
     }
+}
+
+#[derive(Error, Debug)]
+pub enum QueryStringError {
+    #[error(transparent)]
+    Utf8(#[from] std::str::Utf8Error),
 }

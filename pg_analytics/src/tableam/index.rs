@@ -1,4 +1,4 @@
-use crate::storage::tid::{RowNumber, TIDError};
+use crate::storage::tid::{BlockNumber, RowNumber, TIDError};
 use async_std::task;
 use core::ffi::c_void;
 use deltalake::datafusion::common::{DataFusionError, ScalarValue};
@@ -16,8 +16,13 @@ use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::{PgTableProvider, RESERVED_TID_FIELD};
 use crate::datafusion::writer::Writer;
+use crate::storage::metadata::{MetadataError, PgMetadata};
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
+
+// Defined in Postgres commands/progress.h
+const PROGRESS_SCAN_BLOCKS_TOTAL: i32 = 15;
+const PROGRESS_SCAN_BLOCKS_DONE: i32 = 16;
 
 struct IndexScanDesc {
     rs_base: pg_sys::IndexFetchTableData,
@@ -128,8 +133,14 @@ async fn index_build_range_scan(
             allow_sync,
         );
 
+        let highest_row_number: i64 = index_rel.read_next_row_number()? - 1;
+        let BlockNumber(highest_block_number) = BlockNumber::from(RowNumber(highest_row_number));
+
         if progress {
-            // todo!()
+            pg_sys::pgstat_progress_update_param(
+                PROGRESS_SCAN_BLOCKS_TOTAL,
+                highest_block_number + 1,
+            );
         }
 
         let executor_state = pg_sys::CreateExecutorState();
@@ -151,6 +162,10 @@ async fn index_build_range_scan(
                 item_pointer_get_block_number(&(*slot).tts_tid as *const pg_sys::ItemPointerData);
 
             if progress && current_block_number != last_block_number {
+                pg_sys::pgstat_progress_update_param(
+                    PROGRESS_SCAN_BLOCKS_DONE,
+                    current_block_number as i64 + 1,
+                );
                 last_block_number = current_block_number;
             }
 
@@ -180,8 +195,15 @@ async fn index_build_range_scan(
                 );
             }
 
-            // #[cfg(feature = "pg12")]
-            // todo!();
+            #[cfg(feature = "pg12")]
+            {
+                let heap_tuple = (*(*slot).tts_ops).copy_heap_tuple(slot);
+                (*heap_tuple).t_self = (*slot).tts_tid;
+
+                if let Some(callback) = callback {
+                    callback(index_rel, heap_tuple, values, nulls, true, callback_state);
+                }
+            }
 
             tuple_count += 1.0;
         }
@@ -189,7 +211,10 @@ async fn index_build_range_scan(
         pg_sys::table_endscan(scan);
 
         if progress {
-            // todo!();
+            pg_sys::pgstat_progress_update_param(
+                PROGRESS_SCAN_BLOCKS_DONE,
+                highest_block_number + 1,
+            );
         }
 
         pg_sys::ExecDropSingleTupleTableSlot((*context).ecxt_scantuple);
@@ -314,6 +339,9 @@ pub enum IndexScanError {
 
     #[error(transparent)]
     DataType(#[from] DataTypeError),
+
+    #[error(transparent)]
+    MetadataError(#[from] MetadataError),
 
     #[error(transparent)]
     RecordBatchError(#[from] RecordBatchError),

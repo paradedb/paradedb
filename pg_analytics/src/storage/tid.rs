@@ -8,6 +8,9 @@ pub static FIRST_BLOCK_NUMBER: u32 = 0;
 #[derive(Copy, Clone, Debug)]
 pub struct RowNumber(pub i64);
 
+#[derive(Copy, Clone, Debug)]
+pub struct BlockNumber(pub i64);
+
 impl TryFrom<RowNumber> for pg_sys::ItemPointerData {
     type Error = TIDError;
 
@@ -41,6 +44,15 @@ impl TryFrom<pg_sys::ItemPointerData> for RowNumber {
         }
 
         Ok(RowNumber(row_number))
+    }
+}
+
+impl From<RowNumber> for BlockNumber {
+    fn from(row_number: RowNumber) -> Self {
+        let RowNumber(row_number) = row_number;
+        let block_number = row_number / (TUPLES_PER_PAGE as i64);
+
+        BlockNumber(block_number)
     }
 }
 

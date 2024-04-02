@@ -6,9 +6,12 @@ use thiserror::Error;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
+use crate::datafusion::writer::Writer;
 use crate::hooks::handler::{HandlerError, IsColumn};
 
-pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), TruncateHookError> {
+pub async unsafe fn truncate(
+    truncate_stmt: *mut pg_sys::TruncateStmt,
+) -> Result<(), TruncateHookError> {
     let rels = (*truncate_stmt).relations;
     let num_rels = (*rels).length;
 
@@ -56,6 +59,9 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), T
         pg_sys::RelationTruncate(relation, 0);
         pg_sys::RelationClose(relation);
 
+        // Clear all pending write commits for this table since it's being truncated
+        Writer::clear_actions(&table_path).await?;
+
         Session::with_tables(schema_name, |mut tables| {
             Box::pin(async move {
                 let pg_relation = PgRelation::from_pg(relation);
@@ -77,11 +83,11 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), T
 #[derive(Error, Debug)]
 pub enum TruncateHookError {
     #[error(transparent)]
-    CatalogError(#[from] CatalogError),
+    Catalog(#[from] CatalogError),
 
     #[error(transparent)]
-    DataFusionTableError(#[from] DataFusionTableError),
+    DataFusionTable(#[from] DataFusionTableError),
 
     #[error(transparent)]
-    HandlerError(#[from] HandlerError),
+    Handler(#[from] HandlerError),
 }

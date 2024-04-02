@@ -37,21 +37,6 @@ pub fn insert(
 
     unsafe { pg_sys::RelationClose(relation) };
 
-    Transaction::call_once_on_precommit(
-        TRANSACTION_CALLBACK_CACHE_ID,
-        AssertUnwindSafe(move || {
-            task::block_on(Writer::flush()).unwrap_or_else(|err| {
-                panic!("{}", err);
-            });
-
-            task::block_on(Writer::commit()).unwrap_or_else(|err| {
-                panic!("{}", err);
-            });
-        }),
-    )?;
-
-    // TODO: Clear writer on abort
-
     Ok(())
 }
 

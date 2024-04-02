@@ -4,14 +4,13 @@ use deltalake::datafusion::common::arrow::datatypes::DataType;
 use deltalake::datafusion::common::config::ConfigOptions;
 use deltalake::datafusion::common::DataFusionError;
 
-use deltalake::datafusion::datasource::{provider_as_source, TableProvider};
+use deltalake::datafusion::datasource::provider_as_source;
 use deltalake::datafusion::execution::FunctionRegistry;
 use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
 use std::ffi::{c_char, CStr};
-
 use std::sync::Arc;
 
 use super::catalog::CatalogError;

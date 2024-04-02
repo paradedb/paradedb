@@ -19,15 +19,12 @@ use crate::guc::PARADE_GUC;
 use super::catalog::CatalogError;
 use super::session::Session;
 
-pub static TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_parquet_table";
-
 const BYTES_IN_MB: i64 = 1_048_576;
 const WRITER_ID: &str = "delta_writer";
 
 struct WriterCache {
     writer: DeltaWriter,
     table: DeltaTable,
-    schema_name: String,
     table_path: PathBuf,
 }
 
@@ -35,13 +32,11 @@ impl WriterCache {
     pub fn new(
         writer: DeltaWriter,
         table: DeltaTable,
-        schema_name: &str,
         table_path: &Path,
     ) -> Result<Self, CatalogError> {
         Ok(Self {
             writer,
             table,
-            schema_name: schema_name.to_string(),
             table_path: table_path.to_path_buf(),
         })
     }
@@ -72,6 +67,10 @@ struct ActionCache {
 impl ActionCache {
     pub fn new(table: DeltaTable, actions: Vec<Add>) -> Result<Self, CatalogError> {
         Ok(Self { table, actions })
+    }
+
+    pub fn actions(&self) -> Vec<Add> {
+        self.actions.clone()
     }
 
     pub async fn commit(self) -> Result<(), CatalogError> {
@@ -105,33 +104,21 @@ static ACTIONS_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, ActionCache>>>> =
 pub struct Writer;
 
 impl Writer {
-    pub async fn write(
-        schema_name: &str,
-        table_path: &Path,
-        arrow_schema: Arc<ArrowSchema>,
-        batch: &RecordBatch,
-    ) -> Result<(), CatalogError> {
-        let mut cache = WRITER_CACHE.lock().await;
+    pub async fn clear_actions(table_path: &Path) -> Result<(), CatalogError> {
+        let mut actions_cache = ACTIONS_CACHE.lock().await;
+        actions_cache.remove(table_path);
 
-        let writer_cache = match cache.entry(WRITER_ID.to_string()) {
-            Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => {
-                let writer = Self::create(schema_name, table_path, arrow_schema).await?;
-                let table_path_cloned = table_path.to_path_buf();
-                let delta_table = Session::with_tables(schema_name, |mut tables| {
-                    Box::pin(async move { Ok(tables.get_owned(&table_path_cloned).await?) })
-                })?;
+        Ok(())
+    }
 
-                entry.insert(WriterCache::new(
-                    writer,
-                    delta_table,
-                    schema_name,
-                    table_path,
-                )?)
-            }
-        };
+    pub async fn clear_all() -> Result<(), CatalogError> {
+        let mut writer_cache = WRITER_CACHE.lock().await;
+        let mut actions_cache = ACTIONS_CACHE.lock().await;
 
-        writer_cache.write(batch).await
+        writer_cache.clear();
+        actions_cache.clear();
+
+        Ok(())
     }
 
     pub async fn commit() -> Result<(), CatalogError> {
@@ -151,11 +138,44 @@ impl Writer {
         if let Some(writer_cache) = writer_cache.remove(WRITER_ID) {
             let table = writer_cache.table()?;
             let table_path = writer_cache.table_path()?;
-            let actions = writer_cache.flush().await?;
-            actions_cache.insert(table_path, ActionCache::new(table, actions)?);
+            let mut new_actions = writer_cache.flush().await?;
+            let all_actions =
+                actions_cache
+                    .remove(&table_path)
+                    .map_or(new_actions.clone(), |action_cache| {
+                        let mut old_actions = action_cache.actions();
+                        old_actions.append(&mut new_actions);
+                        old_actions
+                    });
+
+            actions_cache.insert(table_path, ActionCache::new(table, all_actions)?);
         }
 
         Ok(())
+    }
+
+    pub async fn write(
+        schema_name: &str,
+        table_path: &Path,
+        arrow_schema: Arc<ArrowSchema>,
+        batch: &RecordBatch,
+    ) -> Result<(), CatalogError> {
+        let mut cache = WRITER_CACHE.lock().await;
+
+        let writer_cache = match cache.entry(WRITER_ID.to_string()) {
+            Occupied(entry) => entry.into_mut(),
+            Vacant(entry) => {
+                let writer = Self::create(schema_name, table_path, arrow_schema).await?;
+                let table_path_cloned = table_path.to_path_buf();
+                let delta_table = Session::with_tables(schema_name, |mut tables| {
+                    Box::pin(async move { Ok(tables.get_owned(&table_path_cloned).await?) })
+                })?;
+
+                entry.insert(WriterCache::new(writer, delta_table, table_path)?)
+            }
+        };
+
+        writer_cache.write(batch).await
     }
 
     async fn create(

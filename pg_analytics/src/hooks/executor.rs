@@ -6,7 +6,6 @@ use thiserror::Error;
 use crate::datafusion::catalog::CatalogError;
 
 use super::handler::{HandlerError, IsColumn};
-use super::insert::{insert, InsertHookError};
 use super::query::Query;
 use super::select::{select, SelectHookError};
 use crate::datafusion::commit::{commit_writer, needs_commit};
@@ -124,9 +123,6 @@ pub enum ExecutorHookError {
 
     #[error(transparent)]
     HandlerError(#[from] HandlerError),
-
-    #[error(transparent)]
-    InsertHookError(#[from] InsertHookError),
 
     #[error(transparent)]
     ParadeError(#[from] ParadeError),

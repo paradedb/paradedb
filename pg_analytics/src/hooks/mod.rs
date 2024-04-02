@@ -2,7 +2,6 @@ mod alter;
 mod drop;
 mod executor;
 mod handler;
-mod insert;
 mod process;
 mod query;
 mod rename;
@@ -11,9 +10,12 @@ mod truncate;
 mod udf;
 mod vacuum;
 
+use async_std::task;
 use pgrx::hooks::PgHooks;
 use pgrx::*;
 use std::ffi::CStr;
+
+use crate::datafusion::writer::Writer;
 
 pub struct ParadeHook;
 
@@ -31,6 +33,10 @@ impl PgHooks for ParadeHook {
             execute_once: bool,
         ) -> HookResult<()>,
     ) -> HookResult<()> {
+        task::block_on(Writer::flush()).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+
         executor::executor_run(query_desc, direction, count, execute_once, prev_hook)
             .unwrap_or_else(|err| {
                 panic!("{}", err);
@@ -60,6 +66,10 @@ impl PgHooks for ParadeHook {
             completion_tag: *mut pg_sys::QueryCompletion,
         ) -> HookResult<()>,
     ) -> HookResult<()> {
+        task::block_on(Writer::flush()).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+
         process::process_utility(
             pstmt,
             query_string,
@@ -76,5 +86,21 @@ impl PgHooks for ParadeHook {
         });
 
         HookResult::new(())
+    }
+
+    fn abort(&mut self) {
+        task::block_on(Writer::clear_all()).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+    }
+
+    fn commit(&mut self) {
+        task::block_on(Writer::flush()).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+
+        task::block_on(Writer::commit()).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
     }
 }

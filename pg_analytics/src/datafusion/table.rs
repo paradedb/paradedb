@@ -12,8 +12,7 @@ use deltalake::datafusion::datasource::{provider_as_source, TableProvider};
 use deltalake::datafusion::error::Result;
 use deltalake::datafusion::execution::context::SessionState;
 use deltalake::datafusion::logical_expr::{
-    col, lit, Expr, LogicalPlan, LogicalPlanBuilder, TableProviderFilterPushDown, TableSource,
-    TableType,
+    col, lit, Expr, LogicalPlan, LogicalPlanBuilder, TableProviderFilterPushDown, TableType,
 };
 use deltalake::datafusion::physical_plan::ExecutionPlan;
 use deltalake::datafusion::sql::TableReference;
@@ -212,18 +211,8 @@ impl Tables {
             }
         };
 
-        // TODO: Update table
-
+        table.update().await?;
         Ok(table)
-    }
-
-    pub fn register(
-        &mut self,
-        table_path: &Path,
-        table: DeltaTable,
-    ) -> Result<(), DataFusionTableError> {
-        self.tables.insert(table_path.to_path_buf(), table);
-        Ok(())
     }
 
     pub async fn vacuum(
@@ -325,10 +314,6 @@ impl PgTableProvider {
         })
     }
 
-    pub fn table(&self) -> DeltaTable {
-        self.table.clone()
-    }
-
     pub fn dataframe(&self) -> DataFrame {
         self.dataframe.clone()
     }
@@ -354,7 +339,6 @@ impl TableProvider for PgTableProvider {
 
     fn get_logical_plan(&self) -> Option<&LogicalPlan> {
         self.plan.as_ref()
-        // None
     }
 
     async fn scan(

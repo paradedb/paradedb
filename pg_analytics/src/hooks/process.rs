@@ -62,7 +62,7 @@ pub fn process_utility(
                 }
             }
             NodeTag::T_TruncateStmt => {
-                truncate(plan as *mut pg_sys::TruncateStmt)?;
+                task::block_on(truncate(plan as *mut pg_sys::TruncateStmt))?;
             }
             NodeTag::T_VacuumStmt => {
                 vacuum(plan as *mut pg_sys::VacuumStmt)?;
@@ -88,20 +88,20 @@ pub fn process_utility(
 #[derive(Error, Debug)]
 pub enum ProcessHookError {
     #[error(transparent)]
-    CatalogError(#[from] CatalogError),
+    Catalog(#[from] CatalogError),
 
     #[error(transparent)]
-    AlterHookError(#[from] AlterHookError),
+    AlterHook(#[from] AlterHookError),
 
     #[error(transparent)]
-    DropHookError(#[from] DropHookError),
+    DropHook(#[from] DropHookError),
 
     #[error(transparent)]
-    RenameHookError(#[from] RenameHookError),
+    RenameHook(#[from] RenameHookError),
 
     #[error(transparent)]
-    TruncateHookError(#[from] TruncateHookError),
+    TruncateHook(#[from] TruncateHookError),
 
     #[error(transparent)]
-    VacuumHookError(#[from] VacuumHookError),
+    VacuumHook(#[from] VacuumHookError),
 }

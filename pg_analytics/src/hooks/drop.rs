@@ -80,11 +80,11 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), DropHookError
 #[derive(Error, Debug)]
 pub enum DropHookError {
     #[error(transparent)]
-    CatalogError(#[from] CatalogError),
+    Catalog(#[from] CatalogError),
 
     #[error(transparent)]
-    DataFusionTableError(#[from] DataFusionTableError),
+    DataFusionTable(#[from] DataFusionTableError),
 
     #[error(transparent)]
-    HandlerError(#[from] HandlerError),
+    Handler(#[from] HandlerError),
 }

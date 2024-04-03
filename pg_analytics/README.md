@@ -122,7 +122,7 @@ Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
-cargo install --locked cargo-pgrx --version 0.11.2
+cargo install --locked cargo-pgrx --version 0.12.0-alpha.1
 
 # macOS arm64
 cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config
@@ -170,7 +170,7 @@ rustup override set nightly
 Then, reinstall `pgrx` for the new version of Rust:
 
 ```bash
-cargo install --locked cargo-pgrx --version 0.11.2 --force
+cargo install --locked cargo-pgrx --version 0.12.0-alpha.1 --force
 ```
 
 Finally, run to build in release mode with SIMD:

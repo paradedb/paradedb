@@ -42,10 +42,6 @@ impl PostgresPgAnalyticsGucSettings {
 
     /// You must call this `init` function in the extension's `_PG_init()`.
     /// Make sure you've first called `ParadeGUC::new()` into a static variable.
-    /// Example in _PG_init():
-    /// ```
-    /// PARADE_GUC::init();
-    /// ```
     pub fn init(&self, extension_name: &str) {
         // Initialize global settings first.
         self.globals.init(extension_name);

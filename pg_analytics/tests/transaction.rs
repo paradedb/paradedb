@@ -48,8 +48,9 @@ fn insert_transaction_aborted(mut conn: PgConnection) {
 
 #[rstest]
 fn insert_transaction_commit(mut conn: PgConnection) {
+    "CREATE TABLE t (id INT PRIMARY KEY, name TEXT) USING parquet".execute(&mut conn);
+
     r#"
-        CREATE TABLE t (id INT PRIMARY KEY, name TEXT) USING parquet;
         BEGIN;
         INSERT INTO t VALUES (1, 'test'), (2, 'test');
         INSERT INTO t VALUES (3, 'test'), (4, 'test');
@@ -63,8 +64,9 @@ fn insert_transaction_commit(mut conn: PgConnection) {
 
 #[rstest]
 fn insert_transaction_rollback(mut conn: PgConnection) {
+    "CREATE TABLE t (id INT PRIMARY KEY, name TEXT) USING parquet".execute(&mut conn);
+
     r#"
-        CREATE TABLE t (id INT PRIMARY KEY, name TEXT) USING parquet;
         BEGIN;
         INSERT INTO t VALUES (1, 'test'), (2, 'test');
         INSERT INTO t VALUES (3, 'test'), (4, 'test');
@@ -101,9 +103,13 @@ fn truncate_transaction_rollback(mut conn: PgConnection) {
     r#"
         CREATE TABLE t (id INT PRIMARY KEY, name TEXT) USING parquet;
         INSERT INTO t VALUES (1, 'test'), (2, 'test');
-        INSERT INTO t VALUES (3, 'test'), (4, 'test');
+        INSERT INTO t VALUES (3, 'test'), (4, 'test');     
+    "#
+    .execute(&mut conn);
+
+    r#"
         BEGIN;
-        TRUNCATE t;      
+        TRUNCATE t; 
     "#
     .execute(&mut conn);
 

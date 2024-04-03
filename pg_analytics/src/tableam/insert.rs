@@ -4,7 +4,7 @@ use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use pgrx::*;
-// use std::cell::RefCell;
+use std::cell::RefCell;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -16,11 +16,11 @@ use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::{DataTypeError, PgTypeMod};
 
-// thread_local! {
-//     static INSERT_MEM_CTX: RefCell<PgMemoryContexts> = RefCell::new(
-//         PgMemoryContexts::new("pg_analytics_insert_tuples")
-//     );
-// }
+thread_local! {
+    static INSERT_MEM_CTX: RefCell<PgMemoryContexts> = RefCell::new(
+        PgMemoryContexts::new("pg_analytics_insert_tuples")
+    );
+}
 
 #[pg_guard]
 pub extern "C" fn deltalake_slot_callbacks(
@@ -97,153 +97,89 @@ async unsafe fn insert_tuples(
     //
     // By running in our own memory context, we can force the memory to be freed with
     // the call to reset().
-    // let (schema_name, table_path, arrow_schema, column_values) =
-    //     INSERT_MEM_CTX.with(|memcxt_ref| {
-    //         let mut memcxt = memcxt_ref.borrow_mut();
-    //         memcxt.reset();
-    //         memcxt.switch_to(|_| -> Result<_, TableInsertError> {
-    //             let pg_relation = PgRelation::from_pg(rel);
-    //             let tuple_desc = pg_relation.tuple_desc();
-    //             let mut column_values: Vec<ArrayRef> = vec![];
+    let (schema_name, table_path, arrow_schema, column_values) =
+        INSERT_MEM_CTX.with(|memcxt_ref| {
+            let mut memcxt = memcxt_ref.borrow_mut();
+            memcxt.reset();
+            memcxt.switch_to(|_| -> Result<_, TableInsertError> {
+                let pg_relation = PgRelation::from_pg(rel);
+                let tuple_desc = pg_relation.tuple_desc();
+                let mut column_values: Vec<ArrayRef> = vec![];
 
-    //             // Convert the TupleTableSlots into DataFusion arrays
-    //             for (col_idx, attr) in tuple_desc.iter().enumerate() {
-    //                 column_values.push(
-    //                     (0..nslots)
-    //                         .map(move |row_idx| unsafe {
-    //                             let tuple_table_slot = *slots.add(row_idx);
+                // Convert the TupleTableSlots into DataFusion arrays
+                for (col_idx, attr) in tuple_desc.iter().enumerate() {
+                    column_values.push(
+                        (0..nslots)
+                            .map(move |row_idx| unsafe {
+                                let tuple_table_slot = *slots.add(row_idx);
 
-    //                             let datum_opt = if (*tuple_table_slot).tts_ops
-    //                                 == &pg_sys::TTSOpsBufferHeapTuple
-    //                             {
-    //                                 let bslot =
-    //                                     tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
-    //                                 let tuple = (*bslot).base.tuple;
-    //                                 std::num::NonZeroUsize::new(col_idx + 1).and_then(|attr_num| {
-    //                                     htup::heap_getattr_raw(
-    //                                         tuple,
-    //                                         attr_num,
-    //                                         (*tuple_table_slot).tts_tupleDescriptor,
-    //                                     )
-    //                                 })
-    //                             } else {
-    //                                 Some(*(*tuple_table_slot).tts_values.add(col_idx))
-    //                             };
+                                let datum_opt = if (*tuple_table_slot).tts_ops
+                                    == &pg_sys::TTSOpsBufferHeapTuple
+                                {
+                                    let bslot =
+                                        tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
+                                    let tuple = (*bslot).base.tuple;
+                                    std::num::NonZeroUsize::new(col_idx + 1).and_then(|attr_num| {
+                                        htup::heap_getattr_raw(
+                                            tuple,
+                                            attr_num,
+                                            (*tuple_table_slot).tts_tupleDescriptor,
+                                        )
+                                    })
+                                } else {
+                                    Some(*(*tuple_table_slot).tts_values.add(col_idx))
+                                };
 
-    //                             let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
-    //                             (!is_null).then_some(datum_opt).flatten()
-    //                         })
-    //                         .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
-    //                 );
-    //             }
+                                let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
+                                (!is_null).then_some(datum_opt).flatten()
+                            })
+                            .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
+                    );
+                }
 
-    //             // Assign TID to each row
-    //             let mut row_numbers: Vec<i64> = vec![];
+                // Assign TID to each row
+                let mut row_numbers: Vec<i64> = vec![];
 
-    //             for row_idx in 0..nslots {
-    //                 unsafe {
-    //                     let tuple_table_slot = *slots.add(row_idx);
-    //                     let next_row_number = rel.read_next_row_number()?;
+                for row_idx in 0..nslots {
+                    unsafe {
+                        let tuple_table_slot = *slots.add(row_idx);
+                        let next_row_number = rel.read_next_row_number()?;
 
-    //                     (*tuple_table_slot).tts_tid =
-    //                         pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
+                        (*tuple_table_slot).tts_tid =
+                            pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
 
-    //                     row_numbers.push(next_row_number);
-    //                     rel.write_next_row_number(next_row_number + 1)?;
-    //                 }
-    //             }
+                        row_numbers.push(next_row_number);
+                        rel.write_next_row_number(next_row_number + 1)?;
+                    }
+                }
 
-    //             column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
+                column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
 
-    //             // Assign xmin to each row
-    //             let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
-    //             let xmins: Vec<i64> = vec![transaction_id; nslots];
-    //             column_values.push(Arc::new(Int64Array::from(xmins)));
+                // Assign xmin to each row
+                let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
+                let xmins: Vec<i64> = vec![transaction_id; nslots];
+                column_values.push(Arc::new(Int64Array::from(xmins)));
 
-    //             // Assign xmax to each row
-    //             let xmaxs: Vec<i64> = vec![0; nslots];
-    //             column_values.push(Arc::new(Int64Array::from(xmaxs)));
+                // Assign xmax to each row
+                let xmaxs: Vec<i64> = vec![0; nslots];
+                column_values.push(Arc::new(Int64Array::from(xmaxs)));
 
-    //             let schema_name = pg_relation.namespace().to_string();
-    //             let table_path = pg_relation.table_path()?;
-    //             let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
+                let schema_name = pg_relation.namespace().to_string();
+                let table_path = pg_relation.table_path()?;
+                let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
 
-    //             Ok((schema_name, table_path, arrow_schema, column_values))
-    //         })
-    //     })?;
-
-    let pg_relation = PgRelation::from_pg(rel);
-    let tuple_desc = pg_relation.tuple_desc();
-    let mut column_values: Vec<ArrayRef> = vec![];
-
-    // Convert the TupleTableSlots into DataFusion arrays
-    for (col_idx, attr) in tuple_desc.iter().enumerate() {
-        column_values.push(
-            (0..nslots)
-                .map(move |row_idx| unsafe {
-                    let tuple_table_slot = *slots.add(row_idx);
-
-                    let datum_opt = if (*tuple_table_slot).tts_ops == &pg_sys::TTSOpsBufferHeapTuple
-                    {
-                        let bslot = tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
-                        let tuple = (*bslot).base.tuple;
-                        std::num::NonZeroUsize::new(col_idx + 1).and_then(|attr_num| {
-                            htup::heap_getattr_raw(
-                                tuple,
-                                attr_num,
-                                (*tuple_table_slot).tts_tupleDescriptor,
-                            )
-                        })
-                    } else {
-                        Some(*(*tuple_table_slot).tts_values.add(col_idx))
-                    };
-
-                    let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
-                    (!is_null).then_some(datum_opt).flatten()
-                })
-                .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
-        );
-    }
-
-    // Assign TID to each row
-    let mut row_numbers: Vec<i64> = vec![];
-
-    for row_idx in 0..nslots {
-        unsafe {
-            let tuple_table_slot = *slots.add(row_idx);
-            let next_row_number = rel.read_next_row_number()?;
-
-            (*tuple_table_slot).tts_tid =
-                pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
-
-            row_numbers.push(next_row_number);
-            rel.write_next_row_number(next_row_number + 1)?;
-        }
-    }
-
-    column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
-
-    // Assign xmin to each row
-    let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
-    let xmins: Vec<i64> = vec![transaction_id; nslots];
-    column_values.push(Arc::new(Int64Array::from(xmins)));
-
-    // Assign xmax to each row
-    let xmaxs: Vec<i64> = vec![0; nslots];
-    column_values.push(Arc::new(Int64Array::from(xmaxs)));
-
-    let schema_name = pg_relation.namespace().to_string();
-    let table_path = pg_relation.table_path()?;
-    let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
+                Ok((schema_name, table_path, arrow_schema, column_values))
+            })
+        })?;
 
     // Write Arrow arrays to buffer
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
 
-    // INSERT_MEM_CTX.with(|memcxt_ref| {
-    //     let mut memcxt = memcxt_ref.borrow_mut();
-    //     memcxt.reset();
-    // });
+    INSERT_MEM_CTX.with(|memcxt_ref| {
+        let mut memcxt = memcxt_ref.borrow_mut();
+        memcxt.reset();
+    });
 
     Ok(())
 }

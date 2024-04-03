@@ -24,7 +24,7 @@ impl ParadeSchemaProvider {
     pub async fn try_new(schema_name: &str) -> Result<Self, CatalogError> {
         Ok(Self {
             schema_name: schema_name.to_string(),
-            tables: Arc::new(Mutex::new(Tables::new()?)),
+            tables: Arc::new(Mutex::new(Tables::new(schema_name)?)),
         })
     }
 

@@ -9,11 +9,12 @@ use async_std::task;
 use core::ffi::c_int;
 use deltalake::arrow::datatypes::Int64Type;
 use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBatch};
+use deltalake::datafusion::common::arrow::error::ArrowError;
 use pgrx::*;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
+use crate::datafusion::batch::PostgresBatch;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
@@ -98,6 +99,8 @@ pub async unsafe fn scan_getnextslot(
             };
 
         next_batch.remove_xmin_column()?;
+        next_batch.remove_xmax_column()?;
+
         let tids = next_batch.remove_tid_column()?;
         let tid_array = tids.as_primitive::<Int64Type>();
         (*dscan).curr_batch = Some(Arc::new(Mutex::new(next_batch)));
@@ -340,6 +343,9 @@ pub extern "C" fn deltalake_tuple_lock(
 #[derive(Error, Debug)]
 pub enum TableScanError {
     #[error(transparent)]
+    ArrowError(#[from] ArrowError),
+
+    #[error(transparent)]
     CatalogError(#[from] CatalogError),
 
     #[error(transparent)]
@@ -347,9 +353,6 @@ pub enum TableScanError {
 
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),
-
-    #[error(transparent)]
-    RecordBatchError(#[from] RecordBatchError),
 
     #[error(transparent)]
     TIDError(#[from] TIDError),

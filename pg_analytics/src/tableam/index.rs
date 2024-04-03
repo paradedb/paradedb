@@ -1,6 +1,7 @@
 use crate::storage::tid::{BlockNumber, RowNumber, TIDError};
 use async_std::task;
 use core::ffi::c_void;
+use deltalake::datafusion::common::arrow::error::ArrowError;
 use deltalake::datafusion::common::{DataFusionError, ScalarValue};
 use deltalake::datafusion::logical_expr::{col, Expr};
 use pgrx::*;
@@ -9,7 +10,7 @@ use std::ptr::{addr_of_mut, null_mut};
 use thiserror::Error;
 
 use super::scan::{scan_getnextslot, TableScanError};
-use crate::datafusion::batch::{PostgresBatch, RecordBatchError};
+use crate::datafusion::batch::PostgresBatch;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
@@ -80,6 +81,7 @@ async unsafe fn index_fetch_tuple(
 
             batch.remove_tid_column()?;
             batch.remove_xmin_column()?;
+            batch.remove_xmax_column()?;
 
             for col_index in 0..batch.num_columns() {
                 let column = batch.column(col_index);
@@ -333,6 +335,9 @@ pub extern "C" fn deltalake_index_validate_scan(
 #[derive(Error, Debug)]
 pub enum IndexScanError {
     #[error(transparent)]
+    ArrowError(#[from] ArrowError),
+
+    #[error(transparent)]
     CatalogError(#[from] CatalogError),
 
     #[error(transparent)]
@@ -343,9 +348,6 @@ pub enum IndexScanError {
 
     #[error(transparent)]
     MetadataError(#[from] MetadataError),
-
-    #[error(transparent)]
-    RecordBatchError(#[from] RecordBatchError),
 
     #[error(transparent)]
     TableScanError(#[from] TableScanError),

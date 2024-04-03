@@ -1,7 +1,6 @@
 use async_std::stream::StreamExt;
 use async_std::sync::Mutex;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-
 use deltalake::datafusion::physical_plan::SendableRecordBatchStream;
 use once_cell::sync::Lazy;
 use std::collections::{
@@ -12,7 +11,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use super::catalog::CatalogError;
-
 use super::session::Session;
 use super::table::PgTableProvider;
 

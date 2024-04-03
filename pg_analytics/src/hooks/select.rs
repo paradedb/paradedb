@@ -1,11 +1,10 @@
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-
+use deltalake::datafusion::common::arrow::error::ArrowError;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::prelude::SessionContext;
 use pgrx::*;
 use thiserror::Error;
 
-use crate::datafusion::batch::RecordBatchError;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
 use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
@@ -104,13 +103,13 @@ pub fn get_datafusion_batches(
 #[derive(Error, Debug)]
 pub enum SelectHookError {
     #[error(transparent)]
+    ArrowError(#[from] ArrowError),
+
+    #[error(transparent)]
     CatalogError(#[from] CatalogError),
 
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),
-
-    #[error(transparent)]
-    RecordBatchError(#[from] RecordBatchError),
 
     #[error("Unexpected error: rShutdown not found")]
     RShutdownNotFound,

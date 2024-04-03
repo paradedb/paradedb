@@ -8,6 +8,7 @@ use crate::datafusion::session::Session;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
 use crate::hooks::handler::{HandlerError, IsColumn};
+use crate::storage::metadata::PgMetadata;
 
 pub async unsafe fn truncate(
     truncate_stmt: *mut pg_sys::TruncateStmt,
@@ -57,6 +58,11 @@ pub async unsafe fn truncate(
         let table_path = pg_relation.table_path()?;
 
         pg_sys::RelationTruncate(relation, 0);
+        relation
+            .init_metadata((*relation).rd_smgr)
+            .unwrap_or_else(|err| {
+                panic!("{}", err);
+            });
         pg_sys::RelationClose(relation);
 
         // Clear all pending write commits for this table since it's being truncated
@@ -65,7 +71,7 @@ pub async unsafe fn truncate(
         Session::with_tables(schema_name, |mut tables| {
             Box::pin(async move {
                 let pg_relation = PgRelation::from_pg(relation);
-                let _ = tables.delete(&table_path, None).await?;
+                let _ = tables.logical_delete(&table_path, None).await?;
 
                 let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
                 let batch = RecordBatch::new_empty(arrow_schema);

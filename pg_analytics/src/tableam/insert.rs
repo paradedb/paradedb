@@ -168,6 +168,10 @@ async unsafe fn insert_tuples(
     let xmins: Vec<i64> = vec![transaction_id; nslots];
     column_values.push(Arc::new(Int64Array::from(xmins)));
 
+    // Assign xmax to each row
+    let xmaxs: Vec<i64> = vec![0; nslots];
+    column_values.push(Arc::new(Int64Array::from(xmaxs)));
+
     // Write Arrow arrays to buffer
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();

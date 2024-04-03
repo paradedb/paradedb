@@ -1,3 +1,4 @@
+use async_std::sync::Mutex;
 use async_trait::async_trait;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
@@ -19,12 +20,12 @@ use deltalake::datafusion::sql::TableReference;
 use deltalake::errors::DeltaTableError;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
-use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
 use deltalake::operations::optimize::OptimizeBuilder;
+use deltalake::operations::update::{UpdateBuilder, UpdateMetrics};
 use deltalake::operations::vacuum::VacuumBuilder;
-
 use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
 use deltalake::DeltaTable;
+use once_cell::sync::Lazy;
 use pgrx::*;
 use std::any::Any;
 use std::collections::{
@@ -43,8 +44,12 @@ use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMo
 
 pub static RESERVED_TID_FIELD: &str = "parade_ctid";
 pub static RESERVED_XMIN_FIELD: &str = "parade_xmin";
+pub static RESERVED_XMAX_FIELD: &str = "parade_xmax";
 
 const BYTES_IN_MB: i64 = 1_048_576;
+
+pub static DELETE_ON_PRECOMMIT_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub trait DatafusionTable {
     fn arrow_schema(&self) -> Result<ArrowSchema, DataFusionTableError>;
@@ -64,7 +69,10 @@ impl DatafusionTable for PgRelation {
 
             let attname = attribute.name();
 
-            if attname == RESERVED_TID_FIELD || attname == RESERVED_XMIN_FIELD {
+            if attname == RESERVED_TID_FIELD
+                || attname == RESERVED_XMIN_FIELD
+                || attname == RESERVED_XMAX_FIELD
+            {
                 return Err(DataFusionTableError::ReservedFieldName(attname.to_string()));
             }
 
@@ -106,6 +114,7 @@ impl DatafusionTable for PgRelation {
             ArrowSchema::new(vec![
                 Field::new(RESERVED_TID_FIELD, DataType::Int64, false),
                 Field::new(RESERVED_XMIN_FIELD, DataType::Int64, false),
+                Field::new(RESERVED_XMAX_FIELD, DataType::Int64, false),
             ]),
         ])?)
     }
@@ -120,12 +129,14 @@ impl DatafusionTable for PgRelation {
 
 pub struct Tables {
     tables: HashMap<PathBuf, DeltaTable>,
+    schema_name: String,
 }
 
 impl Tables {
-    pub fn new() -> Result<Self, DataFusionTableError> {
+    pub fn new(schema_name: &str) -> Result<Self, DataFusionTableError> {
         Ok(Self {
             tables: HashMap::new(),
+            schema_name: schema_name.to_string(),
         })
     }
 
@@ -161,14 +172,14 @@ impl Tables {
         Ok(delta_table)
     }
 
-    pub async fn delete(
+    pub async fn logical_delete(
         &mut self,
         table_path: &Path,
         predicate: Option<Expr>,
-    ) -> Result<(DeltaTable, DeleteMetrics), DataFusionTableError> {
+    ) -> Result<(DeltaTable, UpdateMetrics), DataFusionTableError> {
         let delta_table = Self::get_owned(self, table_path).await?;
 
-        let mut delete_builder = DeleteBuilder::new(
+        let mut update_builder = UpdateBuilder::new(
             delta_table.log_store(),
             delta_table
                 .state
@@ -176,10 +187,18 @@ impl Tables {
         );
 
         if let Some(predicate) = predicate {
-            delete_builder = delete_builder.with_predicate(predicate);
+            update_builder = update_builder.with_predicate(predicate);
         }
 
-        Ok(delete_builder.await?)
+        update_builder = update_builder.with_update(
+            RESERVED_XMAX_FIELD,
+            lit(unsafe { pg_sys::GetCurrentTransactionId() }),
+        );
+
+        let mut delete_cache = DELETE_ON_PRECOMMIT_CACHE.lock().await;
+        delete_cache.insert(table_path.to_path_buf(), self.schema_name.clone());
+
+        Ok(update_builder.await?)
     }
 
     pub fn deregister(&mut self, table_path: &Path) -> Result<(), DataFusionTableError> {
@@ -283,11 +302,12 @@ impl PgTableProvider {
             .with_schema(resolved_schema);
 
         let listing_provider = Arc::new(ListingTable::try_new(config)?);
-        let dataframe = Session::with_session_context(|context| {
+
+        let all_tuples = Session::with_session_context(|context| {
             Box::pin(async move { Ok(context.read_table(listing_provider.clone())?) })
         })?;
 
-        let current_transaction_rows = dataframe.filter(
+        let uncommitted_inserts = all_tuples.filter(
             col(RESERVED_XMIN_FIELD).eq(lit(unsafe { pg_sys::GetCurrentTransactionId() })),
         )?;
 
@@ -304,8 +324,12 @@ impl PgTableProvider {
         )?
         .build()?;
 
-        let committed_rows = DataFrame::new(state, table_scan);
-        let dataframe = current_transaction_rows.union(committed_rows)?;
+        let committed_inserts = DataFrame::new(state, table_scan);
+        let dataframe = committed_inserts
+            .filter(
+                col(RESERVED_XMAX_FIELD).not_eq(lit(unsafe { pg_sys::GetCurrentTransactionId() })),
+            )?
+            .union(uncommitted_inserts)?;
 
         Ok(Self {
             table,

@@ -3749,6 +3749,7 @@ name = "pg_analytics"
 version = "0.6.0"
 dependencies = [
  "anyhow",
+ "approx",
  "async-std",
  "async-trait",
  "chrono",

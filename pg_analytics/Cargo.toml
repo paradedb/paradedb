@@ -45,6 +45,7 @@ url = "2.5.0"
 
 [dev-dependencies]
 anyhow = "1.0.79"
+approx = "0.5.1"
 async-std = { version = "1.12.0", features = ["attributes"] }
 futures-util = "0.3.30"
 pgrx-tests = { git = "https://github.com/pgcentralfoundation/pgrx.git", rev = "f708abd" }

@@ -4,7 +4,7 @@ use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use pgrx::*;
-use std::cell::RefCell;
+// use std::cell::RefCell;
 use std::sync::Arc;
 use thiserror::Error;
 

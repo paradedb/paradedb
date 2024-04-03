@@ -19,6 +19,10 @@ pub fn conn(database: Db) -> PgConnection {
             .execute(&mut conn)
             .await
             .expect("could not create extension pg_analytics");
+        sqlx::query("CREATE EXTENSION pg_search;")
+            .execute(&mut conn)
+            .await
+            .expect("could not create extension pg_search");
         conn
     })
 }

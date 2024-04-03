@@ -58,8 +58,9 @@ INSERT INTO events SELECT * FROM heap;
 will become resolved as `parquet` tables become production-ready.
 
 - [ ] Some Postgres types, notably `json` and `timestamptz`
-- [ ] User-defined functions, aggregations, or types
-- [ ] JOINing `parquet` and regular Postgres `heap` tables
+- [ ] User-defined aggregations or types
+- [ ] Overloaded user-defined functions
+- [ ] Foreign keys on `parquet` tables
 - [ ] Write-ahead-log (WAL) support/`ROLLBACK`/logical replication
 - [ ] Collations
 - [ ] Partitioning by specific columns

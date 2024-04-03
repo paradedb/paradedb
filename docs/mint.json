@@ -126,7 +126,9 @@
         "analytics/quickstart",
         "analytics/types",
         "analytics/storage",
-        "analytics/replication"
+        "analytics/replication",
+        "analytics/htap",
+        "analytics/udf"
       ]
     },
     {

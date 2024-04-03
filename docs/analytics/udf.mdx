@@ -4,13 +4,15 @@ title: User-Defined Functions
 
 Postgres user-defined functions (UDFs) work the same way on `parquet` tables, with some limitations.
 
-* Overloaded functions do not work on `parquet` tables.
-* Constants must be explicitly typed. For example, if we defined a UDF `add(int, int)` and executed the query `SELECT add(1, a) FROM t`, we may see an error like this one:
+- Overloaded functions do not work on `parquet` tables.
+- Constants must be explicitly typed. For example, if we defined a UDF `add(int, int)` and executed the query `SELECT add(1, a) FROM t`, we may see an error like this one:
+
 ```
 ERROR:  type_coercion
 caused by
 Error during planning: Coercion from [Utf8, Int64, Int32] to the signature Exact([Utf8, Int32, Int32]) failed.
 ```
+
 Instead, you should execute the query like so: `SELECT add(1::int, a) FROM t` to avoid the coercion error.
 
 Additionally, user-defined aggregates and types are not yet supported.

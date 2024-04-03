@@ -4,8 +4,8 @@ title: Hybrid Queries
 
 Hybrid transactional/analytical processing (HTAP) is possible with `pg_analytics` through the use of joins between heap and `parquet` tables. Joins between heap and `parquet` tables are as feature-complete as their heap-only and `parquet`-only counterparts, constrained only by any mentioned limitations on `parquet` tables.
 
-
 ## Parquet-Heap Joins
+
 ```sql
 -- Create heap table
 CREATE TABLE transaction (id SERIAL PRIMARY KEY, user_id BIGINT, description TEXT);

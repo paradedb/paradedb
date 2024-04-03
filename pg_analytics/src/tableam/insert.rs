@@ -97,7 +97,7 @@ async unsafe fn insert_tuples(
     //
     // By running in our own memory context, we can force the memory to be freed with
     // the call to reset().
-    let (_schema_name, _table_path, _arrow_schema, mut column_values) =
+    let (schema_name, table_path, arrow_schema, column_values) =
         INSERT_MEM_CTX.with(|memcxt_ref| {
             let mut memcxt = memcxt_ref.borrow_mut();
             memcxt.reset();
@@ -137,49 +137,44 @@ async unsafe fn insert_tuples(
                     );
                 }
 
+                // Assign TID to each row
+                let mut row_numbers: Vec<i64> = vec![];
+
+                for row_idx in 0..nslots {
+                    unsafe {
+                        let tuple_table_slot = *slots.add(row_idx);
+                        let next_row_number = rel.read_next_row_number()?;
+
+                        (*tuple_table_slot).tts_tid =
+                            pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
+
+                        row_numbers.push(next_row_number);
+                        rel.write_next_row_number(next_row_number + 1)?;
+                    }
+                }
+
+                column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
+
+                // Assign xmin to each row
+                let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
+                let xmins: Vec<i64> = vec![transaction_id; nslots];
+                column_values.push(Arc::new(Int64Array::from(xmins)));
+
+                // Assign xmax to each row
+                let xmaxs: Vec<i64> = vec![0; nslots];
+                column_values.push(Arc::new(Int64Array::from(xmaxs)));
+
                 let schema_name = pg_relation.namespace().to_string();
                 let table_path = pg_relation.table_path()?;
-                let arrow_schema = pg_relation.arrow_schema()?;
+                let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
 
                 Ok((schema_name, table_path, arrow_schema, column_values))
             })
         })?;
 
-    // Assign TID to each row
-    let mut row_numbers: Vec<i64> = vec![];
-
-    for row_idx in 0..nslots {
-        unsafe {
-            let tuple_table_slot = *slots.add(row_idx);
-            let next_row_number = rel.read_next_row_number()?;
-
-            (*tuple_table_slot).tts_tid =
-                pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
-
-            row_numbers.push(next_row_number);
-            rel.write_next_row_number(next_row_number + 1)?;
-        }
-    }
-
-    column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
-
-    // Assign xmin to each row
-    let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
-    let xmins: Vec<i64> = vec![transaction_id; nslots];
-    column_values.push(Arc::new(Int64Array::from(xmins)));
-
-    // Assign xmax to each row
-    let xmaxs: Vec<i64> = vec![0; nslots];
-    column_values.push(Arc::new(Int64Array::from(xmaxs)));
-
     // Write Arrow arrays to buffer
-    let pg_relation = unsafe { PgRelation::from_pg(rel) };
-    let schema_name = pg_relation.namespace();
-    let table_path = pg_relation.table_path()?;
-    let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
-
-    Writer::write(schema_name, &table_path, arrow_schema, &batch).await?;
+    Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
 
     INSERT_MEM_CTX.with(|memcxt_ref| {
         let mut memcxt = memcxt_ref.borrow_mut();

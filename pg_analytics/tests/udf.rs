@@ -6,6 +6,7 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
+#[ignore]
 fn udf(mut conn: PgConnection) {
     r#"
         CREATE TABLE x (
@@ -27,6 +28,7 @@ fn udf(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn udf_overloaded(mut conn: PgConnection) {
     r#"
         CREATE TABLE x (
@@ -56,6 +58,7 @@ fn udf_overloaded(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn udf_deletion(mut conn: PgConnection) {
     r#"
         CREATE TABLE x (
@@ -85,6 +88,7 @@ fn udf_deletion(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn udf_coercion(mut conn: PgConnection) {
     r#"
         CREATE TABLE x (

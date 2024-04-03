@@ -669,7 +669,7 @@ dependencies = [
  "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
- "itertools 0.11.0",
+ "itertools 0.12.1",
  "lazy_static",
  "lazycell",
  "proc-macro2",
@@ -893,6 +893,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8cd6604a82acf3039f1144f54b8eb34e91ffba622051189e71b781822d5ee1f5"
 dependencies = [
  "jobserver",
+ "libc",
+]
+
+[[package]]
+name = "cee-scape"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d67dfb052149f779f77e9ce089cea126e00657e8f0d11dafc7901fde4291101"
+dependencies = [
+ "cc",
  "libc",
 ]
 
@@ -3814,7 +3824,7 @@ dependencies = [
 [[package]]
 name = "pgrx"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#03444e094abaa489400ab0f4298aa43261e2b406"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=f708abd#f708abd090216d6436f2a0df4bdc7087ec3f3faa"
 dependencies = [
  "atomic-traits",
  "bitflags 2.5.0",
@@ -3838,7 +3848,7 @@ dependencies = [
 [[package]]
 name = "pgrx-macros"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#03444e094abaa489400ab0f4298aa43261e2b406"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=f708abd#f708abd090216d6436f2a0df4bdc7087ec3f3faa"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -3849,7 +3859,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-config"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#03444e094abaa489400ab0f4298aa43261e2b406"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=f708abd#f708abd090216d6436f2a0df4bdc7087ec3f3faa"
 dependencies = [
  "cargo_toml",
  "eyre",
@@ -3867,13 +3877,13 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-sys"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#03444e094abaa489400ab0f4298aa43261e2b406"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=f708abd#f708abd090216d6436f2a0df4bdc7087ec3f3faa"
 dependencies = [
  "bindgen 0.69.4",
+ "cee-scape",
  "clang-sys",
  "eyre",
  "libc",
- "memoffset",
  "pgrx-macros",
  "pgrx-pg-config",
  "pgrx-sql-entity-graph",
@@ -3889,7 +3899,7 @@ dependencies = [
 [[package]]
 name = "pgrx-sql-entity-graph"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#03444e094abaa489400ab0f4298aa43261e2b406"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=f708abd#f708abd090216d6436f2a0df4bdc7087ec3f3faa"
 dependencies = [
  "convert_case 0.6.0",
  "eyre",
@@ -3904,7 +3914,7 @@ dependencies = [
 [[package]]
 name = "pgrx-tests"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=cshim-bindings#03444e094abaa489400ab0f4298aa43261e2b406"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=f708abd#f708abd090216d6436f2a0df4bdc7087ec3f3faa"
 dependencies = [
  "clap-cargo",
  "eyre",

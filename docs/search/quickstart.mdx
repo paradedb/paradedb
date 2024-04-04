@@ -67,7 +67,8 @@ or a string, just add another column with serial IDs to your table and use that 
 ```sql
 ALTER TABLE mock_items
 ADD COLUMN bm25_id SERIAL;
-````
+```
+
 </Note>
 
 We're now ready to execute a full-text search. We'll look for rows where `description` matches the `shoes` or
@@ -281,7 +282,9 @@ As we can see, results with the word `keyboard` scored higher than results with 
 `[1,2,3]` because we placed a weight of `0.9` on the BM25 scores.
 
 <Note>
-Minmax normalization transforms the lowest and highest scores in a dataset to `0` and `1`, respectively. Because of this, the lowest-ranking BM25 or similarity score may be overlooked, as it is transformed to `0`.
+  Minmax normalization transforms the lowest and highest scores in a dataset to
+  `0` and `1`, respectively. Because of this, the lowest-ranking BM25 or
+  similarity score may be overlooked, as it is transformed to `0`.
 </Note>
 
 ## For Further Assistance

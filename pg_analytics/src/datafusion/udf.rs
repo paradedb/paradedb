@@ -158,7 +158,7 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, UDFErr
 }
 
 pub fn loadfunction_not_supported(_funcname: &str) -> Result<ColumnarValue, UDFError> {
-    return Err(UDFError::UDFNotSupported)
+    Err(UDFError::UDFNotSupported)
 }
 
 #[allow(dead_code)]

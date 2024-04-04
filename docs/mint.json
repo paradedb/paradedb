@@ -124,11 +124,11 @@
       "group": "Analytics",
       "pages": [
         "analytics/quickstart",
-        "analytics/types",
-        "analytics/storage",
         "analytics/replication",
         "analytics/htap",
-        "analytics/udf"
+        "analytics/security",
+        "analytics/storage",
+        "analytics/limitations"
       ]
     },
     {

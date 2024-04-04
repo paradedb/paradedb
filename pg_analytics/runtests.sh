@@ -166,10 +166,10 @@ function run_tests() {
   echo "Setting test database shared_preload_libraries..."
   case "$OS_NAME" in
     Darwin)
-      sed -i '' "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_analytics'  # (change requires restart)/" "$PGDATA/postgresql.conf"
+      sed -i '' "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search, pg_analytics'  # (change requires restart)/" "$PGDATA/postgresql.conf"
       ;;
     Linux)
-      sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_analytics'  # (change requires restart)/" "$PGDATA/postgresql.conf"
+      sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search, pg_analytics'  # (change requires restart)/" "$PGDATA/postgresql.conf"
       ;;
   esac
 

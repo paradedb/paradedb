@@ -71,6 +71,7 @@ unsafe fn func_list_from_name(funcname: &str) -> Result<pg_sys::FuncCandidateLis
     ))
 }
 
+#[allow(dead_code)]
 unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, UDFError> {
     let num_args = args.len();
     let mut num_rows = 1;
@@ -156,6 +157,10 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, UDFErr
     })
 }
 
+fn udf_datafusion_not_supported(_args: &[ColumnarValue]) -> Result<ColumnarValue, UDFError> {
+    Err(UDFError::UDFNotSupported)
+}
+
 pub unsafe fn loadfunction(funcname: &str) -> Result<(), UDFError> {
     // Register all overloads with this function name
     let mut func_candidate = func_list_from_name(funcname)?;
@@ -185,8 +190,9 @@ pub unsafe fn loadfunction(funcname: &str) -> Result<(), UDFError> {
             input_types,
             Arc::new(return_type),
             Volatility::Immutable,
-            Arc::new(|args| unsafe {
-                udf_datafusion(args).map_err(|err| DataFusionError::Internal(err.to_string()))
+            Arc::new(|args| {
+                udf_datafusion_not_supported(args)
+                    .map_err(|err| DataFusionError::Internal(err.to_string()))
             }),
         );
 
@@ -245,4 +251,7 @@ pub enum UDFError {
 
     #[error("Could not find function name for UDF")]
     FunctionNameNotFound,
+
+    #[error("User-defined functions are not currently supported.")]
+    UDFNotSupported,
 }

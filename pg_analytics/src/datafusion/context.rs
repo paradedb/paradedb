@@ -5,6 +5,7 @@ use deltalake::datafusion::common::config::ConfigOptions;
 use deltalake::datafusion::common::DataFusionError;
 
 use deltalake::datafusion::datasource::provider_as_source;
+use deltalake::datafusion::execution::FunctionRegistry;
 use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
@@ -86,8 +87,12 @@ impl ContextProvider for QueryContext {
             .map_err(|err| DataFusionError::Execution(err.to_string()))
     }
 
-    fn get_function_meta(&self, _name: &str) -> Option<Arc<ScalarUDF>> {
-        panic!("{}", CatalogError::UdfNotSupported.to_string());
+    fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
+        Session::with_session_context(|context| {
+            let context_res = context.udf(name);
+            Box::pin(async move { Ok(context_res?) })
+        })
+        .ok()
     }
 
     fn get_aggregate_meta(&self, _name: &str) -> Option<Arc<AggregateUDF>> {

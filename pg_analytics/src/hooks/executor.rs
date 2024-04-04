@@ -77,7 +77,6 @@ pub fn executor_run(
                     match query_desc.operation {
                         pg_sys::CmdType_CMD_SELECT => {
                             let single_thread = logical_plan_details.includes_udf();
-                            info!("single thread {:?}", single_thread);
                             get_datafusion_batches(query_desc, logical_plan, single_thread)?;
                         }
                         pg_sys::CmdType_CMD_UPDATE => {
@@ -89,7 +88,6 @@ pub fn executor_run(
                     }
                 }
                 Err(_) => {
-                    info!("prev hook");
                     prev_hook(query_desc, direction, count, execute_once);
                 }
             };

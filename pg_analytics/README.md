@@ -45,8 +45,7 @@ SELECT COUNT(*) FROM t;
 
 ## Parquet Tables
 
-You can interact with `parquet` tables the same way as with normal Postgres tables. However, there are a few
-exceptions.
+You can interact with `parquet` tables the same way as with normal Postgres tables. However, there are a few exceptions.
 
 ### Append Only
 
@@ -71,14 +70,12 @@ files.
 
 As `pg_analytics` becomes production-ready, many of these will be resolved.
 
+- [ ] `UPDATE` and `DELETE`
 - [ ] Some Postgres types, notably `json` and `timestamptz`
-- [ ] User-defined aggregations and types
-- [ ] Logical replication
+- [ ] Write-ahead log (WAL) support
 - [ ] Collations
-- [ ] Partitioning by specific columns
 - [ ] `INSERT ... ON CONFLICT` clauses
-- [ ] External object store integrations (S3/Azure/GCS/HDFS)
-- [ ] External Apache Iceberg and Delta Lake support
+- [ ] Foreign keys
 
 ## Development
 

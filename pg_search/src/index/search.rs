@@ -116,7 +116,7 @@ impl SearchIndex {
         Ok(new_self_ref)
     }
 
-    #[allow(static_mut_refs)]
+    #[allow(static_mut_ref)]
     fn executor() -> &'static Executor {
         unsafe { &SEARCH_EXECUTOR }
     }

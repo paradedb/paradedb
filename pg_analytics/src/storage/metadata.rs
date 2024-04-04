@@ -135,6 +135,8 @@ impl PgMetadata for pg_sys::Relation {
             );
 
             pg_sys::PageSetChecksumInplace(page, FIRST_BLOCK_NUMBER);
+
+            #[cfg(feature = "pg16")]
             pg_sys::smgrextend(
                 smgr,
                 pg_sys::ForkNumber_MAIN_FORKNUM,
@@ -142,6 +144,16 @@ impl PgMetadata for pg_sys::Relation {
                 page as *const c_void,
                 true,
             );
+
+            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+            pg_sys::smgrextend(
+                smgr,
+                pg_sys::ForkNumber_MAIN_FORKNUM,
+                FIRST_BLOCK_NUMBER,
+                page as *mut i8,
+                true,
+            );
+
             pg_sys::smgrimmedsync(smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
 
             Ok(())

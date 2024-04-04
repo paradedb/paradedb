@@ -25,7 +25,7 @@ static mut PARADE_HOOK: ParadeHook = ParadeHook;
 pub extern "C" fn _PG_init() {
     GUCS.init("pg_analytics");
 
-    #[allow(static_mut_refs)]
+    #[allow(static_mut_ref)]
     unsafe {
         register_hook(&mut PARADE_HOOK)
     };

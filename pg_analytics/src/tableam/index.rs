@@ -200,7 +200,7 @@ async fn index_build_range_scan(
 
             #[cfg(feature = "pg12")]
             {
-                let heap_tuple = (*(*slot).tts_ops).copy_heap_tuple(slot);
+                let heap_tuple = pg_sys::ExecCopySlotHeapTuple(slot);
                 (*heap_tuple).t_self = (*slot).tts_tid;
 
                 if let Some(callback) = callback {

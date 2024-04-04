@@ -24,7 +24,11 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
     minmulti: *mut pg_sys::MultiXactId,
 ) {
     unsafe {
+        #[cfg(feature = "pg15")]
+        let smgr = pg_sys::RelationCreateStorage(*newrnode, persistence, true);
+        #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14"))]
         let smgr = pg_sys::RelationCreateStorage(*newrnode, persistence);
+
         rel.init_metadata(smgr).unwrap_or_else(|err| {
             panic!("{}", err);
         });

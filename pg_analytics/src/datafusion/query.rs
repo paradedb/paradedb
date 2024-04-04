@@ -13,7 +13,7 @@ use thiserror::Error;
 use super::catalog::CatalogError;
 use super::context::QueryContext;
 use super::plan::LogicalPlanDetails;
-use super::udf::{loadfunction, UDFError};
+use super::udf::{loadfunction_not_supported, UDFError};
 
 pub struct QueryString<'a>(pub &'a str);
 pub struct ASTVec(pub VecDeque<parser::Statement>);
@@ -61,7 +61,7 @@ impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
                         .as_str();
 
                     // If we are unable to load the function, we push the error up, breaking the loop
-                    unsafe { loadfunction(missing_func_name)? };
+                    loadfunction_not_supported(missing_func_name)?;
 
                     // Loop again
                 }

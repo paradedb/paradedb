@@ -12,7 +12,6 @@ mod vacuum;
 use async_std::task;
 use deltalake::datafusion::logical_expr::{col, lit};
 use deltalake::operations::delete::DeleteBuilder;
-use pgrx::hooks::PgHooks;
 use pgrx::*;
 use std::ffi::CStr;
 
@@ -22,7 +21,7 @@ use crate::datafusion::writer::Writer;
 
 pub struct ParadeHook;
 
-impl PgHooks for ParadeHook {
+impl hooks::PgHooks for ParadeHook {
     fn executor_run(
         &mut self,
         query_desc: PgBox<pg_sys::QueryDesc>,

@@ -9,7 +9,6 @@ use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
 use thiserror::Error;
 
-use super::scan::{scan_getnextslot, TableScanError};
 use crate::datafusion::batch::PostgresBatch;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::directory::ParadeDirectory;
@@ -19,6 +18,8 @@ use crate::datafusion::writer::Writer;
 use crate::storage::metadata::{MetadataError, PgMetadata};
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
+
+use super::scan::{scan_getnextslot, TableScanError};
 
 // Defined in Postgres commands/progress.h
 const PROGRESS_SCAN_BLOCKS_TOTAL: i32 = 15;
@@ -135,7 +136,6 @@ async fn index_build_range_scan(
         );
 
         let next_row_number = index_rel.read_next_row_number().unwrap_or(1);
-
         let highest_row_number: i64 = next_row_number - 1;
         let BlockNumber(highest_block_number) = BlockNumber::from(RowNumber(highest_row_number));
 
@@ -200,7 +200,7 @@ async fn index_build_range_scan(
 
             #[cfg(feature = "pg12")]
             {
-                let heap_tuple = pg_sys::ExecCopySlotHeapTuple(slot);
+                let heap_tuple = pg_sys::ExecCopySlotHeapTuple(*slot);
                 (*heap_tuple).t_self = (*slot).tts_tid;
 
                 if let Some(callback) = callback {

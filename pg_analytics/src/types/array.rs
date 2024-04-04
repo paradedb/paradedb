@@ -238,6 +238,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub trait IntoTimeMillisecondArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
@@ -257,6 +258,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub trait IntoTimeMillisecondArrowArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,

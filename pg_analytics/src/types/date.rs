@@ -1,5 +1,4 @@
 use chrono::{Datelike, Duration, NaiveDate};
-use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::*;
 use thiserror::Error;
 
@@ -38,7 +37,7 @@ impl TryFrom<DayUnix> for datum::Date {
 #[derive(Error, Debug)]
 pub enum DateError {
     #[error(transparent)]
-    DateTimeConversion(#[from] DateTimeConversionError),
+    DateTimeConversion(#[from] datum::datetime_support::DateTimeConversionError),
 
     #[error("Failed to set epoch {}-{}-{}", EPOCH_YEAR, EPOCH_MONTH, EPOCH_DAY)]
     InvalidEpoch,

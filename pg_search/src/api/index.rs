@@ -1,5 +1,5 @@
 use pgrx::{iter::TableIterator, *};
-use tantivy::schema::{Value, *};
+use tantivy::schema::*;
 
 use crate::postgres::utils::get_search_index;
 use crate::query::SearchQueryInput;

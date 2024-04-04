@@ -17,6 +17,7 @@ const DEFAULT_OPTIMIZE_FILE_SIZE_MB: i32 = 100;
 const MIN_OPTIMIZE_FILE_SIZE_MB: i32 = 1;
 const MAX_OPTIMIZE_FILE_SIZE_MB: i32 = 10000;
 
+#[allow(dead_code)]
 trait PgAnalyticsGucSettings {
     fn vacuum_retention_days(&self) -> i32;
     fn vacuum_enforce_retention(&self) -> bool;
@@ -28,6 +29,12 @@ pub struct PostgresPgAnalyticsGucSettings {
     pub vacuum_enforce_retention: GucSetting<bool>,
     pub optimize_file_size_mb: GucSetting<i32>,
     pub globals: PostgresGlobalGucSettings,
+}
+
+impl Default for PostgresPgAnalyticsGucSettings {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PostgresPgAnalyticsGucSettings {

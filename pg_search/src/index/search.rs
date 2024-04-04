@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use tantivy::{query::QueryParser, Executor, Index, IndexSettings, Searcher};
 use tantivy::{IndexReader, IndexSortByField, IndexWriter, Order, TantivyError};
 use thiserror::Error;
+use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 use tracing::{error, info};
 
 use super::state::SearchState;
@@ -21,7 +22,6 @@ use crate::writer::{
     self, SearchDirectoryError, SearchFs, TantivyDirPath, WriterClient, WriterDirectory,
     WriterRequest, WriterTransferPipeFilePath,
 };
-use tokenizers::{create_normalizer_manager, create_tokenizer_manager};
 
 // Must be at least 15,000,000 or Tantivy will panic.
 const INDEX_TANTIVY_MEMORY_BUDGET: usize = 500_000_000;
@@ -116,7 +116,7 @@ impl SearchIndex {
         Ok(new_self_ref)
     }
 
-    #[allow(static_mut_ref)]
+    #[allow(static_mut_refs)]
     fn executor() -> &'static Executor {
         unsafe { &SEARCH_EXECUTOR }
     }
@@ -392,7 +392,7 @@ impl<T> From<PoisonError<T>> for SearchIndexError {
 
 #[cfg(test)]
 mod tests {
-    use crate::{fixtures::*, schema::SearchConfig, writer::SearchFs};
+    use crate::{fixtures::*, schema::SearchConfig};
     use rstest::*;
     use tantivy::schema::Value;
 

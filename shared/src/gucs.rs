@@ -45,6 +45,12 @@ impl PostgresGlobalGucSettings {
     }
 }
 
+impl Default for PostgresGlobalGucSettings {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GlobalGucSettings for PostgresGlobalGucSettings {
     fn telemetry_enabled(&self) -> bool {
         // If TELEMETRY is not 'true' at compile time, then we will never enable.

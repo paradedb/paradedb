@@ -1,6 +1,6 @@
 use async_std::task::block_on;
 use rstest::*;
-use sqlx::{self, PgConnection};
+use sqlx::PgConnection;
 
 pub use shared::fixtures::db::*;
 #[allow(unused_imports)]

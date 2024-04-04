@@ -6,7 +6,6 @@ use pgrx::{
     PgTupleDesc,
 };
 use serde_json::Map;
-use std::default::Default;
 
 pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
     let directory = WriterDirectory::from_index_name(index_name);

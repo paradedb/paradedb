@@ -1,6 +1,5 @@
 use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use deltalake::datafusion::arrow::datatypes::*;
-use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::*;
 use thiserror::Error;
 
@@ -188,7 +187,7 @@ fn to_timestamp(datetime: &NaiveDateTime) -> Result<datum::Timestamp, TimestampE
 #[derive(Error, Debug)]
 pub enum TimestampError {
     #[error(transparent)]
-    DateTimeConversion(#[from] DateTimeConversionError),
+    DateTimeConversion(#[from] datum::datetime_support::DateTimeConversionError),
 
     #[error("Failed to parse time from {0:?}")]
     ParseTime(String),

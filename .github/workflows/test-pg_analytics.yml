@@ -110,7 +110,7 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/bin
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/bin/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
@@ -133,8 +133,8 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: pg_search/
         run: |
-          cargo pgrx init --pg${{ matrix.pg_version }}="/usr/lib/postgresql/${{ matrix.pg_version }}/bin"
-          cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin" --profile dev
+          cargo pgrx init --pg${{ matrix.pg_version }}="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+          cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --profile dev
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_analytics Cargo Test Suite

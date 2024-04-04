@@ -3759,6 +3759,7 @@ dependencies = [
  "futures",
  "futures-util",
  "indexmap",
+ "lazy_static",
  "memoffset",
  "once_cell",
  "pgrx",

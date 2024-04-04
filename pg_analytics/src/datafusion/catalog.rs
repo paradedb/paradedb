@@ -192,6 +192,9 @@ pub enum CatalogError {
         "pg_analytics not found in shared_preload_libraries. Check your postgresql.conf file."
     )]
     SharedPreload,
+
+    #[error("User-defined functions are not currently supported.")]
+    UdfNotSupported,
 }
 
 impl From<std::ffi::OsString> for CatalogError {

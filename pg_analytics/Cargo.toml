@@ -42,6 +42,7 @@ memoffset = "0.9.0"
 zstd-sys = "=2.0.9"
 walkdir = "2.5.0"
 url = "2.5.0"
+lazy_static = "1.4.0"
 
 [dev-dependencies]
 anyhow = "1.0.79"

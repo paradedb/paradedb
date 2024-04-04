@@ -1,10 +1,12 @@
+use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
+use once_cell::sync::Lazy;
 use pgrx::*;
-use std::cell::RefCell;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -16,11 +18,11 @@ use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::{DataTypeError, PgTypeMod};
 
-thread_local! {
-    static INSERT_MEM_CTX: RefCell<PgMemoryContexts> = RefCell::new(
-        PgMemoryContexts::new("pg_analytics_insert_tuples")
-    );
-}
+pub static INSERT_CACHE: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> = Lazy::new(|| {
+    Mutex::new(AtomicPtr::new(
+        PgMemoryContexts::new("insert_cache").value(),
+    ))
+});
 
 #[pg_guard]
 pub extern "C" fn deltalake_slot_callbacks(
@@ -97,89 +99,80 @@ async unsafe fn insert_tuples(
     //
     // By running in our own memory context, we can force the memory to be freed with
     // the call to reset().
-    let (schema_name, table_path, arrow_schema, column_values) =
-        INSERT_MEM_CTX.with(|memcxt_ref| {
-            let mut memcxt = memcxt_ref.borrow_mut();
-            memcxt.reset();
-            memcxt.switch_to(|_| -> Result<_, TableInsertError> {
-                let pg_relation = PgRelation::from_pg(rel);
-                let tuple_desc = pg_relation.tuple_desc();
-                let mut column_values: Vec<ArrayRef> = vec![];
 
-                // Convert the TupleTableSlots into DataFusion arrays
-                for (col_idx, attr) in tuple_desc.iter().enumerate() {
-                    column_values.push(
-                        (0..nslots)
-                            .map(move |row_idx| unsafe {
-                                let tuple_table_slot = *slots.add(row_idx);
+    let memcxt = INSERT_CACHE.lock().await.load(Ordering::SeqCst);
+    let old_context = pg_sys::MemoryContextSwitchTo(memcxt);
 
-                                let datum_opt = if (*tuple_table_slot).tts_ops
-                                    == &pg_sys::TTSOpsBufferHeapTuple
-                                {
-                                    let bslot =
-                                        tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
-                                    let tuple = (*bslot).base.tuple;
-                                    std::num::NonZeroUsize::new(col_idx + 1).and_then(|attr_num| {
-                                        htup::heap_getattr_raw(
-                                            tuple,
-                                            attr_num,
-                                            (*tuple_table_slot).tts_tupleDescriptor,
-                                        )
-                                    })
-                                } else {
-                                    Some(*(*tuple_table_slot).tts_values.add(col_idx))
-                                };
+    let pg_relation = PgRelation::from_pg(rel);
+    let tuple_desc = pg_relation.tuple_desc();
+    let mut column_values: Vec<ArrayRef> = vec![];
 
-                                let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
-                                (!is_null).then_some(datum_opt).flatten()
-                            })
-                            .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
-                    );
-                }
+    // Convert the TupleTableSlots into DataFusion arrays
+    for (col_idx, attr) in tuple_desc.iter().enumerate() {
+        column_values.push(
+            (0..nslots)
+                .map(move |row_idx| unsafe {
+                    let tuple_table_slot = *slots.add(row_idx);
 
-                // Assign TID to each row
-                let mut row_numbers: Vec<i64> = vec![];
+                    let datum_opt = if (*tuple_table_slot).tts_ops == &pg_sys::TTSOpsBufferHeapTuple
+                    {
+                        let bslot = tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
+                        let tuple = (*bslot).base.tuple;
+                        std::num::NonZeroUsize::new(col_idx + 1).and_then(|attr_num| {
+                            htup::heap_getattr_raw(
+                                tuple,
+                                attr_num,
+                                (*tuple_table_slot).tts_tupleDescriptor,
+                            )
+                        })
+                    } else {
+                        Some(*(*tuple_table_slot).tts_values.add(col_idx))
+                    };
 
-                for row_idx in 0..nslots {
-                    unsafe {
-                        let tuple_table_slot = *slots.add(row_idx);
-                        let next_row_number = rel.read_next_row_number()?;
+                    let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
+                    (!is_null).then_some(datum_opt).flatten()
+                })
+                .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
+        );
+    }
 
-                        (*tuple_table_slot).tts_tid =
-                            pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
+    // Assign TID to each row
+    let mut row_numbers: Vec<i64> = vec![];
 
-                        row_numbers.push(next_row_number);
-                        rel.write_next_row_number(next_row_number + 1)?;
-                    }
-                }
+    for row_idx in 0..nslots {
+        unsafe {
+            let tuple_table_slot = *slots.add(row_idx);
+            let next_row_number = rel.read_next_row_number()?;
 
-                column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
+            (*tuple_table_slot).tts_tid =
+                pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
 
-                // Assign xmin to each row
-                let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
-                let xmins: Vec<i64> = vec![transaction_id; nslots];
-                column_values.push(Arc::new(Int64Array::from(xmins)));
+            row_numbers.push(next_row_number);
+            rel.write_next_row_number(next_row_number + 1)?;
+        }
+    }
 
-                // Assign xmax to each row
-                let xmaxs: Vec<i64> = vec![0; nslots];
-                column_values.push(Arc::new(Int64Array::from(xmaxs)));
+    column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
 
-                let schema_name = pg_relation.namespace().to_string();
-                let table_path = pg_relation.table_path()?;
-                let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
+    // Assign xmin to each row
+    let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
+    let xmins: Vec<i64> = vec![transaction_id; nslots];
+    column_values.push(Arc::new(Int64Array::from(xmins)));
 
-                Ok((schema_name, table_path, arrow_schema, column_values))
-            })
-        })?;
+    // Assign xmax to each row
+    let xmaxs: Vec<i64> = vec![0; nslots];
+    column_values.push(Arc::new(Int64Array::from(xmaxs)));
+
+    let schema_name = pg_relation.namespace().to_string();
+    let table_path = pg_relation.table_path()?;
+    let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
 
     // Write Arrow arrays to buffer
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
 
-    INSERT_MEM_CTX.with(|memcxt_ref| {
-        let mut memcxt = memcxt_ref.borrow_mut();
-        memcxt.reset();
-    });
+    pg_sys::MemoryContextReset(memcxt);
+    pg_sys::MemoryContextSwitchTo(old_context);
 
     Ok(())
 }
@@ -200,6 +193,9 @@ pub enum TableInsertError {
 
     #[error(transparent)]
     MetadataError(#[from] MetadataError),
+
+    #[error(transparent)]
+    NulError(#[from] std::ffi::NulError),
 
     #[error(transparent)]
     TIDError(#[from] TIDError),

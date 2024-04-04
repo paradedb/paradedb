@@ -34,7 +34,7 @@ fn insert_transaction_aborted(mut conn: PgConnection) {
     };
 
     match "INSERT INTO t VALUES (1, 'test')".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("current transaction is aborte")),
+        Err(err) => assert!(err.to_string().contains("current transaction is aborted")),
         _ => panic!("Transaction should have been aborted"),
     };
 

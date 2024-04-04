@@ -18,11 +18,12 @@ use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::{DataTypeError, PgTypeMod};
 
-pub static INSERT_CACHE: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> = Lazy::new(|| {
-    Mutex::new(AtomicPtr::new(
-        PgMemoryContexts::new("insert_cache").value(),
-    ))
-});
+pub static INSERT_MEMORY_CONTEXT: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> =
+    Lazy::new(|| {
+        Mutex::new(AtomicPtr::new(
+            PgMemoryContexts::new("insert_memory_context").value(),
+        ))
+    });
 
 #[pg_guard]
 pub extern "C" fn deltalake_slot_callbacks(
@@ -96,11 +97,7 @@ async unsafe fn insert_tuples(
     // because PgTupleDesc "supposed" to free the corresponding Postgres memory when it
     // is dropped... however, in practice, we're not seeing the memory get freed, which is
     // causing huge memory usage when building large indexes.
-    //
-    // By running in our own memory context, we can force the memory to be freed with
-    // the call to reset().
-
-    let memcxt = INSERT_CACHE.lock().await.load(Ordering::SeqCst);
+    let memcxt = INSERT_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
     let old_context = pg_sys::MemoryContextSwitchTo(memcxt);
 
     let pg_relation = PgRelation::from_pg(rel);

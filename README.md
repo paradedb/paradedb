@@ -67,7 +67,7 @@ You can find pre-packaged releases for all ParadeDB extensions for both Postgres
 
 For official support on non-Debian-based systems, please [contact us by email](mailto:sales@paradedb.com).
 
-#### Docker Image
+### Docker Image
 
 To quickly get a ParadeDB instance up and running, simply pull and run the latest Docker image:
 
@@ -113,11 +113,11 @@ docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry by setting `PARADEDB_TELEMETRY` to `false` or by unsetting the variable.
 
-#### Helm Chart
+### Helm Chart
 
 ParadeDB is also available for Kubernetes via our Helm chart. You can find our Helm chart in the [ParadeDB Helm Chart GitHub repository](https://github.com/paradedb/helm-charts) or download it directly from [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
 
-#### ParadeDB Cloud
+### ParadeDB Cloud
 
 At the moment, ParadeDB is not available as a managed cloud service. If you are interested in a ParadeDB Cloud service, please let us know by joining our [waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
 

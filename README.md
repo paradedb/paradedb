@@ -37,7 +37,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Dense vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search
 - [ ] Analytics
-  - [x] Acclerated analytical queries and column-oriented storage with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
+  - [x] Accelerated analytical queries and column-oriented storage with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
   - [ ] External object store integrations (S3/Azure/GCS/HDFS)
   - [ ] External Apache Iceberg and Delta Lake support
   - [ ] High-volume data/Kafka ingest
@@ -59,7 +59,7 @@ To get started, please visit our [documentation](https://docs.paradedb.com).
 
 ## Deploying ParadeDB
 
-ParadeDB and its extensions, `pg_analytics` and `pg_search`, are available as commercial software for installation on self-hosted Postgres deployment, and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com) or [fill out our contact form](https://paradedb.typeform.com/to/jHkLmIzx).
+ParadeDB and its extensions, `pg_analytics` and `pg_search`, are available as commercial software for installation on self-hosted Postgres deployment, and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
 
 ### Extensions
 

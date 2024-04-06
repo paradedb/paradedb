@@ -108,7 +108,8 @@ CALL paradedb.create_bm25(
         schema_name => 'public',
         table_name => 'mock_items',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}'
+        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
+        numeric_fields => '{rating: {}}'
 );
 ```
 
@@ -122,8 +123,10 @@ Execute a search query on your indexed table:
 
 ```sql
 SELECT description, rating, category
-FROM search_idx.search('description:keyboard OR category:electronics')
-LIMIT 5;
+FROM search_idx.search(
+  '(description:keyboard OR category:electronics) AND rating:>2',
+  limit_rows => 5
+);
 ```
 
 This will return:
@@ -138,6 +141,11 @@ This will return:
  Bluetooth-enabled speaker   |      3 | Electronics
 (5 rows)
 ```
+
+Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal performance, we recommend always using
+`limit_rows` and `offset_rows` instead of `LIMIT` and `OFFSET`.
+
+Similarly, the `rating:>2` filter was used instead of the SQL `WHERE` clause for [efficient filtering](https://docs.paradedb.com/search/full-text/bm25#efficient-filtering).
 
 Advanced features like BM25 scoring, highlighting, custom tokenizers, fuzzy search, and more are supported. Please refer to the [documentation](https://docs.paradedb.com) and [quickstart](https://docs.paradedb.com/search/quickstart) for a more thorough overview of `pg_search`'s query support.
 

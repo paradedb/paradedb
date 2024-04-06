@@ -44,8 +44,7 @@ fn quickstart(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
-    FROM search_idx.search('description:keyboard OR category:electronics', stable_sort => true)
-    LIMIT 5;
+    FROM search_idx.search('description:keyboard OR category:electronics', stable_sort => true, limit_rows => 5);
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 5);
@@ -57,8 +56,7 @@ fn quickstart(mut conn: PgConnection) {
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
-    FROM search_idx.search('description:"bluetooth speaker"~1', stable_sort => true)
-    LIMIT 5;
+    FROM search_idx.search('description:"bluetooth speaker"~1', stable_sort => true, limit_rows => 5);
     "#
     .fetch(&mut conn);
     assert_eq!(rows.len(), 1);

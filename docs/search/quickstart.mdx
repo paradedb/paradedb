@@ -52,7 +52,8 @@ CALL paradedb.create_bm25(
         schema_name => 'public',
         table_name => 'mock_items',
         key_field => 'id',
-        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}'
+        text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}',
+        numeric_fields => '{rating: {}}'
 );
 ```
 
@@ -71,13 +72,15 @@ ADD COLUMN bm25_id SERIAL;
 
 </Note>
 
-We're now ready to execute a full-text search. We'll look for rows where `description` matches the `shoes` or
-`category` matches `electronics`.
+We're now ready to execute a full-text search. We'll look for rows with a `rating` greater than `2` where `description` matches `shoes`
+or `category` matches `electronics`.
 
 ```sql
 SELECT description, rating, category
-FROM search_idx.search('description:keyboard OR category:electronics')
-LIMIT 5;
+FROM search_idx.search(
+  '(description:keyboard OR category:electronics) AND rating:>2',
+  limit_rows => 5
+);
 ```
 
 <Accordion title="Expected Response">
@@ -93,13 +96,20 @@ LIMIT 5;
 ```
 </Accordion>
 
+<Note>
+Note the usage of `limit_rows` instead of the SQL `LIMIT` clause. For optimal performance, we recommend always using
+`limit_rows` and `offset_rows` instead of `LIMIT` and `OFFSET`.
+
+Similarly, the `rating` column was indexed and the `rating:>2` filter was used instead of the SQL `WHERE` clause
+for [efficient filtering](/search/full-text/bm25#efficient-filtering).
+</Note>
+
 Next, let's see how ParadeDB handles a phrase query like `bluetooth speaker`. Let's also surface results even
 if there is a word between `bluetooth` and `speaker`.
 
 ```sql
 SELECT description, rating, category
-FROM search_idx.search('description:"bluetooth speaker"~1')
-LIMIT 5;
+FROM search_idx.search('description:"bluetooth speaker"~1');
 ```
 
 <Accordion title="Expected Response">

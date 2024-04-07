@@ -15,15 +15,8 @@ version: "3.8"
 
 services:
   paradedb-master:
-    # TODO: Uncomment this once it's fixed
-    # image: paradedb/paradedb:latest
-    build:
-      context: ..
-      dockerfile: ./docker/Dockerfile
-      cache_from:
-        - type=local,src=./.docker_cache_dev
-      cache_to:
-        - type=local,dest=./.docker_cache_dev
+    image: paradedb/paradedb:latest
+    container_name: paradedb-master
     environment:
       POSTGRESQL_USERNAME: myuser
       POSTGRESQL_PASSWORD: mypassword
@@ -39,15 +32,8 @@ services:
       - paradedb_master_data:/bitnami/postgresql
 
   paradedb-slave:
-    # TODO: Uncomment this once it's fixed
-    # image: paradedb/paradedb:latest
-    build:
-      context: ..
-      dockerfile: ./docker/Dockerfile
-      cache_from:
-        - type=local,src=./.docker_cache_dev
-      cache_to:
-        - type=local,dest=./.docker_cache_dev
+    image: paradedb/paradedb:latest
+    container_name: paradedb-slave
     depends_on:
       - paradedb-master
     environment:

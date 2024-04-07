@@ -12,6 +12,7 @@
 services:
   paradedb:
     image: paradedb/paradedb:latest
+    container_name: paradedb
     environment:
       POSTGRESQL_USERNAME: myuser
       POSTGRESQL_PASSWORD: mypassword

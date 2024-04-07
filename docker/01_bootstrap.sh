@@ -6,15 +6,30 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
+# We only pre-install extensions on master nodes, since slave nodes are read-only
+if [ "$POSTGRESQL_REPLICATION_MODE" = "slave" ]; then
+    echo "Skipping ParadeDB bootstrap on slave node..."
+    exit 0
+fi
+
 # If no user is set, the default user will be the `postgres` superuser, so we
 # set the superuser password to default to the user password in that case
 SUPERUSER_PASSWORD=${POSTGRESQL_POSTGRES_PASSWORD:-$POSTGRESQL_PASSWORD}
 
 echo "ParadeDB bootstrap started..."
+echo "Configuring PostgreSQL search path..."
+
+# Add the `paradedb` schema to the user database, and default to public (by listing it first)
+PGPASSWORD=$POSTGRESQL_PASSWORD psql -U "$POSTGRESQL_USERNAME" -d "$POSTGRESQL_DATABASE" -c "ALTER DATABASE $POSTGRESQL_DATABASE SET search_path TO public,paradedb;"
+
+# Add the `paradedb` schema to the template1 database, to have it inherited by all new databases
+# created post-initialization, and default to public (by listing it first)
+PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d template1 -c "ALTER DATABASE template1 SET search_path TO public,paradedb;"
+
 echo "Configuring PostgreSQL permissions..."
 
 # Grant pg_read_all_settings role to the user (necessary for pg_analytics and general database introspection)
-# PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d "$POSTGRESQL_DATABASE" -c "GRANT pg_read_all_settings TO \"$POSTGRESQL_USERNAME\";"
+PGPASSWORD=$SUPERUSER_PASSWORD psql -U postgres -d "$POSTGRESQL_DATABASE" -c "GRANT pg_read_all_settings TO \"$POSTGRESQL_USERNAME\";"
 
 echo "Installing PostgreSQL extensions..."
 

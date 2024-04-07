@@ -1,0 +1,61 @@
+---
+title: Logical Replication
+---
+
+
+
+ParadeDB supports Postgres logical replication to replicate data between two ParadeDB instances or between a Postgres instance and a ParadeDB instance.
+
+
+If you are using ParadeDB as your primary Postgres and would like to configure read replicas, you can use ParadeDB as a master-slave configuration
+
+
+Here is an example Docker Compose file that sets up a master-slave configuration with ParadeDB:
+
+```yaml
+version: "3.8"
+
+services:
+  paradedb-master:
+    image: paradedb/paradedb:latest
+    environment:
+      POSTGRESQL_USERNAME: myuser
+      POSTGRESQL_PASSWORD: mypassword
+      POSTGRESQL_DATABASE: mydatabase
+      POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
+      POSTGRESQL_REPLICATION_MODE: master
+      POSTGRESQL_REPLICATION_USER: myreplicationuser
+      POSTGRESQL_REPLICATION_PASSWORD: myreplicationpassword
+      PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
+    ports:
+      - "5432:5432"
+    volumes:
+      - paradedb_master_data:/bitnami/postgresql
+
+  paradedb-slave:
+    image: paradedb/paradedb:latest
+    depends_on:
+      - paradedb-master
+    environment:
+      POSTGRESQL_USERNAME: myuser
+      POSTGRESQL_PASSWORD: mypassword
+      POSTGRESQL_DATABASE: mydatabase
+      POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
+      POSTGRESQL_REPLICATION_MODE: slave
+      POSTGRESQL_REPLICATION_USER: myreplicationuser
+      POSTGRESQL_REPLICATION_PASSWORD: myreplicationpassword
+      POSTGRESQL_MASTER_HOST: paradedb-master
+      POSTGRESQL_MASTER_PORT_NUMBER: 5432
+      PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
+
+volumes:
+  paradedb_master_data:
+```
+
+
+
+
+
+
+TODO
+

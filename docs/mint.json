@@ -80,6 +80,7 @@
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         },
         "upgrading",
+        "relication",
         "support"
       ]
     },

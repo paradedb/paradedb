@@ -1,0 +1,66 @@
+#
+# This docker-compose.ha.yml file is for production deployments of ParadeDB with a master-slave configuration.
+# It pulls the latest ParadeDB image from Docker Hub, which has all ParadeDB extensions pre-installed and properly
+# configured, and sets up a master-slave configuration with a single master and a single slave on the same machine.
+# It is meant to serve as an example of configuring ParadeDB for production use, and should be customized to fit your
+# specific needs. Make sure to update POSTGRESQL_USERNAME, POSTGRESQL_PASSWORD,
+# POSTGRESQL_DATABASE, and POSTGRESQL_POSTGRES_PASSWORD before production usage.
+#
+# There are several other environment variables which can be specified here to configure replication, TLS,
+# and a few other settings. They can be found here:
+# https://github.com/bitnami/containers/blob/main/bitnami/postgresql/README.md#environment-variables
+#
+
+version: "3.8"
+
+services:
+  paradedb-master:
+    # TODO: Uncomment this once it's fixed
+    # image: paradedb/paradedb:latest
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile
+      cache_from:
+        - type=local,src=./.docker_cache_dev
+      cache_to:
+        - type=local,dest=./.docker_cache_dev
+    environment:
+      POSTGRESQL_USERNAME: myuser
+      POSTGRESQL_PASSWORD: mypassword
+      POSTGRESQL_DATABASE: mydatabase
+      POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
+      POSTGRESQL_REPLICATION_MODE: master
+      POSTGRESQL_REPLICATION_USER: myreplicationuser
+      POSTGRESQL_REPLICATION_PASSWORD: myreplicationpassword
+      PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
+    ports:
+      - "5432:5432"
+    volumes:
+      - paradedb_master_data:/bitnami/postgresql
+
+  paradedb-slave:
+    # TODO: Uncomment this once it's fixed
+    # image: paradedb/paradedb:latest
+    build:
+      context: ..
+      dockerfile: ./docker/Dockerfile
+      cache_from:
+        - type=local,src=./.docker_cache_dev
+      cache_to:
+        - type=local,dest=./.docker_cache_dev
+    depends_on:
+      - paradedb-master
+    environment:
+      POSTGRESQL_USERNAME: myuser
+      POSTGRESQL_PASSWORD: mypassword
+      POSTGRESQL_DATABASE: mydatabase
+      POSTGRESQL_POSTGRES_PASSWORD: postgres # Password for the superuser, required to install ParadeDB extensions
+      POSTGRESQL_REPLICATION_MODE: slave
+      POSTGRESQL_REPLICATION_USER: myreplicationuser
+      POSTGRESQL_REPLICATION_PASSWORD: myreplicationpassword
+      POSTGRESQL_MASTER_HOST: paradedb-master
+      POSTGRESQL_MASTER_PORT_NUMBER: 5432
+      PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
+
+volumes:
+  paradedb_master_data:

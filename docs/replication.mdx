@@ -2,7 +2,13 @@
 title: Logical Replication
 ---
 
+
+
 ParadeDB supports Postgres logical replication to replicate data between two ParadeDB instances or between a Postgres instance and a ParadeDB instance.
+
+
+
+## Replicating data between two ParadeDB instances
 
 If you are using ParadeDB as your primary Postgres and would like to configure read replicas, you can use ParadeDB as a master-slave configuration
 
@@ -48,4 +54,21 @@ volumes:
   paradedb_master_data:
 ```
 
+
+
+
+
+## Replicating data between a Postgres instance and a ParadeDB instance
+
+If you already have a primary Postgres instance, for instance on a managed Postgres-as-a-Service provider, and would like
+to replicate data to a ParadeDB instance to serve as a search and analytics node, you can use Postgres logical replication.
+
+
+
+
+
+
+
+
 TODO
+

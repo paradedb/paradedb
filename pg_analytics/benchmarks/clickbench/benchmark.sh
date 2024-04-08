@@ -75,7 +75,7 @@ download_and_verify() {
 
   # Check if the file already exists and verify its checksum
   if [ -e "$filename" ]; then
-    if echo "$checksum  $filename" | md5sum -c --status; then
+    if echo "$checksum $filename" | md5sum -c --status; then
       echo "Dataset '$filename' already exists and is verified, skipping download..."
       return
     else
@@ -111,8 +111,8 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg POSTGRESQL_PASSWORD=mypassword \
     --build-arg POSTGRESQL_DATABASE=mydatabase \
     --build-arg POSTGRESQL_POSTGRES_PASSWORD=postgres \
-    --file "../../docker/Dockerfile" \
-    "../../"
+    --file "../../../docker/Dockerfile" \
+    "../../../"
   echo ""
 fi
 

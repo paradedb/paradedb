@@ -86,7 +86,8 @@ download_and_verify() {
   # Downloading the file (TPC-H data generation file)
   echo "Downloading $filename dataset..."
   wget --no-verbose --continue -O "$filename" "$url"
-  gzip -d "$filename"
+  unzip "$filename"
+  rm -rf "$filename" # Remove the zip file
 }
 
 echo ""
@@ -98,11 +99,20 @@ echo ""
 # Download the data generation tool
 download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "bc82f852c6b6f31002a4c2dffa3efbb3" "TPC-H_V3.0.1.zip"
 
+
+
+
+
+
+
+
+
 # TODO: Generate the data!
 # dbgen might not work on macOS, need to test
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
 if [ "$FLAG_TAG" == "local" ]; then
+  echo ""
   echo "Building ParadeDB Docker image from source..."
   docker build \
     --tag paradedb/paradedb:"$FLAG_TAG" \
@@ -112,10 +122,10 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg POSTGRESQL_POSTGRES_PASSWORD=postgres \
     --file "../../../docker/Dockerfile" \
     "../../../"
-  echo ""
 fi
 
 # Install and run Docker container for ParadeDB in detached mode
+echo ""
 echo "Spinning up ParadeDB $FLAG_TAG Docker image..."
 docker run \
   --name paradedb \
@@ -140,14 +150,17 @@ export PGPASSWORD='mypassword'
 # TODO: Handle the data loading once it's generated
 # TODO: Handle the data generation + loading, this here is broken
 # psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
+
 # psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY nation FROM 'TPC-H_V3.0.1/ref_data/1/nation.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY customer FROM 'TPC-H_V3.0.1/ref_data/1/customer.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY supplier FROM 'TPC-H_V3.0.1/ref_data/1/supplier.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY part FROM 'TPC-H_V3.0.1/ref_data/1/part.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY partsupp FROM 'TPC-H_V3.0.1/ref_data/1/partsupp.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY orders FROM 'TPC-H_V3.0.1/ref_data/1/orders.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY lineitem FROM 'TPC-H_V3.0.1/ref_data/1/lineitem.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY nation FROM 'TPC-H_V3.0.1/ref_data/1/nation.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY customer FROM 'TPC-H_V3.0.1/ref_data/1/customer.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY supplier FROM 'TPC-H_V3.0.1/ref_data/1/supplier.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY part FROM 'TPC-H_V3.0.1/ref_data/1/part.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY partsupp FROM 'TPC-H_V3.0.1/ref_data/1/partsupp.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY orders FROM 'TPC-H_V3.0.1/ref_data/1/orders.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY lineitem FROM 'TPC-H_V3.0.1/ref_data/1/lineitem.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
+
+
 
 echo ""
 echo "Running queries..."

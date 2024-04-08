@@ -27,7 +27,7 @@ WORKLOAD="olap"
 DOCKER_PORT=5432
 
 # Assign flags to vars and check
-while getopts "ht:s:" flag
+while getopts "ht:w:" flag
 do
   case $flag in
     h)
@@ -102,6 +102,8 @@ generate_dataset() {
   echo ""
   echo "Generating TPC-H dataset..."
   cd TPC-H_V3.0.1/dbgen
+  make clean
+  rm -rf *.tbl
   make
   ./dbgen -s 1 -f
   cd ../..

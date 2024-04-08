@@ -19,9 +19,9 @@ target/
 *.log
 
 # Benchmarks
-*.tbl
 *.csv
 *.csv.gz
+*.tbl
 *.tsv
 *.tsv.gz
 *.zip

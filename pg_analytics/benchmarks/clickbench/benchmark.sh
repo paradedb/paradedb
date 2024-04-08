@@ -155,8 +155,13 @@ fi
 
 echo ""
 echo "Printing results..."
-grep -oP 'Time: \d+\.\d+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
-awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
+if [ "$OS" == "Linux" ]; then
+  grep -oP 'Time: \d+\.\d+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
+  awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
+else
+  grep -E -o 'Time: [0-9]+\.[0-9]+ ms' log.txt | sed -E -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
+  awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
+fi
 
 echo ""
 echo "Benchmark complete!"

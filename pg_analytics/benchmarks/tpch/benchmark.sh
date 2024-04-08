@@ -90,25 +90,25 @@ download_and_verify() {
   rm -rf "$filename" # Remove the zip file
 }
 
+# Generate the TPC-H dataset
+generate_dataset() {
+  echo ""
+  echo "Generating TPC-H dataset..."
+  cd TPC-H_V3.0.1/dbgen
+  make
+  ./dbgen -s 1
+  cd ../..
+}
+
 echo ""
 echo "*********************************************************************************"
 echo "* Benchmarking pg_analytics version '$FLAG_TAG' against TPC-H"
 echo "*********************************************************************************"
 echo ""
 
-# Download the data generation tool
+# Download the data generation tool and generate the dataset
 download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "bc82f852c6b6f31002a4c2dffa3efbb3" "TPC-H_V3.0.1.zip"
-
-
-
-
-
-
-
-
-
-# TODO: Generate the data!
-# dbgen might not work on macOS, need to test
+generate_dataset
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
 if [ "$FLAG_TAG" == "local" ]; then
@@ -146,21 +146,14 @@ echo "Done!"
 echo ""
 echo "Loading dataset..."
 export PGPASSWORD='mypassword'
-
-# TODO: Handle the data loading once it's generated
-# TODO: Handle the data generation + loading, this here is broken
-# psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
-
-# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
-# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY nation FROM 'TPC-H_V3.0.1/ref_data/1/nation.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY customer FROM 'TPC-H_V3.0.1/ref_data/1/customer.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY supplier FROM 'TPC-H_V3.0.1/ref_data/1/supplier.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY part FROM 'TPC-H_V3.0.1/ref_data/1/part.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY partsupp FROM 'TPC-H_V3.0.1/ref_data/1/partsupp.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY orders FROM 'TPC-H_V3.0.1/ref_data/1/orders.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY lineitem FROM 'TPC-H_V3.0.1/ref_data/1/lineitem.tbl.1' WITH (FORMAT CSV, DELIMITER '|')"
-
-
+psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY nation FROM 'TPC-H_V3.0.1/dbgen/nation.tbl' WITH (FORMAT CSV, DELIMITER '|')"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY customer FROM 'TPC-H_V3.0.1/dbgen/customer.tbl' WITH (FORMAT CSV, DELIMITER '|')"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY supplier FROM 'TPC-H_V3.0.1/dbgen/supplier.tbl' WITH (FORMAT CSV, DELIMITER '|')"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY part FROM 'TPC-H_V3.0.1/dbgen/part.tbl' WITH (FORMAT CSV, DELIMITER '|')"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY partsupp FROM 'TPC-H_V3.0.1/dbgen/partsupp.tbl' WITH (FORMAT CSV, DELIMITER '|')"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY orders FROM 'TPC-H_V3.0.1/dbgen/orders.tbl' WITH (FORMAT CSV, DELIMITER '|')"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY lineitem FROM 'TPC-H_V3.0.1/dbgen/lineitem.tbl' WITH (FORMAT CSV, DELIMITER '|')"
 
 echo ""
 echo "Running queries..."

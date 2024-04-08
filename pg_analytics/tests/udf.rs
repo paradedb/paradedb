@@ -47,12 +47,9 @@ fn udf_overloaded(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    match "SELECT add(a, b) FROM x".execute_result(&mut conn) {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("function name \"add\" is not unique")),
-        _ => panic!("Allowed overloaded functions on parquet tables"),
-    };
+    let rows: Vec<(i32,)> = "SELECT add(a, b) FROM x".fetch(&mut conn);
+    let sums: Vec<i32> = rows.into_iter().map(|r| r.0).collect();
+    assert_eq!(sums, [3, 7, 11, 15]);
 }
 
 #[rstest]
@@ -100,16 +97,7 @@ fn udf_coercion(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    match "SELECT add(1, b) FROM x".execute_result(&mut conn) {
-        Err(err) => {
-            assert!(err
-                .to_string()
-                .contains("Coercion from [Utf8, Int64, Int32] to the signature Exact([Utf8, Int32, Int32]) failed."))
-        }
-        _ => panic!("Constant coercion should not work"),
-    };
-
-    let rows: Vec<(i32,)> = "SELECT add(1::integer, b) FROM x".fetch(&mut conn);
+    let rows: Vec<(i32,)> = "SELECT add(1, b) FROM x".fetch(&mut conn);
     let sums: Vec<i32> = rows.into_iter().map(|r| r.0).collect();
     assert_eq!(sums, [3, 5, 7, 9]);
 }

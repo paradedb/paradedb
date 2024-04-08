@@ -211,8 +211,6 @@ pub struct SearchState {
     pub query: Arc<dyn Query>,
     pub searcher: Searcher,
     pub config: SearchConfig,
-    pub max_score: f32,
-    pub min_score: f32,
     pub schema: SearchIndexSchema,
 }
 
@@ -230,8 +228,6 @@ impl SearchState {
             config: config.clone(),
             searcher: search_index.searcher(),
             schema: schema.clone(),
-            max_score: f32::NEG_INFINITY,
-            min_score: f32::INFINITY,
         }
     }
 

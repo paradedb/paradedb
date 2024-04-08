@@ -1,6 +1,6 @@
 use crate::env;
 use derive_more::AsRef;
-use fs2::{self, FileExt};
+use fs2::FileExt;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{
     fs::{self, File},

@@ -2,18 +2,18 @@ use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
 
-use crate::errors::ParadeError;
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
+use thiserror::Error;
 
 static COLUMN_HANDLER: &str = "parquet";
 
 pub trait TableClassifier {
     #[allow(clippy::wrong_self_convention)]
-    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, ParadeError>;
+    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, HandlerError>;
 }
 
 impl TableClassifier for *mut pg_sys::List {
-    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, ParadeError> {
+    unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, HandlerError> {
         let col_oid = column_oid()?;
 
         #[cfg(feature = "pg12")]
@@ -64,11 +64,11 @@ impl TableClassifier for *mut pg_sys::List {
 
 pub trait IsColumn {
     #[allow(clippy::wrong_self_convention)]
-    unsafe fn is_column(self) -> Result<bool, ParadeError>;
+    unsafe fn is_column(self) -> Result<bool, HandlerError>;
 }
 
 impl IsColumn for *mut pg_sys::RelationData {
-    unsafe fn is_column(self) -> Result<bool, ParadeError> {
+    unsafe fn is_column(self) -> Result<bool, HandlerError> {
         if self.is_null() {
             return Ok(false);
         }
@@ -81,22 +81,28 @@ impl IsColumn for *mut pg_sys::RelationData {
     }
 }
 
-unsafe fn column_oid() -> Result<pg_sys::Oid, ParadeError> {
-    let deltalake_handler_str = CString::new(COLUMN_HANDLER)?;
-    let deltalake_handler_ptr = deltalake_handler_str.as_ptr() as *const c_char;
+unsafe fn column_oid() -> Result<pg_sys::Oid, HandlerError> {
+    let parquet_handler_str = CString::new(COLUMN_HANDLER)?;
+    let parquet_handler_ptr = parquet_handler_str.as_ptr() as *const c_char;
 
-    let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
+    let parquet_oid = pg_sys::get_am_oid(parquet_handler_ptr, true);
 
-    if deltalake_oid == pg_sys::InvalidOid {
-        return Ok(deltalake_oid);
+    if parquet_oid == pg_sys::InvalidOid {
+        return Ok(parquet_oid);
     }
 
     let heap_tuple_data = pg_sys::SearchSysCache1(
         pg_sys::SysCacheIdentifier_AMOID as i32,
-        pg_sys::Datum::from(deltalake_oid),
+        pg_sys::Datum::from(parquet_oid),
     );
     let catalog = pg_sys::heap_tuple_get_struct::<pg_sys::FormData_pg_am>(heap_tuple_data);
     pg_sys::ReleaseSysCache(heap_tuple_data);
 
     Ok((*catalog).amhandler)
+}
+
+#[derive(Error, Debug)]
+pub enum HandlerError {
+    #[error(transparent)]
+    NulError(#[from] std::ffi::NulError),
 }

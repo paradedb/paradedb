@@ -45,30 +45,9 @@ This example demonstrates how to copy data from an existing heap table into a `p
 CREATE TABLE heap (a int, b int);
 INSERT INTO heap VALUES (1, 2);
 
--- Create parquet table with the same schema
-CREATE TABLE events (a int, b int) USING parquet;
-
--- Copy data into parquet table
-INSERT INTO events SELECT * FROM heap;
+-- Copy into parquet table
+CREATE TABLE copy USING parquet AS SELECT * FROM heap;
 ```
-
-## Known Limitations
-
-`parquet` tables are currently in beta. The following is a list of known limitations. Many of these
-will become resolved as `parquet` tables become production-ready.
-
-- [ ] Some Postgres types, notably `json` and `timestamptz`
-- [ ] User-defined aggregations or types
-- [ ] Overloaded user-defined functions
-- [ ] Foreign keys on `parquet` tables
-- [ ] Write-ahead-log (WAL) support/`ROLLBACK`/logical replication
-- [ ] Collations
-- [ ] Partitioning by specific columns
-- [ ] `INSERT ... ON CONFLICT` clauses
-- [ ] Index creation
-- [ ] External object store integrations (S3/Azure/GCS/HDFS)
-- [ ] External Apache Iceberg and Delta Lake support
-- [ ] Full text search over `parquet` tables with `pg_search`
 
 ## For Further Assistance
 

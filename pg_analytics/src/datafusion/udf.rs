@@ -1,18 +1,18 @@
-use pgrx::*;
-use std::sync::Arc;
-
 use deltalake::arrow::array::ArrayRef;
 use deltalake::datafusion::arrow::datatypes::DataType;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::common::ScalarValue;
 use deltalake::datafusion::logical_expr::{create_udf, ColumnarValue, Volatility};
+use pgrx::*;
 use std::cmp::max;
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
+use std::sync::Arc;
+use thiserror::Error;
 
-use crate::datafusion::session::Session;
-use crate::errors::ParadeError;
+use super::catalog::CatalogError;
+use super::session::Session;
 use crate::types::array::IntoArrowArray;
-use crate::types::datatype::{ArrowDataType, PgAttribute, PgTypeMod};
+use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
 use crate::types::datum::GetDatum;
 
 // NOTE: because we don't use argtypes yet (see TODO below), using this function on overloaded functions WILL
@@ -20,7 +20,7 @@ use crate::types::datum::GetDatum;
 unsafe fn func_oid_from_signature(
     funcname: &str,
     _argtypes: *mut pg_sys::Oid,
-) -> Result<pg_sys::Oid, ParadeError> {
+) -> Result<pg_sys::Oid, UDFError> {
     let cstr = CString::new(funcname)?;
 
     let funcname_list: *mut pg_sys::List;
@@ -45,7 +45,8 @@ unsafe fn func_oid_from_signature(
     ))
 }
 
-unsafe fn func_list_from_name(funcname: &str) -> Result<pg_sys::FuncCandidateList, ParadeError> {
+#[allow(dead_code)]
+unsafe fn func_list_from_name(funcname: &str) -> Result<pg_sys::FuncCandidateList, UDFError> {
     let cstr = CString::new(funcname)?;
 
     let funcname_list: *mut pg_sys::List;
@@ -71,13 +72,13 @@ unsafe fn func_list_from_name(funcname: &str) -> Result<pg_sys::FuncCandidateLis
     ))
 }
 
-unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFusionError> {
+unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, UDFError> {
     let num_args = args.len();
     let mut num_rows = 1;
 
     let mut memory_context = PgMemoryContexts::new("udf_df_alloc");
 
-    memory_context.switch_to(|_context| {
+    memory_context.switch_to(|_| {
         let arg_oids =
             pg_sys::palloc0(std::mem::size_of::<pg_sys::Oid>() * num_args) as *mut pg_sys::Oid;
         for (arg_index, arg) in args.iter().enumerate().take(num_args).skip(1) {
@@ -131,15 +132,14 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFu
                     let fcinfo_arg = (*fcinfo).args.as_mut_ptr().add(arg_index - 1);
                     (*fcinfo_arg).value = arg_arrays[arg_index - 1]
                         .get_datum(row_index)?
-                        .ok_or(DataFusionError::Internal("No datum for type".to_string()))?;
+                        .ok_or(UDFError::DatumNotFound)?;
                     (*fcinfo_arg).isnull = false;
                 }
 
-                let result_datum = (*(*fcinfo).flinfo)
-                    .fn_addr
-                    .ok_or(DataFusionError::Internal(
-                        "Invalid function address for udf".to_string(),
-                    ))?(fcinfo);
+                let result_datum =
+                    (*(*fcinfo).flinfo)
+                        .fn_addr
+                        .ok_or(UDFError::InvalidFunctionAddress)?(fcinfo);
                 result_vec.push(Some(result_datum));
             }
 
@@ -152,12 +152,17 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, DataFu
                     .into_arrow_array(rettype.into(), PgTypeMod(-1))?,
             ))
         } else {
-            Err(DataFusionError::Internal("No funcname".to_string()))
+            Err(UDFError::FunctionNameNotFound)
         }
     })
 }
 
-pub unsafe fn loadfunction(funcname: &str) -> Result<(), ParadeError> {
+pub fn loadfunction_not_supported(_funcname: &str) -> Result<ColumnarValue, UDFError> {
+    Err(UDFError::UDFNotSupported)
+}
+
+#[allow(dead_code)]
+pub unsafe fn loadfunction(funcname: &str) -> Result<(), UDFError> {
     // Register all overloads with this function name
     let mut func_candidate = func_list_from_name(funcname)?;
     while !func_candidate.is_null() {
@@ -186,7 +191,9 @@ pub unsafe fn loadfunction(funcname: &str) -> Result<(), ParadeError> {
             input_types,
             Arc::new(return_type),
             Volatility::Immutable,
-            Arc::new(|args| unsafe { udf_datafusion(args) }),
+            Arc::new(|args| unsafe {
+                udf_datafusion(args).map_err(|err| DataFusionError::Internal(err.to_string()))
+            }),
         );
 
         Session::with_session_context(|context| {
@@ -200,4 +207,51 @@ pub unsafe fn loadfunction(funcname: &str) -> Result<(), ParadeError> {
     }
 
     Ok(())
+}
+
+pub unsafe fn createfunction(
+    createfunction_stmt: *mut pg_sys::CreateFunctionStmt,
+) -> Result<(), UDFError> {
+    // Drop any functions with the same name from the context and allow the next call to the UDF load them back
+
+    let funcname = pg_sys::NameListToString((*createfunction_stmt).funcname);
+    let _funcname_cstr = CStr::from_ptr(funcname);
+
+    Session::with_session_context(|_context| {
+        // TODO: need to deregister all UDFs of the same name from context
+        //       this is necessary because the function signature might have changed
+        //       and it will only be updated in the context if we deregister it first.
+        // https://github.com/apache/arrow-datafusion/pull/9239
+
+        Box::pin(async move { Ok(()) })
+    })?;
+
+    Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum UDFError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    DataFusionError(#[from] DataFusionError),
+
+    #[error(transparent)]
+    DataTypeError(#[from] DataTypeError),
+
+    #[error(transparent)]
+    NulError(#[from] std::ffi::NulError),
+
+    #[error("Could not get datum for UDF arg")]
+    DatumNotFound,
+
+    #[error("Invalid function address for UDF")]
+    InvalidFunctionAddress,
+
+    #[error("Could not find function name for UDF")]
+    FunctionNameNotFound,
+
+    #[error("User-defined functions are not currently supported.")]
+    UDFNotSupported,
 }

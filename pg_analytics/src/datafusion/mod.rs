@@ -1,5 +1,5 @@
+pub mod batch;
 pub mod catalog;
-pub mod commit;
 pub mod context;
 pub mod directory;
 pub mod plan;

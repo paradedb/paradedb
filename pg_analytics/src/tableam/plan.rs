@@ -1,54 +1,94 @@
-/*
-    Storage and plan cost estimates are handled by DataFusion.
-    These functions should never be called.
-*/
-
 #[cfg(any(feature = "pg12", feature = "pg13"))]
 use core::ffi::c_int;
 use pgrx::*;
+use std::ptr::addr_of_mut;
+use thiserror::Error;
 
-#[pg_guard]
-pub extern "C" fn deltalake_relation_nontransactional_truncate(_rel: pg_sys::Relation) {}
+use crate::storage::metadata::{MetadataError, PgMetadata};
+
+#[inline]
+fn relation_estimate_size(
+    rel: pg_sys::Relation,
+    attr_widths: *mut pg_sys::int32,
+    pages: *mut pg_sys::BlockNumber,
+    tuples: *mut f64,
+    allvisfrac: *mut f64,
+) -> Result<(), MetadataError> {
+    unsafe {
+        // If the relation has no storage manager, create one
+        if (*rel).rd_smgr.is_null() {
+            #[cfg(feature = "pg16")]
+            pg_sys::smgrsetowner(
+                addr_of_mut!((*rel).rd_smgr),
+                pg_sys::smgropen((*rel).rd_locator, (*rel).rd_backend),
+            );
+            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+            pg_sys::smgrsetowner(
+                addr_of_mut!((*rel).rd_smgr),
+                pg_sys::smgropen((*rel).rd_node, (*rel).rd_backend),
+            );
+        }
+
+        // Set tuple count
+        *tuples = (rel.read_next_row_number()? - 1) as f64;
+
+        // Set page count and visibility
+        *pages = pg_sys::smgrnblocks((*rel).rd_smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
+        *allvisfrac = 1.0;
+
+        pg_sys::get_rel_data_width(rel, attr_widths);
+    }
+
+    Ok(())
+}
 
 #[pg_guard]
 pub extern "C" fn deltalake_relation_size(
-    _rel: pg_sys::Relation,
-    _forkNumber: pg_sys::ForkNumber,
+    rel: pg_sys::Relation,
+    fork_number: pg_sys::ForkNumber,
 ) -> pg_sys::uint64 {
-    0
-}
+    unsafe {
+        if (*rel).rd_smgr.is_null() {
+            #[cfg(feature = "pg16")]
+            pg_sys::smgrsetowner(
+                addr_of_mut!((*rel).rd_smgr),
+                pg_sys::smgropen((*rel).rd_locator, (*rel).rd_backend),
+            );
+            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+            pg_sys::smgrsetowner(
+                addr_of_mut!((*rel).rd_smgr),
+                pg_sys::smgropen((*rel).rd_node, (*rel).rd_backend),
+            );
+        }
 
-#[pg_guard]
-pub extern "C" fn deltalake_relation_needs_toast_table(_rel: pg_sys::Relation) -> bool {
-    false
-}
+        let mut nblocks: pg_sys::uint64 = 0;
 
-#[pg_guard]
-#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
-pub extern "C" fn deltalake_relation_toast_am(_rel: pg_sys::Relation) -> pg_sys::Oid {
-    pg_sys::Oid::INVALID
-}
+        match fork_number {
+            pg_sys::ForkNumber_InvalidForkNumber => {
+                for i in 0..pg_sys::ForkNumber_INIT_FORKNUM {
+                    nblocks += pg_sys::smgrnblocks((*rel).rd_smgr, i) as pg_sys::uint64;
+                }
+            }
+            fork_number => {
+                nblocks = pg_sys::smgrnblocks((*rel).rd_smgr, fork_number) as pg_sys::uint64;
+            }
+        };
 
-#[pg_guard]
-#[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
-pub extern "C" fn deltalake_relation_fetch_toast_slice(
-    _toastrel: pg_sys::Relation,
-    _valueid: pg_sys::Oid,
-    _attrsize: pg_sys::int32,
-    _sliceoffset: pg_sys::int32,
-    _slicelength: pg_sys::int32,
-    _result: *mut pg_sys::varlena,
-) {
+        nblocks * pg_sys::BLCKSZ as pg_sys::uint64
+    }
 }
 
 #[pg_guard]
 pub extern "C" fn deltalake_relation_estimate_size(
-    _rel: pg_sys::Relation,
-    _attr_widths: *mut pg_sys::int32,
-    _pages: *mut pg_sys::BlockNumber,
-    _tuples: *mut f64,
-    _allvisfrac: *mut f64,
+    rel: pg_sys::Relation,
+    attr_widths: *mut pg_sys::int32,
+    pages: *mut pg_sys::BlockNumber,
+    tuples: *mut f64,
+    allvisfrac: *mut f64,
 ) {
+    relation_estimate_size(rel, attr_widths, pages, tuples, allvisfrac).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }
 
 #[pg_guard]
@@ -58,5 +98,12 @@ pub extern "C" fn deltalake_compute_xid_horizon_for_tuples(
     _items: *mut pg_sys::ItemPointerData,
     _nitems: c_int,
 ) -> pg_sys::TransactionId {
-    0
+    panic!("{}", PlanError::XIDHorizonNotSupported.to_string())
+}
+
+#[allow(dead_code)]
+#[derive(Error, Debug)]
+pub enum PlanError {
+    #[error("compute_xid_horizon_for_tuples not implemented")]
+    XIDHorizonNotSupported,
 }

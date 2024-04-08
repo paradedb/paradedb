@@ -1,11 +1,12 @@
 use pgrx::*;
+use thiserror::Error;
 
+use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::DatafusionTable;
-use crate::errors::ParadeError;
-use crate::hooks::handler::IsColumn;
+use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
+use crate::hooks::handler::{HandlerError, IsColumn};
 
-pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> {
+pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), DropHookError> {
     // Ignore if not DROP TABLE
     if (*drop_stmt).removeType != pg_sys::ObjectType_OBJECT_TABLE {
         return Ok(());
@@ -67,11 +68,23 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), ParadeError> 
         let table_path = pg_relation.table_path()?;
 
         Session::with_tables(schema_name, |mut tables| {
-            Box::pin(async move { tables.deregister(&table_path) })
+            Box::pin(async move { Ok(tables.deregister(&table_path)?) })
         })?;
 
         pg_sys::RelationClose(relation);
     }
 
     Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum DropHookError {
+    #[error(transparent)]
+    Catalog(#[from] CatalogError),
+
+    #[error(transparent)]
+    DataFusionTable(#[from] DataFusionTableError),
+
+    #[error(transparent)]
+    Handler(#[from] HandlerError),
 }

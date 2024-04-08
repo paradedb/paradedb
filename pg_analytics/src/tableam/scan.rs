@@ -1,48 +1,40 @@
-/*
-    Scans return tuples from our table to Postgres.
-    Because we intercept SELECT queries, not all scan functions need to be implemented.
-    The ones implemented are called as part of DELETE and UPDATE operations.
-*/
-
+use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;
-use deltalake::datafusion::common::arrow::array::RecordBatch;
+use deltalake::arrow::datatypes::Int64Type;
+use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBatch};
+use deltalake::datafusion::common::arrow::error::ArrowError;
 use pgrx::*;
-use std::any::type_name;
 use std::sync::Arc;
+use thiserror::Error;
 
+use crate::datafusion::batch::PostgresBatch;
+use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::stream::Stream;
-use crate::datafusion::table::DatafusionTable;
-use crate::errors::{NotFound, ParadeError};
+use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
+use crate::datafusion::writer::Writer;
+use crate::storage::tid::{RowNumber, TIDError};
+use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
 struct DeltalakeScanDesc {
     rs_base: pg_sys::TableScanDescData,
-    curr_batch: Option<Arc<RecordBatch>>,
+    curr_batch: Option<Arc<Mutex<RecordBatch>>>,
+    tids: Option<Arc<Mutex<Int64Array>>>,
     curr_batch_idx: usize,
 }
 
-#[pg_guard]
-pub extern "C" fn deltalake_scan_begin(
-    rel: pg_sys::Relation,
-    snapshot: pg_sys::Snapshot,
-    nkeys: c_int,
-    key: *mut pg_sys::ScanKeyData,
-    pscan: pg_sys::ParallelTableScanDesc,
-    flags: pg_sys::uint32,
-) -> pg_sys::TableScanDesc {
-    delta_scan_begin_impl(rel, snapshot, nkeys, key, pscan, flags).expect("Failed to begin scan")
-}
-
 #[inline]
-fn delta_scan_begin_impl(
+async fn scan_begin(
     rel: pg_sys::Relation,
     snapshot: pg_sys::Snapshot,
     nkeys: c_int,
     key: *mut pg_sys::ScanKeyData,
     pscan: pg_sys::ParallelTableScanDesc,
     flags: pg_sys::uint32,
-) -> Result<pg_sys::TableScanDesc, ParadeError> {
+) -> Result<pg_sys::TableScanDesc, TableScanError> {
+    Writer::flush().await?;
+
     unsafe {
         PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
             let mut scan = PgBox::<DeltalakeScanDesc>::alloc0();
@@ -55,10 +47,111 @@ fn delta_scan_begin_impl(
 
             scan.curr_batch = None;
             scan.curr_batch_idx = 0;
+            scan.tids = None;
 
             Ok(scan.into_pg() as pg_sys::TableScanDesc)
         })
     }
+}
+
+#[inline]
+pub async unsafe fn scan_getnextslot(
+    scan: pg_sys::TableScanDesc,
+    slot: *mut pg_sys::TupleTableSlot,
+) -> Result<bool, TableScanError> {
+    if let Some(clear) = (*slot)
+        .tts_ops
+        .as_ref()
+        .ok_or(TableScanError::SlotOpsNotFound)?
+        .clear
+    {
+        clear(slot);
+    }
+
+    let dscan = scan as *mut DeltalakeScanDesc;
+    let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
+    let table_name = pg_relation.name();
+    let schema_name = pg_relation.namespace();
+    let table_path = pg_relation.table_path()?;
+
+    if (*dscan).curr_batch.is_none()
+        || (*dscan).curr_batch_idx
+            >= (*dscan)
+                .curr_batch
+                .as_ref()
+                .ok_or(TableScanError::RecordBatchNotFound)?
+                .lock()
+                .await
+                .num_rows()
+    {
+        (*dscan).curr_batch_idx = 0;
+
+        let mut next_batch =
+            match Stream::get_next_batch(&table_path, schema_name, table_name).await? {
+                Some(batch) => batch,
+                None => return Ok(false),
+            };
+
+        next_batch.remove_xmin_column()?;
+        next_batch.remove_xmax_column()?;
+
+        let tids = next_batch.remove_tid_column()?;
+        let tid_array = tids.as_primitive::<Int64Type>();
+        (*dscan).curr_batch = Some(Arc::new(Mutex::new(next_batch)));
+        (*dscan).tids = Some(Arc::new(Mutex::new(tid_array.clone())));
+    }
+
+    let current_batch = (*dscan)
+        .curr_batch
+        .as_mut()
+        .ok_or(TableScanError::RecordBatchNotFound)?
+        .lock()
+        .await;
+
+    let tids = (*dscan)
+        .tids
+        .as_mut()
+        .ok_or(TableScanError::TIDNotFound)?
+        .lock()
+        .await;
+
+    for col_index in 0..current_batch.num_columns() {
+        let column = current_batch.column(col_index);
+
+        unsafe {
+            let tts_value = (*slot).tts_values.add(col_index);
+            let tts_isnull = (*slot).tts_isnull.add(col_index);
+
+            if let Some(datum) = column.get_datum((*dscan).curr_batch_idx)? {
+                *tts_value = datum;
+            } else {
+                *tts_isnull = true;
+            }
+        }
+    }
+
+    let row_number = tids.value((*dscan).curr_batch_idx);
+    let tts_tid = pg_sys::ItemPointerData::try_from(RowNumber(row_number))?;
+
+    (*slot).tts_tid = tts_tid;
+    pg_sys::ExecStoreVirtualTuple(slot);
+
+    (*dscan).curr_batch_idx += 1;
+    Ok(true)
+}
+
+#[pg_guard]
+pub extern "C" fn deltalake_scan_begin(
+    rel: pg_sys::Relation,
+    snapshot: pg_sys::Snapshot,
+    nkeys: c_int,
+    key: *mut pg_sys::ScanKeyData,
+    pscan: pg_sys::ParallelTableScanDesc,
+    flags: pg_sys::uint32,
+) -> pg_sys::TableScanDesc {
+    task::block_on(scan_begin(rel, snapshot, nkeys, key, pscan, flags)).unwrap_or_else(|err| {
+        panic!("{}", err);
+    })
 }
 
 #[pg_guard]
@@ -82,68 +175,10 @@ pub unsafe extern "C" fn deltalake_scan_getnextslot(
     slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
     unsafe {
-        task::block_on(deltalake_scan_getnextslot_impl(scan, slot))
-            .expect("Failed to get next slot")
+        task::block_on(scan_getnextslot(scan, slot)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        })
     }
-}
-
-#[inline]
-async unsafe fn deltalake_scan_getnextslot_impl(
-    scan: pg_sys::TableScanDesc,
-    slot: *mut pg_sys::TupleTableSlot,
-) -> Result<bool, ParadeError> {
-    if let Some(clear) = (*slot)
-        .tts_ops
-        .as_ref()
-        .ok_or(NotFound::Value(
-            type_name::<pg_sys::TupleTableSlotOps>().to_string(),
-        ))?
-        .clear
-    {
-        clear(slot);
-    }
-
-    let dscan = scan as *mut DeltalakeScanDesc;
-    let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
-    let schema_name = pg_relation.namespace();
-    let table_path = pg_relation.table_path()?;
-
-    if (*dscan).curr_batch.is_none()
-        || (*dscan).curr_batch_idx
-            >= (*dscan)
-                .curr_batch
-                .as_ref()
-                .ok_or(NotFound::Value(type_name::<RecordBatch>().to_string()))?
-                .num_rows()
-    {
-        (*dscan).curr_batch_idx = 0;
-
-        (*dscan).curr_batch = match Stream::get_next_batch(schema_name, &table_path).await? {
-            Some(batch) => Some(Arc::new(batch)),
-            None => return Ok(false),
-        };
-    }
-
-    let current_batch = (*dscan)
-        .curr_batch
-        .as_ref()
-        .ok_or(NotFound::Value(type_name::<RecordBatch>().to_string()))?;
-
-    for col_index in 0..current_batch.num_columns() {
-        let column = current_batch.column(col_index);
-
-        unsafe {
-            let tts_value = (*slot).tts_values.add(col_index);
-            if let Some(datum) = column.get_datum((*dscan).curr_batch_idx)? {
-                *tts_value = datum;
-            }
-        }
-    }
-
-    pg_sys::ExecStoreVirtualTuple(slot);
-
-    (*dscan).curr_batch_idx += 1;
-    Ok(true)
 }
 
 #[pg_guard]
@@ -166,24 +201,24 @@ pub extern "C" fn deltalake_scan_getnextslot_tidrange(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_parallelscan_estimate(rel: pg_sys::Relation) -> pg_sys::Size {
-    unsafe { pg_sys::table_block_parallelscan_estimate(rel) }
+pub extern "C" fn deltalake_parallelscan_estimate(_rel: pg_sys::Relation) -> pg_sys::Size {
+    panic!("{}", TableScanError::ParallelScanNotSupported.to_string());
 }
 
 #[pg_guard]
 pub extern "C" fn deltalake_parallelscan_initialize(
-    rel: pg_sys::Relation,
-    pscan: pg_sys::ParallelTableScanDesc,
+    _rel: pg_sys::Relation,
+    _pscan: pg_sys::ParallelTableScanDesc,
 ) -> pg_sys::Size {
-    unsafe { pg_sys::table_block_parallelscan_initialize(rel, pscan) }
+    panic!("{}", TableScanError::ParallelScanNotSupported.to_string());
 }
 
 #[pg_guard]
 pub extern "C" fn deltalake_parallelscan_reinitialize(
-    rel: pg_sys::Relation,
-    pscan: pg_sys::ParallelTableScanDesc,
+    _rel: pg_sys::Relation,
+    _pscan: pg_sys::ParallelTableScanDesc,
 ) {
-    unsafe { pg_sys::table_block_parallelscan_reinitialize(rel, pscan) }
+    panic!("{}", TableScanError::ParallelScanNotSupported.to_string());
 }
 
 #[pg_guard]
@@ -192,34 +227,28 @@ pub extern "C" fn deltalake_scan_analyze_next_block(
     _blockno: pg_sys::BlockNumber,
     _bstrategy: pg_sys::BufferAccessStrategy,
 ) -> bool {
-    false
+    true
 }
 
 #[pg_guard]
 pub extern "C" fn deltalake_scan_analyze_next_tuple(
-    _scan: pg_sys::TableScanDesc,
+    scan: pg_sys::TableScanDesc,
     _OldestXmin: pg_sys::TransactionId,
-    _liverows: *mut f64,
+    liverows: *mut f64,
     _deadrows: *mut f64,
-    _slot: *mut pg_sys::TupleTableSlot,
+    slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    false
-}
+    unsafe {
+        let next_slot = task::block_on(scan_getnextslot(scan, slot)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
 
-#[pg_guard]
-pub extern "C" fn deltalake_scan_bitmap_next_block(
-    _scan: pg_sys::TableScanDesc,
-    _tbmres: *mut pg_sys::TBMIterateResult,
-) -> bool {
-    false
-}
+        if next_slot {
+            (*liverows) += 1.0;
+            return true;
+        }
+    }
 
-#[pg_guard]
-pub extern "C" fn deltalake_scan_bitmap_next_tuple(
-    _scan: pg_sys::TableScanDesc,
-    _tbmres: *mut pg_sys::TBMIterateResult,
-    _slot: *mut pg_sys::TupleTableSlot,
-) -> bool {
     false
 }
 
@@ -228,7 +257,10 @@ pub extern "C" fn deltalake_scan_sample_next_block(
     _scan: pg_sys::TableScanDesc,
     _scanstate: *mut pg_sys::SampleScanState,
 ) -> bool {
-    false
+    panic!(
+        "{}",
+        TableScanError::SampleNextBlockNotSupported.to_string()
+    );
 }
 
 #[pg_guard]
@@ -237,7 +269,10 @@ pub extern "C" fn deltalake_scan_sample_next_tuple(
     _scanstate: *mut pg_sys::SampleScanState,
     _slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    false
+    panic!(
+        "{}",
+        TableScanError::SampleNextTupleNotSupported.to_string()
+    );
 }
 
 #[pg_guard]
@@ -255,7 +290,7 @@ pub extern "C" fn deltalake_tuple_tid_valid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) -> bool {
-    false
+    panic!("{}", TableScanError::TIDValidNotSupported.to_string());
 }
 
 #[pg_guard]
@@ -263,6 +298,7 @@ pub extern "C" fn deltalake_tuple_get_latest_tid(
     _scan: pg_sys::TableScanDesc,
     _tid: pg_sys::ItemPointer,
 ) {
+    panic!("{}", TableScanError::LatestTIDNotSupported.to_string());
 }
 
 #[pg_guard]
@@ -296,4 +332,46 @@ pub extern "C" fn deltalake_tuple_lock(
     _tmfd: *mut pg_sys::TM_FailureData,
 ) -> pg_sys::TM_Result {
     0
+}
+
+#[derive(Error, Debug)]
+pub enum TableScanError {
+    #[error(transparent)]
+    ArrowError(#[from] ArrowError),
+
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    DataFusionTableError(#[from] DataFusionTableError),
+
+    #[error(transparent)]
+    DataTypeError(#[from] DataTypeError),
+
+    #[error(transparent)]
+    TIDError(#[from] TIDError),
+
+    #[error("Parallel scans are not implemented")]
+    ParallelScanNotSupported,
+
+    #[error("TupleTableSlotOps not found in table scan")]
+    SlotOpsNotFound,
+
+    #[error("Unexpected error: No RecordBatch found in table scan")]
+    RecordBatchNotFound,
+
+    #[error("sample_next_block not implemented")]
+    SampleNextBlockNotSupported,
+
+    #[error("sample_next_tuple not implemented")]
+    SampleNextTupleNotSupported,
+
+    #[error("tuple_tid_valid not implemented")]
+    TIDValidNotSupported,
+
+    #[error("get_latest_tid not implemented")]
+    LatestTIDNotSupported,
+
+    #[error("Unexpected error: No TID found in table scan")]
+    TIDNotFound,
 }

@@ -17,6 +17,7 @@ const DEFAULT_OPTIMIZE_FILE_SIZE_MB: i32 = 100;
 const MIN_OPTIMIZE_FILE_SIZE_MB: i32 = 1;
 const MAX_OPTIMIZE_FILE_SIZE_MB: i32 = 10000;
 
+#[allow(dead_code)]
 trait PgAnalyticsGucSettings {
     fn vacuum_retention_days(&self) -> i32;
     fn vacuum_enforce_retention(&self) -> bool;
@@ -28,6 +29,12 @@ pub struct PostgresPgAnalyticsGucSettings {
     pub vacuum_enforce_retention: GucSetting<bool>,
     pub optimize_file_size_mb: GucSetting<i32>,
     pub globals: PostgresGlobalGucSettings,
+}
+
+impl Default for PostgresPgAnalyticsGucSettings {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl PostgresPgAnalyticsGucSettings {
@@ -42,10 +49,6 @@ impl PostgresPgAnalyticsGucSettings {
 
     /// You must call this `init` function in the extension's `_PG_init()`.
     /// Make sure you've first called `ParadeGUC::new()` into a static variable.
-    /// Example in _PG_init():
-    /// ```
-    /// PARADE_GUC::init();
-    /// ```
     pub fn init(&self, extension_name: &str) {
         // Initialize global settings first.
         self.globals.init(extension_name);

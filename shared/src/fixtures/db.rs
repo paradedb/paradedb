@@ -9,7 +9,6 @@ use sqlx::{
     testing::{TestArgs, TestContext, TestSupport},
     ConnectOptions, Executor, FromRow, PgConnection, Postgres,
 };
-use std::marker::Send;
 
 pub struct Db {
     context: TestContext<Postgres>,

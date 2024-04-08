@@ -1,6 +1,5 @@
 use chrono::{NaiveTime, TimeDelta, Timelike};
 use deltalake::datafusion::arrow::datatypes::TimeUnit;
-use pgrx::datum::datetime_support::DateTimeConversionError;
 use pgrx::*;
 use thiserror::Error;
 
@@ -104,7 +103,7 @@ impl TryFrom<NanosecondDay> for datum::Time {
 #[derive(Error, Debug)]
 pub enum TimeError {
     #[error(transparent)]
-    DateTimeConversion(#[from] DateTimeConversionError),
+    DateTimeConversion(#[from] datum::datetime_support::DateTimeConversionError),
 
     #[error("Only time and time(6), not time({0}), are supported")]
     UnsupportedTypeMod(i32),

@@ -1,18 +1,18 @@
+use crate::datafusion::query::{ASTVec, QueryString};
 use async_std::task;
 use pgrx::pg_sys::NodeTag;
 use pgrx::*;
 use std::ffi::CStr;
+use thiserror::Error;
 
-use crate::datafusion::commit::{commit_writer, needs_commit};
-use crate::datafusion::query::{ASTVec, QueryString};
-use crate::errors::ParadeError;
-use crate::hooks::alter::alter;
-use crate::hooks::drop::drop;
-use crate::hooks::query::Query;
-use crate::hooks::rename::rename;
-use crate::hooks::truncate::truncate;
-use crate::hooks::udf::createfunction;
-use crate::hooks::vacuum::vacuum;
+use super::alter::{alter, AlterHookError};
+use super::drop::{drop, DropHookError};
+use super::query::{Query, QueryStringError};
+use super::rename::{rename, RenameHookError};
+use super::truncate::{truncate, TruncateHookError};
+use super::vacuum::{vacuum, VacuumHookError};
+use crate::datafusion::catalog::CatalogError;
+use crate::datafusion::udf::{createfunction, UDFError};
 
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
@@ -35,11 +35,7 @@ pub fn process_utility(
         dest: PgBox<pg_sys::DestReceiver>,
         completion_tag: *mut pg_sys::QueryCompletion,
     ) -> HookResult<()>,
-) -> Result<(), ParadeError> {
-    if needs_commit()? {
-        task::block_on(commit_writer())?;
-    }
-
+) -> Result<(), ProcessHookError> {
     unsafe {
         let plan = pstmt.utilityStmt;
 
@@ -67,7 +63,7 @@ pub fn process_utility(
                 }
             }
             NodeTag::T_TruncateStmt => {
-                truncate(plan as *mut pg_sys::TruncateStmt)?;
+                task::block_on(truncate(plan as *mut pg_sys::TruncateStmt))?;
             }
             NodeTag::T_VacuumStmt => {
                 vacuum(plan as *mut pg_sys::VacuumStmt)?;
@@ -88,4 +84,31 @@ pub fn process_utility(
 
         Ok(())
     }
+}
+
+#[derive(Error, Debug)]
+pub enum ProcessHookError {
+    #[error(transparent)]
+    Catalog(#[from] CatalogError),
+
+    #[error(transparent)]
+    AlterHook(#[from] AlterHookError),
+
+    #[error(transparent)]
+    DropHook(#[from] DropHookError),
+
+    #[error(transparent)]
+    QueryString(#[from] QueryStringError),
+
+    #[error(transparent)]
+    RenameHook(#[from] RenameHookError),
+
+    #[error(transparent)]
+    TruncateHook(#[from] TruncateHookError),
+
+    #[error(transparent)]
+    VacuumHook(#[from] VacuumHookError),
+
+    #[error(transparent)]
+    Udf(#[from] UDFError),
 }

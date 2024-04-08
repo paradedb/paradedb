@@ -238,6 +238,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub trait IntoTimeMillisecondArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
@@ -257,6 +258,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub trait IntoTimeMillisecondArrowArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
@@ -320,6 +322,7 @@ where
     where
         T: FromDatum,
         A: ArrowPrimitiveType<Native = T>,
+        Vec<Option<T>>: FromDatum,
     {
         let iter = self.into_array::<Column<T>>()?;
 

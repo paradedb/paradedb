@@ -45,8 +45,7 @@ SELECT COUNT(*) FROM t;
 
 ## Parquet Tables
 
-You can interact with `parquet` tables the same way as with normal Postgres tables. However, there are a few
-exceptions.
+You can interact with `parquet` tables the same way as with normal Postgres tables. However, there are a few exceptions.
 
 ### Append Only
 
@@ -71,17 +70,12 @@ files.
 
 As `pg_analytics` becomes production-ready, many of these will be resolved.
 
+- [ ] `UPDATE` and `DELETE`
 - [ ] Some Postgres types, notably `json` and `timestamptz`
-- [ ] User-defined functions, aggregations, or types
-- [ ] JOINing `parquet` and regular Postgres `heap` tables
-- [ ] Write-ahead-log (WAL) support/`ROLLBACK`/logical replication
+- [ ] Write-ahead log (WAL) support
 - [ ] Collations
-- [ ] Partitioning by specific columns
 - [ ] `INSERT ... ON CONFLICT` clauses
-- [ ] Index creation
-- [ ] External object store integrations (S3/Azure/GCS/HDFS)
-- [ ] External Apache Iceberg and Delta Lake support
-- [ ] Full text search over `parquet` tables with `pg_search`
+- [ ] Foreign keys
 
 ## Development
 
@@ -125,7 +119,7 @@ Then, install and initialize `pgrx`:
 
 ```bash
 # Note: Replace --pg16 with your version of Postgres, if different (i.e. --pg15, --pg14, etc.)
-cargo install --locked cargo-pgrx --version 0.11.2
+cargo install --locked cargo-pgrx --version 0.12.0-alpha.1
 
 # macOS arm64
 cargo pgrx init --pg16=/opt/homebrew/opt/postgresql@16/bin/pg_config
@@ -173,7 +167,7 @@ rustup override set nightly
 Then, reinstall `pgrx` for the new version of Rust:
 
 ```bash
-cargo install --locked cargo-pgrx --version 0.11.2 --force
+cargo install --locked cargo-pgrx --version 0.12.0-alpha.1 --force
 ```
 
 Finally, run to build in release mode with SIMD:

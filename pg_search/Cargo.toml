@@ -7,7 +7,11 @@ license = "AGPL-3.0"
 
 [lib]
 # Must be cdylib for Postgres, and rlib for Rust tests.
-crate-type = ["cdylib", "rlib"]
+crate-type = ["cdylib", "lib"]
+
+[[bin]]
+name = "pgrx_embed_pg_search"
+path = "./src/bin/pgrx_embed.rs"
 
 [features]
 default = ["pg16"]
@@ -35,7 +39,7 @@ libc = "0.2.152"
 memoffset = "0.9.0"
 once_cell = "1.18.0"
 tokenizers = { version = "0.1.0", path = "../tokenizers" }
-pgrx = "=0.11.3"
+pgrx = { git = "https://github.com/pgcentralfoundation/pgrx.git", rev = "bef7ab7" }
 reqwest = "0.11.22"
 rustc-hash = "1.1.0"
 serde = "1.0.188"
@@ -56,7 +60,7 @@ zstd-sys = "=2.0.9"
 [dev-dependencies]
 approx = "0.5.1"
 async-std = { version = "1.12.0", features = ["attributes"] }
-pgrx-tests = "=0.11.3"
+pgrx-tests = { git = "https://github.com/pgcentralfoundation/pgrx.git", rev = "bef7ab7" }
 pgvector = { version = "0.3.2", features = ["sqlx"] }
 pretty_assertions = "1.4.0"
 rstest = "0.18.2"

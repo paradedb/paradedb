@@ -1,11 +1,18 @@
+use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use pgrx::*;
+use std::sync::Arc;
+use thiserror::Error;
 
+use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::DatafusionTable;
-use crate::errors::ParadeError;
-use crate::hooks::handler::IsColumn;
+use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
+use crate::datafusion::writer::Writer;
+use crate::hooks::handler::{HandlerError, IsColumn};
+use crate::storage::metadata::{MetadataError, PgMetadata};
 
-pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), ParadeError> {
+pub async unsafe fn truncate(
+    truncate_stmt: *mut pg_sys::TruncateStmt,
+) -> Result<(), TruncateHookError> {
     let rels = (*truncate_stmt).relations;
     let num_rels = (*rels).length;
 
@@ -50,16 +57,45 @@ pub unsafe fn truncate(truncate_stmt: *mut pg_sys::TruncateStmt) -> Result<(), P
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
 
+        // Removes all blocks from the relation
+        pg_sys::RelationTruncate(relation, 0);
+
+        // Reset the relation's metadata
+        relation.init_metadata((*relation).rd_smgr)?;
         pg_sys::RelationClose(relation);
+
+        // Clear all pending write commits for this table since it's being truncated
+        Writer::clear_actions(&table_path).await?;
 
         Session::with_tables(schema_name, |mut tables| {
             Box::pin(async move {
-                let (delta_table, _) = tables.delete(&table_path, None).await?;
+                let pg_relation = PgRelation::from_pg(relation);
+                let _ = tables.logical_delete(&table_path, None).await?;
 
-                tables.register(&table_path, delta_table)
+                let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
+                let batch = RecordBatch::new_empty(arrow_schema);
+
+                tables.alter_schema(&table_path, batch).await?;
+
+                Ok(())
             })
         })?;
     }
 
     Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum TruncateHookError {
+    #[error(transparent)]
+    Catalog(#[from] CatalogError),
+
+    #[error(transparent)]
+    DataFusionTable(#[from] DataFusionTableError),
+
+    #[error(transparent)]
+    Handler(#[from] HandlerError),
+
+    #[error(transparent)]
+    Metadata(#[from] MetadataError),
 }

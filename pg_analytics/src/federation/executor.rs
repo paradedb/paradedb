@@ -8,12 +8,12 @@ use deltalake::datafusion::physical_plan::{
 };
 use memoffset::offset_of;
 use pgrx::*;
+use std::sync::Arc;
 
 use crate::datafusion::plan::LogicalPlanDetails;
 use crate::datafusion::query::QueryString;
 use crate::datafusion::session::Session;
 use crate::datafusion::table::DatafusionTable;
-use crate::errors::ParadeError;
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::PgTypeMod;
 
@@ -41,13 +41,18 @@ impl SQLExecutor for ColumnExecutor {
         sql: &str,
         schema: SchemaRef,
     ) -> Result<SendableRecordBatchStream, DataFusionError> {
-        let logical_plan = LogicalPlanDetails::try_from(QueryString(sql))?.logical_plan();
+        let logical_plan = LogicalPlanDetails::try_from(QueryString(sql))
+            .map_err(|err| DataFusionError::External(err.into()))?
+            .logical_plan();
+
         let batch_stream = Session::with_session_context(|context| {
             Box::pin(async move {
                 let dataframe = context.execute_logical_plan(logical_plan.clone()).await?;
                 Ok(dataframe.execute_stream().await?)
             })
-        })?;
+        })
+        .map_err(|err| DataFusionError::External(err.into()))?;
+
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             schema,
             batch_stream,
@@ -65,7 +70,13 @@ impl SQLExecutor for ColumnExecutor {
             PgRelation::open_with_name(format!("{}.{}", self.schema_name, table_name).as_str())
                 .map_err(|err| DataFusionError::External(err.into()))?
         };
-        let schema = pg_relation.arrow_schema()?;
+
+        let schema = Arc::new(
+            pg_relation
+                .arrow_schema()
+                .map_err(|err| DataFusionError::External(err.into()))?,
+        );
+
         Ok(schema)
     }
 
@@ -102,9 +113,13 @@ impl SQLExecutor for RowExecutor {
         let mut col_arrays = vec![];
         Spi::connect(|client| {
             let mut cursor = client.open_cursor(sql, None);
-            let schema_tuple_table = cursor.fetch(0)?;
+            let schema_tuple_table = cursor
+                .fetch(0)
+                .map_err(|err| DataFusionError::External(err.into()))?;
 
-            let num_cols = schema_tuple_table.columns()?;
+            let num_cols = schema_tuple_table
+                .columns()
+                .map_err(|err| DataFusionError::External(err.into()))?;
             let mut col_datums: Vec<Vec<Option<pg_sys::Datum>>> =
                 (0..num_cols).map(|_| vec![]).collect();
 
@@ -121,14 +136,24 @@ impl SQLExecutor for RowExecutor {
                         + std::mem::size_of::<pg_sys::ItemIdData>())
             };
             loop {
-                tuple_table = cursor.fetch(max_tuples as i64)?;
+                tuple_table = cursor
+                    .fetch(max_tuples as i64)
+                    .map_err(|err| DataFusionError::External(err.into()))?;
                 tuple_table = tuple_table.first();
                 if tuple_table.is_empty() {
                     break;
                 }
-                while tuple_table.get_heap_tuple()?.is_some() {
+                while tuple_table
+                    .get_heap_tuple()
+                    .map_err(|err| DataFusionError::External(err.into()))?
+                    .is_some()
+                {
                     for (col_idx, col) in col_datums.iter_mut().enumerate().take(num_cols) {
-                        col.push(tuple_table.get_datum_by_ordinal(col_idx + 1)?);
+                        col.push(
+                            tuple_table
+                                .get_datum_by_ordinal(col_idx + 1)
+                                .map_err(|err| DataFusionError::External(err.into()))?,
+                        );
                     }
 
                     if tuple_table.next().is_none() {
@@ -139,18 +164,21 @@ impl SQLExecutor for RowExecutor {
 
             // Convert datum columns to arrow arrays
             for (col_idx, col_datum_vec) in col_datums.iter().enumerate().take(num_cols) {
-                let oid = tuple_table.column_type_oid(col_idx + 1)?;
+                let oid = tuple_table
+                    .column_type_oid(col_idx + 1)
+                    .map_err(|err| DataFusionError::External(err.into()))?;
                 let typmod = unsafe { (*tuple_attrs.add(col_idx)).atttypmod };
 
                 col_arrays.push(
                     col_datum_vec
                         .clone()
                         .into_iter()
-                        .into_arrow_array(oid, PgTypeMod(typmod))?,
+                        .into_arrow_array(oid, PgTypeMod(typmod))
+                        .map_err(|err| DataFusionError::External(err.into()))?,
                 );
             }
 
-            Ok::<(), ParadeError>(())
+            Ok::<(), DataFusionError>(())
         })?;
 
         let record_batch = RecordBatch::try_new(schema.clone(), col_arrays)?;
@@ -169,7 +197,13 @@ impl SQLExecutor for RowExecutor {
             PgRelation::open_with_name(format!("{}.{}", self.schema_name, table_name).as_str())
                 .map_err(|err| DataFusionError::External(err.into()))?
         };
-        let schema = pg_relation.arrow_schema()?;
+
+        let schema = Arc::new(
+            pg_relation
+                .arrow_schema()
+                .map_err(|err| DataFusionError::External(err.into()))?,
+        );
+
         Ok(schema)
     }
 

@@ -1,3 +1,10 @@
+-- This files creates 
+
+
+
+-- *ALL* TPC-H tables in the `parquet` format
+-- from pg_analytics.
+
 -- nation
 CREATE TABLE IF NOT EXISTS nation
 (
@@ -79,8 +86,8 @@ CREATE TABLE IF NOT EXISTS partsupp
   "ps_comment"     VARCHAR(199),
   "ps_dummy"       VARCHAR(10),
   PRIMARY KEY ("ps_partkey")
-)
-USING parquet;
+);
+-- USING parquet;
 
 -- orders
 CREATE TABLE IF NOT EXISTS orders

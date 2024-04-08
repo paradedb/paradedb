@@ -15,11 +15,15 @@ usage() {
   echo "                  - 'x.y.z'  Runs the full TPC-H benchmark against a specific ParadeDB Docker image (e.g. 0.3.1)"
   echo "                  - 'latest' Runs the full TPC-H benchmark the latest ParadeDB Docker image"
   echo "                  - 'local'  Runs the full TPC-H benchmark the current commit inside a local ParadeDB Docker build"
+  echo " -w (optional),  Workload to benchmark:"
+  echo "                  - 'olap' Runs the TPC-H benchmark against all pg_analytics 'parquet' tables"
+  echo "                  - 'htap' Runs the TPC-H benchmark against a combination of pg_analytics 'parquet' and Postgres 'heap' tables"
   exit 1
 }
 
 # Instantiate vars
 FLAG_TAG="local"
+WORKLOAD="olap"
 DOCKER_PORT=5432
 
 # Assign flags to vars and check
@@ -31,6 +35,9 @@ do
       ;;
     t)
       FLAG_TAG=$OPTARG
+      ;;
+    w)
+      WORKLOAD=$OPTARG
       ;;
     *)
       usage
@@ -146,8 +153,15 @@ echo "Done!"
 echo ""
 echo "Loading dataset..."
 export PGPASSWORD='mypassword'
-psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
+if [ "$WORKLOAD" == "olap" ]; then
+  echo "Loading OLAP tables..."
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t < create_olap.sql
+elif [ "$WORKLOAD" == "htap" ]; then
+  echo "Loading HTAP tables..."
+  psql -h localhost -U myuser -d mydatabase -p 5432 -t < create_htap.sql
+fi
 psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY nation FROM 'TPC-H_V3.0.1/dbgen/nation.tbl' DELIMITER '|' CSV"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY region FROM 'TPC-H_V3.0.1/dbgen/region.tbl' DELIMITER '|' CSV"
 psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY customer FROM 'TPC-H_V3.0.1/dbgen/customer.tbl' DELIMITER '|' CSV"
 psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY supplier FROM 'TPC-H_V3.0.1/dbgen/supplier.tbl' DELIMITER '|' CSV"
 psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY part FROM 'TPC-H_V3.0.1/dbgen/part.tbl' DELIMITER '|' CSV"

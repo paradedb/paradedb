@@ -146,7 +146,12 @@ echo "Running queries..."
 
 echo ""
 echo "Printing disk usage..."
-sudo docker exec paradedb du -bcs /bitnami/postgresql/data
+OS=$(uname)
+if [ "$OS" == "Linux" ]; then
+  sudo docker exec paradedb du -bcs /bitnami/postgresql/data
+else
+  docker exec paradedb du -bcs /bitnami/postgresql/data
+fi
 
 echo ""
 echo "Printing results..."

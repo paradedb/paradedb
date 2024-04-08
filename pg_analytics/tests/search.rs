@@ -6,7 +6,7 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
-fn bm25_search(mut conn: PgConnection) {
+fn bm25_search(mut conn_with_pg_search: PgConnection) {
     r#"
     CALL paradedb.create_bm25_test_table(
       schema_name => 'public',
@@ -15,14 +15,14 @@ fn bm25_search(mut conn: PgConnection) {
     CREATE TABLE mock_items_parquet USING parquet 
     AS SELECT id, description, rating, category FROM mock_items;
     "#
-    .execute(&mut conn);
+    .execute(&mut conn_with_pg_search);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM mock_items_parquet
     LIMIT 3;
     "#
-    .fetch(&mut conn);
+    .fetch(&mut conn_with_pg_search);
     assert_eq!(
         rows,
         vec![
@@ -41,14 +41,14 @@ fn bm25_search(mut conn: PgConnection) {
             text_fields => '{description: {tokenizer: {type: "en_stem"}}, category: {}}'
     );
     "#
-    .execute(&mut conn);
+    .execute(&mut conn_with_pg_search);
 
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM search_idx.search('description:keyboard OR category:electronics', stable_sort => true)
     LIMIT 5;
     "#
-    .fetch(&mut conn);
+    .fetch(&mut conn_with_pg_search);
     assert_eq!(rows.len(), 5);
     assert_eq!(rows[0].0, "Plastic Keyboard".to_string());
     assert_eq!(rows[1].0, "Ergonomic metal keyboard".to_string());
@@ -61,7 +61,7 @@ fn bm25_search(mut conn: PgConnection) {
     FROM search_idx.search('description:"bluetooth speaker"~1', stable_sort => true)
     LIMIT 5;
     "#
-    .fetch(&mut conn);
+    .fetch(&mut conn_with_pg_search);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
 
@@ -73,12 +73,12 @@ fn bm25_search(mut conn: PgConnection) {
             key_field => 'id',
             text_fields => '{description: {tokenizer: {type: "ngram", min_gram: 4, max_gram: 4, prefix_only: false}}, category: {}}'
     );
-    "#.execute(&mut conn);
+    "#.execute(&mut conn_with_pg_search);
     let rows: Vec<(String, i32, String)> = r#"
     SELECT description, rating, category
     FROM ngrams_idx.search('description:blue', stable_sort => true);
     "#
-    .fetch(&mut conn);
+    .fetch(&mut conn_with_pg_search);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
 
@@ -86,7 +86,7 @@ fn bm25_search(mut conn: PgConnection) {
     SELECT description, paradedb.highlight(id, field => 'description'), paradedb.rank_bm25(id)
     FROM ngrams_idx.search('description:blue', stable_sort => true)
     "#
-    .fetch(&mut conn);
+    .fetch(&mut conn_with_pg_search);
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "Bluetooth-enabled speaker");
     assert_eq!(rows[0].1, "<b>Blue</b>tooth-enabled speaker");

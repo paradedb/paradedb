@@ -8,7 +8,7 @@ use crate::datafusion::session::Session;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
 use crate::hooks::handler::{HandlerError, IsColumn};
-use crate::storage::metadata::PgMetadata;
+use crate::storage::metadata::{MetadataError, PgMetadata};
 
 pub async unsafe fn truncate(
     truncate_stmt: *mut pg_sys::TruncateStmt,
@@ -57,12 +57,11 @@ pub async unsafe fn truncate(
         let schema_name = pg_relation.namespace();
         let table_path = pg_relation.table_path()?;
 
+        // Removes all blocks from the relation
         pg_sys::RelationTruncate(relation, 0);
-        relation
-            .init_metadata((*relation).rd_smgr)
-            .unwrap_or_else(|err| {
-                panic!("{}", err);
-            });
+
+        // Reset the relation's metadata
+        relation.init_metadata((*relation).rd_smgr)?;
         pg_sys::RelationClose(relation);
 
         // Clear all pending write commits for this table since it's being truncated
@@ -96,4 +95,7 @@ pub enum TruncateHookError {
 
     #[error(transparent)]
     Handler(#[from] HandlerError),
+
+    #[error(transparent)]
+    Metadata(#[from] MetadataError),
 }

@@ -97,8 +97,10 @@ async unsafe fn insert_tuples(
     // because PgTupleDesc "supposed" to free the corresponding Postgres memory when it
     // is dropped... however, in practice, we're not seeing the memory get freed, which is
     // causing huge memory usage when building large indexes.
-    let memcxt = INSERT_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
-    let old_context = pg_sys::MemoryContextSwitchTo(memcxt);
+    // We're using the raw C MemoryContext API here because PgMemoryContexts is getting refactored
+    // in pgrx 0.12.0 due to potential memory leaks.
+    let memctx = INSERT_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
+    let old_context = pg_sys::MemoryContextSwitchTo(memctx);
 
     let pg_relation = PgRelation::from_pg(rel);
     let tuple_desc = pg_relation.tuple_desc();
@@ -168,7 +170,7 @@ async unsafe fn insert_tuples(
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
 
-    pg_sys::MemoryContextReset(memcxt);
+    pg_sys::MemoryContextReset(memctx);
     pg_sys::MemoryContextSwitchTo(old_context);
 
     Ok(())

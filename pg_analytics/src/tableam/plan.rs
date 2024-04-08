@@ -15,6 +15,7 @@ fn relation_estimate_size(
     allvisfrac: *mut f64,
 ) -> Result<(), MetadataError> {
     unsafe {
+        // If the relation has no storage manager, create one
         if (*rel).rd_smgr.is_null() {
             #[cfg(feature = "pg16")]
             pg_sys::smgrsetowner(

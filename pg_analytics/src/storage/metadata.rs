@@ -1,3 +1,11 @@
+/*
+    Uses Postgres block storage to store metadata about a table.
+    Specifically, it stores the next row number to be used in the table.
+    read_next_row_number reads the next row number from the metadata, and
+    write_next_row_number writes the next row number to the metadata.
+    init_metadata initializes the metadata for a table.
+*/
+
 use pgrx::*;
 use std::ffi::c_void;
 use std::mem::size_of;

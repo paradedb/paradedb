@@ -1,9 +1,3 @@
-/*
-    Scans return tuples from our table to Postgres.
-    Because we intercept SELECT queries, not all scan functions need to be implemented.
-    The ones implemented are called as part of DELETE and UPDATE operations.
-*/
-
 use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;

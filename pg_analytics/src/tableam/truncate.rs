@@ -6,8 +6,10 @@ use crate::storage::metadata::{MetadataError, PgMetadata};
 #[inline]
 fn relation_nontransactional_truncate(rel: pg_sys::Relation) -> Result<(), MetadataError> {
     unsafe {
+        // Removes all blocks from the relation
         pg_sys::RelationTruncate(rel, 0);
 
+        // If the relation has no storage manager, create one
         if (*rel).rd_smgr.is_null() {
             #[cfg(feature = "pg16")]
             pg_sys::smgrsetowner(
@@ -21,6 +23,7 @@ fn relation_nontransactional_truncate(rel: pg_sys::Relation) -> Result<(), Metad
             );
         }
 
+        // Reset the relation's metadata
         rel.init_metadata((*rel).rd_smgr).unwrap_or_else(|err| {
             panic!("{}", err);
         });

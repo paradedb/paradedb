@@ -4,11 +4,15 @@
 set -Eeuo pipefail
 
 TRIES=3
+OS=$(uname)
 export PGPASSWORD='mypassword'
 
 while IFS= read -r query; do
-  sync
-  echo 3 | sudo tee /proc/sys/vm/drop_caches
+  # We only need to clear the cache on the OS where we do the official benchmarking
+  if [[ "$OS" == "Linux" ]]; then
+    sync
+    echo 3 | sudo tee /proc/sys/vm/drop_caches
+  fi
 
   echo "$query";
   # shellcheck disable=SC2034

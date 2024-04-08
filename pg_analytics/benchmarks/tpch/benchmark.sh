@@ -96,7 +96,7 @@ generate_dataset() {
   echo "Generating TPC-H dataset..."
   cd TPC-H_V3.0.1/dbgen
   make
-  ./dbgen -s 1
+  ./dbgen -s 1 -f
   cd ../..
 }
 
@@ -147,13 +147,13 @@ echo ""
 echo "Loading dataset..."
 export PGPASSWORD='mypassword'
 psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY nation FROM 'TPC-H_V3.0.1/dbgen/nation.tbl' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY customer FROM 'TPC-H_V3.0.1/dbgen/customer.tbl' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY supplier FROM 'TPC-H_V3.0.1/dbgen/supplier.tbl' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY part FROM 'TPC-H_V3.0.1/dbgen/part.tbl' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY partsupp FROM 'TPC-H_V3.0.1/dbgen/partsupp.tbl' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY orders FROM 'TPC-H_V3.0.1/dbgen/orders.tbl' WITH (FORMAT CSV, DELIMITER '|')"
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY lineitem FROM 'TPC-H_V3.0.1/dbgen/lineitem.tbl' WITH (FORMAT CSV, DELIMITER '|')"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY nation FROM 'TPC-H_V3.0.1/dbgen/nation.tbl' DELIMITER '|' CSV"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY customer FROM 'TPC-H_V3.0.1/dbgen/customer.tbl' DELIMITER '|' CSV"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY supplier FROM 'TPC-H_V3.0.1/dbgen/supplier.tbl' DELIMITER '|' CSV"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY part FROM 'TPC-H_V3.0.1/dbgen/part.tbl' DELIMITER '|' CSV"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY partsupp FROM 'TPC-H_V3.0.1/dbgen/partsupp.tbl' DELIMITER '|' CSV"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY orders FROM 'TPC-H_V3.0.1/dbgen/orders.tbl' DELIMITER '|' CSV"
+psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\COPY lineitem FROM 'TPC-H_V3.0.1/dbgen/lineitem.tbl' DELIMITER '|' CSV"
 
 echo ""
 echo "Running queries..."

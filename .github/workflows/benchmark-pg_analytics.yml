@@ -39,11 +39,11 @@ jobs:
         run: ./benchmark.sh -t local
 
       - name: Run Official TPC-H OLAP Benchmark
-        working-directory: pg_analytics/benchmarks/clickbench/
+        working-directory: pg_analytics/benchmarks/tpch/
         run: ./benchmark.sh -t local -w olap
 
       - name: Run Official TPC-H HTAP Benchmark
-        working-directory: pg_analytics/benchmarks/clickbench/
+        working-directory: pg_analytics/benchmarks/tpch/
         run: ./benchmark.sh -t local -w htap
 
       - name: Notify Slack on Failure

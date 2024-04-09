@@ -101,11 +101,10 @@ download_and_verify() {
 generate_dataset() {
   echo ""
   echo "Generating TPC-H dataset..."
-  cd TPC-H_V3.0.1/dbgen
-  make clean
+  cd TPC-H_V3.0.1/dbgen/
   rm -rf *.tbl
   make
-  ./dbgen -s 1 -f
+  ./dbgen -s 1
   cd ../..
 }
 
@@ -116,7 +115,7 @@ echo "**************************************************************************
 echo ""
 
 # Download the data generation tool and generate the dataset
-download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "bc82f852c6b6f31002a4c2dffa3efbb3" "TPC-H_V3.0.1.zip"
+download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "dc1ee612c2786cd6de519ddee9f86d54" "TPC-H_V3.0.1.zip"
 generate_dataset
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit

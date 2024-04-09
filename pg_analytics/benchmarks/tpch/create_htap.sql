@@ -1,11 +1,12 @@
--- This files creates 
-
-
-
--- *ALL* TPC-H tables in the `parquet` format
--- from pg_analytics.
+-- This files creates some TPC-H tables in the `parquet` format 
+-- from pg_analytics, and some in the standard Postgres `heap`
+-- format, to simulate a HTAP workload.
 
 -- nation
+-- Row-oriented table:
+-- While this table might be involved in some analytics queries, it's more likely
+-- to be used in transactional scenarios where you may need to retrieve entire
+-- nation records at once.
 CREATE TABLE IF NOT EXISTS nation
 (
   "n_nationkey"  INT,
@@ -14,10 +15,12 @@ CREATE TABLE IF NOT EXISTS nation
   "n_comment"    VARCHAR(152),
   "n_dummy"      VARCHAR(10),
   PRIMARY KEY ("n_nationkey")
-)
-USING parquet;
+);
 
 -- region
+-- Row-oriented table:
+-- Similar to the nation table, it's more likely to be accessed in transactional scenarios
+-- where you need to retrieve entire region records.
 CREATE TABLE IF NOT EXISTS region
 (
   "r_regionkey"  INT,
@@ -25,10 +28,13 @@ CREATE TABLE IF NOT EXISTS region
   "r_comment"    VARCHAR(152),
   "r_dummy"      VARCHAR(10),
   PRIMARY KEY ("r_regionkey")
-)
-USING parquet;
+);
 
 -- supplier
+-- Row-oriented table:
+-- This table contains supplier details which may be accessed in a variety of ways, including
+-- both analytics and transactional queries. However, since supplier details might be accessed
+-- as a whole in some scenarios, a row-oriented approach could be appropriate.
 CREATE TABLE IF NOT EXISTS supplier
 (
   "s_suppkey"     INT,
@@ -40,10 +46,12 @@ CREATE TABLE IF NOT EXISTS supplier
   "s_comment"     VARCHAR(101),
   "s_dummy"       VARCHAR(10),
   PRIMARY KEY ("s_suppkey")
-)
-USING parquet;
+);
 
 -- customer
+-- Row-oriented table:
+-- Similar to the supplier table, customer details are likely to be accessed in various scenarios,
+-- so a row-oriented approach is reasonable.
 CREATE TABLE IF NOT EXISTS customer
 (
   "c_custkey"     INT,
@@ -56,10 +64,12 @@ CREATE TABLE IF NOT EXISTS customer
   "c_comment"     VARCHAR(117),
   "c_dummy"       VARCHAR(10),
   PRIMARY KEY ("c_custkey")
-)
-USING parquet;
+);
 
 -- part
+-- Row-oriented table:
+-- While parts might be involved in some analytics queries, they're also likely to be accessed in
+-- transactional scenarios, making a row-oriented approach suitable.
 CREATE TABLE IF NOT EXISTS part
 (
   "p_partkey"     INT,
@@ -73,10 +83,12 @@ CREATE TABLE IF NOT EXISTS part
   "p_comment"     VARCHAR(23) ,
   "p_dummy"       VARCHAR(10),
   PRIMARY KEY ("p_partkey")
-)
-USING parquet;
+);
 
 -- partsupp
+-- Column-oriented table:
+-- This table is used in queries involving aggregation and filtering based on
+-- supply-related attributes such as ps_supplycost, ps_availqty, etc.
 CREATE TABLE IF NOT EXISTS partsupp
 (
   "ps_partkey"     INT,
@@ -86,10 +98,13 @@ CREATE TABLE IF NOT EXISTS partsupp
   "ps_comment"     VARCHAR(199),
   "ps_dummy"       VARCHAR(10),
   PRIMARY KEY ("ps_partkey")
-);
--- USING parquet;
+)
+USING parquet;
 
 -- orders
+-- Column-oriented table:
+-- This table is used in queries involving aggregation and filtering based on
+-- order-related attributes such as o_orderdate, o_totalprice, etc.
 CREATE TABLE IF NOT EXISTS orders
 (
   "o_orderkey"       INT,
@@ -107,6 +122,9 @@ CREATE TABLE IF NOT EXISTS orders
 USING parquet;
 
 -- lineitem
+-- Column-oriented table:
+-- This table is heavily used in analytical queries involving aggregation, grouping,
+-- and selection of specific columns such as l_extendedprice, l_discount, etc.
 CREATE TABLE IF NOT EXISTS lineitem
 (
   "l_orderkey"          INT,

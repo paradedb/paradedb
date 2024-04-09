@@ -322,9 +322,9 @@ pub extern "C" fn deltalake_tuple_get_latest_tid(
 */
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_satisfies_snapshot(
-    rel: pg_sys::Relation,
-    slot: *mut pg_sys::TupleTableSlot,
-    snapshot: pg_sys::Snapshot,
+    _rel: pg_sys::Relation,
+    _slot: *mut pg_sys::TupleTableSlot,
+    _snapshot: pg_sys::Snapshot,
 ) -> bool {
     true
 }

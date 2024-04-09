@@ -5,67 +5,48 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
-fn foreign_key_on_both(mut conn: PgConnection) {
-    r#"
-        CREATE TABLE users (
-            user_id SERIAL PRIMARY KEY,
-            username VARCHAR(255) NOT NULL,
-            email VARCHAR(255) UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) using parquet;
-        
-        CREATE TABLE orders (
-            order_id SERIAL PRIMARY KEY,
-            user_id INT NOT NULL,
-            order_total DECIMAL(10, 2) NOT NULL,
-            order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        ) using parquet;
-    "#
-    .execute(&mut conn);
-
-    r#"                        
-        INSERT INTO users (username, email) 
-        VALUES ('User1', 'user1@example.com'), ('User2', 'user2@example.com');
-    "#
-    .execute(&mut conn);
-
-    r#"
-        INSERT INTO orders (user_id, order_total) VALUES (1, 100.00), (2, 200.00);
-    "#
-    .execute(&mut conn);
-
-    let count: (i64,) = "SELECT COUNT(*) FROM users".fetch_one(&mut conn);
-    assert_eq!(count, (2,));
-
-    let count: (i64,) = "SELECT COUNT(*) FROM orders".fetch_one(&mut conn);
-    assert_eq!(count, (2,));
-
-    match "INSERT INTO orders (user_id, order_total) VALUES (3, 300.00)".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("violates foreign key constraint")),
-        _ => panic!("Foreign key constraint violated"),
-    };
-
-    let rows: Vec<(i32,)> = r#"
-        SELECT u.user_id FROM orders o
-        INNER JOIN users u ON o.user_id = u.user_id
-        ORDER BY u.user_id;
-    "#
-    .fetch(&mut conn);
-
-    let user_ids = [1, 2];
-    assert!(rows.iter().map(|r| r.0).eq(user_ids));
+fn single_fkey_on_both(mut conn: PgConnection) {
+    single_fkey_test(&mut conn, true, true);
 }
 
 #[rstest]
-fn foreign_key_on_parquet(mut conn: PgConnection) {
-    r#"
+fn single_fkey_on_parquet(mut conn: PgConnection) {
+    single_fkey_test(&mut conn, false, true);
+}
+
+#[rstest]
+fn single_fkey_on_heap(mut conn: PgConnection) {
+    single_fkey_test(&mut conn, true, false);
+}
+
+#[rstest]
+fn composite_fkey_on_both(mut conn: PgConnection) {
+    composite_fkey_test(&mut conn, true, true);
+}
+
+#[rstest]
+fn composite_fkey_on_parquet(mut conn: PgConnection) {
+    single_fkey_test(&mut conn, false, true);
+}
+
+#[rstest]
+fn composite_fkey_on_heap(mut conn: PgConnection) {
+    composite_fkey_test(&mut conn, true, false);
+}
+
+#[inline]
+fn single_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parquet: bool) {
+    let primary_am = if primary_parquet { "using parquet" } else { "" };
+    let foreign_am = if foreign_parquet { "using parquet" } else { "" };
+
+    let create_tables_sql = format!(
+        r#"
         CREATE TABLE users (
             user_id SERIAL PRIMARY KEY,
             username VARCHAR(255) NOT NULL,
             email VARCHAR(255) UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
+        ) {};
         
         CREATE TABLE orders (
             order_id SERIAL PRIMARY KEY,
@@ -73,34 +54,37 @@ fn foreign_key_on_parquet(mut conn: PgConnection) {
             order_total DECIMAL(10, 2) NOT NULL,
             order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(user_id)
-        ) using parquet;
-    "#
-    .execute(&mut conn);
+        ) {};
+        "#,
+        primary_am, foreign_am
+    );
+
+    create_tables_sql.execute(conn);
 
     r#"                        
         INSERT INTO users (username, email) 
         VALUES ('User1', 'user1@gmail.com'), ('User2', 'user2@gmail.com'), ('User3', 'user3@gmail.com'), ('User4', 'user4@gmail.com');
     "#
-    .execute(&mut conn);
+    .execute(conn);
 
     r#"
         INSERT INTO orders (user_id, order_total) VALUES (1, 100.00), (2, 200.00);
     "#
-    .execute(&mut conn);
+    .execute(conn);
 
-    let count: (i64,) = "SELECT COUNT(*) FROM users".fetch_one(&mut conn);
+    let count: (i64,) = "SELECT COUNT(*) FROM users".fetch_one(conn);
     assert_eq!(count, (4,));
 
-    let count: (i64,) = "SELECT COUNT(*) FROM orders".fetch_one(&mut conn);
+    let count: (i64,) = "SELECT COUNT(*) FROM orders".fetch_one(conn);
     assert_eq!(count, (2,));
 
-    match "INSERT INTO orders (user_id, order_total) VALUES (6, 600.00)".execute_result(&mut conn) {
+    match "INSERT INTO orders (user_id, order_total) VALUES (6, 600.00)".execute_result(conn) {
         Err(err) => assert!(err.to_string().contains("violates foreign key constraint")),
         _ => panic!("Foreign key constraint violated"),
     };
 
     match "INSERT INTO orders (user_id, order_total) VALUES (3, 300.00), (6, 600.0)"
-        .execute_result(&mut conn)
+        .execute_result(conn)
     {
         Err(err) => assert!(err.to_string().contains("violates foreign key constraint")),
         _ => panic!("Foreign key constraint violated"),
@@ -111,68 +95,79 @@ fn foreign_key_on_parquet(mut conn: PgConnection) {
         INNER JOIN users u ON o.user_id = u.user_id
         ORDER BY u.user_id;
     "#
-    .fetch(&mut conn);
+    .fetch(conn);
 
     let user_ids = [1, 2];
     assert!(rows.iter().map(|r| r.0).eq(user_ids));
 }
 
-#[rstest]
-fn foreign_key_on_heap(mut conn: PgConnection) {
-    r#"
-        CREATE TABLE users (
-            user_id SERIAL PRIMARY KEY,
-            username VARCHAR(255) NOT NULL,
-            email VARCHAR(255) UNIQUE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) using parquet;
-        
-        CREATE TABLE orders (
-            order_id SERIAL PRIMARY KEY,
-            user_id INT NOT NULL,
-            order_total DECIMAL(10, 2) NOT NULL,
-            order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (user_id) REFERENCES users(user_id)
-        );
-    "#
-    .execute(&mut conn);
+#[inline]
+fn composite_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parquet: bool) {
+    let primary_am = if primary_parquet { "using parquet" } else { "" };
+    let foreign_am = if foreign_parquet { "using parquet" } else { "" };
+
+    let create_tables_sql = format!(
+        r#"
+            CREATE TABLE users (
+                user_id SERIAL PRIMARY KEY,
+                username VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (username, email)
+            ) {};
+            
+            CREATE TABLE orders (
+                order_id SERIAL PRIMARY KEY,
+                username VARCHAR(255) NOT NULL,
+                email VARCHAR(255) NOT NULL,
+                order_total DECIMAL(10, 2) NOT NULL,
+                order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (username, email) REFERENCES users(username, email)
+            ) {};
+        "#,
+        primary_am, foreign_am
+    );
+
+    create_tables_sql.execute(conn);
 
     r#"                        
         INSERT INTO users (username, email) 
         VALUES ('User1', 'user1@gmail.com'), ('User2', 'user2@gmail.com'), ('User3', 'user3@gmail.com'), ('User4', 'user4@gmail.com');
     "#
-    .execute(&mut conn);
+    .execute(conn);
 
     r#"
-        INSERT INTO orders (user_id, order_total) VALUES (1, 100.00), (2, 200.00);
+        INSERT INTO orders (username, email, order_total) VALUES ('User1', 'user1@gmail.com', 100.00), ('User1', 'user1@gmail.com', 200.00);
     "#
-    .execute(&mut conn);
+    .execute(conn);
 
-    let count: (i64,) = "SELECT COUNT(*) FROM users".fetch_one(&mut conn);
+    let count: (i64,) = "SELECT COUNT(*) FROM users".fetch_one(conn);
     assert_eq!(count, (4,));
 
-    let count: (i64,) = "SELECT COUNT(*) FROM orders".fetch_one(&mut conn);
+    let count: (i64,) = "SELECT COUNT(*) FROM orders".fetch_one(conn);
     assert_eq!(count, (2,));
 
-    match "INSERT INTO orders (user_id, order_total) VALUES (6, 600.00)".execute_result(&mut conn) {
+    match "INSERT INTO orders (username, email, order_total) VALUES ('User1', 'user2@gmail.com', 100.00)".execute_result(conn) {
         Err(err) => assert!(err.to_string().contains("violates foreign key constraint")),
         _ => panic!("Foreign key constraint violated"),
     };
 
-    match "INSERT INTO orders (user_id, order_total) VALUES (3, 300.00), (6, 600.0)"
-        .execute_result(&mut conn)
+    match "INSERT INTO orders (username, email, order_total) VALUES ('User1', 'user1@gmail.com', 300.00), ('User1', 'user2@gmail.com', 100.00)"
+        .execute_result(conn)
     {
         Err(err) => assert!(err.to_string().contains("violates foreign key constraint")),
         _ => panic!("Foreign key constraint violated"),
     };
 
-    let rows: Vec<(i32,)> = r#"
-        SELECT u.user_id FROM orders o
-        INNER JOIN users u ON o.user_id = u.user_id
-        ORDER BY u.user_id;
+    let rows: Vec<(i32, i32)> = r#"
+        SELECT u.user_id, o.order_id FROM orders o 
+        JOIN users u on o.username = u.username AND o.email = u.email;
     "#
-    .fetch(&mut conn);
+    .fetch(conn);
 
-    let user_ids = [1, 2];
+    let user_ids = [1, 1];
+    let order_ids = [1, 2];
+
     assert!(rows.iter().map(|r| r.0).eq(user_ids));
+    assert!(rows.iter().map(|r| r.1).eq(order_ids));
 }

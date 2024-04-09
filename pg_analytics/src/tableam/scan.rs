@@ -91,9 +91,7 @@ pub async unsafe fn scan_getnextslot(
         let mut next_batch =
             match Stream::get_next_batch(&table_path, schema_name, table_name).await? {
                 Some(batch) => batch,
-                None => {
-                    return Ok(false);
-                }
+                None => return Ok(false),
             };
 
         next_batch.remove_xmin_column()?;

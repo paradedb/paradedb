@@ -91,7 +91,9 @@ pub async unsafe fn scan_getnextslot(
         let mut next_batch =
             match Stream::get_next_batch(&table_path, schema_name, table_name).await? {
                 Some(batch) => batch,
-                None => return Ok(false),
+                None => {
+                    return Ok(false);
+                }
             };
 
         next_batch.remove_xmin_column()?;
@@ -157,7 +159,9 @@ pub extern "C" fn deltalake_scan_begin(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_scan_end(_scan: pg_sys::TableScanDesc) {}
+pub extern "C" fn deltalake_scan_end(_scan: pg_sys::TableScanDesc) {
+    task::block_on(Stream::clear());
+}
 
 #[pg_guard]
 pub extern "C" fn deltalake_scan_rescan(
@@ -311,6 +315,11 @@ pub extern "C" fn deltalake_tuple_get_latest_tid(
     panic!("{}", TableScanError::LatestTIDNotSupported.to_string());
 }
 
+/*
+    Tech debt: We don't use Snapshot to determine which tuples are visible (although we eventually should)
+    As such, any tuple that is returned by our table scan is visible, since the table scan filters out
+    non-visible tuples.
+*/
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_satisfies_snapshot(
     rel: pg_sys::Relation,

@@ -50,8 +50,6 @@ pub async unsafe fn index_fetch_tuple(
     let schema_name = pg_relation.namespace().to_string();
     let RowNumber(row_number) = RowNumber::try_from(*tid)?;
 
-    info!("fetching {:?}", row_number);
-
     let full_dataframe = Session::with_tables(&schema_name.clone(), |mut tables| {
         Box::pin(async move {
             let table_path = ParadeDirectory::table_path_from_name(&schema_name, &table_name)?;
@@ -98,8 +96,6 @@ pub async unsafe fn index_fetch_tuple(
             (*slot).tts_tid = *tid;
 
             pg_sys::ExecStoreVirtualTuple(slot);
-
-            info!("fetched {:?}", row_number);
 
             Ok(true)
         }

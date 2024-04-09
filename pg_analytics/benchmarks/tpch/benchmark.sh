@@ -25,6 +25,7 @@ usage() {
 FLAG_TAG="local"
 WORKLOAD="olap"
 DOCKER_PORT=5432
+OS=$(uname)
 
 # Assign flags to vars and check
 while getopts "ht:w:" flag
@@ -115,7 +116,13 @@ echo "**************************************************************************
 echo ""
 
 # Download the data generation tool and generate the dataset
-download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "dc1ee612c2786cd6de519ddee9f86d54" "TPC-H_V3.0.1.zip"
+if [ "$OS" == "Linux" ]; then
+  # On Linux, which is where we run the official benchmarks, we download the original data generation tool
+  download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1-original.zip" "bc82f852c6b6f31002a4c2dffa3efbb3" "TPC-H_V3.0.1.zip"
+else
+  # On macOS, we needed to slightly modify the data generation tool for it to compile
+  download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "dc1ee612c2786cd6de519ddee9f86d54" "TPC-H_V3.0.1.zip"
+fi
 generate_dataset
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
@@ -176,7 +183,6 @@ echo "Running queries..."
 
 echo ""
 echo "Printing disk usage..."
-OS=$(uname)
 if [ "$OS" == "Linux" ]; then
   sudo docker exec paradedb du -bcs /bitnami/postgresql/data
 else

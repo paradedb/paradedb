@@ -17,6 +17,8 @@ use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
+use super::index::index_fetch_tuple;
+
 struct DeltalakeScanDesc {
     rs_base: pg_sys::TableScanDescData,
     curr_batch: Option<Arc<Mutex<RecordBatch>>>,
@@ -277,12 +279,20 @@ pub extern "C" fn deltalake_scan_sample_next_tuple(
 
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_fetch_row_version(
-    _rel: pg_sys::Relation,
-    _tid: pg_sys::ItemPointer,
+    rel: pg_sys::Relation,
+    tid: pg_sys::ItemPointer,
     _snapshot: pg_sys::Snapshot,
-    _slot: *mut pg_sys::TupleTableSlot,
+    slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    false
+    task::block_on(Writer::flush()).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
+
+    unsafe {
+        task::block_on(index_fetch_tuple(rel, slot, tid)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        })
+    }
 }
 
 #[pg_guard]
@@ -303,11 +313,11 @@ pub extern "C" fn deltalake_tuple_get_latest_tid(
 
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_satisfies_snapshot(
-    _rel: pg_sys::Relation,
-    _slot: *mut pg_sys::TupleTableSlot,
-    _snapshot: pg_sys::Snapshot,
+    rel: pg_sys::Relation,
+    slot: *mut pg_sys::TupleTableSlot,
+    snapshot: pg_sys::Snapshot,
 ) -> bool {
-    false
+    true
 }
 
 #[pg_guard]

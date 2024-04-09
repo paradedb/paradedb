@@ -104,7 +104,11 @@ generate_dataset() {
   echo "Generating TPC-H dataset..."
   cd TPC-H_V3.0.1/dbgen/
   rm -rf *.tbl
-  make
+  if [ "$OS" == "Linux" ]; then
+    make -f makefile.suite
+  else
+    make
+  fi
   ./dbgen -s 1
   cd ../..
 }

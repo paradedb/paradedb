@@ -81,7 +81,7 @@ CREATE TABLE IF NOT EXISTS partsupp
   "ps_supplycost"  DECIMAL(15,2),
   "ps_comment"     VARCHAR(199),
   "ps_dummy"       VARCHAR(10),
-  PRIMARY KEY ("ps_partkey")
+  PRIMARY KEY ("ps_partkey", "ps_suppkey")
 )
 USING parquet;
 
@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS lineitem
   "l_shipinstruct"      CHAR(25),
   "l_shipmode"          CHAR(10),
   "l_comment"           VARCHAR(44),
-  "l_dummy"             VARCHAR(10)
+  "l_dummy"             VARCHAR(10),
+  PRIMARY KEY ("l_orderkey", "l_linenumber")
 )
 USING parquet;

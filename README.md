@@ -37,10 +37,10 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Dense vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search
 - [ ] Analytics
-  - [x] Acclerated analytical queries and column-oriented storage with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
+  - [x] Accelerated analytical queries and column-oriented storage with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
   - [ ] External object store integrations (S3/Azure/GCS/HDFS)
   - [ ] External Apache Iceberg and Delta Lake support
-  - [ ] High volume data/Kafka ingest
+  - [ ] High-volume data/Kafka ingest
   - [ ] Non-Parquet file formats (Avro/ORC)
 - [x] Self-Hosted ParadeDB
   - [x] Docker image based on [bitnami/postgresql](https://hub.docker.com/r/bitnami/postgresql) & [deployment instructions](https://docs.paradedb.com/deploy/aws)
@@ -57,15 +57,17 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 
 To get started, please visit our [documentation](https://docs.paradedb.com).
 
-## Creating a ParadeDB Instance
+## Deploying ParadeDB
 
-### ParadeDB Cloud
+ParadeDB and its extensions, `pg_analytics` and `pg_search`, are available as commercial software for installation on self-hosted Postgres deployment, and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
 
-ParadeDB Cloud is currently under development. To get notified when it becomes live, we invite you to join our [waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
+### Extensions
 
-### Self-Hosted
+You can find pre-packaged releases for all ParadeDB extensions for both Postgres 15 and Postgres 16 on Ubuntu 22.04 in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). We officially support Postgres 12 and above, and you can compile the extensions for other versions of Postgres by following the instructions in the respective extension's README.
 
-#### ParadeDB Docker Image
+For official support on non-Debian-based systems, please [contact us by email](mailto:sales@paradedb.com).
+
+### Docker Image
 
 To quickly get a ParadeDB instance up and running, simply pull and run the latest Docker image:
 
@@ -111,17 +113,13 @@ docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W
 
 ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry by setting `PARADEDB_TELEMETRY` to `false` or by unsetting the variable.
 
-#### ParadeDB Helm Chart
+### Helm Chart
 
 ParadeDB is also available for Kubernetes via our Helm chart. You can find our Helm chart in the [ParadeDB Helm Chart GitHub repository](https://github.com/paradedb/helm-charts) or download it directly from [Artifact Hub](https://artifacthub.io/packages/helm/paradedb/paradedb).
 
-#### ParadeDB Extension(s)
+### ParadeDB Cloud
 
-To install the ParadeDB extension(s) manually within an existing self-hosted Postgres,
-see the extension(s)' README. We strongly recommend using the ParadeDB Docker image,
-which is optimized for running search in Postgres.
-
-If you are self-hosting Postgres and are interested in ParadeDB, please [contact the ParadeDB team](mailto:hello@paradedb.com) and we'll be happy to help!
+At the moment, ParadeDB is not available as a managed cloud service. If you are interested in a ParadeDB Cloud service, please let us know by joining our [waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
 
 ## Support
 

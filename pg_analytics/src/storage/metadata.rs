@@ -158,7 +158,7 @@ impl PgMetadata for pg_sys::Relation {
                 smgr,
                 pg_sys::ForkNumber_MAIN_FORKNUM,
                 FIRST_BLOCK_NUMBER,
-                page as *mut i8,
+                page as *mut std::ffi::c_char,
                 true,
             );
 

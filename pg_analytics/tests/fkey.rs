@@ -36,8 +36,8 @@ fn composite_fkey_on_heap(mut conn: PgConnection) {
 
 #[inline]
 fn single_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parquet: bool) {
-    let primary_am = if primary_parquet { "using parquet" } else { "" };
-    let foreign_am = if foreign_parquet { "using parquet" } else { "" };
+    let primary_am = if primary_parquet { "parquet" } else { "heap" };
+    let foreign_am = if foreign_parquet { "parquet" } else { "heap" };
 
     let create_sql = format!(
         r#"
@@ -46,7 +46,7 @@ fn single_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parq
             username VARCHAR(255) NOT NULL,
             email VARCHAR(255) UNIQUE NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        ) {};
+        ) USING {};
         
         CREATE TABLE orders (
             order_id SERIAL PRIMARY KEY,
@@ -54,7 +54,7 @@ fn single_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parq
             order_total DECIMAL(10, 2) NOT NULL,
             order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(user_id)
-        ) {};
+        ) USING {};
         "#,
         primary_am, foreign_am
     );

@@ -136,6 +136,12 @@ jobs:
           cargo pgrx init --pg${{ matrix.pg_version }}="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --profile dev
 
+
+
+      - name: Setup upterm session
+        uses: lhotari/action-upterm@v1
+
+
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_analytics Cargo Test Suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'

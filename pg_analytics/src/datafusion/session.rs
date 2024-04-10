@@ -173,6 +173,7 @@ impl Session {
     }
 
     pub fn catalog_oid() -> pg_sys::Oid {
+        info!("MyDatabaseId: {:?}", unsafe { pg_sys::MyDatabaseId });
         unsafe { pg_sys::MyDatabaseId }
     }
 }

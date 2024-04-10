@@ -39,7 +39,9 @@ pub unsafe extern "C" fn _PG_init() {
     // We call this in a helper function to the bgworker initialization
     // can be used in test suites.
     setup_background_workers();
-    setup_telemetry_background_worker(shared::telemetry::ParadeExtension::PgSearch);
+
+    // TODO: Uncomment this once we fix the telemetry PGDATA error
+    // setup_telemetry_background_worker(shared::telemetry::ParadeExtension::PgSearch);
 }
 
 #[pg_guard]

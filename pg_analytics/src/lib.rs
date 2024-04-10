@@ -30,7 +30,8 @@ pub extern "C" fn _PG_init() {
         register_hook(&mut PARADE_HOOK)
     };
 
-    setup_telemetry_background_worker(ParadeExtension::PgAnalytics);
+    // TODO: Uncomment this once we fix the telemetry PGDATA error
+    // setup_telemetry_background_worker(ParadeExtension::PgAnalytics);
 }
 
 #[cfg(test)]

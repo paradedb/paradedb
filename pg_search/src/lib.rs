@@ -14,7 +14,7 @@ use crate::globals::WRITER_GLOBAL;
 use pgrx::bgworkers::{BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::*;
 use shared::gucs::PostgresGlobalGucSettings;
-use shared::telemetry::setup_telemetry_background_worker;
+// use shared::telemetry::setup_telemetry_background_worker;
 use std::process;
 use std::time::Duration;
 

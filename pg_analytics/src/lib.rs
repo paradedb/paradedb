@@ -11,7 +11,7 @@ mod types;
 use crate::hooks::ParadeHook;
 use guc::PostgresPgAnalyticsGucSettings;
 use pgrx::*;
-use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
+// use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
 
 pgrx::pg_module_magic!();
 extension_sql_file!("../sql/_bootstrap.sql");

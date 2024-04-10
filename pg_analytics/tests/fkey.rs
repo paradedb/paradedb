@@ -39,7 +39,7 @@ fn single_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parq
     let primary_am = if primary_parquet { "using parquet" } else { "" };
     let foreign_am = if foreign_parquet { "using parquet" } else { "" };
 
-    let create_tables_sql = format!(
+    let create_sql = format!(
         r#"
         CREATE TABLE users (
             user_id SERIAL PRIMARY KEY,
@@ -59,7 +59,7 @@ fn single_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parq
         primary_am, foreign_am
     );
 
-    create_tables_sql.execute(conn);
+    create_sql.execute(conn);
 
     r#"                        
         INSERT INTO users (username, email) 

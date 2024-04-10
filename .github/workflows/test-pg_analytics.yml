@@ -137,7 +137,7 @@ jobs:
           cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --profile dev
 
 
-
+      # Tmp
       - name: Setup tmate session
         uses: mxschmitt/action-tmate@v3
 

@@ -138,8 +138,8 @@ jobs:
 
 
 
-      - name: Setup upterm session
-        uses: lhotari/action-upterm@v1
+      - name: Setup tmate session
+        uses: mxschmitt/action-tmate@v3
 
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)

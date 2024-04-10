@@ -103,8 +103,8 @@ fn single_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parq
 
 #[inline]
 fn composite_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parquet: bool) {
-    let primary_am = if primary_parquet { "using parquet" } else { "" };
-    let foreign_am = if foreign_parquet { "using parquet" } else { "" };
+    let primary_am = if primary_parquet { "parquet" } else { "heap" };
+    let foreign_am = if foreign_parquet { "parquet" } else { "heap" };
 
     let create_tables_sql = format!(
         r#"
@@ -114,7 +114,7 @@ fn composite_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_p
                 email VARCHAR(255) NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (username, email)
-            ) {};
+            ) USING {};
             
             CREATE TABLE orders (
                 order_id SERIAL PRIMARY KEY,
@@ -123,7 +123,7 @@ fn composite_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_p
                 order_total DECIMAL(10, 2) NOT NULL,
                 order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (username, email) REFERENCES users(username, email)
-            ) {};
+            ) USING {};
         "#,
         primary_am, foreign_am
     );

@@ -8,8 +8,6 @@
 # https://github.com/bitnami/containers/blob/main/bitnami/postgresql/README.md#environment-variables
 #
 
-version: "3.8"
-
 services:
   paradedb-dev:
     build:

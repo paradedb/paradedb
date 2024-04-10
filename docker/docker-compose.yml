@@ -13,7 +13,7 @@ version: "3.8"
 
 services:
   paradedb:
-    image: paradedb/paradedb:16-v0.5.11
+    image: paradedb/paradedb:latest
     environment:
       POSTGRESQL_USERNAME: myuser
       POSTGRESQL_PASSWORD: mypassword

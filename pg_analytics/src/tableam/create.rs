@@ -59,7 +59,7 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
 ) {
     unsafe {
         let tablespace_oid = unsafe { (*newrlocator).spcOid };
-        info!("Tablespace oid: {:?}", tablespace_oid);   
+        info!("Tablespace oid: {:?}", tablespace_oid);
 
         let tablespace_dir = unsafe {
             direct_function_call::<String>(

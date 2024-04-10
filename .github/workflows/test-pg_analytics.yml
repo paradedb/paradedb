@@ -51,9 +51,6 @@ jobs:
           - runner: ubuntu-latest
             pg_version: 16
             arch: amd64
-          # - runner: ubicloud-standard-8-ubuntu-2204-arm # We also test on arm for PG16 since its the version we ship to DockerHub/GitHub Release
-          #   pg_version: 16
-          #   arch: arm64
     env:
       default_pg_version: 16
 
@@ -135,12 +132,6 @@ jobs:
         run: |
           cargo pgrx init --pg${{ matrix.pg_version }}="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
           cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --profile dev
-
-
-      # Tmp
-      - name: Setup tmate session
-        uses: mxschmitt/action-tmate@v3
-
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
       - name: Run pg_analytics Cargo Test Suite

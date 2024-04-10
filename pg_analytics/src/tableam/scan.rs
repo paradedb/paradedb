@@ -338,17 +338,23 @@ pub extern "C" fn deltalake_tuple_complete_speculative(
 
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_lock(
-    _rel: pg_sys::Relation,
-    _tid: pg_sys::ItemPointer,
+    rel: pg_sys::Relation,
+    tid: pg_sys::ItemPointer,
     _snapshot: pg_sys::Snapshot,
-    _slot: *mut pg_sys::TupleTableSlot,
+    slot: *mut pg_sys::TupleTableSlot,
     _cid: pg_sys::CommandId,
     _mode: pg_sys::LockTupleMode,
     _wait_policy: pg_sys::LockWaitPolicy,
     _flags: pg_sys::uint8,
     _tmfd: *mut pg_sys::TM_FailureData,
 ) -> pg_sys::TM_Result {
-    0
+    unsafe {
+        task::block_on(index_fetch_tuple(rel, slot, tid)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+    }
+
+    pg_sys::TM_Result_TM_Ok
 }
 
 #[derive(Error, Debug)]

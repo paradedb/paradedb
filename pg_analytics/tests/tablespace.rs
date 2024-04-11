@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 const TEST_TABLESPACE: &str = "test_tablespace";
-const DELTALAKE_DIR: &str = "deltalake";
 
 fn custom_tablespace_path(conn: &mut PgConnection) -> PathBuf {
     let data_dir = "SHOW data_directory".fetch_one::<(String,)>(conn).0;
@@ -21,11 +20,6 @@ fn custom_tablespace_path(conn: &mut PgConnection) -> PathBuf {
     path
 }
 
-fn default_tablespace_path(conn: &mut PgConnection) -> PathBuf {
-    let data_dir = "SHOW data_directory".fetch_one::<(String,)>(conn).0;
-    PathBuf::from(&data_dir).join(DELTALAKE_DIR)
-}
-
 fn total_files_in_dir(path: &Path) -> usize {
     WalkDir::new(path).into_iter().count()
 }
@@ -33,7 +27,6 @@ fn total_files_in_dir(path: &Path) -> usize {
 #[rstest]
 fn table_with_tablespace(mut conn: PgConnection) {
     let custom_tablespace_path = custom_tablespace_path(&mut conn);
-    let default_tablespace_path = default_tablespace_path(&mut conn);
 
     format!(
         r#"
@@ -59,35 +52,24 @@ fn table_with_tablespace(mut conn: PgConnection) {
     )
     .execute(&mut conn);
 
-    let db_name = "SELECT current_database()"
-        .fetch_one::<(String,)>(&mut conn)
-        .0;
-    let db_oid = format!("SELECT oid FROM pg_database WHERE datname='{db_name}'")
-        .fetch_one::<(sqlx::postgres::types::Oid,)>(&mut conn)
-        .0
-         .0;
-    let schema_oid = "SELECT oid FROM pg_namespace WHERE nspname='my_schema'"
-        .to_string()
-        .fetch_one::<(sqlx::postgres::types::Oid,)>(&mut conn)
-        .0
-         .0;
-
-    assert!(custom_tablespace_path.join(DELTALAKE_DIR).exists());
     assert!(
         total_files_in_dir(
             &custom_tablespace_path
-                .join(DELTALAKE_DIR)
-                .join(db_oid.to_string())
-                .join(schema_oid.to_string())
+                .join("deltalake")
+                .join(database_oid(&mut conn))
+                .join(schema_oid(&mut conn, "my_schema"))
         ) > 0
     );
     assert!(
         total_files_in_dir(
-            &default_tablespace_path
-                .join(db_oid.to_string())
-                .join(schema_oid.to_string())
+            &custom_tablespace_path
+                .join("deltalake")
+                .join(database_oid(&mut conn))
+                .join(schema_oid(&mut conn, "public"))
         ) > 0
     );
+    assert!(total_files_in_dir(&default_schema_path(&mut conn, "my_schema")) > 0);
+    assert!(total_files_in_dir(&default_schema_path(&mut conn, "public")) > 0);
 
     assert_eq!("SELECT a FROM t".fetch_one::<(i32,)>(&mut conn), (1,));
     assert_eq!("SELECT a FROM s".fetch_one::<(i32,)>(&mut conn), (2,));

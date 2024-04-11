@@ -19,17 +19,19 @@ fn relation_vacuum(rel: pg_sys::Relation, optimize: bool) -> Result<(), VacuumEr
     Ok(())
 }
 
+/*
+ * Called by non-FULL VACUUMs.
+ */
 #[pg_guard]
 pub extern "C" fn deltalake_relation_vacuum(
     rel: pg_sys::Relation,
     _params: *mut pg_sys::VacuumParams,
     _bstrategy: pg_sys::BufferAccessStrategy,
 ) {
-    let pg_relation = unsafe { PgRelation::from_pg(rel) };
     unsafe {
         pg_sys::pgstat_progress_start_command(
             pg_sys::ProgressCommandType_PROGRESS_COMMAND_VACUUM,
-            pg_relation.oid(),
+            PgRelation::from_pg(rel).oid(),
         );
     }
 
@@ -42,6 +44,9 @@ pub extern "C" fn deltalake_relation_vacuum(
     }
 }
 
+/*
+ * Called by FULL VACUUMs.
+ */
 #[pg_guard]
 pub extern "C" fn deltalake_relation_copy_for_cluster(
     rel: pg_sys::Relation,
@@ -59,7 +64,7 @@ pub extern "C" fn deltalake_relation_copy_for_cluster(
         warning!("{}", err);
     });
 
-    // This assumes that tables are append-only, so the highest row number = number of tuples
+    // Tables are append-only, so the highest row number = number of tuples
     unsafe {
         *num_tuples = (rel.read_next_row_number().unwrap_or(1) - 1) as f64;
         *tups_vacuumed = 0.0;

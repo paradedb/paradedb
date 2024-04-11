@@ -35,6 +35,7 @@ impl SchemaProvider for ParadeSchemaProvider {
         self
     }
 
+    // This function never gets called anywhere, so it's safe to leave unimplemented
     fn table_names(&self) -> Vec<String> {
         todo!("table_names not implemented")
     }

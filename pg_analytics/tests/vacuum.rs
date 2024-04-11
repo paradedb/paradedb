@@ -6,20 +6,6 @@ use sqlx::PgConnection;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-fn test_data_path(conn: &mut PgConnection) -> PathBuf {
-    let db_name = "SELECT current_database()".fetch_one::<(String,)>(conn).0;
-    let data_dir = "SHOW data_directory".fetch_one::<(String,)>(conn).0;
-    let parade_dir = "deltalake";
-    let db_oid = format!("SELECT oid FROM pg_database WHERE datname='{db_name}'")
-        .fetch_one::<(sqlx::postgres::types::Oid,)>(conn)
-        .0
-         .0;
-
-    PathBuf::from(&data_dir)
-        .join(parade_dir)
-        .join(db_oid.to_string())
-}
-
 fn path_is_parquet_file(path: &Path) -> bool {
     match path.extension() {
         Some(ext) => ext == "parquet",
@@ -49,37 +35,42 @@ fn vacuum(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn vacuum_check_files(mut conn: PgConnection) {
-    "CREATE TABLE t (a int) USING parquet".execute(&mut conn);
-    "CREATE TABLE s (a int)".execute(&mut conn);
-    "INSERT INTO t VALUES (1), (2), (3)".execute(&mut conn);
-    "INSERT INTO s VALUES (4), (5), (6)".execute(&mut conn);
-
-    let data_path = test_data_path(&mut conn);
-
-    let total_pre_vacuum_files = total_files_in_dir(&data_path);
-
-    "DROP TABLE t, s".execute(&mut conn);
-    "VACUUM".execute(&mut conn);
-
-    let total_post_vacuum_files = total_files_in_dir(&data_path);
-
-    assert!(total_pre_vacuum_files > total_post_vacuum_files);
-}
-
-#[rstest]
-fn vacuum_full_check_files(mut conn: PgConnection) {
+fn vacuum_full_table(mut conn: PgConnection) {
     "CREATE TABLE t (a int) USING parquet".execute(&mut conn);
     "INSERT INTO t VALUES (1), (2), (3)".execute(&mut conn);
     "INSERT INTO t VALUES (4), (5), (6)".execute(&mut conn);
 
-    let data_path = test_data_path(&mut conn);
-
+    let data_path = default_table_path(&mut conn, "public", "t");
     let total_pre_vacuum_files = total_files_in_dir(&data_path);
+
+    "VACUUM FULL t".execute(&mut conn);
+
+    let total_post_vacuum_files = total_files_in_dir(&data_path);
+    assert!(total_pre_vacuum_files > total_post_vacuum_files);
+}
+
+#[rstest]
+fn vacuum_full_all(mut conn: PgConnection) {
+    "CREATE TABLE t (a int) USING parquet".execute(&mut conn);
+    "INSERT INTO t VALUES (1), (2), (3)".execute(&mut conn);
+    "INSERT INTO t VALUES (4), (5), (6)".execute(&mut conn);
+
+    "CREATE TABLE s (a int) USING parquet".execute(&mut conn);
+    "INSERT INTO s VALUES (1), (2), (3)".execute(&mut conn);
+    "INSERT INTO s VALUES (4), (5), (6)".execute(&mut conn);
+
+    let total_pre_vacuum_files_t =
+        total_files_in_dir(&default_table_path(&mut conn, "public", "t"));
+    let total_pre_vacuum_files_s =
+        total_files_in_dir(&default_table_path(&mut conn, "public", "s"));
 
     "VACUUM FULL".execute(&mut conn);
 
-    let total_post_vacuum_files = total_files_in_dir(&data_path);
+    let total_post_vacuum_files_t =
+        total_files_in_dir(&default_table_path(&mut conn, "public", "t"));
+    let total_post_vacuum_files_s =
+        total_files_in_dir(&default_table_path(&mut conn, "public", "s"));
 
-    assert!(total_pre_vacuum_files > total_post_vacuum_files);
+    assert!(total_pre_vacuum_files_t > total_post_vacuum_files_t);
+    assert!(total_pre_vacuum_files_s > total_post_vacuum_files_s);
 }

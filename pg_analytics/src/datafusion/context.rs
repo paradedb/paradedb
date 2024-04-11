@@ -15,7 +15,6 @@ use std::sync::Arc;
 
 use super::catalog::CatalogError;
 use super::directory::ParadeDirectory;
-use super::schema::ParadeSchemaProvider;
 use super::session::Session;
 use super::table::PgTableProvider;
 

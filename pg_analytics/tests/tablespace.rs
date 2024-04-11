@@ -27,6 +27,7 @@ fn total_files_in_dir(path: &Path) -> usize {
 #[rstest]
 fn table_with_tablespace(mut conn: PgConnection) {
     let custom_tablespace_path = custom_tablespace_path(&mut conn);
+    let default_tablespace_path = default_tablespace_path(&mut conn);
 
     format!(
         r#"

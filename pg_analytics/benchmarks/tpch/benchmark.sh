@@ -18,17 +18,19 @@ usage() {
   echo " -w (optional),  Workload to benchmark:"
   echo "                  - 'olap' Runs the TPC-H benchmark against all pg_analytics 'parquet' tables"
   echo "                  - 'htap' Runs the TPC-H benchmark against a combination of pg_analytics 'parquet' and Postgres 'heap' tables"
+  echo " -s (optional),  Scale factor for the TPC-H dataset, in GBs (default: 1, other options: 10, 100, 1000)"
   exit 1
 }
 
 # Instantiate vars
 FLAG_TAG="local"
 WORKLOAD="olap"
+SCALE=1
 DOCKER_PORT=5432
 OS=$(uname)
 
 # Assign flags to vars and check
-while getopts "ht:w:" flag
+while getopts "ht:w:s:" flag
 do
   case $flag in
     h)
@@ -39,6 +41,9 @@ do
       ;;
     w)
       WORKLOAD=$OPTARG
+      ;;
+    s)
+      SCALE=$OPTARG
       ;;
     *)
       usage
@@ -95,7 +100,6 @@ download_and_verify() {
   echo "Downloading $filename dataset..."
   wget --no-verbose --continue -O "$filename" "$url"
   unzip "$filename"
-  rm -rf "$filename" # Remove the zip file
 }
 
 # Generate the TPC-H dataset
@@ -103,13 +107,9 @@ generate_dataset() {
   echo ""
   echo "Generating TPC-H dataset..."
   cd TPC-H_V3.0.1/dbgen/
-  rm -rf *.tbl
-  if [ "$OS" == "Linux" ]; then
-    make -f makefile.suite
-  else
-    make
-  fi
-  ./dbgen -s 1
+  rm -rf ./*.tbl
+  make
+  ./dbgen -s "$SCALE"
   cd ../..
 }
 
@@ -120,13 +120,7 @@ echo "**************************************************************************
 echo ""
 
 # Download the data generation tool and generate the dataset
-if [ "$OS" == "Linux" ]; then
-  # On Linux, which is where we run the official benchmarks, we download the original data generation tool
-  download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1-original.zip" "bc82f852c6b6f31002a4c2dffa3efbb3" "TPC-H_V3.0.1.zip"
-else
-  # On macOS, we needed to slightly modify the data generation tool for it to compile
-  download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "dc1ee612c2786cd6de519ddee9f86d54" "TPC-H_V3.0.1.zip"
-fi
+download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "dc1ee612c2786cd6de519ddee9f86d54" "TPC-H_V3.0.1.zip"
 generate_dataset
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit

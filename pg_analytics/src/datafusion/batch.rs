@@ -19,6 +19,7 @@ impl PostgresBatch for RecordBatch {
     }
 
     fn remove_xmin_column(&mut self) -> Result<Arc<dyn Array>, ArrowError> {
+        pgrx::info!("remove_xmin_column");
         let schema = self.schema();
         let index = schema.index_of(RESERVED_XMIN_FIELD)?;
 

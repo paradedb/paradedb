@@ -3,9 +3,8 @@ use std::collections::HashMap;
 use std::ffi::{c_char, CString};
 
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
+use crate::tableam::{deltalake_tableam_relation_oid, TableAMError};
 use thiserror::Error;
-
-static COLUMN_HANDLER: &str = "parquet";
 
 pub trait TableClassifier {
     #[allow(clippy::wrong_self_convention)]
@@ -14,7 +13,7 @@ pub trait TableClassifier {
 
 impl TableClassifier for *mut pg_sys::List {
     unsafe fn table_lists(self) -> Result<HashMap<&'static str, Vec<PgRelation>>, HandlerError> {
-        let col_oid = column_oid()?;
+        let col_oid = deltalake_tableam_relation_oid()?;
 
         #[cfg(feature = "pg12")]
         let mut current_cell = (*self).head;
@@ -73,7 +72,7 @@ impl IsColumn for *mut pg_sys::RelationData {
             return Ok(false);
         }
 
-        let oid = column_oid()?;
+        let oid = deltalake_tableam_relation_oid()?;
 
         let relation_handler_oid = (*self).rd_amhandler;
 
@@ -81,28 +80,8 @@ impl IsColumn for *mut pg_sys::RelationData {
     }
 }
 
-unsafe fn column_oid() -> Result<pg_sys::Oid, HandlerError> {
-    let parquet_handler_str = CString::new(COLUMN_HANDLER)?;
-    let parquet_handler_ptr = parquet_handler_str.as_ptr() as *const c_char;
-
-    let parquet_oid = pg_sys::get_am_oid(parquet_handler_ptr, true);
-
-    if parquet_oid == pg_sys::InvalidOid {
-        return Ok(parquet_oid);
-    }
-
-    let heap_tuple_data = pg_sys::SearchSysCache1(
-        pg_sys::SysCacheIdentifier_AMOID as i32,
-        pg_sys::Datum::from(parquet_oid),
-    );
-    let catalog = pg_sys::heap_tuple_get_struct::<pg_sys::FormData_pg_am>(heap_tuple_data);
-    pg_sys::ReleaseSysCache(heap_tuple_data);
-
-    Ok((*catalog).amhandler)
-}
-
 #[derive(Error, Debug)]
 pub enum HandlerError {
     #[error(transparent)]
-    NulError(#[from] std::ffi::NulError),
+    TableAM(#[from] TableAMError),
 }

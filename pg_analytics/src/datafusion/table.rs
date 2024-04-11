@@ -1,3 +1,4 @@
+use async_std::task;
 use async_std::sync::Mutex;
 use async_trait::async_trait;
 use deltalake::arrow::error::ArrowError;
@@ -40,6 +41,7 @@ use super::catalog::CatalogError;
 use super::directory::{DirectoryError, ParadeDirectory};
 use super::session::Session;
 use crate::guc::PARADE_GUC;
+use crate::tableam::CREATE_TABLE_PARTITIONS;
 use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
 
 pub static RESERVED_TID_FIELD: &str = "parade_ctid";
@@ -164,9 +166,12 @@ impl Tables {
     ) -> Result<DeltaTable, DataFusionTableError> {
         let delta_schema = DeltaSchema::try_from(arrow_schema.as_ref())?;
 
+        let partitions = task::block_on(CREATE_TABLE_PARTITIONS.lock());
+
         let delta_table = CreateBuilder::new()
             .with_location(table_path.to_string_lossy())
             .with_columns(delta_schema.fields().to_vec())
+            .with_partition_columns((*partitions).clone())
             .await?;
 
         Ok(delta_table)

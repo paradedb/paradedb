@@ -6,6 +6,7 @@ use deltalake::datafusion::sql::parser::{self, DFParser};
 use deltalake::datafusion::sql::planner::SqlToRel;
 use deltalake::datafusion::sql::sqlparser::dialect::PostgreSqlDialect;
 use deltalake::datafusion::sql::sqlparser::parser::ParserError;
+use pgrx::*;
 use regex::Regex;
 use std::collections::VecDeque;
 use thiserror::Error;
@@ -37,6 +38,8 @@ impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
     fn try_from(query: QueryString) -> Result<Self, Self::Error> {
         let QueryString(query) = query;
 
+        info!("query: {:?}", query);
+
         let dialect = PostgreSqlDialect {};
         let ast = DFParser::parse_sql_with_dialect(query, &dialect)?;
         let statement = &ast[0];
@@ -48,9 +51,11 @@ impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
         // If functions are undefined, then try to find and register the function and then try to get the plan again
         let re = Regex::new(r"Invalid function '(.+)'")?;
         let logical_plan = loop {
+            info!("statement: {:?}", statement);
             match sql_to_rel.statement_to_plan(statement.clone()) {
                 Ok(plan) => break plan,
                 Err(DataFusionError::Plan(err_string)) => {
+                    info!("err: {:?}", err_string);
                     // This regex checks for "Invalid function" in the plan error and
                     //     otherwise pushes the plan error up, breaking the loop.
                     let missing_func_name = re
@@ -65,7 +70,10 @@ impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
 
                     // Loop again
                 }
-                Err(err) => return Err(QueryParserError::DataFusion(err)),
+                Err(err) => {
+                    info!("err: {:?}", err);
+                    return Err(QueryParserError::DataFusion(err));
+                },
             };
         };
 

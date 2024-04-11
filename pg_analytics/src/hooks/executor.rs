@@ -64,6 +64,7 @@ pub fn executor_run(
             // Parse the query into a LogicalPlan
             match LogicalPlanDetails::try_from(QueryString(&query)) {
                 Ok(logical_plan_details) => {
+                    info!("ok!");
                     let logical_plan = logical_plan_details.logical_plan();
 
                     // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
@@ -88,6 +89,7 @@ pub fn executor_run(
                     }
                 }
                 Err(_) => {
+                    info!("err");
                     prev_hook(query_desc, direction, count, execute_once);
                 }
             };

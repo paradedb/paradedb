@@ -11,8 +11,12 @@ mod truncate;
 mod update;
 mod vacuum;
 
+use async_std::sync::{Arc, Mutex};
+use once_cell::sync::Lazy;
 use pgrx::*;
+use std::ffi::{c_char, CString};
 use std::ptr::addr_of_mut;
+use thiserror::Error;
 
 use crate::tableam::create::*;
 use crate::tableam::delete::*;
@@ -24,6 +28,11 @@ use crate::tableam::toast::*;
 use crate::tableam::truncate::*;
 use crate::tableam::update::*;
 use crate::tableam::vacuum::*;
+
+static COLUMN_HANDLER: &str = "parquet";
+
+pub static CREATE_TABLE_PARTITIONS: Lazy<Arc<Mutex<Vec<String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(Vec::new())));
 
 pub static mut DELTALAKE_TABLE_AM_ROUTINE: pg_sys::TableAmRoutine = pg_sys::TableAmRoutine {
     type_: pg_sys::NodeTag::T_TableAmRoutine,
@@ -106,4 +115,36 @@ extern "C" fn deltalake_tableam_handler(
     _fcinfo: pg_sys::FunctionCallInfo,
 ) -> *mut pg_sys::TableAmRoutine {
     unsafe { addr_of_mut!(DELTALAKE_TABLE_AM_ROUTINE) }
+}
+
+pub unsafe fn deltalake_tableam_oid() -> Result<pg_sys::Oid, TableAMError> {
+    let deltalake_handler_str = CString::new(COLUMN_HANDLER)?;
+    let deltalake_handler_ptr = deltalake_handler_str.as_ptr() as *const c_char;
+
+    let deltalake_oid = pg_sys::get_am_oid(deltalake_handler_ptr, true);
+
+    Ok(deltalake_oid)
+}
+
+pub unsafe fn deltalake_tableam_relation_oid() -> Result<pg_sys::Oid, TableAMError> {
+    let deltalake_oid = deltalake_tableam_oid()?;
+
+    if deltalake_oid == pg_sys::InvalidOid {
+        return Ok(deltalake_oid);
+    }
+
+    let heap_tuple_data = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier_AMOID as i32,
+        pg_sys::Datum::from(deltalake_oid),
+    );
+    let catalog = pg_sys::heap_tuple_get_struct::<pg_sys::FormData_pg_am>(heap_tuple_data);
+    pg_sys::ReleaseSysCache(heap_tuple_data);
+
+    Ok((*catalog).amhandler)
+}
+
+#[derive(Error, Debug)]
+pub enum TableAMError {
+    #[error(transparent)]
+    NulError(#[from] std::ffi::NulError),
 }

@@ -6,7 +6,7 @@ use crate::datafusion::session::Session;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::hooks::handler::{HandlerError, IsColumn};
 
-pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), DropHookError> {
+pub unsafe fn drop_relations(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), DropHookError> {
     // Ignore if not DROP TABLE
     if (*drop_stmt).removeType != pg_sys::ObjectType_OBJECT_TABLE {
         return Ok(());

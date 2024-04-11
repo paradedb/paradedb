@@ -55,12 +55,8 @@ should be stored in regular Postgres `heap` tables.
 
 ### Storage Optimization
 
-When Parquet files are dropped, they remain on disk until `VACUUM` is run. This operation physically
-deletes the Parquet files of dropped tables.
-
 The `VACUUM FULL <table_name>` command is used to optimize a table's storage by bin-packing small Parquet
-files into larger files, which can significantly improve query time and compression. It also deletes dropped Parquet
-files.
+files into larger files, which can significantly improve query time and compression.
 
 ## Roadmap
 

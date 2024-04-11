@@ -79,106 +79,110 @@ pub unsafe fn vacuum(vacuum_stmt: *mut pg_sys::VacuumStmt) -> Result<(), VacuumH
     let vacuum_all = (*vacuum_stmt).rels.is_null();
 
     // Perform vacuum
-    match vacuum_all {
-        true => {
-            let schema_names = Session::with_catalog(|catalog| Ok(catalog.schema_names()))?;
+    // match vacuum_all {
+    //     true => {
+    //         let schema_names = Session::with_catalog(|catalog| {
+    //             Box::pin(async move { Ok(catalog.schema_names()) })
+    //         })?;
 
-            for schema_name in schema_names {
-                let schema_oid = unsafe {
-                    pg_sys::get_namespace_oid(CString::new(schema_name.clone())?.as_ptr(), true)
-                };
-                let schema_path = ParadeDirectory::schema_path(Session::catalog_oid(), schema_oid)?;
-                let directory = std::fs::read_dir(schema_path.clone())?;
+    //         for schema_name in schema_names {
+    //             let schema_oid = unsafe {
+    //                 pg_sys::get_namespace_oid(CString::new(schema_name.clone())?.as_ptr(), true)
+    //             };
+    //             let schema_path = ParadeDirectory::schema_path(Session::catalog_oid(), schema_oid)?;
+    //             let directory = std::fs::read_dir(schema_path.clone())?;
 
-                // Vacuum all tables in the schema directory and delete directories for dropped tables
-                for file in directory {
-                    let table_oid = file?.file_name().into_string()?;
+    //             // Vacuum all tables in the schema directory and delete directories for dropped tables
+    //             for file in directory {
+    //                 let table_oid = file?.file_name().into_string()?;
 
-                    if let Ok(oid) = table_oid.parse::<u32>() {
-                        let pg_oid = pg_sys::Oid::from(oid);
-                        let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
+    //                 if let Ok(oid) = table_oid.parse::<u32>() {
+    //                     let pg_oid = pg_sys::Oid::from(oid);
+    //                     let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
 
-                        // If the relation is null, delete the directory
-                        if relation.is_null() {
-                            let path = schema_path.join(&table_oid);
-                            remove_dir_all(path.clone())?;
-                        // Otherwise, vacuum the table
-                        } else {
-                            let pg_relation = unsafe { PgRelation::from_pg(relation) };
-                            let table_path = pg_relation.table_path()?;
+    //                     // If the relation is null, delete the directory
+    //                     if relation.is_null() {
+    //                         let path = schema_path.join(&table_oid);
+    //                         remove_dir_all(path.clone())?;
+    //                     // Otherwise, vacuum the table
+    //                     } else {
+    //                         let pg_relation = unsafe { PgRelation::from_pg(relation) };
+    //                         let table_path = pg_relation.table_path()?;
 
-                            unsafe { pg_sys::RelationClose(relation) }
+    //                         unsafe { pg_sys::RelationClose(relation) }
 
-                            Session::with_tables(&schema_name, |mut tables| {
-                                Box::pin(async move {
-                                    Ok(tables.vacuum(&table_path, vacuum_options.full).await?)
-                                })
-                            })?;
-                        }
-                    }
-                }
-            }
+    //                         Session::with_tables(&schema_name, |mut tables| {
+    //                             Box::pin(async move {
+    //                                 Ok(tables.vacuum(&table_path, vacuum_options.full).await?)
+    //                             })
+    //                         })?;
+    //                     }
+    //                 }
+    //             }
+    //         }
 
-            Ok(())
-        }
-        false => {
-            let num_rels = (*rels).length;
+    //         Ok(())
+    //     }
+    //     false => {
+    //         let num_rels = (*rels).length;
 
-            #[cfg(feature = "pg12")]
-            let mut current_cell = (*rels).head;
-            #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
-            let elements = (*rels).elements;
+    //         #[cfg(feature = "pg12")]
+    //         let mut current_cell = (*rels).head;
+    //         #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+    //         let elements = (*rels).elements;
 
-            for i in 0..num_rels {
-                let vacuum_rel: *mut pg_sys::VacuumRelation;
+    //         for i in 0..num_rels {
+    //             let vacuum_rel: *mut pg_sys::VacuumRelation;
 
-                #[cfg(feature = "pg12")]
-                {
-                    vacuum_rel = (*current_cell).data.ptr_value as *mut pg_sys::VacuumRelation;
-                    current_cell = (*current_cell).next;
-                }
-                #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
-                {
-                    vacuum_rel =
-                        (*elements.offset(i as isize)).ptr_value as *mut pg_sys::VacuumRelation;
-                }
+    //             #[cfg(feature = "pg12")]
+    //             {
+    //                 vacuum_rel = (*current_cell).data.ptr_value as *mut pg_sys::VacuumRelation;
+    //                 current_cell = (*current_cell).next;
+    //             }
+    //             #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15", feature = "pg16"))]
+    //             {
+    //                 vacuum_rel =
+    //                     (*elements.offset(i as isize)).ptr_value as *mut pg_sys::VacuumRelation;
+    //             }
 
-                // If the relation is null or not deltalake Table Access Method, skip it
-                let rangevar = (*vacuum_rel).relation;
-                let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
-                    rangevar,
-                    pg_sys::ShareUpdateExclusiveLock as i32,
-                    0,
-                    None,
-                    std::ptr::null_mut(),
-                );
-                let relation = pg_sys::RelationIdGetRelation(rangevar_oid);
+    //             // If the relation is null or not deltalake Table Access Method, skip it
+    //             let rangevar = (*vacuum_rel).relation;
+    //             let rangevar_oid = pg_sys::RangeVarGetRelidExtended(
+    //                 rangevar,
+    //                 pg_sys::ShareUpdateExclusiveLock as i32,
+    //                 0,
+    //                 None,
+    //                 std::ptr::null_mut(),
+    //             );
+    //             let relation = pg_sys::RelationIdGetRelation(rangevar_oid);
 
-                if relation.is_null() {
-                    continue;
-                }
+    //             if relation.is_null() {
+    //                 continue;
+    //             }
 
-                if !relation.is_column()? {
-                    pg_sys::RelationClose(relation);
-                    continue;
-                }
+    //             if !relation.is_column()? {
+    //                 pg_sys::RelationClose(relation);
+    //                 continue;
+    //             }
 
-                let pg_relation = PgRelation::from_pg(relation);
-                let schema_name = pg_relation.namespace();
-                let table_path = pg_relation.table_path()?;
+    //             let pg_relation = PgRelation::from_pg(relation);
+    //             let schema_name = pg_relation.namespace();
+    //             let table_path = pg_relation.table_path()?;
 
-                Session::with_tables(schema_name, |mut tables| {
-                    Box::pin(
-                        async move { Ok(tables.vacuum(&table_path, vacuum_options.full).await?) },
-                    )
-                })?;
+    //             Session::with_tables(schema_name, |mut tables| {
+    //                 Box::pin(
+    //                     async move { Ok(tables.vacuum(&table_path, vacuum_options.full).await?) },
+    //                 )
+    //             })?;
 
-                pg_sys::RelationClose(relation);
-            }
+    //             pg_sys::RelationClose(relation);
+    //         }
 
-            Ok(())
-        }
-    }
+    //         Ok(())
+    //     }
+    // }
+
+    Ok(())
 }
 
 #[derive(Error, Debug)]

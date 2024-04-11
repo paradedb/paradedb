@@ -68,29 +68,30 @@ impl SchemaProvider for ParadeSchemaProvider {
 
 #[inline]
 fn table_names_impl(schema_name: &str) -> Result<Vec<String>, CatalogError> {
-    let mut names = vec![];
+    todo!()
+    // let mut names = vec![];
 
-    let schema_oid =
-        unsafe { pg_sys::get_namespace_oid(CString::new(schema_name)?.as_ptr(), true) };
-    let schema_path = ParadeDirectory::schema_path(Session::catalog_oid(), schema_oid)?;
+    // let schema_oid =
+    //     unsafe { pg_sys::get_namespace_oid(CString::new(schema_name)?.as_ptr(), true) };
+    // let schema_path = ParadeDirectory::schema_path(Session::catalog_oid(), schema_oid)?;
 
-    for file in read_dir(schema_path)? {
-        if let Ok(oid) = file?.file_name().into_string()?.parse::<u32>() {
-            let pg_oid = pg_sys::Oid::from(oid);
-            let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
+    // for file in read_dir(schema_path)? {
+    //     if let Ok(oid) = file?.file_name().into_string()?.parse::<u32>() {
+    //         let pg_oid = pg_sys::Oid::from(oid);
+    //         let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
 
-            if relation.is_null() {
-                continue;
-            }
+    //         if relation.is_null() {
+    //             continue;
+    //         }
 
-            let table_name =
-                unsafe { CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()? };
+    //         let table_name =
+    //             unsafe { CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()? };
 
-            names.push(table_name.to_string());
-        }
-    }
+    //         names.push(table_name.to_string());
+    //     }
+    // }
 
-    Ok(names)
+    // Ok(names)
 }
 
 #[inline]

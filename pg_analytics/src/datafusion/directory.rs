@@ -48,14 +48,19 @@ impl ParadeDirectory {
                 }
             };
 
-        Self::table_path_from_oid(pg_relation.namespace_oid(), pg_relation.oid())
+        let tablespace_oid = unsafe { pg_sys::get_rel_tablespace(pg_relation.oid()) };
+        Self::table_path_from_oid(
+            tablespace_oid,
+            pg_relation.namespace_oid(),
+            pg_relation.oid(),
+        )
     }
 
     pub fn table_path_from_oid(
+        tablespace_oid: pg_sys::Oid,
         schema_oid: pg_sys::Oid,
         table_oid: pg_sys::Oid,
     ) -> Result<PathBuf, DirectoryError> {
-        let tablespace_oid = unsafe { pg_sys::get_rel_tablespace(table_oid) };
         let schema_dir =
             ParadeDirectory::schema_path(tablespace_oid, Session::catalog_oid(), schema_oid)?;
         let table_dir = schema_dir.join(table_oid.as_u32().to_string());
@@ -89,23 +94,21 @@ impl ParadeDirectory {
     }
 
     fn root_path(tablespace_oid: pg_sys::Oid) -> Result<PathBuf, DirectoryError> {
-        let tablespace_dir = unsafe {
+        let root_dir = unsafe {
             match tablespace_oid == pg_sys::InvalidOid {
-                true => CString::new("data_directory")?,
+                true => CStr::from_ptr(pg_sys::GetConfigOptionByName(
+                    CString::new("data_directory")?.as_ptr(),
+                    std::ptr::null_mut(),
+                    true,
+                ))
+                .to_str()?
+                .to_string(),
                 false => direct_function_call::<String>(
                     pg_sys::pg_tablespace_location,
                     &[Some(pg_sys::Datum::from(tablespace_oid))],
-                ),
+                )
+                .ok_or(DirectoryError::TableSpaceNotFound)?,
             }
-        };
-
-        let root_dir = unsafe {
-            CStr::from_ptr(pg_sys::GetConfigOptionByName(
-                tablespace_dir.as_ptr(),
-                std::ptr::null_mut(),
-                true,
-            ))
-            .to_str()?
         };
 
         Ok(PathBuf::from(root_dir).join(PARADE_DIRECTORY))
@@ -122,6 +125,9 @@ pub enum DirectoryError {
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
+
+    #[error("Could not get default tablespace location")]
+    TableSpaceNotFound,
 
     #[error("Could not open relation for {0}.{1}")]
     RelationNotFound(String, String),

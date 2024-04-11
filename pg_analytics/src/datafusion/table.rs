@@ -120,9 +120,9 @@ impl DatafusionTable for PgRelation {
     }
 
     fn table_path(&self) -> Result<PathBuf, DataFusionTableError> {
-        Ok(ParadeDirectory::table_path_from_oid(
-            self.namespace_oid(),
-            self.oid(),
+        Ok(ParadeDirectory::table_path_from_name(
+            self.namespace(),
+            self.name(),
         )?)
     }
 }

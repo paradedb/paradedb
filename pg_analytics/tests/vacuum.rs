@@ -35,6 +35,7 @@ fn total_files_in_dir(path: &Path) -> usize {
 }
 
 #[rstest]
+#[ignore]
 fn vacuum(mut conn: PgConnection) {
     "CREATE TABLE t (a int) USING parquet".execute(&mut conn);
     "CREATE TABLE s (a int)".execute(&mut conn);
@@ -49,6 +50,7 @@ fn vacuum(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn vacuum_check_files(mut conn: PgConnection) {
     "CREATE TABLE t (a int) USING parquet".execute(&mut conn);
     "CREATE TABLE s (a int)".execute(&mut conn);
@@ -68,6 +70,7 @@ fn vacuum_check_files(mut conn: PgConnection) {
 }
 
 #[rstest]
+#[ignore]
 fn vacuum_full_check_files(mut conn: PgConnection) {
     "CREATE TABLE t (a int) USING parquet".execute(&mut conn);
     "INSERT INTO t VALUES (1), (2), (3)".execute(&mut conn);

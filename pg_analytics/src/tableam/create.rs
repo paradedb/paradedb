@@ -58,18 +58,6 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
     minmulti: *mut pg_sys::MultiXactId,
 ) {
     unsafe {
-        let tablespace_oid = unsafe { (*newrlocator).spcOid };
-        info!("Tablespace oid: {:?}", tablespace_oid);
-
-        let tablespace_dir = unsafe {
-            direct_function_call::<String>(
-                pg_sys::pg_tablespace_location,
-                &[Some(pg_sys::Datum::from(tablespace_oid))],
-            )
-        };
-        info!("Tablespace dir: {:?}", tablespace_dir);
-    }
-    unsafe {
         let smgr = pg_sys::RelationCreateStorage(*newrlocator, persistence, true);
         rel.init_metadata(smgr).unwrap_or_else(|err| {
             panic!("{}", err);
@@ -109,8 +97,6 @@ async fn create_deltalake_file_node(
                 pg_relation.namespace_oid(),
                 pg_relation.oid(),
             )?;
-
-            info!("schema oid {:?}", pg_relation.namespace_oid());
 
             Session::with_catalog(|catalog| {
                 Box::pin(async move {

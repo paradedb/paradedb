@@ -10,7 +10,6 @@ use super::drop::{drop, DropHookError};
 use super::query::{Query, QueryStringError};
 use super::rename::{rename, RenameHookError};
 use super::truncate::{truncate, TruncateHookError};
-use super::vacuum::{vacuum, VacuumHookError};
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::udf::{createfunction, UDFError};
 
@@ -65,9 +64,6 @@ pub fn process_utility(
             NodeTag::T_TruncateStmt => {
                 task::block_on(truncate(plan as *mut pg_sys::TruncateStmt))?;
             }
-            NodeTag::T_VacuumStmt => {
-                vacuum(plan as *mut pg_sys::VacuumStmt)?;
-            }
             _ => {}
         };
 
@@ -105,9 +101,6 @@ pub enum ProcessHookError {
 
     #[error(transparent)]
     TruncateHook(#[from] TruncateHookError),
-
-    #[error(transparent)]
-    VacuumHook(#[from] VacuumHookError),
 
     #[error(transparent)]
     Udf(#[from] UDFError),

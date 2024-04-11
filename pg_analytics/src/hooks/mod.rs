@@ -7,7 +7,6 @@ mod query;
 mod rename;
 mod select;
 mod truncate;
-mod vacuum;
 
 use async_std::task;
 use deltalake::datafusion::logical_expr::{col, lit};

@@ -3,7 +3,7 @@ mod fixtures;
 use fixtures::*;
 use rstest::*;
 use sqlx::PgConnection;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use walkdir::WalkDir;
 
 fn path_is_parquet_file(path: &Path) -> bool {

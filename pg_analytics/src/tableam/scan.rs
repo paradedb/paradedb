@@ -17,6 +17,8 @@ use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
+use super::index::index_fetch_tuple;
+
 struct DeltalakeScanDesc {
     rs_base: pg_sys::TableScanDescData,
     curr_batch: Option<Arc<Mutex<RecordBatch>>>,
@@ -155,7 +157,9 @@ pub extern "C" fn deltalake_scan_begin(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_scan_end(_scan: pg_sys::TableScanDesc) {}
+pub extern "C" fn deltalake_scan_end(_scan: pg_sys::TableScanDesc) {
+    task::block_on(Stream::clear());
+}
 
 #[pg_guard]
 pub extern "C" fn deltalake_scan_rescan(
@@ -277,12 +281,20 @@ pub extern "C" fn deltalake_scan_sample_next_tuple(
 
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_fetch_row_version(
-    _rel: pg_sys::Relation,
-    _tid: pg_sys::ItemPointer,
+    rel: pg_sys::Relation,
+    tid: pg_sys::ItemPointer,
     _snapshot: pg_sys::Snapshot,
-    _slot: *mut pg_sys::TupleTableSlot,
+    slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    false
+    task::block_on(Writer::flush()).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
+
+    unsafe {
+        task::block_on(index_fetch_tuple(rel, slot, tid)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        })
+    }
 }
 
 #[pg_guard]
@@ -301,13 +313,18 @@ pub extern "C" fn deltalake_tuple_get_latest_tid(
     panic!("{}", TableScanError::LatestTIDNotSupported.to_string());
 }
 
+/*
+    Tech debt: We don't use Snapshot to determine which tuples are visible (although we eventually should)
+    As such, any tuple that is returned by our table scan is visible, since the table scan filters out
+    non-visible tuples.
+*/
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_satisfies_snapshot(
     _rel: pg_sys::Relation,
     _slot: *mut pg_sys::TupleTableSlot,
     _snapshot: pg_sys::Snapshot,
 ) -> bool {
-    false
+    true
 }
 
 #[pg_guard]
@@ -321,17 +338,23 @@ pub extern "C" fn deltalake_tuple_complete_speculative(
 
 #[pg_guard]
 pub extern "C" fn deltalake_tuple_lock(
-    _rel: pg_sys::Relation,
-    _tid: pg_sys::ItemPointer,
+    rel: pg_sys::Relation,
+    tid: pg_sys::ItemPointer,
     _snapshot: pg_sys::Snapshot,
-    _slot: *mut pg_sys::TupleTableSlot,
+    slot: *mut pg_sys::TupleTableSlot,
     _cid: pg_sys::CommandId,
     _mode: pg_sys::LockTupleMode,
     _wait_policy: pg_sys::LockWaitPolicy,
     _flags: pg_sys::uint8,
     _tmfd: *mut pg_sys::TM_FailureData,
 ) -> pg_sys::TM_Result {
-    0
+    unsafe {
+        task::block_on(index_fetch_tuple(rel, slot, tid)).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+    }
+
+    pg_sys::TM_Result_TM_Ok
 }
 
 #[derive(Error, Debug)]

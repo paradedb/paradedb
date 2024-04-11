@@ -75,7 +75,6 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 - [ ] Write-ahead log (WAL) support
 - [ ] Collations
 - [ ] `INSERT ... ON CONFLICT` clauses
-- [ ] Foreign keys
 
 ## Development
 

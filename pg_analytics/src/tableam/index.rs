@@ -30,15 +30,11 @@ struct IndexScanDesc {
 }
 
 #[inline]
-async unsafe fn index_fetch_tuple(
-    scan: *mut pg_sys::IndexFetchTableData,
+pub async unsafe fn index_fetch_tuple(
+    rel: pg_sys::Relation,
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
 ) -> Result<bool, IndexScanError> {
-    Writer::flush().await?;
-
-    let dscan = scan as *mut IndexScanDesc;
-
     if let Some(clear) = (*slot)
         .tts_ops
         .as_ref()
@@ -48,7 +44,7 @@ async unsafe fn index_fetch_tuple(
         clear(slot);
     }
 
-    let pg_relation = PgRelation::from_pg((*dscan).rs_base.rel);
+    let pg_relation = PgRelation::from_pg(rel);
     let oid = pg_relation.oid();
     let table_name = pg_relation.name().to_string();
     let schema_name = pg_relation.namespace().to_string();
@@ -275,7 +271,14 @@ pub extern "C" fn deltalake_index_fetch_tuple(
             *all_dead = false;
         }
 
-        task::block_on(index_fetch_tuple(scan, slot, tid)).unwrap_or_else(|err| {
+        let dscan = scan as *mut IndexScanDesc;
+        let rel = (*dscan).rs_base.rel;
+
+        task::block_on(Writer::flush()).unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+
+        task::block_on(index_fetch_tuple(rel, slot, tid)).unwrap_or_else(|err| {
             panic!("{}", err);
         })
     }

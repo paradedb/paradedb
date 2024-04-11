@@ -51,9 +51,6 @@ jobs:
           - runner: ubuntu-latest
             pg_version: 16
             arch: amd64
-          - runner: ubicloud-standard-8-ubuntu-2204-arm # We also test on arm for PG16 since its the version we ship to DockerHub/GitHub Release
-            pg_version: 16
-            arch: arm64
     env:
       default_pg_version: 16
 

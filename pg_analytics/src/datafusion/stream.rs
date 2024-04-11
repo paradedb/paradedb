@@ -62,4 +62,9 @@ impl Stream {
 
         Ok(table_provider.dataframe().execute_stream().await?)
     }
+
+    pub async fn clear() {
+        let mut cache = STREAM_CACHE.lock().await;
+        cache.clear();
+    }
 }

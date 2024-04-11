@@ -33,6 +33,7 @@ fn total_files_in_dir(path: &Path) -> usize {
 #[rstest]
 fn table_with_tablespace(mut conn: PgConnection) {
     let custom_tablespace_path = custom_tablespace_path(&mut conn);
+    let default_tablespace_path = default_tablespace_path(&mut conn);
 
     format!(
         r#"
@@ -65,7 +66,8 @@ fn table_with_tablespace(mut conn: PgConnection) {
         .fetch_one::<(sqlx::postgres::types::Oid,)>(&mut conn)
         .0
          .0;
-    let schema_oid = format!("SELECT oid FROM pg_namespace WHERE nspname='my_schema'")
+    let schema_oid = "SELECT oid FROM pg_namespace WHERE nspname='my_schema'"
+        .to_string()
         .fetch_one::<(sqlx::postgres::types::Oid,)>(&mut conn)
         .0
          .0;
@@ -75,6 +77,13 @@ fn table_with_tablespace(mut conn: PgConnection) {
         total_files_in_dir(
             &custom_tablespace_path
                 .join(DELTALAKE_DIR)
+                .join(db_oid.to_string())
+                .join(schema_oid.to_string())
+        ) > 0
+    );
+    assert!(
+        total_files_in_dir(
+            &default_tablespace_path
                 .join(db_oid.to_string())
                 .join(schema_oid.to_string())
         ) > 0

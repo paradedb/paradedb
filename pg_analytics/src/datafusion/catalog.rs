@@ -5,13 +5,10 @@ use deltalake::datafusion::catalog::{CatalogList, CatalogProvider};
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use pgrx::*;
-use std::path::PathBuf;
-use std::{any::Any, collections::HashMap, ffi::CStr, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 use thiserror::Error;
 
-use super::directory::{DirectoryError, ParadeDirectory};
-use super::schema::ParadeSchemaProvider;
-use super::session::Session;
+use super::directory::DirectoryError;
 use super::table::DataFusionTableError;
 
 pub struct ParadeCatalog {
@@ -133,12 +130,6 @@ pub enum CatalogError {
 
     #[error("Database {0} not found")]
     DatabaseNotFound(String),
-
-    #[error("File name not found for {0:?}")]
-    FileNameNotFound(PathBuf),
-
-    #[error("Could not convert {0:?} to string")]
-    FileNameToString(PathBuf),
 
     #[error("{0}")]
     OsString(String),

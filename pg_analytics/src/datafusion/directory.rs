@@ -68,18 +68,6 @@ impl ParadeDirectory {
         Ok(table_dir)
     }
 
-    pub fn create_catalog_path(
-        tablespace_oid: pg_sys::Oid,
-        catalog_oid: pg_sys::Oid,
-    ) -> Result<(), DirectoryError> {
-        let catalog_dir = Self::catalog_path(tablespace_oid, catalog_oid)?;
-        if !catalog_dir.exists() {
-            fs::create_dir_all(&catalog_dir)?;
-        }
-
-        Ok(())
-    }
-
     pub fn create_schema_path(
         tablespace_oid: pg_sys::Oid,
         catalog_oid: pg_sys::Oid,

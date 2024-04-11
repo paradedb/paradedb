@@ -1,14 +1,11 @@
-use deltalake::datafusion::catalog::CatalogProvider;
 use pgrx::*;
-use std::ffi::{CStr, CString};
-use std::fs::remove_dir_all;
+use std::ffi::CStr;
 use thiserror::Error;
 
 use crate::datafusion::catalog::CatalogError;
-use crate::datafusion::directory::{DirectoryError, ParadeDirectory};
-use crate::datafusion::session::Session;
-use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
-use crate::hooks::handler::{HandlerError, IsColumn};
+use crate::datafusion::directory::DirectoryError;
+use crate::datafusion::table::DataFusionTableError;
+use crate::hooks::handler::HandlerError;
 
 #[derive(Debug)]
 struct VacuumOptions {

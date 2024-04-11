@@ -16,7 +16,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::datafusion::catalog::{CatalogError, ParadeCatalog, ParadeCatalogList};
-use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::table::Tables;
 
@@ -39,7 +38,7 @@ impl Session {
 
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()))?),
+            Vacant(entry) => entry.insert(task::block_on(Self::init())?),
         };
 
         task::block_on(f(context))
@@ -55,7 +54,7 @@ impl Session {
 
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()))?),
+            Vacant(entry) => entry.insert(task::block_on(Self::init())?),
         };
 
         let catalog_provider = context.catalog(&Self::catalog_name()?).ok_or(
@@ -82,7 +81,7 @@ impl Session {
 
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()))?),
+            Vacant(entry) => entry.insert(task::block_on(Self::init())?),
         };
 
         let catalog =
@@ -92,10 +91,10 @@ impl Session {
                     Self::catalog_name()?.to_string(),
                 ))?;
 
-        if catalog.schema(&schema_name).is_none() {
+        if catalog.schema(schema_name).is_none() {
             let new_schema_provider =
-                Arc::new(task::block_on(ParadeSchemaProvider::try_new(&schema_name))?);
-            catalog.register_schema(&schema_name, new_schema_provider)?;
+                Arc::new(task::block_on(ParadeSchemaProvider::try_new(schema_name))?);
+            catalog.register_schema(schema_name, new_schema_provider)?;
         }
 
         let schema_provider = context
@@ -132,7 +131,7 @@ impl Session {
         task::block_on(f(lock))
     }
 
-    pub async fn init(catalog_oid: pg_sys::Oid) -> Result<SessionContext, CatalogError> {
+    pub async fn init() -> Result<SessionContext, CatalogError> {
         let preload_libraries = unsafe {
             CStr::from_ptr(pg_sys::GetConfigOptionByName(
                 CString::new("shared_preload_libraries")?.as_ptr(),

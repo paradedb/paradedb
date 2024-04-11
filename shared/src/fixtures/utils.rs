@@ -1,5 +1,4 @@
 use super::db::*;
-use super::tables::*;
 
 use sqlx::PgConnection;
 use std::path::PathBuf;

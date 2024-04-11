@@ -15,7 +15,9 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::session::Session;
-use crate::datafusion::table::{DELETE_ON_PRECOMMIT_CACHE, RESERVED_XMAX_FIELD};
+use crate::datafusion::table::{
+    DELETE_ON_PRECOMMIT_CACHE, DROP_ON_ABORT_CACHE, DROP_ON_PRECOMMIT_CACHE, RESERVED_XMAX_FIELD,
+};
 use crate::datafusion::writer::Writer;
 
 pub struct ParadeHook;
@@ -94,12 +96,25 @@ impl hooks::PgHooks for ParadeHook {
     fn abort(&mut self) {
         // Clear all pending inserts
         task::block_on(Writer::clear_all()).unwrap_or_else(|err| {
-            panic!("{}", err);
+            warning!("{}", err);
         });
 
         // Clear all pending deletes
         let mut delete_cache = task::block_on(DELETE_ON_PRECOMMIT_CACHE.lock());
         delete_cache.clear();
+
+        // Clear all pending drops
+        let mut drop_on_precommit_cache = task::block_on(DROP_ON_PRECOMMIT_CACHE.lock());
+        drop_on_precommit_cache.clear();
+
+        // Physically delete all tables created and rolled back in this transaction
+        let mut drop_on_abort_cache = task::block_on(DROP_ON_ABORT_CACHE.lock());
+
+        for (table_path, _) in drop_on_abort_cache.drain() {
+            std::fs::remove_dir_all(table_path).unwrap_or_else(|err| {
+                warning!("{}", err);
+            });
+        }
     }
 
     fn commit(&mut self) {
@@ -136,8 +151,21 @@ impl hooks::PgHooks for ParadeHook {
                 })
             })
             .unwrap_or_else(|err| {
-                panic!("{}", err);
+                warning!("{}", err);
             });
         }
+
+        // Physically delete all dropped tables
+        let mut drop_on_precommit_cache = task::block_on(DROP_ON_PRECOMMIT_CACHE.lock());
+
+        for (table_path, _) in drop_on_precommit_cache.drain() {
+            std::fs::remove_dir_all(table_path).unwrap_or_else(|err| {
+                warning!("{}", err);
+            });
+        }
+
+        // Clear all pending drops
+        let mut drop_on_abort_cache = task::block_on(DROP_ON_ABORT_CACHE.lock());
+        drop_on_abort_cache.clear();
     }
 }

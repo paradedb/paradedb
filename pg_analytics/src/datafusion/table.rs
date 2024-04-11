@@ -51,6 +51,12 @@ const BYTES_IN_MB: i64 = 1_048_576;
 pub static DELETE_ON_PRECOMMIT_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
+pub static DROP_ON_PRECOMMIT_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+pub static DROP_ON_ABORT_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, String>>>> =
+    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
+
 pub trait DatafusionTable {
     fn arrow_schema(&self) -> Result<ArrowSchema, DataFusionTableError>;
     fn arrow_schema_with_reserved_fields(&self) -> Result<ArrowSchema, DataFusionTableError>;
@@ -169,6 +175,9 @@ impl Tables {
             .with_columns(delta_schema.fields().to_vec())
             .await?;
 
+        let mut drop_cache = DROP_ON_ABORT_CACHE.lock().await;
+        drop_cache.insert(table_path.to_path_buf(), self.schema_name.clone());
+
         Ok(delta_table)
     }
 
@@ -201,8 +210,12 @@ impl Tables {
         Ok(update_builder.await?)
     }
 
-    pub fn deregister(&mut self, table_path: &Path) -> Result<(), DataFusionTableError> {
+    pub async fn logical_drop(&mut self, table_path: &Path) -> Result<(), DataFusionTableError> {
         self.tables.remove(table_path);
+
+        let mut drop_cache = DROP_ON_PRECOMMIT_CACHE.lock().await;
+        drop_cache.insert(table_path.to_path_buf(), self.schema_name.clone());
+
         Ok(())
     }
 

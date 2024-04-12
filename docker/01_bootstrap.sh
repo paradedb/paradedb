@@ -7,9 +7,10 @@
 set -Eeuo pipefail
 
 # We only pre-install extensions on master nodes, since slave nodes are read-only
+# and will get the extensions from the master node via physical replication
 if [ "$POSTGRESQL_REPLICATION_MODE" = "slave" ]; then
-    echo "Skipping ParadeDB bootstrap on slave node..."
-    exit 0
+  echo "Skipping ParadeDB bootstrap on slave node..."
+  exit 0
 fi
 
 # If no user is set, the default user will be the `postgres` superuser, so we

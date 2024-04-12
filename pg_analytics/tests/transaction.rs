@@ -4,6 +4,7 @@ use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
+use std::path::Path;
 
 #[rstest]
 fn insert_transaction_aborted(mut conn: PgConnection) {
@@ -171,7 +172,10 @@ fn drop_transaction_rollback(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let table_path = default_table_path(&mut conn, "public", "t");
+    let first_table_path = default_table_path(&mut conn, "public", "t")
+        .to_str()
+        .unwrap()
+        .to_string();
 
     r#"
         BEGIN;
@@ -184,6 +188,8 @@ fn drop_transaction_rollback(mut conn: PgConnection) {
         _ => panic!("Table should not exist"),
     };
 
+    assert!(Path::new(&first_table_path).exists());
+
     "ROLLBACK".execute(&mut conn);
 
     let count: (i64,) = "SELECT COUNT(*) FROM t".fetch_one(&mut conn);
@@ -191,7 +197,7 @@ fn drop_transaction_rollback(mut conn: PgConnection) {
 
     "DROP TABLE t".execute(&mut conn);
 
-    assert!(!table_path.exists());
+    assert!(!Path::new(&first_table_path).exists());
 
     r#"
         BEGIN;
@@ -200,7 +206,10 @@ fn drop_transaction_rollback(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    let table_path = default_table_path(&mut conn, "public", "t");
+    let second_table_path = default_table_path(&mut conn, "public", "t")
+        .to_str()
+        .unwrap()
+        .to_string();
 
     "DROP TABLE t".execute(&mut conn);
     match "SELECT COUNT(*) FROM t".execute_result(&mut conn) {
@@ -208,7 +217,7 @@ fn drop_transaction_rollback(mut conn: PgConnection) {
         _ => panic!("Table should not exist"),
     };
 
-    assert!(table_path.exists());
+    assert!(Path::new(&second_table_path).exists());
 
     "ROLLBACK".execute(&mut conn);
 
@@ -217,5 +226,5 @@ fn drop_transaction_rollback(mut conn: PgConnection) {
         _ => panic!("Table should not exist"),
     };
 
-    assert!(!table_path.exists());
+    assert!(!Path::new(&second_table_path).exists());
 }

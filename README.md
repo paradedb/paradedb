@@ -119,7 +119,7 @@ ParadeDB is also available for Kubernetes via our Helm chart. You can find our H
 
 ### ParadeDB Cloud
 
-At the moment, ParadeDB is not available as a managed cloud service. If you are interested in a ParadeDB Cloud service, please let us know by joining our [waitlist](https://paradedb.typeform.com/to/jHkLmIzx).
+At the moment, ParadeDB is not available as a managed cloud service. If you are interested in a ParadeDB Cloud service, please let us know by joining our [waitlist](https://form.typeform.com/to/jHkLmIzx).
 
 ## Support
 

@@ -68,7 +68,7 @@ fn drop_without_directory(mut conn: PgConnection) {
     "CREATE TABLE t (a int, b text) USING parquet".execute(&mut conn);
 
     let table_path = default_database_path(&mut conn);
-    std::fs::remove_dir_all(&table_path).unwrap();
+    std::fs::remove_dir_all(table_path).unwrap();
 
     "DROP TABLE t".execute(&mut conn);
     match "SELECT * FROM t".fetch_result::<()>(&mut conn) {

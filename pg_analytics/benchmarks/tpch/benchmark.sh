@@ -108,6 +108,13 @@ generate_dataset() {
   echo "Generating TPC-H dataset..."
   cd TPC-H_V3.0.1/dbgen/
   rm -rf ./*.tbl
+
+  # The default data generation tool we store has macOS as the default, since
+  # that is what we use for development. To run in CI and for official benchmarks,
+  # we need to set the MACHINE variable to LINUX
+  if [ "$OS" == "Linux" ]; then
+    sed -i 's/MACHINE = .*/MACHINE = LINUX/' makefile
+  fi
   make
   ./dbgen -s "$SCALE"
   cd ../..

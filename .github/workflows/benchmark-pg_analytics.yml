@@ -49,13 +49,6 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      # Set the MACHINE variable to LINUX for TPC-H benchmarks, since
-      # the default is MACOS for development
-      - name: Update TPC-H Data Generation Makefile
-        if: ${{ matrix.name == 'TPC-H (OLAP)' || matrix.name == 'TPC-H (HTAP)' }}
-        working-directory: pg_analytics/benchmarks/tpch/TPC-H_V3.0.1/dbgen/
-        run: sed -i 's/MACHINE = .*/MACHINE = LINUX/' makefile
-
       - name: Run Official ${{ matrix.name }} Benchmark
         working-directory: pg_analytics/benchmarks/${{ matrix.path }}
         run: ./benchmark.sh -t local ${{ matrix.flags }}

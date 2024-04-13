@@ -12,7 +12,7 @@ Here is an example Docker Compose file that sets up a primary/read-replicas conf
 
 ```yaml
 services:
-  paradedb-master:
+  paradedb-primary:
     image: paradedb/paradedb:latest
     environment:
       POSTGRESQL_USERNAME: myuser
@@ -26,12 +26,12 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - paradedb_master_data:/bitnami/postgresql
+      - paradedb_primary_data:/bitnami/postgresql
 
-  paradedb-slave:
+  paradedb-replica:
     image: paradedb/paradedb:latest
     depends_on:
-      - paradedb-master
+      - paradedb-primary
     environment:
       POSTGRESQL_USERNAME: myuser
       POSTGRESQL_PASSWORD: mypassword
@@ -45,7 +45,7 @@ services:
       PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
 
 volumes:
-  paradedb_master_data:
+  paradedb_primary_data:
 ```
 
 ## Replicating data between a Postgres instance and a ParadeDB instance

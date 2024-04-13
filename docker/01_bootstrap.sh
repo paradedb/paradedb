@@ -6,10 +6,10 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
-# We only pre-install extensions on master nodes, since slave nodes are read-only
-# and will get the extensions from the master node via physical replication
+# We only pre-configure the database on primary nodes, since replica nodes are read-only
+# and will get the extensions from the replica node via physical replication
 if [ "$POSTGRESQL_REPLICATION_MODE" = "slave" ]; then
-  echo "Skipping ParadeDB bootstrap on slave node..."
+  echo "Skipping ParadeDB bootstrap on replica nodes..."
   exit 0
 fi
 

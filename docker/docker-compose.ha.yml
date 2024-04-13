@@ -1,7 +1,7 @@
 #
 # This docker-compose.ha.yml file is for production deployments of ParadeDB with high-availability (HA) primary/read-replicas
 # configuration. It pulls the latest ParadeDB image from Docker Hub, which has all ParadeDB extensions pre-installed and properly
-# configured, and sets up a primary/read-replicas configuration with a single master and a single slave on the same machine.
+# configured, and sets up a primary/read-replicas configuration with a primary and a single replica on the same machine.
 # It is meant to serve as an example of configuring ParadeDB for production use, and should be customized to fit your
 # specific needs. Make sure to update POSTGRESQL_USERNAME, POSTGRESQL_PASSWORD,
 # POSTGRESQL_DATABASE, and POSTGRESQL_POSTGRES_PASSWORD before production usage.
@@ -12,9 +12,9 @@
 #
 
 services:
-  paradedb-master:
+  paradedb-primary:
     image: paradedb/paradedb:latest
-    container_name: paradedb-master
+    container_name: paradedb-primary
     environment:
       POSTGRESQL_USERNAME: myuser
       POSTGRESQL_PASSWORD: mypassword
@@ -27,13 +27,13 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - paradedb_master_data:/bitnami/postgresql
+      - paradedb_primary_data:/bitnami/postgresql
 
-  paradedb-slave:
+  paradedb-replica:
     image: paradedb/paradedb:latest
-    container_name: paradedb-slave
+    container_name: paradedb-replica
     depends_on:
-      - paradedb-master
+      - paradedb-primary
     environment:
       POSTGRESQL_USERNAME: myuser
       POSTGRESQL_PASSWORD: mypassword
@@ -42,9 +42,9 @@ services:
       POSTGRESQL_REPLICATION_MODE: slave
       POSTGRESQL_REPLICATION_USER: myreplicationuser
       POSTGRESQL_REPLICATION_PASSWORD: myreplicationpassword
-      POSTGRESQL_MASTER_HOST: paradedb-master
+      POSTGRESQL_MASTER_HOST: paradedb-primary
       POSTGRESQL_MASTER_PORT_NUMBER: 5432
       PARADEDB_TELEMETRY: true # Set to 'false' (or remove) to disable anonymous telemetry
 
 volumes:
-  paradedb_master_data:
+  paradedb_primary_data:

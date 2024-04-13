@@ -174,6 +174,12 @@ COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-p
 # Install runtime dependencies (requires switching to root temporarily)
 USER root
 RUN install_packages curl uuid-runtime libpq5
+
+# Explicitly create postgres user using default uid and gid.
+RUN groupadd -r postgres --gid=999; \
+	useradd -r -g postgres --uid=999 --home-dir=/var/lib/postgresql --shell=/bin/bash postgres; \
+	mkdir -p /var/lib/postgresql
+
 USER 1001
 
 # Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.

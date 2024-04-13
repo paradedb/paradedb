@@ -57,7 +57,7 @@ jobs:
           if [ "${{ matrix.path }}" == "tpch/" ]; then
             sed -i 's/MACHINE = .*/MACHINE = LINUX/' makefile
           fi
-      
+
           # Run the benchmarks
           ./benchmark.sh -t local ${{ matrix.flags }}
 

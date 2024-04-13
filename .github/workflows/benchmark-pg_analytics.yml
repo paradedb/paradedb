@@ -27,24 +27,39 @@ concurrency:
 
 jobs:
   benchmark-pg_analytics:
-    name: Benchmark pg_analytics
-    runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+    name: Benchmark pg_analytics on ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - name: ClickBench
+            runner: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+            path: clickbench/
+            flags: ""
+          - name: TPC-H (OLAP)
+            runner: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+            path: tpch/
+            flags: -w olap
+          - name: TPC-H (HTAP)
+            runner: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+            path: tpch/
+            flags: -w htap
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Run Official ClickBench Benchmark
-        working-directory: pg_analytics/benchmarks/clickbench/
-        run: ./benchmark.sh -t local
-
-      - name: Run Official TPC-H OLAP Benchmark
-        working-directory: pg_analytics/benchmarks/tpch/
-        run: ./benchmark.sh -t local -w olap
-
-      - name: Run Official TPC-H HTAP Benchmark
-        working-directory: pg_analytics/benchmarks/tpch/
-        run: ./benchmark.sh -t local -w htap
+      - name: Run Official ${{ matrix.name }} Benchmark
+        working-directory: pg_analytics/benchmarks/${{ matrix.path }}
+        run: |
+          # Set the MACHINE variable to LINUX for TPC-H benchmarks, since
+          # the default is MACOS for development
+          if [ "${{ matrix.path }}" == "tpch/" ]; then
+            sed -i 's/MACHINE = .*/MACHINE = LINUX/' makefile
+          fi
+      
+          # Run the benchmarks
+          ./benchmark.sh -t local ${{ matrix.flags }}
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

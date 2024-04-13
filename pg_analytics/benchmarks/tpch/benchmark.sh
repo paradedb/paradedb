@@ -120,7 +120,7 @@ echo "**************************************************************************
 echo ""
 
 # Download the data generation tool and generate the dataset
-download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "dc1ee612c2786cd6de519ddee9f86d54" "TPC-H_V3.0.1.zip"
+download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/TPC-H_V3.0.1.zip" "2ec5a4c0430bed23b303d90bfbf8a66a" "TPC-H_V3.0.1.zip"
 generate_dataset
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit

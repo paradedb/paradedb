@@ -8,6 +8,7 @@ use deltalake::arrow::datatypes::{
 };
 use deltalake::datafusion::arrow::datatypes::DataType::*;
 use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
+use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
 use std::fmt::Debug;
 use thiserror::Error;
@@ -173,6 +174,28 @@ where
     }
 }
 
+pub trait GetDatumUuid
+where
+    Self: Array + AsArray,
+{
+    fn get_uuid_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DatumError> {
+        let value = self
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or(DatumError::DowncastGenericArray(format!("{:?}", self)))?
+            .into_iter()
+            .nth(index);
+
+        match value {
+            Some(Some(value)) => {
+                let uuid = uuid::Uuid::parse_str(value)?;
+                Ok(datum::Uuid::from_slice(uuid.as_bytes()).into_datum())
+            }
+            _ => Ok(value.into_datum()),
+        }
+    }
+}
+
 pub trait GetDatum
 where
     Self: Array
@@ -185,37 +208,52 @@ where
         + GetDatumTimestampMicrosecond
         + GetDatumTimestampMillisecond
         + GetDatumTimestampSecond
-        + GetDatumTime,
+        + GetDatumTime
+        + GetDatumUuid,
 {
-    fn get_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
-        let result = match self.data_type() {
-            Boolean => self.get_generic_datum::<BooleanArray>(index)?,
-            Utf8 => self.get_generic_datum::<StringArray>(index)?,
-            Int16 => self.get_primitive_datum::<Int16Type>(index)?,
-            Int32 => self.get_primitive_datum::<Int32Type>(index)?,
-            Int64 => self.get_primitive_datum::<Int64Type>(index)?,
-            Float32 => self.get_primitive_datum::<Float32Type>(index)?,
-            Float64 => self.get_primitive_datum::<Float64Type>(index)?,
-            Date32 => self.get_date_datum(index)?,
-            Time64(TimeUnit::Nanosecond) => self.get_time_datum(index)?,
-            Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
-            Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
-            Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
-            Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
-            List(ref field) => match field.data_type() {
-                Boolean => self.get_primitive_list_datum::<BooleanArray>(index)?,
-                Utf8 => self.get_primitive_list_datum::<StringArray>(index)?,
-                Int16 => self.get_primitive_list_datum::<Int16Array>(index)?,
-                Int32 => self.get_primitive_list_datum::<Int32Array>(index)?,
-                Int64 => self.get_primitive_list_datum::<Int64Array>(index)?,
-                Float32 => self.get_primitive_list_datum::<Float32Array>(index)?,
-                Float64 => self.get_primitive_list_datum::<Float64Array>(index)?,
-                Date32 => self.get_primitive_list_datum::<Date32Array>(index)?,
-                unsupported => {
-                    return Err(DatumError::UnsupportedArrowArrayType(unsupported.clone()).into())
-                }
+    fn get_datum(&self, index: usize, oid: PgOid) -> Result<Option<pg_sys::Datum>, DataTypeError> {
+        let result = match oid {
+            PgOid::BuiltIn(builtin) => match builtin {
+                BOOLOID => self.get_generic_datum::<BooleanArray>(index)?,
+                TEXTOID => self.get_generic_datum::<StringArray>(index)?,
+                VARCHAROID => self.get_generic_datum::<StringArray>(index)?,
+                BPCHAROID => self.get_generic_datum::<StringArray>(index)?,
+                INT2OID => self.get_primitive_datum::<Int16Type>(index)?,
+                INT4OID => self.get_primitive_datum::<Int32Type>(index)?,
+                INT8OID => self.get_primitive_datum::<Int64Type>(index)?,
+                FLOAT4OID => self.get_primitive_datum::<Float32Type>(index)?,
+                FLOAT8OID => self.get_primitive_datum::<Float64Type>(index)?,
+                DATEOID => self.get_date_datum(index)?,
+                TIMEOID => self.get_time_datum(index)?,
+                TIMESTAMPOID => match self.data_type() {
+                    Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
+                    Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
+                    Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
+                    unsupported => {
+                        return Err(DatumError::UnsupportedArrowType(unsupported.clone()).into())
+                    }
+                },
+                NUMERICOID => match self.data_type() {
+                    Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
+                    unsupported => {
+                        return Err(DatumError::UnsupportedArrowType(unsupported.clone()).into())
+                    }
+                },
+                UUIDOID => self.get_uuid_datum(index)?,
+                BOOLARRAYOID => self.get_primitive_list_datum::<BooleanArray>(index)?,
+                TEXTARRAYOID => self.get_primitive_list_datum::<StringArray>(index)?,
+                VARCHARARRAYOID => self.get_primitive_list_datum::<StringArray>(index)?,
+                BPCHARARRAYOID => self.get_primitive_list_datum::<StringArray>(index)?,
+                INT2ARRAYOID => self.get_primitive_list_datum::<Int16Array>(index)?,
+                INT4ARRAYOID => self.get_primitive_list_datum::<Int32Array>(index)?,
+                INT8ARRAYOID => self.get_primitive_list_datum::<Int64Array>(index)?,
+                FLOAT4ARRAYOID => self.get_primitive_list_datum::<Float32Array>(index)?,
+                FLOAT8ARRAYOID => self.get_primitive_list_datum::<Float64Array>(index)?,
+                DATEARRAYOID => self.get_primitive_list_datum::<Date32Array>(index)?,
+                unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
-            unsupported => return Err(DatumError::UnsupportedArrowType(unsupported.clone()).into()),
+            PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),
+            PgOid::Custom(_) => return Err(DataTypeError::UnsupportedCustomType),
         };
 
         Ok(result)
@@ -232,15 +270,16 @@ impl GetDatumTimestampMicrosecond for ArrayRef {}
 impl GetDatumTimestampMillisecond for ArrayRef {}
 impl GetDatumTimestampSecond for ArrayRef {}
 impl GetDatumTime for ArrayRef {}
+impl GetDatumUuid for ArrayRef {}
 
 #[derive(Error, Debug)]
 pub enum DatumError {
+    #[error(transparent)]
+    UuidError(#[from] uuid::Error),
+
     #[error("Could not downcast arrow array {0}")]
     DowncastGenericArray(String),
 
     #[error("Could not convert arrow type {0:?} to Postgres type")]
     UnsupportedArrowType(DataType),
-
-    #[error("Could not convert arrow array with type {0:?} to Postgres array")]
-    UnsupportedArrowArrayType(DataType),
 }

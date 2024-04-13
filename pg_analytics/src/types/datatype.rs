@@ -48,6 +48,7 @@ impl TryFrom<PgAttribute> for ArrowDataType {
                         typemod.try_into()?;
                     Decimal128(precision, scale)
                 }
+                UUIDOID => Utf8,
                 unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
             PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),

@@ -126,12 +126,13 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, UDFErr
             (*fcinfo).nargs = num_args as i16 - 1;
 
             // Call function on each set of arguments and push to result vector
+            // TODO: Fill in PgOid
             let mut result_vec = vec![];
             for row_index in 0..num_rows {
                 for arg_index in 1..num_args {
                     let fcinfo_arg = (*fcinfo).args.as_mut_ptr().add(arg_index - 1);
                     (*fcinfo_arg).value = arg_arrays[arg_index - 1]
-                        .get_datum(row_index)?
+                        .get_datum(row_index, PgOid::Invalid)?
                         .ok_or(UDFError::DatumNotFound)?;
                     (*fcinfo_arg).isnull = false;
                 }

@@ -72,6 +72,7 @@ pub async unsafe fn scan_getnextslot(
 
     let dscan = scan as *mut DeltalakeScanDesc;
     let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
+    let tuple_desc = pg_relation.tuple_desc();
     let table_name = pg_relation.name();
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
@@ -121,10 +122,12 @@ pub async unsafe fn scan_getnextslot(
         let column = current_batch.column(col_index);
 
         unsafe {
+            let attribute = tuple_desc.get(col_index).unwrap();
+            let typid = attribute.type_oid();
             let tts_value = (*slot).tts_values.add(col_index);
             let tts_isnull = (*slot).tts_isnull.add(col_index);
 
-            if let Some(datum) = column.get_datum((*dscan).curr_batch_idx)? {
+            if let Some(datum) = column.get_datum((*dscan).curr_batch_idx, typid)? {
                 *tts_value = datum;
             } else {
                 *tts_isnull = true;

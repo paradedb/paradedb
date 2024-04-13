@@ -45,6 +45,7 @@ pub async unsafe fn index_fetch_tuple(
     }
 
     let pg_relation = PgRelation::from_pg(rel);
+    let tuple_desc = pg_relation.tuple_desc();
     let oid = pg_relation.oid();
     let table_name = pg_relation.name().to_string();
     let schema_name = pg_relation.namespace().to_string();
@@ -81,11 +82,13 @@ pub async unsafe fn index_fetch_tuple(
             batch.remove_xmax_column()?;
 
             for col_index in 0..batch.num_columns() {
+                let attribute = tuple_desc.get(col_index).unwrap();
+                let typid = attribute.type_oid();
                 let column = batch.column(col_index);
                 let tts_value = (*slot).tts_values.add(col_index);
                 let tts_isnull = (*slot).tts_isnull.add(col_index);
 
-                if let Some(datum) = column.get_datum(0)? {
+                if let Some(datum) = column.get_datum(0, typid)? {
                     *tts_value = datum;
                 } else {
                     *tts_isnull = true;

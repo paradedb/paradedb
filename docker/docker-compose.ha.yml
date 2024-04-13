@@ -1,7 +1,7 @@
 #
-# This docker-compose.ha.yml file is for production deployments of ParadeDB with a master-slave configuration.
-# It pulls the latest ParadeDB image from Docker Hub, which has all ParadeDB extensions pre-installed and properly
-# configured, and sets up a master-slave configuration with a single master and a single slave on the same machine.
+# This docker-compose.ha.yml file is for production deployments of ParadeDB with high-availability (HA) primary/read-replicas
+# configuration. It pulls the latest ParadeDB image from Docker Hub, which has all ParadeDB extensions pre-installed and properly
+# configured, and sets up a primary/read-replicas configuration with a single master and a single slave on the same machine.
 # It is meant to serve as an example of configuring ParadeDB for production use, and should be customized to fit your
 # specific needs. Make sure to update POSTGRESQL_USERNAME, POSTGRESQL_PASSWORD,
 # POSTGRESQL_DATABASE, and POSTGRESQL_POSTGRES_PASSWORD before production usage.

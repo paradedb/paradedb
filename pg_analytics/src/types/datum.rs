@@ -230,14 +230,12 @@ where
                     Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
                     Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
                     unsupported => {
-                        return Err(DatumError::UnsupportedArrowType(unsupported.clone()).into())
+                        return Err(DatumError::TimestampError(unsupported.clone()).into())
                     }
                 },
                 NUMERICOID => match self.data_type() {
                     Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
-                    unsupported => {
-                        return Err(DatumError::UnsupportedArrowType(unsupported.clone()).into())
-                    }
+                    unsupported => return Err(DatumError::NumericError(unsupported.clone()).into()),
                 },
                 UUIDOID => self.get_uuid_datum(index)?,
                 BOOLARRAYOID => self.get_primitive_list_datum::<BooleanArray>(index)?,
@@ -280,6 +278,9 @@ pub enum DatumError {
     #[error("Could not downcast arrow array {0}")]
     DowncastGenericArray(String),
 
-    #[error("Could not convert arrow type {0:?} to Postgres type")]
-    UnsupportedArrowType(DataType),
+    #[error("Error converting {0:?} into NUMERIC")]
+    NumericError(DataType),
+
+    #[error("Error converting {0:?} into TIMESTAMP")]
+    TimestampError(DataType),
 }

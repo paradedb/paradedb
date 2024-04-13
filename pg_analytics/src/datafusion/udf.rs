@@ -132,7 +132,7 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, UDFErr
                 for arg_index in 1..num_args {
                     let fcinfo_arg = (*fcinfo).args.as_mut_ptr().add(arg_index - 1);
                     (*fcinfo_arg).value = arg_arrays[arg_index - 1]
-                        .get_datum(row_index, PgOid::Invalid)?
+                        .get_datum(row_index, PgOid::from_untagged(*arg_oids.add(row_index)))?
                         .ok_or(UDFError::DatumNotFound)?;
                     (*fcinfo_arg).isnull = false;
                 }

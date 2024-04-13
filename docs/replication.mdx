@@ -6,13 +6,11 @@ ParadeDB supports Postgres logical replication to replicate data between two Par
 
 ## Replicating data between two ParadeDB instances
 
-If you are using ParadeDB as your primary Postgres and would like to configure read replicas, you can use ParadeDB as a master-slave configuration
+If you are using ParadeDB as your primary Postgres and would like to configure read replicas
 
-Here is an example Docker Compose file that sets up a master-slave configuration with ParadeDB:
+Here is an example Docker Compose file that sets up a primary/read-replicas configuration with ParadeDB:
 
 ```yaml
-version: "3.8"
-
 services:
   paradedb-master:
     image: paradedb/paradedb:latest

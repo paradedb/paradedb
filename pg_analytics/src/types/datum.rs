@@ -235,8 +235,14 @@ where
                 },
                 NUMERICOID => match self.data_type() {
                     Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
-                    Float32 => self.get_primitive_datum::<Float32Type>(index)?,
-                    Float64 => self.get_primitive_datum::<Float64Type>(index)?,
+                    Float32 => match self.as_primitive::<Float32Type>().iter().nth(index) {
+                        Some(Some(value)) => AnyNumeric::from(value as i128).into_datum(),
+                        _ => None,
+                    },
+                    Float64 => match self.as_primitive::<Float64Type>().iter().nth(index) {
+                        Some(Some(value)) => AnyNumeric::from(value as i128).into_datum(),
+                        _ => None,
+                    },
                     unsupported => return Err(DatumError::NumericError(unsupported.clone()).into()),
                 },
                 UUIDOID => self.get_uuid_datum(index)?,

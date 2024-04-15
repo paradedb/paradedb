@@ -72,7 +72,7 @@ pub async fn bench_eslogs_generate(
     // Set up Postgres connection and ensure the table exists.
     debug!(DATABASE_URL = url);
     let conn_opts = &PgConnectOptions::from_str(&url)?;
-    let mut conn = PgConnection::connect_with(&conn_opts).await?;
+    let mut conn = PgConnection::connect_with(conn_opts).await?;
     sqlx::query(&EsLog::create_table_statement(&table))
         .execute(&mut conn)
         .await?;
@@ -110,9 +110,9 @@ pub async fn bench_eslogs_generate(
         let generated_dir = &generated_tempdir.path().join("generated");
 
         // Ensure output directory for the generated file exists.
-        fs::create_dir_all(&generated_dir)?;
+        fs::create_dir_all(generated_dir)?;
         // The generator tool uses the DATA_DIR env var to determine output location.
-        std::env::set_var("DATA_DIR", &generated_dir);
+        std::env::set_var("DATA_DIR", generated_dir);
 
         // The generator tool doesn't have many configuration options... including around
         // how it names files. We're stuck with the behavior that filenames will just be
@@ -179,7 +179,7 @@ pub async fn bench_eslogs_build_search_index(
         // First, drop any existing index to ensure a clean environment.
         setup_query: Some(drop_query),
         query: create_query,
-        database_url: url.into(),
+        database_url: url,
     }
     .run_once()
     .await
@@ -223,7 +223,7 @@ pub async fn bench_eslogs_build_parquet_table(table: String, url: String) -> Res
         // First, drop any existing table to ensure a clean environment.
         setup_query: Some(drop_query),
         query: create_query,
-        database_url: url.into(),
+        database_url: url,
     }
     .run_once()
     .await
@@ -235,7 +235,7 @@ pub async fn bench_eslogs_count_parquet_table(table: String, url: String) -> Res
         function_name: "bench_eslogs_build_parquet_table".into(),
         setup_query: None, // First, drop any existing index to ensure a clean environment.
         query: format!("SELECT COUNT(*) FROM {table}_parquet"),
-        database_url: url.into(),
+        database_url: url,
     }
     .run()
     .await
@@ -271,7 +271,7 @@ impl Benchmark {
             let conn_opts = &PgConnectOptions::from_str(&self.database_url).unwrap();
             let conn = block_on(async {
                 Arc::new(Mutex::new(
-                    PgConnection::connect_with(&conn_opts).await.unwrap(),
+                    PgConnection::connect_with(conn_opts).await.unwrap(),
                 ))
             });
 
@@ -299,7 +299,7 @@ impl Benchmark {
 
     async fn run_once(&self) -> Result<()> {
         let conn_opts = &PgConnectOptions::from_str(&self.database_url).unwrap();
-        let mut conn = PgConnection::connect_with(&conn_opts).await.unwrap();
+        let mut conn = PgConnection::connect_with(conn_opts).await.unwrap();
 
         // Run setup query if present.
         self.setup_query(conn.as_mut()).await.unwrap();

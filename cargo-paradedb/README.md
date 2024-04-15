@@ -32,6 +32,7 @@ cargo install \
 ## Benchmarks
 
 To run benchmarks, you must be able to connect to a running ParadeDB instance. `cargo-paradedb` accepts a Postgres connection url in one of the following ways:
+
 1. A `.env` file with a `DATABASE_URL='postgresql://...'` entry, located in a parent folder of `cargo-paradedb`.
 2. Setting the `DATABASE_URL` environment variable when running `cargo paradedb`.
 3. Passing a `--url` argument directly to `cargo paradedb bench` commands.
@@ -61,21 +62,25 @@ All commands below operate on default tables, visible with `--help`. Defaults ca
 Benchmarks that build a table or index are only run once, as these operations usually take a long time. Benchmarks that peform fast operations, like queries, are sampled many times with the [Criterion](https://github.com/bheisler/criterion.rs) library.
 
 Build a `pg_search` index:
+
 ```sh
 cargo paradedb bench eslogs build-search-index
 ```
 
 Query a `pg_search` index (index must already exist):
+
 ```sh
 cargo paradedb bench eslogs query-search-index
 ```
 
 Build a `pg_analytics` table using `parquet`:
+
 ```sh
 cargo paradedb bench eslogs build-parquet-table
 ```
 
 Count rows in a `pg_analytics` table using `parquet`:
+
 ```sh
 cargo paradedb bench eslogs count-parquet-table
 ```

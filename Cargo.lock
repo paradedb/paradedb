@@ -3774,6 +3774,7 @@ dependencies = [
  "thiserror",
  "time",
  "url",
+ "uuid",
  "walkdir",
  "zstd-sys",
 ]

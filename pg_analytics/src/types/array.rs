@@ -270,6 +270,32 @@ where
     }
 }
 
+pub trait IntoUuidArray
+where
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
+{
+    fn into_uuid_array(self) -> Result<Vec<Option<String>>, DataTypeError> {
+        let array = self
+            .map(|datum| {
+                datum.and_then(|datum| {
+                    unsafe { datum::Uuid::from_datum(datum, false) }.map(|uuid| uuid.to_string())
+                })
+            })
+            .collect::<Vec<Option<String>>>();
+
+        Ok(array)
+    }
+}
+
+pub trait IntoUuidArrowArray
+where
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
+{
+    fn into_uuid_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        Ok(Arc::new(StringArray::from_iter(self.into_uuid_array()?)))
+    }
+}
+
 pub trait IntoGenericBytesListArrowArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
@@ -379,6 +405,7 @@ where
                     _ => todo!(),
                 },
                 NUMERICOID => self.into_numeric_arrow_array(typemod),
+                UUIDOID => self.into_uuid_arrow_array(),
                 unsupported => Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
             PgOid::Invalid => Err(DataTypeError::InvalidPostgresOid),
@@ -396,6 +423,7 @@ impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMillisecondArray fo
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampSecondArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimeNanosecondArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimeMillisecondArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoUuidArray for T {}
 
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoDateArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoNumericArrowArray for T {}
@@ -405,6 +433,7 @@ impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMillisecondArrowArr
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampSecondArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimeNanosecondArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimeMillisecondArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoUuidArrowArray for T {}
 
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoPrimitiveListArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoBooleanListArrowArray for T {}

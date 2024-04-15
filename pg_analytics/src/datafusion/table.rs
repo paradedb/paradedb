@@ -298,7 +298,9 @@ impl PgTableProvider {
         table_name: &str,
     ) -> Result<Self, CatalogError> {
         let table_path = ParadeDirectory::table_path_from_name(schema_name, table_name)?;
-        let listing_table_url = ListingTableUrl::parse(table_path.to_str().unwrap())?;
+        let listing_table_url = ListingTableUrl::parse(table_path.to_str().ok_or(
+            DataFusionTableError::ListingTableUrlParseError(table_path.clone()),
+        )?)?;
         let file_format = ParquetFormat::new();
         let listing_options =
             ListingOptions::new(Arc::new(file_format)).with_file_extension(".parquet");
@@ -420,6 +422,9 @@ pub enum DataFusionTableError {
 
     #[error("Delta table state not found")]
     DeltaTableStateNotFound,
+
+    #[error("Could not convert {0:?} to ListingTableUrl")]
+    ListingTableUrlParseError(PathBuf),
 
     #[error("Column name {0} is reserved by pg_analytics")]
     ReservedFieldName(String),

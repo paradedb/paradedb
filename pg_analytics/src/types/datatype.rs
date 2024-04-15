@@ -12,7 +12,7 @@ use super::time::{TimeError, TimePrecision};
 use super::timestamp::{TimestampError, TimestampPrecision};
 
 // By default, unspecified type mods in Postgres are -1
-const DEFAULT_TYPE_MOD: i32 = -1;
+pub static DEFAULT_TYPE_MOD: i32 = -1;
 
 #[derive(Copy, Clone, Debug)]
 pub struct PgTypeMod(pub i32);
@@ -48,6 +48,7 @@ impl TryFrom<PgAttribute> for ArrowDataType {
                         typemod.try_into()?;
                     Decimal128(precision, scale)
                 }
+                UUIDOID => Utf8,
                 unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
             PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),

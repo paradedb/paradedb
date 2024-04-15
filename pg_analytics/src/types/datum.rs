@@ -8,6 +8,7 @@ use deltalake::arrow::datatypes::{
 };
 use deltalake::datafusion::arrow::datatypes::DataType::*;
 use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
+use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
 use std::fmt::Debug;
 use thiserror::Error;
@@ -152,11 +153,11 @@ where
     }
 }
 
-pub trait GetDatumNumeric
+pub trait GetDatumNumericFromDecimal
 where
     Self: Array + AsArray,
 {
-    fn get_numeric_datum(
+    fn get_numeric_datum_from_decimal(
         &self,
         index: usize,
         precision: &u8,
@@ -173,6 +174,54 @@ where
     }
 }
 
+pub trait GetDatumNumeric
+where
+    Self: Array + AsArray,
+{
+    fn get_numeric_datum<A>(
+        &self,
+        index: usize,
+        typemod: i32,
+        func: unsafe fn(pg_sys::FunctionCallInfo) -> pg_sys::Datum,
+    ) -> Result<Option<pg_sys::Datum>, DatumError>
+    where
+        A: ArrowPrimitiveType,
+        A::Native: IntoDatum,
+    {
+        match self.as_primitive::<A>().iter().nth(index) {
+            Some(Some(value)) => {
+                let numeric: Option<AnyNumeric> = unsafe {
+                    direct_function_call(func, &[value.into_datum(), typemod.into_datum()])
+                };
+                Ok(numeric.into_datum())
+            }
+            _ => Ok(None),
+        }
+    }
+}
+
+pub trait GetDatumUuid
+where
+    Self: Array + AsArray,
+{
+    fn get_uuid_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DatumError> {
+        let value = self
+            .as_any()
+            .downcast_ref::<StringArray>()
+            .ok_or(DatumError::DowncastGenericArray(format!("{:?}", self)))?
+            .into_iter()
+            .nth(index);
+
+        match value {
+            Some(Some(value)) => {
+                let uuid = uuid::Uuid::parse_str(value)?;
+                Ok(datum::Uuid::from_slice(uuid.as_bytes()).into_datum())
+            }
+            _ => Ok(value.into_datum()),
+        }
+    }
+}
+
 pub trait GetDatum
 where
     Self: Array
@@ -182,40 +231,95 @@ where
         + GetDatumPrimitive
         + GetDatumPrimitiveList
         + GetDatumNumeric
+        + GetDatumNumericFromDecimal
         + GetDatumTimestampMicrosecond
         + GetDatumTimestampMillisecond
         + GetDatumTimestampSecond
-        + GetDatumTime,
+        + GetDatumTime
+        + GetDatumUuid,
 {
-    fn get_datum(&self, index: usize) -> Result<Option<pg_sys::Datum>, DataTypeError> {
-        let result = match self.data_type() {
-            Boolean => self.get_generic_datum::<BooleanArray>(index)?,
-            Utf8 => self.get_generic_datum::<StringArray>(index)?,
-            Int16 => self.get_primitive_datum::<Int16Type>(index)?,
-            Int32 => self.get_primitive_datum::<Int32Type>(index)?,
-            Int64 => self.get_primitive_datum::<Int64Type>(index)?,
-            Float32 => self.get_primitive_datum::<Float32Type>(index)?,
-            Float64 => self.get_primitive_datum::<Float64Type>(index)?,
-            Date32 => self.get_date_datum(index)?,
-            Time64(TimeUnit::Nanosecond) => self.get_time_datum(index)?,
-            Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
-            Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
-            Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
-            Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
-            List(ref field) => match field.data_type() {
-                Boolean => self.get_primitive_list_datum::<BooleanArray>(index)?,
-                Utf8 => self.get_primitive_list_datum::<StringArray>(index)?,
-                Int16 => self.get_primitive_list_datum::<Int16Array>(index)?,
-                Int32 => self.get_primitive_list_datum::<Int32Array>(index)?,
-                Int64 => self.get_primitive_list_datum::<Int64Array>(index)?,
-                Float32 => self.get_primitive_list_datum::<Float32Array>(index)?,
-                Float64 => self.get_primitive_list_datum::<Float64Array>(index)?,
-                Date32 => self.get_primitive_list_datum::<Date32Array>(index)?,
-                unsupported => {
-                    return Err(DatumError::UnsupportedArrowArrayType(unsupported.clone()).into())
+    fn get_datum(
+        &self,
+        index: usize,
+        oid: PgOid,
+        typemod: i32,
+    ) -> Result<Option<pg_sys::Datum>, DataTypeError> {
+        let result = match oid {
+            PgOid::BuiltIn(builtin) => match builtin {
+                BOOLOID => self.get_generic_datum::<BooleanArray>(index)?,
+                TEXTOID | VARCHAROID | BPCHAROID => self.get_generic_datum::<StringArray>(index)?,
+                INT2OID | INT4OID | INT8OID | FLOAT4OID | FLOAT8OID => match self.data_type() {
+                    Float32 => self.get_primitive_datum::<Float32Type>(index)?,
+                    Float64 => self.get_primitive_datum::<Float64Type>(index)?,
+                    Int16 => self.get_primitive_datum::<Int16Type>(index)?,
+                    Int32 => self.get_primitive_datum::<Int32Type>(index)?,
+                    Int64 => self.get_primitive_datum::<Int64Type>(index)?,
+                    unsupported => {
+                        return Err(DatumError::IntError(unsupported.clone(), oid).into())
+                    }
+                },
+                DATEOID => self.get_date_datum(index)?,
+                TIMEOID => self.get_time_datum(index)?,
+                TIMESTAMPOID => match self.data_type() {
+                    Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
+                    Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
+                    Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
+                    unsupported => {
+                        return Err(DatumError::TimestampError(unsupported.clone()).into())
+                    }
+                },
+                NUMERICOID => match self.data_type() {
+                    Decimal128(p, s) => self.get_numeric_datum_from_decimal(index, p, s)?,
+                    Float32 => self.get_numeric_datum::<Float32Type>(
+                        index,
+                        typemod,
+                        pg_sys::float4_numeric,
+                    )?,
+                    Float64 => self.get_numeric_datum::<Float64Type>(
+                        index,
+                        typemod,
+                        pg_sys::float8_numeric,
+                    )?,
+                    Int16 => {
+                        self.get_numeric_datum::<Int16Type>(index, typemod, pg_sys::int2_numeric)?
+                    }
+                    Int32 => {
+                        self.get_numeric_datum::<Int32Type>(index, typemod, pg_sys::int4_numeric)?
+                    }
+                    Int64 => {
+                        self.get_numeric_datum::<Int64Type>(index, typemod, pg_sys::int8_numeric)?
+                    }
+                    unsupported => return Err(DatumError::NumericError(unsupported.clone()).into()),
+                },
+                UUIDOID => self.get_uuid_datum(index)?,
+                BOOLARRAYOID => self.get_primitive_list_datum::<BooleanArray>(index)?,
+                TEXTARRAYOID | VARCHARARRAYOID | BPCHARARRAYOID => {
+                    self.get_primitive_list_datum::<StringArray>(index)?
                 }
+                INT2ARRAYOID | INT4ARRAYOID | INT8ARRAYOID | FLOAT4ARRAYOID | FLOAT8ARRAYOID => {
+                    match self.data_type() {
+                        List(ref field) => match field.data_type().clone() {
+                            Float32 => self.get_primitive_list_datum::<Float32Array>(index)?,
+                            Float64 => self.get_primitive_list_datum::<Float64Array>(index)?,
+                            Int16 => self.get_primitive_list_datum::<Int16Array>(index)?,
+                            Int32 => self.get_primitive_list_datum::<Int32Array>(index)?,
+                            Int64 => self.get_primitive_list_datum::<Int64Array>(index)?,
+                            unsupported => {
+                                return Err(
+                                    DatumError::IntArrayError(unsupported.clone(), oid).into()
+                                )
+                            }
+                        },
+                        unsupported => {
+                            return Err(DatumError::IntArrayError(unsupported.clone(), oid).into())
+                        }
+                    }
+                }
+                DATEARRAYOID => self.get_primitive_list_datum::<Date32Array>(index)?,
+                unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
-            unsupported => return Err(DatumError::UnsupportedArrowType(unsupported.clone()).into()),
+            PgOid::Invalid => return Err(DataTypeError::InvalidPostgresOid),
+            PgOid::Custom(_) => return Err(DataTypeError::UnsupportedCustomType),
         };
 
         Ok(result)
@@ -228,19 +332,30 @@ impl GetDatumGeneric for ArrayRef {}
 impl GetDatumPrimitive for ArrayRef {}
 impl GetDatumPrimitiveList for ArrayRef {}
 impl GetDatumNumeric for ArrayRef {}
+impl GetDatumNumericFromDecimal for ArrayRef {}
 impl GetDatumTimestampMicrosecond for ArrayRef {}
 impl GetDatumTimestampMillisecond for ArrayRef {}
 impl GetDatumTimestampSecond for ArrayRef {}
 impl GetDatumTime for ArrayRef {}
+impl GetDatumUuid for ArrayRef {}
 
 #[derive(Error, Debug)]
 pub enum DatumError {
+    #[error(transparent)]
+    UuidError(#[from] uuid::Error),
+
     #[error("Could not downcast arrow array {0}")]
     DowncastGenericArray(String),
 
-    #[error("Could not convert arrow type {0:?} to Postgres type")]
-    UnsupportedArrowType(DataType),
+    #[error("Error converting {0:?} into {1:?}")]
+    IntError(DataType, PgOid),
 
-    #[error("Could not convert arrow array with type {0:?} to Postgres array")]
-    UnsupportedArrowArrayType(DataType),
+    #[error("Error converting {0:?} array into {1:?}")]
+    IntArrayError(DataType, PgOid),
+
+    #[error("Error converting {0:?} into NUMERIC")]
+    NumericError(DataType),
+
+    #[error("Error converting {0:?} into TIMESTAMP")]
+    TimestampError(DataType),
 }

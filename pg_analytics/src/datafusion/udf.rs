@@ -12,7 +12,9 @@ use thiserror::Error;
 use super::catalog::CatalogError;
 use super::session::Session;
 use crate::types::array::IntoArrowArray;
-use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
+use crate::types::datatype::{
+    ArrowDataType, DataTypeError, PgAttribute, PgTypeMod, DEFAULT_TYPE_MOD,
+};
 use crate::types::datum::GetDatum;
 
 // NOTE: because we don't use argtypes yet (see TODO below), using this function on overloaded functions WILL
@@ -131,7 +133,11 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, UDFErr
                 for arg_index in 1..num_args {
                     let fcinfo_arg = (*fcinfo).args.as_mut_ptr().add(arg_index - 1);
                     (*fcinfo_arg).value = arg_arrays[arg_index - 1]
-                        .get_datum(row_index)?
+                        .get_datum(
+                            row_index,
+                            PgOid::from_untagged(*arg_oids.add(row_index)),
+                            DEFAULT_TYPE_MOD,
+                        )?
                         .ok_or(UDFError::DatumNotFound)?;
                     (*fcinfo_arg).isnull = false;
                 }
@@ -149,7 +155,7 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, UDFErr
             Ok(ColumnarValue::Array(
                 result_vec
                     .into_iter()
-                    .into_arrow_array(rettype.into(), PgTypeMod(-1))?,
+                    .into_arrow_array(rettype.into(), PgTypeMod(DEFAULT_TYPE_MOD))?,
             ))
         } else {
             Err(UDFError::FunctionNameNotFound)

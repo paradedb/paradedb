@@ -3,7 +3,7 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use sqlx::{types::BigDecimal, PgConnection};
+use sqlx::{types::BigDecimal, types::Uuid, PgConnection};
 use std::str::FromStr;
 use time::{macros::format_description, Date, PrimitiveDateTime, Time};
 
@@ -199,10 +199,14 @@ fn byte_type(mut conn: PgConnection) {
 
 #[rstest]
 fn uuid_type(mut conn: PgConnection) {
-    match "CREATE TABLE t (a uuid) USING parquet".execute_result(&mut conn) {
-        Err(err) => assert!(err.to_string().contains("not yet supported")),
-        _ => panic!("uuid should not be supported"),
-    };
+    "CREATE TABLE t (a uuid) USING parquet".execute(&mut conn);
+    "INSERT INTO t VALUES ('1bc6e67b-17f6-4bcc-a492-f0afb5212f38')".execute(&mut conn);
+    let row: (Uuid,) = "SELECT * FROM t".fetch_one(&mut conn);
+
+    assert_eq!(
+        row.0,
+        Uuid::try_parse("1bc6e67b-17f6-4bcc-a492-f0afb5212f38").unwrap()
+    );
 }
 
 #[rstest]

@@ -7,40 +7,28 @@ use thiserror::Error;
 
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
-use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMod};
+use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
 pub fn write_batches_to_slots(
-    mut query_desc: PgBox<pg_sys::QueryDesc>,
+    query_desc: PgBox<pg_sys::QueryDesc>,
     mut batches: Vec<RecordBatch>,
 ) -> Result<(), SelectHookError> {
     // Convert the DataFusion batches to Postgres tuples and send them to the destination
     unsafe {
+        let tuple_desc = PgTupleDesc::from_pg(query_desc.tupDesc);
         let estate = query_desc.estate;
         (*estate).es_processed = 0;
 
         let dest = query_desc.dest;
         let startup = (*dest).rStartup.ok_or(SelectHookError::RStartupNotFound)?;
-
         startup(dest, query_desc.operation as i32, query_desc.tupDesc);
 
-        let tuple_desc = PgTupleDesc::from_pg_unchecked(query_desc.tupDesc);
         let receive = (*dest)
             .receiveSlot
             .ok_or(SelectHookError::ReceiveSlotNotFound)?;
 
         for batch in batches.iter_mut() {
-            // Convert the tuple_desc target types to the ones corresponding to the DataFusion column types
-            let tuple_attrs = (*query_desc.tupDesc).attrs.as_mut_ptr();
-            for (col_index, _) in tuple_desc.iter().enumerate() {
-                let PgAttribute(typid, PgTypeMod(typmod)) =
-                    ArrowDataType(batch.column(col_index).data_type().clone()).try_into()?;
-
-                let tuple_attr = tuple_attrs.add(col_index);
-                (*tuple_attr).atttypid = typid.value();
-                (*tuple_attr).atttypmod = typmod;
-            }
-
             for row_index in 0..batch.num_rows() {
                 let tuple_table_slot =
                     pg_sys::MakeTupleTableSlot(query_desc.tupDesc, &pg_sys::TTSOpsVirtual);
@@ -48,11 +36,14 @@ pub fn write_batches_to_slots(
                 pg_sys::ExecStoreVirtualTuple(tuple_table_slot);
 
                 for (col_index, _) in tuple_desc.iter().enumerate() {
+                    let attribute = tuple_desc
+                        .get(col_index)
+                        .ok_or(SelectHookError::AttributeNotFound(col_index))?;
                     let column = batch.column(col_index);
                     let tts_value = (*tuple_table_slot).tts_values.add(col_index);
                     let tts_isnull = (*tuple_table_slot).tts_isnull.add(col_index);
 
-                    match column.get_datum(row_index)? {
+                    match column.get_datum(row_index, attribute.type_oid(), attribute.type_mod())? {
                         Some(datum) => {
                             *tts_value = datum;
                         }
@@ -110,6 +101,9 @@ pub enum SelectHookError {
 
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),
+
+    #[error("Could not find attribute {0} in tuple descriptor")]
+    AttributeNotFound(usize),
 
     #[error("Unexpected error: rShutdown not found")]
     RShutdownNotFound,

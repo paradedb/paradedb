@@ -7,7 +7,7 @@ mod posthog;
 use self::event::TelemetryEvent;
 pub use bgworker::{setup_telemetry_background_worker, ParadeExtension};
 use pgrx::spi::SpiError;
-use std::{env::VarError, path::PathBuf, str::Utf8Error};
+use std::{path::PathBuf, str::Utf8Error};
 use thiserror::Error;
 
 pub trait TelemetryStore {
@@ -44,8 +44,6 @@ pub enum TelemetryError {
     DetoastExtensionName(#[source] Utf8Error),
     #[error("could not check telemetry file for handled status: {0}")]
     HandledCheck(#[source] std::io::Error),
-    #[error("could not read PGDATA variable for telemetry director: {0}")]
-    NoPgData(#[source] VarError),
     #[error("could not read telemetry config: {0}")]
     ConfigEnv(#[source] envy::Error),
     #[error("could not send telemetry request: {0}")]

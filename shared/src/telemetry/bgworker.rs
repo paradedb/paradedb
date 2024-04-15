@@ -4,6 +4,7 @@ use crate::telemetry::postgres::PostgresDirectoryStore;
 use crate::telemetry::posthog::PosthogStore;
 use pgrx::bgworkers::{self, BackgroundWorker, BackgroundWorkerBuilder, SignalWakeFlags};
 use pgrx::{pg_guard, pg_sys, FromDatum, IntoDatum};
+use std::ffi::CStr;
 use std::path::PathBuf;
 use std::process;
 use std::sync::Mutex;
@@ -150,9 +151,13 @@ impl BgWorkerTelemetryConfig {
                 .map(|s| s.to_string())
                 .ok_or(TelemetryError::PosthogHost)?,
             extension_name: extension_name.to_string(),
-            root_data_directory: std::env::var("PGDATA")
-                .map(PathBuf::from)
-                .map_err(TelemetryError::NoPgData)?,
+            root_data_directory: unsafe {
+                PathBuf::from(
+                    CStr::from_ptr(pgrx::pg_sys::DataDir)
+                        .to_string_lossy()
+                        .into_owned(),
+                )
+            },
         })
     }
 

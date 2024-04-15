@@ -11,7 +11,7 @@ mod types;
 use crate::hooks::ParadeHook;
 use guc::PostgresPgAnalyticsGucSettings;
 use pgrx::*;
-// use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
+use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
 
 pgrx::pg_module_magic!();
 extension_sql_file!("../sql/_bootstrap.sql");
@@ -30,8 +30,7 @@ pub extern "C" fn _PG_init() {
         register_hook(&mut PARADE_HOOK)
     };
 
-    // TODO: Uncomment this once we fix the telemetry PGDATA error
-    // setup_telemetry_background_worker(ParadeExtension::PgAnalytics);
+    setup_telemetry_background_worker(ParadeExtension::PgAnalytics);
 }
 
 #[cfg(test)]

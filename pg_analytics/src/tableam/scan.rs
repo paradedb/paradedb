@@ -122,7 +122,9 @@ pub async unsafe fn scan_getnextslot(
         let column = current_batch.column(col_index);
 
         unsafe {
-            let attribute = tuple_desc.get(col_index).unwrap();
+            let attribute = tuple_desc
+                .get(col_index)
+                .ok_or(TableScanError::AttributeNotFound(col_index))?;
             let tts_value = (*slot).tts_values.add(col_index);
             let tts_isnull = (*slot).tts_isnull.add(col_index);
 
@@ -379,6 +381,9 @@ pub enum TableScanError {
 
     #[error(transparent)]
     TIDError(#[from] TIDError),
+
+    #[error("Could not find attribute {0} in tuple descriptor")]
+    AttributeNotFound(usize),
 
     #[error("Parallel scans are not implemented")]
     ParallelScanNotSupported,

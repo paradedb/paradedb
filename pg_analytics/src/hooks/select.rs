@@ -36,7 +36,9 @@ pub fn write_batches_to_slots(
                 pg_sys::ExecStoreVirtualTuple(tuple_table_slot);
 
                 for (col_index, _) in tuple_desc.iter().enumerate() {
-                    let attribute = tuple_desc.get(col_index).unwrap();
+                    let attribute = tuple_desc
+                        .get(col_index)
+                        .ok_or(SelectHookError::AttributeNotFound(col_index))?;
                     let column = batch.column(col_index);
                     let tts_value = (*tuple_table_slot).tts_values.add(col_index);
                     let tts_isnull = (*tuple_table_slot).tts_isnull.add(col_index);
@@ -99,6 +101,9 @@ pub enum SelectHookError {
 
     #[error(transparent)]
     DataTypeError(#[from] DataTypeError),
+
+    #[error("Could not find attribute {0} in tuple descriptor")]
+    AttributeNotFound(usize),
 
     #[error("Unexpected error: rShutdown not found")]
     RShutdownNotFound,

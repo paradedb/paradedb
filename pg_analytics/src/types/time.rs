@@ -88,7 +88,8 @@ impl TryFrom<NanosecondDay> for datum::Time {
         let NanosecondDay(nanos) = nanos;
 
         let time_delta = TimeDelta::nanoseconds(nanos);
-        let time = NaiveTime::from_hms_nano_opt(0, 0, 0, 0).unwrap() + time_delta;
+        let time = NaiveTime::from_hms_nano_opt(0, 0, 0, 0).ok_or(TimeError::MidnightNotFound)?
+            + time_delta;
         let total_seconds =
             time.second() as f64 + time.nanosecond() as f64 / NANOSECONDS_IN_SECOND as f64;
 
@@ -104,6 +105,9 @@ impl TryFrom<NanosecondDay> for datum::Time {
 pub enum TimeError {
     #[error(transparent)]
     DateTimeConversion(#[from] datum::datetime_support::DateTimeConversionError),
+
+    #[error("Could not convert midnight to NaiveTime")]
+    MidnightNotFound,
 
     #[error("Only time and time(6), not time({0}), are supported")]
     UnsupportedTypeMod(i32),

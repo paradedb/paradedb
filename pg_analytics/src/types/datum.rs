@@ -188,10 +188,10 @@ where
         A: ArrowPrimitiveType,
         A::Native: IntoDatum,
     {
-        match self.as_primitive::<Float64Type>().iter().nth(index) {
+        match self.as_primitive::<A>().iter().nth(index) {
             Some(Some(value)) => {
-                let numeric: AnyNumeric = unsafe {
-                    direct_function_call(func, &[value.into_datum(), typemod.into_datum()]).unwrap()
+                let numeric: Option<AnyNumeric> = unsafe {
+                    direct_function_call(func, &[value.into_datum(), typemod.into_datum()])
                 };
                 Ok(numeric.into_datum())
             }

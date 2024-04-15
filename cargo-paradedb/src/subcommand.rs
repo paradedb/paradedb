@@ -1,9 +1,16 @@
 use crate::tables::{benchlogs::EsLog, PathReader};
 use anyhow::{bail, Result};
+use async_std::sync::Mutex;
+use async_std::task::block_on;
 use cmd_lib::{run_cmd, run_fun};
+use criterion::async_executor::AsyncStdExecutor;
+use criterion::Criterion;
 use itertools::Itertools;
+use sqlx::Executor;
 use sqlx::{postgres::PgConnectOptions, Connection, PgConnection, Postgres, QueryBuilder};
-use std::{fs, os::unix::process::CommandExt, str::FromStr, time::SystemTime};
+use std::sync::Arc;
+use std::time::SystemTime;
+use std::{fs, os::unix::process::CommandExt, str::FromStr};
 use tempfile::tempdir;
 use tracing::debug;
 
@@ -150,56 +157,177 @@ pub async fn bench_eslogs_generate(
 }
 
 pub async fn bench_eslogs_build_search_index(
-    table_name: String,
-    index_name: String,
+    table: String,
+    index: String,
     url: String,
 ) -> Result<()> {
-    // Set up Postgres connection and ensure the table exists.
-    debug!(DATABASE_URL = url);
-    let conn_opts = &PgConnectOptions::from_str(&url)?;
-    let mut conn = PgConnection::connect_with(&conn_opts).await?;
-
-    // First, drop any existing index to ensure a clean environment.
-    let drop_query = format!("CALL paradedb.drop_bm25('{index_name}')");
-    sqlx::query(&drop_query).execute(&mut conn).await?;
-
-    // Start a timer for the benchmark.
-    let start_time = SystemTime::now();
+    let drop_query = format!("CALL paradedb.drop_bm25('{index}')");
 
     let text_fields = r#"{"message": {}}"#;
     let create_query = format!(
         "CALL paradedb.create_bm25(
-            table_name => '{table_name}',
-            index_name => '{index_name}',
+            table_name => '{table}',
+            index_name => '{index}',
             key_field => 'id',
             text_fields => '{text_fields}'
         );"
     );
 
-    sqlx::query(&create_query).execute(&mut conn).await?;
-
-    // Benchmark ends here
-    let end_time = SystemTime::now();
-    print_results(start_time, end_time);
-
-    Ok(())
+    Benchmark {
+        group_name: "Search Index".into(),
+        function_name: "bench_eslogs_build_search_index".into(),
+        // First, drop any existing index to ensure a clean environment.
+        setup_query: Some(drop_query),
+        query: create_query,
+        database_url: url.into(),
+    }
+    .run_once()
+    .await
 }
 
-fn print_results(start_time: SystemTime, end_time: SystemTime) {
-    if let Ok(duration) = end_time.duration_since(start_time) {
-        println!("Start time: {:?}", start_time);
-        println!("End time: {:?}", end_time);
+pub async fn bench_eslogs_query_search_index(
+    index: String,
+    query: String,
+    limit: u64,
+    url: String,
+) -> Result<()> {
+    Benchmark {
+        group_name: "Search Query".into(),
+        function_name: "bench_eslogs_query_search_index".into(),
+        setup_query: None,
+        query: format!("SELECT * FROM {index}.search('{query}', limit_rows => {limit});"),
+        database_url: url,
+    }
+    .run()
+    .await
+}
 
-        let milliseconds = duration.as_millis();
-        let seconds = duration.as_secs_f64(); // Use floating point for seconds
-        let minutes = seconds / 60.0; // Convert seconds to minutes
-        let hours = seconds / 3600.0; // Convert seconds to hours
+pub async fn bench_eslogs_build_parquet_table(table: String, url: String) -> Result<()> {
+    let parquet_table_name = format!("{table}_parquet");
+    let drop_query = format!(
+        r#"
+        DROP TABLE IF EXISTS {parquet_table_name};
+        CREATE TABLE {parquet_table_name} (metrics_size int4) USING parquet;
+        "#
+    );
+    let create_query = format!(
+        r#"
+        INSERT INTO {parquet_table_name} (metrics_size)
+        SELECT metrics_size FROM {table};
+        "#
+    );
 
-        println!("Duration: {} milliseconds", milliseconds);
-        println!("Duration: {:.4} seconds", seconds); // Print with 4 decimal places
-        println!("Duration: {:.4} minutes", minutes); // Print with 4 decimal places
-        println!("Duration: {:.4} hours", hours); // Print with 4 decimal places
-    } else {
-        println!("An error occurred while calculating the duration.");
+    Benchmark {
+        group_name: "Parquet Table".into(),
+        function_name: "bench_eslogs_build_parquet_table".into(),
+        // First, drop any existing table to ensure a clean environment.
+        setup_query: Some(drop_query),
+        query: create_query,
+        database_url: url.into(),
+    }
+    .run_once()
+    .await
+}
+
+pub async fn bench_eslogs_count_parquet_table(table: String, url: String) -> Result<()> {
+    Benchmark {
+        group_name: "Parquet Table".into(),
+        function_name: "bench_eslogs_build_parquet_table".into(),
+        setup_query: None, // First, drop any existing index to ensure a clean environment.
+        query: format!("SELECT COUNT(*) FROM {table}_parquet"),
+        database_url: url.into(),
+    }
+    .run()
+    .await
+}
+
+struct Benchmark {
+    group_name: String,
+    function_name: String,
+    setup_query: Option<String>,
+    query: String,
+    database_url: String,
+}
+
+impl Benchmark {
+    pub async fn setup_query(&self, conn: &mut PgConnection) -> Result<()> {
+        if let Some(query) = &self.setup_query {
+            conn.execute(query.as_ref()).await?;
+        }
+
+        Ok(())
+    }
+    pub async fn run(&self) -> Result<()> {
+        // One-time setup code goes here.
+        debug!(DATABASE_URL = self.database_url);
+        let mut criterion = Criterion::default();
+        let mut group = criterion.benchmark_group(&self.group_name);
+
+        // Lowered from default sample size to remove Criterion warning.
+        // Must be higher than 10, or Criterion will panic.
+        group.sample_size(60);
+        group.bench_function(&self.function_name, |runner| {
+            // Per-sample (note that a sample can be many iterations) setup goes here.
+            let conn_opts = &PgConnectOptions::from_str(&self.database_url).unwrap();
+            let conn = block_on(async {
+                Arc::new(Mutex::new(
+                    PgConnection::connect_with(&conn_opts).await.unwrap(),
+                ))
+            });
+
+            // Run setup query.
+            block_on(async {
+                let local_conn = conn.clone();
+                let mut conn = local_conn.lock().await; // Acquire the lock asynchronously.
+                self.setup_query(&mut conn).await.unwrap();
+            });
+
+            runner.to_async(AsyncStdExecutor).iter(|| {
+                // Measured code goes here.
+                async {
+                    let local_conn = conn.clone();
+                    let mut conn = local_conn.lock().await; // Acquire the lock asynchronously.
+                    sqlx::query(&self.query).execute(&mut *conn).await.unwrap();
+                }
+            });
+        });
+
+        group.finish();
+
+        Ok(())
+    }
+
+    async fn run_once(&self) -> Result<()> {
+        let conn_opts = &PgConnectOptions::from_str(&self.database_url).unwrap();
+        let mut conn = PgConnection::connect_with(&conn_opts).await.unwrap();
+
+        // Run setup query if present.
+        self.setup_query(conn.as_mut()).await.unwrap();
+
+        // Run actual query to be benchmarked.
+        let start_time = SystemTime::now();
+        block_on(async {
+            sqlx::query(&self.query).execute(&mut conn).await.unwrap();
+        });
+        let end_time = SystemTime::now();
+
+        if let Ok(duration) = end_time.duration_since(start_time) {
+            println!("Start time: {:?}", start_time);
+            println!("End time: {:?}", end_time);
+
+            let milliseconds = duration.as_millis();
+            let seconds = duration.as_secs_f64(); // Use floating point for seconds
+            let minutes = seconds / 60.0; // Convert seconds to minutes
+            let hours = seconds / 3600.0; // Convert seconds to hours
+
+            println!("Duration: {} milliseconds", milliseconds);
+            println!("Duration: {:.4} seconds", seconds); // Print with 4 decimal places
+            println!("Duration: {:.4} minutes", minutes); // Print with 4 decimal places
+            println!("Duration: {:.4} hours", hours); // Print with 4 decimal places
+        } else {
+            println!("An error occurred while calculating the duration.");
+        }
+
+        Ok(())
     }
 }

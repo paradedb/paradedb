@@ -244,18 +244,20 @@ where
         oid: PgOid,
         typemod: i32,
     ) -> Result<Option<pg_sys::Datum>, DataTypeError> {
-        info!("{:?} {}", oid, index);
         let result = match oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 BOOLOID => self.get_generic_datum::<BooleanArray>(index)?,
-                TEXTOID => self.get_generic_datum::<StringArray>(index)?,
-                VARCHAROID => self.get_generic_datum::<StringArray>(index)?,
-                BPCHAROID => self.get_generic_datum::<StringArray>(index)?,
-                INT2OID => self.get_primitive_datum::<Int16Type>(index)?,
-                INT4OID => self.get_primitive_datum::<Int32Type>(index)?,
-                INT8OID => self.get_primitive_datum::<Int64Type>(index)?,
-                FLOAT4OID => self.get_primitive_datum::<Float32Type>(index)?,
-                FLOAT8OID => self.get_primitive_datum::<Float64Type>(index)?,
+                TEXTOID | VARCHAROID | BPCHAROID => self.get_generic_datum::<StringArray>(index)?,
+                INT2OID | INT4OID | INT8OID | FLOAT4OID | FLOAT8OID => match self.data_type() {
+                    Float32 => self.get_primitive_datum::<Float32Type>(index)?,
+                    Float64 => self.get_primitive_datum::<Float64Type>(index)?,
+                    Int16 => self.get_primitive_datum::<Int16Type>(index)?,
+                    Int32 => self.get_primitive_datum::<Int32Type>(index)?,
+                    Int64 => self.get_primitive_datum::<Int64Type>(index)?,
+                    unsupported => {
+                        return Err(DatumError::IntError(unsupported.clone(), oid).into())
+                    }
+                },
                 DATEOID => self.get_date_datum(index)?,
                 TIMEOID => self.get_time_datum(index)?,
                 TIMESTAMPOID => match self.data_type() {
@@ -267,50 +269,52 @@ where
                     }
                 },
                 NUMERICOID => match self.data_type() {
-                    Decimal128(p, s) => {
-                        info!("decimal");
-                        self.get_numeric_datum_from_decimal(index, p, s)?
-                    },
-                    Float32 => {
-                        info!("f32");
-                        self.get_numeric_datum::<Float32Type>(
-                            index,
-                            typemod,
-                            pg_sys::float4_numeric,
-                        )?
-                    },
-                    Float64 => {
-                        info!("f64");
-                        self.get_numeric_datum::<Float64Type>(
-                            index,
-                            typemod,
-                            pg_sys::float8_numeric,
-                        )?
-                    },
+                    Decimal128(p, s) => self.get_numeric_datum_from_decimal(index, p, s)?,
+                    Float32 => self.get_numeric_datum::<Float32Type>(
+                        index,
+                        typemod,
+                        pg_sys::float4_numeric,
+                    )?,
+                    Float64 => self.get_numeric_datum::<Float64Type>(
+                        index,
+                        typemod,
+                        pg_sys::float8_numeric,
+                    )?,
                     Int16 => {
-                        info!("i16");
                         self.get_numeric_datum::<Int16Type>(index, typemod, pg_sys::int2_numeric)?
                     }
                     Int32 => {
-                        info!("i32");
                         self.get_numeric_datum::<Int32Type>(index, typemod, pg_sys::int4_numeric)?
                     }
                     Int64 => {
-                        info!("i64");
                         self.get_numeric_datum::<Int64Type>(index, typemod, pg_sys::int8_numeric)?
                     }
                     unsupported => return Err(DatumError::NumericError(unsupported.clone()).into()),
                 },
                 UUIDOID => self.get_uuid_datum(index)?,
                 BOOLARRAYOID => self.get_primitive_list_datum::<BooleanArray>(index)?,
-                TEXTARRAYOID => self.get_primitive_list_datum::<StringArray>(index)?,
-                VARCHARARRAYOID => self.get_primitive_list_datum::<StringArray>(index)?,
-                BPCHARARRAYOID => self.get_primitive_list_datum::<StringArray>(index)?,
-                INT2ARRAYOID => self.get_primitive_list_datum::<Int16Array>(index)?,
-                INT4ARRAYOID => self.get_primitive_list_datum::<Int32Array>(index)?,
-                INT8ARRAYOID => self.get_primitive_list_datum::<Int64Array>(index)?,
-                FLOAT4ARRAYOID => self.get_primitive_list_datum::<Float32Array>(index)?,
-                FLOAT8ARRAYOID => self.get_primitive_list_datum::<Float64Array>(index)?,
+                TEXTARRAYOID | VARCHARARRAYOID | BPCHARARRAYOID => {
+                    self.get_primitive_list_datum::<StringArray>(index)?
+                }
+                INT2ARRAYOID | INT4ARRAYOID | INT8ARRAYOID | FLOAT4ARRAYOID | FLOAT8ARRAYOID => {
+                    match self.data_type() {
+                        List(ref field) => match field.data_type().clone() {
+                            Float32 => self.get_primitive_list_datum::<Float32Array>(index)?,
+                            Float64 => self.get_primitive_list_datum::<Float64Array>(index)?,
+                            Int16 => self.get_primitive_list_datum::<Int16Array>(index)?,
+                            Int32 => self.get_primitive_list_datum::<Int32Array>(index)?,
+                            Int64 => self.get_primitive_list_datum::<Int64Array>(index)?,
+                            unsupported => {
+                                return Err(
+                                    DatumError::IntArrayError(unsupported.clone(), oid).into()
+                                )
+                            }
+                        },
+                        unsupported => {
+                            return Err(DatumError::IntArrayError(unsupported.clone(), oid).into())
+                        }
+                    }
+                }
                 DATEARRAYOID => self.get_primitive_list_datum::<Date32Array>(index)?,
                 unsupported => return Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
@@ -342,6 +346,12 @@ pub enum DatumError {
 
     #[error("Could not downcast arrow array {0}")]
     DowncastGenericArray(String),
+
+    #[error("Error converting {0:?} into {1:?}")]
+    IntError(DataType, PgOid),
+
+    #[error("Error converting {0:?} array into {1:?}")]
+    IntArrayError(DataType, PgOid),
 
     #[error("Error converting {0:?} into NUMERIC")]
     NumericError(DataType),

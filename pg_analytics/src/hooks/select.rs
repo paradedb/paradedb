@@ -37,12 +37,11 @@ pub fn write_batches_to_slots(
 
                 for (col_index, _) in tuple_desc.iter().enumerate() {
                     let attribute = tuple_desc.get(col_index).unwrap();
-                    let typid = attribute.type_oid();
                     let column = batch.column(col_index);
                     let tts_value = (*tuple_table_slot).tts_values.add(col_index);
                     let tts_isnull = (*tuple_table_slot).tts_isnull.add(col_index);
 
-                    match column.get_datum(row_index, typid)? {
+                    match column.get_datum(row_index, attribute.type_oid(), attribute.type_mod())? {
                         Some(datum) => {
                             *tts_value = datum;
                         }

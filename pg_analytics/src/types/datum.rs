@@ -153,11 +153,11 @@ where
     }
 }
 
-pub trait GetDatumNumeric
+pub trait GetDatumNumericFromDecimal
 where
     Self: Array + AsArray,
 {
-    fn get_numeric_datum(
+    fn get_numeric_datum_from_decimal(
         &self,
         index: usize,
         precision: &u8,
@@ -169,6 +169,32 @@ where
                 PgNumericTypeMod(PgPrecision(*precision), PgScale(*scale)),
             ))
             .into_datum()),
+            _ => Ok(None),
+        }
+    }
+}
+
+pub trait GetDatumNumeric
+where
+    Self: Array + AsArray,
+{
+    fn get_numeric_datum<A>(
+        &self,
+        index: usize,
+        typemod: i32,
+        func: unsafe fn(pg_sys::FunctionCallInfo) -> pg_sys::Datum,
+    ) -> Result<Option<pg_sys::Datum>, DatumError>
+    where
+        A: ArrowPrimitiveType,
+        A::Native: IntoDatum,
+    {
+        match self.as_primitive::<Float64Type>().iter().nth(index) {
+            Some(Some(value)) => {
+                let numeric: AnyNumeric = unsafe {
+                    direct_function_call(func, &[value.into_datum(), typemod.into_datum()]).unwrap()
+                };
+                Ok(numeric.into_datum())
+            }
             _ => Ok(None),
         }
     }
@@ -205,13 +231,19 @@ where
         + GetDatumPrimitive
         + GetDatumPrimitiveList
         + GetDatumNumeric
+        + GetDatumNumericFromDecimal
         + GetDatumTimestampMicrosecond
         + GetDatumTimestampMillisecond
         + GetDatumTimestampSecond
         + GetDatumTime
         + GetDatumUuid,
 {
-    fn get_datum(&self, index: usize, oid: PgOid) -> Result<Option<pg_sys::Datum>, DataTypeError> {
+    fn get_datum(
+        &self,
+        index: usize,
+        oid: PgOid,
+        typemod: i32,
+    ) -> Result<Option<pg_sys::Datum>, DataTypeError> {
         let result = match oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 BOOLOID => self.get_generic_datum::<BooleanArray>(index)?,
@@ -234,15 +266,26 @@ where
                     }
                 },
                 NUMERICOID => match self.data_type() {
-                    Decimal128(p, s) => self.get_numeric_datum(index, p, s)?,
-                    Float32 => match self.as_primitive::<Float32Type>().iter().nth(index) {
-                        Some(Some(value)) => AnyNumeric::from(value as i128).into_datum(),
-                        _ => None,
-                    },
-                    Float64 => match self.as_primitive::<Float64Type>().iter().nth(index) {
-                        Some(Some(value)) => AnyNumeric::from(value as i128).into_datum(),
-                        _ => None,
-                    },
+                    Decimal128(p, s) => self.get_numeric_datum_from_decimal(index, p, s)?,
+                    Float32 => self.get_numeric_datum::<Float32Type>(
+                        index,
+                        typemod,
+                        pg_sys::float4_numeric,
+                    )?,
+                    Float64 => self.get_numeric_datum::<Float64Type>(
+                        index,
+                        typemod,
+                        pg_sys::float8_numeric,
+                    )?,
+                    Int16 => {
+                        self.get_numeric_datum::<Int16Type>(index, typemod, pg_sys::int2_numeric)?
+                    }
+                    Int32 => {
+                        self.get_numeric_datum::<Int32Type>(index, typemod, pg_sys::int4_numeric)?
+                    }
+                    Int64 => {
+                        self.get_numeric_datum::<Int64Type>(index, typemod, pg_sys::int8_numeric)?
+                    }
                     unsupported => return Err(DatumError::NumericError(unsupported.clone()).into()),
                 },
                 UUIDOID => self.get_uuid_datum(index)?,
@@ -272,6 +315,7 @@ impl GetDatumGeneric for ArrayRef {}
 impl GetDatumPrimitive for ArrayRef {}
 impl GetDatumPrimitiveList for ArrayRef {}
 impl GetDatumNumeric for ArrayRef {}
+impl GetDatumNumericFromDecimal for ArrayRef {}
 impl GetDatumTimestampMicrosecond for ArrayRef {}
 impl GetDatumTimestampMillisecond for ArrayRef {}
 impl GetDatumTimestampSecond for ArrayRef {}

@@ -123,11 +123,14 @@ pub async unsafe fn scan_getnextslot(
 
         unsafe {
             let attribute = tuple_desc.get(col_index).unwrap();
-            let typid = attribute.type_oid();
             let tts_value = (*slot).tts_values.add(col_index);
             let tts_isnull = (*slot).tts_isnull.add(col_index);
 
-            if let Some(datum) = column.get_datum((*dscan).curr_batch_idx, typid)? {
+            if let Some(datum) = column.get_datum(
+                (*dscan).curr_batch_idx,
+                attribute.type_oid(),
+                attribute.type_mod(),
+            )? {
                 *tts_value = datum;
             } else {
                 *tts_isnull = true;

@@ -244,6 +244,7 @@ where
         oid: PgOid,
         typemod: i32,
     ) -> Result<Option<pg_sys::Datum>, DataTypeError> {
+        info!("{:?} {}", oid, index);
         let result = match oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 BOOLOID => self.get_generic_datum::<BooleanArray>(index)?,
@@ -266,24 +267,36 @@ where
                     }
                 },
                 NUMERICOID => match self.data_type() {
-                    Decimal128(p, s) => self.get_numeric_datum_from_decimal(index, p, s)?,
-                    Float32 => self.get_numeric_datum::<Float32Type>(
-                        index,
-                        typemod,
-                        pg_sys::float4_numeric,
-                    )?,
-                    Float64 => self.get_numeric_datum::<Float64Type>(
-                        index,
-                        typemod,
-                        pg_sys::float8_numeric,
-                    )?,
+                    Decimal128(p, s) => {
+                        info!("decimal");
+                        self.get_numeric_datum_from_decimal(index, p, s)?
+                    },
+                    Float32 => {
+                        info!("f32");
+                        self.get_numeric_datum::<Float32Type>(
+                            index,
+                            typemod,
+                            pg_sys::float4_numeric,
+                        )?
+                    },
+                    Float64 => {
+                        info!("f64");
+                        self.get_numeric_datum::<Float64Type>(
+                            index,
+                            typemod,
+                            pg_sys::float8_numeric,
+                        )?
+                    },
                     Int16 => {
+                        info!("i16");
                         self.get_numeric_datum::<Int16Type>(index, typemod, pg_sys::int2_numeric)?
                     }
                     Int32 => {
+                        info!("i32");
                         self.get_numeric_datum::<Int32Type>(index, typemod, pg_sys::int4_numeric)?
                     }
                     Int64 => {
+                        info!("i64");
                         self.get_numeric_datum::<Int64Type>(index, typemod, pg_sys::int8_numeric)?
                     }
                     unsupported => return Err(DatumError::NumericError(unsupported.clone()).into()),

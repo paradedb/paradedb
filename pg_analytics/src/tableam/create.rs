@@ -36,11 +36,16 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
         *freezeXid = pg_sys::RecentXmin;
         *minmulti = pg_sys::GetOldestMultiXactId();
         pg_sys::smgrclose(smgr);
-    }
 
-    task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
-        panic!("{}", err);
-    });
+        task::block_on(create_deltalake_file_node(
+            rel,
+            persistence,
+            (*newrnode).spcNode,
+        ))
+        .unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+    }
 }
 
 #[pg_guard]
@@ -61,17 +66,23 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
         *freezeXid = pg_sys::RecentXmin;
         *minmulti = pg_sys::GetOldestMultiXactId();
         pg_sys::smgrclose(smgr);
-    }
 
-    task::block_on(create_deltalake_file_node(rel, persistence)).unwrap_or_else(|err| {
-        panic!("{}", err);
-    });
+        task::block_on(create_deltalake_file_node(
+            rel,
+            persistence,
+            (*newrlocator).spcOid,
+        ))
+        .unwrap_or_else(|err| {
+            panic!("{}", err);
+        });
+    }
 }
 
 #[inline]
 async fn create_deltalake_file_node(
     rel: pg_sys::Relation,
     persistence: c_char,
+    tablespace_oid: pg_sys::Oid,
 ) -> Result<(), CreateTableError> {
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 
@@ -80,18 +91,24 @@ async fn create_deltalake_file_node(
         _ => {
             let table_name = pg_relation.name().to_string();
             let schema_name = pg_relation.namespace().to_string();
-            let table_path = pg_relation.table_path()?;
             let catalog_name = Session::catalog_name()?;
+            let table_path = ParadeDirectory::table_path_from_oid(
+                tablespace_oid,
+                pg_relation.namespace_oid(),
+                pg_relation.oid(),
+            )?;
 
             Session::with_catalog(|catalog| {
-                if catalog.schema(&schema_name).is_none() {
-                    let schema_provider =
-                        Arc::new(task::block_on(ParadeSchemaProvider::try_new(&schema_name))?);
+                Box::pin(async move {
+                    if catalog.schema(&schema_name).is_none() {
+                        let schema_provider =
+                            Arc::new(task::block_on(ParadeSchemaProvider::try_new(&schema_name))?);
 
-                    catalog.register_schema(&schema_name, schema_provider)?;
-                }
+                        catalog.register_schema(&schema_name, schema_provider)?;
+                    }
 
-                Ok(())
+                    Ok(())
+                })
             })?;
 
             let schema_name = pg_relation.namespace().to_string();
@@ -109,6 +126,7 @@ async fn create_deltalake_file_node(
             }
 
             ParadeDirectory::create_schema_path(
+                tablespace_oid,
                 Session::catalog_oid(),
                 pg_relation.namespace_oid(),
             )?;

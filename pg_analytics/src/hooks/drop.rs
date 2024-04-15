@@ -68,7 +68,7 @@ pub unsafe fn drop(drop_stmt: *mut pg_sys::DropStmt) -> Result<(), DropHookError
         let table_path = pg_relation.table_path()?;
 
         Session::with_tables(schema_name, |mut tables| {
-            Box::pin(async move { Ok(tables.deregister(&table_path)?) })
+            Box::pin(async move { Ok(tables.logical_drop(&table_path).await?) })
         })?;
 
         pg_sys::RelationClose(relation);

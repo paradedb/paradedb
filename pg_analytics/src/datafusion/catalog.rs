@@ -5,13 +5,10 @@ use deltalake::datafusion::catalog::{CatalogList, CatalogProvider};
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use pgrx::*;
-use std::path::PathBuf;
-use std::{any::Any, collections::HashMap, ffi::CStr, sync::Arc};
+use std::{any::Any, collections::HashMap, sync::Arc};
 use thiserror::Error;
 
-use super::directory::{DirectoryError, ParadeDirectory};
-use super::schema::ParadeSchemaProvider;
-use super::session::Session;
+use super::directory::DirectoryError;
 use super::table::DataFusionTableError;
 
 pub struct ParadeCatalog {
@@ -27,42 +24,6 @@ impl ParadeCatalog {
         Ok(Self {
             schemas: RwLock::new(HashMap::new()),
         })
-    }
-
-    pub async fn init(&self) -> Result<(), CatalogError> {
-        let delta_dir = ParadeDirectory::catalog_path(Session::catalog_oid())?;
-
-        for entry in std::fs::read_dir(delta_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.is_dir() {
-                let schema_oid = path
-                    .file_name()
-                    .ok_or(CatalogError::FileNameNotFound(path.clone()))?
-                    .to_str()
-                    .ok_or(CatalogError::FileNameToString(path.clone()))?
-                    .parse::<u32>()?;
-
-                let pg_oid = pg_sys::Oid::from(schema_oid);
-
-                let schema_name = unsafe {
-                    let schema_name = pg_sys::get_namespace_name(pg_oid);
-                    if schema_name.is_null() {
-                        continue;
-                    }
-
-                    CStr::from_ptr(schema_name).to_str()?.to_owned()
-                };
-
-                let schema_provider =
-                    Arc::new(ParadeSchemaProvider::try_new(schema_name.as_str()).await?);
-
-                Self::register_schema(self, schema_name.as_str(), schema_provider)?;
-            }
-        }
-
-        Ok(())
     }
 }
 
@@ -169,12 +130,6 @@ pub enum CatalogError {
 
     #[error("Database {0} not found")]
     DatabaseNotFound(String),
-
-    #[error("File name not found for {0:?}")]
-    FileNameNotFound(PathBuf),
-
-    #[error("Could not convert {0:?} to string")]
-    FileNameToString(PathBuf),
 
     #[error("{0}")]
     OsString(String),

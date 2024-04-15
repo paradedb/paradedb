@@ -3,16 +3,12 @@ use async_trait::async_trait;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
-use pgrx::*;
 use std::any::Any;
-use std::ffi::{CStr, CString};
-use std::fs::read_dir;
 use std::path::Path;
 use std::sync::Arc;
 
 use super::catalog::CatalogError;
 use super::directory::ParadeDirectory;
-use super::session::Session;
 use super::table::{PgTableProvider, Tables};
 
 pub struct ParadeSchemaProvider {
@@ -39,10 +35,9 @@ impl SchemaProvider for ParadeSchemaProvider {
         self
     }
 
+    // This function never gets called anywhere, so it's safe to leave unimplemented
     fn table_names(&self) -> Vec<String> {
-        table_names_impl(&self.schema_name).unwrap_or_else(|err| {
-            panic!("{}", err);
-        })
+        todo!("table_names not implemented")
     }
 
     async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
@@ -64,33 +59,6 @@ impl SchemaProvider for ParadeSchemaProvider {
     fn table_exist(&self, table_name: &str) -> bool {
         ParadeDirectory::table_path_from_name(&self.schema_name, table_name).is_ok()
     }
-}
-
-#[inline]
-fn table_names_impl(schema_name: &str) -> Result<Vec<String>, CatalogError> {
-    let mut names = vec![];
-
-    let schema_oid =
-        unsafe { pg_sys::get_namespace_oid(CString::new(schema_name)?.as_ptr(), true) };
-    let schema_path = ParadeDirectory::schema_path(Session::catalog_oid(), schema_oid)?;
-
-    for file in read_dir(schema_path)? {
-        if let Ok(oid) = file?.file_name().into_string()?.parse::<u32>() {
-            let pg_oid = pg_sys::Oid::from(oid);
-            let relation = unsafe { pg_sys::RelationIdGetRelation(pg_oid) };
-
-            if relation.is_null() {
-                continue;
-            }
-
-            let table_name =
-                unsafe { CStr::from_ptr((*((*relation).rd_rel)).relname.data.as_ptr()).to_str()? };
-
-            names.push(table_name.to_string());
-        }
-    }
-
-    Ok(names)
 }
 
 #[inline]

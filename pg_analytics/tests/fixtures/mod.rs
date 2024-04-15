@@ -5,6 +5,8 @@ use sqlx::PgConnection;
 pub use shared::fixtures::db::*;
 #[allow(unused_imports)]
 pub use shared::fixtures::tables::*;
+#[allow(unused_imports)]
+pub use shared::fixtures::utils::*;
 
 #[fixture]
 pub fn database() -> Db {

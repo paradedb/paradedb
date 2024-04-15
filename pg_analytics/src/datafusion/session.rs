@@ -16,7 +16,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::datafusion::catalog::{CatalogError, ParadeCatalog, ParadeCatalogList};
-use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::schema::ParadeSchemaProvider;
 use crate::datafusion::table::Tables;
 
@@ -39,7 +38,7 @@ impl Session {
 
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()))?),
+            Vacant(entry) => entry.insert(task::block_on(Self::init())?),
         };
 
         task::block_on(f(context))
@@ -47,13 +46,15 @@ impl Session {
 
     pub fn with_catalog<F, R>(f: F) -> Result<R, CatalogError>
     where
-        F: FnOnce(&ParadeCatalog) -> Result<R, CatalogError>,
+        F: for<'a> FnOnce(
+            &'a ParadeCatalog,
+        ) -> Pin<Box<dyn Future<Output = Result<R, CatalogError>> + 'a>>,
     {
         let mut lock = task::block_on(SESSION_CACHE.lock());
 
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()))?),
+            Vacant(entry) => entry.insert(task::block_on(Self::init())?),
         };
 
         let catalog_provider = context.catalog(&Self::catalog_name()?).ok_or(
@@ -67,9 +68,7 @@ impl Session {
                 Self::catalog_name()?.to_string(),
             ))?;
 
-        drop(lock);
-
-        f(parade_catalog)
+        task::block_on(f(parade_catalog))
     }
 
     pub fn with_schema_provider<F, R>(schema_name: &str, f: F) -> Result<R, CatalogError>
@@ -82,8 +81,21 @@ impl Session {
 
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(task::block_on(Self::init(Self::catalog_oid()))?),
+            Vacant(entry) => entry.insert(task::block_on(Self::init())?),
         };
+
+        let catalog =
+            context
+                .catalog(&Self::catalog_name()?)
+                .ok_or(CatalogError::CatalogNotFound(
+                    Self::catalog_name()?.to_string(),
+                ))?;
+
+        if catalog.schema(schema_name).is_none() {
+            let new_schema_provider =
+                Arc::new(task::block_on(ParadeSchemaProvider::try_new(schema_name))?);
+            catalog.register_schema(schema_name, new_schema_provider)?;
+        }
 
         let schema_provider = context
             .catalog(&Self::catalog_name()?)
@@ -119,7 +131,7 @@ impl Session {
         task::block_on(f(lock))
     }
 
-    pub async fn init(catalog_oid: pg_sys::Oid) -> Result<SessionContext, CatalogError> {
+    pub async fn init() -> Result<SessionContext, CatalogError> {
         let preload_libraries = unsafe {
             CStr::from_ptr(pg_sys::GetConfigOptionByName(
                 CString::new("shared_preload_libraries")?.as_ptr(),
@@ -139,15 +151,11 @@ impl Session {
         let runtime_env = RuntimeEnv::new(rn_config)?;
         let mut context = SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
 
-        // Create schema directory if it doesn't exist
-        ParadeDirectory::create_catalog_path(catalog_oid)?;
-
         // Register catalog list
         context.register_catalog_list(Arc::new(ParadeCatalogList::try_new()?));
 
         // Create and register catalog
         let catalog = ParadeCatalog::try_new()?;
-        catalog.init().await?;
         context.register_catalog(&Self::catalog_name()?, Arc::new(catalog));
 
         Ok(context)

@@ -52,8 +52,9 @@ impl QueryContext {
                 for datum in current_schemas.iter().flatten() {
                     let schema_name =
                         unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
-                    let schema_registered =
-                        Session::with_catalog(|catalog| Ok(catalog.schema(schema_name).is_some()))?;
+                    let schema_registered = Session::with_catalog(|catalog| {
+                        Box::pin(async move { Ok(catalog.schema(schema_name).is_some()) })
+                    })?;
 
                     if !schema_registered {
                         continue;
@@ -119,7 +120,8 @@ fn get_source(schema_name: &str, table_name: &str) -> Result<Arc<dyn TableSource
 
     Session::with_tables(&schema_name.clone(), |mut tables| {
         Box::pin(async move {
-            let table_path = ParadeDirectory::table_path_from_name(&schema_name, &table_name)?;
+            let table_path =
+                ParadeDirectory::table_path_from_name(&schema_name.clone(), &table_name)?;
             let delta_table = tables.get_ref(&table_path).await?;
             let provider =
                 PgTableProvider::new(delta_table.clone(), &schema_name, &table_name).await?;

@@ -148,7 +148,7 @@ impl BgWorkerTelemetryConfig {
                 .map(|s| s.to_string())
                 .ok_or(TelemetryError::PosthogApiKey)?,
             posthog_host_url: option_env!("POSTHOG_HOST")
-                .map(|s| s.to_string())
+                .map(|s| format!("https://{s}"))
                 .ok_or(TelemetryError::PosthogHost)?,
             extension_name: extension_name.to_string(),
             root_data_directory: unsafe {

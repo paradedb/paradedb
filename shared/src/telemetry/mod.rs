@@ -56,7 +56,7 @@ pub enum TelemetryError {
     ParseUuid(#[source] uuid::Error),
     #[error("missing posthog api key")]
     PosthogApiKey,
-    #[error("missing posthog api key")]
+    #[error("missing posthog host")]
     PosthogHost,
     #[error("unknown extension name: {0}")]
     UnknownExtension(String),

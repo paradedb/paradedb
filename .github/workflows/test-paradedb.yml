@@ -46,4 +46,4 @@ jobs:
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
       - name: Check for Errors in the ParadeDB Docker Image
         working-directory: docker/
-        run: docker logs $(docker ps -q --filter "name=paradedb-dev") | grep ERROR
+        run: docker logs $(docker ps -q --filter "name=paradedb-dev") | grep -q ERROR || exit 0

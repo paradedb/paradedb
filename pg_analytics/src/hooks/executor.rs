@@ -1,3 +1,4 @@
+use async_std::task;
 use deltalake::datafusion::logical_expr::{DdlStatement, LogicalPlan};
 use pgrx::*;
 use std::ffi::CStr;
@@ -53,13 +54,18 @@ pub fn executor_run(
 
         // If tables of different types are both present in the query, federate the query.
         if !row_tables.is_empty() && !col_tables.is_empty() {
-            let batches =
-                async_std::task::block_on(get_federated_batches(query, classified_tables))?;
-
-            match query_desc.operation {
-                pg_sys::CmdType_CMD_SELECT => write_batches_to_slots(query_desc, batches)?,
-                _ => return Err(ExecutorHookError::JoinNotSupported(query_desc.operation)),
+            if query_desc.operation != pg_sys::CmdType_CMD_SELECT {
+                prev_hook(query_desc, direction, count, execute_once);
+                return Ok(());
             }
+
+            match task::block_on(get_federated_batches(query, classified_tables)) {
+                Ok(batches) => write_batches_to_slots(query_desc, batches)?,
+                Err(_) => {
+                    prev_hook(query_desc, direction, count, execute_once);
+                    return Ok(());
+                }
+            };
         } else {
             // Parse the query into a LogicalPlan
             match LogicalPlanDetails::try_from(QueryString(&query)) {
@@ -77,7 +83,13 @@ pub fn executor_run(
                     match query_desc.operation {
                         pg_sys::CmdType_CMD_SELECT => {
                             let single_thread = logical_plan_details.includes_udf();
-                            get_datafusion_batches(query_desc, logical_plan, single_thread)?;
+                            match get_datafusion_batches(logical_plan, single_thread) {
+                                Ok(batches) => write_batches_to_slots(query_desc, batches)?,
+                                Err(_) => {
+                                    prev_hook(query_desc, direction, count, execute_once);
+                                    return Ok(());
+                                }
+                            };
                         }
                         pg_sys::CmdType_CMD_UPDATE => {
                             return Err(ExecutorHookError::UpdateNotSupported);
@@ -116,9 +128,6 @@ pub enum ExecutorHookError {
 
     #[error("Table classifier did not return a column list")]
     ColumnListNotFound,
-
-    #[error("JOINs with operation {0} are not yet supported")]
-    JoinNotSupported(pg_sys::CmdType),
 
     #[error("UPDATE is not currently supported because Parquet tables are append only.")]
     UpdateNotSupported,

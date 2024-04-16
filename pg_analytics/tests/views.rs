@@ -4,7 +4,6 @@ use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
-use std::str::FromStr;
 
 #[rstest]
 fn both_parquet_views(mut conn: PgConnection) {

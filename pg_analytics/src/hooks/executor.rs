@@ -14,6 +14,12 @@ use super::handler::{HandlerError, TableClassifier};
 use super::query::{Query, QueryStringError};
 use super::select::{get_datafusion_batches, write_batches_to_slots, SelectHookError};
 
+macro_rules! fallback_warning {
+    ($msg:expr) => {
+        warning!("This query was not pushed down to DataFusion because DataFusion returned an error: {}. Query times may be impacted.", $msg);
+    };
+}
+
 pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
     direction: pg_sys::ScanDirection,
@@ -61,7 +67,8 @@ pub fn executor_run(
 
             match task::block_on(get_federated_batches(query, classified_tables)) {
                 Ok(batches) => write_batches_to_slots(query_desc, batches)?,
-                Err(_) => {
+                Err(err) => {
+                    fallback_warning!(err.to_string());
                     prev_hook(query_desc, direction, count, execute_once);
                     return Ok(());
                 }
@@ -89,7 +96,8 @@ pub fn executor_run(
                             let single_thread = logical_plan_details.includes_udf();
                             match get_datafusion_batches(logical_plan, single_thread) {
                                 Ok(batches) => write_batches_to_slots(query_desc, batches)?,
-                                Err(_) => {
+                                Err(err) => {
+                                    fallback_warning!(err.to_string());
                                     prev_hook(query_desc, direction, count, execute_once);
                                     return Ok(());
                                 }

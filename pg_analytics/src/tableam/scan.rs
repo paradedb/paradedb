@@ -4,7 +4,9 @@ use core::ffi::c_int;
 use deltalake::arrow::datatypes::Int64Type;
 use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBatch};
 use deltalake::datafusion::common::arrow::error::ArrowError;
+use once_cell::sync::Lazy;
 use pgrx::*;
+use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -18,6 +20,13 @@ use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
 use super::index::index_fetch_tuple;
+
+pub static SCAN_MEMORY_CONTEXT: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> =
+    Lazy::new(|| {
+        Mutex::new(AtomicPtr::new(
+            PgMemoryContexts::new("scan_memory_context").value(),
+        ))
+    });
 
 struct DeltalakeScanDesc {
     rs_base: pg_sys::TableScanDescData,
@@ -61,6 +70,9 @@ pub async unsafe fn scan_getnextslot(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Result<bool, TableScanError> {
+    let memctx = SCAN_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
+    let old_context = pg_sys::MemoryContextSwitchTo(memctx);
+
     if let Some(clear) = (*slot)
         .tts_ops
         .as_ref()
@@ -147,6 +159,10 @@ pub async unsafe fn scan_getnextslot(
     pg_sys::ExecStoreVirtualTuple(slot);
 
     (*dscan).curr_batch_idx += 1;
+
+    pg_sys::MemoryContextReset(memctx);
+    pg_sys::MemoryContextSwitchTo(old_context);
+
     Ok(true)
 }
 

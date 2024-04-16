@@ -264,12 +264,12 @@ pub async fn bench_eslogs_build_elastic_table(
 
     // We'll stream the data in chunks so that we can bulk insert into Elasticsearch.
     // Chunking at 4000, as much higher seems to cause a "too many arguments" error.
-    let mut chunked_cursor = cursor.chunks(4000);
+    let mut chunked_cursor = cursor.chunks(4000).enumerate();
 
     let start_time = SystemTime::now();
 
     // Insert chunks of Postgres results into Elasticsearch.
-    while let Some(chunk) = chunked_cursor.next().await {
+    while let Some((index, chunk)) = chunked_cursor.next().await {
         let mut index_data = vec![];
         for result in chunk {
             // Each insert operation into Elasticsearch is comprised of two newline-delimited
@@ -288,6 +288,7 @@ pub async fn bench_eslogs_build_elastic_table(
             &> /dev/null
         )
         .unwrap();
+        debug!(chunk = index, "wrote chunk(4000) to elasticsearch")
     }
 
     // Print benchmark results.

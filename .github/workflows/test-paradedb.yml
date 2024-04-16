@@ -38,9 +38,12 @@ jobs:
         working-directory: docker/
         run: docker buildx create --use && docker compose -f docker-compose.dev.yml build
 
+      # Sleep 10 seconds to give time for Postgres to start inside the container
       - name: Start the ParadeDB Docker Image
         working-directory: docker/
-        run: docker compose -f docker-compose.dev.yml up -d
+        run: |
+          docker compose -f docker-compose.dev.yml up -d
+          sleep 10
 
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
       - name: Check for Errors in the ParadeDB Docker Image

@@ -100,6 +100,18 @@ pub enum EsLogsCommand {
         #[arg(short, long, env = "DATABASE_URL")]
         url: String,
     },
+    BuildElasticIndex {
+        /// Postgres table name to build from.
+        #[arg(short, long, default_value = DEFAULT_BENCH_ESLOGS_TABLE)]
+        table: String,
+        /// Postgres database url to connect to.
+        #[arg(short, long, env = "DATABASE_URL")]
+        url: String,
+        /// Elastic index url to connect to.
+        /// Should contain the index name as a path subcomponent.
+        #[arg(short, long)]
+        elastic_url: String,
+    },
 }
 
 impl Default for Cli {

@@ -1,4 +1,6 @@
+mod benchmark;
 mod cli;
+mod elastic;
 mod subcommand;
 mod tables;
 
@@ -44,6 +46,15 @@ fn main() -> Result<()> {
                 EsLogsCommand::CountParquetTable { table, url } => {
                     block_on(subcommand::bench_eslogs_count_parquet_table(table, url))
                 }
+                EsLogsCommand::BuildElasticIndex {
+                    table,
+                    url,
+                    elastic_url,
+                } => block_on(subcommand::bench_eslogs_build_elastic_table(
+                    elastic_url,
+                    url,
+                    table,
+                )),
             },
         },
     }

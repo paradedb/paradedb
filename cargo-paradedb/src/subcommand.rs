@@ -1,14 +1,12 @@
+use crate::benchmark::Benchmark;
 use crate::tables::{benchlogs::EsLog, PathReader};
 use anyhow::{bail, Result};
-use async_std::sync::Mutex;
-use async_std::task::block_on;
 use cmd_lib::{run_cmd, run_fun};
-use criterion::async_executor::AsyncStdExecutor;
-use criterion::Criterion;
+use futures::StreamExt;
 use itertools::Itertools;
-use sqlx::Executor;
+use serde_json::json;
+use sqlx::postgres::PgPoolOptions;
 use sqlx::{postgres::PgConnectOptions, Connection, PgConnection, Postgres, QueryBuilder};
-use std::sync::Arc;
 use std::time::SystemTime;
 use std::{fs, os::unix::process::CommandExt, str::FromStr};
 use tempfile::tempdir;
@@ -241,93 +239,60 @@ pub async fn bench_eslogs_count_parquet_table(table: String, url: String) -> Res
     .await
 }
 
-struct Benchmark {
-    group_name: String,
-    function_name: String,
-    setup_query: Option<String>,
-    query: String,
-    database_url: String,
-}
+pub async fn bench_eslogs_build_elastic_table(
+    elastic_url: String,
+    postgres_url: String,
+    table: String,
+) -> Result<()> {
+    // It's expected that the elastic_url passed here already has the index name
+    // as a path subcomponent. We also need to make sure it doesn't have a trailing slash.
+    let build_url = format!("{}?pretty", elastic_url.trim_end_matches("/"));
+    let insert_url = format!("{}/_bulk", elastic_url.trim_end_matches("/"));
+    let config = crate::elastic::ELASTIC_INDEX_CONFIG.to_string();
 
-impl Benchmark {
-    pub async fn setup_query(&self, conn: &mut PgConnection) -> Result<()> {
-        if let Some(query) = &self.setup_query {
-            conn.execute(query.as_ref()).await?;
+    // Build empty Elasticsearch index.
+    run_cmd!(curl -X PUT $build_url -H "Content-Type: application/json" -d $config).unwrap();
+
+    // Setup Postgres connection.
+    debug!(DATABASE_URL = postgres_url);
+    let select_all_query = format!("SELECT id, message FROM {table}");
+    let pg_pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&postgres_url)
+        .await?;
+    let cursor = sqlx::query_as::<Postgres, (i32, String)>(&select_all_query).fetch(&pg_pool);
+
+    // We'll stream the data in chunks so that we can bulk insert into Elasticsearch.
+    // Chunking at 4000, as much higher seems to cause a "too many arguments" error.
+    let mut chunked_cursor = cursor.chunks(4000);
+
+    let start_time = SystemTime::now();
+
+    // Insert chunks of Postgres results into Elasticsearch.
+    while let Some(chunk) = chunked_cursor.next().await {
+        let mut index_data = vec![];
+        for result in chunk {
+            // Each insert operation into Elasticsearch is comprised of two newline-delimited
+            // JSON messages. One describing the actual operation ("index") and the next
+            // containing the field data.
+            if let Ok((id, message)) = result {
+                index_data.push(json!({ "index": {"_id": id.to_string()} }).to_string());
+                index_data.push(json!({ "message": message }).to_string());
+            }
         }
 
-        Ok(())
-    }
-    pub async fn run(&self) -> Result<()> {
-        // One-time setup code goes here.
-        debug!(DATABASE_URL = self.database_url);
-        let mut criterion = Criterion::default();
-        let mut group = criterion.benchmark_group(&self.group_name);
-
-        // Lowered from default sample size to remove Criterion warning.
-        // Must be higher than 10, or Criterion will panic.
-        group.sample_size(60);
-        group.bench_function(&self.function_name, |runner| {
-            // Per-sample (note that a sample can be many iterations) setup goes here.
-            let conn_opts = &PgConnectOptions::from_str(&self.database_url).unwrap();
-            let conn = block_on(async {
-                Arc::new(Mutex::new(
-                    PgConnection::connect_with(conn_opts).await.unwrap(),
-                ))
-            });
-
-            // Run setup query.
-            block_on(async {
-                let local_conn = conn.clone();
-                let mut conn = local_conn.lock().await; // Acquire the lock asynchronously.
-                self.setup_query(&mut conn).await.unwrap();
-            });
-
-            runner.to_async(AsyncStdExecutor).iter(|| {
-                // Measured code goes here.
-                async {
-                    let local_conn = conn.clone();
-                    let mut conn = local_conn.lock().await; // Acquire the lock asynchronously.
-                    sqlx::query(&self.query).execute(&mut *conn).await.unwrap();
-                }
-            });
-        });
-
-        group.finish();
-
-        Ok(())
+        // Each JSON message must be separated by a newline.
+        run_cmd!(
+            printf "%s\n" $[index_data]
+            | curl -X PUT $insert_url -H "Content-Type: application/x-ndjson" --data-binary @-
+            &> /dev/null
+        )
+        .unwrap();
     }
 
-    async fn run_once(&self) -> Result<()> {
-        let conn_opts = &PgConnectOptions::from_str(&self.database_url).unwrap();
-        let mut conn = PgConnection::connect_with(conn_opts).await.unwrap();
+    // Print benchmark results.
+    let end_time = SystemTime::now();
+    Benchmark::print_results(start_time, end_time);
 
-        // Run setup query if present.
-        self.setup_query(conn.as_mut()).await.unwrap();
-
-        // Run actual query to be benchmarked.
-        let start_time = SystemTime::now();
-        block_on(async {
-            sqlx::query(&self.query).execute(&mut conn).await.unwrap();
-        });
-        let end_time = SystemTime::now();
-
-        if let Ok(duration) = end_time.duration_since(start_time) {
-            println!("Start time: {:?}", start_time);
-            println!("End time: {:?}", end_time);
-
-            let milliseconds = duration.as_millis();
-            let seconds = duration.as_secs_f64(); // Use floating point for seconds
-            let minutes = seconds / 60.0; // Convert seconds to minutes
-            let hours = seconds / 3600.0; // Convert seconds to hours
-
-            println!("Duration: {} milliseconds", milliseconds);
-            println!("Duration: {:.4} seconds", seconds); // Print with 4 decimal places
-            println!("Duration: {:.4} minutes", minutes); // Print with 4 decimal places
-            println!("Duration: {:.4} hours", hours); // Print with 4 decimal places
-        } else {
-            println!("An error occurred while calculating the duration.");
-        }
-
-        Ok(())
-    }
+    Ok(())
 }

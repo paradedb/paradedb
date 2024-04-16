@@ -15,6 +15,7 @@ use pgrx::*;
 use std::ffi::CStr;
 
 use crate::datafusion::session::Session;
+use crate::datafusion::stream::STREAM_CACHE;
 use crate::datafusion::table::{
     DELETE_ON_PRECOMMIT_CACHE, DROP_ON_ABORT_CACHE, DROP_ON_PRECOMMIT_CACHE, RESERVED_XMAX_FIELD,
 };
@@ -94,6 +95,10 @@ impl hooks::PgHooks for ParadeHook {
     }
 
     fn abort(&mut self) {
+        // Clear all pending scans
+        let mut scan_cache = task::block_on(STREAM_CACHE.lock());
+        scan_cache.clear();
+
         // Clear all pending inserts
         task::block_on(Writer::clear_all()).unwrap_or_else(|err| {
             warning!("{}", err);

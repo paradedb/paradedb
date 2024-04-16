@@ -14,7 +14,7 @@ use super::catalog::CatalogError;
 use super::session::Session;
 use super::table::PgTableProvider;
 
-static STREAM_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, SendableRecordBatchStream>>>> =
+pub static STREAM_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, SendableRecordBatchStream>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub struct Stream;

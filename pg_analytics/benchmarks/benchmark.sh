@@ -21,6 +21,7 @@ usage() {
 # Instantiate vars
 FLAG_TAG="local"
 DOCKER_PORT=5432
+OS=$(uname)
 
 # Assign flags to vars and check
 while getopts "ht:s:" flag
@@ -77,6 +78,7 @@ download_and_verify() {
   if [ -e "$filename" ]; then
     if echo "$checksum  $filename" | md5sum -c --status; then
       echo "Dataset '$filename' already exists and is verified, skipping download..."
+      echo ""
       return
     else
       echo "Checksum mismatch. Re-downloading '$filename'..."
@@ -138,7 +140,8 @@ echo ""
 echo "Loading dataset..."
 export PGPASSWORD='mypassword'
 psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
+# psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
+head -n 1000 hits.tsv | psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM STDIN"
 
 echo ""
 echo "Running queries..."
@@ -146,12 +149,20 @@ echo "Running queries..."
 
 echo ""
 echo "Printing disk usage..."
-sudo docker exec paradedb du -bcs /bitnami/postgresql/data
+if [ "$OS" == "Linux" ]; then
+  sudo docker exec paradedb du -bcs /bitnami/postgresql/data
+else
+  docker exec paradedb du -bcs /bitnami/postgresql/data
+fi
 
 echo ""
 echo "Printing results..."
-grep -oP 'Time: \d+\.\d+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
-awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
+results=$(grep -oE 'Time: [0-9]+\.[0-9]+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
+awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }')
+echo "$results" > results.txt
+echo "$results"
+echo ""
+python3 score.py < results.txt
 
 echo ""
 echo "Benchmark complete!"

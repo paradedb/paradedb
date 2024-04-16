@@ -111,7 +111,12 @@ You can then connect to the database using `psql`:
 docker exec -it paradedb psql -U <user> -d <dbname> -p 5432 -W
 ```
 
-ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry by setting `PARADEDB_TELEMETRY` to `false` or by unsetting the variable.
+ParadeDB collects anonymous telemetry to help us understand how many people are using the project. You can opt out of telemetry using configuration variables within Postgres:
+
+```sql
+ALTER SYSTEM SET paradedb.pg_search_telemetry TO 'off';
+ALTER SYSTEM SET paradedb.pg_analytics_telemetry TO 'off';
+```
 
 ### Helm Chart
 

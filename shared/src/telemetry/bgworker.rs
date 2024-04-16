@@ -148,7 +148,7 @@ impl BgWorkerTelemetryConfig {
                 .map(|s| s.to_string())
                 .ok_or(TelemetryError::PosthogApiKey)?,
             posthog_host_url: option_env!("POSTHOG_HOST")
-                .map(|s| format!("https://{s}"))
+                .map(|s| s.to_string())
                 .ok_or(TelemetryError::PosthogHost)?,
             extension_name: extension_name.to_string(),
             root_data_directory: unsafe {
@@ -181,19 +181,20 @@ impl BgWorkerTelemetryConfig {
 
         // If telemetry is not enabled at compile time, we will never enable.
         if option_env!("TELEMETRY") != Some("true") {
+            pgrx::log!("TELEMETRY var not set at compile time");
             return Ok(false);
         }
 
+        let guc_setting_query = format!("SHOW paradedb.{}_telemetry", self.extension_name);
+
         // Check the GUC setting for telemetry.
-        BackgroundWorker::transaction(|| {
-            match pgrx::Spi::get_one::<&str>(&format!(
-                "SHOW paradedb.{}_telemetry",
-                self.extension_name
-            )) {
-                Ok(Some("true")) => Ok(true),
-                Ok(Some("on")) => Ok(true),
-                Err(err) => Err(TelemetryError::EnabledCheck(err)),
-                _ => Ok(false),
+        BackgroundWorker::transaction(|| match pgrx::Spi::get_one::<&str>(&guc_setting_query) {
+            Ok(Some("true")) => Ok(true),
+            Ok(Some("on")) => Ok(true),
+            Err(err) => Err(TelemetryError::EnabledCheck(err)),
+            other => {
+                pgrx::log!("{guc_setting_query} = {other:?}");
+                Ok(false)
             }
         })
     }

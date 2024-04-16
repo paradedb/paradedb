@@ -3,29 +3,35 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
+use sqlx::types::BigDecimal;
 use sqlx::PgConnection;
+use std::str::FromStr;
 
 #[rstest]
-fn parquet_view(mut conn: PgConnection) {
+fn both_parquet_views(mut conn: PgConnection) {
     view_test(&mut conn, false, true, true);
 }
 
 #[rstest]
-fn federated_view(mut conn: PgConnection) {
+fn left_parquet_view(mut conn: PgConnection) {
     view_test(&mut conn, false, true, false);
+}
+
+#[rstest]
+fn right_parquet_view(mut conn: PgConnection) {
     view_test(&mut conn, false, false, true);
 }
 
 #[rstest]
-fn heap_view(mut conn: PgConnection) {
+fn both_heap_views(mut conn: PgConnection) {
     view_test(&mut conn, false, false, false);
 }
 
 #[rstest]
-fn parquet_materialized_view(mut conn: PgConnection) {}
+fn parquet_materialized_view(_conn: PgConnection) {}
 
 #[rstest]
-fn federated_materialized_view(mut conn: PgConnection) {}
+fn federated_materialized_view(_conn: PgConnection) {}
 
 #[inline]
 fn view_test(conn: &mut PgConnection, materialized: bool, left_parquet: bool, right_parquet: bool) {
@@ -70,12 +76,38 @@ fn view_test(conn: &mut PgConnection, materialized: bool, left_parquet: bool, ri
 
     r#"                        
         INSERT INTO users (username, email) 
-        VALUES ('User1', 'user1@gmail.com'), ('User2', 'user2@gmail.com'), ('User3', 'user3@gmail.com'), ('User4', 'user4@gmail.com');
+        VALUES 
+            ('User1', 'user1@gmail.com'), 
+            ('User2', 'user2@gmail.com'), 
+            ('User3', 'user3@gmail.com'), 
+            ('User4', 'user4@gmail.com');
     "#
     .execute(conn);
 
     r#"
-        INSERT INTO orders (username, email, order_total) VALUES ('User1', 'user1@gmail.com', 100.00), ('User1', 'user1@gmail.com', 200.00);
+        INSERT INTO orders (username, email, order_total) 
+        VALUES 
+            ('User1', 'user1@gmail.com', 100.00), 
+            ('User1', 'user1@gmail.com', 200.00),
+            ('User2', 'user2@gmail.com', 300.00);
     "#
     .execute(conn);
+
+    let rows: Vec<(BigDecimal,)> = "SELECT order_total FROM user_orders".fetch(conn);
+    let order_totals: Vec<BigDecimal> = vec![
+        BigDecimal::from_str("100.00").unwrap(),
+        BigDecimal::from_str("200.00").unwrap(),
+        BigDecimal::from_str("300.00").unwrap(),
+    ];
+
+    assert!(rows.iter().take(10).map(|r| r.0.clone()).eq(order_totals));
+
+    r#"
+        INSERT INTO orders (username, email, order_total) 
+        VALUES ('User4', 'user4@gmail.com', 100.00);
+    "#
+    .execute(conn);
+
+    let count: (i64,) = "SELECT COUNT(*) FROM user_orders".fetch_one(conn);
+    assert_eq!(count, (4,));
 }

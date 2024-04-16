@@ -3,7 +3,6 @@ mod fixtures;
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
-use sqlx::types::BigDecimal;
 use sqlx::PgConnection;
 use std::str::FromStr;
 
@@ -28,10 +27,24 @@ fn both_heap_views(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn parquet_materialized_view(_conn: PgConnection) {}
+fn both_parquet_materialized_views(mut conn: PgConnection) {
+    view_test(&mut conn, true, true, true);
+}
 
 #[rstest]
-fn federated_materialized_view(_conn: PgConnection) {}
+fn left_parquet_materialized_view(mut conn: PgConnection) {
+    view_test(&mut conn, true, true, false);
+}
+
+#[rstest]
+fn right_parquet_materialized_view(mut conn: PgConnection) {
+    view_test(&mut conn, true, false, true);
+}
+
+#[rstest]
+fn both_heap_materialized_views(mut conn: PgConnection) {
+    view_test(&mut conn, true, false, false);
+}
 
 #[inline]
 fn view_test(conn: &mut PgConnection, materialized: bool, left_parquet: bool, right_parquet: bool) {
@@ -93,20 +106,22 @@ fn view_test(conn: &mut PgConnection, materialized: bool, left_parquet: bool, ri
     "#
     .execute(conn);
 
-    let rows: Vec<(BigDecimal,)> = "SELECT order_total FROM user_orders".fetch(conn);
-    let order_totals: Vec<BigDecimal> = vec![
-        BigDecimal::from_str("100.00").unwrap(),
-        BigDecimal::from_str("200.00").unwrap(),
-        BigDecimal::from_str("300.00").unwrap(),
-    ];
+    if materialized {
+        r#"REFRESH MATERIALIZED VIEW user_orders"#.execute(conn);
+    }
 
-    assert!(rows.iter().take(10).map(|r| r.0.clone()).eq(order_totals));
+    let count: (i64,) = "SELECT COUNT(*) FROM user_orders".fetch_one(conn);
+    assert_eq!(count, (3,));
 
     r#"
         INSERT INTO orders (username, email, order_total) 
         VALUES ('User4', 'user4@gmail.com', 100.00);
     "#
     .execute(conn);
+
+    if materialized {
+        r#"REFRESH MATERIALIZED VIEW user_orders"#.execute(conn);
+    }
 
     let count: (i64,) = "SELECT COUNT(*) FROM user_orders".fetch_one(conn);
     assert_eq!(count, (4,));

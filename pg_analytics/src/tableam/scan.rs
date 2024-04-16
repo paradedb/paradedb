@@ -150,6 +150,17 @@ pub async unsafe fn scan_getnextslot(
     Ok(true)
 }
 
+#[inline]
+async fn scan_end(scan: pg_sys::TableScanDesc) -> Result<(), TableScanError> {
+    let dscan = scan as *mut DeltalakeScanDesc;
+    let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
+    let table_path = pg_relation.table_path()?;
+
+    Stream::clear(&table_path).await;
+
+    Ok(())
+}
+
 #[pg_guard]
 pub extern "C" fn deltalake_scan_begin(
     rel: pg_sys::Relation,
@@ -165,8 +176,10 @@ pub extern "C" fn deltalake_scan_begin(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_scan_end(_scan: pg_sys::TableScanDesc) {
-    task::block_on(Stream::clear());
+pub extern "C" fn deltalake_scan_end(scan: pg_sys::TableScanDesc) {
+    task::block_on(scan_end(scan)).unwrap_or_else(|err| {
+        panic!("{}", err);
+    });
 }
 
 #[pg_guard]

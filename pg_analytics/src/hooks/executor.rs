@@ -74,10 +74,14 @@ pub fn executor_run(
 
                     // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
                     // We should let these queries go through to the table access method
-                    if let LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_)) = logical_plan {
-                        prev_hook(query_desc, direction, count, execute_once);
-                        return Ok(());
-                    }
+                    match logical_plan {
+                        LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_))
+                        | LogicalPlan::Ddl(DdlStatement::CreateView(_)) => {
+                            prev_hook(query_desc, direction, count, execute_once);
+                            return Ok(());
+                        }
+                        _ => {}
+                    };
 
                     // Execute SELECT, DELETE, UPDATE
                     match query_desc.operation {

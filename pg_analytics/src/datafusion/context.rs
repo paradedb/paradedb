@@ -3,8 +3,7 @@ use deltalake::datafusion::catalog::CatalogProvider;
 use deltalake::datafusion::common::arrow::datatypes::DataType;
 use deltalake::datafusion::common::config::ConfigOptions;
 use deltalake::datafusion::common::DataFusionError;
-
-use deltalake::datafusion::datasource::provider_as_source;
+use deltalake::datafusion::datasource::{provider_as_source, view::ViewTable};
 use deltalake::datafusion::execution::FunctionRegistry;
 use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use deltalake::datafusion::sql::planner::ContextProvider;
@@ -12,9 +11,13 @@ use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
 use std::ffi::{c_char, CStr};
 use std::sync::Arc;
+use thiserror::Error;
 
 use super::catalog::CatalogError;
 use super::directory::ParadeDirectory;
+use super::plan::LogicalPlanDetails;
+use super::query::QueryString;
+use super::schema::ParadeSchemaProvider;
 use super::session::Session;
 use super::table::PgTableProvider;
 
@@ -23,7 +26,7 @@ pub struct QueryContext {
 }
 
 impl QueryContext {
-    pub fn new() -> Result<Self, CatalogError> {
+    pub fn new() -> Result<Self, ContextError> {
         Ok(Self {
             options: ConfigOptions::new(),
         })
@@ -31,7 +34,7 @@ impl QueryContext {
 
     fn get_table_source_impl(
         reference: TableReference,
-    ) -> Result<Arc<dyn TableSource>, CatalogError> {
+    ) -> Result<Arc<dyn TableSource>, ContextError> {
         let schema_name = reference.schema();
 
         if let Some(schema_name) = schema_name {
@@ -52,21 +55,25 @@ impl QueryContext {
                 for datum in current_schemas.iter().flatten() {
                     let schema_name =
                         unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
-                    let schema_registered = Session::with_catalog(|catalog| {
-                        Box::pin(async move { Ok(catalog.schema(schema_name).is_some()) })
+
+                    Session::with_catalog(|catalog| {
+                        Box::pin(async move {
+                            if catalog.schema(schema_name).is_none() {
+                                let new_schema_provider =
+                                    Arc::new(ParadeSchemaProvider::try_new(schema_name).await?);
+                                catalog.register_schema(schema_name, new_schema_provider)?;
+                            }
+
+                            Ok(())
+                        })
                     })?;
 
-                    if !schema_registered {
-                        continue;
-                    }
-
                     let table_name = reference.table().to_string();
-                    let table_registered =
-                        Session::with_schema_provider(schema_name, |provider| {
-                            Box::pin(async move { Ok(provider.table_exist(&table_name)) })
-                        })?;
+                    let table_exists = Session::with_schema_provider(schema_name, |provider| {
+                        Box::pin(async move { Ok(provider.table_exist(&table_name)) })
+                    })?;
 
-                    if !table_registered {
+                    if !table_exists {
                         continue;
                     }
 
@@ -74,7 +81,33 @@ impl QueryContext {
                 }
             }
 
-            Err(CatalogError::TableNotFound(reference.table().to_string()))
+            // If no table was found, try to register it as a view
+            let pg_relation = (match schema_name {
+                None => unsafe { PgRelation::open_with_name(reference.table()) },
+                Some(schema_name) => unsafe {
+                    PgRelation::open_with_name(
+                        format!("{}.{}", schema_name, reference.table()).as_str(),
+                    )
+                },
+            })
+            .map_err(|_| ContextError::TableNotFound(reference.table().to_string()))?;
+
+            if pg_relation.is_view() {
+                let view_definition = unsafe {
+                    direct_function_call::<String>(
+                        pg_sys::pg_get_viewdef,
+                        &[Some(pg_sys::Datum::from(pg_relation.oid()))],
+                    )
+                    .ok_or(ContextError::ViewNotFound(reference.table().to_string()))?
+                };
+
+                let plan = LogicalPlanDetails::try_from(QueryString(&view_definition))
+                    .map_err(|_| ContextError::ViewParseError)?;
+                let view_table = ViewTable::try_new(plan.logical_plan(), None)?;
+                return Ok(provider_as_source(Arc::new(view_table)));
+            }
+
+            Err(ContextError::TableNotFound(reference.table().to_string()))
         }
     }
 }
@@ -114,11 +147,11 @@ impl ContextProvider for QueryContext {
 }
 
 #[inline]
-fn get_source(schema_name: &str, table_name: &str) -> Result<Arc<dyn TableSource>, CatalogError> {
+fn get_source(schema_name: &str, table_name: &str) -> Result<Arc<dyn TableSource>, ContextError> {
     let schema_name = schema_name.to_string();
     let table_name = table_name.to_string();
 
-    Session::with_tables(&schema_name.clone(), |mut tables| {
+    Ok(Session::with_tables(&schema_name.clone(), |mut tables| {
         Box::pin(async move {
             let table_path =
                 ParadeDirectory::table_path_from_name(&schema_name.clone(), &table_name)?;
@@ -128,5 +161,26 @@ fn get_source(schema_name: &str, table_name: &str) -> Result<Arc<dyn TableSource
 
             Ok(provider_as_source(Arc::new(provider)))
         })
-    })
+    })?)
+}
+
+#[derive(Error, Debug)]
+pub enum ContextError {
+    #[error(transparent)]
+    CatalogError(#[from] CatalogError),
+
+    #[error(transparent)]
+    DataFusionError(#[from] DataFusionError),
+
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
+
+    #[error("No table registered with name {0}")]
+    TableNotFound(String),
+
+    #[error("Could not get definition for view {0}")]
+    ViewNotFound(String),
+
+    #[error("Could not parse view definition")]
+    ViewParseError,
 }

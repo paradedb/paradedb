@@ -34,6 +34,13 @@ jobs:
         uses: actions/checkout@v4
 
       # By using the docker-compose.dev.yml file, we also test that the build arguments are correct
-      - name: Test Building ParadeDB Docker Image
+      - name: Test Building the ParadeDB Docker Image
         working-directory: docker/
         run: docker buildx create --use && docker compose -f docker-compose.dev.yml build
+
+      # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
+      - name: Test Running ParadeDB Docker Image
+        working-directory: docker/
+        run: |
+          docker compose -f docker-compose.dev.yml up -d
+          docker logs $(docker ps -q --filter "paradedb-dev") | grep ERROR

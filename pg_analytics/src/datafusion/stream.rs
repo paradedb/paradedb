@@ -7,16 +7,14 @@ use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::catalog::CatalogError;
 use super::session::Session;
 use super::table::PgTableProvider;
 
-const STREAM_ID: &str = "delta_stream";
-
-static STREAM_CACHE: Lazy<Arc<Mutex<HashMap<String, SendableRecordBatchStream>>>> =
+static STREAM_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, SendableRecordBatchStream>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub struct Stream;
@@ -29,7 +27,7 @@ impl Stream {
     ) -> Result<Option<RecordBatch>, CatalogError> {
         let mut cache = STREAM_CACHE.lock().await;
 
-        let stream = match cache.entry(STREAM_ID.to_string()) {
+        let stream = match cache.entry(table_path.to_path_buf()) {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => entry.insert(Self::create(table_path, schema_name, table_name).await?),
         };
@@ -37,7 +35,7 @@ impl Stream {
         match stream.next().await {
             Some(Ok(b)) => Ok(Some(b)),
             None => {
-                cache.remove(STREAM_ID);
+                cache.remove(table_path);
                 Ok(None)
             }
             Some(Err(err)) => Err(CatalogError::DataFusionError(err)),
@@ -63,8 +61,8 @@ impl Stream {
         Ok(table_provider.dataframe().execute_stream().await?)
     }
 
-    pub async fn clear() {
+    pub async fn clear(table_path: &Path) {
         let mut cache = STREAM_CACHE.lock().await;
-        cache.clear();
+        cache.remove(table_path);
     }
 }

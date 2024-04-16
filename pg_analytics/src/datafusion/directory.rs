@@ -36,17 +36,17 @@ impl ParadeDirectory {
         schema_name: &str,
         table_name: &str,
     ) -> Result<PathBuf, DirectoryError> {
-        let pg_relation =
-            match unsafe { PgRelation::open_with_name(&format!("{}.{}", schema_name, table_name)) }
-            {
-                Ok(relation) => relation,
-                Err(_) => {
-                    return Err(DirectoryError::RelationNotFound(
-                        schema_name.to_string(),
-                        table_name.to_string(),
-                    ))
-                }
-            };
+        let pg_relation = match unsafe {
+            PgRelation::open_with_name(format!("{}.{}", schema_name, table_name).as_str())
+        } {
+            Ok(relation) => relation,
+            Err(_) => {
+                return Err(DirectoryError::RelationNotFound(
+                    schema_name.to_string(),
+                    table_name.to_string(),
+                ))
+            }
+        };
 
         let tablespace_oid = unsafe { pg_sys::get_rel_tablespace(pg_relation.oid()) };
         Self::table_path_from_oid(

@@ -69,12 +69,11 @@ pub fn write_batches_to_slots(
 }
 
 pub fn get_datafusion_batches(
-    query_desc: PgBox<pg_sys::QueryDesc>,
     logical_plan: LogicalPlan,
     single_thread: bool,
-) -> Result<(), SelectHookError> {
+) -> Result<Vec<RecordBatch>, SelectHookError> {
     // Execute the logical plan and collect the resulting batches
-    let batches = Session::with_session_context(|context| {
+    Ok(Session::with_session_context(|context| {
         Box::pin(async move {
             let dataframe = if single_thread {
                 let config = context.copied_config();
@@ -86,9 +85,7 @@ pub fn get_datafusion_batches(
             };
             Ok(dataframe.collect().await?)
         })
-    })?;
-
-    write_batches_to_slots(query_desc, batches)
+    })?)
 }
 
 #[derive(Error, Debug)]

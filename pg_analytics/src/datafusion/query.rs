@@ -11,7 +11,7 @@ use std::collections::VecDeque;
 use thiserror::Error;
 
 use super::catalog::CatalogError;
-use super::context::QueryContext;
+use super::context::{ContextError, QueryContext};
 use super::plan::LogicalPlanDetails;
 use super::udf::{loadfunction_not_supported, UDFError};
 
@@ -113,6 +113,9 @@ impl TryFrom<QueryString<'_>> for LogicalPlanDetails {
 pub enum QueryParserError {
     #[error(transparent)]
     Catalog(#[from] CatalogError),
+
+    #[error(transparent)]
+    Context(#[from] ContextError),
 
     #[error(transparent)]
     DataFusion(#[from] DataFusionError),

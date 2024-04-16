@@ -39,7 +39,7 @@ jobs:
         run: docker buildx create --use && docker compose -f docker-compose.dev.yml build
 
       # We run the container in detached mode, and grep for the word ERROR to see if it failed to start correctly
-      - name: Test Running ParadeDB Docker Image
+      - name: Test Running the ParadeDB Docker Image
         working-directory: docker/
         run: |
           docker compose -f docker-compose.dev.yml up -d

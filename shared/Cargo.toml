@@ -11,7 +11,7 @@ fixtures = ["async-std", "rstest", "soa_derive", "sqlx", "bigdecimal"]
 
 [dependencies]
 envy = "0.4.2"
-pgrx = { git = "https://github.com/pgcentralfoundation/pgrx.git", rev = "bef7ab7" }
+pgrx = { git = "https://github.com/paradedb/pgrx.git", branch = "rebasedming/rmgr" }
 reqwest = { version = "0.11.22", features = ["blocking"] }
 serde = "1.0.189"
 serde_json = "1.0.107"
@@ -40,5 +40,5 @@ chrono = { version = "0.4.34", features = ["clock", "alloc"] }
 
 [dev-dependencies]
 mockall = "0.12.1"
-pgrx-tests = { git = "https://github.com/pgcentralfoundation/pgrx.git", rev = "bef7ab7" }
+pgrx-tests = { git = "https://github.com/paradedb/pgrx.git", branch = "rebasedming/rmgr" }
 tempfile = "3.10.1"

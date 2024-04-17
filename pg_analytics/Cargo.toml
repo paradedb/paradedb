@@ -23,7 +23,7 @@ pg_test = []
 telemetry = ["shared/telemetry"]
 
 [dependencies]
-pgrx = { git = "https://github.com/pgcentralfoundation/pgrx.git", rev = "bef7ab7" }
+pgrx = { git = "https://github.com/paradedb/pgrx.git", branch = "rebasedming/rmgr" }
 serde = "1.0.193"
 serde_json = "1.0.107"
 shared = { path = "../shared" }
@@ -50,7 +50,7 @@ anyhow = "1.0.79"
 approx = "0.5.1"
 async-std = { version = "1.12.0", features = ["attributes"] }
 futures-util = "0.3.30"
-pgrx-tests = { git = "https://github.com/pgcentralfoundation/pgrx.git", rev = "bef7ab7" }
+pgrx-tests = { git = "https://github.com/paradedb/pgrx.git", branch = "rebasedming/rmgr" }
 pretty_assertions = "1.4.0"
 rstest = "0.18.2"
 shared = { path = "../shared", features = ["fixtures"] }

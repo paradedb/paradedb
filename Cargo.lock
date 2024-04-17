@@ -723,7 +723,7 @@ dependencies = [
  "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "lazy_static",
  "lazycell",
  "proc-macro2",
@@ -4204,7 +4204,7 @@ dependencies = [
 [[package]]
 name = "pgrx"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=bef7ab7#bef7ab7268a487aa2351851fc7bc63d1e468f46e"
+source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#b66dcae6ba7824f242b089adf6756639bd1778ed"
 dependencies = [
  "atomic-traits",
  "bitflags 2.5.0",
@@ -4228,7 +4228,7 @@ dependencies = [
 [[package]]
 name = "pgrx-macros"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=bef7ab7#bef7ab7268a487aa2351851fc7bc63d1e468f46e"
+source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#b66dcae6ba7824f242b089adf6756639bd1778ed"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -4239,7 +4239,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-config"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=bef7ab7#bef7ab7268a487aa2351851fc7bc63d1e468f46e"
+source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#b66dcae6ba7824f242b089adf6756639bd1778ed"
 dependencies = [
  "cargo_toml",
  "eyre",
@@ -4257,7 +4257,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-sys"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=bef7ab7#bef7ab7268a487aa2351851fc7bc63d1e468f46e"
+source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#b66dcae6ba7824f242b089adf6756639bd1778ed"
 dependencies = [
  "bindgen 0.69.4",
  "cee-scape",
@@ -4279,7 +4279,7 @@ dependencies = [
 [[package]]
 name = "pgrx-sql-entity-graph"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=bef7ab7#bef7ab7268a487aa2351851fc7bc63d1e468f46e"
+source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#b66dcae6ba7824f242b089adf6756639bd1778ed"
 dependencies = [
  "convert_case 0.6.0",
  "eyre",
@@ -4294,7 +4294,7 @@ dependencies = [
 [[package]]
 name = "pgrx-tests"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=bef7ab7#bef7ab7268a487aa2351851fc7bc63d1e468f46e"
+source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#b66dcae6ba7824f242b089adf6756639bd1778ed"
 dependencies = [
  "clap-cargo",
  "eyre",

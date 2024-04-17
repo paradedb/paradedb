@@ -315,14 +315,14 @@ pub async fn bench_eslogs_query_elastic_table(
         // Per-sample (note that a sample can be many iterations) setup goes here.
         let search_url = format!("{}/_search", elastic_url.trim_end_matches("/"));
         let search_json = json!({
+            "from": 0,
             "size": 1,
             "query": {
                 "match": {
                     &field: &term
                 }
             }
-        })
-        .to_string();
+        });
 
         // Create a client instance
         let client = Client::new();
@@ -337,12 +337,11 @@ pub async fn bench_eslogs_query_elastic_table(
 
             // Parse the response text as JSON
             let response_body: serde_json::Value = res.json().unwrap();
-            assert!(
-                response_body["hits"]["total"]["value"]
-                    .as_i64()
-                    .expect("no hits field on response, does the index exist?")
-                    >= 0
-            );
+
+            // Ensure correct response structure.
+            response_body["hits"]["total"]["value"]
+                .as_i64()
+                .expect("no hits field on response, does the index exist?")
         });
     });
 

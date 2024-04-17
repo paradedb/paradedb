@@ -1,3 +1,7 @@
+/// Rust implementations of Postgres functions in src/include/utils/rel.h
+/// related to Write-Ahead Logging (WAL).
+///
+/// This can be contributed to pgrx.
 use pgrx::*;
 use std::mem::size_of;
 

@@ -6,7 +6,9 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use once_cell::sync::Lazy;
 use pgrx::*;
+use shared::postgres::htup::{heap_tuple_header_set_xmax, heap_tuple_header_set_xmin};
 use shared::postgres::wal::{relation_needs_wal, SIZEOF_HEAP_TUPLE_HEADER};
+use std::ffi::c_char;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
@@ -14,10 +16,13 @@ use thiserror::Error;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
+use crate::rmgr::{RM_ANALYTICS_ID, XLOG_ANALYTICS_INSERT};
 use crate::storage::metadata::{MetadataError, PgMetadata};
 use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::{DataTypeError, PgTypeMod};
+
+const INSERT_XMAX: u32 = 0;
 
 pub static INSERT_MEMORY_CONTEXT: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> =
     Lazy::new(|| {
@@ -104,6 +109,7 @@ async unsafe fn insert_tuples(
     let old_context = pg_sys::MemoryContextSwitchTo(memctx);
 
     let pg_relation = PgRelation::from_pg(rel);
+    let table_oid = pg_relation.oid();
     let pg_tuple_desc = pg_relation.tuple_desc();
     let tuple_desc = pg_tuple_desc.clone().into_pg();
 
@@ -122,6 +128,20 @@ async unsafe fn insert_tuples(
                     let attnum = col_idx as i32 + 1;
                     let mut is_null = pg_sys::heap_attisnull(heap_tuple, attnum, tuple_desc);
                     let datum = pg_sys::heap_getattr(heap_tuple, attnum, tuple_desc, &mut is_null);
+
+                    if relation_needs_wal(rel) {
+                        prepare_insert(table_oid, heap_tuple);
+                        pg_sys::XLogBeginInsert();
+
+                        let tuple_data = (*heap_tuple).t_data as *mut c_char;
+                        let tuple_data_no_header = tuple_data.add(SIZEOF_HEAP_TUPLE_HEADER);
+
+                        pg_sys::XLogRegisterData(
+                            tuple_data_no_header,
+                            (*heap_tuple).t_len - SIZEOF_HEAP_TUPLE_HEADER as u32,
+                        );
+                        pg_sys::XLogInsert(RM_ANALYTICS_ID, XLOG_ANALYTICS_INSERT);
+                    }
 
                     (!is_null).then_some(datum)
                 })
@@ -152,7 +172,7 @@ async unsafe fn insert_tuples(
     column_values.push(Arc::new(Int64Array::from(xmins)));
 
     // Assign xmax to each row
-    let xmaxs: Vec<i64> = vec![0; nslots];
+    let xmaxs: Vec<i64> = vec![INSERT_XMAX as i64; nslots];
     column_values.push(Arc::new(Int64Array::from(xmaxs)));
 
     let schema_name = pg_relation.namespace().to_string();
@@ -163,14 +183,19 @@ async unsafe fn insert_tuples(
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
 
-    if relation_needs_wal(rel) {
-        info!("{:?}", SIZEOF_HEAP_TUPLE_HEADER);
-    }
-
     pg_sys::MemoryContextReset(memctx);
     pg_sys::MemoryContextSwitchTo(old_context);
 
     Ok(())
+}
+
+/// Based on Postgres' heap_prepare_insert() in src/backend/access/heap/heapam.c
+#[inline]
+unsafe fn prepare_insert(table_oid: pg_sys::Oid, heap_tuple: pg_sys::HeapTuple) {
+    heap_tuple_header_set_xmin((*heap_tuple).t_data, pg_sys::GetCurrentTransactionId());
+    heap_tuple_header_set_xmax((*heap_tuple).t_data, INSERT_XMAX);
+
+    (*heap_tuple).t_tableOid = table_oid;
 }
 
 #[derive(Error, Debug)]

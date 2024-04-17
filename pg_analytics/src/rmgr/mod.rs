@@ -3,6 +3,7 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 
 pub static RM_ANALYTICS_ID: u8 = 135;
+pub static XLOG_ANALYTICS_INSERT: u8 = 0x00;
 
 pub static mut CUSTOM_RMGR: Lazy<pg_sys::RmgrData> = Lazy::new(|| pg_sys::RmgrData {
     rm_name: "pg_analytics".as_pg_cstr(),

@@ -6,6 +6,7 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use once_cell::sync::Lazy;
 use pgrx::*;
+use shared::postgres::wal::{relation_needs_wal, SIZEOF_HEAP_TUPLE_HEADER};
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
@@ -133,11 +134,10 @@ async unsafe fn insert_tuples(
 
     for row_idx in 0..nslots {
         unsafe {
-            let tuple_table_slot = *slots.add(row_idx);
+            let slot = *slots.add(row_idx);
             let next_row_number = rel.read_next_row_number()?;
 
-            (*tuple_table_slot).tts_tid =
-                pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
+            (*slot).tts_tid = pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
 
             row_numbers.push(next_row_number);
             rel.write_next_row_number(next_row_number + 1)?;
@@ -162,6 +162,10 @@ async unsafe fn insert_tuples(
     // Write Arrow arrays to buffer
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
+
+    if relation_needs_wal(rel) {
+        info!("{:?}", SIZEOF_HEAP_TUPLE_HEADER);
+    }
 
     pg_sys::MemoryContextReset(memctx);
     pg_sys::MemoryContextSwitchTo(old_context);

@@ -103,33 +103,26 @@ async unsafe fn insert_tuples(
     let old_context = pg_sys::MemoryContextSwitchTo(memctx);
 
     let pg_relation = PgRelation::from_pg(rel);
-    let tuple_desc = pg_relation.tuple_desc();
+    let pg_tuple_desc = pg_relation.tuple_desc();
+    let tuple_desc = pg_tuple_desc.clone().into_pg();
+
     let mut column_values: Vec<ArrayRef> = vec![];
 
     // Convert the TupleTableSlots into DataFusion arrays
-    for (col_idx, attr) in tuple_desc.iter().enumerate() {
+    for (col_idx, attr) in pg_tuple_desc.iter().enumerate() {
         column_values.push(
             (0..nslots)
                 .map(move |row_idx| unsafe {
-                    let tuple_table_slot = *slots.add(row_idx);
+                    let slot = *slots.add(row_idx);
+                    let mut should_free = true;
+                    let heap_tuple =
+                        pg_sys::ExecFetchSlotHeapTuple(slot, true, &mut should_free as *mut bool);
+                    // attnum is 1 indexed for heap_att* functions
+                    let attnum = col_idx as i32 + 1;
+                    let mut is_null = pg_sys::heap_attisnull(heap_tuple, attnum, tuple_desc);
+                    let datum = pg_sys::heap_getattr(heap_tuple, attnum, tuple_desc, &mut is_null);
 
-                    let datum_opt = if (*tuple_table_slot).tts_ops == &pg_sys::TTSOpsBufferHeapTuple
-                    {
-                        let bslot = tuple_table_slot as *mut pg_sys::BufferHeapTupleTableSlot;
-                        let tuple = (*bslot).base.tuple;
-                        std::num::NonZeroUsize::new(col_idx + 1).and_then(|attr_num| {
-                            htup::heap_getattr_raw(
-                                tuple,
-                                attr_num,
-                                (*tuple_table_slot).tts_tupleDescriptor,
-                            )
-                        })
-                    } else {
-                        Some(*(*tuple_table_slot).tts_values.add(col_idx))
-                    };
-
-                    let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
-                    (!is_null).then_some(datum_opt).flatten()
+                    (!is_null).then_some(datum)
                 })
                 .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
         );

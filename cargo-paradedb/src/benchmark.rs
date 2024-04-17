@@ -26,7 +26,7 @@ impl Benchmark {
 
         Ok(())
     }
-    pub async fn run(&self) -> Result<()> {
+    pub async fn run_pg(&self) -> Result<()> {
         // One-time setup code goes here.
         debug!(DATABASE_URL = self.database_url);
         let mut criterion = Criterion::default();
@@ -66,7 +66,7 @@ impl Benchmark {
         Ok(())
     }
 
-    pub async fn run_once(&self) -> Result<()> {
+    pub async fn run_pg_once(&self) -> Result<()> {
         let conn_opts = &PgConnectOptions::from_str(&self.database_url).unwrap();
         let mut conn = PgConnection::connect_with(conn_opts).await.unwrap();
 

@@ -2,8 +2,10 @@ use crate::benchmark::Benchmark;
 use crate::tables::{benchlogs::EsLog, PathReader};
 use anyhow::{bail, Result};
 use cmd_lib::{run_cmd, run_fun};
+use criterion::Criterion;
 use futures::StreamExt;
 use itertools::Itertools;
+use reqwest::blocking::Client;
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{postgres::PgConnectOptions, Connection, PgConnection, Postgres, QueryBuilder};
@@ -179,7 +181,7 @@ pub async fn bench_eslogs_build_search_index(
         query: create_query,
         database_url: url,
     }
-    .run_once()
+    .run_pg_once()
     .await
 }
 
@@ -196,7 +198,7 @@ pub async fn bench_eslogs_query_search_index(
         query: format!("SELECT * FROM {index}.search('{query}', limit_rows => {limit});"),
         database_url: url,
     }
-    .run()
+    .run_pg()
     .await
 }
 
@@ -223,7 +225,7 @@ pub async fn bench_eslogs_build_parquet_table(table: String, url: String) -> Res
         query: create_query,
         database_url: url,
     }
-    .run_once()
+    .run_pg_once()
     .await
 }
 
@@ -235,7 +237,7 @@ pub async fn bench_eslogs_count_parquet_table(table: String, url: String) -> Res
         query: format!("SELECT COUNT(*) FROM {table}_parquet"),
         database_url: url,
     }
-    .run()
+    .run_pg()
     .await
 }
 
@@ -294,6 +296,48 @@ pub async fn bench_eslogs_build_elastic_table(
     // Print benchmark results.
     let end_time = SystemTime::now();
     Benchmark::print_results(start_time, end_time);
+
+    Ok(())
+}
+
+pub async fn bench_eslogs_query_elastic_table(
+    elastic_url: String,
+    field: String,
+    term: String,
+) -> Result<()> {
+    let mut criterion = Criterion::default();
+    let mut group = criterion.benchmark_group("Elasticsearch Index");
+
+    // Lowered from default sample size to remove Criterion warning.
+    // Must be higher than 10, or Criterion will panic.
+    group.sample_size(60);
+    group.bench_function("bench_eslogs_query_elastic_table", |runner| {
+        // Per-sample (note that a sample can be many iterations) setup goes here.
+        let search_url = format!("{}/_search", elastic_url.trim_end_matches("/"));
+        let search_json = json!({
+            "size": 1,
+            "query": {
+                "match": {
+                    &field: &term
+                }
+            }
+        })
+        .to_string();
+
+        // Create a client instance
+        let client = Client::new();
+        runner.iter(|| {
+            // Measured code goes here.
+            client
+                .get(&search_url)
+                .header("Content-Type", "application/json")
+                .json(&search_json)
+                .send()
+                .expect("error sending request to elasticsearch index");
+        });
+    });
+
+    group.finish();
 
     Ok(())
 }

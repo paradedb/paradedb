@@ -112,6 +112,18 @@ pub enum EsLogsCommand {
         #[arg(short, long)]
         elastic_url: String,
     },
+    QueryElasticIndex {
+        /// Index field to match on.
+        #[arg(short, long, default_value = "message")]
+        field: String,
+        /// Search term in index field to match on.
+        #[arg(short, long, default_value = "flame")]
+        term: String,
+        /// Elastic index url to connect to.
+        /// Should contain the index name as a path subcomponent.
+        #[arg(short, long)]
+        elastic_url: String,
+    },
 }
 
 impl Default for Cli {

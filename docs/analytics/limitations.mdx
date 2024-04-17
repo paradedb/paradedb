@@ -2,17 +2,17 @@
 title: Limitations
 ---
 
-`parquet` tables have several limitations. Most of these limitations are being worked on as part of our
+Parquet tables have several limitations. Most of these limitations are being worked on as part of our
 roadmap.
 
 ## Append-Only
 
-`parquet` tables are currently **append-only**. `UPDATE` and `DELETE` clauses are not yet supported.
+Parquet tables are currently **append-only**. `UPDATE` and `DELETE` clauses are not yet supported.
 Data that is frequently updated should be stored in regular Postgres `heap` tables.
 
 ## Postgres Types
 
-`parquet` tables support most, but not all, built-in Postgres types. If a type is not listed below, it is not
+Parquet tables support most, but not all, built-in Postgres types. If a type is not listed below, it is not
 supported.
 
 | Postgres Type      | Type Supported | Array Supported | Limitations                                                            |
@@ -45,13 +45,19 @@ supported.
 
 ## User-Defined Functions
 
-While user-defined functions (UDFs) are supported over Parquet tables, queries containing UDFs do not
+While user-defined functions (UDFs) are supported over parquet tables, queries containing UDFs do not
 use the DataFusion query engine and can be much slower. As a result, we recommend using built-in functions
 and operators instead of UDFs whenever possible.
 
+## Views
+
+Views that contain both heap and parquet tables are currently not pushed down to DataFusion and use
+the Postgres query engine, which may impact query times. However, views that contain only parquet
+tables are pushed down to DataFusion.
+
 ## Write-Ahead Logs
 
-Write-ahead logs (WAL) over `parquet` tables are currently not supported.
+Write-ahead logs (WAL) over parquet tables are currently not supported.
 
 ## Collations
 

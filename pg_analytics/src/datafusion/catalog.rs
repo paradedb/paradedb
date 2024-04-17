@@ -140,9 +140,6 @@ pub enum CatalogError {
     #[error("Schema provider {0} not found")]
     SchemaProviderNotFound(String),
 
-    #[error("No table registered with name {0}")]
-    TableNotFound(String),
-
     #[error(
         "pg_analytics not found in shared_preload_libraries. Check your postgresql.conf file."
     )]

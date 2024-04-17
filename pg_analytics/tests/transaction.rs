@@ -199,8 +199,9 @@ fn drop_transaction_rollback(mut conn: PgConnection) {
 
     assert!(!Path::new(&first_table_path).exists());
 
+    "BEGIN".execute(&mut conn);
+
     r#"
-        BEGIN;
         CREATE TABLE t (id INT PRIMARY KEY, name TEXT) USING parquet;
         INSERT INTO t VALUES (1, 'test'), (2, 'test');
     "#

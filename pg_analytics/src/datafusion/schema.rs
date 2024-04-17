@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
+use pgrx::*;
 use std::any::Any;
 use std::path::Path;
 use std::sync::Arc;
@@ -57,7 +58,18 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     fn table_exist(&self, table_name: &str) -> bool {
-        ParadeDirectory::table_path_from_name(&self.schema_name, table_name).is_ok()
+        let pg_relation = match unsafe {
+            PgRelation::open_with_name(format!("{}.{}", self.schema_name, table_name).as_str())
+        } {
+            Ok(relation) => relation,
+            Err(_) => return false,
+        };
+
+        if !pg_relation.is_table() {
+            return false;
+        }
+
+        true
     }
 }
 

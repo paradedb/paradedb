@@ -17,6 +17,7 @@ services:
         - type=local,src=./.docker_cache_dev
       cache_to:
         - type=local,dest=./.docker_cache_dev
+    container_name: paradedb-dev
     environment:
       POSTGRESQL_USERNAME: myuser
       POSTGRESQL_PASSWORD: mypassword

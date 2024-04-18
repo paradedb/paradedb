@@ -8,9 +8,7 @@ This folder contains the results and scripts for benchmarking the search compone
 
 If you'd like to see benchmarks against another system, please open an issue or a pull request.
 
-## Results
-
-### Experimental Setup
+## Experimental Setup
 
 The benchmarks below were run on the following hardware and software:
 

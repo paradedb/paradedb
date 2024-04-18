@@ -57,8 +57,8 @@ For any questions, clarifications, or suggestions regarding our benchmarking exp
 
 Building `pg_search` index, indexing the `message` column, over 1 billion rows.
 
-```
-  Start time: SystemTime { tv_sec: 1712856911, tv_nsec: 741370871 }
+```text
+Start time: SystemTime { tv_sec: 1712856911, tv_nsec: 741370871 }
 End time: SystemTime { tv_sec: 1712866842, tv_nsec: 72802069 }
 Duration: 9930331 milliseconds
 Duration: 9930.3314 seconds
@@ -68,7 +68,7 @@ Duration: 2.7584 hours
 
 Querying `pg_search` index for `"message:flame"`:
 
-```
+```text
 Benchmarking Search Query/bench_eslogs_query_search_index
 Benchmarking Search Query/bench_eslogs_query_search_index: Warming up for 3.0000 s
 Benchmarking Search Query/bench_eslogs_query_search_index: Collecting 60 samples in estimated 6.6780 s (3660 iterations)
@@ -82,7 +82,7 @@ Found 7 outliers among 60 measurements (11.67%)
 
 Building Elasticsearch index, indexing the `message` column, over 1 billion rows:
 
-```
+```text
 Start time: SystemTime { tv_sec: 1713302753, tv_nsec: 701639825 }
 End time: SystemTime { tv_sec: 1713347291, tv_nsec: 876946205 }
 Duration: 44538175 milliseconds
@@ -93,7 +93,7 @@ Duration: 12.3717 hours
 
 Querying Elasticsearch index, for the term `flame` in the `message` field:
 
-```
+```text
 Benchmarking Elasticsearch Index/bench_eslogs_query_elastic_table
 Benchmarking Elasticsearch Index/bench_eslogs_query_elastic_table: Warming up for 3.0000 s
 Benchmarking Elasticsearch Index/bench_eslogs_query_elastic_table: Collecting 60 samples in estimated 8.3315 s (3660 iterations)

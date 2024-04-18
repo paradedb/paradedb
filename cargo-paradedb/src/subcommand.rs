@@ -248,8 +248,8 @@ pub async fn bench_eslogs_build_elastic_table(
 ) -> Result<()> {
     // It's expected that the elastic_url passed here already has the index name
     // as a path subcomponent. We also need to make sure it doesn't have a trailing slash.
-    let build_url = format!("{}?pretty", elastic_url.trim_end_matches("/"));
-    let insert_url = format!("{}/_bulk", elastic_url.trim_end_matches("/"));
+    let build_url = format!("{}?pretty", elastic_url.trim_end_matches('/'));
+    let insert_url = format!("{}/_bulk", elastic_url.trim_end_matches('/'));
     let config = crate::elastic::ELASTIC_INDEX_CONFIG.to_string();
 
     // Build empty Elasticsearch index.
@@ -273,14 +273,14 @@ pub async fn bench_eslogs_build_elastic_table(
     // Insert chunks of Postgres results into Elasticsearch.
     while let Some((index, chunk)) = chunked_cursor.next().await {
         let mut index_data = vec![];
-        for result in chunk {
+
+        // Flatten maintains only the Ok values.
+        for (id, message) in chunk.into_iter().flatten() {
             // Each insert operation into Elasticsearch is comprised of two newline-delimited
             // JSON messages. One describing the actual operation ("index") and the next
             // containing the field data.
-            if let Ok((id, message)) = result {
-                index_data.push(json!({ "index": {"_id": id.to_string()} }).to_string());
-                index_data.push(json!({ "message": message }).to_string());
-            }
+            index_data.push(json!({ "index": {"_id": id.to_string()} }).to_string());
+            index_data.push(json!({ "message": message }).to_string());
         }
 
         // Each JSON message must be separated by a newline.
@@ -313,7 +313,7 @@ pub async fn bench_eslogs_query_elastic_table(
     group.sample_size(60);
     group.bench_function("bench_eslogs_query_elastic_table", |runner| {
         // Per-sample (note that a sample can be many iterations) setup goes here.
-        let search_url = format!("{}/_search", elastic_url.trim_end_matches("/"));
+        let search_url = format!("{}/_search", elastic_url.trim_end_matches('/'));
         let search_json = json!({
             "from": 0,
             "size": 1,

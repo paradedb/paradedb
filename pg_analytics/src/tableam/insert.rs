@@ -7,7 +7,7 @@ use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use once_cell::sync::Lazy;
 use pgrx::*;
 use shared::postgres::htup::{heap_tuple_header_set_xmax, heap_tuple_header_set_xmin};
-use shared::postgres::wal::{relation_needs_wal, SIZEOF_HEAP_TUPLE_HEADER};
+use shared::postgres::wal::{page_set_lsn, relation_needs_wal, SIZEOF_HEAP_TUPLE_HEADER};
 use std::ffi::c_char;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
@@ -124,8 +124,7 @@ async unsafe fn insert_tuples(
                     let mut should_free = true;
                     let heap_tuple =
                         pg_sys::ExecFetchSlotHeapTuple(slot, true, &mut should_free as *mut bool);
-                    // attnum is 1 indexed for heap_att* functions
-                    let attnum = col_idx as i32 + 1;
+                    let attnum = col_idx as i32 + 1; // attnum is 1 indexed
                     let mut is_null = pg_sys::heap_attisnull(heap_tuple, attnum, tuple_desc);
                     let datum = pg_sys::heap_getattr(heap_tuple, attnum, tuple_desc, &mut is_null);
 
@@ -140,7 +139,15 @@ async unsafe fn insert_tuples(
                             tuple_data_no_header,
                             (*heap_tuple).t_len - SIZEOF_HEAP_TUPLE_HEADER as u32,
                         );
-                        pg_sys::XLogInsert(RM_ANALYTICS_ID, XLOG_ANALYTICS_INSERT);
+                        let recptr = pg_sys::XLogInsert(RM_ANALYTICS_ID, XLOG_ANALYTICS_INSERT);
+                        let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
+                            panic!("{}", err);
+                        });
+                        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+
+                        let page = pg_sys::BufferGetPage(buffer);
+                        page_set_lsn(page, recptr);
+                        pg_sys::UnlockReleaseBuffer(buffer);
                     }
 
                     (!is_null).then_some(datum)

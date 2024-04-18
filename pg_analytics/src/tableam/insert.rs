@@ -7,8 +7,8 @@ use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use once_cell::sync::Lazy;
 use pgrx::*;
 use shared::postgres::htup::{heap_tuple_header_set_xmax, heap_tuple_header_set_xmin};
-use shared::postgres::wal::{page_set_lsn, relation_needs_wal, SIZEOF_HEAP_TUPLE_HEADER};
-use std::ffi::c_char;
+use shared::postgres::wal::{page_set_lsn, relation_needs_wal};
+use std::mem::size_of;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
@@ -16,7 +16,7 @@ use thiserror::Error;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
-use crate::rmgr::xlog::XLOG_INSERT;
+use crate::rmgr::xlog::{XLogInsertRecord, XLOG_INSERT};
 use crate::rmgr::CUSTOM_RMGR_ID;
 use crate::storage::metadata::{MetadataError, PgMetadata};
 use crate::storage::tid::{RowNumber, TIDError};
@@ -133,12 +133,15 @@ async unsafe fn insert_tuples(
                         prepare_insert(table_oid, heap_tuple);
                         pg_sys::XLogBeginInsert();
 
-                        let tuple_data = (*heap_tuple).t_data as *mut c_char;
-                        let tuple_data_no_header = tuple_data.add(SIZEOF_HEAP_TUPLE_HEADER);
+                        let flags = 0;
+                        let mut xlrec = XLogInsertRecord::new(flags);
+
+                        // let tuple_data = (*heap_tuple).t_data as *mut c_char;
+                        // let tuple_data_no_header = tuple_data.add(SIZEOF_HEAP_TUPLE_HEADER);
 
                         pg_sys::XLogRegisterData(
-                            tuple_data_no_header,
-                            (*heap_tuple).t_len - SIZEOF_HEAP_TUPLE_HEADER as u32,
+                            &mut xlrec as *mut XLogInsertRecord as *mut i8,
+                            size_of::<XLogInsertRecord>() as u32,
                         );
                         let recptr = pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
                         let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {

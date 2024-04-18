@@ -18,6 +18,10 @@ pub struct RelationMetadata {
     next_row_number: i64,
 }
 
+pub struct XLogTuple {
+    tuple: pg_sys::HeapTuple,
+}
+
 pub trait PgMetadata {
     fn read_next_row_number(self) -> Result<i64, MetadataError>;
     fn write_next_row_number(self, next_row_number: i64) -> Result<(), MetadataError>;

@@ -45,3 +45,15 @@ pub unsafe fn page_set_lsn(page: pg_sys::Page, lsn: pg_sys::XLogRecPtr) {
     let page_header = page as *mut pg_sys::PageHeaderData;
     page_xlog_recptr_set((*page_header).pd_lsn, lsn);
 }
+
+/// # Safety
+/// This function is unsafe because it calls pg_sys functions
+pub unsafe fn xlog_rec_get_info(record: *mut pg_sys::XLogReaderState) -> u8 {
+    (*(*record).record).header.xl_info
+}
+
+/// # Safety
+/// This function is unsafe because it calls pg_sys functions
+pub unsafe fn xlog_rec_get_data(record: *mut pg_sys::XLogReaderState) -> *mut i8 {
+    (*(*record).record).main_data
+}

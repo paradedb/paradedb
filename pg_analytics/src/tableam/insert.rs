@@ -16,13 +16,14 @@ use thiserror::Error;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
-use crate::rmgr::{RM_ANALYTICS_ID, XLOG_ANALYTICS_INSERT};
+use crate::rmgr::xlog::XLOG_INSERT;
+use crate::rmgr::CUSTOM_RMGR_ID;
 use crate::storage::metadata::{MetadataError, PgMetadata};
 use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::{DataTypeError, PgTypeMod};
 
-const INSERT_XMAX: u32 = 0;
+const DEFAULT_XMAX: u32 = 0;
 
 pub static INSERT_MEMORY_CONTEXT: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> =
     Lazy::new(|| {
@@ -115,7 +116,7 @@ async unsafe fn insert_tuples(
 
     let mut column_values: Vec<ArrayRef> = vec![];
 
-    // Convert the TupleTableSlots into DataFusion arrays
+    // Convert the TupleTableSlots into DataFusion arrays and write to WAL
     for (col_idx, attr) in pg_tuple_desc.iter().enumerate() {
         column_values.push(
             (0..nslots)
@@ -139,7 +140,7 @@ async unsafe fn insert_tuples(
                             tuple_data_no_header,
                             (*heap_tuple).t_len - SIZEOF_HEAP_TUPLE_HEADER as u32,
                         );
-                        let recptr = pg_sys::XLogInsert(RM_ANALYTICS_ID, XLOG_ANALYTICS_INSERT);
+                        let recptr = pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
                         let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
                             panic!("{}", err);
                         });
@@ -174,22 +175,21 @@ async unsafe fn insert_tuples(
     column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
 
     // Assign xmin to each row
-    let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
-    let xmins: Vec<i64> = vec![transaction_id; nslots];
+    let xmins: Vec<i64> = vec![unsafe { pg_sys::GetCurrentTransactionId() } as i64; nslots];
     column_values.push(Arc::new(Int64Array::from(xmins)));
 
     // Assign xmax to each row
-    let xmaxs: Vec<i64> = vec![INSERT_XMAX as i64; nslots];
+    let xmaxs: Vec<i64> = vec![DEFAULT_XMAX as i64; nslots];
     column_values.push(Arc::new(Int64Array::from(xmaxs)));
 
+    // Write Arrow arrays to buffer
     let schema_name = pg_relation.namespace().to_string();
     let table_path = pg_relation.table_path()?;
     let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
-
-    // Write Arrow arrays to buffer
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
 
+    // Reset memory context
     pg_sys::MemoryContextReset(memctx);
     pg_sys::MemoryContextSwitchTo(old_context);
 
@@ -200,7 +200,7 @@ async unsafe fn insert_tuples(
 #[inline]
 unsafe fn prepare_insert(table_oid: pg_sys::Oid, heap_tuple: pg_sys::HeapTuple) {
     heap_tuple_header_set_xmin((*heap_tuple).t_data, pg_sys::GetCurrentTransactionId());
-    heap_tuple_header_set_xmax((*heap_tuple).t_data, INSERT_XMAX);
+    heap_tuple_header_set_xmax((*heap_tuple).t_data, DEFAULT_XMAX);
 
     (*heap_tuple).t_tableOid = table_oid;
 }

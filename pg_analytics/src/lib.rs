@@ -10,7 +10,7 @@ mod tableam;
 mod types;
 
 use crate::hooks::ParadeHook;
-use crate::rmgr::{CUSTOM_RMGR, RM_ANALYTICS_ID};
+use crate::rmgr::{CUSTOM_RMGR, CUSTOM_RMGR_ID};
 use guc::PostgresPgAnalyticsGucSettings;
 use pgrx::*;
 use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
@@ -30,7 +30,7 @@ pub extern "C" fn _PG_init() {
     #[allow(static_mut_refs)]
     unsafe {
         register_hook(&mut PARADE_HOOK);
-        pg_sys::RegisterCustomRmgr(RM_ANALYTICS_ID, &*CUSTOM_RMGR);
+        pg_sys::RegisterCustomRmgr(CUSTOM_RMGR_ID, &*CUSTOM_RMGR);
     }
 
     setup_telemetry_background_worker(ParadeExtension::PgAnalytics);

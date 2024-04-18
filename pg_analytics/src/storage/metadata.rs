@@ -88,8 +88,7 @@ impl PgMetadata for pg_sys::Relation {
                 return Err(MetadataError::MetadataNotFound);
             }
 
-            let buffer = pg_sys::ReadBuffer(self, FIRST_BLOCK_NUMBER);
-            Ok(buffer)
+            Ok(pg_sys::ReadBuffer(self, FIRST_BLOCK_NUMBER))
         }
     }
 

@@ -6,6 +6,7 @@ use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBat
 use deltalake::datafusion::common::arrow::error::ArrowError;
 use once_cell::sync::Lazy;
 use pgrx::*;
+use pgrx::pg_sys::AsPgCStr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;

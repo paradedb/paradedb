@@ -27,12 +27,20 @@ pub unsafe extern "C" fn rm_desc(
     buf: *mut pg_sys::StringInfoData,
     record: *mut pg_sys::XLogReaderState,
 ) {
-    let decoded_record = xlog_rec_get_data(record) as *mut XLogInsertRecord;
+    let metadata = xlog_rec_get_data(record) as *mut XLogInsertRecord;
     let info_mask = pg_sys::XLR_INFO_MASK as u8;
     let info = xlog_rec_get_info(record) & !info_mask;
 
     if info == XLOG_INSERT {
-        pg_sys::appendStringInfo(buf, "flags: insert".as_pg_cstr());
+        pg_sys::appendStringInfo(
+            buf,
+            format!(
+                "flags: 0x{:02X} row number: {}",
+                (*metadata).flags(),
+                (*metadata).row_number()
+            )
+            .as_pg_cstr(),
+        );
     }
 }
 
@@ -45,6 +53,7 @@ unsafe extern "C" fn rm_redo(record: *mut pg_sys::XLogReaderState) {
 }
 
 unsafe extern "C" fn rm_mask(page_data: *mut i8, block_number: u32) {}
+
 unsafe extern "C" fn rm_decode(
     context: *mut pg_sys::LogicalDecodingContext,
     buffer: *mut pg_sys::XLogRecordBuffer,

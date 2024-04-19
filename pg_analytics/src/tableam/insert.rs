@@ -7,7 +7,8 @@ use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use once_cell::sync::Lazy;
 use pgrx::*;
 use shared::postgres::htup::{heap_tuple_header_set_xmax, heap_tuple_header_set_xmin};
-use shared::postgres::wal::{page_set_lsn, relation_needs_wal};
+use shared::postgres::wal::{page_set_lsn, relation_needs_wal, SIZEOF_HEAP_TUPLE_HEADER};
+use std::ffi::c_char;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
@@ -109,50 +110,82 @@ async unsafe fn insert_tuples(
     let memctx = INSERT_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
     let old_context = pg_sys::MemoryContextSwitchTo(memctx);
 
+    // Convert slots into HeapTuples
     let pg_relation = PgRelation::from_pg(rel);
     let table_oid = pg_relation.oid();
+    let mut row_numbers: Vec<i64> = vec![];
+    let mut heap_tuples: Vec<pg_sys::HeapTuple> = vec![];
+
+    for row_idx in 0..nslots {
+        unsafe {
+            // Get next row number
+            let slot = *slots.add(row_idx);
+            let next_row_number = rel.read_next_row_number()?;
+            row_numbers.push(next_row_number);
+            // Write next row number to relation metadata
+            rel.write_next_row_number(next_row_number + 1)?;
+            // Write next row number to slot
+            let tid = pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
+            (*slot).tts_tid = tid;
+
+            // Get HeapTuple
+            let mut should_free = true;
+            let heap_tuple =
+                pg_sys::ExecFetchSlotHeapTuple(slot, true, &mut should_free as *mut bool);
+            prepare_insert(heap_tuple, table_oid, tid);
+            heap_tuples.push(heap_tuple);
+
+            if relation_needs_wal(rel) {
+                // Prepare heap tuple for WAL
+                pg_sys::XLogBeginInsert();
+
+                let RowNumber(row_number) = (*heap_tuple).t_self.try_into()?;
+                let flags = 0;
+                let mut xlrec = XLogInsertRecord::new(flags, row_number);
+
+                // Write metadata to WAL
+                pg_sys::XLogRegisterData(
+                    &mut xlrec as *mut XLogInsertRecord as *mut i8,
+                    size_of::<XLogInsertRecord>() as u32,
+                );
+
+                let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
+                    panic!("{}", err);
+                });
+                pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+
+                // Write tuple to WAL
+                let tuple_data = (*heap_tuple).t_data as *mut c_char;
+                let tuple_data_no_header = tuple_data.add(SIZEOF_HEAP_TUPLE_HEADER);
+                pg_sys::XLogRegisterBuffer(0, buffer, pg_sys::REGBUF_STANDARD as u8);
+                pg_sys::XLogRegisterBufData(
+                    0,
+                    tuple_data_no_header,
+                    (*heap_tuple).t_len - SIZEOF_HEAP_TUPLE_HEADER as u32,
+                );
+
+                let lsn = pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
+                let page = pg_sys::BufferGetPage(buffer);
+
+                page_set_lsn(page, lsn);
+                pg_sys::UnlockReleaseBuffer(buffer);
+            }
+        }
+    }
+
     let pg_tuple_desc = pg_relation.tuple_desc();
     let tuple_desc = pg_tuple_desc.clone().into_pg();
-
     let mut column_values: Vec<ArrayRef> = vec![];
 
     // Convert the TupleTableSlots into DataFusion arrays and write to WAL
     for (col_idx, attr) in pg_tuple_desc.iter().enumerate() {
         column_values.push(
             (0..nslots)
-                .map(move |row_idx| unsafe {
-                    let slot = *slots.add(row_idx);
-                    let mut should_free = true;
-                    let heap_tuple =
-                        pg_sys::ExecFetchSlotHeapTuple(slot, true, &mut should_free as *mut bool);
+                .map(|row_idx| unsafe {
+                    let heap_tuple = heap_tuples[row_idx];
                     let attnum = col_idx as i32 + 1; // attnum is 1 indexed
                     let mut is_null = pg_sys::heap_attisnull(heap_tuple, attnum, tuple_desc);
                     let datum = pg_sys::heap_getattr(heap_tuple, attnum, tuple_desc, &mut is_null);
-
-                    if relation_needs_wal(rel) {
-                        prepare_insert(table_oid, heap_tuple);
-                        pg_sys::XLogBeginInsert();
-
-                        let flags = 0;
-                        let mut xlrec = XLogInsertRecord::new(flags);
-
-                        // let tuple_data = (*heap_tuple).t_data as *mut c_char;
-                        // let tuple_data_no_header = tuple_data.add(SIZEOF_HEAP_TUPLE_HEADER);
-
-                        pg_sys::XLogRegisterData(
-                            &mut xlrec as *mut XLogInsertRecord as *mut i8,
-                            size_of::<XLogInsertRecord>() as u32,
-                        );
-                        let recptr = pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
-                        let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
-                            panic!("{}", err);
-                        });
-                        pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
-
-                        let page = pg_sys::BufferGetPage(buffer);
-                        page_set_lsn(page, recptr);
-                        pg_sys::UnlockReleaseBuffer(buffer);
-                    }
 
                     (!is_null).then_some(datum)
                 })
@@ -160,21 +193,7 @@ async unsafe fn insert_tuples(
         );
     }
 
-    // Assign TID to each row
-    let mut row_numbers: Vec<i64> = vec![];
-
-    for row_idx in 0..nslots {
-        unsafe {
-            let slot = *slots.add(row_idx);
-            let next_row_number = rel.read_next_row_number()?;
-
-            (*slot).tts_tid = pg_sys::ItemPointerData::try_from(RowNumber(next_row_number))?;
-
-            row_numbers.push(next_row_number);
-            rel.write_next_row_number(next_row_number + 1)?;
-        }
-    }
-
+    // Assign row numbers to each row
     column_values.push(Arc::new(Int64Array::from(row_numbers.clone())));
 
     // Assign xmin to each row
@@ -201,11 +220,16 @@ async unsafe fn insert_tuples(
 
 /// Based on Postgres' heap_prepare_insert() in src/backend/access/heap/heapam.c
 #[inline]
-unsafe fn prepare_insert(table_oid: pg_sys::Oid, heap_tuple: pg_sys::HeapTuple) {
+unsafe fn prepare_insert(
+    heap_tuple: pg_sys::HeapTuple,
+    table_oid: pg_sys::Oid,
+    tid: pg_sys::ItemPointerData,
+) {
     heap_tuple_header_set_xmin((*heap_tuple).t_data, pg_sys::GetCurrentTransactionId());
     heap_tuple_header_set_xmax((*heap_tuple).t_data, DEFAULT_XMAX);
 
     (*heap_tuple).t_tableOid = table_oid;
+    (*heap_tuple).t_self = tid;
 }
 
 #[derive(Error, Debug)]

@@ -84,6 +84,12 @@ pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
+    // If telemetry is not enabled at compile time, return early.
+    if option_env!("TELEMETRY") != Some("true") {
+        pgrx::log!("TELEMETRY var not set at compile time");
+        return;
+    }
+
     let extension_i32 = unsafe { i32::from_datum(extension_name_datum, false) }
         .expect("extension enum i32 not passed to bgworker");
     let extension = ParadeExtension::from_i32(extension_i32)
@@ -177,12 +183,6 @@ impl BgWorkerTelemetryConfig {
             // `connect_worker_to_spi`. If it is called again, the worker will segfault.
             BackgroundWorker::connect_worker_to_spi(Some("template1"), None);
             *has_connected_to_spi = true
-        }
-
-        // If telemetry is not enabled at compile time, we will never enable.
-        if option_env!("TELEMETRY") != Some("true") {
-            pgrx::log!("TELEMETRY var not set at compile time");
-            return Ok(false);
         }
 
         let guc_setting_query = format!("SHOW paradedb.{}_telemetry", self.extension_name);

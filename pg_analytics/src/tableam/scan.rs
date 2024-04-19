@@ -21,12 +21,12 @@ use crate::types::datum::GetDatum;
 
 use super::index::index_fetch_tuple;
 
-pub static SCAN_MEMORY_CONTEXT: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> =
-    Lazy::new(|| {
-        Mutex::new(AtomicPtr::new(
-            PgMemoryContexts::new("scan_memory_context").value(),
-        ))
-    });
+// pub static SCAN_MEMORY_CONTEXT: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> =
+//     Lazy::new(|| {
+//         Mutex::new(AtomicPtr::new(
+//             PgMemoryContexts::new("scan_memory_context").value(),
+//         ))
+//     });
 
 struct DeltalakeScanDesc {
     rs_base: pg_sys::TableScanDescData,
@@ -70,7 +70,14 @@ pub async unsafe fn scan_getnextslot(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Result<bool, TableScanError> {
-    let memctx = SCAN_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
+    // let memctx = SCAN_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
+    let memctx = pg_sys::AllocSetContextCreateExtended(
+        PgMemoryContexts::CurrentMemoryContext.value(),
+        "scan_memory_context".as_pg_cstr(),
+        pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+        pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+        pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+    );
     let old_context = pg_sys::MemoryContextSwitchTo(memctx);
 
     if let Some(clear) = (*slot)
@@ -160,8 +167,9 @@ pub async unsafe fn scan_getnextslot(
 
     (*dscan).curr_batch_idx += 1;
 
-    pg_sys::MemoryContextReset(memctx);
+    // pg_sys::MemoryContextReset(memctx);
     pg_sys::MemoryContextSwitchTo(old_context);
+    pg_sys::MemoryContextDelete(memctx);
 
     Ok(true)
 }

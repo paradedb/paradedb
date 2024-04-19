@@ -24,6 +24,8 @@ impl Query for *mut pg_sys::PlannedStmt {
             }
         }
 
+        println!("query: {:?}", query.to_string());
+
         Ok(query.to_string())
     }
 }

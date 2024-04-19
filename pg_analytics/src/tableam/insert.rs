@@ -6,6 +6,7 @@ use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use once_cell::sync::Lazy;
 use pgrx::*;
+use pgrx::pg_sys::AsPgCStr;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
@@ -18,12 +19,12 @@ use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::{DataTypeError, PgTypeMod};
 
-pub static INSERT_MEMORY_CONTEXT: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> =
-    Lazy::new(|| {
-        Mutex::new(AtomicPtr::new(
-            PgMemoryContexts::new("insert_memory_context").value(),
-        ))
-    });
+// pub static INSERT_MEMORY_CONTEXT: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> =
+//     Lazy::new(|| {
+//         Mutex::new(AtomicPtr::new(
+//             PgMemoryContexts::new("insert_memory_context").value(),
+//         ))
+//     });
 
 #[pg_guard]
 pub extern "C" fn deltalake_slot_callbacks(
@@ -99,7 +100,14 @@ async unsafe fn insert_tuples(
     // causing huge memory usage when building large indexes.
     // We're using the raw C MemoryContext API here because PgMemoryContexts is getting refactored
     // in pgrx 0.12.0 due to potential memory leaks.
-    let memctx = INSERT_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
+    // let memctx = INSERT_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
+    let memctx = pg_sys::AllocSetContextCreateExtended(
+        PgMemoryContexts::CurrentMemoryContext.value(),
+        "insert_memory_context".as_pg_cstr(),
+        pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+        pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+        pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+    );
     let old_context = pg_sys::MemoryContextSwitchTo(memctx);
 
     let pg_relation = PgRelation::from_pg(rel);
@@ -170,8 +178,9 @@ async unsafe fn insert_tuples(
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
 
-    pg_sys::MemoryContextReset(memctx);
+    // pg_sys::MemoryContextReset(memctx);
     pg_sys::MemoryContextSwitchTo(old_context);
+    pg_sys::MemoryContextDelete(memctx);
 
     Ok(())
 }

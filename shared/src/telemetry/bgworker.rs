@@ -84,7 +84,7 @@ pub fn setup_telemetry_background_worker(extension: ParadeExtension) {
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
 pub unsafe extern "C" fn telemetry_worker(extension_name_datum: pg_sys::Datum) {
-    // If telemetry is not enabled at compile time, return early..
+    // If telemetry is not enabled at compile time, return early.
     if option_env!("TELEMETRY") != Some("true") {
         pgrx::log!("TELEMETRY var not set at compile time");
         return;

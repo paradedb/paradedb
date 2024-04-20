@@ -7,7 +7,7 @@ use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use once_cell::sync::Lazy;
 use pgrx::*;
 use shared::postgres::htup::{heap_tuple_header_set_xmax, heap_tuple_header_set_xmin};
-use shared::postgres::wal::{page_set_lsn, relation_needs_wal, SIZEOF_HEAP_TUPLE_HEADER};
+use shared::postgres::wal::{page_set_lsn, relation_needs_wal};
 use std::ffi::c_char;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -20,7 +20,7 @@ use crate::datafusion::writer::Writer;
 use crate::rmgr::xlog::{XLogInsertRecord, XLOG_INSERT};
 use crate::rmgr::CUSTOM_RMGR_ID;
 use crate::storage::metadata::{MetadataError, PgMetadata};
-use crate::storage::tid::{RowNumber, TIDError};
+use crate::storage::tid::{RowNumber, TidError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::{DataTypeError, PgTypeMod};
 
@@ -121,6 +121,7 @@ async unsafe fn insert_tuples(
             // Get next row number
             let slot = *slots.add(row_idx);
             let next_row_number = rel.read_next_row_number()?;
+            info!("Next row number: {}", next_row_number);
             row_numbers.push(next_row_number);
             // Write next row number to relation metadata
             rel.write_next_row_number(next_row_number + 1)?;
@@ -136,38 +137,40 @@ async unsafe fn insert_tuples(
             heap_tuples.push(heap_tuple);
 
             if relation_needs_wal(rel) {
-                // Prepare heap tuple for WAL
                 pg_sys::XLogBeginInsert();
 
                 let RowNumber(row_number) = (*heap_tuple).t_self.try_into()?;
                 let flags = 0;
-                let mut xlrec = XLogInsertRecord::new(flags, row_number);
+                let mut record = XLogInsertRecord::new(flags, row_number);
 
                 // Write metadata to WAL
                 pg_sys::XLogRegisterData(
-                    &mut xlrec as *mut XLogInsertRecord as *mut i8,
+                    &mut record as *mut XLogInsertRecord as *mut i8,
                     size_of::<XLogInsertRecord>() as u32,
                 );
 
-                let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
+                // Write tuple to WAL using a buffer
+                let buffer = rel.get_lsn_buffer().unwrap_or_else(|err| {
                     panic!("{}", err);
                 });
-                pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_EXCLUSIVE as i32);
+                pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
 
-                // Write tuple to WAL
-                let tuple_data = (*heap_tuple).t_data as *mut c_char;
-                let tuple_data_no_header = tuple_data.add(SIZEOF_HEAP_TUPLE_HEADER);
                 pg_sys::XLogRegisterBuffer(0, buffer, pg_sys::REGBUF_STANDARD as u8);
                 pg_sys::XLogRegisterBufData(
                     0,
-                    tuple_data_no_header,
-                    (*heap_tuple).t_len - SIZEOF_HEAP_TUPLE_HEADER as u32,
+                    heap_tuple as *mut c_char,
+                    size_of::<pg_sys::HeapTupleData>() as u32,
                 );
 
+                // Write LSN to page, signifying to the WAL manager that this tuple
+                // has been inserted
                 let lsn = pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
                 let page = pg_sys::BufferGetPage(buffer);
 
+                pg_sys::MarkBufferDirty(buffer);
                 page_set_lsn(page, lsn);
+                info!("lsn is {:?}", lsn);
+                pg_sys::FlushOneBuffer(buffer);
                 pg_sys::UnlockReleaseBuffer(buffer);
             }
         }
@@ -177,7 +180,7 @@ async unsafe fn insert_tuples(
     let tuple_desc = pg_tuple_desc.clone().into_pg();
     let mut column_values: Vec<ArrayRef> = vec![];
 
-    // Convert the TupleTableSlots into DataFusion arrays and write to WAL
+    // Convert the TupleTableSlots into Arrow arrays
     for (col_idx, attr) in pg_tuple_desc.iter().enumerate() {
         column_values.push(
             (0..nslots)
@@ -253,7 +256,7 @@ pub enum TableInsertError {
     NulError(#[from] std::ffi::NulError),
 
     #[error(transparent)]
-    TIDError(#[from] TIDError),
+    TidError(#[from] TidError),
 
     #[error("Inserts with ON CONFLICT are not yet supported")]
     SpeculativeInsertNotSupported,

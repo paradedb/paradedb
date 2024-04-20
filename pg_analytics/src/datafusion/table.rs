@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::datatypes::{DataType, Field, Schema as ArrowSchema};
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
-use deltalake::datafusion::common::{Result as DataFusionResult, Statistics};
+use deltalake::datafusion::common::{Constraints, Result as DataFusionResult, Statistics};
 use deltalake::datafusion::dataframe::DataFrame;
 use deltalake::datafusion::datasource::file_format::parquet::ParquetFormat;
 use deltalake::datafusion::datasource::listing::{
@@ -362,6 +362,11 @@ impl PgTableProvider {
 impl TableProvider for PgTableProvider {
     fn as_any(&self) -> &dyn Any {
         self.table.as_any()
+    }
+
+    fn constraints(&self) -> Option<&Constraints> {
+        info!("constraints {:?}", self.table.constraints());
+        self.table.constraints()
     }
 
     fn schema(&self) -> Arc<ArrowSchema> {

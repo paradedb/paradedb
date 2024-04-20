@@ -12,19 +12,16 @@ use std::mem::size_of;
 use std::ptr::addr_of_mut;
 use thiserror::Error;
 
-use super::tid::{FIRST_BLOCK_NUMBER, FIRST_ROW_NUMBER};
+use super::tid::{FIRST_ROW_NUMBER, LSN_BLOCKNO, METADATA_BLOCKNO};
 
 pub struct RelationMetadata {
     next_row_number: i64,
 }
 
-pub struct XLogTuple {
-    tuple: pg_sys::HeapTuple,
-}
-
 pub trait PgMetadata {
     fn read_next_row_number(self) -> Result<i64, MetadataError>;
     fn write_next_row_number(self, next_row_number: i64) -> Result<(), MetadataError>;
+    fn get_lsn_buffer(self) -> Result<i32, MetadataError>;
     fn get_metadata_buffer(self) -> Result<i32, MetadataError>;
     fn init_metadata(self, smgr: pg_sys::SMgrRelation) -> Result<(), MetadataError>;
 }
@@ -92,7 +89,37 @@ impl PgMetadata for pg_sys::Relation {
                 return Err(MetadataError::MetadataNotFound);
             }
 
-            Ok(pg_sys::ReadBuffer(self, FIRST_BLOCK_NUMBER))
+            Ok(pg_sys::ReadBuffer(self, METADATA_BLOCKNO))
+        }
+    }
+
+    fn get_lsn_buffer(self) -> Result<i32, MetadataError> {
+        unsafe {
+            if (*self).rd_smgr.is_null() {
+                #[cfg(feature = "pg16")]
+                pg_sys::smgrsetowner(
+                    addr_of_mut!((*self).rd_smgr),
+                    pg_sys::smgropen((*self).rd_locator, (*self).rd_backend),
+                );
+                #[cfg(any(
+                    feature = "pg12",
+                    feature = "pg13",
+                    feature = "pg14",
+                    feature = "pg15"
+                ))]
+                pg_sys::smgrsetowner(
+                    addr_of_mut!((*self).rd_smgr),
+                    pg_sys::smgropen((*self).rd_node, (*self).rd_backend),
+                );
+            }
+
+            let nblocks = pg_sys::smgrnblocks((*self).rd_smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
+
+            if nblocks < 2 {
+                return Err(MetadataError::LsnNotFound);
+            }
+
+            Ok(pg_sys::ReadBuffer(self, LSN_BLOCKNO))
         }
     }
 
@@ -112,42 +139,54 @@ impl PgMetadata for pg_sys::Relation {
             let metadata = pg_sys::PageGetSpecialPointer(page) as *mut RelationMetadata;
             (*metadata).next_row_number = FIRST_ROW_NUMBER;
 
-            #[cfg(feature = "pg16")]
-            pg_sys::log_newpage(
-                addr_of_mut!((*smgr).smgr_rlocator.locator),
-                pg_sys::ForkNumber_MAIN_FORKNUM,
-                FIRST_BLOCK_NUMBER,
-                page,
-                true,
-            );
-            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-            pg_sys::log_newpage(
-                addr_of_mut!((*smgr).smgr_rnode.node),
-                pg_sys::ForkNumber_MAIN_FORKNUM,
-                FIRST_BLOCK_NUMBER,
-                page,
-                true,
-            );
+            for blockno in vec![METADATA_BLOCKNO, LSN_BLOCKNO] {
+                #[cfg(feature = "pg16")]
+                pg_sys::log_newpage(
+                    addr_of_mut!((*smgr).smgr_rlocator.locator),
+                    pg_sys::ForkNumber_MAIN_FORKNUM,
+                    blockno,
+                    page,
+                    true,
+                );
+                #[cfg(any(
+                    feature = "pg12",
+                    feature = "pg13",
+                    feature = "pg14",
+                    feature = "pg15"
+                ))]
+                pg_sys::log_newpage(
+                    addr_of_mut!((*smgr).smgr_rnode.node),
+                    pg_sys::ForkNumber_MAIN_FORKNUM,
+                    blockno,
+                    page,
+                    true,
+                );
 
-            pg_sys::PageSetChecksumInplace(page, FIRST_BLOCK_NUMBER);
+                pg_sys::PageSetChecksumInplace(page, METADATA_BLOCKNO);
 
-            #[cfg(feature = "pg16")]
-            pg_sys::smgrextend(
-                smgr,
-                pg_sys::ForkNumber_MAIN_FORKNUM,
-                FIRST_BLOCK_NUMBER,
-                page as *const c_void,
-                true,
-            );
+                #[cfg(feature = "pg16")]
+                pg_sys::smgrextend(
+                    smgr,
+                    pg_sys::ForkNumber_MAIN_FORKNUM,
+                    blockno,
+                    page as *const c_void,
+                    true,
+                );
 
-            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-            pg_sys::smgrextend(
-                smgr,
-                pg_sys::ForkNumber_MAIN_FORKNUM,
-                FIRST_BLOCK_NUMBER,
-                page as *mut std::ffi::c_char,
-                true,
-            );
+                #[cfg(any(
+                    feature = "pg12",
+                    feature = "pg13",
+                    feature = "pg14",
+                    feature = "pg15"
+                ))]
+                pg_sys::smgrextend(
+                    smgr,
+                    pg_sys::ForkNumber_MAIN_FORKNUM,
+                    blockno,
+                    page as *mut std::ffi::c_char,
+                    true,
+                );
+            }
 
             pg_sys::smgrimmedsync(smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
 
@@ -163,4 +202,7 @@ pub enum MetadataError {
 
     #[error("Unexpected error: Table metadata not found")]
     MetadataNotFound,
+
+    #[error("Unexpected error: LSN block not found")]
+    LsnNotFound,
 }

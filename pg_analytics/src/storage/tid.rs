@@ -3,7 +3,8 @@ use thiserror::Error;
 
 pub static TUPLES_PER_PAGE: u16 = pg_sys::MaxOffsetNumber - pg_sys::FirstOffsetNumber;
 pub static FIRST_ROW_NUMBER: i64 = 1;
-pub static FIRST_BLOCK_NUMBER: u32 = 0;
+pub static METADATA_BLOCKNO: u32 = 0;
+pub static LSN_BLOCKNO: u32 = 1;
 
 #[derive(Copy, Clone, Debug)]
 pub struct RowNumber(pub i64);
@@ -12,7 +13,7 @@ pub struct RowNumber(pub i64);
 pub struct BlockNumber(pub i64);
 
 impl TryFrom<RowNumber> for pg_sys::ItemPointerData {
-    type Error = TIDError;
+    type Error = TidError;
 
     fn try_from(row_number: RowNumber) -> Result<Self, Self::Error> {
         let RowNumber(row_number) = row_number;
@@ -29,7 +30,7 @@ impl TryFrom<RowNumber> for pg_sys::ItemPointerData {
 }
 
 impl TryFrom<pg_sys::ItemPointerData> for RowNumber {
-    type Error = TIDError;
+    type Error = TidError;
 
     fn try_from(tid: pg_sys::ItemPointerData) -> Result<Self, Self::Error> {
         let (block_number, offset_number) = item_pointer_get_both(tid);
@@ -40,7 +41,7 @@ impl TryFrom<pg_sys::ItemPointerData> for RowNumber {
             - (pg_sys::FirstOffsetNumber as i64);
 
         if row_number < FIRST_ROW_NUMBER {
-            return Err(TIDError::InvalidRowNumber(row_number));
+            return Err(TidError::InvalidRowNumber(row_number));
         }
 
         Ok(RowNumber(row_number))
@@ -57,7 +58,7 @@ impl From<RowNumber> for BlockNumber {
 }
 
 #[derive(Error, Debug)]
-pub enum TIDError {
+pub enum TidError {
     #[error("Unexpected invalid row number {0}")]
     InvalidRowNumber(i64),
 }

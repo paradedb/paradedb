@@ -13,7 +13,7 @@ use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::stream::Stream;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
-use crate::storage::tid::{RowNumber, TIDError};
+use crate::storage::tid::{RowNumber, TidError};
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
@@ -393,7 +393,7 @@ pub enum TableScanError {
     DataTypeError(#[from] DataTypeError),
 
     #[error(transparent)]
-    TIDError(#[from] TIDError),
+    TidError(#[from] TidError),
 
     #[error("Could not find attribute {0} in tuple descriptor")]
     AttributeNotFound(usize),

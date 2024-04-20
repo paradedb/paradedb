@@ -1,3 +1,4 @@
+mod redo;
 pub mod xlog;
 
 use once_cell::sync::Lazy;
@@ -5,7 +6,8 @@ use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use shared::postgres::wal::{xlog_rec_get_data, xlog_rec_get_info};
 
-use crate::rmgr::xlog::{XLogInsertRecord, XLOG_INSERT};
+use crate::rmgr::redo::*;
+use crate::rmgr::xlog::*;
 
 pub static CUSTOM_RMGR_ID: u8 = 128;
 
@@ -45,11 +47,14 @@ pub unsafe extern "C" fn rm_desc(
 }
 
 unsafe extern "C" fn rm_redo(record: *mut pg_sys::XLogReaderState) {
-    ereport!(
-        PgLogLevel::LOG,
-        PgSqlErrorCode::ERRCODE_SUCCESSFUL_COMPLETION,
-        "FROM REDO"
-    );
+    let info_mask = pg_sys::XLR_INFO_MASK as u8;
+    let info = xlog_rec_get_info(record) & !info_mask;
+
+    if info == XLOG_INSERT {
+        redo_insert(record).unwrap_or_else(|err| {
+            panic!("{:?}", err);
+        });
+    }
 }
 
 unsafe extern "C" fn rm_mask(page_data: *mut i8, block_number: u32) {}

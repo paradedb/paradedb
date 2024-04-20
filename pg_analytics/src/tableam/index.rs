@@ -1,4 +1,4 @@
-use crate::storage::tid::{BlockNumber, RowNumber, TIDError};
+use crate::storage::tid::{BlockNumber, RowNumber, TidError};
 use async_std::task;
 use core::ffi::c_void;
 use deltalake::datafusion::common::arrow::error::ArrowError;
@@ -362,7 +362,7 @@ pub enum IndexScanError {
     TableScanError(#[from] TableScanError),
 
     #[error(transparent)]
-    TIDError(#[from] TIDError),
+    TidError(#[from] TidError),
 
     #[error("Could not find attribute {0} in tuple descriptor")]
     AttributeNotFound(usize),

@@ -9,6 +9,7 @@ use crate::datafusion::plan::LogicalPlanDetails;
 use crate::datafusion::query::QueryString;
 use crate::federation::handler::{get_federated_batches, FederatedHandlerError};
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
+use crate::hooks::delete::delete;
 
 use super::handler::{HandlerError, TableClassifier};
 use super::query::{Query, QueryStringError};
@@ -92,6 +93,10 @@ pub fn executor_run(
 
                     // Execute SELECT, DELETE, UPDATE
                     match query_desc.operation {
+                        pg_sys::CmdType_CMD_DELETE => {
+                            delete(rtable, query_desc, logical_plan)
+                                .map_err(|err| ExecutorHookError::Other(err))?;
+                        }
                         pg_sys::CmdType_CMD_SELECT => {
                             let single_thread = logical_plan_details.includes_udf();
                             match get_datafusion_batches(logical_plan, single_thread) {
@@ -143,4 +148,7 @@ pub enum ExecutorHookError {
 
     #[error("UPDATE is not currently supported because Parquet tables are append only.")]
     UpdateNotSupported,
+
+    #[error(transparent)]
+    Other(Box<dyn std::error::Error>),
 }

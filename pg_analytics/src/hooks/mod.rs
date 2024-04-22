@@ -1,4 +1,5 @@
 mod alter;
+mod delete;
 mod drop;
 mod executor;
 mod handler;

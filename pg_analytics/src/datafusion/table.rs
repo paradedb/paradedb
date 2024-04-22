@@ -20,6 +20,7 @@ use deltalake::datafusion::sql::TableReference;
 use deltalake::errors::DeltaTableError;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;
+use deltalake::operations::delete::{DeleteBuilder, DeleteMetrics};
 use deltalake::operations::optimize::OptimizeBuilder;
 use deltalake::operations::update::{UpdateBuilder, UpdateMetrics};
 use deltalake::operations::vacuum::VacuumBuilder;
@@ -216,6 +217,42 @@ impl Tables {
         let mut drop_cache = DROP_ON_PRECOMMIT_CACHE.lock().await;
         drop_cache.insert(table_path.to_path_buf(), self.schema_name.clone());
 
+        Ok(())
+    }
+
+    pub async fn delete(
+        &mut self,
+        table_path: &Path,
+        predicate: Option<Expr>,
+    ) -> Result<(DeltaTable, DeleteMetrics), DataFusionTableError> {
+        let old_table = Self::get_owned(self, table_path).await?;
+
+        let mut delete_builder = DeleteBuilder::new(
+            old_table.log_store(),
+            old_table
+                .state
+                .ok_or(DataFusionTableError::DeltaTableStateNotFound)?,
+        );
+
+        if let Some(predicate) = predicate {
+            delete_builder = delete_builder.with_predicate(predicate);
+        }
+
+        Ok(delete_builder.await?)
+    }
+
+    pub fn register(
+        &mut self,
+        table_path: &Path,
+        table: DeltaTable,
+    ) -> Result<(), DataFusionTableError> {
+        self.tables.insert(table_path.to_path_buf(), table);
+        Ok(())
+    }
+
+    #[allow(unused)]
+    pub fn deregister(&mut self, table_path: &Path) -> Result<(), DataFusionTableError> {
+        self.tables.remove(table_path);
         Ok(())
     }
 

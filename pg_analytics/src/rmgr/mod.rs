@@ -1,11 +1,14 @@
+mod desc;
 mod redo;
 pub mod xlog;
 
+use async_std::task;
 use once_cell::sync::Lazy;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
 use shared::postgres::wal::{xlog_rec_get_data, xlog_rec_get_info};
 
+use crate::rmgr::desc::*;
 use crate::rmgr::redo::*;
 use crate::rmgr::xlog::*;
 
@@ -29,20 +32,13 @@ pub unsafe extern "C" fn rm_desc(
     buf: *mut pg_sys::StringInfoData,
     record: *mut pg_sys::XLogReaderState,
 ) {
-    let metadata = xlog_rec_get_data(record) as *mut XLogInsertRecord;
     let info_mask = pg_sys::XLR_INFO_MASK as u8;
     let info = xlog_rec_get_info(record) & !info_mask;
 
     if info == XLOG_INSERT {
-        pg_sys::appendStringInfo(
-            buf,
-            format!(
-                "flags: 0x{:02X} row number: {}",
-                (*metadata).flags(),
-                (*metadata).row_number()
-            )
-            .as_pg_cstr(),
-        );
+        desc_insert(buf, record).unwrap_or_else(|err| {
+            panic!("{:?}", err);
+        });
     }
 }
 
@@ -51,7 +47,7 @@ unsafe extern "C" fn rm_redo(record: *mut pg_sys::XLogReaderState) {
     let info = xlog_rec_get_info(record) & !info_mask;
 
     if info == XLOG_INSERT {
-        redo_insert(record).unwrap_or_else(|err| {
+        task::block_on(redo_insert(record)).unwrap_or_else(|err| {
             panic!("{:?}", err);
         });
     }

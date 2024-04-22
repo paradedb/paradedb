@@ -113,6 +113,10 @@ async unsafe fn insert_tuples(
     // Convert slots into HeapTuples
     let pg_relation = PgRelation::from_pg(rel);
     let table_oid = pg_relation.oid();
+    let schema_oid = pg_relation.namespace_oid();
+    let tablespace_oid = pg_sys::get_rel_tablespace(table_oid);
+    let schema_name = pg_relation.namespace();
+    let table_name = pg_relation.name();
     let mut row_numbers: Vec<i64> = vec![];
     let mut heap_tuples: Vec<pg_sys::HeapTuple> = vec![];
 
@@ -121,7 +125,6 @@ async unsafe fn insert_tuples(
             // Get next row number
             let slot = *slots.add(row_idx);
             let next_row_number = rel.read_next_row_number()?;
-            info!("Next row number: {}", next_row_number);
             row_numbers.push(next_row_number);
             // Write next row number to relation metadata
             rel.write_next_row_number(next_row_number + 1)?;
@@ -141,7 +144,7 @@ async unsafe fn insert_tuples(
 
                 let RowNumber(row_number) = (*heap_tuple).t_self.try_into()?;
                 let flags = 0;
-                let mut record = XLogInsertRecord::new(flags, row_number);
+                let mut record = XLogInsertRecord::new(flags, schema_oid, tablespace_oid, pg_sys::GetCurrentTransactionId());
 
                 // Write metadata to WAL
                 pg_sys::XLogRegisterData(
@@ -150,7 +153,7 @@ async unsafe fn insert_tuples(
                 );
 
                 // Write tuple to WAL using a buffer
-                let buffer = rel.get_lsn_buffer().unwrap_or_else(|err| {
+                let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
                     panic!("{}", err);
                 });
                 pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
@@ -158,19 +161,13 @@ async unsafe fn insert_tuples(
                 pg_sys::XLogRegisterBuffer(0, buffer, pg_sys::REGBUF_STANDARD as u8);
                 pg_sys::XLogRegisterBufData(
                     0,
-                    heap_tuple as *mut c_char,
-                    size_of::<pg_sys::HeapTupleData>() as u32,
+                    (*heap_tuple).t_data as *mut c_char,
+                    size_of::<pg_sys::HeapTupleHeaderData>() as u32,
                 );
 
                 // Write LSN to page, signifying to the WAL manager that this tuple
                 // has been inserted
-                let lsn = pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
-                let page = pg_sys::BufferGetPage(buffer);
-
-                pg_sys::MarkBufferDirty(buffer);
-                page_set_lsn(page, lsn);
-                info!("lsn is {:?}", lsn);
-                pg_sys::FlushOneBuffer(buffer);
+                pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
                 pg_sys::UnlockReleaseBuffer(buffer);
             }
         }
@@ -208,11 +205,10 @@ async unsafe fn insert_tuples(
     column_values.push(Arc::new(Int64Array::from(xmaxs)));
 
     // Write Arrow arrays to buffer
-    let schema_name = pg_relation.namespace().to_string();
     let table_path = pg_relation.table_path()?;
     let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
-    Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
+    Writer::write(schema_name, &table_path, arrow_schema, &batch).await?;
 
     // Reset memory context
     pg_sys::MemoryContextReset(memctx);

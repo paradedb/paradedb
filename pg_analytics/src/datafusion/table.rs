@@ -364,11 +364,6 @@ impl TableProvider for PgTableProvider {
         self.table.as_any()
     }
 
-    fn constraints(&self) -> Option<&Constraints> {
-        info!("constraints {:?}", self.table.constraints());
-        self.table.constraints()
-    }
-
     fn schema(&self) -> Arc<ArrowSchema> {
         self.table.snapshot().unwrap().arrow_schema().unwrap()
     }

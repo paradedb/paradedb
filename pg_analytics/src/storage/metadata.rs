@@ -21,7 +21,6 @@ pub struct RelationMetadata {
 pub trait PgMetadata {
     fn read_next_row_number(self) -> Result<i64, MetadataError>;
     fn write_next_row_number(self, next_row_number: i64) -> Result<(), MetadataError>;
-    fn get_lsn_buffer(self) -> Result<i32, MetadataError>;
     fn get_metadata_buffer(self) -> Result<i32, MetadataError>;
     fn init_metadata(self, smgr: pg_sys::SMgrRelation) -> Result<(), MetadataError>;
 }
@@ -90,36 +89,6 @@ impl PgMetadata for pg_sys::Relation {
             }
 
             Ok(pg_sys::ReadBuffer(self, METADATA_BLOCKNO))
-        }
-    }
-
-    fn get_lsn_buffer(self) -> Result<i32, MetadataError> {
-        unsafe {
-            if (*self).rd_smgr.is_null() {
-                #[cfg(feature = "pg16")]
-                pg_sys::smgrsetowner(
-                    addr_of_mut!((*self).rd_smgr),
-                    pg_sys::smgropen((*self).rd_locator, (*self).rd_backend),
-                );
-                #[cfg(any(
-                    feature = "pg12",
-                    feature = "pg13",
-                    feature = "pg14",
-                    feature = "pg15"
-                ))]
-                pg_sys::smgrsetowner(
-                    addr_of_mut!((*self).rd_smgr),
-                    pg_sys::smgropen((*self).rd_node, (*self).rd_backend),
-                );
-            }
-
-            let nblocks = pg_sys::smgrnblocks((*self).rd_smgr, pg_sys::ForkNumber_MAIN_FORKNUM);
-
-            if nblocks < 2 {
-                return Err(MetadataError::LsnNotFound);
-            }
-
-            Ok(pg_sys::ReadBuffer(self, LSN_BLOCKNO))
         }
     }
 

@@ -9,10 +9,9 @@ use sqlx::PgConnection;
 fn delete_simple(mut conn: PgConnection) {
     UserSessionLogsTable::setup_parquet().execute(&mut conn);
 
-    match "DELETE FROM user_session_logs WHERE id >= 6".execute_result(&mut conn) {
-        Err(err) => assert_eq!(err.to_string(), "error returned from database: DELETE is not currently supported because Parquet tables are append only."),
-        _ => panic!("DELETE should not be supported"),
-    };
+    "DELETE FROM user_session_logs WHERE id >= 6".execute(&mut conn);
+    let rows: Vec<UserSessionLogsTable> = "SELECT * FROM user_session_logs".fetch(&mut conn);
+    assert_eq!(rows.len(), 5);
 }
 
 #[rstest]

@@ -134,12 +134,6 @@ pub enum CatalogError {
     #[error("{0}")]
     OsString(String),
 
-    #[error("Scan delete not supported")]
-    ScanDeleteNotSupported,
-
-    #[error("Nested delete not supported")]
-    NestedDeleteNotSupported,
-
     #[error("Schema {0} not found")]
     SchemaNotFound(String),
 

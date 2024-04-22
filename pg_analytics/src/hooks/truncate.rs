@@ -70,6 +70,7 @@ pub async unsafe fn truncate(
         Session::with_tables(schema_name, |mut tables| {
             Box::pin(async move {
                 let pg_relation = PgRelation::from_pg(relation);
+                // truncate delete
                 let _ = tables.logical_delete(&table_path, None).await?;
 
                 let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);

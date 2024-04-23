@@ -144,7 +144,7 @@ async unsafe fn insert_tuples(
 
                 let RowNumber(row_number) = (*heap_tuple).t_self.try_into()?;
                 let flags = 0;
-                let mut record = XLogInsertRecord::new(flags, schema_oid, tablespace_oid, pg_sys::GetCurrentTransactionId());
+                let mut record = XLogInsertRecord::new(flags);
 
                 // Write metadata to WAL
                 pg_sys::XLogRegisterData(
@@ -153,22 +153,22 @@ async unsafe fn insert_tuples(
                 );
 
                 // Write tuple to WAL using a buffer
-                let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
-                    panic!("{}", err);
-                });
-                pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+                // There's no need to do this now since we haven't implemented redo,
+                // but the code has been left here for future reference.
 
-                pg_sys::XLogRegisterBuffer(0, buffer, pg_sys::REGBUF_STANDARD as u8);
-                pg_sys::XLogRegisterBufData(
-                    0,
-                    (*heap_tuple).t_data as *mut c_char,
-                    size_of::<pg_sys::HeapTupleHeaderData>() as u32,
-                );
+                // let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
+                //     panic!("{}", err);
+                // });
+                // pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+                // pg_sys::XLogRegisterBuffer(0, buffer, pg_sys::REGBUF_STANDARD as u8);
+                // pg_sys::XLogRegisterBufData(
+                //     0,
+                //     (*heap_tuple).t_data as *mut c_char,
+                //     size_of::<pg_sys::HeapTupleHeaderData>() as u32,
+                // );
+                // pg_sys::UnlockReleaseBuffer(buffer);
 
-                // Write LSN to page, signifying to the WAL manager that this tuple
-                // has been inserted
                 pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
-                pg_sys::UnlockReleaseBuffer(buffer);
             }
         }
     }

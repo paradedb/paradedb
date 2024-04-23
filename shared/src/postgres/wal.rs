@@ -6,7 +6,6 @@ use pgrx::*;
 use std::mem::size_of;
 
 static INVALID_SUBTRANSACTION_ID: pg_sys::SubTransactionId = 0;
-pub static SIZEOF_HEAP_TUPLE_HEADER: usize = size_of::<pg_sys::HeapTupleHeaderData>();
 
 unsafe fn xlog_is_needed() -> bool {
     pg_sys::wal_level >= pg_sys::WalLevel_WAL_LEVEL_REPLICA as i32
@@ -21,6 +20,10 @@ unsafe fn page_xlog_recptr_set(mut ptr: pg_sys::PageXLogRecPtr, lsn: pg_sys::XLo
     ptr.xrecoff = lsn as u32;
 }
 
+unsafe fn page_xlog_recptr_get(mut ptr: pg_sys::PageXLogRecPtr) -> pg_sys::XLogRecPtr {
+    (ptr.xlogid as u64) << 32 | ptr.xrecoff as pg_sys::XLogRecPtr
+}
+
 /// # Safety
 /// This function is unsafe because it calls pg_sys functions
 pub unsafe fn relation_needs_wal(rel: pg_sys::Relation) -> bool {
@@ -32,6 +35,18 @@ pub unsafe fn relation_needs_wal(rel: pg_sys::Relation) -> bool {
         && (xlog_is_needed()
             || ((*rel).rd_createSubid == INVALID_SUBTRANSACTION_ID
                 && (*rel).rd_firstRelfilelocatorSubid == INVALID_SUBTRANSACTION_ID))
+}
+
+/// # Safety
+/// This function is unsafe because it calls pg_sys functions
+pub unsafe fn page_get_lsn(page: pg_sys::Page) -> pg_sys::XLogRecPtr {
+    // static inline XLogRecPtr
+    // PageGetLSN(Page page)
+    // {
+    //     return PageXLogRecPtrGet(((PageHeader) page)->pd_lsn);
+    // }
+    let page_header = page as *mut pg_sys::PageHeaderData;
+    page_xlog_recptr_get((*page_header).pd_lsn)
 }
 
 /// # Safety

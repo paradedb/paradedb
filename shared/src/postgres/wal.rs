@@ -3,7 +3,7 @@
 ///
 /// This can be contributed to pgrx.
 use pgrx::*;
-use std::mem::size_of;
+use std::ffi::c_char;
 
 static INVALID_SUBTRANSACTION_ID: pg_sys::SubTransactionId = 0;
 
@@ -20,7 +20,7 @@ unsafe fn page_xlog_recptr_set(mut ptr: pg_sys::PageXLogRecPtr, lsn: pg_sys::XLo
     ptr.xrecoff = lsn as u32;
 }
 
-unsafe fn page_xlog_recptr_get(mut ptr: pg_sys::PageXLogRecPtr) -> pg_sys::XLogRecPtr {
+unsafe fn page_xlog_recptr_get(ptr: pg_sys::PageXLogRecPtr) -> pg_sys::XLogRecPtr {
     (ptr.xlogid as u64) << 32 | ptr.xrecoff as pg_sys::XLogRecPtr
 }
 
@@ -69,6 +69,6 @@ pub unsafe fn xlog_rec_get_info(record: *mut pg_sys::XLogReaderState) -> u8 {
 
 /// # Safety
 /// This function is unsafe because it calls pg_sys functions
-pub unsafe fn xlog_rec_get_data(record: *mut pg_sys::XLogReaderState) -> *mut i8 {
+pub unsafe fn xlog_rec_get_data(record: *mut pg_sys::XLogReaderState) -> *mut c_char {
     (*(*record).record).main_data
 }

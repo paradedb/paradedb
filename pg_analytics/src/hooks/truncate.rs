@@ -1,5 +1,7 @@
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use pgrx::*;
+use std::ffi::c_char;
+use std::mem::size_of;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -8,6 +10,8 @@ use crate::datafusion::session::Session;
 use crate::datafusion::table::{DataFusionTableError, DatafusionTable};
 use crate::datafusion::writer::Writer;
 use crate::hooks::handler::{HandlerError, IsColumn};
+use crate::rmgr::xlog::{XLogTruncateRecord, XLOG_TRUNCATE};
+use crate::rmgr::CUSTOM_RMGR_ID;
 use crate::storage::metadata::{MetadataError, PgMetadata};
 
 pub async unsafe fn truncate(
@@ -80,6 +84,15 @@ pub async unsafe fn truncate(
                 Ok(())
             })
         })?;
+
+        // Log truncate to pg_analytics WAL manager
+        pg_sys::XLogBeginInsert();
+        let mut record = XLogTruncateRecord::new((*relation).rd_id);
+        pg_sys::XLogRegisterData(
+            &mut record as *mut XLogTruncateRecord as *mut c_char,
+            size_of::<XLogTruncateRecord>() as u32,
+        );
+        pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_TRUNCATE);
     }
 
     Ok(())

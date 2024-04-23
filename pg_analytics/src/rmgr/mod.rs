@@ -1,11 +1,11 @@
 mod desc;
 pub mod xlog;
 
-use async_std::task;
 use once_cell::sync::Lazy;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use shared::postgres::wal::{xlog_rec_get_data, xlog_rec_get_info};
+use shared::postgres::wal::xlog_rec_get_info;
+use std::ffi::c_char;
 
 use crate::rmgr::desc::*;
 use crate::rmgr::xlog::*;
@@ -31,26 +31,30 @@ pub unsafe extern "C" fn rm_desc(
     record: *mut pg_sys::XLogReaderState,
 ) {
     let info_mask = pg_sys::XLR_INFO_MASK as u8;
-    let info = xlog_rec_get_info(record) & !info_mask;
+    let masked_info = xlog_rec_get_info(record) & !info_mask;
 
-    if info == XLOG_INSERT {
-        desc_insert(buf, record).unwrap_or_else(|err| {
+    match masked_info {
+        XLOG_INSERT => desc_insert(buf, record).unwrap_or_else(|err| {
             panic!("{:?}", err);
-        });
-    }
+        }),
+        XLOG_TRUNCATE => desc_truncate(buf, record).unwrap_or_else(|err| {
+            panic!("{:?}", err);
+        }),
+        _ => {}
+    };
 }
 
-unsafe extern "C" fn rm_redo(record: *mut pg_sys::XLogReaderState) {
+unsafe extern "C" fn rm_redo(_record: *mut pg_sys::XLogReaderState) {
     // Tech Debt: rm_redo is not implemented
 }
 
-unsafe extern "C" fn rm_mask(page_data: *mut i8, block_number: u32) {
+unsafe extern "C" fn rm_mask(_page_data: *mut c_char, _block_number: u32) {
     // Tech Debt: rm_mask is not implemented
 }
 
 unsafe extern "C" fn rm_decode(
-    context: *mut pg_sys::LogicalDecodingContext,
-    buffer: *mut pg_sys::XLogRecordBuffer,
+    _context: *mut pg_sys::LogicalDecodingContext,
+    _buffer: *mut pg_sys::XLogRecordBuffer,
 ) {
     // rm_decode, used for logical replication, is an enterprise feature
 }
@@ -61,8 +65,6 @@ unsafe extern "C" fn rm_identify(info: u8) -> *const i8 {
 
     match masked_info {
         XLOG_INSERT => XLogEntry::Insert.to_str().as_pg_cstr(),
-        // XLOG_DELETE => XLogEntry::Delete.to_str().as_pg_cstr(),
-        // XLOG_UPDATE => XLogEntry::Update.to_str().as_pg_cstr(),
         XLOG_TRUNCATE => XLogEntry::Truncate.to_str().as_pg_cstr(),
         _ => XLogEntry::Unknown.to_str().as_pg_cstr(),
     }

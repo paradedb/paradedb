@@ -1,16 +1,14 @@
-use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use std::ffi::CStr;
 
 pub const XLOG_INSERT: u8 = 0x00;
-pub const _XLOG_DELETE: u8 = 0x10;
-pub const _XLOG_UPDATE: u8 = 0x20;
+// pub const XLOG_DELETE: u8 = 0x10;
+// pub const XLOG_UPDATE: u8 = 0x20;
 pub const XLOG_TRUNCATE: u8 = 0x30;
 
 pub enum XLogEntry {
     Insert,
-    Update,
-    Delete,
+    // Update,
+    // Delete,
     Truncate,
     Unknown,
 }
@@ -19,8 +17,8 @@ impl XLogEntry {
     pub fn to_str(&self) -> &'static str {
         match self {
             XLogEntry::Insert => "INSERT",
-            XLogEntry::Update => "UPDATE",
-            XLogEntry::Delete => "DELETE",
+            // XLogEntry::Update => "UPDATE",
+            // XLogEntry::Delete => "DELETE",
             XLogEntry::Truncate => "TRUNCATE",
             XLogEntry::Unknown => "UNKNOWN",
         }
@@ -29,6 +27,7 @@ impl XLogEntry {
 
 #[derive(Debug, Clone)]
 pub struct XLogInsertRecord {
+    // For now, flags is unused
     flags: u8,
 }
 
@@ -39,5 +38,20 @@ impl XLogInsertRecord {
 
     pub fn flags(&self) -> u8 {
         self.flags
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct XLogTruncateRecord {
+    relid: pg_sys::Oid,
+}
+
+impl XLogTruncateRecord {
+    pub fn new(relid: pg_sys::Oid) -> Self {
+        Self { relid }
+    }
+
+    pub fn relid(&self) -> pg_sys::Oid {
+        self.relid
     }
 }

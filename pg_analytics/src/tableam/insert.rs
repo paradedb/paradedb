@@ -7,7 +7,7 @@ use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use once_cell::sync::Lazy;
 use pgrx::*;
 use shared::postgres::htup::{heap_tuple_header_set_xmax, heap_tuple_header_set_xmin};
-use shared::postgres::wal::{page_set_lsn, relation_needs_wal};
+use shared::postgres::wal::relation_needs_wal;
 use std::ffi::c_char;
 use std::mem::size_of;
 use std::sync::atomic::{AtomicPtr, Ordering};
@@ -113,10 +113,7 @@ async unsafe fn insert_tuples(
     // Convert slots into HeapTuples
     let pg_relation = PgRelation::from_pg(rel);
     let table_oid = pg_relation.oid();
-    let schema_oid = pg_relation.namespace_oid();
-    let tablespace_oid = pg_sys::get_rel_tablespace(table_oid);
     let schema_name = pg_relation.namespace();
-    let table_name = pg_relation.name();
     let mut row_numbers: Vec<i64> = vec![];
     let mut heap_tuples: Vec<pg_sys::HeapTuple> = vec![];
 
@@ -142,13 +139,12 @@ async unsafe fn insert_tuples(
             if relation_needs_wal(rel) {
                 pg_sys::XLogBeginInsert();
 
-                let RowNumber(row_number) = (*heap_tuple).t_self.try_into()?;
                 let flags = 0;
                 let mut record = XLogInsertRecord::new(flags);
 
                 // Write metadata to WAL
                 pg_sys::XLogRegisterData(
-                    &mut record as *mut XLogInsertRecord as *mut i8,
+                    &mut record as *mut XLogInsertRecord as *mut c_char,
                     size_of::<XLogInsertRecord>() as u32,
                 );
 

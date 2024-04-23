@@ -8,6 +8,7 @@ use crate::storage::metadata::{MetadataError, PgMetadata};
 
 #[inline]
 fn relation_vacuum(rel: pg_sys::Relation, optimize: bool) -> Result<(), VacuumError> {
+    info!("relation_vacuum");
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
     let schema_name = pg_relation.namespace();
     let table_path = pg_relation.table_path()?;
@@ -28,6 +29,7 @@ pub extern "C" fn deltalake_relation_vacuum(
     _params: *mut pg_sys::VacuumParams,
     _bstrategy: pg_sys::BufferAccessStrategy,
 ) {
+    info!("deltalake_relation_vacuum");
     unsafe {
         pg_sys::pgstat_progress_start_command(
             pg_sys::ProgressCommandType_PROGRESS_COMMAND_VACUUM,
@@ -60,6 +62,7 @@ pub extern "C" fn deltalake_relation_copy_for_cluster(
     tups_vacuumed: *mut f64,
     _tups_recently_dead: *mut f64,
 ) {
+    info!("deltalake_relation_copy_for_cluster");
     relation_vacuum(rel, true).unwrap_or_else(|err| {
         warning!("{}", err);
     });
@@ -77,6 +80,7 @@ pub extern "C" fn deltalake_relation_copy_data(
     _rel: pg_sys::Relation,
     _newrnode: *const pg_sys::RelFileNode,
 ) {
+    info!("deltalake_relation_copy_data");
     panic!("{}", VacuumError::CopyDataNotImplemented.to_string());
 }
 
@@ -86,6 +90,7 @@ pub extern "C" fn deltalake_relation_copy_data(
     _rel: pg_sys::Relation,
     _newrnode: *const pg_sys::RelFileLocator,
 ) {
+    info!("deltalake_relation_copy_data");
     panic!("{}", VacuumError::CopyDataNotImplemented.to_string());
 }
 

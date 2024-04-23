@@ -5,6 +5,7 @@ use crate::storage::metadata::{MetadataError, PgMetadata};
 
 #[inline]
 fn relation_nontransactional_truncate(rel: pg_sys::Relation) -> Result<(), MetadataError> {
+    info!("relation_nontransactional_truncate");
     unsafe {
         // Removes all blocks from the relation
         pg_sys::RelationTruncate(rel, 0);
@@ -34,6 +35,7 @@ fn relation_nontransactional_truncate(rel: pg_sys::Relation) -> Result<(), Metad
 
 #[pg_guard]
 pub extern "C" fn deltalake_relation_nontransactional_truncate(rel: pg_sys::Relation) {
+    info!("deltalake_relation_nontransactional_truncate");
     relation_nontransactional_truncate(rel).unwrap_or_else(|err| {
         panic!("{}", err);
     });

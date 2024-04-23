@@ -36,6 +36,24 @@ where
     }
 }
 
+pub trait IntoStringArray
+where
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
+{
+    fn into_string_array<'a>(self) -> Result<Vec<Option<String>>, DataTypeError>
+    {
+        let array = self
+            .map(|datum| datum.and_then(|datum| unsafe {
+                // Use CStr::from_datum instead of String::from_datum to avoid an extra palloc
+                let ret = <&'a core::ffi::CStr>::from_datum(datum, false);
+                ret.and_then(|ret_str| Some(ret_str.to_str().ok()?.to_owned()))
+            }))
+            .collect::<Vec<Option<String>>>();
+
+        Ok(array)
+    }
+}
+
 pub trait IntoPrimitiveArrowArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
@@ -46,6 +64,16 @@ where
         A: Array + FromIterator<Option<T>> + 'static,
     {
         Ok(Arc::new(A::from_iter(self.into_array::<T>()?)))
+    }
+}
+
+pub trait IntoStringArrowArray
+where
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
+{
+    fn into_string_arrow_array(self) -> Result<ArrayRef, DataTypeError>
+    {
+        Ok(Arc::new(StringArray::from_iter(self.into_string_array()?)))
     }
 }
 
@@ -376,9 +404,9 @@ where
             PgOid::BuiltIn(builtin) => match builtin {
                 BOOLOID => self.into_primitive_arrow_array::<bool, BooleanArray>(),
                 BOOLARRAYOID => self.into_bool_list_arrow_array(),
-                TEXTOID => self.into_primitive_arrow_array::<String, StringArray>(),
-                VARCHAROID => self.into_primitive_arrow_array::<String, StringArray>(),
-                BPCHAROID => self.into_primitive_arrow_array::<String, StringArray>(),
+                TEXTOID => self.into_string_arrow_array(),
+                VARCHAROID => self.into_string_arrow_array(),
+                BPCHAROID => self.into_string_arrow_array(),
                 TEXTARRAYOID => self.into_string_list_arrow_array(),
                 VARCHARARRAYOID => self.into_string_list_arrow_array(),
                 BPCHARARRAYOID => self.into_string_list_arrow_array(),
@@ -418,6 +446,7 @@ impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoDateArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoNumericArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoPrimitiveArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoStringArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMicrosecondArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMillisecondArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampSecondArray for T {}
@@ -428,6 +457,7 @@ impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoUuidArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoDateArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoNumericArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoPrimitiveArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoStringArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMicrosecondArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMillisecondArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampSecondArrowArray for T {}

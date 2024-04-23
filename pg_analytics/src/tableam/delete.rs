@@ -12,6 +12,7 @@ pub extern "C" fn deltalake_tuple_delete(
     _tmfd: *mut pg_sys::TM_FailureData,
     _changingPart: bool,
 ) -> pg_sys::TM_Result {
+    info!("deltalake_tuple_delete");
     panic!("{}", DeleteError::DeleteNotSupported.to_string());
 }
 

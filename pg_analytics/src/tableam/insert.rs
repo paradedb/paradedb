@@ -1,6 +1,6 @@
 use async_std::sync::Mutex;
 use async_std::task;
-use core::ffi::c_int;
+use core::ffi::{c_int, c_void};
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
@@ -30,6 +30,7 @@ use crate::types::datatype::{DataTypeError, PgTypeMod};
 pub extern "C" fn deltalake_slot_callbacks(
     _rel: pg_sys::Relation,
 ) -> *const pg_sys::TupleTableSlotOps {
+    info!("deltalake_slot_callbacks");
     unsafe { &pg_sys::TTSOpsVirtual }
 }
 
@@ -41,6 +42,7 @@ pub extern "C" fn deltalake_tuple_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
+    // info!("deltalake_tuple_insert");
     let mut mut_slot = slot;
     unsafe {
         task::block_on(insert_tuples(rel, &mut mut_slot, 1)).unwrap_or_else(|err| {
@@ -58,6 +60,7 @@ pub extern "C" fn deltalake_multi_insert(
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
+    info!("deltalake_multi_insert");
     unsafe {
         task::block_on(insert_tuples(rel, slots, nslots as usize)).unwrap_or_else(|err| {
             panic!("{}", err);
@@ -67,6 +70,7 @@ pub extern "C" fn deltalake_multi_insert(
 
 #[pg_guard]
 pub extern "C" fn deltalake_finish_bulk_insert(_rel: pg_sys::Relation, _options: c_int) {
+    info!("deltalake_finish_bulk_insert");
     task::block_on(Writer::flush()).unwrap_or_else(|err| {
         panic!("{}", err);
     });
@@ -81,6 +85,7 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
     _bistate: *mut pg_sys::BulkInsertStateData,
     _specToken: pg_sys::uint32,
 ) {
+    info!("deltalake_tuple_insert_speculative");
     panic!(
         "{}",
         TableInsertError::SpeculativeInsertNotSupported.to_string()
@@ -93,6 +98,7 @@ async unsafe fn insert_tuples(
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
 ) -> Result<(), TableInsertError> {
+    // info!("insert_tuples");
     // In the block below, we switch to the memory context we've defined as a static
     // variable, resetting it before and after we access the column values. We do this
     // because PgTupleDesc "supposed" to free the corresponding Postgres memory when it
@@ -100,15 +106,6 @@ async unsafe fn insert_tuples(
     // causing huge memory usage when building large indexes.
     // We're using the raw C MemoryContext API here because PgMemoryContexts is getting refactored
     // in pgrx 0.12.0 due to potential memory leaks.
-    // let memctx = INSERT_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
-    let memctx = pg_sys::AllocSetContextCreateExtended(
-        PgMemoryContexts::CurrentMemoryContext.value(),
-        "insert_memory_context".as_pg_cstr(),
-        pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
-        pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
-        pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
-    );
-    let old_context = pg_sys::MemoryContextSwitchTo(memctx);
 
     let pg_relation = PgRelation::from_pg(rel);
     let tuple_desc = pg_relation.tuple_desc();
@@ -170,7 +167,8 @@ async unsafe fn insert_tuples(
     let xmaxs: Vec<i64> = vec![0; nslots];
     column_values.push(Arc::new(Int64Array::from(xmaxs)));
 
-    let schema_name = pg_relation.namespace().to_string();
+    let namespace = pg_relation.namespace_raw();
+    let schema_name = namespace.to_str().unwrap().to_string();
     let table_path = pg_relation.table_path()?;
     let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
 
@@ -178,9 +176,8 @@ async unsafe fn insert_tuples(
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
 
-    // pg_sys::MemoryContextReset(memctx);
-    pg_sys::MemoryContextSwitchTo(old_context);
-    pg_sys::MemoryContextDelete(memctx);
+    // Free palloced namespace
+    pg_sys::pfree(namespace.as_ptr() as *mut std::ffi::c_void);
 
     Ok(())
 }

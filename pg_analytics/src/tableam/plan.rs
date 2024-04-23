@@ -14,6 +14,7 @@ fn relation_estimate_size(
     tuples: *mut f64,
     allvisfrac: *mut f64,
 ) -> Result<(), MetadataError> {
+    info!("relation_estimate_size");
     unsafe {
         // If the relation has no storage manager, create one
         if (*rel).rd_smgr.is_null() {
@@ -47,6 +48,7 @@ pub extern "C" fn deltalake_relation_size(
     rel: pg_sys::Relation,
     fork_number: pg_sys::ForkNumber,
 ) -> pg_sys::uint64 {
+    info!("deltalake_relation_size");
     unsafe {
         if (*rel).rd_smgr.is_null() {
             #[cfg(feature = "pg16")]
@@ -86,6 +88,7 @@ pub extern "C" fn deltalake_relation_estimate_size(
     tuples: *mut f64,
     allvisfrac: *mut f64,
 ) {
+    info!("deltalake_relation_estimate_size");
     relation_estimate_size(rel, attr_widths, pages, tuples, allvisfrac).unwrap_or_else(|err| {
         panic!("{}", err);
     });
@@ -98,6 +101,7 @@ pub extern "C" fn deltalake_compute_xid_horizon_for_tuples(
     _items: *mut pg_sys::ItemPointerData,
     _nitems: c_int,
 ) -> pg_sys::TransactionId {
+    info!("deltalake_compute_xid_horizon_for_tuples");
     panic!("{}", PlanError::XIDHorizonNotSupported.to_string())
 }
 

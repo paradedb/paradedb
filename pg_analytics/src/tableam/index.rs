@@ -35,6 +35,7 @@ pub async unsafe fn index_fetch_tuple(
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
 ) -> Result<bool, IndexScanError> {
+    info!("index_fetch_tuple");
     if let Some(clear) = (*slot)
         .tts_ops
         .as_ref()
@@ -123,6 +124,7 @@ async fn index_build_range_scan(
     callback_state: *mut c_void,
     _scan: pg_sys::TableScanDesc,
 ) -> Result<f64, IndexScanError> {
+    info!("index_build_range_scan");
     if start_blockno != 0 || numblocks != pg_sys::InvalidBlockNumber {
         return Err(IndexScanError::IndexNotSupported);
     }
@@ -236,6 +238,7 @@ async fn index_build_range_scan(
 pub extern "C" fn deltalake_index_fetch_begin(
     rel: pg_sys::Relation,
 ) -> *mut pg_sys::IndexFetchTableData {
+    info!("deltalake_index_fetch_begin");
     unsafe {
         let scan = PgMemoryContexts::CurrentMemoryContext.switch_to(|_context| {
             let mut scan = PgBox::<IndexScanDesc>::alloc0();
@@ -248,10 +251,14 @@ pub extern "C" fn deltalake_index_fetch_begin(
 }
 
 #[pg_guard]
-pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {}
+pub extern "C" fn deltalake_index_fetch_reset(_data: *mut pg_sys::IndexFetchTableData) {
+    info!("deltalake_index_fetch_reset");
+}
 
 #[pg_guard]
-pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {}
+pub extern "C" fn deltalake_index_fetch_end(_data: *mut pg_sys::IndexFetchTableData) {
+    info!("deltalake_index_fetch_end");
+}
 
 #[pg_guard]
 pub extern "C" fn deltalake_index_fetch_tuple(
@@ -262,6 +269,7 @@ pub extern "C" fn deltalake_index_fetch_tuple(
     call_again: *mut bool,
     all_dead: *mut bool,
 ) -> bool {
+    info!("deltalake_index_fetch_tuple");
     unsafe {
         // Tech debt: This hack forces xmin/xmax to be invalid, otherwise Postgres will think that
         // another transaction is updating this tuple and index_fetch_tuple will be
@@ -296,6 +304,7 @@ pub extern "C" fn deltalake_index_delete_tuples(
     _rel: pg_sys::Relation,
     _delstate: *mut pg_sys::TM_IndexDeleteOp,
 ) -> pg_sys::TransactionId {
+    info!("deltalake_index_delete_tuples");
     0
 }
 
@@ -313,6 +322,7 @@ pub extern "C" fn deltalake_index_build_range_scan(
     callback_state: *mut c_void,
     scan: pg_sys::TableScanDesc,
 ) -> f64 {
+    info!("deltalake_index_build_range_scan");
     task::block_on(index_build_range_scan(
         table_rel,
         index_rel,
@@ -339,6 +349,7 @@ pub extern "C" fn deltalake_index_validate_scan(
     _snapshot: pg_sys::Snapshot,
     _state: *mut pg_sys::ValidateIndexState,
 ) {
+    info!("deltalake_index_validate_scan");
 }
 
 #[derive(Error, Debug)]

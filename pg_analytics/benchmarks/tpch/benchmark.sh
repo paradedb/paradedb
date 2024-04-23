@@ -129,7 +129,11 @@ generate_dataset() {
   total_size_bytes=0
   for file in "${files[@]}"; do
     if [ -f "$file" ]; then
-      size_bytes=$(stat -f "%z" "$file")
+      if [ "$OS" == "Linux" ]; then
+        size_bytes=$(stat -c "%s" "$file")
+      elif [ "$OS" == "Darwin" ]; then
+        size_bytes=$(stat -f "%z" "$file")
+      fi
       total_size_bytes=$((total_size_bytes + size_bytes))
     fi
   done

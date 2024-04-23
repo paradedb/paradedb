@@ -3,6 +3,19 @@ use super::db::*;
 use sqlx::PgConnection;
 use std::path::PathBuf;
 
+pub fn current_lsn(conn: &mut PgConnection) -> String {
+    "SELECT pg_current_wal_lsn()::TEXT"
+        .fetch_one::<(String,)>(conn)
+        .0
+}
+
+pub fn pg_version(conn: &mut PgConnection) -> i32 {
+    let version = "SELECT current_setting('server_version_num')::int;"
+        .fetch_one::<(i32,)>(conn)
+        .0;
+    version / 10000
+}
+
 pub fn database_oid(conn: &mut PgConnection) -> String {
     let db_name = "SELECT current_database()".fetch_one::<(String,)>(conn).0;
 

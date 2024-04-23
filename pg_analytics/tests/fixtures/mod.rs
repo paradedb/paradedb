@@ -40,3 +40,19 @@ pub fn conn_with_pg_search(database: Db) -> PgConnection {
         conn
     })
 }
+
+#[fixture]
+pub fn conn_with_walinspect(database: Db) -> PgConnection {
+    block_on(async {
+        let mut conn = database.connection().await;
+        sqlx::query("CREATE EXTENSION pg_analytics;")
+            .execute(&mut conn)
+            .await
+            .expect("could not create extension pg_analytics");
+        sqlx::query("CREATE EXTENSION pg_walinspect;")
+            .execute(&mut conn)
+            .await
+            .expect("could not create extension pg_walinspect");
+        conn
+    })
+}

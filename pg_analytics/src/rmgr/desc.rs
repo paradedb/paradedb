@@ -1,9 +1,8 @@
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use shared::postgres::wal::xlog_rec_get_data;
 use thiserror::Error;
 
-use super::{XLogInsertRecord, XLogTruncateRecord};
+use super::{xlog_rec_get_data, XLogInsertRecord, XLogTruncateRecord};
 use crate::storage::tid::TidError;
 
 pub unsafe fn desc_insert(

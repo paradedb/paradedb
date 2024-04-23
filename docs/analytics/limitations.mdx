@@ -62,8 +62,3 @@ Collations are currently not supported.
 ## Speculative Inserts
 
 `INSERT...ON CONFLICT` clauses are currently not supported.
-
-## Write-Ahead Logs
-
-Parquet tables are written to the write-ahead logs (WAL) on Postgres 15+. This is because WAL support is
-enabled by the custom WAL manager API, which was introduced in Postgres 15.

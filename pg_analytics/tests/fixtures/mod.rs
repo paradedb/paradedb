@@ -49,10 +49,14 @@ pub fn conn_with_walinspect(database: Db) -> PgConnection {
             .execute(&mut conn)
             .await
             .expect("could not create extension pg_analytics");
-        sqlx::query("CREATE EXTENSION pg_walinspect;")
-            .execute(&mut conn)
-            .await
-            .expect("could not create extension pg_walinspect");
+
+        if pg_version(&mut conn) >= 15 {
+            sqlx::query("CREATE EXTENSION pg_walinspect;")
+                .execute(&mut conn)
+                .await
+                .expect("could not create extension pg_walinspect");
+        }
+
         conn
     })
 }

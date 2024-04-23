@@ -40,12 +40,14 @@ impl TableClassifier for *mut pg_sys::List {
                 continue;
             }
             let relation = pg_sys::RelationIdGetRelation((*rte).relid);
-            let pg_relation = PgRelation::from_pg_owned(relation);
+            let pg_relation = PgRelation::from_pg(relation);
             if !pg_relation.is_table() {
                 continue;
             }
 
             let relation_handler_oid = (*relation).rd_amhandler;
+
+            pg_sys::RelationClose(relation);
 
             if col_oid != pg_sys::InvalidOid && relation_handler_oid == col_oid {
                 col_tables.push(pg_relation)

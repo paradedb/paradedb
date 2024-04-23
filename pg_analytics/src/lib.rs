@@ -30,7 +30,10 @@ pub extern "C" fn _PG_init() {
     #[allow(static_mut_refs)]
     unsafe {
         register_hook(&mut PARADE_HOOK);
-        pg_sys::RegisterCustomRmgr(CUSTOM_RMGR_ID, &*CUSTOM_RMGR);
+        #[cfg(any(feature = "pg15", feature = "pg16"))]
+        {
+            pg_sys::RegisterCustomRmgr(CUSTOM_RMGR_ID, &*CUSTOM_RMGR);
+        }
     }
 
     setup_telemetry_background_worker(ParadeExtension::PgAnalytics);

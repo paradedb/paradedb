@@ -1,3 +1,6 @@
+#![allow(dead_code)]
+#![allow(unused_variables)]
+
 /// Rust implementations of Postgres functions in src/include/utils/rel.h
 /// related to Write-Ahead Logging (WAL).
 ///
@@ -31,10 +34,23 @@ pub unsafe fn relation_needs_wal(rel: pg_sys::Relation) -> bool {
     // (RelationIsPermanent(relation) && (XLogIsNeeded() ||				    \
     //   (relation->rd_createSubid == InvalidSubTransactionId &&			\
     //    relation->rd_firstRelfilelocatorSubid == InvalidSubTransactionId)))
-    relation_is_permanent(rel)
-        && (xlog_is_needed()
-            || ((*rel).rd_createSubid == INVALID_SUBTRANSACTION_ID
-                && (*rel).rd_firstRelfilelocatorSubid == INVALID_SUBTRANSACTION_ID))
+    #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+    {
+        relation_is_permanent(rel)
+            && (xlog_is_needed()
+                || ((*rel).rd_createSubid == INVALID_SUBTRANSACTION_ID
+                    && (*rel).rd_firstRelfilenodeSubid == INVALID_SUBTRANSACTION_ID))
+    }
+
+    #[cfg(feature = "pg16")]
+    {
+        relation_is_permanent(rel)
+            && (xlog_is_needed()
+                || ((*rel).rd_createSubid == INVALID_SUBTRANSACTION_ID
+                    && (*rel).rd_firstRelfilelocatorSubid == INVALID_SUBTRANSACTION_ID))
+    }
+
+    panic!("Unsupported Postgres version");
 }
 
 /// # Safety
@@ -64,11 +80,31 @@ pub unsafe fn page_set_lsn(page: pg_sys::Page, lsn: pg_sys::XLogRecPtr) {
 /// # Safety
 /// This function is unsafe because it calls pg_sys functions
 pub unsafe fn xlog_rec_get_info(record: *mut pg_sys::XLogReaderState) -> u8 {
-    (*(*record).record).header.xl_info
+    #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+    {
+        return (*(*record).decoded_record).xl_info;
+    }
+
+    #[cfg(feature = "pg16")]
+    {
+        return (*(*record).record).header.xl_info;
+    }
+
+    panic!("Unsupported Postgres version");
 }
 
 /// # Safety
 /// This function is unsafe because it calls pg_sys functions
 pub unsafe fn xlog_rec_get_data(record: *mut pg_sys::XLogReaderState) -> *mut c_char {
-    (*(*record).record).main_data
+    #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+    {
+        return (*record).main_data;
+    }
+
+    #[cfg(feature = "pg16")]
+    {
+        (*(*record).record).main_data
+    }
+
+    panic!("Unsupported Postgres version");
 }

@@ -1,6 +1,5 @@
 use async_std::sync::Mutex;
 use async_std::task;
-use core::ffi::c_int;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
@@ -8,7 +7,7 @@ use once_cell::sync::Lazy;
 use pgrx::*;
 use shared::postgres::htup::{heap_tuple_header_set_xmax, heap_tuple_header_set_xmin};
 use shared::postgres::wal::relation_needs_wal;
-use std::ffi::c_char;
+use std::ffi::{c_char, c_int};
 use std::mem::size_of;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
@@ -139,14 +138,26 @@ async unsafe fn insert_tuples(
             if relation_needs_wal(rel) {
                 pg_sys::XLogBeginInsert();
 
+                // Flags set to 0 because they are currently unused
                 let flags = 0;
                 let mut record = XLogInsertRecord::new(flags);
 
                 // Write metadata to WAL
-                pg_sys::XLogRegisterData(
-                    &mut record as *mut XLogInsertRecord as *mut c_char,
-                    size_of::<XLogInsertRecord>() as u32,
-                );
+                #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+                {
+                    pg_sys::XLogRegisterData(
+                        &mut record as *mut XLogInsertRecord as *mut c_char,
+                        size_of::<XLogInsertRecord>() as i32,
+                    );
+                }
+
+                #[cfg(feature = "pg16")]
+                {
+                    pg_sys::XLogRegisterData(
+                        &mut record as *mut XLogInsertRecord as *mut c_char,
+                        size_of::<XLogInsertRecord>() as u32,
+                    );
+                }
 
                 // Write tuple to WAL using a buffer
                 // There's no need to do this now since we haven't implemented redo,

@@ -29,4 +29,4 @@ The version can be `latest`, to pull the latest ParadeDB image from DockerHub, `
 
 The workload can be either `olap`, to create only `parquet` tables, or `htap` to create a mix of `parquet` and standard Postgres `heap` tables on which to run the queries.
 
-The scale factor can be either `1, 10, 100, 1000`, which is the number of GBs of data generated to run the TPC-H benchmark on. For testing, we recommend setting a scale factor of `1`. For official benchmarking, we recommend either `100` or `1000`. Note that even on a large machine, generating `100` GBs takes upwards of 30 minutes, and generating `1000` GBs can take several hours.
+The scale factor can be either `1, 10, 100, 1000`, which is the number of GBs of data generated to run the TPC-H benchmark on. For testing, we recommend setting a scale factor of `1`. For official benchmarking, we recommend either `100` or `1000`. Note that even on a large machine, generating `100` GBs takes upwards of 30 minutes, and generating `1000` GBs can take several hours. If you are running large benchmarks on an EC2 instance, we recommend connecting via SSH instead of EC2 Instance Connect to avoid console timeouts.

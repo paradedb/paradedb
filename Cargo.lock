@@ -3746,7 +3746,7 @@ dependencies = [
 
 [[package]]
 name = "pg_analytics"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "approx",
@@ -3781,7 +3781,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "anyhow",
  "approx",
@@ -4843,7 +4843,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "async-std",
  "bigdecimal",

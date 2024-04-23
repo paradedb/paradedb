@@ -144,12 +144,7 @@ async unsafe fn insert_tuples(
                     let mut record = XLogInsertRecord::new(flags);
 
                     // Write metadata to WAL
-                    #[cfg(any(
-                        feature = "pg12",
-                        feature = "pg13",
-                        feature = "pg14",
-                        feature = "pg15"
-                    ))]
+                    #[cfg(feature = "pg15")]
                     {
                         pg_sys::XLogRegisterData(
                             &mut record as *mut XLogInsertRecord as *mut c_char,

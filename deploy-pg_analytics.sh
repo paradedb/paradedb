@@ -63,29 +63,25 @@ echo "Power user or aspiring power user?"
 echo "Check out our docs on deplying ParadeDB in production: https://docs.paradedb.com/deploy/"
 echo ""
 
+# Retrieve the pg_analytics version to install
+if [ "$VERSION" == "unsert" ]; then
+  echo "What version of pg_analytics would you like to install? (We default to 'latest')"
+  echo "You can check out available versions here: https://hub.docker.com/r/paradedb/paradedb/tags"
+  read -r VERSION
+  if [ -z "$VERSION" ]; then
+    echo "Using default and installing latest ParadeDB"
+  else
+    echo "Using provided tag: $VERSION"
+  fi
+fi
 
-# retrieve version to install
+# Install dependencies
+# There are no dependencies to install for pg_analytics
 
+# TODO: Download + Install the extension .deb
 
-# install dependencies, if any
-# should be no dependencies to pg_analytics
+# TODO: Set telemetry, tell user to turn it off
 
+# TODO: Ask for their email
 
-# Retrieve version to install
-
-
-# install ICU dependencies
-
-
-
-# install the extension
-# should we create ite for them via psql? Probably not, we don't know their IDs
-
-
-# Set telemetry, tell user to turn it off
-
-# ask for their email
-
-# Add final instructions on getting started
-
-
+# TODO: Add final instructions on getting started and tell them to CREATE EXTENSION

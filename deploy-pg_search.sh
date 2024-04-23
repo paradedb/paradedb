@@ -63,26 +63,43 @@ echo "Power user or aspiring power user?"
 echo "Check out our docs on deplying ParadeDB in production: https://docs.paradedb.com/deploy/"
 echo ""
 
+# Retrieve the pg_search version to install
+if [ "$VERSION" == "unsert" ]; then
+  echo "What version of pg_search would you like to install? (We default to 'latest')"
+  echo "You can check out available versions here: https://hub.docker.com/r/paradedb/paradedb/tags"
+  read -r VERSION
+  if [ -z "$VERSION" ]; then
+    echo "Using default and installing latest ParadeDB"
+  else
+    echo "Using provided tag: $VERSION"
+  fi
+fi
 
+# Install dependencies
+echo ""
+echo "Installing dependencies 📦"
+if [ "$OS" == "Linux" ]; then
+  echo ""
+  echo "We will need sudo access to interact install pg_search dependencies, so the next question is for you to give us superuser access."
+  echo "Please enter your sudo password now:"
+  sudo echo ""
+  echo "Thanks! 🙏"
+  echo ""
+  echo "Ok! We'll take it from here 🚀"
+  echo ""
+  sudo apt-get install -y libicu70
+elif [ "$OS" == "Darwin" ]; then
+  brew install icu4c
+else
+  echo "Unsupported OS. Exiting..."
+  exit 1
+fi
+echo "All clear!"
 
-# Retrieve version to install
+# TODO: Download + Install the extension .deb
 
+# TODO: Set telemetry, tell user to turn it off
 
-# install ICU dependencies
+# TODO: Ask for their email
 
-
-
-# install the extension
-# should we create ite for them via psql? Probably not, we don't know their IDs
-
-
-# Set telemetry, tell user to turn it off
-
-# ask for their email
-
-# Add final instructions on getting started
-
-
-
-
-
+# TODO: Add final instructions on getting started and tell them to CREATE EXTENSION

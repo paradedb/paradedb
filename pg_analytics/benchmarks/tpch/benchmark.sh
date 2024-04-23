@@ -144,7 +144,7 @@ generate_dataset() {
   if [ "$rounded_size" -eq "$SCALE" ]; then
     echo "Dataset already exists with total size ${rounded_size} GBs and matches the scale factor $SCALE, skipping generation..."
   else
-    echo "Dataset does not exist or does not match the scale factor $SCALE, generating..."
+    echo "Dataset does not exist or total size ${rounded_size} GBs does not match the scale factor $SCALE, generating..."
     # -f to force override of existing files, to avoid duplicate or incomplete data
     # -v to print the data generation progress
     ./dbgen -v -f -s "$SCALE"

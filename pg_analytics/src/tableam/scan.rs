@@ -7,6 +7,7 @@ use deltalake::datafusion::common::arrow::error::ArrowError;
 use once_cell::sync::Lazy;
 use pgrx::*;
 use pgrx::pg_sys::AsPgCStr;
+use pgrx::pg_sys::BuiltinOid::*;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
@@ -72,16 +73,16 @@ pub async unsafe fn scan_getnextslot(
     scan: pg_sys::TableScanDesc,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> Result<bool, TableScanError> {
-    info!("scan_getnextslot");
+    // info!("scan_getnextslot");
     // let memctx = SCAN_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
-    let memctx = pg_sys::AllocSetContextCreateExtended(
-        PgMemoryContexts::CurrentMemoryContext.value(),
-        "scan_memory_context".as_pg_cstr(),
-        pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
-        pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
-        pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
-    );
-    let old_context = pg_sys::MemoryContextSwitchTo(memctx);
+    // let memctx = pg_sys::AllocSetContextCreateExtended(
+    //     PgMemoryContexts::CurrentMemoryContext.value(),
+    //     "scan_memory_context".as_pg_cstr(),
+    //     pg_sys::ALLOCSET_DEFAULT_MINSIZE as usize,
+    //     pg_sys::ALLOCSET_DEFAULT_INITSIZE as usize,
+    //     pg_sys::ALLOCSET_DEFAULT_MAXSIZE as usize,
+    // );
+    // let old_context = pg_sys::MemoryContextSwitchTo(memctx);
 
     if let Some(clear) = (*slot)
         .tts_ops
@@ -96,7 +97,8 @@ pub async unsafe fn scan_getnextslot(
     let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
     let tuple_desc = pg_relation.tuple_desc();
     let table_name = pg_relation.name();
-    let schema_name = pg_relation.namespace();
+    let namespace = pg_relation.namespace_raw();
+    let schema_name = namespace.to_str().unwrap();
     let table_path = pg_relation.table_path()?;
 
     if (*dscan).curr_batch.is_none()
@@ -140,6 +142,8 @@ pub async unsafe fn scan_getnextslot(
         .lock()
         .await;
 
+    let mut free_datums = vec![];
+
     for col_index in 0..current_batch.num_columns() {
         let column = current_batch.column(col_index);
 
@@ -155,6 +159,7 @@ pub async unsafe fn scan_getnextslot(
                 attribute.type_oid(),
                 attribute.type_mod(),
             )? {
+                free_datums.push((attribute.type_oid(), datum));
                 *tts_value = datum;
             } else {
                 *tts_isnull = true;
@@ -167,12 +172,45 @@ pub async unsafe fn scan_getnextslot(
 
     (*slot).tts_tid = tts_tid;
     pg_sys::ExecStoreVirtualTuple(slot);
+    if let Some(materialize) = (*slot)
+        .tts_ops
+        .as_ref()
+        .ok_or(TableScanError::SlotOpsNotFound)?
+        .materialize
+    {
+        materialize(slot);
+    }
+    // let heap_tuple = pg_sys::heap_form_tuple(tuple_desc.into_pg(), (*slot).tts_values, (*slot).tts_isnull);
+    // pg_sys::ExecStoreHeapTuple(heap_tuple, slot, true);
 
     (*dscan).curr_batch_idx += 1;
 
+    // TODO: need to clear datum palloc'ed memory at the right time because the below
+    // commented loop seems to cause an error - the memory must be accessed later...
+
+    // CLEAR DATUMS
+    for (oid, datum) in free_datums.iter() {
+        match oid {
+            PgOid::BuiltIn(builtin) => match builtin {
+                TEXTOID | VARCHAROID | BPCHAROID => {
+                    // info!("trying to fre e");
+                    pg_sys::pfree(datum.cast_mut_ptr::<std::ffi::c_void>());
+                    // info!("freed");
+                },
+                _ => continue,
+            }
+            _ => continue,
+        }
+    }
+
+    // Free palloced namespace
+    // info!("freeing namespace");
+    pg_sys::pfree(namespace.as_ptr() as *mut std::ffi::c_void);
+    // info!("freed namespace");
+
     // pg_sys::MemoryContextReset(memctx);
-    pg_sys::MemoryContextSwitchTo(old_context);
-    pg_sys::MemoryContextDelete(memctx);
+    // pg_sys::MemoryContextSwitchTo(old_context);
+    // pg_sys::MemoryContextDelete(memctx);
 
     Ok(true)
 }
@@ -230,7 +268,7 @@ pub unsafe extern "C" fn deltalake_scan_getnextslot(
     _direction: pg_sys::ScanDirection,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
-    info!("deltalake_scan_getnextslot");
+    // info!("deltalake_scan_getnextslot");
     unsafe {
         task::block_on(scan_getnextslot(scan, slot)).unwrap_or_else(|err| {
             panic!("{}", err);

@@ -32,6 +32,7 @@ pub extern "C" fn deltalake_slot_callbacks(
 ) -> *const pg_sys::TupleTableSlotOps {
     info!("deltalake_slot_callbacks");
     unsafe { &pg_sys::TTSOpsVirtual }
+    // unsafe { &pg_sys::TTSOpsHeapTuple }
 }
 
 #[pg_guard]

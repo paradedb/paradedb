@@ -14,6 +14,7 @@ pub fn write_batches_to_slots(
     query_desc: PgBox<pg_sys::QueryDesc>,
     mut batches: Vec<RecordBatch>,
 ) -> Result<(), SelectHookError> {
+    info!("write_batches_to_slots");
     // Convert the DataFusion batches to Postgres tuples and send them to the destination
     unsafe {
         let tuple_desc = PgTupleDesc::from_pg(query_desc.tupDesc);

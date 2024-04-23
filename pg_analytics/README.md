@@ -68,7 +68,6 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 
 - [ ] `UPDATE` and `DELETE`
 - [ ] Some Postgres types, notably `json` and `timestamptz`
-- [ ] Write-ahead log (WAL) support
 - [ ] Collations
 - [ ] `INSERT ... ON CONFLICT` clauses
 

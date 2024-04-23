@@ -30,6 +30,9 @@ pub extern "C" fn _PG_init() {
     #[allow(static_mut_refs)]
     unsafe {
         register_hook(&mut PARADE_HOOK);
+
+        // Custom WAL manager is only supported on PG15+
+        // https://paquier.xyz/postgresql-2/postgres-15-custom-rmgr/
         #[cfg(any(feature = "pg15", feature = "pg16"))]
         {
             pg_sys::RegisterCustomRmgr(CUSTOM_RMGR_ID, &*CUSTOM_RMGR);

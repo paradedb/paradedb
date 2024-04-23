@@ -55,10 +55,6 @@ Views that contain both heap and parquet tables are currently not pushed down to
 the Postgres query engine, which may impact query times. However, views that contain only parquet
 tables are pushed down to DataFusion.
 
-## Write-Ahead Logs
-
-Write-ahead logs (WAL) over parquet tables are currently not supported.
-
 ## Collations
 
 Collations are currently not supported.
@@ -66,3 +62,8 @@ Collations are currently not supported.
 ## Speculative Inserts
 
 `INSERT...ON CONFLICT` clauses are currently not supported.
+
+## Write-Ahead Logs
+
+Parquet tables are written to the write-ahead logs (WAL) on Postgres 15+. This is because WAL support is
+enabled by the custom WAL manager API, which was introduced in Postgres 15.

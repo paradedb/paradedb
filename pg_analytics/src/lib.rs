@@ -33,10 +33,11 @@ pub extern "C" fn _PG_init() {
 
         // Custom WAL manager is only supported on PG15+
         // https://paquier.xyz/postgresql-2/postgres-15-custom-rmgr/
-        #[cfg(any(feature = "pg15", feature = "pg16"))]
-        {
-            pg_sys::RegisterCustomRmgr(CUSTOM_RMGR_ID, &*CUSTOM_RMGR);
-        }
+        #[cfg(feature = "pg15")]
+        pg_sys::RegisterCustomRmgr(CUSTOM_RMGR_ID, &mut *CUSTOM_RMGR);
+
+        #[cfg(feature = "pg16")]
+        pg_sys::RegisterCustomRmgr(CUSTOM_RMGR_ID, &*CUSTOM_RMGR);
     }
 
     setup_telemetry_background_worker(ParadeExtension::PgAnalytics);

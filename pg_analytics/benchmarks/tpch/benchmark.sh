@@ -105,18 +105,46 @@ download_and_verify() {
 # Generate the TPC-H dataset
 generate_dataset() {
   echo ""
-  echo "Generating TPC-H dataset..."
+  echo "Configuring TPC-H data generation tool..."
   cd TPC-H_V3.0.1/dbgen/
-  rm -rf ./*.tbl
 
-  # The default data generation tool we store has macOS as the default, since
-  # that is what we use for development. To run in CI and for official benchmarks,
-  # we need to set the MACHINE variable to LINUX
+  # 1- Configure and make the data generation tool
+  # The data generation tool we store has macOS as the default, since
+  # that is what we use for development. To run in CI and for official
+  # benchmarks, we need to set the MACHINE variable to LINUX
   if [ "$OS" == "Linux" ]; then
     sed -i 's/MACHINE = .*/MACHINE = LINUX/' makefile
   fi
   make
-  ./dbgen -s "$SCALE"
+
+  echo ""
+  echo "Generating TPC-H dataset..."
+
+  # 2- Check whether we need to generate the dataset
+  # Generating the data is a time-consuming process at large scale factors. To
+  # speed up workflows with multiple runs, we check the size of the existing
+  # files, if any, and if they match the scale factor, we skip the generation
+  # process
+  files=("lineitem.tbl" "orders.tbl" "customer.tbl" "part.tbl" "supplier.tbl" "partsupp.tbl" "nation.tbl" "region.tbl")
+  total_size_bytes=0
+  for file in "${files[@]}"; do
+    if [ -f "$file" ]; then
+      size_bytes=$(stat -f "%z" "$file")
+      total_size_bytes=$((total_size_bytes + size_bytes))
+    fi
+  done
+  total_size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size_bytes / (1024 * 1024 * 1024)}")
+  rounded_size=$(printf "%.0f" "$total_size_gb")
+
+  # 3- Generate the dataset if it does not exist or does not match the scale factor
+  if [ "$rounded_size" -eq "$SCALE" ]; then
+    echo "Dataset already exists with total size ${rounded_size} GBs and matches the scale factor $SCALE, skipping generation..."
+  else
+    echo "Dataset does not exist or does not match the scale factor $SCALE, generating..."
+    # -f to force override of existing files, to avoid duplicate or incomplete data
+    # -v to print the data generation progress
+    ./dbgen -v -f -s "$SCALE"
+  fi
   cd ../..
 }
 

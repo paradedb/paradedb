@@ -82,15 +82,20 @@ impl ParadeDirectory {
     }
 
     fn root_path(tablespace_oid: pg_sys::Oid) -> Result<PathBuf, DirectoryError> {
+        let mut pg_config_opt_opt = None;
         let root_dir = unsafe {
             match tablespace_oid == pg_sys::InvalidOid {
-                true => CStr::from_ptr(pg_sys::GetConfigOptionByName(
-                    CString::new("data_directory")?.as_ptr(),
-                    std::ptr::null_mut(),
-                    true,
-                ))
-                .to_str()?
-                .to_string(),
+                true => {
+                    let pg_config_opt = pg_sys::GetConfigOptionByName(
+                        CString::new("data_directory")?.as_ptr(),
+                        std::ptr::null_mut(),
+                        true,
+                    );
+                    pg_config_opt_opt = Some(pg_config_opt);
+                    CStr::from_ptr(pg_config_opt)
+                    .to_str()?
+                    .to_string()
+                },
                 false => direct_function_call::<String>(
                     pg_sys::pg_tablespace_location,
                     &[Some(pg_sys::Datum::from(tablespace_oid))],
@@ -98,6 +103,10 @@ impl ParadeDirectory {
                 .ok_or(DirectoryError::TableSpaceNotFound)?,
             }
         };
+
+        if let Some(pg_config_opt) = pg_config_opt_opt {
+            unsafe { pg_sys::pfree(pg_config_opt as *mut std::ffi::c_void) };
+        }
 
         Ok(PathBuf::from(root_dir).join(PARADE_DIRECTORY))
     }

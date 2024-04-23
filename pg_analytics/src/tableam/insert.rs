@@ -134,47 +134,55 @@ async unsafe fn insert_tuples(
             prepare_insert(heap_tuple, table_oid, tid);
             heap_tuples.push(heap_tuple);
 
-            if relation_needs_wal(rel) {
-                pg_sys::XLogBeginInsert();
+            #[cfg(any(feature = "pg15", feature = "pg16"))]
+            {
+                if relation_needs_wal(rel) {
+                    pg_sys::XLogBeginInsert();
 
-                // Flags set to 0 because they are currently unused
-                let flags = 0;
-                let mut record = XLogInsertRecord::new(flags);
+                    // Flags set to 0 because they are currently unused
+                    let flags = 0;
+                    let mut record = XLogInsertRecord::new(flags);
 
-                // Write metadata to WAL
-                #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
-                {
-                    pg_sys::XLogRegisterData(
-                        &mut record as *mut XLogInsertRecord as *mut c_char,
-                        size_of::<XLogInsertRecord>() as i32,
-                    );
+                    // Write metadata to WAL
+                    #[cfg(any(
+                        feature = "pg12",
+                        feature = "pg13",
+                        feature = "pg14",
+                        feature = "pg15"
+                    ))]
+                    {
+                        pg_sys::XLogRegisterData(
+                            &mut record as *mut XLogInsertRecord as *mut c_char,
+                            size_of::<XLogInsertRecord>() as i32,
+                        );
+                    }
+
+                    #[cfg(feature = "pg16")]
+                    {
+                        pg_sys::XLogRegisterData(
+                            &mut record as *mut XLogInsertRecord as *mut c_char,
+                            size_of::<XLogInsertRecord>() as u32,
+                        );
+                    }
+
+                    // Write tuple to WAL using a buffer
+                    // There's no need to do this now since we haven't implemented redo,
+                    // but the code has been left here for future reference.
+
+                    // let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
+                    //     panic!("{}", err);
+                    // });
+                    // pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
+                    // pg_sys::XLogRegisterBuffer(0, buffer, pg_sys::REGBUF_STANDARD as u8);
+                    // pg_sys::XLogRegisterBufData(
+                    //     0,
+                    //     (*heap_tuple).t_data as *mut c_char,
+                    //     size_of::<pg_sys::HeapTupleHeaderData>() as u32,
+                    // );
+                    // pg_sys::UnlockReleaseBuffer(buffer);
+
+                    pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
                 }
-
-                #[cfg(feature = "pg16")]
-                {
-                    pg_sys::XLogRegisterData(
-                        &mut record as *mut XLogInsertRecord as *mut c_char,
-                        size_of::<XLogInsertRecord>() as u32,
-                    );
-                }
-
-                // Write tuple to WAL using a buffer
-                // There's no need to do this now since we haven't implemented redo,
-                // but the code has been left here for future reference.
-
-                // let buffer = rel.get_metadata_buffer().unwrap_or_else(|err| {
-                //     panic!("{}", err);
-                // });
-                // pg_sys::LockBuffer(buffer, pg_sys::BUFFER_LOCK_SHARE as i32);
-                // pg_sys::XLogRegisterBuffer(0, buffer, pg_sys::REGBUF_STANDARD as u8);
-                // pg_sys::XLogRegisterBufData(
-                //     0,
-                //     (*heap_tuple).t_data as *mut c_char,
-                //     size_of::<pg_sys::HeapTupleHeaderData>() as u32,
-                // );
-                // pg_sys::UnlockReleaseBuffer(buffer);
-
-                pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_INSERT);
             }
         }
     }

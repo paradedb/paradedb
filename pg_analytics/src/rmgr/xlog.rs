@@ -77,7 +77,12 @@ pub unsafe fn relation_needs_wal(rel: pg_sys::Relation) -> bool {
     // (RelationIsPermanent(relation) && (XLogIsNeeded() ||				    \
     //   (relation->rd_createSubid == InvalidSubTransactionId &&			\
     //    relation->rd_firstRelfilelocatorSubid == InvalidSubTransactionId)))
-    #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+    #[cfg(feature = "pg12")]
+    {
+        relation_is_permanent(rel)
+    }
+
+    #[cfg(any(feature = "pg13", feature = "pg14", feature = "pg15"))]
     {
         relation_is_permanent(rel)
             && (xlog_is_needed()

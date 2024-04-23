@@ -86,23 +86,26 @@ pub async unsafe fn truncate(
         })?;
 
         // Log truncate to pg_analytics WAL manager
-        pg_sys::XLogBeginInsert();
-        let mut record = XLogTruncateRecord::new((*relation).rd_id);
-        #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+        #[cfg(any(feature = "pg15", feature = "pg16"))]
         {
-            pg_sys::XLogRegisterData(
-                &mut record as *mut XLogTruncateRecord as *mut c_char,
-                size_of::<XLogTruncateRecord>() as i32,
-            );
+            pg_sys::XLogBeginInsert();
+            let mut record = XLogTruncateRecord::new((*relation).rd_id);
+            #[cfg(any(feature = "pg12", feature = "pg13", feature = "pg14", feature = "pg15"))]
+            {
+                pg_sys::XLogRegisterData(
+                    &mut record as *mut XLogTruncateRecord as *mut c_char,
+                    size_of::<XLogTruncateRecord>() as i32,
+                );
+            }
+            #[cfg(feature = "pg16")]
+            {
+                pg_sys::XLogRegisterData(
+                    &mut record as *mut XLogTruncateRecord as *mut c_char,
+                    size_of::<XLogTruncateRecord>() as u32,
+                );
+            }
+            pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_TRUNCATE);
         }
-        #[cfg(feature = "pg16")]
-        {
-            pg_sys::XLogRegisterData(
-                &mut record as *mut XLogTruncateRecord as *mut c_char,
-                size_of::<XLogTruncateRecord>() as u32,
-            );
-        }
-        pg_sys::XLogInsert(CUSTOM_RMGR_ID, XLOG_TRUNCATE);
     }
 
     Ok(())

@@ -34,6 +34,7 @@ impl PathSource for Vec<PathBuf> {
 }
 
 #[allow(clippy::type_complexity)]
+#[allow(dead_code)]
 pub trait PathReader: DeserializeOwned + 'static {
     type Error;
 

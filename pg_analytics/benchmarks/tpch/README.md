@@ -8,11 +8,11 @@ To run the TPC-H benchmarks, you need to install the following packages:
 
 ```bash
 # Linux Ubuntu/Debian
-sudo apt-get install -y unzip make gcc
+sudo apt-get install -y unzip make gcc postgresql-client
 sudo snap install docker
 
 # macOS
-brew install unzip make gcc docker
+brew install unzip make gcc docker postgresql
 ```
 
 ## Running the Benchmarks

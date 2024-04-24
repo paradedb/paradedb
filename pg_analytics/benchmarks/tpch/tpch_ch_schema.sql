@@ -68,7 +68,7 @@ create table lineitem ( l_orderkey    bigint not null,
                              l_shipmode     char(10) not null,
                              l_comment      varchar(44) not null) engine MergeTree() order by l_orderkey;
 
-SHOW TABLES;
+-- SHOW TABLES;
 
 SET format_csv_delimiter = '|';
 
@@ -81,4 +81,163 @@ INSERT INTO partsupp FROM INFILE 'TPC-H_V3.0.1/dbgen/partsupp.tbl' FORMAT CSV;
 INSERT INTO region FROM INFILE 'TPC-H_V3.0.1/dbgen/region.tbl' FORMAT CSV;
 INSERT INTO supplier FROM INFILE 'TPC-H_V3.0.1/dbgen/supplier.tbl' FORMAT CSV;
 
-SELECT * FROM customer LIMIT 5;
+-- SELECT * FROM customer LIMIT 5;
+
+
+
+-- The two TPC-H queries with JOINs
+-- We run each 3 times like we do in our own benchmarking framework
+-- Q12
+SELECT 
+    lineitem.l_shipmode,
+    SUM(IF(orders.o_orderpriority IN ('1-URGENT', '2-HIGH'), 1, 0)) AS high_line_count,
+    SUM(IF(orders.o_orderpriority NOT IN ('1-URGENT', '2-HIGH'), 1, 0)) AS low_line_count
+FROM 
+    lineitem
+INNER JOIN 
+    orders ON lineitem.l_orderkey = orders.o_orderkey
+WHERE 
+    lineitem.l_shipmode IN ('MAIL', 'SHIP') AND
+    lineitem.l_commitdate < lineitem.l_receiptdate AND
+    lineitem.l_shipdate < lineitem.l_commitdate AND
+    lineitem.l_receiptdate >= toDate('1994-01-01') AND
+    lineitem.l_receiptdate < toDate('1995-01-01')
+GROUP BY 
+    lineitem.l_shipmode
+ORDER BY 
+    lineitem.l_shipmode;
+
+SELECT 
+    lineitem.l_shipmode,
+    SUM(IF(orders.o_orderpriority IN ('1-URGENT', '2-HIGH'), 1, 0)) AS high_line_count,
+    SUM(IF(orders.o_orderpriority NOT IN ('1-URGENT', '2-HIGH'), 1, 0)) AS low_line_count
+FROM 
+    lineitem
+INNER JOIN 
+    orders ON lineitem.l_orderkey = orders.o_orderkey
+WHERE 
+    lineitem.l_shipmode IN ('MAIL', 'SHIP') AND
+    lineitem.l_commitdate < lineitem.l_receiptdate AND
+    lineitem.l_shipdate < lineitem.l_commitdate AND
+    lineitem.l_receiptdate >= toDate('1994-01-01') AND
+    lineitem.l_receiptdate < toDate('1995-01-01')
+GROUP BY 
+    lineitem.l_shipmode
+ORDER BY 
+    lineitem.l_shipmode;
+
+SELECT 
+    lineitem.l_shipmode,
+    SUM(IF(orders.o_orderpriority IN ('1-URGENT', '2-HIGH'), 1, 0)) AS high_line_count,
+    SUM(IF(orders.o_orderpriority NOT IN ('1-URGENT', '2-HIGH'), 1, 0)) AS low_line_count
+FROM 
+    lineitem
+INNER JOIN 
+    orders ON lineitem.l_orderkey = orders.o_orderkey
+WHERE 
+    lineitem.l_shipmode IN ('MAIL', 'SHIP') AND
+    lineitem.l_commitdate < lineitem.l_receiptdate AND
+    lineitem.l_shipdate < lineitem.l_commitdate AND
+    lineitem.l_receiptdate >= toDate('1994-01-01') AND
+    lineitem.l_receiptdate < toDate('1995-01-01')
+GROUP BY 
+    lineitem.l_shipmode
+ORDER BY 
+    lineitem.l_shipmode;
+
+-- Q13
+SELECT 
+    c_count,
+    COUNT(*) AS custdist 
+FROM 
+(
+    SELECT 
+        c_count,
+        COUNT() AS custdist
+    FROM 
+    (
+        SELECT 
+            c_custkey,
+            COUNT() AS c_count
+        FROM 
+            customer
+        LEFT JOIN 
+            orders 
+        ON 
+            c_custkey = o_custkey 
+            AND o_comment NOT LIKE '%special%requests%'
+        GROUP BY 
+            c_custkey
+    ) AS c_orders 
+    GROUP BY 
+        c_count
+) 
+GROUP BY 
+    c_count 
+ORDER BY 
+    custdist DESC, 
+    c_count DESC;
+
+SELECT 
+    c_count,
+    COUNT(*) AS custdist 
+FROM 
+(
+    SELECT 
+        c_count,
+        COUNT() AS custdist
+    FROM 
+    (
+        SELECT 
+            c_custkey,
+            COUNT() AS c_count
+        FROM 
+            customer
+        LEFT JOIN 
+            orders 
+        ON 
+            c_custkey = o_custkey 
+            AND o_comment NOT LIKE '%special%requests%'
+        GROUP BY 
+            c_custkey
+    ) AS c_orders 
+    GROUP BY 
+        c_count
+) 
+GROUP BY 
+    c_count 
+ORDER BY 
+    custdist DESC, 
+    c_count DESC;
+
+SELECT 
+    c_count,
+    COUNT(*) AS custdist 
+FROM 
+(
+    SELECT 
+        c_count,
+        COUNT() AS custdist
+    FROM 
+    (
+        SELECT 
+            c_custkey,
+            COUNT() AS c_count
+        FROM 
+            customer
+        LEFT JOIN 
+            orders 
+        ON 
+            c_custkey = o_custkey 
+            AND o_comment NOT LIKE '%special%requests%'
+        GROUP BY 
+            c_custkey
+    ) AS c_orders 
+    GROUP BY 
+        c_count
+) 
+GROUP BY 
+    c_count 
+ORDER BY 
+    custdist DESC, 
+    c_count DESC;

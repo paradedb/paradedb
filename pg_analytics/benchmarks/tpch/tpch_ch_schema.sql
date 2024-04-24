@@ -107,6 +107,9 @@ GROUP BY
 ORDER BY 
     lineitem.l_shipmode;
 
+-- Flush query logs
+SYSTEM FLUSH LOGS;
+
 SELECT 
     lineitem.l_shipmode,
     SUM(IF(orders.o_orderpriority IN ('1-URGENT', '2-HIGH'), 1, 0)) AS high_line_count,
@@ -125,6 +128,9 @@ GROUP BY
     lineitem.l_shipmode
 ORDER BY 
     lineitem.l_shipmode;
+
+-- Flush query logs
+SYSTEM FLUSH LOGS;
 
 SELECT 
     lineitem.l_shipmode,
@@ -178,6 +184,9 @@ ORDER BY
     custdist DESC, 
     c_count DESC;
 
+-- Flush query logs
+SYSTEM FLUSH LOGS;
+
 SELECT 
     c_count,
     COUNT(*) AS custdist 
@@ -209,6 +218,9 @@ GROUP BY
 ORDER BY 
     custdist DESC, 
     c_count DESC;
+
+-- Flush query logs
+SYSTEM FLUSH LOGS;
 
 SELECT 
     c_count,

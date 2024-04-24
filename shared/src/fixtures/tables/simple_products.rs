@@ -12,8 +12,12 @@ pub struct SimpleProductsTable {
 }
 
 impl SimpleProductsTable {
-    pub fn setup() -> &'static str {
-        SIMPLE_PRODUCTS_TABLE_SETUP
+    pub fn setup() -> String {
+        SIMPLE_PRODUCTS_TABLE_SETUP.replace("%s", "id")
+    }
+
+    pub fn setup_with_key_field(key_field: &str) -> String {
+        SIMPLE_PRODUCTS_TABLE_SETUP.replace("%s", key_field)
     }
 }
 
@@ -25,7 +29,7 @@ BEGIN;
     	index_name => 'bm25_search',
         table_name => 'bm25_search',
     	schema_name => 'paradedb',
-        key_field => 'id',
+        key_field => '%s',
         text_fields => '{"description": {}, "category": {}}',
     	numeric_fields => '{"rating": {}}',
     	boolean_fields => '{"in_stock": {}}',

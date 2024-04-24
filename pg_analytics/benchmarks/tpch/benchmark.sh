@@ -140,8 +140,14 @@ generate_dataset() {
   total_size_gb=$(awk "BEGIN {printf \"%.2f\", $total_size_bytes / (1024 * 1024 * 1024)}")
   rounded_size=$(printf "%.0f" "$total_size_gb")
 
+  # The data generator tool is not deterministic, and generates roughly 1 GB per scale factor unit.
+  # We allow a 10% margin of error for the generated data size, as observed in our tests.
+  Calculate upper and lower bounds for acceptable sizes
+  upper_bound=$(awk "BEGIN {printf \"%.0f\", $SCALE * 1.1}")
+  lower_bound=$(awk "BEGIN {printf \"%.0f\", $SCALE * 0.9}")
+
   # 3- Generate the dataset if it does not exist or does not match the scale factor
-  if [ "$rounded_size" -eq "$SCALE" ]; then
+  if ((rounded_size >= lower_bound && rounded_size <= upper_bound)); then
     echo "Dataset already exists with total size ${rounded_size} GBs and matches the scale factor $SCALE, skipping generation..."
   else
     echo "Dataset does not exist or total size ${rounded_size} GBs does not match the scale factor $SCALE, generating..."

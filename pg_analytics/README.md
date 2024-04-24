@@ -64,12 +64,13 @@ files into larger files, which can significantly improve query time and compress
 
 ### Known Limitations
 
-As `pg_analytics` becomes production-ready, many of these will be resolved.
+These limitations are actively being resolved as part of our roadmap.
 
 - [ ] `UPDATE` and `DELETE`
 - [ ] Some Postgres types, notably `json` and `timestamptz`
 - [ ] Collations
 - [ ] `INSERT ... ON CONFLICT` clauses
+- [ ] Write-ahead log (WAL) is supported only on Postgres 15+ due to the fact that custom WAL managers were introduced in Postgres 15
 
 ## Development
 

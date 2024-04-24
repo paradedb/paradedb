@@ -1,6 +1,7 @@
 mod fixtures;
 
 use fixtures::*;
+use pretty_assertions::assert_eq;
 use rstest::*;
 use sqlx::PgConnection;
 
@@ -37,5 +38,8 @@ fn wal_identify(mut conn_with_walinspect: PgConnection) {
     let records = vec![
         "INSERT", "INSERT", "INSERT", "INSERT", "TRUNCATE", "TRUNCATE",
     ];
-    assert!(rows.iter().map(|r| r.0.clone()).eq(records));
+    assert_eq!(
+        rows.iter().map(|r| r.0.clone()).collect::<Vec<String>>(),
+        records
+    );
 }

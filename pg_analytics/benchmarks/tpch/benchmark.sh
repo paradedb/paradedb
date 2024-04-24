@@ -142,7 +142,6 @@ generate_dataset() {
 
   # The data generator tool is not deterministic, and generates roughly 1 GB per scale factor unit.
   # We allow a 10% margin of error for the generated data size, as observed in our tests.
-  Calculate upper and lower bounds for acceptable sizes
   upper_bound=$(awk "BEGIN {printf \"%.0f\", $SCALE * 1.1}")
   lower_bound=$(awk "BEGIN {printf \"%.0f\", $SCALE * 0.9}")
 

@@ -17,6 +17,10 @@ fn wal_identify(mut conn_with_walinspect: PgConnection) {
         CREATE TABLE t (a int) USING parquet;
         CREATE TABLE s (a int) USING parquet;
         CREATE TABLE u (a int);
+    "#
+    .execute(&mut conn_with_walinspect);
+
+    r#"
         INSERT INTO t VALUES (1), (2);
         INSERT INTO s VALUES (4), (5);
         INSERT INTO u VALUES (7), (8);

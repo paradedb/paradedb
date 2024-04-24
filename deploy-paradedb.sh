@@ -18,6 +18,7 @@ usage() {
 # Variables
 export DEBIAN_FRONTEND=noninteractive
 OS=$(uname -s)
+ARCH=$(uname -m)
 PERSIST_VOLUME="unset"
 RUN_DETACHED="unset"
 VERSION="unset"

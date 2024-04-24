@@ -3014,6 +3014,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "is_ci"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7655c9839580ee829dfacba1d1278c2b7883e50a277ff7541299489d6bdfdc45"
+
+[[package]]
 name = "itertools"
 version = "0.10.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3926,6 +3932,9 @@ name = "owo-colors"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1b04fb49957986fdce4d6ee7a65027d55d4b6d2265e5848bbb507b58ccfdb6f"
+dependencies = [
+ "supports-color",
+]
 
 [[package]]
 name = "parking"
@@ -4204,7 +4213,7 @@ dependencies = [
 [[package]]
 name = "pgrx"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#91637a98f1717877bfb51d995217c2e6dc45028a"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=e19101d#e19101d0a899e5b1e03d424aee181bfd6761457b"
 dependencies = [
  "atomic-traits",
  "bitflags 2.5.0",
@@ -4228,7 +4237,7 @@ dependencies = [
 [[package]]
 name = "pgrx-macros"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#91637a98f1717877bfb51d995217c2e6dc45028a"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=e19101d#e19101d0a899e5b1e03d424aee181bfd6761457b"
 dependencies = [
  "pgrx-sql-entity-graph",
  "proc-macro2",
@@ -4239,7 +4248,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-config"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#91637a98f1717877bfb51d995217c2e6dc45028a"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=e19101d#e19101d0a899e5b1e03d424aee181bfd6761457b"
 dependencies = [
  "cargo_toml",
  "eyre",
@@ -4257,7 +4266,7 @@ dependencies = [
 [[package]]
 name = "pgrx-pg-sys"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#91637a98f1717877bfb51d995217c2e6dc45028a"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=e19101d#e19101d0a899e5b1e03d424aee181bfd6761457b"
 dependencies = [
  "bindgen 0.69.4",
  "cee-scape",
@@ -4279,7 +4288,7 @@ dependencies = [
 [[package]]
 name = "pgrx-sql-entity-graph"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#91637a98f1717877bfb51d995217c2e6dc45028a"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=e19101d#e19101d0a899e5b1e03d424aee181bfd6761457b"
 dependencies = [
  "convert_case 0.6.0",
  "eyre",
@@ -4294,7 +4303,7 @@ dependencies = [
 [[package]]
 name = "pgrx-tests"
 version = "0.12.0-alpha.1"
-source = "git+https://github.com/paradedb/pgrx.git?branch=rebasedming/rmgr#91637a98f1717877bfb51d995217c2e6dc45028a"
+source = "git+https://github.com/pgcentralfoundation/pgrx.git?rev=e19101d#e19101d0a899e5b1e03d424aee181bfd6761457b"
 dependencies = [
  "clap-cargo",
  "eyre",
@@ -5842,6 +5851,16 @@ name = "subtle"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81cdd64d312baedb58e21336b31bc043b77e01cc99033ce76ef539f78e965ebc"
+
+[[package]]
+name = "supports-color"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ba6faf2ca7ee42fdd458f4347ae0a9bd6bcc445ad7cb57ad82b383f18870d6f"
+dependencies = [
+ "atty",
+ "is_ci",
+]
 
 [[package]]
 name = "syn"

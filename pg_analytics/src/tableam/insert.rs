@@ -112,10 +112,11 @@ async unsafe fn insert_tuples(
     let tuple_desc = pg_relation.tuple_desc();
     let mut column_values: Vec<ArrayRef> = vec![];
 
+    let mut free_varlena_vec = vec![];
+
     // Convert the TupleTableSlots into DataFusion arrays
     for (col_idx, attr) in tuple_desc.iter().enumerate() {
-        column_values.push(
-            (0..nslots)
+        let (var_vec_opt, col_vec) = (0..nslots)
                 .map(move |row_idx| unsafe {
                     let tuple_table_slot = *slots.add(row_idx);
 
@@ -137,7 +138,12 @@ async unsafe fn insert_tuples(
                     let is_null = *(*tuple_table_slot).tts_isnull.add(col_idx);
                     (!is_null).then_some(datum_opt).flatten()
                 })
-                .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
+                .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?;
+        if let Some(var_vec) = var_vec_opt {
+            free_varlena_vec.push(var_vec);
+        }
+        column_values.push(
+            col_vec,
         );
     }
 
@@ -179,6 +185,14 @@ async unsafe fn insert_tuples(
 
     // Free palloced namespace
     pg_sys::pfree(namespace.as_ptr() as *mut std::ffi::c_void);
+
+    // Free palloced varlenas
+    for free_var_vec in free_varlena_vec {
+        for free_var in free_var_vec {
+            // info!("free");
+            pg_sys::pfree(free_var as *mut std::ffi::c_void);
+        }
+    }
 
     Ok(())
 }

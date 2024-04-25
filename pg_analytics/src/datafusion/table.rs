@@ -134,6 +134,7 @@ impl DatafusionTable for PgRelation {
         )?)
     }
 
+    // This allows us to get the pointer of the palloced namespace string so we can free it ourselves
     unsafe fn namespace_raw(&self) -> &core::ffi::CStr {
         core::ffi::CStr::from_ptr(pg_sys::get_namespace_name(self.namespace_oid()))
     }

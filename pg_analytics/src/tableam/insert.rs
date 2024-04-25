@@ -160,11 +160,6 @@ async unsafe fn insert_tuples(
     // Free palloced namespace
     pg_sys::pfree(namespace.as_ptr() as *mut std::ffi::c_void);
 
-    // // Free palloced varlenas
-    // for array_ref_details in array_ref_details_vec {
-    //     array_ref_details.free_palloc_ptrs();
-    // }
-
     Ok(())
 }
 

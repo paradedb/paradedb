@@ -20,23 +20,7 @@ use super::timestamp::{MicrosecondUnix, MillisecondUnix, PgTimestampPrecision, S
 
 type Column<T> = Vec<Option<T>>;
 
-pub trait IntoPrimitiveArray
-where
-    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
-{
-    fn into_array<T>(self) -> Result<Vec<Option<T>>, DataTypeError>
-    where
-        T: FromDatum,
-    {
-        let array = self
-            .map(|datum| datum.and_then(|datum| unsafe { T::from_datum(datum, false) }))
-            .collect::<Vec<Option<T>>>();
-
-        Ok(array)
-    }
-}
-
-// Copied from pgrx - pulling this out is the only way we could get the varlena pointer
+// Copied from pgrx - pulling this out is the only way we could get the varlena pointer before getting the str
 unsafe fn convert_varlena_to_str_memoized<'a>(varlena: *const pg_sys::varlena) -> &'a str {
     match pg_sys::GetDatabaseEncoding() as core::ffi::c_uint {
         pg_sys::pg_enc_PG_UTF8 => varlena::text_to_rust_str_unchecked(varlena),
@@ -52,6 +36,22 @@ unsafe fn convert_varlena_to_str_memoized<'a>(varlena: *const pg_sys::varlena) -
         }
         _ => varlena::text_to_rust_str(varlena)
             .expect("datums converted to &str should be valid UTF-8"),
+    }
+}
+
+pub trait IntoPrimitiveArray
+where
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
+{
+    fn into_array<T>(self) -> Result<Vec<Option<T>>, DataTypeError>
+    where
+        T: FromDatum,
+    {
+        let array = self
+            .map(|datum| datum.and_then(|datum| unsafe { T::from_datum(datum, false) }))
+            .collect::<Vec<Option<T>>>();
+
+        Ok(array)
     }
 }
 
@@ -98,7 +98,6 @@ where
         A: Array + FromIterator<Option<T>> + 'static,
     {
         Ok(Arc::new(A::from_iter(self.into_array::<T>()?)))
-        // Ok(ArrayRefDetails::from_array_vec::<T,A>(self.into_array::<T>()?))
     }
 }
 
@@ -107,12 +106,6 @@ where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
 {
     fn into_string_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
-        // let (free_varlena_vec, string_array) = self.into_string_array()?;
-        // Ok((
-        //     Some(free_varlena_vec),
-        //     Arc::new(StringArray::from_iter(string_array)),
-        // ))
-        // Ok(ArrayRefDetails::from_array_vec::<String, StringArray>(self.into_string_array()?))
         Ok(Arc::new(StringArray::from_iter(self.into_string_array()?)))
     }
 }
@@ -155,7 +148,6 @@ where
         Ok(Arc::new(
             Decimal128Array::from_iter(iter).with_precision_and_scale(precision, scale)?,
         ))
-        // Ok(ArrayRefDetails::from_array_vec::<i128, Decimal128Array>(iter))
     }
 }
 
@@ -184,7 +176,6 @@ where
 {
     fn into_date_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(Date32Array::from_iter(self.into_date_array()?)))
-        // Ok(ArrayRefDetails::from_array_vec::<i32, Date32Array>(self.into_date_array()?))
     }
 }
 
@@ -215,7 +206,6 @@ where
         Ok(Arc::new(TimestampMicrosecondArray::from_iter(
             self.into_ts_micro_array()?,
         )))
-        // Ok(ArrayRefDetails::from_array_vec::<i64, TimestampMicrosecondArray>(self.into_ts_micro_array()?))
     }
 }
 
@@ -246,7 +236,6 @@ where
         Ok(Arc::new(TimestampMillisecondArray::from_iter(
             self.into_ts_milli_array()?,
         )))
-        // Ok(ArrayRefDetails::from_array_vec::<i64, TimestampMillisecondArray>(self.into_ts_milli_array()?))
     }
 }
 
@@ -277,7 +266,6 @@ where
         Ok(Arc::new(TimestampSecondArray::from_iter(
             self.into_ts_second_array()?,
         )))
-        // Ok(ArrayRefDetails::from_array_vec::<i64, TimestampSecondArray>(self.into_ts_second_array()?))
     }
 }
 
@@ -308,7 +296,6 @@ where
         Ok(Arc::new(Time64NanosecondArray::from_iter(
             self.into_time_nano_array()?,
         )))
-        // Ok(ArrayRefDetails::from_array_vec::<i64, Time64NanosecondArray>(self.into_time_nano_array()?))
     }
 }
 
@@ -341,7 +328,6 @@ where
         Ok(Arc::new(Time32MillisecondArray::from_iter(
             self.into_time_milli_array()?,
         )))
-        // Ok(ArrayRefDetails::from_array_vec::<i32, Time32MillisecondArray>(self.into_time_milli_array()?))
     }
 }
 
@@ -368,7 +354,6 @@ where
 {
     fn into_uuid_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(StringArray::from_iter(self.into_uuid_array()?)))
-        // Ok(ArrayRefDetails::from_array_vec::<String, StringArray>(self.into_uuid_array()?))
     }
 }
 

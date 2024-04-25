@@ -75,7 +75,6 @@ fn single_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_parq
     let count: (i64,) = "SELECT COUNT(*) FROM users".fetch_one(conn);
     assert_eq!(count, (4,));
 
-    // expected to read 5 bytes, got 0 bytes at EOF
     let count: (i64,) = "SELECT COUNT(*) FROM orders".fetch_one(conn);
     assert_eq!(count, (2,));
 
@@ -137,7 +136,6 @@ fn composite_fkey_test(conn: &mut PgConnection, primary_parquet: bool, foreign_p
     "#
     .execute(conn);
 
-    // expected to read 5 bytes, got 0 bytes at EOF
     r#"
         INSERT INTO orders (username, email, order_total) VALUES ('User1', 'user1@gmail.com', 100.00), ('User1', 'user1@gmail.com', 200.00);
     "#

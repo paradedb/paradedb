@@ -23,7 +23,6 @@ pub extern "C" fn deltalake_relation_set_new_filenode(
     freezeXid: *mut pg_sys::TransactionId,
     minmulti: *mut pg_sys::MultiXactId,
 ) {
-    info!("deltalake_relation_set_new_filenode");
     unsafe {
         #[cfg(feature = "pg15")]
         let smgr = pg_sys::RelationCreateStorage(*newrnode, persistence, true);
@@ -58,7 +57,6 @@ pub extern "C" fn deltalake_relation_set_new_filelocator(
     freezeXid: *mut pg_sys::TransactionId,
     minmulti: *mut pg_sys::MultiXactId,
 ) {
-    info!("deltalake_relation_set_new_filelocator");
     unsafe {
         let smgr = pg_sys::RelationCreateStorage(*newrlocator, persistence, true);
         rel.init_metadata(smgr).unwrap_or_else(|err| {
@@ -86,7 +84,6 @@ async fn create_deltalake_file_node(
     persistence: c_char,
     tablespace_oid: pg_sys::Oid,
 ) -> Result<(), CreateTableError> {
-    info!("create_deltalake_file_node");
     let pg_relation = unsafe { PgRelation::from_pg(rel) };
 
     match persistence as u8 {

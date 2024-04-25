@@ -15,7 +15,6 @@ pub extern "C" fn deltalake_tuple_update(
     _lockmode: *mut pg_sys::LockTupleMode,
     _update_indexes: *mut bool,
 ) -> pg_sys::TM_Result {
-    info!("deltalake_tuple_update");
     panic!("{}", UpdateError::UpdateNotsupported.to_string());
 }
 
@@ -33,7 +32,6 @@ pub extern "C" fn deltalake_tuple_update(
     _lockmode: *mut pg_sys::LockTupleMode,
     _update_indexes: *mut pg_sys::TU_UpdateIndexes,
 ) -> pg_sys::TM_Result {
-    info!("deltalake_tuple_update");
     panic!("{}", UpdateError::UpdateNotsupported.to_string());
 }
 

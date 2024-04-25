@@ -127,7 +127,11 @@ impl DatafusionTable for PgRelation {
     }
 
     fn table_path(&self) -> Result<PathBuf, DataFusionTableError> {
-        Ok(ParadeDirectory::table_path_from_oid(unsafe { pg_sys::get_rel_tablespace(self.oid()) }, self.namespace_oid(), self.oid())?)
+        Ok(ParadeDirectory::table_path_from_oid(
+            unsafe { pg_sys::get_rel_tablespace(self.oid()) },
+            self.namespace_oid(),
+            self.oid(),
+        )?)
     }
 
     unsafe fn namespace_raw(&self) -> &core::ffi::CStr {

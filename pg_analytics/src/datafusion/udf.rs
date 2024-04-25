@@ -155,7 +155,7 @@ unsafe fn udf_datafusion(args: &[ColumnarValue]) -> Result<ColumnarValue, UDFErr
             Ok(ColumnarValue::Array(
                 result_vec
                     .into_iter()
-                    .into_arrow_array(rettype.into(), PgTypeMod(DEFAULT_TYPE_MOD))?.1,
+                    .into_arrow_array(rettype.into(), PgTypeMod(DEFAULT_TYPE_MOD))?,
             ))
         } else {
             Err(UDFError::FunctionNameNotFound)

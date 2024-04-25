@@ -174,8 +174,7 @@ impl SQLExecutor for RowExecutor {
                         .clone()
                         .into_iter()
                         .into_arrow_array(oid, PgTypeMod(typmod))
-                        .map_err(|err| DataFusionError::External(err.into()))?
-                        .1,
+                        .map_err(|err| DataFusionError::External(err.into()))?,
                 );
             }
 

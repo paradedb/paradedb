@@ -36,7 +36,7 @@ where
     }
 }
 
-// Copied from pgrx
+// Copied from pgrx - pulling this out is the only way we could get the varlena pointer
 unsafe fn convert_varlena_to_str_memoized<'a>(varlena: *const pg_sys::varlena) -> &'a str {
     match pg_sys::GetDatabaseEncoding() as core::ffi::c_uint {
         pg_sys::pg_enc_PG_UTF8 => varlena::text_to_rust_str_unchecked(varlena),
@@ -49,7 +49,7 @@ unsafe fn convert_varlena_to_str_memoized<'a>(varlena: *const pg_sys::varlena) -
             } else {
                 panic!("datums converted to &str should be valid UTF-8, database encoding is only UTF-8 compatible for ASCII")
             }
-        },
+        }
         _ => varlena::text_to_rust_str(varlena)
             .expect("datums converted to &str should be valid UTF-8"),
     }
@@ -59,25 +59,32 @@ pub trait IntoStringArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
-    fn into_string_array<'a>(self) -> Result<(Vec<*mut pg_sys::varlena>, Vec<Option<String>>), DataTypeError>
-    {
-        let mut free_varlena_vec = vec![];
+    fn into_string_array<'a>(self) -> Result<Vec<Option<String>>, DataTypeError> {
+        let mut palloc_ptrs = vec![];
         let array = self
-            .map(|datum| datum.and_then(|datum| unsafe {
-                // Use str::from_datum instead of String::from_datum so that we know the palloced address to free
-                let ret = if varlena::varatt_is_1b_e(datum.cast_mut_ptr::<pg_sys::varlena>())
-                || (*datum.cast_mut_ptr::<pg_sys::varattrib_1b>()).va_header & 0x03 == 0x02 {
-                    let varl = pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr());
-                    free_varlena_vec.push(varl);
-                    Some(convert_varlena_to_str_memoized(varl))
-                } else {
-                    <&'a str>::from_datum(datum, false)
-                };
-                ret.and_then(|ret_str| Some(ret_str.to_owned()))
-            }))
+            .map(|datum| {
+                datum.and_then(|datum| unsafe {
+                    // Use str::from_datum instead of String::from_datum so that we know the palloced address to free
+                    let ret = if varlena::varatt_is_1b_e(datum.cast_mut_ptr::<pg_sys::varlena>())
+                        || (*datum.cast_mut_ptr::<pg_sys::varattrib_1b>()).va_header & 0x03 == 0x02
+                    {
+                        let varl = pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr());
+                        palloc_ptrs.push(varl);
+                        Some(convert_varlena_to_str_memoized(varl))
+                    } else {
+                        <&'a str>::from_datum(datum, false)
+                    };
+                    ret.and_then(|ret_str| Some(ret_str.to_owned()))
+                })
+            })
             .collect::<Vec<Option<String>>>();
 
-        Ok((free_varlena_vec, array))
+        // It is safe to free here because `ret_str.to_owned()` creates a copy
+        for varl_ptr in palloc_ptrs {
+            unsafe { pg_sys::pfree(varl_ptr as *mut std::ffi::c_void) };
+        }
+
+        Ok(array)
     }
 }
 
@@ -91,6 +98,7 @@ where
         A: Array + FromIterator<Option<T>> + 'static,
     {
         Ok(Arc::new(A::from_iter(self.into_array::<T>()?)))
+        // Ok(ArrayRefDetails::from_array_vec::<T,A>(self.into_array::<T>()?))
     }
 }
 
@@ -98,10 +106,14 @@ pub trait IntoStringArrowArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
 {
-    fn into_string_arrow_array(self) -> Result<(Option<Vec<*mut pg_sys::varlena>>, ArrayRef), DataTypeError>
-    {
-        let (free_varlena_vec, string_array) = self.into_string_array()?;
-        Ok((Some(free_varlena_vec), Arc::new(StringArray::from_iter(string_array))))
+    fn into_string_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        // let (free_varlena_vec, string_array) = self.into_string_array()?;
+        // Ok((
+        //     Some(free_varlena_vec),
+        //     Arc::new(StringArray::from_iter(string_array)),
+        // ))
+        // Ok(ArrayRefDetails::from_array_vec::<String, StringArray>(self.into_string_array()?))
+        Ok(Arc::new(StringArray::from_iter(self.into_string_array()?)))
     }
 }
 
@@ -143,6 +155,7 @@ where
         Ok(Arc::new(
             Decimal128Array::from_iter(iter).with_precision_and_scale(precision, scale)?,
         ))
+        // Ok(ArrayRefDetails::from_array_vec::<i128, Decimal128Array>(iter))
     }
 }
 
@@ -171,6 +184,7 @@ where
 {
     fn into_date_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(Date32Array::from_iter(self.into_date_array()?)))
+        // Ok(ArrayRefDetails::from_array_vec::<i32, Date32Array>(self.into_date_array()?))
     }
 }
 
@@ -201,6 +215,7 @@ where
         Ok(Arc::new(TimestampMicrosecondArray::from_iter(
             self.into_ts_micro_array()?,
         )))
+        // Ok(ArrayRefDetails::from_array_vec::<i64, TimestampMicrosecondArray>(self.into_ts_micro_array()?))
     }
 }
 
@@ -231,6 +246,7 @@ where
         Ok(Arc::new(TimestampMillisecondArray::from_iter(
             self.into_ts_milli_array()?,
         )))
+        // Ok(ArrayRefDetails::from_array_vec::<i64, TimestampMillisecondArray>(self.into_ts_milli_array()?))
     }
 }
 
@@ -261,6 +277,7 @@ where
         Ok(Arc::new(TimestampSecondArray::from_iter(
             self.into_ts_second_array()?,
         )))
+        // Ok(ArrayRefDetails::from_array_vec::<i64, TimestampSecondArray>(self.into_ts_second_array()?))
     }
 }
 
@@ -291,6 +308,7 @@ where
         Ok(Arc::new(Time64NanosecondArray::from_iter(
             self.into_time_nano_array()?,
         )))
+        // Ok(ArrayRefDetails::from_array_vec::<i64, Time64NanosecondArray>(self.into_time_nano_array()?))
     }
 }
 
@@ -323,6 +341,7 @@ where
         Ok(Arc::new(Time32MillisecondArray::from_iter(
             self.into_time_milli_array()?,
         )))
+        // Ok(ArrayRefDetails::from_array_vec::<i32, Time32MillisecondArray>(self.into_time_milli_array()?))
     }
 }
 
@@ -349,6 +368,7 @@ where
 {
     fn into_uuid_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
         Ok(Arc::new(StringArray::from_iter(self.into_uuid_array()?)))
+        // Ok(ArrayRefDetails::from_array_vec::<String, StringArray>(self.into_uuid_array()?))
     }
 }
 
@@ -427,41 +447,41 @@ pub trait IntoArrowArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
-    fn into_arrow_array(self, oid: PgOid, typemod: PgTypeMod) -> Result<(Option<Vec<*mut pg_sys::varlena>>, ArrayRef), DataTypeError> {
+    fn into_arrow_array(self, oid: PgOid, typemod: PgTypeMod) -> Result<ArrayRef, DataTypeError> {
         match oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                BOOLOID => self.into_primitive_arrow_array::<bool, BooleanArray>().and_then(|v| Ok((None, v))),
-                BOOLARRAYOID => self.into_bool_list_arrow_array().and_then(|v| Ok((None, v))),
+                BOOLOID => self.into_primitive_arrow_array::<bool, BooleanArray>(),
+                BOOLARRAYOID => self.into_bool_list_arrow_array(),
                 TEXTOID => self.into_string_arrow_array(),
                 VARCHAROID => self.into_string_arrow_array(),
                 BPCHAROID => self.into_string_arrow_array(),
-                TEXTARRAYOID => self.into_string_list_arrow_array().and_then(|v| Ok((None, v))),
-                VARCHARARRAYOID => self.into_string_list_arrow_array().and_then(|v| Ok((None, v))),
-                BPCHARARRAYOID => self.into_string_list_arrow_array().and_then(|v| Ok((None, v))),
-                INT2OID => self.into_primitive_arrow_array::<i16, Int16Array>().and_then(|v| Ok((None, v))),
-                INT2ARRAYOID => self.into_primitive_list_arrow_array::<i16, Int16Type>().and_then(|v| Ok((None, v))),
-                INT4OID => self.into_primitive_arrow_array::<i32, Int32Array>().and_then(|v| Ok((None, v))),
-                INT4ARRAYOID => self.into_primitive_list_arrow_array::<i32, Int32Type>().and_then(|v| Ok((None, v))),
-                INT8OID => self.into_primitive_arrow_array::<i64, Int64Array>().and_then(|v| Ok((None, v))),
-                INT8ARRAYOID => self.into_primitive_list_arrow_array::<i64, Int64Type>().and_then(|v| Ok((None, v))),
-                FLOAT4OID => self.into_primitive_arrow_array::<f32, Float32Array>().and_then(|v| Ok((None, v))),
-                FLOAT4ARRAYOID => self.into_primitive_list_arrow_array::<f32, Float32Type>().and_then(|v| Ok((None, v))),
-                FLOAT8OID => self.into_primitive_arrow_array::<f64, Float64Array>().and_then(|v| Ok((None, v))),
-                FLOAT8ARRAYOID => self.into_primitive_list_arrow_array::<f64, Float64Type>().and_then(|v| Ok((None, v))),
-                DATEOID => self.into_date_arrow_array().and_then(|v| Ok((None, v))),
+                TEXTARRAYOID => self.into_string_list_arrow_array(),
+                VARCHARARRAYOID => self.into_string_list_arrow_array(),
+                BPCHARARRAYOID => self.into_string_list_arrow_array(),
+                INT2OID => self.into_primitive_arrow_array::<i16, Int16Array>(),
+                INT2ARRAYOID => self.into_primitive_list_arrow_array::<i16, Int16Type>(),
+                INT4OID => self.into_primitive_arrow_array::<i32, Int32Array>(),
+                INT4ARRAYOID => self.into_primitive_list_arrow_array::<i32, Int32Type>(),
+                INT8OID => self.into_primitive_arrow_array::<i64, Int64Array>(),
+                INT8ARRAYOID => self.into_primitive_list_arrow_array::<i64, Int64Type>(),
+                FLOAT4OID => self.into_primitive_arrow_array::<f32, Float32Array>(),
+                FLOAT4ARRAYOID => self.into_primitive_list_arrow_array::<f32, Float32Type>(),
+                FLOAT8OID => self.into_primitive_arrow_array::<f64, Float64Array>(),
+                FLOAT8ARRAYOID => self.into_primitive_list_arrow_array::<f64, Float64Type>(),
+                DATEOID => self.into_date_arrow_array(),
                 TIMESTAMPOID => match PgTimestampPrecision::try_from(typemod)? {
                     PgTimestampPrecision::Default => self.into_ts_micro_arrow_array(),
                     PgTimestampPrecision::Second => self.into_ts_second_arrow_array(),
                     PgTimestampPrecision::Microsecond => self.into_ts_micro_arrow_array(),
                     PgTimestampPrecision::Millisecond => self.into_ts_milli_arrow_array(),
-                }.and_then(|v| Ok((None, v))),
+                },
                 TIMEOID => match PgTimestampPrecision::try_from(typemod)? {
                     PgTimestampPrecision::Default => self.into_time_nano_arrow_array(),
                     PgTimestampPrecision::Microsecond => self.into_time_nano_arrow_array(),
                     _ => todo!(),
-                }.and_then(|v| Ok((None, v))),
-                NUMERICOID => self.into_numeric_arrow_array(typemod).and_then(|v| Ok((None, v))),
-                UUIDOID => self.into_uuid_arrow_array().and_then(|v| Ok((None, v))),
+                },
+                NUMERICOID => self.into_numeric_arrow_array(typemod),
+                UUIDOID => self.into_uuid_arrow_array(),
                 unsupported => Err(DataTypeError::UnsupportedPostgresType(unsupported)),
             },
             PgOid::Invalid => Err(DataTypeError::InvalidPostgresOid),

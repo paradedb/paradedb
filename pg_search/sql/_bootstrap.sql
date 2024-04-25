@@ -184,7 +184,7 @@ BEGIN
             ),
             bm25 AS (
                 SELECT 
-                    __key_field__ as key_field, 
+                    id as key_field, 
                     rank_bm25 as score 
                 FROM paradedb.minmax_bm25($1)
             )

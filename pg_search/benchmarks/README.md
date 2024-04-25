@@ -8,72 +8,103 @@ This folder contains the results and scripts for benchmarking the search compone
 
 If you'd like to see benchmarks against another system, please open an issue or a pull request.
 
-## Results
-
-### Experimental Setup
+## Experimental Setup
 
 The benchmarks below were run on the following hardware and software:
 
 ```bash
-# VM
-# See here for full details: https://learn.microsoft.com/en-us/azure/virtual-machines/dasv5-dadsv5-series
-VM Type: GitHub Actions Large Runner ubuntu-latest-m (Azure Standard_D4ads_v5)
+# Instance
+Instance Type: Amazon EC2 c6a.12xlarge
 
 # Image
-# See here for full details: https://github.com/actions/runner-images/blob/main/images/linux/Ubuntu2204-Readme.md
-OS Version: 22.04.3 LTS
-Kernel Version: 6.2.0-1012-azure
+OS Version: Ubuntu 22.04.4 LTS
+Kernel Version: 6.5.0-1016-aws
 
 # CPU
-vCPUs: 4
-CPU: AMD 3rd Generation EPYC 7763v 64-Core Processor
-CPU MHz: 2693.965
-Cache size: 512 KB
-Bogomips: 4890.86
-TLB size: 2560 4K pages
-Clflush size: 64
-Cache_alignment: 64
+vCPUs: 48
+CPU: AMD EPYC 7R13 Processor
+CPU MHz: 2649.998
+Cache size: 768 KiB
+Bogomips: 5299.99
 Address sizes: 48 bits physical, 48 bits virtual
 
 # Memory
-RAM: 16 GiB
-Storage: 150 GiB SSD
+RAM: 96GB
+Storage: 500GB gp3, 16,000 IOPS and 1,000 MB/s throughput
 Max Data Disks: 8
 Max temp storage throughput: 19000 / 250 IOPS/MBps
 Max uncached disk throughput: 6400 / 144 IOPS/MBps
 Max burst uncached disk throughput: 20000 / 600 IOPS/MBps
 
 # Network
-Max NICs: 2
-Max network bandwidth: 12500 Mbps
+Max NICs: 4
+Max network bandwidth: 18750 Mbps
 ```
 
-The system is warmed up by booting, with no other warmup steps taken. The system is started cold as a new GitHub Actions Large Runner instance each time.
+For index/table building benchmarks no warmup steps are taken, and the times are recorded based off a single run, as benchmarks against large datasets can take many hours.
 
-The dataset used is a [snapshot of the Wikipedia English corpus](https://www.dropbox.com/s/wwnfnu441w1ec9p/wiki-articles.json.bz2), with 5,032,105 entries composed of the URL, title, and body, formatted as a JSON file. The dataset is 8.89 GB in size.
+For query benchmarks, the Rust Criterion library is used. Iterations, warmups, and averages are reported in the output. The query used is a simple search of the word "flame" in the "message" field of the [Elasticsearch benchmark corpus](https://github.com/elastic/elasticsearch-opensearch-benchmark).
 
-The query used for benchmarking is a simple search of the word "Canada" across any field. More benchmark queries will be added in the future, with varying degrees of complexity.
-
-The versions of the systems used for benchmarking are:
-
-- ParadeDB `pg_search`: 0.2.18
-- PostgreSQL: 15.4
-- Elasticsearch: 8.9.2
+- ParadeDB `pg_search`: 0.6.0
+- PostgreSQL: 16.2
+- Elasticsearch: 7.17.20
 
 For any questions, clarifications, or suggestions regarding our benchmarking experimental setup, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
 
-### pg_search
+## Results
 
-<img src="../../docs/images/pg_search_index_benchmark.png" alt="" width="100%">
+Building `pg_search` index, indexing the `message` column, over 1 billion rows.
 
-<img src="../../docs/images/pg_search_benchmark.png" alt="" width="100%">
+```text
+Start time: SystemTime { tv_sec: 1712856911, tv_nsec: 741370871 }
+End time: SystemTime { tv_sec: 1712866842, tv_nsec: 72802069 }
+Duration: 9930331 milliseconds
+Duration: 9930.3314 seconds
+Duration: 165.5055 minutes
+Duration: 2.7584 hours
+```
+
+Querying `pg_search` index for `"message:flame"`:
+
+```text
+Benchmarking Search Query/bench_eslogs_query_search_index
+Benchmarking Search Query/bench_eslogs_query_search_index: Warming up for 3.0000 s
+Benchmarking Search Query/bench_eslogs_query_search_index: Collecting 60 samples in estimated 6.6780 s (3660 iterations)
+Benchmarking Search Query/bench_eslogs_query_search_index: Analyzing
+Search Query/bench_eslogs_query_search_index
+                        time:   [1.5890 ms 1.6117 ms 1.6437 ms]
+Found 7 outliers among 60 measurements (11.67%)
+  3 (5.00%) high mild
+  4 (6.67%) high severe
+```
+
+Building Elasticsearch index, indexing the `message` column, over 1 billion rows:
+
+```text
+Start time: SystemTime { tv_sec: 1713302753, tv_nsec: 701639825 }
+End time: SystemTime { tv_sec: 1713347291, tv_nsec: 876946205 }
+Duration: 44538175 milliseconds
+Duration: 44538.1753 seconds
+Duration: 742.3029 minutes
+Duration: 12.3717 hours
+```
+
+Querying Elasticsearch index, for the term `flame` in the `message` field:
+
+```text
+Benchmarking Elasticsearch Index/bench_eslogs_query_elastic_table
+Benchmarking Elasticsearch Index/bench_eslogs_query_elastic_table: Warming up for 3.0000 s
+Benchmarking Elasticsearch Index/bench_eslogs_query_elastic_table: Collecting 60 samples in estimated 8.3315 s (3660 iterations)
+Benchmarking Elasticsearch Index/bench_eslogs_query_elastic_table: Analyzing
+Elasticsearch Index/bench_eslogs_query_elastic_table
+                        time:   [1.9526 ms 1.9948 ms 2.0516 ms]
+                        change: [+775.44% +798.00% +820.76%] (p = 0.00 < 0.05)
+                        Performance has regressed.
+Found 4 outliers among 60 measurements (6.67%)
+  2 (3.33%) high mild
+  2 (3.33%) high severe
+```
 
 ## Generating Benchmarks
 
-To generate new benchmarks, simply run the relevant Bash script:
-
-```bash
-./benchmark-<SYSTEM-TO-BENCHMARK>.sh
-```
-
-The results of the benchmarks will be written to a `.csv` file in the `out/` folder.
+Data is generated and benchmarks are run with the [cargo-paradedb](/cargo-paradedb/README.md) tool.

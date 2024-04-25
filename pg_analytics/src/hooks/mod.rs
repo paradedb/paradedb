@@ -9,14 +9,11 @@ mod select;
 mod truncate;
 
 use async_std::task;
-use deltalake::datafusion::logical_expr::{col, lit};
-use deltalake::operations::delete::DeleteBuilder;
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::session::Session;
 use crate::datafusion::table::{
-    DELETE_ON_PRECOMMIT_CACHE, DROP_ON_ABORT_CACHE, DROP_ON_PRECOMMIT_CACHE, RESERVED_XMAX_FIELD,
+    DELETE_ON_PRECOMMIT_CACHE, DROP_ON_ABORT_CACHE, DROP_ON_PRECOMMIT_CACHE,
 };
 use crate::datafusion::writer::Writer;
 
@@ -126,34 +123,6 @@ impl hooks::PgHooks for ParadeHook {
         task::block_on(Writer::commit()).unwrap_or_else(|err| {
             panic!("{}", err);
         });
-
-        // Commit all pending deletes
-        let mut delete_cache = task::block_on(DELETE_ON_PRECOMMIT_CACHE.lock());
-
-        for (table_path, schema_name) in delete_cache.drain() {
-            Session::with_tables(&schema_name, |mut tables| {
-                Box::pin(async move {
-                    let delta_table = tables.get_owned(&table_path).await?;
-
-                    DeleteBuilder::new(
-                        delta_table.log_store(),
-                        delta_table
-                            .state
-                            .expect("DeleteBuilder could not find delta table state"),
-                    )
-                    .with_predicate(
-                        col(RESERVED_XMAX_FIELD)
-                            .eq(lit(unsafe { pg_sys::GetCurrentTransactionId() } as i64)),
-                    )
-                    .await?;
-
-                    Ok(())
-                })
-            })
-            .unwrap_or_else(|err| {
-                warning!("{}", err);
-            });
-        }
 
         // Physically delete all dropped tables
         let mut drop_on_precommit_cache = task::block_on(DROP_ON_PRECOMMIT_CACHE.lock());

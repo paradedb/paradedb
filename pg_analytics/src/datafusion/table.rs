@@ -26,6 +26,7 @@ use deltalake::operations::vacuum::VacuumBuilder;
 use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
 use deltalake::DeltaTable;
 use once_cell::sync::Lazy;
+use pgrx::pg_sys::CommandId;
 use pgrx::*;
 use std::any::Any;
 use std::collections::{
@@ -45,6 +46,8 @@ use crate::types::datatype::{ArrowDataType, DataTypeError, PgAttribute, PgTypeMo
 pub static RESERVED_TID_FIELD: &str = "parade_ctid";
 pub static RESERVED_XMIN_FIELD: &str = "parade_xmin";
 pub static RESERVED_XMAX_FIELD: &str = "parade_xmax";
+pub static RESERVED_CMIN_FIELD: &str = "parade_cmin";
+pub static RESERVED_CMAX_FIELD: &str = "parade_cmax";
 
 const BYTES_IN_MB: i64 = 1_048_576;
 
@@ -78,6 +81,8 @@ impl DatafusionTable for PgRelation {
             if attname == RESERVED_TID_FIELD
                 || attname == RESERVED_XMIN_FIELD
                 || attname == RESERVED_XMAX_FIELD
+                || attname == RESERVED_CMIN_FIELD
+                || attname == RESERVED_CMAX_FIELD
             {
                 return Err(DataFusionTableError::ReservedFieldName(attname.to_string()));
             }
@@ -121,6 +126,8 @@ impl DatafusionTable for PgRelation {
                 Field::new(RESERVED_TID_FIELD, DataType::Int64, false),
                 Field::new(RESERVED_XMIN_FIELD, DataType::Int64, false),
                 Field::new(RESERVED_XMAX_FIELD, DataType::Int64, false),
+                Field::new(RESERVED_CMIN_FIELD, DataType::UInt32, false),
+                Field::new(RESERVED_CMAX_FIELD, DataType::UInt32, false),
             ]),
         ])?)
     }
@@ -183,6 +190,7 @@ impl Tables {
 
     pub async fn logical_delete(
         &mut self,
+        cid: CommandId,
         table_path: &Path,
         predicate: Option<Expr>,
     ) -> Result<(DeltaTable, UpdateMetrics), DataFusionTableError> {
@@ -203,6 +211,8 @@ impl Tables {
             RESERVED_XMAX_FIELD,
             lit(unsafe { pg_sys::GetCurrentTransactionId() }),
         );
+
+        update_builder = update_builder.with_update(RESERVED_CMAX_FIELD, lit(cid));
 
         let mut delete_cache = DELETE_ON_PRECOMMIT_CACHE.lock().await;
         delete_cache.insert(table_path.to_path_buf(), self.schema_name.clone());

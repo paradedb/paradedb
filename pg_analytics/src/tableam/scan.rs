@@ -97,6 +97,8 @@ pub async unsafe fn scan_getnextslot(
 
         next_batch.remove_xmin_column()?;
         next_batch.remove_xmax_column()?;
+        next_batch.remove_cmin_column()?;
+        next_batch.remove_cmax_column()?;
 
         let tids = next_batch.remove_tid_column()?;
         let tid_array = tids.as_primitive::<Int64Type>();
@@ -304,7 +306,7 @@ pub extern "C" fn deltalake_scan_sample_next_tuple(
 pub extern "C" fn deltalake_tuple_fetch_row_version(
     rel: pg_sys::Relation,
     tid: pg_sys::ItemPointer,
-    _snapshot: pg_sys::Snapshot,
+    snapshot: pg_sys::Snapshot,
     slot: *mut pg_sys::TupleTableSlot,
 ) -> bool {
     task::block_on(Writer::flush()).unwrap_or_else(|err| {
@@ -312,7 +314,8 @@ pub extern "C" fn deltalake_tuple_fetch_row_version(
     });
 
     unsafe {
-        task::block_on(index_fetch_tuple(rel, slot, tid)).unwrap_or_else(|err| {
+        let cid = (*snapshot).curcid;
+        task::block_on(index_fetch_tuple(cid, rel, slot, tid)).unwrap_or_else(|err| {
             panic!("{}", err);
         })
     }
@@ -363,14 +366,14 @@ pub extern "C" fn deltalake_tuple_lock(
     tid: pg_sys::ItemPointer,
     _snapshot: pg_sys::Snapshot,
     slot: *mut pg_sys::TupleTableSlot,
-    _cid: pg_sys::CommandId,
+    cid: pg_sys::CommandId,
     _mode: pg_sys::LockTupleMode,
     _wait_policy: pg_sys::LockWaitPolicy,
     _flags: pg_sys::uint8,
     _tmfd: *mut pg_sys::TM_FailureData,
 ) -> pg_sys::TM_Result {
     unsafe {
-        task::block_on(index_fetch_tuple(rel, slot, tid)).unwrap_or_else(|err| {
+        task::block_on(index_fetch_tuple(cid, rel, slot, tid)).unwrap_or_else(|err| {
             panic!("{}", err);
         });
     }

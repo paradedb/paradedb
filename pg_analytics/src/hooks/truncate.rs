@@ -70,8 +70,14 @@ pub async unsafe fn truncate(
         Session::with_tables(schema_name, |mut tables| {
             Box::pin(async move {
                 let pg_relation = PgRelation::from_pg(relation);
-                // truncate delete
-                let _ = tables.logical_delete(&table_path, None).await?;
+
+                // We aren't given a cid (command id) in this context, but we still need
+                // to pass one to logical_delete so it can set the cmax of the row...
+                // which will indicate to future commands in this transaction that the row has
+                // been deleted. By setting to 0, we ensure that no matter what the command id
+                // is, future commands in this transaction will see the row as deleted.
+                let cid = 0;
+                let _ = tables.logical_delete(cid, &table_path, None).await?;
 
                 let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
                 let batch = RecordBatch::new_empty(arrow_schema);

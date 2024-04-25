@@ -3,7 +3,8 @@ use async_std::task;
 use core::ffi::c_void;
 use deltalake::datafusion::common::arrow::error::ArrowError;
 use deltalake::datafusion::common::{DataFusionError, ScalarValue};
-use deltalake::datafusion::logical_expr::{col, Expr};
+use deltalake::datafusion::logical_expr::{col, lit};
+use pgrx::pg_sys::{CommandId, InvalidCommandId};
 use pgrx::*;
 use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
@@ -13,7 +14,10 @@ use crate::datafusion::batch::PostgresBatch;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::{PgTableProvider, RESERVED_TID_FIELD};
+use crate::datafusion::table::{
+    PgTableProvider, RESERVED_CMAX_FIELD, RESERVED_CMIN_FIELD, RESERVED_TID_FIELD,
+    RESERVED_XMAX_FIELD, RESERVED_XMIN_FIELD,
+};
 use crate::datafusion::writer::Writer;
 use crate::storage::metadata::{MetadataError, PgMetadata};
 use crate::types::datatype::DataTypeError;
@@ -31,6 +35,7 @@ struct IndexScanDesc {
 
 #[inline]
 pub async unsafe fn index_fetch_tuple(
+    command_id: CommandId,
     rel: pg_sys::Relation,
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
@@ -62,8 +67,59 @@ pub async unsafe fn index_fetch_tuple(
         })
     })?;
 
-    let filtered_dataframe = full_dataframe
-        .filter(col(RESERVED_TID_FIELD).eq(Expr::Literal(ScalarValue::from(row_number))))?;
+    let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
+    let filtered_dataframe = full_dataframe.filter(
+        // Ensure the tuple belongs to the target table (matches row identifier)
+        col(RESERVED_TID_FIELD)
+            .eq(lit(ScalarValue::from(row_number)))
+            .and(
+                // Check if the transaction that created the tuple (xmin) is
+                // earlier or the same as the current transaction
+                col(RESERVED_XMIN_FIELD)
+                    .lt_eq(lit(ScalarValue::from(transaction_id)))
+                    // Further combine with an AND and OR to handle
+                    // the deletion transaction ID (xmax)
+                    .and(
+                        // Check if the deletion transaction ID (xmax)
+                        // is greater than the current transaction
+                        col(RESERVED_XMAX_FIELD)
+                            .gt(lit(ScalarValue::from(transaction_id)))
+                            // Or if the xmax is not set (indicating the tuple has not been deleted)
+                            // it should have been set to 0.
+                            .or(col(RESERVED_XMAX_FIELD).eq(lit(ScalarValue::from(0)))),
+                    ),
+            )
+            .and(
+                // Additional AND condition to apply only if the tuple was
+                // created in the current transaction
+                col(RESERVED_XMIN_FIELD)
+                    .eq(lit(ScalarValue::from(transaction_id)))
+                    .and(
+                        // Check if the command ID that created the tuple (cmin)
+                        // is less than or equal to the current command ID
+                        col(RESERVED_CMIN_FIELD)
+                            .lt_eq(lit(ScalarValue::from(command_id)))
+                            .and(
+                                // Check if the command ID that deleted the tuple (cmax)
+                                // is greater than the current command ID
+                                col(RESERVED_CMAX_FIELD)
+                                    .gt(lit(ScalarValue::from(command_id)))
+                                    // Or if cmax is not set, indicating the tuple has not been
+                                    // deleted within this transaction. It should have been set to the
+                                    // InvalidCommandId constant.
+                                    .or(col(RESERVED_CMAX_FIELD)
+                                        .eq(lit(ScalarValue::from(InvalidCommandId)))),
+                            ),
+                    )
+                    // This OR condition allows inclusion of tuples not created by the
+                    // current transaction but still meet other visibility rules
+                    .or(
+                        // If the tuple's creation transaction ID (xmin) is not equal to the current
+                        // transaction, it's included based on the visibility rules
+                        col(RESERVED_XMIN_FIELD).not_eq(lit(ScalarValue::from(transaction_id))),
+                    ),
+            ),
+    )?;
 
     match filtered_dataframe.collect().await? {
         batches if batches.is_empty() => Ok(false),
@@ -80,6 +136,8 @@ pub async unsafe fn index_fetch_tuple(
             batch.remove_tid_column()?;
             batch.remove_xmin_column()?;
             batch.remove_xmax_column()?;
+            batch.remove_cmin_column()?;
+            batch.remove_cmax_column()?;
 
             for col_index in 0..batch.num_columns() {
                 let attribute = tuple_desc
@@ -284,7 +342,8 @@ pub extern "C" fn deltalake_index_fetch_tuple(
             panic!("{}", err);
         });
 
-        task::block_on(index_fetch_tuple(rel, slot, tid)).unwrap_or_else(|err| {
+        let cid = (*snapshot).curcid;
+        task::block_on(index_fetch_tuple(cid, rel, slot, tid)).unwrap_or_else(|err| {
             panic!("{}", err);
         })
     }

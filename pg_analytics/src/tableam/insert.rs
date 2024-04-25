@@ -1,10 +1,12 @@
 use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;
+use deltalake::arrow::array::UInt32Array;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
 use once_cell::sync::Lazy;
+use pgrx::pg_sys::InvalidCommandId;
 use pgrx::*;
 use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
@@ -36,13 +38,13 @@ pub extern "C" fn deltalake_slot_callbacks(
 pub extern "C" fn deltalake_tuple_insert(
     rel: pg_sys::Relation,
     slot: *mut pg_sys::TupleTableSlot,
-    _cid: pg_sys::CommandId,
+    cid: pg_sys::CommandId,
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
     let mut mut_slot = slot;
     unsafe {
-        task::block_on(insert_tuples(rel, &mut mut_slot, 1)).unwrap_or_else(|err| {
+        task::block_on(insert_tuples(cid, rel, &mut mut_slot, 1)).unwrap_or_else(|err| {
             panic!("{}", err);
         });
     }
@@ -53,12 +55,12 @@ pub extern "C" fn deltalake_multi_insert(
     rel: pg_sys::Relation,
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: c_int,
-    _cid: pg_sys::CommandId,
+    cid: pg_sys::CommandId,
     _options: c_int,
     _bistate: *mut pg_sys::BulkInsertStateData,
 ) {
     unsafe {
-        task::block_on(insert_tuples(rel, slots, nslots as usize)).unwrap_or_else(|err| {
+        task::block_on(insert_tuples(cid, rel, slots, nslots as usize)).unwrap_or_else(|err| {
             panic!("{}", err);
         });
     }
@@ -88,6 +90,7 @@ pub extern "C" fn deltalake_tuple_insert_speculative(
 
 #[inline]
 async unsafe fn insert_tuples(
+    cid: pg_sys::CommandId,
     rel: pg_sys::Relation,
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
@@ -161,6 +164,17 @@ async unsafe fn insert_tuples(
     // Assign xmax to each row
     let xmaxs: Vec<i64> = vec![0; nslots];
     column_values.push(Arc::new(Int64Array::from(xmaxs)));
+
+    // Assign cmin to each row
+    let cmins: Vec<u32> = vec![cid; nslots];
+    column_values.push(Arc::new(UInt32Array::from(cmins)));
+
+    // Assign cmax to each row
+    // The InvalidCommandId is the constant that Postgres uses for a default cmax value
+    let cmaxs: Vec<u32> = vec![InvalidCommandId; nslots];
+    column_values.push(Arc::new(UInt32Array::from(cmaxs)));
+
+    let _invalid = InvalidCommandId;
 
     let schema_name = pg_relation.namespace().to_string();
     let table_path = pg_relation.table_path()?;

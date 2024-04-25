@@ -18,6 +18,7 @@ fn delete_simple(mut conn: PgConnection) {
 fn delete_with_cte(mut conn: PgConnection) {
     UserSessionLogsTable::setup_parquet().execute(&mut conn);
 
+    // Select the count of deleted rows
     match "WITH d AS (DELETE FROM user_session_logs WHERE id > 0 RETURNING *) SELECT COUNT(*) FROM d".execute_result(&mut conn) {
         Err(err) => assert_eq!(err.to_string(), "error returned from database: DELETE is not currently supported because Parquet tables are append only."),
         _ => panic!("DELETE should not be supported"),
@@ -50,10 +51,7 @@ fn federated_delete(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-    match "DELETE FROM u WHERE name IN (SELECT name FROM v)".execute_result(&mut conn) {
-        Err(err) => assert!(err
-            .to_string()
-            .contains("DELETE is not currently supported")),
-        _ => panic!("Federated DML should not be supported"),
-    };
+    "DELETE FROM u WHERE name IN (SELECT name FROM v)".execute(&mut conn);
+    let rows: Vec<(String, i32)> = "SELECT name, age FROM u".fetch(&mut conn);
+    assert_eq!(rows, vec![("Charlie".into(), 103), ("David".into(), 101)]);
 }

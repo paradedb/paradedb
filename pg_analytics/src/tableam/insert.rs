@@ -1,13 +1,9 @@
-use async_std::sync::Mutex;
 use async_std::task;
-use core::ffi::{c_int, c_void};
+use core::ffi::c_int;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
-use once_cell::sync::Lazy;
-use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 

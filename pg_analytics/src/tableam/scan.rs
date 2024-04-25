@@ -4,11 +4,8 @@ use core::ffi::c_int;
 use deltalake::arrow::datatypes::Int64Type;
 use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBatch};
 use deltalake::datafusion::common::arrow::error::ArrowError;
-use once_cell::sync::Lazy;
-use pgrx::pg_sys::AsPgCStr;
 use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
-use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 

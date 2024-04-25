@@ -60,7 +60,7 @@ async fn scan_begin(
     }
 }
 
-fn oid_needs_free(oid: pg_sys::PgOid) -> bool {
+fn oid_needs_datum_free(oid: pg_sys::PgOid) -> bool {
     match oid {
         PgOid::BuiltIn(builtin) => match builtin {
             TEXTOID | VARCHAROID | BPCHAROID => true,
@@ -154,7 +154,7 @@ pub async unsafe fn scan_getnextslot(
                 attribute.type_oid(),
                 attribute.type_mod(),
             )? {
-                if oid_needs_free(attribute.type_oid()) {
+                if oid_needs_datum_free(attribute.type_oid()) {
                     free_datums.push(datum);
                 }
                 *tts_value = datum;

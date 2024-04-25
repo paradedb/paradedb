@@ -90,8 +90,6 @@ async unsafe fn insert_tuples(
     let tuple_desc = pg_relation.tuple_desc();
     let mut column_values: Vec<ArrayRef> = vec![];
 
-    // let mut array_ref_details_vec = vec![];
-
     // Convert the TupleTableSlots into DataFusion arrays
     for (col_idx, attr) in tuple_desc.iter().enumerate() {
         column_values.push(

@@ -8,6 +8,7 @@ use deltalake::arrow::datatypes::{
 };
 use deltalake::datafusion::arrow::datatypes::DataType::*;
 use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
+use deltalake::datafusion::common::{downcast_value, DataFusionError};
 use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
 use std::fmt::Debug;
@@ -19,38 +20,21 @@ use super::numeric::{PgNumeric, PgNumericTypeMod, PgPrecision, PgScale};
 use super::time::NanosecondDay;
 use super::timestamp::{MicrosecondUnix, MillisecondUnix, SecondUnix};
 
-pub trait GetDatumGeneric
-where
-    Self: Array + AsArray,
-{
-    fn get_generic_datum<A>(&self, index: usize) -> Result<Option<pg_sys::Datum>, DatumError>
-    where
-        A: Array + Debug + 'static,
-        for<'a> &'a A: ArrayAccessor + IntoIterator,
-        for<'a> <&'a A as IntoIterator>::Item: IntoDatum,
-    {
-        let value = self
-            .as_any()
-            .downcast_ref::<A>()
-            .ok_or(DatumError::DowncastGenericArray(format!("{:?}", self)))?
-            .into_iter()
-            .nth(index);
-
-        Ok(value.into_datum())
-    }
-}
-
 pub trait GetDatumPrimitive
 where
     Self: Array + AsArray,
 {
     fn get_primitive_datum<A>(&self, index: usize) -> Result<Option<pg_sys::Datum>, DatumError>
     where
-        A: ArrowPrimitiveType,
-        A::Native: IntoDatum,
+        A: Array + Debug + 'static,
+        for<'a> &'a A: ArrayAccessor + IntoIterator,
+        for<'a> <&'a A as ArrayAccessor>::Item: IntoDatum,
     {
-        let value = self.as_primitive::<A>().iter().nth(index);
-        Ok(value.into_datum())
+        let downcast_array = downcast_value!(self, A);
+        match downcast_array.is_null(index) {
+            false => Ok(downcast_array.value(index).into_datum()),
+            true => Ok(None::<<&A as ArrayAccessor>::Item>.into_datum()),
+        }
     }
 }
 
@@ -227,7 +211,6 @@ where
     Self: Array
         + AsArray
         + GetDatumDate
-        + GetDatumGeneric
         + GetDatumPrimitive
         + GetDatumPrimitiveList
         + GetDatumNumeric
@@ -246,14 +229,16 @@ where
     ) -> Result<Option<pg_sys::Datum>, DataTypeError> {
         let result = match oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                BOOLOID => self.get_generic_datum::<BooleanArray>(index)?,
-                TEXTOID | VARCHAROID | BPCHAROID => self.get_generic_datum::<StringArray>(index)?,
+                BOOLOID => self.get_primitive_datum::<BooleanArray>(index)?,
+                TEXTOID | VARCHAROID | BPCHAROID => {
+                    self.get_primitive_datum::<StringArray>(index)?
+                }
                 INT2OID | INT4OID | INT8OID | FLOAT4OID | FLOAT8OID => match self.data_type() {
-                    Float32 => self.get_primitive_datum::<Float32Type>(index)?,
-                    Float64 => self.get_primitive_datum::<Float64Type>(index)?,
-                    Int16 => self.get_primitive_datum::<Int16Type>(index)?,
-                    Int32 => self.get_primitive_datum::<Int32Type>(index)?,
-                    Int64 => self.get_primitive_datum::<Int64Type>(index)?,
+                    Float32 => self.get_primitive_datum::<Float32Array>(index)?,
+                    Float64 => self.get_primitive_datum::<Float64Array>(index)?,
+                    Int16 => self.get_primitive_datum::<Int16Array>(index)?,
+                    Int32 => self.get_primitive_datum::<Int32Array>(index)?,
+                    Int64 => self.get_primitive_datum::<Int64Array>(index)?,
                     unsupported => {
                         return Err(DatumError::IntError(unsupported.clone(), oid).into())
                     }
@@ -328,7 +313,6 @@ where
 
 impl GetDatum for ArrayRef {}
 impl GetDatumDate for ArrayRef {}
-impl GetDatumGeneric for ArrayRef {}
 impl GetDatumPrimitive for ArrayRef {}
 impl GetDatumPrimitiveList for ArrayRef {}
 impl GetDatumNumeric for ArrayRef {}
@@ -341,6 +325,9 @@ impl GetDatumUuid for ArrayRef {}
 
 #[derive(Error, Debug)]
 pub enum DatumError {
+    #[error(transparent)]
+    DataFusion(#[from] DataFusionError),
+
     #[error(transparent)]
     UuidError(#[from] uuid::Error),
 

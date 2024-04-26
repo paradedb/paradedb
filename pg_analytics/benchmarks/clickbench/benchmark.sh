@@ -75,7 +75,7 @@ download_and_verify() {
 
   # Check if the file already exists and verify its checksum
   if [ -e "$filename" ]; then
-    if echo "$checksum  $filename" | md5sum -c --status; then
+    if echo "$checksum $filename" | md5sum -c --status; then
       echo "Dataset '$filename' already exists and is verified, skipping download..."
       return
     else
@@ -111,8 +111,8 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg POSTGRESQL_PASSWORD=mypassword \
     --build-arg POSTGRESQL_DATABASE=mydatabase \
     --build-arg POSTGRESQL_POSTGRES_PASSWORD=postgres \
-    --file "../../docker/Dockerfile" \
-    "../../"
+    --file "../../../docker/Dockerfile" \
+    "../../../"
   echo ""
 fi
 
@@ -146,12 +146,22 @@ echo "Running queries..."
 
 echo ""
 echo "Printing disk usage..."
-sudo docker exec paradedb du -bcs /bitnami/postgresql/data
+OS=$(uname)
+if [ "$OS" == "Linux" ]; then
+  sudo docker exec paradedb du -bcs /bitnami/postgresql/data
+else
+  docker exec paradedb du -bcs /bitnami/postgresql/data
+fi
 
 echo ""
 echo "Printing results..."
-grep -oP 'Time: \d+\.\d+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
-awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
+if [ "$OS" == "Linux" ]; then
+  grep -oP 'Time: \d+\.\d+ ms' log.txt | sed -r -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
+  awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
+else
+  grep -E -o 'Time: [0-9]+\.[0-9]+ ms' log.txt | sed -E -e 's/Time: ([0-9]+\.[0-9]+) ms/\1/' |
+  awk '{ if (i % 3 == 0) { printf "[" }; printf $1 / 1000; if (i % 3 != 2) { printf "," } else { print "]," }; ++i; }'
+fi
 
 echo ""
 echo "Benchmark complete!"

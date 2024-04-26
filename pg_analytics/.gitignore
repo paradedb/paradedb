@@ -9,7 +9,7 @@ Cargo.lock
 target/
 
 # Rustfmt
-**/*.rs.bk
+*.rs.bk
 
 # Code Coverage
 *.profraw
@@ -19,10 +19,14 @@ target/
 *.log
 
 # Benchmarks
-*.tsv
-*.tsv.gz
 *.csv
 *.csv.gz
+*.tbl
+*.tsv
+*.tsv.gz
+*.zip
+__MACOSX/
+TPC-H_V*/
 
 # Tests
 regression.*

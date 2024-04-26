@@ -3,103 +3,82 @@ use datafusion::arrow::array::{
     Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, StringArray,
 };
 use datafusion::arrow::datatypes::DataType;
-use datafusion::common::{DataFusionError, downcast_value};
+use datafusion::common::{downcast_value, DataFusionError};
 use pgrx::*;
-use supabase_wrappers::interface::Cell;
 use std::fmt::Debug;
+use supabase_wrappers::interface::Cell;
 use thiserror::Error;
 
 pub trait GetPrimitiveValue
 where
-    Self: Array + Debug + 'static,
+    Self: Array + AsArray,
 {
-    fn get_primitive_value<T>(&self, index: usize) -> Result<Option<T>, DataTypeError>
-    where 
-        T: Debug,
+    fn get_primitive_value<A>(
+        &self,
+        index: usize,
+    ) -> Result<Option<<&A as ArrayAccessor>::Item>, DataTypeError>
+    where
+        A: Array + Debug + 'static,
+        for<'a> &'a A: ArrayAccessor,
     {
-        let (buffer, nulls) = self.into_parts();
-
-        let is_null = match nulls {
-            Some(nulls) => nulls.is_null(index),
-            None => false,
-        };
-
-        match is_null
-        {
-            false => Some(buffer.value(index)),
-            true => None,
+        let downcast_array = downcast_value!(self, A);
+        match downcast_array.is_null(index) {
+            false => Ok(Some(downcast_array.value(index))),
+            true => Ok(None),
         }
     }
 }
 
 pub trait GetCell
 where
-    Self: Array
-        + AsArray
+    Self: Array + AsArray + GetPrimitiveValue,
 {
     fn get_cell(&self, index: usize, oid: pg_sys::Oid) -> Result<Option<Cell>, DataTypeError> {
         match oid {
-            pg_sys::BOOLOID => {
-                match downcast_value!(self, BooleanArray).get_primitive_value::<bool>(index)? {
-                    Some(value) => Ok(Some(Cell::Bool(value))),
-                    None => Ok(None),
-                }
+            pg_sys::BOOLOID => match self.get_primitive_value::<BooleanArray>(index)? {
+                Some(value) => Ok(Some(Cell::Bool(value))),
+                None => Ok(None),
             },
-            pg_sys::INT2OID | pg_sys::INT4OID | pg_sys::INT8OID | pg_sys::FLOAT4OID | pg_sys::FLOAT8OID => {
-                match self.data_type() {
-                    DataType::Int16 => {
-                        match downcast_value!(self, Int16Array).get_primitive_value::<i16>(index)? {
-                            Some(value) => Ok(Some(Cell::I16(value))),
-                            None => Ok(None),
-                        }
-                    },
-                    DataType::Int32 => {
-                        match downcast_value!(self, Int32Array).get_primitive_value::<i32>(index)? {
-                            Some(value) => Ok(Some(Cell::I32(value))),
-                            None => Ok(None),
-                        }
-                    },
-                    DataType::Int64 => {
-                        match downcast_value!(self, Int64Array).get_primitive_value::<i64>(index)? {
-                            Some(value) => Ok(Some(Cell::I64(value))),
-                            None => Ok(None),
-                        }
-                    },
-                    DataType::Float32 => {
-                        match downcast_value!(self, Float32Array).get_primitive_value::<f32>(index)? {
-                            Some(value) => Ok(Some(Cell::F32(value))),
-                            None => Ok(None),
-                        }
-                    },
-                    DataType::Float64 => {
-                        match downcast_value!(self, Float64Array).get_primitive_value::<f64>(index)? {
-                            Some(value) => Ok(Some(Cell::F64(value))),
-                            None => Ok(None),
-                        }
-                    },
-                    unsupported => Err(DataTypeError::DataTypeMismatch(unsupported, oid)),
-                }
+            pg_sys::INT2OID
+            | pg_sys::INT4OID
+            | pg_sys::INT8OID
+            | pg_sys::FLOAT4OID
+            | pg_sys::FLOAT8OID => match self.data_type() {
+                DataType::Int16 => match self.get_primitive_value::<Int16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value))),
+                    None => Ok(None),
+                },
+                DataType::Int32 => match self.get_primitive_value::<Int32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value))),
+                    None => Ok(None),
+                },
+                DataType::Int64 => match self.get_primitive_value::<Int64Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value))),
+                    None => Ok(None),
+                },
+                DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value))),
+                    None => Ok(None),
+                },
+                DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value))),
+                    None => Ok(None),
+                },
+                unsupported => Err(DataTypeError::DataTypeMismatch(unsupported.clone(), oid)),
             },
             pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::BPCHAROID => {
-                match downcast_value!(self, StringArray).get_primitive_value::<&str>(index)? {
+                match self.get_primitive_value::<StringArray>(index)? {
                     Some(value) => Ok(Some(Cell::String(value.to_string()))),
                     None => Ok(None),
                 }
-            },
-            unsupported => Err(DataTypeError::UnsupportedPostgresType(unsupported)),
+            }
+            unsupported => Err(DataTypeError::UnsupportedPostgresType(unsupported.clone())),
         }
     }
-
 }
 
 impl GetCell for ArrayRef {}
-impl GetPrimitiveValue for BooleanArray {}
-impl GetPrimitiveValue for Int16Array {}
-impl GetPrimitiveValue for Int32Array {}
-impl GetPrimitiveValue for Int64Array {}
-impl GetPrimitiveValue for Float32Array {}
-impl GetPrimitiveValue for Float64Array {}
-impl GetPrimitiveValue for StringArray {}
+impl GetPrimitiveValue for ArrayRef {}
 
 #[derive(Error, Debug)]
 pub enum DataTypeError {

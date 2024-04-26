@@ -7,6 +7,9 @@ members = [
     "shared",
     "tokenizers",
 ]
+exclude = [
+    "pg_lakehouse",
+]
 
 [profile.dev]
 panic = "unwind"

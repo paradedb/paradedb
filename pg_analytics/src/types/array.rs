@@ -36,7 +36,7 @@ unsafe fn convert_varlena_to_str_memoized<'a>(
             if bytes.is_ascii() {
                 Ok(core::str::from_utf8_unchecked(bytes))
             } else {
-                return Err(DataTypeError::InvalidUTF8);
+                Err(DataTypeError::InvalidUTF8)
             }
         }
         _ => varlena::text_to_rust_str(varlena).map_err(|_| DataTypeError::InvalidUTF8),
@@ -78,7 +78,7 @@ where
                     } else {
                         <&'a str>::from_datum(datum, false)
                     };
-                    ret.and_then(|ret_str| Some(ret_str.to_owned()))
+                    ret.map(|ret_str| ret_str.to_owned())
                 })
             })
             .collect::<Vec<Option<String>>>();

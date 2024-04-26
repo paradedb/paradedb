@@ -59,14 +59,22 @@ async fn scan_begin(
 
 fn oid_needs_datum_free(oid: pg_sys::PgOid) -> bool {
     match oid {
-        PgOid::BuiltIn(builtin) => match builtin {
-            TEXTOID | VARCHAROID | BPCHAROID => true,
-            BOOLARRAYOID => true,
-            TEXTARRAYOID | VARCHARARRAYOID | BPCHARARRAYOID => true,
-            INT2ARRAYOID | INT4ARRAYOID | INT8ARRAYOID | FLOAT4ARRAYOID | FLOAT8ARRAYOID => true,
-            DATEARRAYOID => true,
-            _ => false,
-        },
+        PgOid::BuiltIn(builtin) => matches!(
+            builtin,
+            TEXTOID
+                | VARCHAROID
+                | BPCHAROID
+                | BOOLARRAYOID
+                | TEXTARRAYOID
+                | VARCHARARRAYOID
+                | BPCHARARRAYOID
+                | INT2ARRAYOID
+                | INT4ARRAYOID
+                | INT8ARRAYOID
+                | FLOAT4ARRAYOID
+                | FLOAT8ARRAYOID
+                | DATEARRAYOID
+        ),
         _ => false,
     }
 }

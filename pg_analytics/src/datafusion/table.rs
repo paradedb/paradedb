@@ -16,6 +16,7 @@ use deltalake::datafusion::logical_expr::{
     col, lit, Expr, LogicalPlan, LogicalPlanBuilder, TableProviderFilterPushDown, TableType,
 };
 use deltalake::datafusion::physical_plan::ExecutionPlan;
+use deltalake::datafusion::scalar::ScalarValue;
 use deltalake::datafusion::sql::TableReference;
 use deltalake::errors::DeltaTableError;
 use deltalake::kernel::Schema as DeltaSchema;
@@ -26,7 +27,7 @@ use deltalake::operations::vacuum::VacuumBuilder;
 use deltalake::writer::{DeltaWriter as DeltaWriterTrait, RecordBatchWriter, WriteMode};
 use deltalake::DeltaTable;
 use once_cell::sync::Lazy;
-use pgrx::pg_sys::CommandId;
+use pgrx::pg_sys::{CommandId, InvalidCommandId, SnapshotType, SnapshotType_SNAPSHOT_ANY};
 use pgrx::*;
 use std::any::Any;
 use std::collections::{
@@ -50,9 +51,6 @@ pub static RESERVED_CMIN_FIELD: &str = "parade_cmin";
 pub static RESERVED_CMAX_FIELD: &str = "parade_cmax";
 
 const BYTES_IN_MB: i64 = 1_048_576;
-
-pub static DELETE_ON_PRECOMMIT_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, String>>>> =
-    Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 pub static DROP_ON_PRECOMMIT_CACHE: Lazy<Arc<Mutex<HashMap<PathBuf, String>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
@@ -126,8 +124,8 @@ impl DatafusionTable for PgRelation {
                 Field::new(RESERVED_TID_FIELD, DataType::Int64, false),
                 Field::new(RESERVED_XMIN_FIELD, DataType::Int64, false),
                 Field::new(RESERVED_XMAX_FIELD, DataType::Int64, false),
-                Field::new(RESERVED_CMIN_FIELD, DataType::UInt32, false),
-                Field::new(RESERVED_CMAX_FIELD, DataType::UInt32, false),
+                Field::new(RESERVED_CMIN_FIELD, DataType::Int64, false),
+                Field::new(RESERVED_CMAX_FIELD, DataType::Int64, false),
             ]),
         ])?)
     }
@@ -213,9 +211,6 @@ impl Tables {
         );
 
         update_builder = update_builder.with_update(RESERVED_CMAX_FIELD, lit(cid));
-
-        let mut delete_cache = DELETE_ON_PRECOMMIT_CACHE.lock().await;
-        delete_cache.insert(table_path.to_path_buf(), self.schema_name.clone());
 
         Ok(update_builder.await?)
     }
@@ -332,34 +327,10 @@ impl PgTableProvider {
             Box::pin(async move { Ok(context.read_table(listing_provider.clone())?) })
         })?;
 
-        let uncommitted_inserts = all_tuples.filter(
-            col(RESERVED_XMIN_FIELD).eq(lit(unsafe { pg_sys::GetCurrentTransactionId() })),
-        )?;
-
-        let reference = TableReference::full(
-            Session::catalog_name()?,
-            schema_name.to_string(),
-            table_name.to_string(),
-        );
-
-        let table_scan = LogicalPlanBuilder::scan(
-            reference,
-            provider_as_source(Arc::new(table.clone()) as Arc<dyn TableProvider>),
-            None,
-        )?
-        .build()?;
-
-        let committed_inserts = DataFrame::new(state, table_scan);
-        let dataframe = committed_inserts
-            .filter(
-                col(RESERVED_XMAX_FIELD).not_eq(lit(unsafe { pg_sys::GetCurrentTransactionId() })),
-            )?
-            .union(uncommitted_inserts)?;
-
         Ok(Self {
             table,
-            dataframe: dataframe.clone(),
-            plan: Some(dataframe.logical_plan().clone()),
+            dataframe: all_tuples.clone(),
+            plan: Some(all_tuples.logical_plan().clone()),
         })
     }
 
@@ -414,6 +385,61 @@ impl TableProvider for PgTableProvider {
     fn statistics(&self) -> Option<Statistics> {
         self.table.statistics()
     }
+}
+
+pub fn filter_reserved_expr(
+    snapshot_type: SnapshotType,
+    transaction_id: i64,
+    command_id: CommandId,
+) -> Expr {
+    if snapshot_type == SnapshotType_SNAPSHOT_ANY {
+        return lit(true); // Match all tuples with SNAPSHOT_ANY
+    }
+    // Check if the transaction that created the tuple (xmin) is
+    // earlier or the same as the current transaction
+    col(RESERVED_XMIN_FIELD)
+        .lt_eq(lit(ScalarValue::from(transaction_id)))
+        // Further combine with an AND and OR to handle
+        // the deletion transaction ID (xmax)
+        .and(
+            // Check if the deletion transaction ID (xmax)
+            // is greater than the current transaction
+            col(RESERVED_XMAX_FIELD)
+                .gt(lit(ScalarValue::from(transaction_id)))
+                // Or if the xmax is not set (indicating the tuple has not been deleted)
+                // it should have been set to 0.
+                .or(col(RESERVED_XMAX_FIELD).eq(lit(ScalarValue::from(0)))),
+        )
+        .and(
+            // Additional AND condition to apply only if the tuple was
+            // created in the current transaction
+            col(RESERVED_XMIN_FIELD)
+                .eq(lit(ScalarValue::from(transaction_id)))
+                .and(
+                    // Check if the command ID that created the tuple (cmin)
+                    // is less than or equal to the current command ID
+                    col(RESERVED_CMIN_FIELD)
+                        .lt_eq(lit(ScalarValue::from(command_id as i64)))
+                        .and(
+                            // Check if the command ID that deleted the tuple (cmax)
+                            // is greater than the current command ID
+                            col(RESERVED_CMAX_FIELD)
+                                .gt(lit(ScalarValue::from(command_id as i64)))
+                                // Or if cmax is not set, indicating the tuple has not been
+                                // deleted within this transaction. It should have been set to the
+                                // InvalidCommandId constant.
+                                .or(col(RESERVED_CMAX_FIELD)
+                                    .eq(lit(ScalarValue::from(InvalidCommandId as i64)))),
+                        ),
+                )
+                // This OR condition allows inclusion of tuples not created by the
+                // current transaction but still meet other visibility rules
+                .or(
+                    // If the tuple's creation transaction ID (xmin) is not equal to the current
+                    // transaction, it's included based on the visibility rules
+                    col(RESERVED_XMIN_FIELD).not_eq(lit(ScalarValue::from(transaction_id))),
+                ),
+        )
 }
 
 #[derive(Error, Debug)]

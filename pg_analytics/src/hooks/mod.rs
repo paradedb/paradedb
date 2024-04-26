@@ -12,9 +12,7 @@ use async_std::task;
 use pgrx::*;
 use std::ffi::CStr;
 
-use crate::datafusion::table::{
-    DELETE_ON_PRECOMMIT_CACHE, DROP_ON_ABORT_CACHE, DROP_ON_PRECOMMIT_CACHE,
-};
+use crate::datafusion::table::{DROP_ON_ABORT_CACHE, DROP_ON_PRECOMMIT_CACHE};
 use crate::datafusion::writer::Writer;
 
 pub struct ParadeHook;
@@ -95,10 +93,6 @@ impl hooks::PgHooks for ParadeHook {
         task::block_on(Writer::clear_all()).unwrap_or_else(|err| {
             warning!("{}", err);
         });
-
-        // Clear all pending deletes
-        let mut delete_cache = task::block_on(DELETE_ON_PRECOMMIT_CACHE.lock());
-        delete_cache.clear();
 
         // Clear all pending drops
         let mut drop_on_precommit_cache = task::block_on(DROP_ON_PRECOMMIT_CACHE.lock());

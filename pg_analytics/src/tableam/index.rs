@@ -2,9 +2,10 @@ use crate::storage::tid::{BlockNumber, RowNumber, TIDError};
 use async_std::task;
 use core::ffi::c_void;
 use deltalake::datafusion::common::arrow::error::ArrowError;
-use deltalake::datafusion::common::{DataFusionError, ScalarValue};
+use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::logical_expr::{col, lit};
-use pgrx::pg_sys::{CommandId, InvalidCommandId};
+use deltalake::datafusion::scalar::ScalarValue;
+use pgrx::pg_sys::CommandId;
 use pgrx::*;
 use std::mem::size_of;
 use std::ptr::{addr_of_mut, null_mut};
@@ -14,10 +15,7 @@ use crate::datafusion::batch::PostgresBatch;
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::directory::ParadeDirectory;
 use crate::datafusion::session::Session;
-use crate::datafusion::table::{
-    PgTableProvider, RESERVED_CMAX_FIELD, RESERVED_CMIN_FIELD, RESERVED_TID_FIELD,
-    RESERVED_XMAX_FIELD, RESERVED_XMIN_FIELD,
-};
+use crate::datafusion::table::{filter_reserved_expr, PgTableProvider, RESERVED_TID_FIELD};
 use crate::datafusion::writer::Writer;
 use crate::storage::metadata::{MetadataError, PgMetadata};
 use crate::types::datatype::DataTypeError;
@@ -35,7 +33,7 @@ struct IndexScanDesc {
 
 #[inline]
 pub async unsafe fn index_fetch_tuple(
-    command_id: CommandId,
+    snapshot: pg_sys::Snapshot,
     rel: pg_sys::Relation,
     slot: *mut pg_sys::TupleTableSlot,
     tid: pg_sys::ItemPointer,
@@ -67,71 +65,24 @@ pub async unsafe fn index_fetch_tuple(
         })
     })?;
 
+    let snapshot_type = (*snapshot).snapshot_type;
+    let command_id = (*snapshot).curcid as CommandId;
     let transaction_id = unsafe { pg_sys::GetCurrentTransactionId() } as i64;
     let filtered_dataframe = full_dataframe.filter(
         // Ensure the tuple belongs to the target table (matches row identifier)
         col(RESERVED_TID_FIELD)
             .eq(lit(ScalarValue::from(row_number)))
-            .and(
-                // Check if the transaction that created the tuple (xmin) is
-                // earlier or the same as the current transaction
-                col(RESERVED_XMIN_FIELD)
-                    .lt_eq(lit(ScalarValue::from(transaction_id)))
-                    // Further combine with an AND and OR to handle
-                    // the deletion transaction ID (xmax)
-                    .and(
-                        // Check if the deletion transaction ID (xmax)
-                        // is greater than the current transaction
-                        col(RESERVED_XMAX_FIELD)
-                            .gt(lit(ScalarValue::from(transaction_id)))
-                            // Or if the xmax is not set (indicating the tuple has not been deleted)
-                            // it should have been set to 0.
-                            .or(col(RESERVED_XMAX_FIELD).eq(lit(ScalarValue::from(0)))),
-                    ),
-            )
-            .and(
-                // Additional AND condition to apply only if the tuple was
-                // created in the current transaction
-                col(RESERVED_XMIN_FIELD)
-                    .eq(lit(ScalarValue::from(transaction_id)))
-                    .and(
-                        // Check if the command ID that created the tuple (cmin)
-                        // is less than or equal to the current command ID
-                        col(RESERVED_CMIN_FIELD)
-                            .lt_eq(lit(ScalarValue::from(command_id)))
-                            .and(
-                                // Check if the command ID that deleted the tuple (cmax)
-                                // is greater than the current command ID
-                                col(RESERVED_CMAX_FIELD)
-                                    .gt(lit(ScalarValue::from(command_id)))
-                                    // Or if cmax is not set, indicating the tuple has not been
-                                    // deleted within this transaction. It should have been set to the
-                                    // InvalidCommandId constant.
-                                    .or(col(RESERVED_CMAX_FIELD)
-                                        .eq(lit(ScalarValue::from(InvalidCommandId)))),
-                            ),
-                    )
-                    // This OR condition allows inclusion of tuples not created by the
-                    // current transaction but still meet other visibility rules
-                    .or(
-                        // If the tuple's creation transaction ID (xmin) is not equal to the current
-                        // transaction, it's included based on the visibility rules
-                        col(RESERVED_XMIN_FIELD).not_eq(lit(ScalarValue::from(transaction_id))),
-                    ),
-            ),
+            .and(filter_reserved_expr(
+                snapshot_type,
+                transaction_id,
+                command_id,
+            )),
     )?;
 
     match filtered_dataframe.collect().await? {
         batches if batches.is_empty() => Ok(false),
         mut batches if batches.len() == 1 => {
             let batch = &mut batches[0];
-
-            if batch.num_rows() > 1 {
-                return Err(IndexScanError::DuplicateRowNumber(
-                    batch.num_rows(),
-                    row_number,
-                ));
-            }
 
             batch.remove_tid_column()?;
             batch.remove_xmin_column()?;
@@ -342,8 +293,7 @@ pub extern "C" fn deltalake_index_fetch_tuple(
             panic!("{}", err);
         });
 
-        let cid = (*snapshot).curcid;
-        task::block_on(index_fetch_tuple(cid, rel, slot, tid)).unwrap_or_else(|err| {
+        task::block_on(index_fetch_tuple(snapshot, rel, slot, tid)).unwrap_or_else(|err| {
             panic!("{}", err);
         })
     }
@@ -426,7 +376,7 @@ pub enum IndexScanError {
     #[error("Could not find attribute {0} in tuple descriptor")]
     AttributeNotFound(usize),
 
-    #[error("Unexpected index scan error: {0} rows with row number {1} was found")]
+    #[error("Unexpected index scan error: {0} rows with row number {1} were found")]
     DuplicateRowNumber(usize, i64),
 
     #[error("Unexpected index scan error: More than one batch with row number {0} was found")]

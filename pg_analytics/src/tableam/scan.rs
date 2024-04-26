@@ -314,8 +314,7 @@ pub extern "C" fn deltalake_tuple_fetch_row_version(
     });
 
     unsafe {
-        let cid = (*snapshot).curcid;
-        task::block_on(index_fetch_tuple(cid, rel, slot, tid)).unwrap_or_else(|err| {
+        task::block_on(index_fetch_tuple(snapshot, rel, slot, tid)).unwrap_or_else(|err| {
             panic!("{}", err);
         })
     }
@@ -364,16 +363,16 @@ pub extern "C" fn deltalake_tuple_complete_speculative(
 pub extern "C" fn deltalake_tuple_lock(
     rel: pg_sys::Relation,
     tid: pg_sys::ItemPointer,
-    _snapshot: pg_sys::Snapshot,
+    snapshot: pg_sys::Snapshot,
     slot: *mut pg_sys::TupleTableSlot,
-    cid: pg_sys::CommandId,
+    _cid: pg_sys::CommandId,
     _mode: pg_sys::LockTupleMode,
     _wait_policy: pg_sys::LockWaitPolicy,
     _flags: pg_sys::uint8,
     _tmfd: *mut pg_sys::TM_FailureData,
 ) -> pg_sys::TM_Result {
     unsafe {
-        task::block_on(index_fetch_tuple(cid, rel, slot, tid)).unwrap_or_else(|err| {
+        task::block_on(index_fetch_tuple(snapshot, rel, slot, tid)).unwrap_or_else(|err| {
             panic!("{}", err);
         });
     }

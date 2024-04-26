@@ -1,7 +1,6 @@
 use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;
-use deltalake::arrow::array::UInt32Array;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
@@ -166,13 +165,13 @@ async unsafe fn insert_tuples(
     column_values.push(Arc::new(Int64Array::from(xmaxs)));
 
     // Assign cmin to each row
-    let cmins: Vec<u32> = vec![cid; nslots];
-    column_values.push(Arc::new(UInt32Array::from(cmins)));
+    let cmins: Vec<i64> = vec![cid as i64; nslots];
+    column_values.push(Arc::new(Int64Array::from(cmins)));
 
     // Assign cmax to each row
     // The InvalidCommandId is the constant that Postgres uses for a default cmax value
-    let cmaxs: Vec<u32> = vec![InvalidCommandId; nslots];
-    column_values.push(Arc::new(UInt32Array::from(cmaxs)));
+    let cmaxs: Vec<i64> = vec![InvalidCommandId as i64; nslots];
+    column_values.push(Arc::new(Int64Array::from(cmaxs)));
 
     let _invalid = InvalidCommandId;
 

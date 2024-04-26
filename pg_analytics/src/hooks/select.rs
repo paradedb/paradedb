@@ -1,12 +1,14 @@
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::error::ArrowError;
-use deltalake::datafusion::logical_expr::LogicalPlan;
+use deltalake::datafusion::logical_expr::{col, max, JoinType, LogicalPlan};
 use deltalake::datafusion::prelude::SessionContext;
+use pgrx::pg_sys::{CommandId, SnapshotType_SNAPSHOT_MVCC};
 use pgrx::*;
 use thiserror::Error;
 
 use crate::datafusion::catalog::CatalogError;
 use crate::datafusion::session::Session;
+use crate::datafusion::table::{filter_reserved_expr, RESERVED_CMIN_FIELD, RESERVED_TID_FIELD};
 use crate::types::datatype::DataTypeError;
 use crate::types::datum::GetDatum;
 
@@ -71,11 +73,13 @@ pub fn write_batches_to_slots(
 pub fn get_datafusion_batches(
     logical_plan: LogicalPlan,
     single_thread: bool,
+    transaction_id: i64,
+    command_id: CommandId,
 ) -> Result<Vec<RecordBatch>, SelectHookError> {
     // Execute the logical plan and collect the resulting batches
     Ok(Session::with_session_context(|context| {
         Box::pin(async move {
-            let dataframe = if single_thread {
+            let full_dataframe = if single_thread {
                 let config = context.copied_config();
                 SessionContext::new_with_config(config.with_target_partitions(1))
                     .execute_logical_plan(logical_plan)
@@ -83,7 +87,28 @@ pub fn get_datafusion_batches(
             } else {
                 context.execute_logical_plan(logical_plan).await?
             };
-            Ok(dataframe.collect().await?)
+            let filtered_dataframe = full_dataframe.filter(filter_reserved_expr(
+                SnapshotType_SNAPSHOT_MVCC, // Filter out deleted/non-visible rows
+                transaction_id,
+                command_id,
+            ))?;
+
+            // First, we aggregate to find the maximum cmin for each TID
+            let max_cmin_dataframe = filtered_dataframe.clone().aggregate(
+                vec![col(RESERVED_TID_FIELD)],                         // Group by TID
+                vec![max(col(RESERVED_CMIN_FIELD)).alias("max_cmin")], // Find the maximum cmin for each group
+            )?;
+
+            // Then, join this aggregated DataFrame back to the original DataFrame
+            // to get the rows that match the maximum cmin for each TID
+            let joined_df = filtered_dataframe.join(
+                max_cmin_dataframe,
+                JoinType::Inner,       // Use an inner join to filter rows
+                &[RESERVED_TID_FIELD], // Left columns for the join condition
+                &[RESERVED_TID_FIELD], // Right columns for the join condition
+                Some(col(RESERVED_CMIN_FIELD).eq(col("max_cmin"))), // Additional filter to match max cmin
+            )?;
+            Ok(joined_df.collect().await?)
         })
     })?)
 }

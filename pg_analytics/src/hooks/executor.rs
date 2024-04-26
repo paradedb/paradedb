@@ -91,10 +91,16 @@ pub fn executor_run(
                     };
 
                     // Execute SELECT, DELETE, UPDATE
+                    let transaction_id = pg_sys::GetCurrentTransactionId() as i64;
                     match query_desc.operation {
                         pg_sys::CmdType_CMD_SELECT => {
                             let single_thread = logical_plan_details.includes_udf();
-                            match get_datafusion_batches(logical_plan, single_thread) {
+                            match get_datafusion_batches(
+                                logical_plan,
+                                single_thread,
+                                transaction_id,
+                                0,
+                            ) {
                                 Ok(batches) => write_batches_to_slots(query_desc, batches)?,
                                 Err(err) => {
                                     fallback_warning!(err.to_string());

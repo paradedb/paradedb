@@ -10,8 +10,8 @@ use datafusion::arrow::array::{
 };
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::DataFusionError;
 use datafusion::common::downcast_value;
+use datafusion::common::DataFusionError;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
@@ -173,11 +173,16 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
 
     fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, S3FdwError> {
         if self.current_batch.is_none()
-            || self.current_batch.unwrap().num_rows() > self.current_batch_index
+            || self
+                .current_batch
+                .as_ref()
+                .ok_or(S3FdwError::BatchNotFound)?
+                .num_rows()
+                > self.current_batch_index
         {
             self.current_batch_index = 0;
             self.current_batch =
-                match task::block_on(self.stream.ok_or(S3FdwError::StreamNotFound)?.next()) {
+                match task::block_on(self.stream.as_mut().ok_or(S3FdwError::StreamNotFound)?.next()) {
                     Some(Ok(b)) => Some(b),
                     None => None,
                     Some(Err(err)) => {
@@ -190,7 +195,7 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
             }
         }
 
-        let current_batch = self.current_batch.ok_or(S3FdwError::BatchNotFound)?;
+        let current_batch = self.current_batch.as_ref().ok_or(S3FdwError::BatchNotFound)?;
         let current_batch_index = self.current_batch_index;
 
         if current_batch.num_columns() != self.target_columns.len() {
@@ -200,8 +205,8 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
             ));
         }
 
-        for (index, target_column) in self.target_columns.into_iter().enumerate() {
-            let batch_column = current_batch.column(index);            
+        for (index, target_column) in self.target_columns.clone().into_iter().enumerate() {
+            let batch_column = current_batch.column(index);
             let cell = batch_column.get_cell(current_batch_index, target_column.type_oid)?;
             row.push(target_column.name.as_str(), cell);
         }

@@ -14,19 +14,20 @@ impl TryFrom<FileFormat> for ListingOptions {
     fn try_from(format: FileFormat) -> Result<Self, FileFormatError> {
         let FileFormat(format) = format;
 
-        let listing_options =
-            match format.to_lowercase().as_str() {
-                "avro" => ListingOptions::new(Arc::new(AvroFormat::default()))
-                    .with_file_extension(".avro"),
-                "csv" => {
-                    ListingOptions::new(Arc::new(CsvFormat::default())).with_file_extension(".csv")
-                }
-                "json" => ListingOptions::new(Arc::new(JsonFormat::default()))
-                    .with_file_extension(".json"),
-                "parquet" => ListingOptions::new(Arc::new(ParquetFormat::default()))
-                    .with_file_extension(".parquet"),
-                unsupported => return Err(FileFormatError::InvalidFileFormat(unsupported.to_string())),
-            };
+        let listing_options = match format.to_lowercase().as_str() {
+            "avro" => {
+                ListingOptions::new(Arc::new(AvroFormat::default())).with_file_extension(".avro")
+            }
+            "csv" => {
+                ListingOptions::new(Arc::new(CsvFormat::default())).with_file_extension(".csv")
+            }
+            "json" => {
+                ListingOptions::new(Arc::new(JsonFormat::default())).with_file_extension(".json")
+            }
+            "parquet" => ListingOptions::new(Arc::new(ParquetFormat::default()))
+                .with_file_extension(".parquet"),
+            unsupported => return Err(FileFormatError::InvalidFileFormat(unsupported.to_string())),
+        };
 
         Ok(listing_options)
     }
@@ -34,6 +35,6 @@ impl TryFrom<FileFormat> for ListingOptions {
 
 #[derive(Error, Debug)]
 pub enum FileFormatError {
-    #[error("Invalid file format {0}. Options are avro, csv, json, and parquet.")]
+    #[error("Invalid format {0}. Options are avro, csv, json, and parquet.")]
     InvalidFileFormat(String),
 }

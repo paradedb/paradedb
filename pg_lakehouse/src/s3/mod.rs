@@ -1,9 +1,22 @@
 mod format;
 mod options;
+mod types;
 
+use async_std::stream::StreamExt;
 use async_std::task;
+use datafusion::arrow::array::{
+    Array, AsArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
+    Int64Array, StringArray,
+};
+use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::DataFusionError;
-use datafusion::datasource::listing::{ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl};
+use datafusion::common::downcast_value;
+use datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
+use datafusion::datasource::{provider_as_source, TableProvider};
+use datafusion::logical_expr::{col, lit, Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::SessionContext;
 use object_store::aws::AmazonS3Builder;
@@ -16,6 +29,11 @@ use url::Url;
 
 use crate::s3::format::*;
 use crate::s3::options::*;
+use crate::s3::types::*;
+
+// Because the SessionContext is recreated on each scan, we don't need to worry about
+// assigning a unique name to the DataFusion table
+const DEFAULT_TABLE_NAME: &str = "listing_table";
 
 #[wrappers_fdw(
     author = "ParadeDB",
@@ -25,7 +43,10 @@ use crate::s3::options::*;
 
 pub(crate) struct S3Fdw {
     stream: Option<SendableRecordBatchStream>,
+    current_batch: Option<RecordBatch>,
+    current_batch_index: usize,
     context: SessionContext,
+    target_columns: Vec<Column>,
 }
 
 impl From<S3FdwError> for pg_sys::panic::ErrorReport {
@@ -71,7 +92,10 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
             .register_object_store(&Url::parse(&url)?, Arc::new(builder.build()?));
 
         Ok(Self {
+            current_batch: None,
+            current_batch_index: 0,
             stream: None,
+            target_columns: Vec::new(),
             context,
         })
     }
@@ -107,13 +131,14 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
     fn begin_scan(
         &mut self,
         _quals: &[Qual],
-        _columns: &[Column],
+        columns: &[Column],
         _sorts: &[Sort],
-        _limit: &Option<Limit>,
+        limit: &Option<Limit>,
         options: &HashMap<String, String>,
     ) -> Result<(), S3FdwError> {
+        self.target_columns = columns.to_vec();
+
         // Register ListingTable with SessionContext
-        let table_name = require_option(TableOption::Table.as_str(), options)?;
         let table_url = require_option(TableOption::Url.as_str(), options)?;
         let format = require_option(TableOption::Format.as_str(), options)?;
         let listing_url = ListingTableUrl::parse(table_url)?;
@@ -125,16 +150,69 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
         )?;
 
         let listing_table = ListingTable::try_new(listing_config)?;
-        self.context.register_table(table_name, Arc::new(listing_table))?;
+        let provider = Arc::new(listing_table);
+        self.context
+            .register_table(DEFAULT_TABLE_NAME, provider.clone())?;
+
+        // Construct LogicalPlan
+        let mut logical_plan = LogicalPlanBuilder::scan(
+            DEFAULT_TABLE_NAME,
+            provider_as_source(provider as Arc<dyn TableProvider>),
+            Some(columns.iter().map(|c| c.num).collect::<Vec<usize>>()),
+        )?;
+
+        if let Some(limit) = limit {
+            logical_plan = logical_plan.limit(limit.offset as usize, Some(limit.count as usize))?;
+        }
+
+        let dataframe = task::block_on(self.context.execute_logical_plan(logical_plan.build()?))?;
+        self.stream = Some(task::block_on(dataframe.execute_stream())?);
 
         Ok(())
     }
 
-    fn iter_scan(&mut self, _row: &mut Row) -> Result<Option<()>, S3FdwError> {
-        Ok(None)
+    fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, S3FdwError> {
+        if self.current_batch.is_none()
+            || self.current_batch.unwrap().num_rows() > self.current_batch_index
+        {
+            self.current_batch_index = 0;
+            self.current_batch =
+                match task::block_on(self.stream.ok_or(S3FdwError::StreamNotFound)?.next()) {
+                    Some(Ok(b)) => Some(b),
+                    None => None,
+                    Some(Err(err)) => {
+                        return Err(S3FdwError::DataFusionError(err));
+                    }
+                };
+
+            if self.current_batch.is_none() {
+                return Ok(None);
+            }
+        }
+
+        let current_batch = self.current_batch.ok_or(S3FdwError::BatchNotFound)?;
+        let current_batch_index = self.current_batch_index;
+
+        if current_batch.num_columns() != self.target_columns.len() {
+            return Err(S3FdwError::ColumnMismatch(
+                self.target_columns.len(),
+                current_batch.num_columns(),
+            ));
+        }
+
+        for (index, target_column) in self.target_columns.into_iter().enumerate() {
+            let batch_column = current_batch.column(index);            
+            let cell = batch_column.get_cell(current_batch_index, target_column.type_oid)?;
+            row.push(target_column.name.as_str(), cell);
+        }
+
+        self.current_batch_index += 1;
+
+        Ok(Some(()))
     }
 
     fn end_scan(&mut self) -> Result<(), S3FdwError> {
+        self.stream = None;
         Ok(())
     }
 }
@@ -143,6 +221,9 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
 pub enum S3FdwError {
     #[error(transparent)]
     DataFusionError(#[from] DataFusionError),
+
+    #[error(transparent)]
+    DataTypeError(#[from] DataTypeError),
 
     #[error(transparent)]
     FileFormatError(#[from] FileFormatError),
@@ -155,6 +236,15 @@ pub enum S3FdwError {
 
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
+
+    #[error("Unexpected error: Expected RecordBatch but found None")]
+    BatchNotFound,
+
+    #[error("Expected {0} columns but scan returned {1} columns")]
+    ColumnMismatch(usize, usize),
+
+    #[error("Unexpected error: Expected SendableRecordBatchStream but found None")]
+    StreamNotFound,
 
     #[error("Received unsupported FDW oid {0:?}")]
     UnsupportedFdwOid(pg_sys::Oid),

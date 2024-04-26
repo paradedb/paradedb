@@ -10,8 +10,6 @@ pub enum ServerOption {
 
 pub enum TableOption {
     Url,
-    // Tech Debt: Pass Postgres table and schema name directly into begin_scan()
-    Table,
     Format,
 }
 
@@ -58,7 +56,6 @@ impl TableOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Url => "url",
-            Self::Table => "table",
             Self::Format => "format",
         }
     }
@@ -66,12 +63,11 @@ impl TableOption {
     pub fn is_required(&self) -> bool {
         match self {
             Self::Url => true,
-            Self::Table => true,
             Self::Format => true,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Url, Self::Table, Self::Format].into_iter()
+        [Self::Url, Self::Format].into_iter()
     }
 }

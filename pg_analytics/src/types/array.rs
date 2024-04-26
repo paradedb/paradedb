@@ -63,7 +63,7 @@ pub trait IntoStringArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
 {
-    fn into_string_array<'a>(self) -> Result<Vec<Option<String>>, DataTypeError> {
+    fn into_string_array(self) -> Result<Vec<Option<String>>, DataTypeError> {
         let mut palloc_ptrs = vec![];
         let array = self
             .map(|datum| {
@@ -76,7 +76,7 @@ where
                         palloc_ptrs.push(varl);
                         Some(convert_varlena_to_str_memoized(varl).ok()?)
                     } else {
-                        <&'a str>::from_datum(datum, false)
+                        <&str>::from_datum(datum, false)
                     };
                     ret.map(|ret_str| ret_str.to_owned())
                 })

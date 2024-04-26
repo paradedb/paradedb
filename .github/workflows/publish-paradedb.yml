@@ -45,7 +45,7 @@ jobs:
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
             echo "tag=v${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
           fi
-          echo "COMMIT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "COMMIT_SHA=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
       - name: Retrieve Current Date
         id: current_date

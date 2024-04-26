@@ -90,7 +90,7 @@ pub async unsafe fn scan_getnextslot(
     let tuple_desc = pg_relation.tuple_desc();
     let table_name = pg_relation.name();
     let namespace = pg_relation.namespace_raw();
-    let schema_name = namespace.to_str().unwrap();
+    let schema_name = namespace.to_str()?;
     let table_path = pg_relation.table_path()?;
 
     if (*dscan).curr_batch.is_none()
@@ -461,4 +461,7 @@ pub enum TableScanError {
 
     #[error("Unexpected error: No TID found in table scan")]
     TIDNotFound,
+
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
 }

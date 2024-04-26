@@ -21,21 +21,25 @@ use super::timestamp::{MicrosecondUnix, MillisecondUnix, PgTimestampPrecision, S
 type Column<T> = Vec<Option<T>>;
 
 // Copied from pgrx - pulling this out is the only way we could get the varlena pointer before getting the str
-unsafe fn convert_varlena_to_str_memoized<'a>(varlena: *const pg_sys::varlena) -> &'a str {
+// Original function at: https://github.com/paradedb/pgrx/blob/3ce0391e6a90ae8e8f78ec2fa2e2e786de9bab55/pgrx/src/datum/from.rs#L385
+// Match cases at: https://github.com/paradedb/pgrx/blob/3ce0391e6a90ae8e8f78ec2fa2e2e786de9bab55/pgrx/src/lib.rs#L270
+unsafe fn convert_varlena_to_str_memoized<'a>(
+    varlena: *const pg_sys::varlena,
+) -> Result<&'a str, DataTypeError> {
     match pg_sys::GetDatabaseEncoding() as core::ffi::c_uint {
-        pg_sys::pg_enc_PG_UTF8 => varlena::text_to_rust_str_unchecked(varlena),
-        pg_sys::pg_enc_PG_SQL_ASCII => varlena::text_to_rust_str(varlena)
-            .expect("datums converted to &str should be valid UTF-8"),
+        pg_sys::pg_enc_PG_UTF8 => Ok(varlena::text_to_rust_str_unchecked(varlena)),
+        pg_sys::pg_enc_PG_SQL_ASCII => {
+            varlena::text_to_rust_str(varlena).map_err(|_| DataTypeError::InvalidUTF8)
+        }
         1..=41 => {
             let bytes = varlena_to_byte_slice(varlena);
             if bytes.is_ascii() {
-                core::str::from_utf8_unchecked(bytes)
+                Ok(core::str::from_utf8_unchecked(bytes))
             } else {
-                panic!("datums converted to &str should be valid UTF-8, database encoding is only UTF-8 compatible for ASCII")
+                return Err(DataTypeError::InvalidUTF8);
             }
         }
-        _ => varlena::text_to_rust_str(varlena)
-            .expect("datums converted to &str should be valid UTF-8"),
+        _ => varlena::text_to_rust_str(varlena).map_err(|_| DataTypeError::InvalidUTF8),
     }
 }
 
@@ -70,7 +74,7 @@ where
                     {
                         let varl = pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr());
                         palloc_ptrs.push(varl);
-                        Some(convert_varlena_to_str_memoized(varl))
+                        Some(convert_varlena_to_str_memoized(varl).ok()?)
                     } else {
                         <&'a str>::from_datum(datum, false)
                     };

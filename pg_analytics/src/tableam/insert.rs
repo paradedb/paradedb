@@ -143,7 +143,7 @@ async unsafe fn insert_tuples(
     column_values.push(Arc::new(Int64Array::from(xmaxs)));
 
     let namespace = pg_relation.namespace_raw();
-    let schema_name = namespace.to_str().unwrap().to_string();
+    let schema_name = namespace.to_str()?.to_string();
     let table_path = pg_relation.table_path()?;
     let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
 
@@ -182,4 +182,7 @@ pub enum TableInsertError {
 
     #[error("Inserts with ON CONFLICT are not yet supported")]
     SpeculativeInsertNotSupported,
+
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
 }

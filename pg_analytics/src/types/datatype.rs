@@ -143,4 +143,7 @@ pub enum DataTypeError {
 
     #[error("Could not convert arrow array with type {0:?} to Postgres array")]
     UnsupportedArrowArrayType(DataType),
+
+    #[error("Datums converted to &str should be valid UTF-8")]
+    InvalidUTF8,
 }

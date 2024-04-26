@@ -6,6 +6,13 @@
 # Exit on subcommand errors
 set -Eeuo pipefail
 
+# We only pre-configure the database on primary nodes, since replica nodes are read-only
+# and will get the extensions from the replica node via physical replication
+if [ "$POSTGRESQL_REPLICATION_MODE" = "slave" ]; then
+  echo "Skipping ParadeDB bootstrap on replica nodes..."
+  exit 0
+fi
+
 # If no user is set, the default user will be the `postgres` superuser, so we
 # set the superuser password to default to the user password in that case
 SUPERUSER_PASSWORD=${POSTGRESQL_POSTGRES_PASSWORD:-$POSTGRESQL_PASSWORD}

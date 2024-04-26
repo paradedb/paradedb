@@ -1,4 +1,7 @@
+mod format;
+mod options;
 mod s3;
+mod types;
 
 use pgrx::*;
 

@@ -4,19 +4,13 @@ mod types;
 
 use async_std::stream::StreamExt;
 use async_std::task;
-use datafusion::arrow::array::{
-    Array, AsArray, BooleanArray, Date32Array, Float32Array, Float64Array, Int16Array, Int32Array,
-    Int64Array, StringArray,
-};
-use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::downcast_value;
 use datafusion::common::DataFusionError;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::datasource::{provider_as_source, TableProvider};
-use datafusion::logical_expr::{col, lit, Expr, LogicalPlan, LogicalPlanBuilder};
+use datafusion::logical_expr::LogicalPlanBuilder;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::SessionContext;
 use object_store::aws::AmazonS3Builder;
@@ -89,7 +83,7 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
         let context = SessionContext::new();
         context
             .runtime_env()
-            .register_object_store(&Url::parse(&url)?, Arc::new(builder.build()?));
+            .register_object_store(&Url::parse(url)?, Arc::new(builder.build()?));
 
         Ok(Self {
             current_batch: None,
@@ -158,7 +152,7 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
         let mut logical_plan = LogicalPlanBuilder::scan(
             DEFAULT_TABLE_NAME,
             provider_as_source(provider as Arc<dyn TableProvider>),
-            Some(columns.iter().map(|c| c.num).collect::<Vec<usize>>()),
+            Some(columns.iter().map(|c| c.num - 1).collect::<Vec<usize>>()),
         )?;
 
         if let Some(limit) = limit {
@@ -173,29 +167,36 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
 
     fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, S3FdwError> {
         if self.current_batch.is_none()
-            || self
-                .current_batch
-                .as_ref()
-                .ok_or(S3FdwError::BatchNotFound)?
-                .num_rows()
-                > self.current_batch_index
+            || self.current_batch_index
+                >= self
+                    .current_batch
+                    .as_ref()
+                    .ok_or(S3FdwError::BatchNotFound)?
+                    .num_rows()
         {
             self.current_batch_index = 0;
-            self.current_batch =
-                match task::block_on(self.stream.as_mut().ok_or(S3FdwError::StreamNotFound)?.next()) {
-                    Some(Ok(b)) => Some(b),
-                    None => None,
-                    Some(Err(err)) => {
-                        return Err(S3FdwError::DataFusionError(err));
-                    }
-                };
+            self.current_batch = match task::block_on(
+                self.stream
+                    .as_mut()
+                    .ok_or(S3FdwError::StreamNotFound)?
+                    .next(),
+            ) {
+                Some(Ok(b)) => Some(b),
+                None => None,
+                Some(Err(err)) => {
+                    return Err(S3FdwError::DataFusionError(err));
+                }
+            };
 
             if self.current_batch.is_none() {
                 return Ok(None);
             }
         }
 
-        let current_batch = self.current_batch.as_ref().ok_or(S3FdwError::BatchNotFound)?;
+        let current_batch = self
+            .current_batch
+            .as_ref()
+            .ok_or(S3FdwError::BatchNotFound)?;
         let current_batch_index = self.current_batch_index;
 
         if current_batch.num_columns() != self.target_columns.len() {
@@ -205,8 +206,8 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
             ));
         }
 
-        for (index, target_column) in self.target_columns.clone().into_iter().enumerate() {
-            let batch_column = current_batch.column(index);
+        for (column_index, target_column) in self.target_columns.clone().into_iter().enumerate() {
+            let batch_column = current_batch.column(column_index);
             let cell = batch_column.get_cell(current_batch_index, target_column.type_oid)?;
             row.push(target_column.name.as_str(), cell);
         }

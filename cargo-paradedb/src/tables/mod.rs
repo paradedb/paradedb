@@ -37,6 +37,7 @@ impl PathSource for Vec<PathBuf> {
 pub trait PathReader: DeserializeOwned + 'static {
     type Error;
 
+    #[allow(dead_code)]
     fn read_all<S: PathSource>(
         source: S,
     ) -> Result<Box<dyn Iterator<Item = Result<Self, Self::Error>>>, Self::Error>;

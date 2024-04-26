@@ -15,9 +15,7 @@ impl TryFrom<FileFormat> for ListingOptions {
         let FileFormat(format) = format;
 
         let listing_options = match format.to_lowercase().as_str() {
-            "avro" => {
-                ListingOptions::new(Arc::new(AvroFormat::default())).with_file_extension(".avro")
-            }
+            "avro" => ListingOptions::new(Arc::new(AvroFormat)).with_file_extension(".avro"),
             "csv" => {
                 ListingOptions::new(Arc::new(CsvFormat::default())).with_file_extension(".csv")
             }

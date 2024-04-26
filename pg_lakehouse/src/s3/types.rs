@@ -1,6 +1,6 @@
 use datafusion::arrow::array::{
-    Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BooleanArray, Date32Array,
-    Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, StringArray,
+    Array, ArrayAccessor, ArrayRef, AsArray, BooleanArray, Float32Array, Float64Array, Int16Array,
+    Int32Array, Int64Array, StringArray,
 };
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{downcast_value, DataFusionError};
@@ -72,7 +72,9 @@ where
                     None => Ok(None),
                 }
             }
-            unsupported => Err(DataTypeError::UnsupportedPostgresType(unsupported.clone())),
+            unsupported => Err(DataTypeError::UnsupportedPostgresType(PgOid::from(
+                unsupported,
+            ))),
         }
     }
 }
@@ -92,5 +94,5 @@ pub enum DataTypeError {
     DowncastError(),
 
     #[error("Postgres data type {0:?} is not supported")]
-    UnsupportedPostgresType(pg_sys::Oid),
+    UnsupportedPostgresType(PgOid),
 }

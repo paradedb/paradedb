@@ -3,7 +3,7 @@ use deltalake::datafusion::arrow::datatypes::TimeUnit;
 use pgrx::*;
 use thiserror::Error;
 
-use crate::types::datatype::PgTypeMod;
+use super::datatype::PgTypeMod;
 
 const NANOSECONDS_IN_SECOND: i64 = 1_000_000_000;
 const NANOSECONDS_IN_MINUTE: i64 = NANOSECONDS_IN_SECOND * 60;

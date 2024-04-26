@@ -1,0 +1,37 @@
+[package]
+name = "pg_lakehouse"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = ["pg16"]
+pg12 = ["pgrx/pg12", "pgrx-tests/pg12" ]
+pg13 = ["pgrx/pg13", "pgrx-tests/pg13" ]
+pg14 = ["pgrx/pg14", "pgrx-tests/pg14" ]
+pg15 = ["pgrx/pg15", "pgrx-tests/pg15" ]
+pg16 = ["pgrx/pg16", "pgrx-tests/pg16" ]
+pg_test = []
+
+[dependencies]
+async-std = { version = "1.12.0", features = ["tokio1"] }
+datafusion = "37.0.0"
+object_store = { version = "0.9.1", features = ["aws"] }
+pgrx = "0.11.3"
+supabase-wrappers = { git = "https://github.com/supabase/wrappers.git", default-features = false }
+thiserror = "1.0.59"
+url = "2.5.0"
+
+[dev-dependencies]
+pgrx-tests = "0.11.3"
+
+[profile.dev]
+panic = "unwind"
+
+[profile.release]
+panic = "unwind"
+opt-level = 3
+lto = "fat"
+codegen-units = 1

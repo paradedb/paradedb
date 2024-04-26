@@ -1,7 +1,3 @@
-mod format;
-mod options;
-mod types;
-
 use async_std::stream::StreamExt;
 use async_std::task;
 use datafusion::arrow::record_batch::RecordBatch;
@@ -21,9 +17,9 @@ use supabase_wrappers::prelude::*;
 use thiserror::Error;
 use url::Url;
 
-use crate::s3::format::*;
-use crate::s3::options::*;
-use crate::s3::types::*;
+use super::format::*;
+use super::options::*;
+use super::types::*;
 
 // Because the SessionContext is recreated on each scan, we don't need to worry about
 // assigning a unique name to the DataFusion table

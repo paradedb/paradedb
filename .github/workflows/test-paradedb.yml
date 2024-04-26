@@ -14,6 +14,8 @@ on:
       - dev
     paths:
       - "docker/**"
+      - "pg_analytics/src/**"
+      - "pg_search/src/**"
       - ".github/workflows/test-paradedb.yml"
   workflow_dispatch:
 

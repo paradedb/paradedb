@@ -1,6 +1,8 @@
 use async_std::stream::StreamExt;
 use async_std::task;
+use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::arrow::datatypes::{DataType, Field, SchemaBuilder, TimeUnit};
 use datafusion::common::DataFusionError;
 use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
@@ -17,9 +19,9 @@ use supabase_wrappers::prelude::*;
 use thiserror::Error;
 use url::Url;
 
+use super::cell::*;
 use super::format::*;
 use super::options::*;
-use super::types::*;
 
 // Because the SessionContext is recreated on each scan, we don't need to worry about
 // assigning a unique name to the DataFusion table
@@ -133,11 +135,38 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
         let format = require_option(TableOption::Format.as_str(), options)?;
         let listing_url = ListingTableUrl::parse(table_url)?;
         let listing_options = ListingOptions::try_from(FileFormat(format.to_string()))?;
-        let listing_config = task::block_on(
-            ListingTableConfig::new(listing_url)
-                .with_listing_options(listing_options)
-                .infer_schema(&self.context.state()),
-        )?;
+
+        let inferred_schema =
+            task::block_on(listing_options.infer_schema(&self.context.state(), &listing_url))?;
+        let mut schema_builder = SchemaBuilder::new();
+        let columns_map: HashMap<usize, Column> = columns
+            .iter()
+            .cloned()
+            .map(|col| (col.num - 1, col))
+            .collect();
+
+        for (index, field) in inferred_schema.fields().iter().enumerate() {
+            match columns_map.get(&index) {
+                Some(column) => {
+                    // Some types like DATE and TIMESTAMP get incorrectly inferred as
+                    // Int32/Int64, so we need to override them
+                    let data_type = match (column.type_oid, field.data_type()) {
+                        (pg_sys::DATEOID, _) => DataType::Date32,
+                        (pg_sys::TIMESTAMPOID, _) => {
+                            DataType::Timestamp(TimeUnit::Microsecond, None)
+                        }
+                        (_, data_type) => data_type.clone(),
+                    };
+                    schema_builder.push(Field::new(column.name.clone(), data_type, true))
+                }
+                None => schema_builder.push(field.clone()),
+            };
+        }
+
+        let updated_schema = Arc::new(schema_builder.finish());
+        let listing_config = ListingTableConfig::new(listing_url)
+            .with_listing_options(listing_options)
+            .with_schema(updated_schema);
 
         let listing_table = ListingTable::try_new(listing_config)?;
         let provider = Arc::new(listing_table);
@@ -221,6 +250,9 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
 
 #[derive(Error, Debug)]
 pub enum S3FdwError {
+    #[error(transparent)]
+    ArrowError(#[from] ArrowError),
+
     #[error(transparent)]
     DataFusionError(#[from] DataFusionError),
 

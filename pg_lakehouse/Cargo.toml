@@ -17,6 +17,7 @@ pg_test = []
 
 [dependencies]
 async-std = { version = "1.12.0", features = ["tokio1"] }
+chrono = "0.4.38"
 datafusion = "37.0.0"
 object_store = { version = "0.9.1", features = ["aws"] }
 pgrx = "0.11.3"

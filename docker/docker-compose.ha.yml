@@ -13,14 +13,7 @@
 
 services:
   paradedb-primary:
-    # image: paradedb/paradedb:latest
-    build:
-      context: ..
-      dockerfile: ./docker/Dockerfile
-      cache_from:
-        - type=local,src=./.docker_cache_dev
-      cache_to:
-        - type=local,dest=./.docker_cache_dev
+    image: paradedb/paradedb:latest
     container_name: paradedb-primary
     environment:
       POSTGRESQL_USERNAME: myuser
@@ -37,14 +30,7 @@ services:
       - paradedb_primary_data:/bitnami/postgresql
 
   paradedb-replica:
-    # image: paradedb/paradedb:latest
-    build:
-      context: ..
-      dockerfile: ./docker/Dockerfile
-      cache_from:
-        - type=local,src=./.docker_cache_dev
-      cache_to:
-        - type=local,dest=./.docker_cache_dev
+    image: paradedb/paradedb:latest
     container_name: paradedb-replica
     depends_on:
       - paradedb-primary

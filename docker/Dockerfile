@@ -101,20 +101,6 @@ RUN rustup update nightly && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
-# pg_sparse
-######################
-
-FROM builder as builder-pg_sparse
-
-COPY pg_sparse/ /tmp/pg_sparse
-
-# Build the extension
-WORKDIR /tmp/pg_sparse
-RUN echo "trusted = true" >> svector.control && \
-    make clean -j && \
-    make USE_PGXS=1 OPTFLAGS="" -j
-
-######################
 # pgvector
 ######################
 
@@ -163,9 +149,6 @@ COPY --from=builder-pg_cron /tmp/pg_cron/*.control /opt/bitnami/postgresql/share
 COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /opt/bitnami/postgresql/share/extension/
 
 # Copy the ParadeDB extensions from their builder stages
-COPY --from=builder-pg_sparse /tmp/pg_sparse/*.so /opt/bitnami/postgresql/lib/
-COPY --from=builder-pg_sparse /tmp/pg_sparse/*.control /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_sparse /tmp/pg_sparse/sql/*.sql /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/

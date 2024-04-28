@@ -1,7 +1,0 @@
-CREATE TABLE t (id SERIAL PRIMARY KEY, vec svector);
-INSERT INTO t (vec) VALUES ((ARRAY[1, 2] || ARRAY(SELECT 0 FROM generate_series(1, 131072)))::svector);
-CREATE TEMP TABLE temp_svector_test AS SELECT vec FROM t LIMIT 0;
-COPY (SELECT vec FROM t WHERE id = 1) TO '/tmp/svector_data.bin' WITH (FORMAT binary);
-COPY temp_svector_test FROM '/tmp/svector_data.bin' WITH (FORMAT binary);
-SELECT svector_dims(vec) AS svector_length FROM temp_svector_test;
-DROP TABLE t;

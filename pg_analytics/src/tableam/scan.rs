@@ -4,6 +4,7 @@ use core::ffi::c_int;
 use deltalake::arrow::datatypes::Int64Type;
 use deltalake::datafusion::common::arrow::array::{AsArray, Int64Array, RecordBatch};
 use deltalake::datafusion::common::arrow::error::ArrowError;
+use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
 use std::sync::Arc;
 use thiserror::Error;
@@ -56,6 +57,28 @@ async fn scan_begin(
     }
 }
 
+fn oid_needs_datum_free(oid: pg_sys::PgOid) -> bool {
+    match oid {
+        PgOid::BuiltIn(builtin) => matches!(
+            builtin,
+            TEXTOID
+                | VARCHAROID
+                | BPCHAROID
+                | BOOLARRAYOID
+                | TEXTARRAYOID
+                | VARCHARARRAYOID
+                | BPCHARARRAYOID
+                | INT2ARRAYOID
+                | INT4ARRAYOID
+                | INT8ARRAYOID
+                | FLOAT4ARRAYOID
+                | FLOAT8ARRAYOID
+                | DATEARRAYOID
+        ),
+        _ => false,
+    }
+}
+
 #[inline]
 pub async unsafe fn scan_getnextslot(
     scan: pg_sys::TableScanDesc,
@@ -74,7 +97,8 @@ pub async unsafe fn scan_getnextslot(
     let pg_relation = unsafe { PgRelation::from_pg((*dscan).rs_base.rs_rd) };
     let tuple_desc = pg_relation.tuple_desc();
     let table_name = pg_relation.name();
-    let schema_name = pg_relation.namespace();
+    let namespace = pg_relation.namespace_raw();
+    let schema_name = namespace.to_str()?;
     let table_path = pg_relation.table_path()?;
 
     if (*dscan).curr_batch.is_none()
@@ -118,6 +142,8 @@ pub async unsafe fn scan_getnextslot(
         .lock()
         .await;
 
+    let mut free_datums = vec![];
+
     for col_index in 0..current_batch.num_columns() {
         let column = current_batch.column(col_index);
 
@@ -133,6 +159,9 @@ pub async unsafe fn scan_getnextslot(
                 attribute.type_oid(),
                 attribute.type_mod(),
             )? {
+                if oid_needs_datum_free(attribute.type_oid()) {
+                    free_datums.push(datum);
+                }
                 *tts_value = datum;
             } else {
                 *tts_isnull = true;
@@ -146,7 +175,26 @@ pub async unsafe fn scan_getnextslot(
     (*slot).tts_tid = tts_tid;
     pg_sys::ExecStoreVirtualTuple(slot);
 
+    // Materialize tuple in slot before freeing datums
+    if let Some(materialize) = (*slot)
+        .tts_ops
+        .as_ref()
+        .ok_or(TableScanError::SlotOpsNotFound)?
+        .materialize
+    {
+        materialize(slot);
+    }
+
     (*dscan).curr_batch_idx += 1;
+
+    // Free palloced datums
+    for datum in free_datums.iter() {
+        pg_sys::pfree(datum.cast_mut_ptr::<std::ffi::c_void>());
+    }
+
+    // Free palloced namespace
+    pg_sys::pfree(namespace.as_ptr() as *mut std::ffi::c_void);
+
     Ok(true)
 }
 
@@ -421,4 +469,7 @@ pub enum TableScanError {
 
     #[error("Unexpected error: No TID found in table scan")]
     TIDNotFound,
+
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
 }

@@ -84,13 +84,18 @@ impl ParadeDirectory {
     fn root_path(tablespace_oid: pg_sys::Oid) -> Result<PathBuf, DirectoryError> {
         let root_dir = unsafe {
             match tablespace_oid == pg_sys::InvalidOid {
-                true => CStr::from_ptr(pg_sys::GetConfigOptionByName(
-                    CString::new("data_directory")?.as_ptr(),
-                    std::ptr::null_mut(),
-                    true,
-                ))
-                .to_str()?
-                .to_string(),
+                true => {
+                    let data_directory_opt = pg_sys::GetConfigOptionByName(
+                        CString::new("data_directory")?.as_ptr(),
+                        std::ptr::null_mut(),
+                        true,
+                    );
+                    let ret_string = CStr::from_ptr(data_directory_opt).to_str()?.to_string();
+
+                    pg_sys::pfree(data_directory_opt as *mut std::ffi::c_void);
+
+                    ret_string
+                }
                 false => direct_function_call::<String>(
                     pg_sys::pg_tablespace_location,
                     &[Some(pg_sys::Datum::from(tablespace_oid))],

@@ -20,6 +20,29 @@ use super::timestamp::{MicrosecondUnix, MillisecondUnix, PgTimestampPrecision, S
 
 type Column<T> = Vec<Option<T>>;
 
+// Copied from pgrx - pulling this out is the only way we could get the varlena pointer before getting the str
+// Original function at: https://github.com/paradedb/pgrx/blob/3ce0391e6a90ae8e8f78ec2fa2e2e786de9bab55/pgrx/src/datum/from.rs#L385
+// Match cases at: https://github.com/paradedb/pgrx/blob/3ce0391e6a90ae8e8f78ec2fa2e2e786de9bab55/pgrx/src/lib.rs#L270
+unsafe fn convert_varlena_to_str_memoized<'a>(
+    varlena: *const pg_sys::varlena,
+) -> Result<&'a str, DataTypeError> {
+    match pg_sys::GetDatabaseEncoding() as core::ffi::c_uint {
+        pg_sys::pg_enc_PG_UTF8 => Ok(varlena::text_to_rust_str_unchecked(varlena)),
+        pg_sys::pg_enc_PG_SQL_ASCII => {
+            varlena::text_to_rust_str(varlena).map_err(|_| DataTypeError::InvalidUTF8)
+        }
+        1..=41 => {
+            let bytes = varlena_to_byte_slice(varlena);
+            if bytes.is_ascii() {
+                Ok(core::str::from_utf8_unchecked(bytes))
+            } else {
+                Err(DataTypeError::InvalidUTF8)
+            }
+        }
+        _ => varlena::text_to_rust_str(varlena).map_err(|_| DataTypeError::InvalidUTF8),
+    }
+}
+
 pub trait IntoPrimitiveArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
@@ -36,6 +59,39 @@ where
     }
 }
 
+pub trait IntoStringArray
+where
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized,
+{
+    fn into_string_array(self) -> Result<Vec<Option<String>>, DataTypeError> {
+        let mut palloc_ptrs = vec![];
+        let array = self
+            .map(|datum| {
+                datum.and_then(|datum| unsafe {
+                    // Use str::from_datum instead of String::from_datum so that we know the palloced address to free
+                    let ret = if varlena::varatt_is_1b_e(datum.cast_mut_ptr::<pg_sys::varlena>())
+                        || varlena::varatt_is_b8_c(datum.cast_mut_ptr::<pg_sys::varlena>())
+                    {
+                        let varl = pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr());
+                        palloc_ptrs.push(varl);
+                        Some(convert_varlena_to_str_memoized(varl).ok()?)
+                    } else {
+                        <&str>::from_datum(datum, false)
+                    };
+                    ret.map(|ret_str| ret_str.to_owned())
+                })
+            })
+            .collect::<Vec<Option<String>>>();
+
+        // It is safe to free here because `ret_str.to_owned()` creates a copy
+        for varl_ptr in palloc_ptrs {
+            unsafe { pg_sys::pfree(varl_ptr as *mut std::ffi::c_void) };
+        }
+
+        Ok(array)
+    }
+}
+
 pub trait IntoPrimitiveArrowArray
 where
     Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
@@ -46,6 +102,15 @@ where
         A: Array + FromIterator<Option<T>> + 'static,
     {
         Ok(Arc::new(A::from_iter(self.into_array::<T>()?)))
+    }
+}
+
+pub trait IntoStringArrowArray
+where
+    Self: Iterator<Item = Option<pg_sys::Datum>> + Sized + IntoPrimitiveArray,
+{
+    fn into_string_arrow_array(self) -> Result<ArrayRef, DataTypeError> {
+        Ok(Arc::new(StringArray::from_iter(self.into_string_array()?)))
     }
 }
 
@@ -376,9 +441,9 @@ where
             PgOid::BuiltIn(builtin) => match builtin {
                 BOOLOID => self.into_primitive_arrow_array::<bool, BooleanArray>(),
                 BOOLARRAYOID => self.into_bool_list_arrow_array(),
-                TEXTOID => self.into_primitive_arrow_array::<String, StringArray>(),
-                VARCHAROID => self.into_primitive_arrow_array::<String, StringArray>(),
-                BPCHAROID => self.into_primitive_arrow_array::<String, StringArray>(),
+                TEXTOID => self.into_string_arrow_array(),
+                VARCHAROID => self.into_string_arrow_array(),
+                BPCHAROID => self.into_string_arrow_array(),
                 TEXTARRAYOID => self.into_string_list_arrow_array(),
                 VARCHARARRAYOID => self.into_string_list_arrow_array(),
                 BPCHARARRAYOID => self.into_string_list_arrow_array(),
@@ -418,6 +483,7 @@ impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoDateArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoNumericArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoPrimitiveArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoStringArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMicrosecondArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMillisecondArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampSecondArray for T {}
@@ -428,6 +494,7 @@ impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoUuidArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoDateArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoNumericArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoPrimitiveArrowArray for T {}
+impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoStringArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMicrosecondArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampMillisecondArrowArray for T {}
 impl<T: Iterator<Item = Option<pg_sys::Datum>>> IntoTimestampSecondArrowArray for T {}

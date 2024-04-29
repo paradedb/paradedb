@@ -208,7 +208,12 @@ async fn index_build_range_scan(
                 if let Some(callback) = callback {
                     callback(index_rel, heap_tuple, values, nulls, true, callback_state);
                 }
+
+                pg_sys::pfree(heap_tuple as *mut std::ffi::c_void);
             }
+
+            pg_sys::pfree(values as *mut std::ffi::c_void);
+            pg_sys::pfree(nulls as *mut std::ffi::c_void);
 
             tuple_count += 1.0;
         }

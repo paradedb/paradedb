@@ -61,6 +61,7 @@ pub trait DatafusionTable {
     fn arrow_schema(&self) -> Result<ArrowSchema, DataFusionTableError>;
     fn arrow_schema_with_reserved_fields(&self) -> Result<ArrowSchema, DataFusionTableError>;
     fn table_path(&self) -> Result<PathBuf, DataFusionTableError>;
+    unsafe fn namespace_raw(&self) -> &core::ffi::CStr;
 }
 
 impl DatafusionTable for PgRelation {
@@ -126,10 +127,16 @@ impl DatafusionTable for PgRelation {
     }
 
     fn table_path(&self) -> Result<PathBuf, DataFusionTableError> {
-        Ok(ParadeDirectory::table_path_from_name(
-            self.namespace(),
-            self.name(),
+        Ok(ParadeDirectory::table_path_from_oid(
+            unsafe { pg_sys::get_rel_tablespace(self.oid()) },
+            self.namespace_oid(),
+            self.oid(),
         )?)
+    }
+
+    // This allows us to get the pointer of the palloced namespace string so we can free it ourselves
+    unsafe fn namespace_raw(&self) -> &core::ffi::CStr {
+        core::ffi::CStr::from_ptr(pg_sys::get_namespace_name(self.namespace_oid()))
     }
 }
 

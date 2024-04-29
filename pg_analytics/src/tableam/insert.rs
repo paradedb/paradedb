@@ -1,12 +1,9 @@
-use async_std::sync::Mutex;
 use async_std::task;
 use core::ffi::c_int;
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::array::{ArrayRef, Int64Array};
-use once_cell::sync::Lazy;
 use pgrx::*;
-use std::sync::atomic::{AtomicPtr, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -17,13 +14,6 @@ use crate::storage::metadata::{MetadataError, PgMetadata};
 use crate::storage::tid::{RowNumber, TIDError};
 use crate::types::array::IntoArrowArray;
 use crate::types::datatype::{DataTypeError, PgTypeMod};
-
-pub static INSERT_MEMORY_CONTEXT: Lazy<Mutex<AtomicPtr<pg_sys::MemoryContextData>>> =
-    Lazy::new(|| {
-        Mutex::new(AtomicPtr::new(
-            PgMemoryContexts::new("insert_memory_context").value(),
-        ))
-    });
 
 #[pg_guard]
 pub extern "C" fn deltalake_slot_callbacks(
@@ -92,16 +82,6 @@ async unsafe fn insert_tuples(
     slots: *mut *mut pg_sys::TupleTableSlot,
     nslots: usize,
 ) -> Result<(), TableInsertError> {
-    // In the block below, we switch to the memory context we've defined as a static
-    // variable, resetting it before and after we access the column values. We do this
-    // because PgTupleDesc "supposed" to free the corresponding Postgres memory when it
-    // is dropped... however, in practice, we're not seeing the memory get freed, which is
-    // causing huge memory usage when building large indexes.
-    // We're using the raw C MemoryContext API here because PgMemoryContexts is getting refactored
-    // in pgrx 0.12.0 due to potential memory leaks.
-    let memctx = INSERT_MEMORY_CONTEXT.lock().await.load(Ordering::SeqCst);
-    let old_context = pg_sys::MemoryContextSwitchTo(memctx);
-
     let pg_relation = PgRelation::from_pg(rel);
     let tuple_desc = pg_relation.tuple_desc();
     let mut column_values: Vec<ArrayRef> = vec![];
@@ -132,7 +112,7 @@ async unsafe fn insert_tuples(
                     (!is_null).then_some(datum_opt).flatten()
                 })
                 .into_arrow_array(attr.type_oid(), PgTypeMod(attr.type_mod()))?,
-        );
+        )
     }
 
     // Assign TID to each row
@@ -162,7 +142,8 @@ async unsafe fn insert_tuples(
     let xmaxs: Vec<i64> = vec![0; nslots];
     column_values.push(Arc::new(Int64Array::from(xmaxs)));
 
-    let schema_name = pg_relation.namespace().to_string();
+    let namespace = pg_relation.namespace_raw();
+    let schema_name = namespace.to_str()?.to_string();
     let table_path = pg_relation.table_path()?;
     let arrow_schema = Arc::new(pg_relation.arrow_schema_with_reserved_fields()?);
 
@@ -170,8 +151,8 @@ async unsafe fn insert_tuples(
     let batch = RecordBatch::try_new(arrow_schema.clone(), column_values)?;
     Writer::write(&schema_name, &table_path, arrow_schema, &batch).await?;
 
-    pg_sys::MemoryContextReset(memctx);
-    pg_sys::MemoryContextSwitchTo(old_context);
+    // Free palloced namespace
+    pg_sys::pfree(namespace.as_ptr() as *mut std::ffi::c_void);
 
     Ok(())
 }
@@ -201,4 +182,7 @@ pub enum TableInsertError {
 
     #[error("Inserts with ON CONFLICT are not yet supported")]
     SpeculativeInsertNotSupported,
+
+    #[error(transparent)]
+    Utf8Error(#[from] std::str::Utf8Error),
 }

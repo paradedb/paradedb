@@ -1,12 +1,7 @@
-use deltalake::arrow::array::{
-    Array, ArrayAccessor, ArrayRef, AsArray, BooleanArray, Date32Array, Decimal128Array,
-    Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, StringArray,
-    Time64NanosecondArray, TimestampMicrosecondArray, TimestampMillisecondArray,
-    TimestampSecondArray,
-};
+use deltalake::arrow::array::{Array, *};
+use deltalake::arrow::datatypes::*;
 use deltalake::datafusion::arrow::datatypes::DataType::*;
-use deltalake::datafusion::arrow::datatypes::{DataType, TimeUnit};
-use deltalake::datafusion::common::{downcast_value, DataFusionError};
+use deltalake::datafusion::common::DataFusionError;
 use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
 use std::fmt::Debug;
@@ -31,6 +26,28 @@ where
         let downcast_array = downcast_value!(self, A);
         match downcast_array.is_null(index) {
             false => Ok(downcast_array.value(index).into_datum()),
+            true => Ok(None),
+        }
+    }
+}
+
+pub trait GetDatumUInt
+where
+    Self: Array + AsArray,
+{
+    fn get_uint_datum<A>(&self, index: usize) -> Result<Option<pg_sys::Datum>, DatumError>
+    where
+        A: ArrowPrimitiveType,
+        i64: TryFrom<A::Native>,
+    {
+        let downcast_array = self.as_primitive::<A>();
+        match downcast_array.is_null(index) {
+            false => {
+                let value: A::Native = downcast_array.value(index);
+                Ok(i64::try_from(value)
+                    .map_err(|_| DatumError::UIntConversionError)?
+                    .into_datum())
+            }
             true => Ok(None),
         }
     }
@@ -221,6 +238,7 @@ where
         + GetDatumTimestampMillisecond
         + GetDatumTimestampSecond
         + GetDatumTime
+        + GetDatumUInt
         + GetDatumUuid,
 {
     fn get_datum(
@@ -236,11 +254,16 @@ where
                     self.get_primitive_datum::<StringArray>(index)?
                 }
                 INT2OID | INT4OID | INT8OID | FLOAT4OID | FLOAT8OID => match self.data_type() {
-                    Float32 => self.get_primitive_datum::<Float32Array>(index)?,
-                    Float64 => self.get_primitive_datum::<Float64Array>(index)?,
-                    Int16 => self.get_primitive_datum::<Int16Array>(index)?,
-                    Int32 => self.get_primitive_datum::<Int32Array>(index)?,
-                    Int64 => self.get_primitive_datum::<Int64Array>(index)?,
+                    Float32 => self.get_primitive_datum::<Float32Type>(index)?,
+                    Float64 => self.get_primitive_datum::<Float64Type>(index)?,
+                    Int8 => self.get_primitive_datum::<Int8Type>(index)?,
+                    Int16 => self.get_primitive_datum::<Int16Type>(index)?,
+                    Int32 => self.get_primitive_datum::<Int32Type>(index)?,
+                    Int64 => self.get_primitive_datum::<Int64Type>(index)?,
+                    UInt8 => self.get_uint_datum::<UInt8Type>(index)?,
+                    UInt16 => self.get_uint_datum::<UInt16Type>(index)?,
+                    UInt32 => self.get_uint_datum::<UInt32Type>(index)?,
+                    UInt64 => self.get_uint_datum::<UInt64Type>(index)?,
                     unsupported => {
                         return Err(DatumError::IntError(unsupported.clone(), oid).into())
                     }
@@ -323,6 +346,7 @@ impl GetDatumTimestampMicrosecond for ArrayRef {}
 impl GetDatumTimestampMillisecond for ArrayRef {}
 impl GetDatumTimestampSecond for ArrayRef {}
 impl GetDatumTime for ArrayRef {}
+impl GetDatumUInt for ArrayRef {}
 impl GetDatumUuid for ArrayRef {}
 
 #[derive(Error, Debug)]
@@ -344,4 +368,7 @@ pub enum DatumError {
 
     #[error("Error converting {0:?} into TIMESTAMP")]
     TimestampError(DataType),
+
+    #[error("Failed to convert UInt to i64")]
+    UIntConversionError,
 }

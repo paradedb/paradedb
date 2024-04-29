@@ -1,6 +1,7 @@
 use deltalake::arrow::error::ArrowError;
 use deltalake::datafusion::arrow::datatypes::DataType::*;
 use deltalake::datafusion::arrow::datatypes::*;
+use deltalake::datafusion::common::DataFusionError;
 use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
 use thiserror::Error;
@@ -109,6 +110,9 @@ impl TryFrom<ArrowDataType> for PgAttribute {
 pub enum DataTypeError {
     #[error(transparent)]
     Arrow(#[from] ArrowError),
+
+    #[error(transparent)]
+    DataFusion(#[from] DataFusionError),
 
     #[error(transparent)]
     Date(#[from] DateError),

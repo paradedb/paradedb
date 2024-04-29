@@ -41,6 +41,7 @@ pub trait PathReader: DeserializeOwned + 'static {
         source: S,
     ) -> Result<Box<dyn Iterator<Item = Result<Self, Self::Error>>>, Self::Error>;
 
+    #[allow(dead_code)]
     fn read_ok<S: PathSource>(
         source: S,
         offset: usize,
@@ -54,6 +55,7 @@ pub trait PathReader: DeserializeOwned + 'static {
         ))
     }
 
+    #[allow(dead_code)]
     fn read_all_ok<S: PathSource>(
         source: S,
     ) -> Result<Box<dyn Iterator<Item = Self>>, Self::Error> {

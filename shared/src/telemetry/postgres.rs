@@ -13,7 +13,14 @@ impl DirectoryStore for PostgresDirectoryStore {
     }
 
     fn extension_path(&self) -> Result<PathBuf, TelemetryError> {
-        Ok(self.root_path()?.join(self.config_store.extension_name()?))
+        let root = self.root_path()?;
+        let name = self.config_store.extension_name()?;
+
+        Ok(match name.as_str() {
+            "pg_analytics" => root.join("deltalake"),
+            "pg_search" => root.join("paradedb").join("pg_search"),
+            _ => panic!("no extension_path for unrecognized extension: {name:?}"),
+        })
     }
 
     fn extension_uuid_path(&self) -> Result<PathBuf, TelemetryError> {

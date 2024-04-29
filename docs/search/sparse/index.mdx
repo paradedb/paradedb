@@ -4,12 +4,12 @@ title: Index Creation
 
 ## Creating a Sparse HNSW Index
 
-A sparse HNSW index can be created over any column with the `svector` type. Sparse vectors with up to `2,000`
+An HNSW index can be created over any column with the `sparsevec` type. Sparse vectors with up to `1,000`
 nonzero dimensions can be indexed.
 
 ```sql
 CREATE INDEX ON <schema_name>.<table_name>
-USING shnsw (<column_name> <distance_metric>);
+USING hnsw (<column_name> <distance_metric>);
 ```
 
 <ParamField body="schema_name">
@@ -20,12 +20,12 @@ USING shnsw (<column_name> <distance_metric>);
   The name of the table being indexed.
 </ParamField>
 <ParamField body="column_name" required>
-  The name of the column being indexed. Must be of type `svector`.
+  The name of the column being indexed. Must be of type `sparsevec`.
 </ParamField>
 <ParamField body="distance_metric" required>
   The distance metric used for measuring similarity between two vectors. Use
-  `svector_l2_ops` for L2 distance, `svector_ip_ops` for inner product, and
-  `svector_cosine_ops` for cosine distance.
+  `vector_l2_ops` for L2 distance, `vector_ip_ops` for inner product, and
+  `vector_cosine_ops` for cosine distance.
 </ParamField>
 
 ## Index Options
@@ -34,7 +34,7 @@ The following example demonstrates how to pass options when creating the HNSW in
 
 ```sql
 CREATE INDEX ON mock_items
-USING shnsw (sparse_embedding svector_l2_ops)
+USING hnsw (sparse_embedding vector_l2_ops)
 WITH (m = 16, ef_construction = 64);
 ```
 

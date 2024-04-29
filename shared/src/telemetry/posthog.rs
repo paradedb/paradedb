@@ -49,6 +49,7 @@ impl TelemetryConnection for PosthogConnection {
                 "telemetry_data": serde_json::to_value(event).map_err(TelemetryError::ToJson)?,
             },
         });
+
         self.client
             .post(self.endpoint())
             .header("Content-Type", "application/json")

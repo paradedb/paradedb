@@ -19,6 +19,7 @@ pub struct TelemetrySender {
 impl TelemetrySender {
     pub fn send(&self, uuid: &str, event: &TelemetryEvent) -> Result<(), TelemetryError> {
         let conn = self.telemetry_store.get_connection()?;
+
         if self.config_store.telemetry_enabled()? {
             conn.send(uuid, event)
         } else {
@@ -45,6 +46,7 @@ impl TelemetrySender {
             extension_path: path,
             os_type: os_info.os_type().to_string(),
             os_version: os_info.version().to_string(),
+            replication_mode: std::env::var("POSTGRESQL_REPLICATION_MODE").ok(),
             postgres_version: std::str::from_utf8(PG_VERSION)
                 .map_err(TelemetryError::VersionInfo)?
                 .trim_end_matches('\0')
@@ -65,6 +67,8 @@ impl TelemetrySender {
         let event = TelemetryEvent::DirectoryStatus {
             path,
             size,
+            humansize: humansize::format_size(size, humansize::DECIMAL),
+            replication_mode: std::env::var("POSTGRESQL_REPLICATION_MODE").ok(),
             extension_name: self.config_store.extension_name()?,
         };
 

@@ -13,13 +13,16 @@ pub enum TelemetryEvent {
         extension_path: PathBuf,
         os_type: String,
         os_version: String,
+        replication_mode: Option<String>,
         postgres_version: String,
         postgres_version_details: String,
     },
     DirectoryStatus {
         extension_name: String,
+        replication_mode: Option<String>,
         path: PathBuf,
         size: u64,
+        humansize: String,
     },
 }
 

@@ -70,7 +70,7 @@ where
                 datum.and_then(|datum| unsafe {
                     // Use str::from_datum instead of String::from_datum so that we know the palloced address to free
                     let ret = if varlena::varatt_is_1b_e(datum.cast_mut_ptr::<pg_sys::varlena>())
-                        || (*datum.cast_mut_ptr::<pg_sys::varattrib_1b>()).va_header & 0x03 == 0x02
+                        || varlena::varatt_is_b8_c(datum.cast_mut_ptr::<pg_sys::varlena>())
                     {
                         let varl = pg_sys::pg_detoast_datum_packed(datum.cast_mut_ptr());
                         palloc_ptrs.push(varl);

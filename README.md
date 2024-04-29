@@ -33,8 +33,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
 
 - [x] Search
   - [x] Full-text search with BM25 with [pg_search](https://github.com/paradedb/paradedb/tree/dev/pg_search#overview)
-  - [x] Sparse vector search with [pg_sparse](https://github.com/paradedb/paradedb/tree/dev/pg_sparse#overview)
-  - [x] Dense vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
+  - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search
 - [ ] Analytics
   - [x] Accelerated analytical queries and column-oriented storage with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
@@ -154,7 +153,7 @@ Thank you for helping us make ParadeDB better for everyone :heart:.
 
 ## License
 
-ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE) and as commercial software, with the exception of `pg_sparse` which is licensed under the [PostgreSQL License](pg_sparse/LICENSE).
+ParadeDB is licensed under the [GNU Affero General Public License v3.0](LICENSE) and as commercial software.
 
 For commercial licensing, please contact us at [sales@paradedb.com](mailto:sales@paradedb.com).
 

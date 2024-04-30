@@ -8,7 +8,6 @@ use datafusion::prelude::{DataFrame, SessionContext};
 use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
@@ -90,7 +89,7 @@ impl BaseFdw for LocalFileFdw {
 }
 
 impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
-    fn new(options: &HashMap<String, String>) -> Result<Self, BaseFdwError> {
+    fn new(_options: &HashMap<String, String>) -> Result<Self, BaseFdwError> {
         // Create S3 ObjectStore
         let object_store = LocalFileSystem::new();
 

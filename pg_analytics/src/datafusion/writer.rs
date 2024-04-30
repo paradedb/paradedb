@@ -2,7 +2,7 @@ use async_std::sync::Mutex;
 use deltalake::datafusion::arrow::datatypes::Schema as ArrowSchema;
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::kernel::{Action, Add};
-use deltalake::operations::transaction::commit as commit_delta;
+use deltalake::operations::transaction::CommitBuilder;
 use deltalake::operations::writer::{DeltaWriter, WriterConfig};
 use deltalake::protocol::{DeltaOperation, SaveMode};
 use deltalake::DeltaTable;
@@ -74,22 +74,19 @@ impl ActionCache {
     }
 
     pub async fn commit(self) -> Result<(), CatalogError> {
-        commit_delta(
-            self.table.log_store().as_ref(),
-            &self
+        let operation = DeltaOperation::Write {
+            mode: SaveMode::Append,
+            partition_by: None,
+            predicate: None,
+        };
+        CommitBuilder::default()
+            .with_actions(self
                 .actions
                 .iter()
                 .map(|a| Action::Add(a.clone()))
-                .collect(),
-            DeltaOperation::Write {
-                mode: SaveMode::Append,
-                partition_by: None,
-                predicate: None,
-            },
-            self.table.state.as_ref(),
-            None,
-        )
-        .await?;
+                .collect())
+            .build(Some(self.table.snapshot()?), self.table.log_store(), operation)?
+            .await?;
 
         Ok(())
     }

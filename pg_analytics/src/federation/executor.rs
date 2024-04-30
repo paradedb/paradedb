@@ -6,6 +6,7 @@ use deltalake::datafusion::error::{DataFusionError, Result};
 use deltalake::datafusion::physical_plan::{
     stream::RecordBatchStreamAdapter, SendableRecordBatchStream,
 };
+use deltalake::datafusion::sql::sqlparser::dialect::{Dialect, PostgreSqlDialect};
 use memoffset::offset_of;
 use pgrx::*;
 use std::sync::Arc;
@@ -80,8 +81,8 @@ impl SQLExecutor for ColumnExecutor {
         Ok(schema)
     }
 
-    fn dialect(&self) -> &str {
-        "postgres"
+    fn dialect(&self) -> Arc<dyn Dialect> {
+        Arc::new(PostgreSqlDialect {})
     }
 }
 
@@ -207,7 +208,7 @@ impl SQLExecutor for RowExecutor {
         Ok(schema)
     }
 
-    fn dialect(&self) -> &str {
-        "postgres"
+    fn dialect(&self) -> Arc<dyn Dialect> {
+        Arc::new(PostgreSqlDialect {})
     }
 }

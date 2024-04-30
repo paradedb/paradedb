@@ -1,9 +1,10 @@
 use async_std::sync::RwLock;
 use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
-use deltalake::datafusion::catalog::{CatalogList, CatalogProvider};
+use deltalake::datafusion::catalog::{CatalogProviderList, CatalogProvider};
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
+use deltalake::operations::transaction::CommitBuilderError;
 use pgrx::*;
 use std::{any::Any, collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -67,7 +68,7 @@ impl ParadeCatalogList {
     }
 }
 
-impl CatalogList for ParadeCatalogList {
+impl CatalogProviderList for ParadeCatalogList {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -95,6 +96,9 @@ impl CatalogList for ParadeCatalogList {
 
 #[derive(Error, Debug)]
 pub enum CatalogError {
+    #[error(transparent)]
+    CommitBuilderError(#[from] CommitBuilderError),
+
     #[error(transparent)]
     DataFusionError(#[from] DataFusionError),
 

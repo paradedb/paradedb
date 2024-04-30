@@ -1,6 +1,7 @@
 use async_std::sync::Mutex;
 use async_trait::async_trait;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
+use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::datasource::TableProvider;
 use deltalake::datafusion::error::Result;
 use pgrx::*;
@@ -41,20 +42,14 @@ impl SchemaProvider for ParadeSchemaProvider {
         todo!("table_names not implemented")
     }
 
-    async fn table(&self, table_name: &str) -> Option<Arc<dyn TableProvider>> {
-        let tables = Self::tables(self).expect("Failed to get tables");
-        let table_path = ParadeDirectory::table_path_from_name(&self.schema_name, table_name)
-            .unwrap_or_else(|err| {
-                panic!("{}", err);
-            });
+    async fn table(&self, table_name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
+        let tables = Self::tables(self).map_err(|err| DataFusionError::Execution(err.to_string()))?;
+        let table_path = ParadeDirectory::table_path_from_name(&self.schema_name, table_name).map_err(|err| DataFusionError::Execution(err.to_string()))?;
 
-        Some(
+        Ok(Some(
             table_impl(tables, &table_path, &self.schema_name, table_name)
-                .await
-                .unwrap_or_else(|err| {
-                    panic!("{}", err);
-                }),
-        )
+                .await.map_err(|err| DataFusionError::Execution(err.to_string()))?,
+        ))
     }
 
     fn table_exist(&self, table_name: &str) -> bool {

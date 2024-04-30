@@ -1,9 +1,9 @@
 use datafusion::arrow::array::types::{Date32Type, TimestampMicrosecondType};
 use datafusion::arrow::array::{
-    Array, ArrayAccessor, ArrayRef, AsArray, BooleanArray, Date32Array, Float32Array, Float64Array,
-    Int16Array, Int32Array, Int64Array, StringArray, TimestampMicrosecondArray,
+    Array, ArrayAccessor, ArrayRef, AsArray, BooleanArray, Float32Array, Float64Array, Int16Array,
+    Int32Array, Int64Array, StringArray,
 };
-use datafusion::arrow::datatypes::{DataType, TimeUnit};
+use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{downcast_value, DataFusionError};
 use pgrx::*;
 use std::fmt::Debug;

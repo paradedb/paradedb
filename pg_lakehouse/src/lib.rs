@@ -1,8 +1,11 @@
 mod cell;
 mod datetime;
+mod fdw;
 mod format;
+mod object_store;
 mod options;
 mod s3;
+mod table;
 
 use pgrx::*;
 

@@ -189,6 +189,15 @@ fn date_type(mut conn: PgConnection) {
     assert_eq!(row.0, Date::parse("2024-01-29", fd).unwrap());
 }
 
+/// https://github.com/paradedb/paradedb/issues/1087
+#[rstest]
+fn uint_type(mut conn: PgConnection) {
+    "CREATE TABLE pdenserank (x int) using parquet;".execute(&mut conn);
+    "INSERT INTO pdenserank values (10);".execute(&mut conn);
+    let row: (i64,) = "SELECT dense_rank() over () FROM pdenserank".fetch_one(&mut conn);
+    assert_eq!(row.0, 1);
+}
+
 #[rstest]
 fn byte_type(mut conn: PgConnection) {
     match "CREATE TABLE t (a bytea) USING parquet".execute_result(&mut conn) {

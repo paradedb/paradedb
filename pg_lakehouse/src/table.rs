@@ -20,11 +20,11 @@ pub fn create_table_provider(
     mut oid_map: HashMap<usize, pg_sys::Oid>,
     state: &SessionState,
 ) -> Result<Arc<dyn TableProvider>, TableError> {
-    let table_url = require_option(TableOption::Url.as_str(), &table_options)?;
-    let format = require_option(TableOption::Format.as_str(), &table_options)?;
+    let path = require_option(TableOption::Path.as_str(), &table_options)?;
+    let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
 
-    let listing_url = ListingTableUrl::parse(table_url)?;
-    let listing_options = ListingOptions::try_from(FileFormat(format.to_string()))?;
+    let listing_url = ListingTableUrl::parse(path)?;
+    let listing_options = ListingOptions::try_from(FileFormat(extension.to_string()))?;
 
     let inferred_schema = task::block_on(listing_options.infer_schema(state, &listing_url))?;
     let mut schema_builder = SchemaBuilder::new();

@@ -43,12 +43,15 @@ impl SchemaProvider for ParadeSchemaProvider {
     }
 
     async fn table(&self, table_name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
-        let tables = Self::tables(self).map_err(|err| DataFusionError::Execution(err.to_string()))?;
-        let table_path = ParadeDirectory::table_path_from_name(&self.schema_name, table_name).map_err(|err| DataFusionError::Execution(err.to_string()))?;
+        let tables =
+            Self::tables(self).map_err(|err| DataFusionError::Execution(err.to_string()))?;
+        let table_path = ParadeDirectory::table_path_from_name(&self.schema_name, table_name)
+            .map_err(|err| DataFusionError::Execution(err.to_string()))?;
 
         Ok(Some(
             table_impl(tables, &table_path, &self.schema_name, table_name)
-                .await.map_err(|err| DataFusionError::Execution(err.to_string()))?,
+                .await
+                .map_err(|err| DataFusionError::Execution(err.to_string()))?,
         ))
     }
 

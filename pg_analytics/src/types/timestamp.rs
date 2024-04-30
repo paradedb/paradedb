@@ -1,4 +1,4 @@
-use chrono::{Datelike, DateTime, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use deltalake::datafusion::arrow::datatypes::*;
 use pgrx::*;
 use thiserror::Error;
@@ -144,8 +144,8 @@ impl TryFrom<SecondUnix> for datum::Timestamp {
 
     fn try_from(seconds: SecondUnix) -> Result<Self, Self::Error> {
         let SecondUnix(unix) = seconds;
-        let datetime = DateTime::from_timestamp(unix, 0)
-            .ok_or(TimestampError::SecondsConversion(unix))?;
+        let datetime =
+            DateTime::from_timestamp(unix, 0).ok_or(TimestampError::SecondsConversion(unix))?;
 
         to_timestamp(&datetime)
     }
@@ -173,7 +173,9 @@ fn get_naive_time(timestamp: &datum::Timestamp) -> Result<NaiveTime, TimestampEr
 }
 
 #[inline]
-fn to_timestamp<Tz: chrono::TimeZone>(datetime: &DateTime<Tz>) -> Result<datum::Timestamp, TimestampError> {
+fn to_timestamp<Tz: chrono::TimeZone>(
+    datetime: &DateTime<Tz>,
+) -> Result<datum::Timestamp, TimestampError> {
     Ok(datum::Timestamp::new(
         datetime.year(),
         datetime.month() as u8,

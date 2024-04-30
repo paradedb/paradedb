@@ -1,7 +1,7 @@
 use async_std::sync::RwLock;
 use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
-use deltalake::datafusion::catalog::{CatalogProviderList, CatalogProvider};
+use deltalake::datafusion::catalog::{CatalogProvider, CatalogProviderList};
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use deltalake::operations::transaction::CommitBuilderError;

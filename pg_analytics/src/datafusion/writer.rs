@@ -80,12 +80,17 @@ impl ActionCache {
             predicate: None,
         };
         CommitBuilder::default()
-            .with_actions(self
-                .actions
-                .iter()
-                .map(|a| Action::Add(a.clone()))
-                .collect())
-            .build(Some(self.table.snapshot()?), self.table.log_store(), operation)?
+            .with_actions(
+                self.actions
+                    .iter()
+                    .map(|a| Action::Add(a.clone()))
+                    .collect(),
+            )
+            .build(
+                Some(self.table.snapshot()?),
+                self.table.log_store(),
+                operation,
+            )?
             .await?;
 
         Ok(())

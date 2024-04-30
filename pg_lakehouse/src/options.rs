@@ -55,6 +55,7 @@ impl AmazonServerOption {
 pub enum TableOption {
     Path,
     Extension,
+    Format,
 }
 
 impl TableOption {
@@ -62,6 +63,7 @@ impl TableOption {
         match self {
             Self::Path => "path",
             Self::Extension => "extension",
+            Self::Format => "format",
         }
     }
 
@@ -69,11 +71,12 @@ impl TableOption {
         match self {
             Self::Path => true,
             Self::Extension => true,
+            Self::Format => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Path, Self::Extension].into_iter()
+        [Self::Path, Self::Extension, Self::Format].into_iter()
     }
 }
 

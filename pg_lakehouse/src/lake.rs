@@ -3,7 +3,6 @@ use supabase_wrappers::prelude::require_option;
 use thiserror::Error;
 
 use super::options::*;
-
 impl TryFrom<ServerOptions> for AmazonS3 {
     type Error = LakeError;
 

@@ -14,7 +14,6 @@ use url::Url;
 
 use super::fdw::*;
 use super::options::*;
-
 #[wrappers_fdw(
     author = "ParadeDB",
     website = "https://github.com/paradedb/paradedb",

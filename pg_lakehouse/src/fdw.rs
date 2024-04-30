@@ -22,7 +22,6 @@ use super::cell::*;
 use super::format::*;
 use super::lake::*;
 use super::options::*;
-
 // Because the SessionContext is recreated on each scan, we don't need to worry about
 // assigning a unique name to the DataFusion table
 const DEFAULT_TABLE_NAME: &str = "listing_table";
@@ -66,7 +65,7 @@ pub trait BaseFdw {
             .map(|col| (col.num - 1, col.type_oid))
             .collect();
 
-        let format = require_option(TableOption::Format.as_str(), options)?;
+        let format = require_option_or(TableOption::Format.as_str(), options, "");
         let provider = match TableFormat::from(format) {
             TableFormat::None => {
                 create_listing_provider(options.clone(), oid_map, &self.get_session_state())?
@@ -219,10 +218,7 @@ pub enum BaseFdwError {
     ObjectStoreError(#[from] object_store::Error),
 
     #[error(transparent)]
-    OptionsError(#[from] super::options::OptionsError),
-
-    #[error(transparent)]
-    SupabaseOptionsError(#[from] supabase_wrappers::options::OptionsError),
+    OptionsError(#[from] supabase_wrappers::options::OptionsError),
 
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),

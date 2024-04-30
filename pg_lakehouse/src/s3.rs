@@ -115,31 +115,34 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
         let inferred_schema =
             task::block_on(listing_options.infer_schema(&self.context.state(), &listing_url))?;
         let mut schema_builder = SchemaBuilder::new();
-        let columns_map: HashMap<usize, Column> = columns
+        let mut columns_map: HashMap<usize, pg_sys::Oid> = columns
             .iter()
             .cloned()
-            .map(|col| (col.num - 1, col))
+            .map(|col| (col.num - 1, col.type_oid))
             .collect();
 
         for (index, field) in inferred_schema.fields().iter().enumerate() {
-            match columns_map.get(&index) {
-                Some(column) => {
+            match columns_map.remove(&index) {
+                Some(oid) => {
                     // Some types like DATE and TIMESTAMP get incorrectly inferred as
                     // Int32/Int64, so we need to override them
-                    let data_type = match (column.type_oid, field.data_type()) {
+                    let data_type = match (oid, field.data_type()) {
                         (pg_sys::DATEOID, _) => DataType::Date32,
                         (pg_sys::TIMESTAMPOID, _) => {
                             DataType::Timestamp(TimeUnit::Microsecond, None)
                         }
                         (_, data_type) => data_type.clone(),
                     };
-                    schema_builder.push(Field::new(column.name.clone(), data_type, true))
+                    schema_builder.push(Field::new(field.name(), data_type, field.is_nullable()))
                 }
                 None => schema_builder.push(field.clone()),
             };
         }
 
         let updated_schema = Arc::new(schema_builder.finish());
+
+        info!("Inferred schema: {:?}", updated_schema);
+
         let listing_config = ListingTableConfig::new(listing_url)
             .with_listing_options(listing_options)
             .with_schema(updated_schema);

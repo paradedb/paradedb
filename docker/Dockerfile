@@ -12,7 +12,7 @@ ARG PG_VERSION_MAJOR=16
 FROM postgres:${PG_VERSION_MAJOR}-bullseye as builder
 
 ARG PG_VERSION_MAJOR=16
-ARG RUST_VERSION=1.77.0
+ARG RUST_VERSION=1.77.2
 ARG PGRX_VERSION=0.12.0-alpha.1
 
 # Declare buildtime environment variables
@@ -108,7 +108,7 @@ FROM builder as builder-pgvector
 
 # Build the extension
 WORKDIR /tmp
-RUN git clone --branch v0.6.0 https://github.com/pgvector/pgvector.git
+RUN git clone --branch v0.7.0 https://github.com/pgvector/pgvector.git
 WORKDIR /tmp/pgvector
 RUN export PG_CFLAGS="-Wall -Wextra -Werror -Wno-unused-parameter -Wno-sign-compare" && \
     echo "trusted = true" >> vector.control && \

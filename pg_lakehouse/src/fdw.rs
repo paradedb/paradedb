@@ -11,7 +11,7 @@ use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder};
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
-use deltalake::{DeltaTableError};
+use deltalake::DeltaTableError;
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -66,8 +66,13 @@ pub trait BaseFdw {
             .map(|col| (col.num - 1, col.type_oid))
             .collect();
 
-        let provider =
-            create_listing_provider(options.clone(), oid_map, &self.get_session_state())?;
+        let format = require_option(TableOption::Format.as_str(), options)?;
+        let provider = match TableFormat::from(format) {
+            TableFormat::None => {
+                create_listing_provider(options.clone(), oid_map, &self.get_session_state())?
+            }
+            TableFormat::Delta => task::block_on(create_delta_provider(options.clone()))?,
+        };
 
         self.register_table(DEFAULT_TABLE_NAME, provider.clone())?;
 

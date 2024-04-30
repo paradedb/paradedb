@@ -185,20 +185,21 @@ impl Writer {
         table_path: &Path,
         arrow_schema: Arc<ArrowSchema>,
     ) -> Result<DeltaWriter, CatalogError> {
-        let target_file_size = PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB;
-
-        let writer_config = WriterConfig::new(
-            arrow_schema,
-            vec![],
-            None,
-            Some(target_file_size as usize),
-            None,
-        );
-
         let table_path = table_path.to_path_buf();
         let delta_table = Session::with_tables(schema_name, |mut tables| {
             Box::pin(async move { Ok(tables.get_owned(&table_path).await?) })
         })?;
+
+        let metadata = delta_table.metadata()?;
+        let target_file_size = PARADE_GUC.optimize_file_size_mb.get() as i64 * BYTES_IN_MB;
+
+        let writer_config = WriterConfig::new(
+            arrow_schema,
+            metadata.partition_columns.clone(),
+            None,
+            Some(target_file_size as usize),
+            None,
+        );
 
         Ok(DeltaWriter::new(delta_table.object_store(), writer_config))
     }

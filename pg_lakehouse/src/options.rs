@@ -13,11 +13,6 @@ pub enum AmazonServerOption {
     AllowHttp,
 }
 
-pub enum TableOption {
-    Url,
-    Format,
-}
-
 impl AmazonServerOption {
     pub fn as_str(&self) -> &str {
         match self {
@@ -57,23 +52,28 @@ impl AmazonServerOption {
     }
 }
 
+pub enum TableOption {
+    Path,
+    Extension,
+}
+
 impl TableOption {
     pub fn as_str(&self) -> &str {
         match self {
-            Self::Url => "url",
-            Self::Format => "format",
+            Self::Path => "path",
+            Self::Extension => "extension",
         }
     }
 
     pub fn is_required(&self) -> bool {
         match self {
-            Self::Url => true,
-            Self::Format => true,
+            Self::Path => true,
+            Self::Extension => true,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Url, Self::Format].into_iter()
+        [Self::Path, Self::Extension].into_iter()
     }
 }
 

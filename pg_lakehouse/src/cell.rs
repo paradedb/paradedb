@@ -1,14 +1,8 @@
-use chrono::NaiveDateTime;
 use datafusion::arrow::array::{
-    downcast_array, Array, ArrayAccessor, ArrayRef, AsArray, BooleanArray, Date32Array,
-    Float32Array, Float64Array, Int16Array, Int32Array, Int64Array, PrimitiveArray, StringArray,
-    TimestampMicrosecondArray,
+    Array, ArrayAccessor, ArrayRef, AsArray, BooleanArray, Date32Array, Float32Array, Float64Array,
+    Int16Array, Int32Array, Int64Array, StringArray, TimestampMicrosecondArray,
 };
-use datafusion::arrow::datatypes::{
-    ArrowPrimitiveType, ArrowTemporalType, ArrowTimestampType, DataType, TimeUnit,
-    TimestampMicrosecondType, TimestampMillisecondType, TimestampNanosecondType,
-    TimestampSecondType,
-};
+use datafusion::arrow::datatypes::{DataType, TimeUnit};
 use datafusion::common::{downcast_value, DataFusionError};
 use pgrx::*;
 use std::fmt::Debug;

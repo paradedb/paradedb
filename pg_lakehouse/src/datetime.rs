@@ -1,6 +1,5 @@
-use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, Timelike};
 use pgrx::*;
-use thiserror::Error;
 
 const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
 

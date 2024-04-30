@@ -129,6 +129,28 @@ RUN echo "trusted = true" >> pg_cron.control && \
     make clean -j && \
     make USE_PGXS=1 -j
 
+######################
+# citus
+######################
+
+FROM builder as builder-citus
+
+# Install citus extra dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    autoconf \
+    liblz4-dev \
+    libzstd-dev \
+    libkrb5-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Build the extension
+WORKDIR /tmp
+RUN git clone --branch v12.1.3 https://github.com/citusdata/citus.git
+WORKDIR /tmp/citus
+RUN ./configure --without-libcurl && \
+    make clean -j && \
+    CPPFLAGS+=" -I/usr/include/gssapi" make USE_PGXS=1 -j
+
 ###############################################
 # Second Stage: PostgreSQL
 ###############################################
@@ -147,6 +169,12 @@ COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/sha
 COPY --from=builder-pg_cron /tmp/pg_cron/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-citus /tmp/citus/src/backend/distributed/*.so /opt/bitnami/postgresql/lib/
+COPY --from=builder-citus /tmp/citus/src/backend/distributed/*.control /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-citus /tmp/citus/src/backend/distributed/sql/*.sql /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-citus /tmp/citus/src/backend/columnar/*.so /opt/bitnami/postgresql/lib/
+COPY --from=builder-citus /tmp/citus/src/backend/columnar/*.control /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-citus /tmp/citus/src/backend/columnar/sql/*.sql /opt/bitnami/postgresql/share/extension/
 
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
@@ -156,15 +184,34 @@ COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-p
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root
-RUN install_packages curl uuid-runtime libpq5
+RUN install_packages curl uuid-runtime
+#git libpq5 liblz4-dev libzstd-dev libkrb5-dev libcurl4-gnutls-dev libicu-dev libkrb5-dev liblz4-dev libpam0g-dev libreadline-dev libselinux1-dev libssl-dev libxslt1-dev libzstd-dev make uuid-dev software-properties-common ca-certificates build-essential gnupg curl git make gcc clang pkg-config postgresql-server-dev-all 
+
+
+
+# Citus installs properly if I do this, so it must be missing some files when copying over
+
+# Build the extension
+# WORKDIR /tmp
+# RUN git clone --branch v12.1.3 https://github.com/citusdata/citus.git
+# WORKDIR /tmp/citus
+# RUN ./configure --without-libcurl && \
+#     make clean -j && \
+#     CPPFLAGS+=" -I/usr/include/gssapi" make USE_PGXS=1 -j && \
+#     make install
+
+
 USER 1001
+
+
 
 # Copy ParadeDB bootstrap script to install extensions, configure postgresql.conf, etc.
 COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
-ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_search,pg_analytics"
+ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="citus,pgaudit,pg_cron"
+# ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_search,pg_analytics"
 
 # We set a default password to enable users to get started quickly, as it is a required
 # environment variable for the Bitnami image.

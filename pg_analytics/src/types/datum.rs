@@ -1,7 +1,7 @@
 use deltalake::arrow::array::{Array, *};
 use deltalake::arrow::datatypes::*;
 use deltalake::datafusion::arrow::datatypes::DataType::*;
-use deltalake::datafusion::common::DataFusionError;
+use deltalake::datafusion::common::{downcast_value, DataFusionError};
 use pgrx::pg_sys::BuiltinOid::*;
 use pgrx::*;
 use std::fmt::Debug;
@@ -254,12 +254,12 @@ where
                     self.get_primitive_datum::<StringArray>(index)?
                 }
                 INT2OID | INT4OID | INT8OID | FLOAT4OID | FLOAT8OID => match self.data_type() {
-                    Float32 => self.get_primitive_datum::<Float32Type>(index)?,
-                    Float64 => self.get_primitive_datum::<Float64Type>(index)?,
-                    Int8 => self.get_primitive_datum::<Int8Type>(index)?,
-                    Int16 => self.get_primitive_datum::<Int16Type>(index)?,
-                    Int32 => self.get_primitive_datum::<Int32Type>(index)?,
-                    Int64 => self.get_primitive_datum::<Int64Type>(index)?,
+                    Float32 => self.get_primitive_datum::<Float32Array>(index)?,
+                    Float64 => self.get_primitive_datum::<Float64Array>(index)?,
+                    Int8 => self.get_primitive_datum::<Int8Array>(index)?,
+                    Int16 => self.get_primitive_datum::<Int16Array>(index)?,
+                    Int32 => self.get_primitive_datum::<Int32Array>(index)?,
+                    Int64 => self.get_primitive_datum::<Int64Array>(index)?,
                     UInt8 => self.get_uint_datum::<UInt8Type>(index)?,
                     UInt16 => self.get_uint_datum::<UInt16Type>(index)?,
                     UInt32 => self.get_uint_datum::<UInt32Type>(index)?,

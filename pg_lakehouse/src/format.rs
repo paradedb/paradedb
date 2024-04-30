@@ -21,6 +21,14 @@ impl TableFormat {
         }
     }
 
+    pub fn from(format: &str) -> Self {
+        match format {
+            "" => Self::None,
+            "delta" => Self::Delta,
+            _ => Self::None,
+        }
+    }
+
     pub fn iter() -> impl Iterator<Item = Self> {
         [Self::None, Self::Delta].into_iter()
     }

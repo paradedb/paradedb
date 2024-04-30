@@ -15,7 +15,7 @@ use thiserror::Error;
 
 use super::cell::*;
 use super::format::*;
-use super::object_store::*;
+use super::lake::*;
 use super::table::*;
 
 // Because the SessionContext is recreated on each scan, we don't need to worry about
@@ -147,7 +147,10 @@ pub enum BaseFdwError {
     FileFormatError(#[from] FileFormatError),
 
     #[error(transparent)]
-    ObjectStoreError(#[from] ObjectStoreError),
+    LakeError(#[from] LakeError),
+
+    #[error(transparent)]
+    ObjectStoreError(#[from] object_store::Error),
 
     #[error(transparent)]
     OptionsError(#[from] super::options::OptionsError),

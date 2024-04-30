@@ -11,6 +11,7 @@ use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder};
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
+use deltalake::{DeltaTableError};
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -147,7 +148,7 @@ fn create_listing_provider(
     let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
 
     let listing_url = ListingTableUrl::parse(path)?;
-    let listing_options = ListingOptions::try_from(FileFormat(extension.to_string()))?;
+    let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
 
     let inferred_schema = task::block_on(listing_options.infer_schema(state, &listing_url))?;
     let mut schema_builder = SchemaBuilder::new();
@@ -179,6 +180,16 @@ fn create_listing_provider(
     Ok(Arc::new(listing_table) as Arc<dyn TableProvider>)
 }
 
+#[inline]
+async fn create_delta_provider(
+    table_options: HashMap<String, String>,
+) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
+    let path = require_option(TableOption::Path.as_str(), &table_options)?;
+    let delta_table = deltalake::open_table(path).await?;
+
+    Ok(Arc::new(delta_table) as Arc<dyn TableProvider>)
+}
+
 #[derive(Error, Debug)]
 pub enum BaseFdwError {
     #[error(transparent)]
@@ -191,7 +202,10 @@ pub enum BaseFdwError {
     DataTypeError(#[from] DataTypeError),
 
     #[error(transparent)]
-    FileFormatError(#[from] FileFormatError),
+    DeltaTableError(#[from] DeltaTableError),
+
+    #[error(transparent)]
+    FormatError(#[from] FormatError),
 
     #[error(transparent)]
     LakeError(#[from] LakeError),

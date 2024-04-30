@@ -6,7 +6,6 @@ mod lake;
 mod local;
 mod options;
 mod s3;
-mod table;
 
 use pgrx::*;
 

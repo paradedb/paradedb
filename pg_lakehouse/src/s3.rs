@@ -127,10 +127,8 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
                     // Some types like DATE and TIMESTAMP get incorrectly inferred as
                     // Int32/Int64, so we need to override them
                     let data_type = match (oid, field.data_type()) {
-                        (pg_sys::DATEOID, _) => DataType::Date32,
-                        (pg_sys::TIMESTAMPOID, _) => {
-                            DataType::Timestamp(TimeUnit::Microsecond, None)
-                        }
+                        (pg_sys::DATEOID, _) => DataType::Int32,
+                        (pg_sys::TIMESTAMPOID, _) => DataType::Int64,
                         (_, data_type) => data_type.clone(),
                     };
                     schema_builder.push(Field::new(field.name(), data_type, field.is_nullable()))
@@ -140,8 +138,6 @@ impl ForeignDataWrapper<S3FdwError> for S3Fdw {
         }
 
         let updated_schema = Arc::new(schema_builder.finish());
-
-        info!("Inferred schema: {:?}", updated_schema);
 
         let listing_config = ListingTableConfig::new(listing_url)
             .with_listing_options(listing_options)

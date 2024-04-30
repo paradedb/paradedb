@@ -11,7 +11,7 @@ use datafusion::datasource::{provider_as_source, TableProvider};
 use datafusion::logical_expr::LogicalPlanBuilder;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::SessionContext;
-use object_store::aws::AmazonS3Builder;
+use object_store::aws::AmazonS3;
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -50,38 +50,14 @@ impl From<S3FdwError> for pg_sys::panic::ErrorReport {
 impl ForeignDataWrapper<S3FdwError> for S3Fdw {
     fn new(options: &HashMap<String, String>) -> Result<Self, S3FdwError> {
         // Create S3 ObjectStore
+        let object_store = AmazonS3::try_from(ServerOptions(options.clone()))?;
         let url = require_option(ServerOption::Url.as_str(), options)?;
-        let region = require_option(ServerOption::Region.as_str(), options)?;
-
-        let mut builder = AmazonS3Builder::new().with_url(url).with_region(region);
-
-        if let Some(access_key_id) = options.get(ServerOption::AccessKeyId.as_str()) {
-            builder = builder.clone().with_access_key_id(access_key_id.as_str());
-        }
-
-        if let Some(secret_access_key) = options.get(ServerOption::SecretAccessKey.as_str()) {
-            builder = builder.with_secret_access_key(secret_access_key.as_str());
-        }
-
-        if let Some(session_token) = options.get(ServerOption::SessionToken.as_str()) {
-            builder = builder.with_token(session_token.as_str());
-        }
-
-        if let Some(endpoint) = options.get(ServerOption::Endpoint.as_str()) {
-            builder = builder.with_endpoint(endpoint.as_str());
-        }
-
-        if let Some(allow_http) = options.get(ServerOption::AllowHttp.as_str()) {
-            if allow_http == "true" {
-                builder = builder.with_allow_http(true);
-            }
-        }
 
         // Create SessionContext with ObjectStore
         let context = SessionContext::new();
         context
             .runtime_env()
-            .register_object_store(&Url::parse(url)?, Arc::new(builder.build()?));
+            .register_object_store(&Url::parse(url)?, Arc::new(object_store));
 
         Ok(Self {
             current_batch: None,
@@ -266,7 +242,10 @@ pub enum S3FdwError {
     ObjectStoreError(#[from] object_store::Error),
 
     #[error(transparent)]
-    OptionsError(#[from] OptionsError),
+    OptionsError(#[from] super::options::OptionsError),
+
+    #[error(transparent)]
+    SupabaseOptionsError(#[from] supabase_wrappers::options::OptionsError),
 
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),

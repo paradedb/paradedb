@@ -1,3 +1,4 @@
+use datafusion::arrow::array::types::{Date32Type, TimestampMicrosecondType};
 use datafusion::arrow::array::{
     Array, ArrayAccessor, ArrayRef, AsArray, BooleanArray, Date32Array, Float32Array, Float64Array,
     Int16Array, Int32Array, Int64Array, StringArray, TimestampMicrosecondArray,
@@ -16,11 +17,12 @@ where
     Self: Array + AsArray,
 {
     fn get_date_value(&self, index: usize) -> Result<Option<datum::Date>, DataTypeError> {
-        let downcast_array = downcast_value!(self, Date32Array);
+        let downcast_array = downcast_value!(self, Int32Array);
+        let date_array = downcast_array.reinterpret_cast::<Date32Type>();
 
-        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+        match date_array.nulls().is_some() && date_array.is_null(index) {
             false => {
-                let date = downcast_array
+                let date = date_array
                     .value_as_date(index)
                     .ok_or(DataTypeError::DateConversion)?;
 
@@ -56,11 +58,12 @@ where
     Self: Array + AsArray,
 {
     fn get_timestamp_value(&self, index: usize) -> Result<Option<datum::Timestamp>, DataTypeError> {
-        let downcast_array = downcast_value!(self, TimestampMicrosecondArray);
+        let downcast_array = downcast_value!(self, Int64Array);
+        let timestamp_array = downcast_array.reinterpret_cast::<TimestampMicrosecondType>();
 
-        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+        match timestamp_array.nulls().is_some() && timestamp_array.is_null(index) {
             false => {
-                let datetime = downcast_array
+                let datetime = timestamp_array
                     .value_as_datetime(index)
                     .ok_or(DataTypeError::DateTimeConversion)?;
 
@@ -118,7 +121,7 @@ where
                 }
             }
             pg_sys::DATEOID => match self.data_type() {
-                DataType::Date32 => match self.get_date_value(index)? {
+                DataType::Int32 => match self.get_date_value(index)? {
                     Some(value) => Ok(Some(Cell::Date(value))),
                     None => Ok(None),
                 },
@@ -128,12 +131,10 @@ where
                 )),
             },
             pg_sys::TIMESTAMPOID => match self.data_type() {
-                DataType::Timestamp(TimeUnit::Microsecond, None) => {
-                    match self.get_timestamp_value(index)? {
-                        Some(value) => Ok(Some(Cell::Timestamp(value))),
-                        None => Ok(None),
-                    }
-                }
+                DataType::Int64 => match self.get_timestamp_value(index)? {
+                    Some(value) => Ok(Some(Cell::Timestamp(value))),
+                    None => Ok(None),
+                },
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
                     PgOid::from(oid),

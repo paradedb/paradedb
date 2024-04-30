@@ -17,6 +17,7 @@ use deltalake::datafusion::logical_expr::{
 };
 use deltalake::datafusion::physical_plan::ExecutionPlan;
 use deltalake::datafusion::sql::TableReference;
+use deltalake::delta_datafusion::DataFusionMixins;
 use deltalake::errors::DeltaTableError;
 use deltalake::kernel::Schema as DeltaSchema;
 use deltalake::operations::create::CreateBuilder;

@@ -144,6 +144,18 @@ impl ContextProvider for QueryContext {
     fn options(&self) -> &ConfigOptions {
         &self.options
     }
+
+    fn udfs_names(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn udafs_names(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn udwfs_names(&self) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 #[inline]

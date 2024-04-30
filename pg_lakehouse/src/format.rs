@@ -6,13 +6,31 @@ use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Clone, Debug)]
-pub struct FileFormat(pub String);
+pub struct FileExtension(pub String);
 
-impl TryFrom<FileFormat> for ListingOptions {
-    type Error = FileFormatError;
+pub enum TableFormat {
+    None,
+    Delta,
+}
 
-    fn try_from(format: FileFormat) -> Result<Self, FileFormatError> {
-        let FileFormat(format) = format;
+impl TableFormat {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::None => "",
+            Self::Delta => "delta",
+        }
+    }
+
+    pub fn iter() -> impl Iterator<Item = Self> {
+        [Self::None, Self::Delta].into_iter()
+    }
+}
+
+impl TryFrom<FileExtension> for ListingOptions {
+    type Error = FormatError;
+
+    fn try_from(format: FileExtension) -> Result<Self, FormatError> {
+        let FileExtension(format) = format;
 
         let listing_options = match format.to_lowercase().as_str() {
             "avro" => ListingOptions::new(Arc::new(AvroFormat)).with_file_extension(".avro"),
@@ -24,7 +42,7 @@ impl TryFrom<FileFormat> for ListingOptions {
             }
             "parquet" => ListingOptions::new(Arc::new(ParquetFormat::default()))
                 .with_file_extension(".parquet"),
-            unsupported => return Err(FileFormatError::InvalidFileFormat(unsupported.to_string())),
+            unsupported => return Err(FormatError::InvalidFileFormat(unsupported.to_string())),
         };
 
         Ok(listing_options)
@@ -32,7 +50,7 @@ impl TryFrom<FileFormat> for ListingOptions {
 }
 
 #[derive(Error, Debug)]
-pub enum FileFormatError {
+pub enum FormatError {
     #[error("Invalid format {0}. Options are avro, csv, json, and parquet.")]
     InvalidFileFormat(String),
 }

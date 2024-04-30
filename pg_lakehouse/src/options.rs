@@ -1,7 +1,4 @@
-use datafusion::common::DataFusionError;
-use pgrx::*;
 use std::collections::HashMap;
-use thiserror::Error;
 
 pub enum AmazonServerOption {
     Endpoint,
@@ -82,15 +79,3 @@ impl TableOption {
 
 #[derive(Clone, Debug)]
 pub struct ServerOptions(pub HashMap<String, String>);
-
-#[derive(Error, Debug)]
-pub enum OptionsError {
-    #[error(transparent)]
-    DataFusionError(#[from] DataFusionError),
-
-    #[error(transparent)]
-    Option(#[from] supabase_wrappers::options::OptionsError),
-
-    #[error(transparent)]
-    ObjectStore(#[from] object_store::Error),
-}

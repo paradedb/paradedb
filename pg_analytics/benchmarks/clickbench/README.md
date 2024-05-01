@@ -7,7 +7,7 @@ Add instructions with dependencies
 sudo apt-get install -y postgresql-client
 sudo snap install docker
 
-# macOS
+# macOSgi
 brew install docker postgresql
 ```
 

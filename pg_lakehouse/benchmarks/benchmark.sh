@@ -96,11 +96,8 @@ echo "* Benchmarking pg_analytics version '$FLAG_TAG' against ClickBench"
 echo "*********************************************************************************"
 echo ""
 
-# For CI benchmarking via Docker, we have a few dataset options:
-# - hits_5m.tsv.gz: 5M rows (~3.75GB)
-download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/hits_5m_rows.tsv.gz" "0dd087f3b6c8262fb962bd262163d402" "hits.tsv"
-# - hits.tsv.gz: 100M rows (~75GB) (full dataset)
-# download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz" "5ef60063da951e18ae3fa929c9f3aad4" "hits.tsv"
+# For CI benchmarking via Docker, use the full dataset (hits.parquet: 100M rows ~14GB)
+download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.parquet" "5ef60063da951e18ae3fa929c9f3aad4" "hits.parquet"
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
 if [ "$FLAG_TAG" == "local" ]; then
@@ -111,8 +108,8 @@ if [ "$FLAG_TAG" == "local" ]; then
     --build-arg POSTGRESQL_PASSWORD=mypassword \
     --build-arg POSTGRESQL_DATABASE=mydatabase \
     --build-arg POSTGRESQL_POSTGRES_PASSWORD=postgres \
-    --file "../../../docker/Dockerfile" \
-    "../../../"
+    --file "../../docker/Dockerfile" \
+    "../../"
   echo ""
 fi
 
@@ -137,8 +134,8 @@ echo "Done!"
 echo ""
 echo "Loading dataset..."
 export PGPASSWORD='mypassword'
+docker cp 'hits.parquet' paradedb:/tmp/hits.parquet
 psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
-psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "\\copy hits FROM 'hits.tsv'"
 
 echo ""
 echo "Running queries..."

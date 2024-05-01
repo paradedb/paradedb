@@ -110,4 +110,4 @@ CREATE FOREIGN TABLE IF NOT EXISTS hits
     PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 )
 SERVER local_file_server
-OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
+OPTIONS (path 'file:///tmp/hits.parquet', extension 'parquet');

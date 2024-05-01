@@ -32,7 +32,7 @@
 
 Today, developers spend an enormous amount of time and resources running and moving data into cloud data warehouses. At the same time, much of this data already lives in S3. The goal of `pg_lakehouse` is to allow companies to build a data warehouse on top of their existing Postgres and S3 with zero new infrastructure, data movement, schema changes, or vendor lock-in.
 
-`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to data lakes and the executor hook API to push queries to DataFusion. While some FDWs like the [S3 FDW](https://github.com/supabase/wrappers/tree/main/wrappers/src/fdw/s3_fdw) already exist, these FDWs lack support for many file and table formats and are slow for large analytical queries. `pg_lakehouse` differentiates itself by supporting these formats and by being very fast.
+`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to data lakes and the executor hook API to push queries to DataFusion. While FDWs over S3 and Parquet exist in the Postgres extension ecosystem, these FDWs lack support for many file and table formats and are very slow for large analytical workloads. `pg_lakehouse` differentiates itself by supporting these formats and by being very fast.
 
 ## Getting Started
 

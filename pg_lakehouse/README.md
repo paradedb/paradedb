@@ -5,14 +5,7 @@
 
 ## Overview
 
-`pg_lakehouse` is an extension that allows Postgres to directly query external data lakes. Queries are pushed down to the DataFusion query engine, which significantly accelerates query speeds.
-
-This extension serves two purposes:
-
-1. To transform Postgres into a fast query engine over data lakes with zero data movement
-2. To enable data movement between data lakes and Postgres using just SQL
-
-Various object stores, table formats, and file formats are supported.
+`pg_lakehouse` is an extension that allows Postgres to directly query external data lakes. Queries are pushed down to the DataFusion query engine, which significantly accelerates query speeds. Multiple object stores, table formats, and file formats are supported.
 
 ### Supported Object Stores
 
@@ -69,8 +62,12 @@ CREATE FOREIGN TABLE trips (
 SERVER s3_server
 OPTIONS (path 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet', extension 'parquet');
 
--- Success! Now you can query the Parquet file like a regular Postgres table
+-- Success! Now you can query the remote Parquet file like a regular Postgres table
 SELECT COUNT(*) FROM trips;
+  count
+---------
+ 2964624
+(1 row)
 ```
 
 ## Query Acceleration
@@ -78,7 +75,7 @@ SELECT COUNT(*) FROM trips;
 On its own, `pg_lakehouse` is only able to push down column projections, sorts, and limits to DataFusion. This means that queries containing
 aggregates, joins, etc. are not fully accelerated.
 
-This can be solved by installing `pg_analytics`, which is able to push down most queries over `pg_lakehouse` foreign tables entirely to DataFusion.
+This can be solved by installing `pg_analytics`, which is able to push down the entirety of most queries over `pg_lakehouse` foreign tables to DataFusion.
 
 ```sql
 \timing
@@ -161,7 +158,7 @@ CREATE TABLE trips_copy AS SELECT * FROM trips;
 
 ### To Data Lake
 
-Writes to data lakes are not yet supported but are coming soon.
+Writing to data lakes are not yet supported but are coming soon.
 
 ## Development
 

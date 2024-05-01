@@ -106,8 +106,9 @@ CREATE FOREIGN TABLE IF NOT EXISTS hits
     HasGCLID SMALLINT NOT NULL,
     RefererHash BIGINT NOT NULL,
     URLHash BIGINT NOT NULL,
-    CLID INTEGER NOT NULL,
-    PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
+    CLID INTEGER NOT NULL
+    -- Primary key constraints are not supported on foreign tables
+    -- PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 )
 SERVER local_file_server
 OPTIONS (path 'file:///tmp/hits.parquet', extension 'parquet');

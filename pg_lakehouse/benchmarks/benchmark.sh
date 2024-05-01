@@ -129,11 +129,12 @@ echo "Waiting for ParadeDB Docker image to spin up..."
 sleep 10
 echo "Done!"
 
+# We use the postgres superuser as it is required to create a foreign-data wrapper
 echo ""
 echo "Loading dataset..."
-export PGPASSWORD='mypassword'
+export PGPASSWORD='postgres'
 docker cp 'hits.parquet' paradedb:/tmp/hits.parquet
-psql -h localhost -U myuser -d mydatabase -p 5432 -t < create.sql
+psql -h localhost -U postgres -d mydatabase -p 5432 -t < create.sql
 
 echo ""
 echo "Running queries..."

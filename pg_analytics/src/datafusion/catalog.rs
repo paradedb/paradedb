@@ -5,12 +5,11 @@ use deltalake::datafusion::catalog::{CatalogProvider, CatalogProviderList};
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use deltalake::operations::transaction::CommitBuilderError;
+use fdw::format::FormatError;
 use fdw::options::OptionsError;
 use pgrx::*;
 use std::{any::Any, collections::HashMap, sync::Arc};
 use thiserror::Error;
-
-use crate::fdw::format::FormatError;
 
 use super::directory::DirectoryError;
 use super::table::DataFusionTableError;

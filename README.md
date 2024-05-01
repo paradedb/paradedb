@@ -37,17 +37,11 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Hybrid search
 - [ ] Analytics
   - [x] Accelerated analytical queries and column-oriented storage with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
-  - [ ] External object store integrations (S3/Azure/GCS/HDFS)
-  - [ ] External Apache Iceberg and Delta Lake support
+  - [x] Directly query data lakes (S3, Azure, etc.), table formats (Deltalake, Iceberg), and file formats (Parquet, JSON, etc.) with [pg_lakehouse](https://github.com/paradedb/paradedb/tree/dev/pg_lakehouse#overview)
   - [ ] High-volume data/Kafka ingest
-  - [ ] Non-Parquet file formats (Avro/ORC)
 - [x] Self-Hosted ParadeDB
   - [x] Docker image based on [bitnami/postgresql](https://hub.docker.com/r/bitnami/postgresql) & [deployment instructions](https://docs.paradedb.com/deploy/aws)
   - [x] Kubernetes Helm chart & [deployment instructions](https://docs.paradedb.com/deploy/helm)
-- [ ] Cloud Database
-  - [ ] Managed cloud
-  - [ ] Cloud Marketplace Images
-  - [ ] Web-based SQL Editor
 - [x] Specialized Workloads
   - [x] Support for geospatial data with [PostGIS](https://github.com/postgis/postgis)
   - [x] Support for cron jobs with [pg_cron](https://github.com/citusdata/pg_cron)

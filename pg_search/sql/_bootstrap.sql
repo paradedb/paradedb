@@ -176,8 +176,13 @@ BEGIN
             WITH similarity AS (
                 SELECT
                     __key_field__ as key_field,
-                    1 - ((__similarity_query__) - MIN(__similarity_query__) OVER ()) / 
-                    (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ()) AS score
+                  CASE
+                    WHEN (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ()) = 0 THEN
+                      0
+                    ELSE
+                      1 - ((__similarity_query__) - MIN(__similarity_query__) OVER ()) / 
+                      (MAX(__similarity_query__) OVER () - MIN(__similarity_query__) OVER ())
+                    END AS score
                 FROM %I.%I
                 ORDER BY __similarity_query__
                 LIMIT $2

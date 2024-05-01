@@ -1,17 +1,26 @@
+use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::catalog::CatalogProvider;
-use deltalake::datafusion::common::arrow::datatypes::DataType;
+use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, SchemaBuilder};
 use deltalake::datafusion::common::config::ConfigOptions;
 use deltalake::datafusion::common::DataFusionError;
-use deltalake::datafusion::datasource::{provider_as_source, view::ViewTable};
+use deltalake::datafusion::datasource::listing::{
+    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
+};
+use deltalake::datafusion::datasource::{provider_as_source, view::ViewTable, TableProvider};
+use deltalake::datafusion::execution::context::SessionState;
 use deltalake::datafusion::execution::FunctionRegistry;
 use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
 use pgrx::*;
+use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::sync::Arc;
 use thiserror::Error;
+
+use crate::fdw::format::*;
+use crate::fdw::options::*;
 
 use super::catalog::CatalogError;
 use super::directory::ParadeDirectory;
@@ -20,6 +29,8 @@ use super::query::QueryString;
 use super::schema::ParadeSchemaProvider;
 use super::session::Session;
 use super::table::PgTableProvider;
+
+const LAKEHOUSE_HANDLERS: [&str; 2] = ["s3_fdw_handler", "local_file_fdw_handler"];
 
 pub struct QueryContext {
     options: ConfigOptions,
@@ -107,6 +118,40 @@ impl QueryContext {
                 return Ok(provider_as_source(Arc::new(view_table)));
             }
 
+            if pg_relation.is_foreign_table() {
+                let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+                let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+
+                if unsafe { is_lakehouse_fdw((*foreign_server).fdwid) } {
+                    let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+                    let oid_map: HashMap<usize, pg_sys::Oid> = pg_relation
+                        .tuple_desc()
+                        .iter()
+                        .enumerate()
+                        .map(|(index, attribute)| (index, attribute.atttypid))
+                        .collect();
+
+                    let format =
+                        require_option_or(TableOption::Format.as_str(), &table_options, "");
+                    let provider = match TableFormat::from(format) {
+                        TableFormat::None => Session::with_session_context(|context| {
+                            Box::pin(async move {
+                                create_listing_provider(
+                                    table_options.clone(),
+                                    oid_map,
+                                    &context.state(),
+                                )
+                            })
+                        })?,
+                        TableFormat::Delta => {
+                            task::block_on(create_delta_provider(table_options.clone()))?
+                        }
+                    };
+
+                    return Ok(provider_as_source(provider));
+                }
+            }
+
             Err(ContextError::TableNotFound(reference.table().to_string()))
         }
     }
@@ -176,6 +221,113 @@ fn get_source(schema_name: &str, table_name: &str) -> Result<Arc<dyn TableSource
     })?)
 }
 
+#[inline]
+fn create_listing_provider(
+    table_options: HashMap<String, String>,
+    mut oid_map: HashMap<usize, pg_sys::Oid>,
+    state: &SessionState,
+) -> Result<Arc<dyn TableProvider>, CatalogError> {
+    // TODO: Move to shared
+    let path = require_option(TableOption::Path.as_str(), &table_options)?;
+    let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
+
+    let listing_url = ListingTableUrl::parse(path)?;
+    let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
+
+    let inferred_schema = task::block_on(listing_options.infer_schema(state, &listing_url))?;
+    let mut schema_builder = SchemaBuilder::new();
+
+    for (index, field) in inferred_schema.fields().iter().enumerate() {
+        match oid_map.remove(&index) {
+            Some(oid) => {
+                // Some types like DATE and TIMESTAMP get incorrectly inferred as
+                // Int32/Int64, so we need to override them
+                let data_type = match (oid, field.data_type()) {
+                    (pg_sys::DATEOID, _) => DataType::Int32,
+                    (pg_sys::TIMESTAMPOID, _) => DataType::Int64,
+                    (_, data_type) => data_type.clone(),
+                };
+                schema_builder.push(Field::new(field.name(), data_type, field.is_nullable()))
+            }
+            None => schema_builder.push(field.clone()),
+        };
+    }
+
+    let updated_schema = Arc::new(schema_builder.finish());
+
+    let listing_config = ListingTableConfig::new(listing_url)
+        .with_listing_options(listing_options)
+        .with_schema(updated_schema);
+
+    let listing_table = ListingTable::try_new(listing_config)?;
+
+    Ok(Arc::new(listing_table) as Arc<dyn TableProvider>)
+}
+
+#[inline]
+async fn create_delta_provider(
+    table_options: HashMap<String, String>,
+) -> Result<Arc<dyn TableProvider>, ContextError> {
+    let path = require_option(TableOption::Path.as_str(), &table_options)?;
+    let delta_table = deltalake::open_table(path).await?;
+
+    Ok(Arc::new(delta_table) as Arc<dyn TableProvider>)
+}
+
+/// Taken from supabase-wrappers
+#[inline]
+unsafe fn options_to_hashmap(
+    options: *mut pg_sys::List,
+) -> Result<HashMap<String, String>, ContextError> {
+    let mut ret = HashMap::new();
+    let options: PgList<pg_sys::DefElem> = PgList::from_pg(options);
+    for option in options.iter_ptr() {
+        let name = CStr::from_ptr((*option).defname);
+        let value = CStr::from_ptr(pg_sys::defGetString(option));
+        let name = name.to_str()?;
+        let value = value.to_str()?;
+        ret.insert(name.to_string(), value.to_string());
+    }
+    Ok(ret)
+}
+
+#[inline]
+unsafe fn is_lakehouse_fdw(oid: pg_sys::Oid) -> bool {
+    let fdw = pg_sys::GetForeignDataWrapper(oid);
+    let handler_oid = (*fdw).fdwhandler;
+    let proc_tuple = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier_PROCOID as i32,
+        handler_oid.into_datum().unwrap(),
+    );
+    let pg_proc = pg_sys::GETSTRUCT(proc_tuple) as pg_sys::Form_pg_proc;
+    let handler_name = name_data_to_str(&(*pg_proc).proname);
+    pg_sys::ReleaseSysCache(proc_tuple);
+
+    LAKEHOUSE_HANDLERS.contains(&handler_name)
+}
+
+/// Taken from supabase-wrappers
+#[inline]
+fn require_option<'map>(
+    opt_name: &str,
+    options: &'map HashMap<String, String>,
+) -> Result<&'map str, CatalogError> {
+    options
+        .get(opt_name)
+        .map(|t| t.as_ref())
+        .ok_or_else(|| CatalogError::OptionNameNotFound(opt_name.to_string()))
+}
+
+/// Taken from supabase-wrappers
+#[inline]
+fn require_option_or<'a>(
+    opt_name: &str,
+    options: &'a HashMap<String, String>,
+    default: &'a str,
+) -> &'a str {
+    options.get(opt_name).map(|t| t.as_ref()).unwrap_or(default)
+}
+
 #[derive(Error, Debug)]
 pub enum ContextError {
     #[error(transparent)]
@@ -183,6 +335,9 @@ pub enum ContextError {
 
     #[error(transparent)]
     DataFusionError(#[from] DataFusionError),
+
+    #[error(transparent)]
+    DeltaTableError(#[from] deltalake::DeltaTableError),
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),

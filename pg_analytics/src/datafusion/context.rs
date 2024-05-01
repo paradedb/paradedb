@@ -13,15 +13,13 @@ use deltalake::datafusion::execution::FunctionRegistry;
 use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
-use fdw::options::{require_option, require_option_or, OptionsError};
+use fdw::format::*;
+use fdw::options::*;
 use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::sync::Arc;
 use thiserror::Error;
-
-use crate::fdw::format::*;
-use crate::fdw::options::*;
 
 use super::catalog::CatalogError;
 use super::directory::ParadeDirectory;
@@ -285,23 +283,6 @@ async fn create_delta_provider(
     Ok(Arc::new(delta_table) as Arc<dyn TableProvider>)
 }
 
-/// Taken from supabase-wrappers
-#[inline]
-unsafe fn options_to_hashmap(
-    options: *mut pg_sys::List,
-) -> Result<HashMap<String, String>, ContextError> {
-    let mut ret = HashMap::new();
-    let options: PgList<pg_sys::DefElem> = PgList::from_pg(options);
-    for option in options.iter_ptr() {
-        let name = CStr::from_ptr((*option).defname);
-        let value = CStr::from_ptr(pg_sys::defGetString(option));
-        let name = name.to_str()?;
-        let value = value.to_str()?;
-        ret.insert(name.to_string(), value.to_string());
-    }
-    Ok(ret)
-}
-
 #[inline]
 unsafe fn is_lakehouse_fdw(oid: pg_sys::Oid) -> bool {
     let fdw = pg_sys::GetForeignDataWrapper(oid);
@@ -315,6 +296,22 @@ unsafe fn is_lakehouse_fdw(oid: pg_sys::Oid) -> bool {
     pg_sys::ReleaseSysCache(proc_tuple);
 
     LAKEHOUSE_HANDLERS.contains(&handler_name)
+}
+
+#[inline]
+pub unsafe fn options_to_hashmap(
+    options: *mut pg_sys::List,
+) -> Result<HashMap<String, String>, ContextError> {
+    let mut ret = HashMap::new();
+    let options: PgList<pg_sys::DefElem> = PgList::from_pg(options);
+    for option in options.iter_ptr() {
+        let name = CStr::from_ptr((*option).defname);
+        let value = CStr::from_ptr(pg_sys::defGetString(option));
+        let name = name.to_str()?;
+        let value = value.to_str()?;
+        ret.insert(name.to_string(), value.to_string());
+    }
+    Ok(ret)
 }
 
 #[derive(Error, Debug)]

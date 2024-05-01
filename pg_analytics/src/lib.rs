@@ -1,7 +1,6 @@
 #![allow(non_snake_case)]
 
 mod datafusion;
-mod fdw;
 mod federation;
 mod guc;
 mod hooks;

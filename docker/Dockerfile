@@ -43,8 +43,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install cargo-get && \
-    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
@@ -123,8 +122,11 @@ COPY shared/ /tmp/shared
 COPY fdw/ /tmp/fdw
 
 # Build the extension
+# Note: We require a different version of pgrx (0.11.3) due to version compatibility
+# with the supabase/wrappers project on which pg_lakehouse is based
 WORKDIR /tmp/pg_lakehouse
-RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo install --locked cargo-pgrx --version "0.11.3" && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pgvector

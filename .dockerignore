@@ -1,5 +1,5 @@
-*.csv
-*.json
-*.parquet
-*.tsv
-*.txt
+**/*.csv
+**/*.json
+**/*.parquet
+**/*.tsv
+**/*.txt

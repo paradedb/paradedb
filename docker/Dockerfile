@@ -125,8 +125,9 @@ COPY fdw/ /tmp/fdw
 # Note: We require a different version of pgrx (0.11.3) due to version compatibility
 # with the supabase/wrappers project on which pg_lakehouse is based
 WORKDIR /tmp/pg_lakehouse
-RUN cargo install --locked cargo-pgrx --version "0.11.3" && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo install --locked cargo-pgrx --version "0.11.3" --force && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pgvector

@@ -36,6 +36,12 @@ impl TryFrom<ServerOptions> for AmazonS3 {
             }
         }
 
+        if let Some(skip_signature) = options.get(AmazonServerOption::SkipSignature.as_str()) {
+            if skip_signature == "true" {
+                builder = builder.with_skip_signature(true);
+            }
+        }
+
         Ok(builder.build()?)
     }
 }

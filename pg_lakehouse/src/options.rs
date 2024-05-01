@@ -8,6 +8,7 @@ pub enum AmazonServerOption {
     SecretAccessKey,
     SessionToken,
     AllowHttp,
+    SkipSignature,
 }
 
 impl AmazonServerOption {
@@ -20,6 +21,7 @@ impl AmazonServerOption {
             Self::SecretAccessKey => "secret_access_key",
             Self::SessionToken => "session_token",
             Self::AllowHttp => "allow_http",
+            Self::SkipSignature => "skip_signature",
         }
     }
 
@@ -32,6 +34,7 @@ impl AmazonServerOption {
             Self::SecretAccessKey => false,
             Self::SessionToken => false,
             Self::AllowHttp => false,
+            Self::SkipSignature => false,
         }
     }
 
@@ -44,6 +47,7 @@ impl AmazonServerOption {
             Self::SecretAccessKey,
             Self::SessionToken,
             Self::AllowHttp,
+            Self::SkipSignature,
         ]
         .into_iter()
     }

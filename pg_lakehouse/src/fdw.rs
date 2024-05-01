@@ -160,11 +160,19 @@ fn create_listing_provider(
     for (index, field) in inferred_schema.fields().iter().enumerate() {
         match oid_map.remove(&index) {
             Some(oid) => {
-                // Some types like DATE and TIMESTAMP get incorrectly inferred as
-                // Int32/Int64, so we need to override them
+                // Types can get incorrectly inferred, so we override them
                 let data_type = match (oid, field.data_type()) {
+                    (pg_sys::BOOLOID, _) => DataType::Boolean,
                     (pg_sys::DATEOID, _) => DataType::Int32,
                     (pg_sys::TIMESTAMPOID, _) => DataType::Int64,
+                    (pg_sys::VARCHAROID, _) => DataType::Utf8,
+                    (pg_sys::BPCHAROID, _) => DataType::Utf8,
+                    (pg_sys::TEXTOID, _) => DataType::Utf8,
+                    (pg_sys::INT2OID, _) => DataType::Int16,
+                    (pg_sys::INT4OID, _) => DataType::Int32,
+                    (pg_sys::INT8OID, _) => DataType::Int64,
+                    (pg_sys::FLOAT4OID, _) => DataType::Float32,
+                    (pg_sys::FLOAT8OID, _) => DataType::Float64,
                     (_, data_type) => data_type.clone(),
                 };
                 schema_builder.push(Field::new(field.name(), data_type, field.is_nullable()))

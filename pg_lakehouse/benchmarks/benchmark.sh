@@ -90,7 +90,7 @@ download_and_verify() {
 
 echo ""
 echo "*********************************************************************************"
-echo "* Benchmarking pg_analytics version '$FLAG_TAG' against ClickBench"
+echo "* Benchmarking pg_lakehouse version '$FLAG_TAG' against ClickBench"
 echo "*********************************************************************************"
 echo ""
 

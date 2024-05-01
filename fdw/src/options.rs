@@ -86,7 +86,6 @@ impl TableOption {
 /// We pulled them out because supabase-wrappers depends on pgrx 0.11.3
 /// and pg_analytics uses 0.12.0-alpha.1. Once this is no longer the case we
 /// can remove these functions and use the ones from supabase-wrappers
-#[inline]
 pub fn require_option<'map>(
     opt_name: &str,
     options: &'map HashMap<String, String>,
@@ -97,8 +96,6 @@ pub fn require_option<'map>(
         .ok_or_else(|| OptionsError::OptionNameNotFound(opt_name.to_string()))
 }
 
-/// Taken from supabase-wrappers
-#[inline]
 pub fn require_option_or<'a>(
     opt_name: &str,
     options: &'a HashMap<String, String>,

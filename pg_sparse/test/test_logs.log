@@ -1,0 +1,15 @@
+2024-02-24 03:47:46.749 EST [82776] LOG:  could not open file "postmaster.pid": No such file or directory
+2024-02-24 03:47:46.749 EST [82776] LOG:  performing immediate shutdown because data directory lock file is invalid
+2024-02-24 03:47:46.749 EST [82776] LOG:  received immediate shutdown request
+2024-02-24 03:47:46.749 EST [82776] LOG:  could not open file "postmaster.pid": No such file or directory
+2024-02-24 03:47:46.753 EST [82776] LOG:  database system is shut down
+2024-02-24 03:47:47.068 EST [96425] LOG:  could not open file "postmaster.pid": No such file or directory
+2024-02-24 03:47:47.068 EST [96425] LOG:  performing immediate shutdown because data directory lock file is invalid
+2024-02-24 03:47:47.068 EST [96425] LOG:  received immediate shutdown request
+2024-02-24 03:47:47.068 EST [96425] LOG:  could not open file "postmaster.pid": No such file or directory
+2024-02-24 03:47:47.073 EST [96425] LOG:  database system is shut down
+2024-02-24 03:47:47.805 EST [83489] LOG:  could not open file "postmaster.pid": No such file or directory
+2024-02-24 03:47:47.805 EST [83489] LOG:  performing immediate shutdown because data directory lock file is invalid
+2024-02-24 03:47:47.805 EST [83489] LOG:  received immediate shutdown request
+2024-02-24 03:47:47.805 EST [83489] LOG:  could not open file "postmaster.pid": No such file or directory
+2024-02-24 03:47:47.810 EST [83489] LOG:  database system is shut down

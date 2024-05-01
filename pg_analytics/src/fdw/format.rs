@@ -1,7 +1,7 @@
-use datafusion::datasource::file_format::{
+use deltalake::datafusion::datasource::file_format::{
     avro::AvroFormat, csv::CsvFormat, json::JsonFormat, parquet::ParquetFormat,
 };
-use datafusion::datasource::listing::ListingOptions;
+use deltalake::datafusion::datasource::listing::ListingOptions;
 use std::sync::Arc;
 use thiserror::Error;
 

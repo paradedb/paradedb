@@ -9,6 +9,8 @@ use pgrx::*;
 use std::{any::Any, collections::HashMap, sync::Arc};
 use thiserror::Error;
 
+use crate::fdw::format::FormatError;
+
 use super::directory::DirectoryError;
 use super::table::DataFusionTableError;
 
@@ -112,6 +114,9 @@ pub enum CatalogError {
     DirectoryError(#[from] DirectoryError),
 
     #[error(transparent)]
+    FormatError(#[from] FormatError),
+
+    #[error(transparent)]
     FromUtf8Error(#[from] std::string::FromUtf8Error),
 
     #[error(transparent)]
@@ -137,6 +142,9 @@ pub enum CatalogError {
 
     #[error("{0}")]
     OsString(String),
+
+    #[error("Required option {0} is not specified")]
+    OptionNameNotFound(String),
 
     #[error("Schema {0} not found")]
     SchemaNotFound(String),

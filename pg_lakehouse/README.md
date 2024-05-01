@@ -5,9 +5,9 @@
 
 ## Overview
 
-`pg_lakehouse` is an extension that allows Postgres to directly query external data lakes. Queries are pushed down to the DataFusion query engine, which significantly accelerates query speeds. Multiple object stores, table formats, and file formats are supported.
+`pg_lakehouse` is an extension that transforms Postgres into an analytical query engine over data lakes like S3. Queries are pushed down to [Apache DataFusion](https://github.com/apache/datafusion), which significantly improves performance. Any combination of the following object stores, table formats, and file formats is supported.
 
-### Supported Object Stores
+### Object Stores
 
 - [x] Amazon S3
 - [x] Local file system
@@ -15,7 +15,7 @@
 - [ ] Google Cloud Storage (coming soon)
 - [ ] HDFS (coming soon)
 
-### Supported File Formats
+### File Formats
 
 - [x] Parquet
 - [x] CSV
@@ -23,10 +23,16 @@
 - [x] Avro
 - [ ] ORC (coming soon)
 
-### Supported Table Formats
+### Table Formats
 
 - [x] Deltalake
 - [ ] Apache Iceberg (coming soon)
+
+## Motivation
+
+Today, developers spend an enormous amount of time and resources running and moving data into cloud data warehouses. At the same time, much of this data already lives in S3. The goal of `pg_lakehouse` is to allow companies to build a data warehouse on top of their existing Postgres and S3 with zero new infrastructure, data movement, schema changes, or vendor lock-in.
+
+`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to data lakes and the executor hook API to push queries to DataFusion. While some FDWs like the [S3 FDW](https://github.com/supabase/wrappers/tree/main/wrappers/src/fdw/s3_fdw) already exist, these FDWs lack support for many file and table formats and are slow for large analytical queries. `pg_lakehouse` differentiates itself by supporting these formats and by being very fast.
 
 ## Getting Started
 
@@ -82,29 +88,7 @@ This can be solved by installing [`pg_analytics`](https://github.com/paradedb/pa
 CREATE EXTENSION pg_analytics;
 ```
 
-## Object Stores
-
-### Local File System
-
-To be queryable, files must exist on the same machine as your Postgres instance.
-
-```sql
-CREATE FOREIGN DATA WRAPPER local_file_wrapper HANDLER local_file_fdw_handler VALIDATOR local_file_fdw_validator;
-CREATE SERVER local_file_server FOREIGN DATA WRAPPER local_file_wrapper;
-
--- Replace the dummy schema with the actual schema of your file data
-CREATE FOREIGN TABLE local_file_table (x INT)
-SERVER local_file_server
-OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
-```
-
-#### Local File Table Options
-
-- `path` (required): Must start with `file:///` and point to the location of your file. The path should end in a `/` if it points to a directory of partitioned Parquet files.
-- `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
-- `format`: One of `delta` or `iceberg`. If omitted, no table format is assumed.
-
-### Amazon S3
+## Amazon S3
 
 ```sql
 CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
@@ -122,7 +106,7 @@ SERVER s3_server
 OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 ```
 
-#### S3 Server Options
+### S3 Server Options
 
 - `region` (required): AWS region, e.g. `us-east-1`
 - `url` (required): Path to the S3 bucket, starting with `s3://`
@@ -133,11 +117,33 @@ OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 - `allow_http`: If set to `true`, allows both HTTP and HTTPS endpoints. Defaults to `false`.
 - `skip_signature`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
 
-#### S3 Table Options
+Note that Postgres stores these credentials in the `pg_catalog.pg_foreign_server` and can be seen by anyone with access to this table. Additional credential security measures are coming soon.
+
+### S3 Table Options
 
 - `path` (required): Must start with `s3://` and point to the location of your file. The path should end in a `/` if it points to a directory of partitioned Parquet files.
 - `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
 - `format`: One of `delta` or `iceberg`. If omitted, no table format is assumed.
+
+## Local File System
+
+To be queryable, files must exist on the same machine as your Postgres instance.
+
+```sql
+CREATE FOREIGN DATA WRAPPER local_file_wrapper HANDLER local_file_fdw_handler VALIDATOR local_file_fdw_validator;
+CREATE SERVER local_file_server FOREIGN DATA WRAPPER local_file_wrapper;
+
+-- Replace the dummy schema with the actual schema of your file data
+CREATE FOREIGN TABLE local_file_table (x INT)
+SERVER local_file_server
+OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
+```
+
+### Local File Table Options
+
+- `path` (required): Must start with `file:///` and point to the location of your file. The path should end in a `/` if it points to a directory of partitioned Parquet files.
+- `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
+- `format`: Only `delta` is accepted for the Deltalake format. If omitted, no table format is assumed.
 
 ## Data Movement
 

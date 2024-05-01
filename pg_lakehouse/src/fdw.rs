@@ -12,6 +12,9 @@ use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder};
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
 use deltalake::DeltaTableError;
+use fdw::format::*;
+use fdw::lake::*;
+use fdw::options::TableOption;
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,9 +22,7 @@ use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use super::cell::*;
-use super::format::*;
-use super::lake::*;
-use super::options::*;
+
 // Because the SessionContext is recreated on each scan, we don't need to worry about
 // assigning a unique name to the DataFusion table
 const DEFAULT_TABLE_NAME: &str = "listing_table";

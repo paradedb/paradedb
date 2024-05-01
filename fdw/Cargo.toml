@@ -1,0 +1,11 @@
+[package]
+name = "fdw"
+version = "0.6.2"
+edition = "2021"
+
+[dependencies]
+datafusion = "37.1.0"
+deltalake = { git = "https://github.com/paradedb/delta-rs.git", branch = "main", features = ["datafusion"] }
+object_store = { version = "0.9.1", features = ["aws"] }
+thiserror = "1.0.59"
+url = "2.5.0"

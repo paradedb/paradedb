@@ -33,6 +33,7 @@
 The following example uses `pg_lakehouse` to query an example dataset of NYC taxi trips from January 2024, hosted in a public S3 bucket provided by ParadeDB.
 
 ```sql
+CREATE EXTENSION pg_lakehouse;
 CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
 
 -- Provide S3 credentials
@@ -164,14 +165,14 @@ Writing to data lakes are not yet supported but are coming soon.
 
 ### Install Rust
 
-To develop the extension, first install Rust v1.77.0 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
+To develop the extension, first install Rust v1.77.2 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup install 1.77.0
+rustup install 1.77.2
 
-# We recommend setting the default version to 1.76.0 for consistency across your system
-rustup default 1.77.0
+# We recommend setting the default version to 1.77.2  for consistency across your system
+rustup default 1.77.2
 ```
 
 Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconcistencies with Homebrew's Rust installation on macOS.

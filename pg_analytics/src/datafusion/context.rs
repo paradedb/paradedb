@@ -13,6 +13,7 @@ use deltalake::datafusion::execution::FunctionRegistry;
 use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
+use fdw::options::{require_option, require_option_or, OptionsError};
 use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
@@ -147,6 +148,8 @@ impl QueryContext {
                             task::block_on(create_delta_provider(table_options.clone()))?
                         }
                     };
+
+                    // TODO: Register object store
 
                     return Ok(provider_as_source(provider));
                 }
@@ -314,28 +317,6 @@ unsafe fn is_lakehouse_fdw(oid: pg_sys::Oid) -> bool {
     LAKEHOUSE_HANDLERS.contains(&handler_name)
 }
 
-/// Taken from supabase-wrappers
-#[inline]
-fn require_option<'map>(
-    opt_name: &str,
-    options: &'map HashMap<String, String>,
-) -> Result<&'map str, CatalogError> {
-    options
-        .get(opt_name)
-        .map(|t| t.as_ref())
-        .ok_or_else(|| CatalogError::OptionNameNotFound(opt_name.to_string()))
-}
-
-/// Taken from supabase-wrappers
-#[inline]
-fn require_option_or<'a>(
-    opt_name: &str,
-    options: &'a HashMap<String, String>,
-    default: &'a str,
-) -> &'a str {
-    options.get(opt_name).map(|t| t.as_ref()).unwrap_or(default)
-}
-
 #[derive(Error, Debug)]
 pub enum ContextError {
     #[error(transparent)]
@@ -346,6 +327,9 @@ pub enum ContextError {
 
     #[error(transparent)]
     DeltaTableError(#[from] deltalake::DeltaTableError),
+
+    #[error(transparent)]
+    OptionsError(#[from] OptionsError),
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),

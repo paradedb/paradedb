@@ -95,7 +95,10 @@ pub fn executor_run(
                         pg_sys::CmdType_CMD_SELECT => {
                             let single_thread = logical_plan_details.includes_udf();
                             match get_datafusion_batches(logical_plan, single_thread) {
-                                Ok(batches) => write_batches_to_slots(query_desc, batches)?,
+                                Ok(batches) => {
+                                    info!("got batches");
+                                    write_batches_to_slots(query_desc, batches)?
+                                }
                                 Err(err) => {
                                     fallback_warning!(err.to_string());
                                     prev_hook(query_desc, direction, count, execute_once);
@@ -111,7 +114,8 @@ pub fn executor_run(
                         }
                     }
                 }
-                Err(_) => {
+                Err(err) => {
+                    info!("error {:?}", err.to_string());
                     prev_hook(query_desc, direction, count, execute_once);
                 }
             };

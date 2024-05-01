@@ -87,6 +87,24 @@ where
     }
 }
 
+pub trait GetDatumDateFromInt32
+where
+    Self: Array + AsArray,
+{
+    fn get_date_from_int32_datum(
+        &self,
+        index: usize,
+    ) -> Result<Option<pg_sys::Datum>, DataTypeError> {
+        let downcast_array = downcast_value!(self, Int32Array);
+        let date_array = downcast_array.reinterpret_cast::<Date32Type>();
+
+        match date_array.nulls().is_some() && date_array.is_null(index) {
+            false => Ok(datum::Date::try_from(DayUnix(date_array.value(index))).into_datum()),
+            true => Ok(None),
+        }
+    }
+}
+
 pub trait GetDatumTimestampMicrosecond
 where
     Self: Array + AsArray,
@@ -128,6 +146,27 @@ where
         match downcast_array.is_null(index) {
             false => Ok(
                 datum::Timestamp::try_from(SecondUnix(downcast_array.value(index))).into_datum(),
+            ),
+            true => Ok(None),
+        }
+    }
+}
+
+pub trait GetDatumTimestampFromInt64
+where
+    Self: Array + AsArray,
+{
+    fn get_ts_from_int64_datum(
+        &self,
+        index: usize,
+    ) -> Result<Option<pg_sys::Datum>, DataTypeError> {
+        let downcast_array = downcast_value!(self, Int64Array);
+        let timestamp_array = downcast_array.reinterpret_cast::<TimestampMicrosecondType>();
+
+        match timestamp_array.nulls().is_some() && timestamp_array.is_null(index) {
+            false => Ok(
+                datum::Timestamp::try_from(MicrosecondUnix(timestamp_array.value(index)))
+                    .into_datum(),
             ),
             true => Ok(None),
         }
@@ -230,6 +269,7 @@ where
     Self: Array
         + AsArray
         + GetDatumDate
+        + GetDatumDateFromInt32
         + GetDatumPrimitive
         + GetDatumPrimitiveList
         + GetDatumNumeric
@@ -237,6 +277,7 @@ where
         + GetDatumTimestampMicrosecond
         + GetDatumTimestampMillisecond
         + GetDatumTimestampSecond
+        + GetDatumTimestampFromInt64
         + GetDatumTime
         + GetDatumUInt
         + GetDatumUuid,
@@ -268,12 +309,17 @@ where
                         return Err(DatumError::IntError(unsupported.clone(), oid).into())
                     }
                 },
-                DATEOID => self.get_date_datum(index)?,
+                DATEOID => match self.data_type() {
+                    Date32 => self.get_date_datum(index)?,
+                    Int32 => self.get_date_from_int32_datum(index)?,
+                    unsupported => return Err(DatumError::DateError(unsupported.clone()).into()),
+                },
                 TIMEOID => self.get_time_datum(index)?,
                 TIMESTAMPOID => match self.data_type() {
                     Timestamp(TimeUnit::Microsecond, None) => self.get_ts_micro_datum(index)?,
                     Timestamp(TimeUnit::Millisecond, None) => self.get_ts_milli_datum(index)?,
                     Timestamp(TimeUnit::Second, None) => self.get_ts_datum(index)?,
+                    Int64 => self.get_ts_from_int64_datum(index)?,
                     unsupported => {
                         return Err(DatumError::TimestampError(unsupported.clone()).into())
                     }
@@ -338,6 +384,7 @@ where
 
 impl GetDatum for ArrayRef {}
 impl GetDatumDate for ArrayRef {}
+impl GetDatumDateFromInt32 for ArrayRef {}
 impl GetDatumPrimitive for ArrayRef {}
 impl GetDatumPrimitiveList for ArrayRef {}
 impl GetDatumNumeric for ArrayRef {}
@@ -345,6 +392,7 @@ impl GetDatumNumericFromDecimal for ArrayRef {}
 impl GetDatumTimestampMicrosecond for ArrayRef {}
 impl GetDatumTimestampMillisecond for ArrayRef {}
 impl GetDatumTimestampSecond for ArrayRef {}
+impl GetDatumTimestampFromInt64 for ArrayRef {}
 impl GetDatumTime for ArrayRef {}
 impl GetDatumUInt for ArrayRef {}
 impl GetDatumUuid for ArrayRef {}
@@ -356,6 +404,9 @@ pub enum DatumError {
 
     #[error(transparent)]
     UuidError(#[from] uuid::Error),
+
+    #[error("Error converting {0:?} into DATE")]
+    DateError(DataType),
 
     #[error("Error converting {0:?} into {1:?}")]
     IntError(DataType, PgOid),

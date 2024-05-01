@@ -4386,6 +4386,7 @@ dependencies = [
  "indexmap",
  "lazy_static",
  "memoffset",
+ "object_store",
  "once_cell",
  "pgrx",
  "pgrx-tests",

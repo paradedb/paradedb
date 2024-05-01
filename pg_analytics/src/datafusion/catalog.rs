@@ -5,8 +5,6 @@ use deltalake::datafusion::catalog::{CatalogProvider, CatalogProviderList};
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use deltalake::operations::transaction::CommitBuilderError;
-use fdw::format::FormatError;
-use fdw::options::OptionsError;
 use pgrx::*;
 use std::{any::Any, collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -114,7 +112,7 @@ pub enum CatalogError {
     DirectoryError(#[from] DirectoryError),
 
     #[error(transparent)]
-    FormatError(#[from] FormatError),
+    FormatError(#[from] fdw::format::FormatError),
 
     #[error(transparent)]
     FromUtf8Error(#[from] std::string::FromUtf8Error),
@@ -123,13 +121,19 @@ pub enum CatalogError {
     IO(#[from] std::io::Error),
 
     #[error(transparent)]
+    LakeError(#[from] fdw::lake::LakeError),
+
+    #[error(transparent)]
     NulError(#[from] std::ffi::NulError),
 
     #[error(transparent)]
-    OptionsError(#[from] OptionsError),
+    OptionsError(#[from] fdw::options::OptionsError),
 
     #[error(transparent)]
     ParseIntError(#[from] std::num::ParseIntError),
+
+    #[error(transparent)]
+    UrlParseError(#[from] url::ParseError),
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),

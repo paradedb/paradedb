@@ -101,6 +101,31 @@ RUN rustup update nightly && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
+# pg_lakehouse
+######################
+
+FROM builder as builder-pg_lakehouse
+
+ARG POSTHOG_API_KEY
+ARG POSTHOG_HOST
+ARG COMMIT_SHA
+ARG TELEMETRY
+
+# Declare compile-time environment variables
+ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
+    POSTHOG_HOST=${POSTHOG_HOST} \
+    COMMIT_SHA=${COMMIT_SHA} \
+    TELEMETRY=${TELEMETRY}
+
+COPY pg_analytics/ /tmp/pg_analytics
+COPY shared/ /tmp/shared
+COPY fdw/ /tmp/fdw
+
+# Build the extension
+WORKDIR /tmp/pg_pg_lakehouse
+RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+######################
 # pgvector
 ######################
 
@@ -153,6 +178,8 @@ COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VER
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
+COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root

@@ -1,10 +1,7 @@
 mod cell;
 mod datetime;
 mod fdw;
-mod format;
-mod lake;
 mod local;
-mod options;
 mod s3;
 
 use pgrx::*;

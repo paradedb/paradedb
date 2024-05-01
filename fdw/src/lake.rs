@@ -1,8 +1,8 @@
 use object_store::aws::{AmazonS3, AmazonS3Builder};
-use supabase_wrappers::prelude::require_option;
 use thiserror::Error;
 
 use super::options::*;
+
 impl TryFrom<ServerOptions> for AmazonS3 {
     type Error = LakeError;
 
@@ -49,7 +49,7 @@ impl TryFrom<ServerOptions> for AmazonS3 {
 #[derive(Error, Debug)]
 pub enum LakeError {
     #[error(transparent)]
-    Option(#[from] supabase_wrappers::options::OptionsError),
+    OptionsError(#[from] OptionsError),
 
     #[error(transparent)]
     ObjectStore(#[from] object_store::Error),

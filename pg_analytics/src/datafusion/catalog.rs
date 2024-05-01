@@ -5,6 +5,7 @@ use deltalake::datafusion::catalog::{CatalogProvider, CatalogProviderList};
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::errors::DeltaTableError;
 use deltalake::operations::transaction::CommitBuilderError;
+use fdw::options::OptionsError;
 use pgrx::*;
 use std::{any::Any, collections::HashMap, sync::Arc};
 use thiserror::Error;
@@ -126,6 +127,9 @@ pub enum CatalogError {
     NulError(#[from] std::ffi::NulError),
 
     #[error(transparent)]
+    OptionsError(#[from] OptionsError),
+
+    #[error(transparent)]
     ParseIntError(#[from] std::num::ParseIntError),
 
     #[error(transparent)]
@@ -142,9 +146,6 @@ pub enum CatalogError {
 
     #[error("{0}")]
     OsString(String),
-
-    #[error("Required option {0} is not specified")]
-    OptionNameNotFound(String),
 
     #[error("Schema {0} not found")]
     SchemaNotFound(String),

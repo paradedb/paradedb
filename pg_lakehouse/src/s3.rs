@@ -5,6 +5,7 @@ use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::{DataFrame, SessionContext};
+use fdw::options::{AmazonServerOption, ServerOptions, TableOption};
 use object_store::aws::AmazonS3;
 use pgrx::*;
 use std::collections::HashMap;
@@ -13,7 +14,7 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use super::fdw::*;
-use super::options::*;
+
 #[wrappers_fdw(
     author = "ParadeDB",
     website = "https://github.com/paradedb/paradedb",

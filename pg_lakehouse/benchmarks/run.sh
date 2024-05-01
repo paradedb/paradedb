@@ -5,7 +5,8 @@ set -Eeuo pipefail
 
 TRIES=3
 OS=$(uname)
-export PGPASSWORD='mypassword'
+# TODO: Escalate user to have FDW abilities instead
+export PGPASSWORD='postgres'
 
 while IFS= read -r query; do
   # We only need to clear the cache on the OS where we do the official benchmarking
@@ -17,6 +18,6 @@ while IFS= read -r query; do
   echo "$query";
   # shellcheck disable=SC2034
   for i in $(seq 1 $TRIES); do
-    psql -h localhost -U myuser -d mydatabase -p 5432 -t -c '\timing' -c "$query" | grep 'Time'
+    psql -h localhost -U postgres -d mydatabase -p 5432 -t -c '\timing' -c "$query" | grep 'Time'
   done;
 done < queries.sql

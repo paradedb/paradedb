@@ -85,9 +85,7 @@ download_and_verify() {
 
   # Downloading the file
   echo "Downloading $filename dataset..."
-  wget --no-verbose --continue -O "$filename.gz" "$url"
-  gzip -d "$filename.gz"
-  chmod 666 "$filename"
+  wget --no-verbose --continue -O "$filename" "$url"
 }
 
 echo ""
@@ -97,7 +95,7 @@ echo "**************************************************************************
 echo ""
 
 # For CI benchmarking via Docker, use the full dataset (hits.parquet: 100M rows ~14GB)
-download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.parquet" "5ef60063da951e18ae3fa929c9f3aad4" "hits.parquet"
+download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.parquet" "e903fd8cc8462a454df107390326844a" "hits.parquet"
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
 if [ "$FLAG_TAG" == "local" ]; then

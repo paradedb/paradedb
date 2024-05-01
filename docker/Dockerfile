@@ -117,12 +117,12 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
     COMMIT_SHA=${COMMIT_SHA} \
     TELEMETRY=${TELEMETRY}
 
-COPY pg_analytics/ /tmp/pg_analytics
+COPY pg_lakehouse/ /tmp/pg_lakehouse
 COPY shared/ /tmp/shared
 COPY fdw/ /tmp/fdw
 
 # Build the extension
-WORKDIR /tmp/pg_pg_lakehouse
+WORKDIR /tmp/pg_lakehouse
 RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################

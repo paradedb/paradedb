@@ -14,12 +14,16 @@ use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, 
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
 use fdw::format::*;
+use fdw::handler::*;
 use fdw::options::*;
+use object_store::aws::AmazonS3;
+use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::sync::Arc;
 use thiserror::Error;
+use url::Url;
 
 use super::catalog::CatalogError;
 use super::directory::ParadeDirectory;
@@ -28,8 +32,6 @@ use super::query::QueryString;
 use super::schema::ParadeSchemaProvider;
 use super::session::Session;
 use super::table::PgTableProvider;
-
-const LAKEHOUSE_HANDLERS: [&str; 2] = ["s3_fdw_handler", "local_file_fdw_handler"];
 
 pub struct QueryContext {
     options: ConfigOptions,
@@ -120,34 +122,65 @@ impl QueryContext {
             if pg_relation.is_foreign_table() {
                 let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
                 let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+                let fdw_handler = unsafe { get_fdw_handler((*foreign_server).fdwid) };
 
-                if unsafe { is_lakehouse_fdw((*foreign_server).fdwid) } {
+                if fdw_handler == FdwHandler::S3 || fdw_handler == FdwHandler::LocalFile {
                     let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+                    let server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
                     let oid_map: HashMap<usize, pg_sys::Oid> = pg_relation
                         .tuple_desc()
                         .iter()
                         .enumerate()
                         .map(|(index, attribute)| (index, attribute.atttypid))
                         .collect();
-
                     let format =
                         require_option_or(TableOption::Format.as_str(), &table_options, "");
+
+                    // Register object store
+                    match fdw_handler {
+                        FdwHandler::S3 => {
+                            Session::with_session_context(|context| {
+                                Box::pin(async move {
+                                    let object_store =
+                                        AmazonS3::try_from(ServerOptions(server_options.clone()))?;
+                                    let url = require_option(
+                                        AmazonServerOption::Url.as_str(),
+                                        &server_options,
+                                    )?;
+
+                                    context.runtime_env().register_object_store(
+                                        &Url::parse(url)?,
+                                        Arc::new(object_store),
+                                    );
+                                    Ok(())
+                                })
+                            })?;
+                        }
+                        FdwHandler::LocalFile => {
+                            let object_store = LocalFileSystem::new();
+                            Session::with_session_context(|context| {
+                                Box::pin(async move {
+                                    context.runtime_env().register_object_store(
+                                        &Url::parse("file://")?,
+                                        Arc::new(object_store),
+                                    );
+                                    Ok(())
+                                })
+                            })?;
+                        }
+                        _ => {}
+                    };
+
                     let provider = match TableFormat::from(format) {
                         TableFormat::None => Session::with_session_context(|context| {
                             Box::pin(async move {
-                                create_listing_provider(
-                                    table_options.clone(),
-                                    oid_map,
-                                    &context.state(),
-                                )
+                                create_listing_provider(table_options, oid_map, &context.state())
                             })
                         })?,
                         TableFormat::Delta => {
                             task::block_on(create_delta_provider(table_options.clone()))?
                         }
                     };
-
-                    // TODO: Register object store
 
                     return Ok(provider_as_source(provider));
                 }
@@ -284,7 +317,7 @@ async fn create_delta_provider(
 }
 
 #[inline]
-unsafe fn is_lakehouse_fdw(oid: pg_sys::Oid) -> bool {
+unsafe fn get_fdw_handler(oid: pg_sys::Oid) -> FdwHandler {
     let fdw = pg_sys::GetForeignDataWrapper(oid);
     let handler_oid = (*fdw).fdwhandler;
     let proc_tuple = pg_sys::SearchSysCache1(
@@ -295,7 +328,7 @@ unsafe fn is_lakehouse_fdw(oid: pg_sys::Oid) -> bool {
     let handler_name = name_data_to_str(&(*pg_proc).proname);
     pg_sys::ReleaseSysCache(proc_tuple);
 
-    LAKEHOUSE_HANDLERS.contains(&handler_name)
+    FdwHandler::from(handler_name)
 }
 
 #[inline]
@@ -324,6 +357,9 @@ pub enum ContextError {
 
     #[error(transparent)]
     DeltaTableError(#[from] deltalake::DeltaTableError),
+
+    #[error(transparent)]
+    LakeError(#[from] fdw::lake::LakeError),
 
     #[error(transparent)]
     OptionsError(#[from] OptionsError),

@@ -76,17 +76,10 @@ SELECT COUNT(*) FROM trips;
 On its own, `pg_lakehouse` is only able to push down column projections, sorts, and limits to DataFusion. This means that queries containing
 aggregates, joins, etc. are not fully accelerated.
 
-This can be solved by installing `pg_analytics`, which is able to push down the entirety of most queries over `pg_lakehouse` foreign tables to DataFusion.
+This can be solved by installing [`pg_analytics`](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview), which is able to push down the entirety of most queries over `pg_lakehouse` foreign tables to DataFusion.
 
 ```sql
-\timing
-
--- Query speed without pg_analytics
-SELECT COUNT(*) FROM hits;
-
 CREATE EXTENSION pg_analytics;
-
--- Query speed with pg_analytics
 ```
 
 ## Object Stores
@@ -159,7 +152,7 @@ CREATE TABLE trips_copy AS SELECT * FROM trips;
 
 ### To Data Lake
 
-Writing to data lakes are not yet supported but are coming soon.
+Writes to data lakes are not yet supported but are coming soon.
 
 ## Development
 

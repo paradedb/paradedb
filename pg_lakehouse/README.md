@@ -90,6 +90,8 @@ CREATE EXTENSION pg_analytics;
 
 ## Amazon S3
 
+This code block demonstrates how to create a foreign table over S3.
+
 ```sql
 CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
 CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
@@ -117,7 +119,7 @@ OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 - `allow_http`: If set to `true`, allows both HTTP and HTTPS endpoints. Defaults to `false`.
 - `skip_signature`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
 
-Note that Postgres stores these credentials in the `pg_catalog.pg_foreign_server` and can be seen by anyone with access to this table. Additional credential security measures are coming soon.
+User permissions should be set accordingly, as Postgres stores these credentials in the `pg_catalog.pg_foreign_server` table and can be seen by anyone with access to this table. Additional credential security measures will be introduced in future updates.
 
 ### S3 Table Options
 

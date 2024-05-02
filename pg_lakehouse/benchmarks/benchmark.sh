@@ -95,7 +95,7 @@ echo "* Benchmarking pg_lakehouse version '$FLAG_TAG' against ClickBench"
 echo "*********************************************************************************"
 echo ""
 
-# For CI benchmarking via Docker, use the full dataset (hits.parquet: 100M rows ~14GB)
+# For CI benchmarking via Docker, use the full dataset (hits.parquet: 100M rows ~15GBs)
 download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.parquet" "e903fd8cc8462a454df107390326844a" "hits.parquet"
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit

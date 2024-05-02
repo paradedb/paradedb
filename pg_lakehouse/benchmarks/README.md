@@ -1,8 +1,8 @@
-# ParadeDB pg_analytics ClickBench Benchmarks
+# ParadeDB pg_lakehouse ClickBench Benchmarks
 
-This directory contains the ClickBench benchmark framework for ParadeDB. This folder is the same as the official ClickBench repository's [paradedb/](https://github.com/ClickHouse/ClickBench/tree/main/paradedb) folder made available here for easy benchmarking as part of our development process.
+This directory contains the ClickBench benchmark framework for ParadeDB's `pg_lakehouse`. These benchmarks are not yet published to the official ClickBench repository.
 
-Note: The default dataset pulled by this version of the benchmarks is a 5 million-row version of the full ClickBench dataset. This is for convenience in testing and CI. You can change this in the `benchmark.sh` script.
+Note: This benchmark pulls the entire 100 million-row ClickBench dataset in Parquet format, which is ~15GBs.
 
 ## Prerequisites
 

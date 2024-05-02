@@ -107,7 +107,7 @@ CREATE FOREIGN TABLE IF NOT EXISTS hits
     "RefererHash" BIGINT NOT NULL,
     "URLHash" BIGINT NOT NULL,
     "CLID" INTEGER NOT NULL
-    -- Primary key constraints are not supported on foreign tables
+    -- Note: Primary key constraints are not supported on foreign tables, so we comment it out
     -- PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 )
 SERVER local_file_server

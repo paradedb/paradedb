@@ -5,7 +5,7 @@ set -Eeuo pipefail
 
 TRIES=3
 OS=$(uname)
-# TODO: Escalate user to have FDW abilities instead
+# TODO: Escalate user to have FDW abilities instead of using the superuser
 export PGPASSWORD='postgres'
 
 while IFS= read -r query; do

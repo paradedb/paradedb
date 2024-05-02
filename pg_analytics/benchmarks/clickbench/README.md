@@ -1,6 +1,6 @@
 # ParadeDB pg_analytics ClickBench Benchmarks
 
-This directory contains the ClickBench benchmark framework for ParadeDB. This folder is the same as the official ClickBench repository's [paradedb/](https://github.com/ClickHouse/ClickBench/tree/main/paradedb) folder made available here for easy benchmarking as part of our development process.
+This directory contains the ClickBench benchmark framework for ParadeDB's `pg_analytics`. This folder is the same as the official ClickBench repository's [paradedb/](https://github.com/ClickHouse/ClickBench/tree/main/paradedb) folder made available here for easy benchmarking as part of our development process.
 
 Note: The default dataset pulled by this version of the benchmarks is a 5 million-row version of the full ClickBench dataset. This is for convenience in testing and CI. You can change this in the `benchmark.sh` script.
 

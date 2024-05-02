@@ -144,8 +144,14 @@ pub enum CatalogError {
     #[error("Catalog provider {0} not found")]
     CatalogProviderNotFound(String),
 
+    #[error("Column name mismatch: Expected {0} for column at position {1} but got {2}. Note that column names are case-sensitive and must be enclosed in double quotes")]
+    ColumnNameMismatch(String, usize, String),
+
     #[error("Database {0} not found")]
     DatabaseNotFound(String),
+
+    #[error("Type {0:?} is unsupported for this foreign table")]
+    ForeignTypeNotSupported(PgOid),
 
     #[error("{0}")]
     OsString(String),

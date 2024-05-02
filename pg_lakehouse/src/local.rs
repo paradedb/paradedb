@@ -123,7 +123,9 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
                         }
                     }
                 }
-                unsupported => return Err(BaseFdwError::UnsupportedFdwOid(unsupported)),
+                unsupported => {
+                    return Err(BaseFdwError::UnsupportedFdwOid(PgOid::from(unsupported)))
+                }
             }
         }
 

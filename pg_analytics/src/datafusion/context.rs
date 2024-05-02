@@ -127,12 +127,7 @@ impl QueryContext {
                 if fdw_handler == FdwHandler::S3 || fdw_handler == FdwHandler::LocalFile {
                     let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
                     let server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
-                    let oid_map: HashMap<usize, pg_sys::Oid> = pg_relation
-                        .tuple_desc()
-                        .iter()
-                        .enumerate()
-                        .map(|(index, attribute)| (index, attribute.atttypid))
-                        .collect();
+
                     let format =
                         require_option_or(TableOption::Format.as_str(), &table_options, "");
 
@@ -174,12 +169,17 @@ impl QueryContext {
                     let provider = match TableFormat::from(format) {
                         TableFormat::None => Session::with_session_context(|context| {
                             Box::pin(async move {
-                                create_listing_provider(table_options, oid_map, &context.state())
+                                create_listing_provider(
+                                    table_options,
+                                    pg_relation,
+                                    &context.state(),
+                                )
                             })
                         })?,
-                        TableFormat::Delta => {
-                            task::block_on(create_delta_provider(table_options.clone()))?
-                        }
+                        TableFormat::Delta => task::block_on(create_delta_provider(
+                            table_options.clone(),
+                            pg_relation,
+                        ))?,
                     };
 
                     return Ok(provider_as_source(provider));
@@ -258,7 +258,7 @@ fn get_source(schema_name: &str, table_name: &str) -> Result<Arc<dyn TableSource
 #[inline]
 fn create_listing_provider(
     table_options: HashMap<String, String>,
-    mut oid_map: HashMap<usize, pg_sys::Oid>,
+    pg_relation: PgRelation,
     state: &SessionState,
 ) -> Result<Arc<dyn TableProvider>, CatalogError> {
     // TODO: Move to shared
@@ -267,39 +267,51 @@ fn create_listing_provider(
 
     let listing_url = ListingTableUrl::parse(path)?;
     let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
-
     let inferred_schema = task::block_on(listing_options.infer_schema(state, &listing_url))?;
     let mut schema_builder = SchemaBuilder::new();
 
-    for (index, field) in inferred_schema.fields().iter().enumerate() {
-        match oid_map.remove(&index) {
-            Some(oid) => {
-                // Types can get incorrectly inferred, so we override them
-                let data_type = match (oid, field.data_type()) {
-                    (pg_sys::BOOLOID, _) => DataType::Boolean,
-                    (pg_sys::DATEOID, _) => DataType::Int32,
-                    (pg_sys::TIMESTAMPOID, _) => DataType::Int64,
-                    (pg_sys::VARCHAROID, _) => DataType::Utf8,
-                    (pg_sys::BPCHAROID, _) => DataType::Utf8,
-                    (pg_sys::TEXTOID, _) => DataType::Utf8,
-                    (pg_sys::INT2OID, _) => DataType::Int16,
-                    (pg_sys::INT4OID, _) => DataType::Int32,
-                    (pg_sys::INT8OID, _) => DataType::Int64,
-                    (pg_sys::FLOAT4OID, _) => DataType::Float32,
-                    (pg_sys::FLOAT8OID, _) => DataType::Float64,
-                    (_, data_type) => data_type.clone(),
-                };
-                schema_builder.push(Field::new(field.name(), data_type, field.is_nullable()))
-            }
-            None => schema_builder.push(field.clone()),
+    for (index, attribute) in pg_relation.tuple_desc().iter().enumerate() {
+        if attribute.name() != inferred_schema.field(index).name() {
+            return Err(CatalogError::ColumnNameMismatch(
+                inferred_schema.field(index).name().to_string(),
+                index + 1,
+                attribute.name().to_string(),
+            ));
+        }
+
+        let data_type = match attribute.type_oid() {
+            PgOid::BuiltIn(oid) => match oid {
+                pg_sys::BuiltinOid::BOOLOID => DataType::Boolean,
+                pg_sys::BuiltinOid::DATEOID => DataType::Int32,
+                pg_sys::BuiltinOid::TIMESTAMPOID => DataType::Int64,
+                pg_sys::BuiltinOid::VARCHAROID => DataType::Utf8,
+                pg_sys::BuiltinOid::BPCHAROID => DataType::Utf8,
+                pg_sys::BuiltinOid::TEXTOID => DataType::Utf8,
+                pg_sys::BuiltinOid::INT2OID => DataType::Int16,
+                pg_sys::BuiltinOid::INT4OID => DataType::Int32,
+                pg_sys::BuiltinOid::INT8OID => DataType::Int64,
+                pg_sys::BuiltinOid::FLOAT4OID => DataType::Float32,
+                pg_sys::BuiltinOid::FLOAT8OID => DataType::Float64,
+                unsupported => {
+                    return Err(CatalogError::ForeignTypeNotSupported(PgOid::from(
+                        unsupported,
+                    )))
+                }
+            },
+            unsupported => return Err(CatalogError::ForeignTypeNotSupported(unsupported)),
         };
+        schema_builder.push(Field::new(
+            inferred_schema.field(index).name(),
+            data_type,
+            true,
+        ));
     }
 
-    let updated_schema = Arc::new(schema_builder.finish());
+    let schema = Arc::new(schema_builder.finish());
 
     let listing_config = ListingTableConfig::new(listing_url)
         .with_listing_options(listing_options)
-        .with_schema(updated_schema);
+        .with_schema(schema);
 
     let listing_table = ListingTable::try_new(listing_config)?;
 
@@ -309,11 +321,23 @@ fn create_listing_provider(
 #[inline]
 async fn create_delta_provider(
     table_options: HashMap<String, String>,
-) -> Result<Arc<dyn TableProvider>, ContextError> {
+    pg_relation: PgRelation,
+) -> Result<Arc<dyn TableProvider>, CatalogError> {
     let path = require_option(TableOption::Path.as_str(), &table_options)?;
-    let delta_table = deltalake::open_table(path).await?;
+    let provider = Arc::new(deltalake::open_table(path).await?) as Arc<dyn TableProvider>;
+    let schema = (provider.clone()).schema();
 
-    Ok(Arc::new(delta_table) as Arc<dyn TableProvider>)
+    for (index, attribute) in pg_relation.tuple_desc().iter().enumerate() {
+        if attribute.name() != schema.field(index).name() {
+            return Err(CatalogError::ColumnNameMismatch(
+                schema.field(index).name().to_string(),
+                index + 1,
+                attribute.name().to_string(),
+            ));
+        }
+    }
+
+    Ok(provider)
 }
 
 #[inline]

@@ -130,7 +130,7 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
                         }
                     }
                 }
-                unsupported => return Err(BaseFdwError::UnsupportedFdwOid(unsupported)),
+                _ => {}
             }
         }
 

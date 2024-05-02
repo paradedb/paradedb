@@ -89,10 +89,13 @@ impl BaseFdw for S3Fdw {
 }
 
 impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
-    fn new(options: &HashMap<String, String>) -> Result<Self, BaseFdwError> {
+    fn new(
+        server_options: &HashMap<String, String>,
+        user_mapping_options: &HashMap<String, String>,
+    ) -> Result<Self, BaseFdwError> {
         // Create S3 ObjectStore
-        let object_store = AmazonS3::try_from(ServerOptions(options.clone()))?;
-        let url = require_option(AmazonServerOption::Url.as_str(), options)?;
+        let object_store = AmazonS3::try_from(ServerOptions(server_options.clone()))?;
+        let url = require_option(AmazonServerOption::Url.as_str(), server_options)?;
 
         // Create SessionContext with ObjectStore
         let context = SessionContext::new();

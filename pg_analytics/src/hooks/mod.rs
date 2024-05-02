@@ -1,7 +1,7 @@
 mod alter;
 mod drop;
 mod executor;
-mod handler;
+pub mod handler;
 mod process;
 mod query;
 mod rename;

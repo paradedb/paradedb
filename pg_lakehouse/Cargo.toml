@@ -23,7 +23,7 @@ deltalake = { git = "https://github.com/paradedb/delta-rs.git", branch = "main",
 fdw = { path = "../fdw" }
 object_store = { version = "0.9.1", features = ["aws", "http"] }
 pgrx = "0.11.3"
-supabase-wrappers = { git = "https://github.com/supabase/wrappers.git", default-features = false }
+supabase-wrappers = { path = "../../wrappers/supabase-wrappers", default-features = false }
 thiserror = "1.0.59"
 url = "2.5.0"
 

@@ -50,6 +50,7 @@ pub fn executor_run(
         // Allow INSERTs to go through
         if rtable.is_null()
             || query_desc.operation == pg_sys::CmdType_CMD_INSERT
+            || col_tables.is_empty()
             // Tech Debt: Find a less hacky way to let COPY go through
             || query.to_lowercase().starts_with("copy")
         {

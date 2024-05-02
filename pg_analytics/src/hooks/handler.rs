@@ -1,3 +1,4 @@
+use fdw::handler::*;
 use pgrx::*;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
@@ -46,17 +47,21 @@ impl TableClassifier for *mut pg_sys::List {
                 let relation_handler_oid = (*relation).rd_amhandler;
 
                 if col_oid != pg_sys::InvalidOid && relation_handler_oid == col_oid {
-                    col_tables.push(pg_relation)
+                    col_tables.push(pg_relation.clone())
                 } else {
-                    row_tables.push(pg_relation)
+                    row_tables.push(pg_relation.clone())
                 }
             }
 
-            // if pg_relation.is_foreign_table() {
-            //     let foreign_table = pg_sys::GetForeignTable(pg_relation.oid());
-            //     let foreign_server = pg_sys::GetForeignServer((*foreign_table).serverid);
-            //     let fdw_handler = get_fdw_handler((*foreign_server).fdwid);
-            // }
+            if pg_relation.is_foreign_table() {
+                let foreign_table = pg_sys::GetForeignTable(pg_relation.oid());
+                let foreign_server = pg_sys::GetForeignServer((*foreign_table).serverid);
+                let fdw_handler = get_fdw_handler((*foreign_server).fdwid);
+
+                if fdw_handler == FdwHandler::S3 || fdw_handler == FdwHandler::LocalFile {
+                    col_tables.push(pg_relation)
+                }
+            }
         }
 
         let mut classified_tables = HashMap::new();
@@ -84,6 +89,20 @@ impl IsColumn for *mut pg_sys::RelationData {
 
         Ok(relation_handler_oid == oid)
     }
+}
+
+pub unsafe fn get_fdw_handler(oid: pg_sys::Oid) -> FdwHandler {
+    let fdw = pg_sys::GetForeignDataWrapper(oid);
+    let handler_oid = (*fdw).fdwhandler;
+    let proc_tuple = pg_sys::SearchSysCache1(
+        pg_sys::SysCacheIdentifier_PROCOID as i32,
+        handler_oid.into_datum().unwrap(),
+    );
+    let pg_proc = pg_sys::GETSTRUCT(proc_tuple) as pg_sys::Form_pg_proc;
+    let handler_name = name_data_to_str(&(*pg_proc).proname);
+    pg_sys::ReleaseSysCache(proc_tuple);
+
+    FdwHandler::from(handler_name)
 }
 
 unsafe fn column_oid() -> Result<pg_sys::Oid, HandlerError> {

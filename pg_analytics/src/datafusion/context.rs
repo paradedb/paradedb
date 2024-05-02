@@ -33,6 +33,8 @@ use super::schema::ParadeSchemaProvider;
 use super::session::Session;
 use super::table::PgTableProvider;
 
+use crate::hooks::handler::get_fdw_handler;
+
 pub struct QueryContext {
     options: ConfigOptions,
 }
@@ -338,21 +340,6 @@ async fn create_delta_provider(
     }
 
     Ok(provider)
-}
-
-#[inline]
-unsafe fn get_fdw_handler(oid: pg_sys::Oid) -> FdwHandler {
-    let fdw = pg_sys::GetForeignDataWrapper(oid);
-    let handler_oid = (*fdw).fdwhandler;
-    let proc_tuple = pg_sys::SearchSysCache1(
-        pg_sys::SysCacheIdentifier_PROCOID as i32,
-        handler_oid.into_datum().unwrap(),
-    );
-    let pg_proc = pg_sys::GETSTRUCT(proc_tuple) as pg_sys::Form_pg_proc;
-    let handler_name = name_data_to_str(&(*pg_proc).proname);
-    pg_sys::ReleaseSysCache(proc_tuple);
-
-    FdwHandler::from(handler_name)
 }
 
 #[inline]

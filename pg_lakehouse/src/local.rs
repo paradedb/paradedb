@@ -89,7 +89,10 @@ impl BaseFdw for LocalFileFdw {
 }
 
 impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
-    fn new(_options: &HashMap<String, String>) -> Result<Self, BaseFdwError> {
+    fn new(
+        _options: &HashMap<String, String>,
+        user_mapping_options: &HashMap<String, String>,
+    ) -> Result<Self, BaseFdwError> {
         // Create S3 ObjectStore
         let object_store = LocalFileSystem::new();
 

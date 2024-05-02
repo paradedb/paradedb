@@ -239,5 +239,5 @@ pub enum BaseFdwError {
     StreamNotFound,
 
     #[error("Received unsupported FDW oid {0:?}")]
-    UnsupportedFdwOid(pg_sys::Oid),
+    UnsupportedFdwOid(PgOid),
 }

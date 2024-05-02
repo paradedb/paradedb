@@ -1,9 +1,9 @@
-# workflows/test-pg_search.yml
+# workflows/test-pg_lakehouse.yml
 #
-# Test pg_search
-# Run unit and integration tests for the pg_search extension.
+# Test pg_lakehouse
+# Run unit and integration tests for the pg_lakehouse extension.
 
-name: Test pg_search
+name: Test pg_lakehouse
 
 on:
   pull_request:
@@ -12,28 +12,28 @@ on:
       - staging
       - main
     paths:
-      - "pg_search/**"
-      - "tokenizers/**"
+      - "fdw/**"
+      - "pg_lakehouse/**"
+      - "!pg_lakehouse/README.md"
       - "shared/**"
-      - "!pg_search/README.md"
-      - ".github/workflows/test-pg_search.yml"
+      - ".github/workflows/test-pg_lakehouse.yml"
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
   workflow_dispatch:
     inputs:
       test_upgrade_version:
-        description: "Upcoming pg_search version to test upgrading against"
+        description: "Upcoming pg_lakehouse version to test upgrading against"
         required: false
         default: ""
 
 concurrency:
-  group: test-pg_search-${{ github.head_ref || github.ref }}
+  group: test-pg_lakehouse-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test-pg_search:
-    name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
+  test-pg_lakehouse:
+    name: Test pg_lakehouse on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     strategy:
       matrix:
@@ -75,7 +75,7 @@ jobs:
       # on PRs to main, which are our release promotion PRs.
       - name: Check version in Cargo.toml
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_search/
+        working-directory: pg_lakehouse/
         run: |
           CARGO_VERSION=$(grep "^version" Cargo.toml | head -1 | awk -F '"' '{print $2}')
           RELEASE_VERSION="${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}"
@@ -85,10 +85,6 @@ jobs:
           fi
           echo "Version check passed!"
 
-      - name: Install Rust
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache
@@ -96,7 +92,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "v1"
-          shared-key: ${{ runner.os }}-rust-cache-pg_search-${{ HashFiles('Cargo.lock') }}
+          shared-key: ${{ runner.os }}-rust-cache-pg_lakehouse-${{ HashFiles('Cargo.lock') }}
           cache-targets: true
           cache-on-failure: true
           cache-all-crates: true
@@ -108,18 +104,11 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/bin/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      # Needed for hybrid search unit tests
-      - name: Install pgvector
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        run: |
-          git clone --branch v0.7.0 https://github.com/pgvector/pgvector.git
-          cd pgvector/
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make -j
-          sudo PG_CONFIG=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config make install -j
-
+      # Note: We require a different version of pgrx (0.11.3) due to version compatibility
+      # with the supabase/wrappers project on which pg_lakehouse is based
       - name: Install pgrx, grcov & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
@@ -127,18 +116,21 @@ jobs:
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
 
-      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
+      # Our Rust Cache action caches the entire ~/target directory, which includes the pg_lakehouse extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
-      # clean any cached pg_search & dependencies build artifacts before running the tests
+      # clean any cached pg_lakehouse & dependencies build artifacts before running the tests
       - name: Clean Cached Build Artifacts
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && matrix.pg_version == env.default_pg_version
-        working-directory: pg_search/
+        working-directory: pg_lakehouse/
         run: cargo clean
 
       # The integration tests also test upgrading the extension when passed the '-u' flag (only on promotion PRs)
-      - name: Run pg_search Cargo Test Suite
+      - name: Run pg_lakehouse Cargo Test Suite
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        working-directory: pg_search/
+        working-directory: pg_lakehouse/
+        env:
+          LLVM_PROFILE_FILE: target/coverage/pg_lakehouse-%p-%m.profraw
+          RUST_BACKTRACE: full
         run: |
           # Add the code coverage flags to the config.toml file
           echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
@@ -160,7 +152,7 @@ jobs:
           fi
 
       # On promotion PRs, we test packaging the extension with production features enabled
-      - name: Test Packaging pg_search
+      - name: Test Packaging pg_lakehouse
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'
-        working-directory: pg_search/
-        run: cargo clean && cargo pgrx package --features "icu telemetry"
+        working-directory: pg_lakehouse/
+        run: cargo clean && cargo pgrx package --features telemetry

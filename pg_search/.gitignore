@@ -5,7 +5,6 @@
 .DS_Store
 
 # Cargo
-Cargo.lock
 target/
 
 # Rustfmt

@@ -1,4 +1,4 @@
-# ParadeDB TPC-H Benchmarks
+# ParadeDB pg_analytics TPC-H Benchmarks
 
 This directory contains the TPC-H benchmark framework for ParadeDB. Note that because the TPC-H benchmark structure is slightly modified for convenience of running, mainly to facilitate running queries in a reproducible environment and on macOS for development purposes, the results should _not_ be considered official TPC-H results, as per their guidelines.
 

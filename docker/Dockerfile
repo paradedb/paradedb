@@ -43,8 +43,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}
 
-RUN cargo install cargo-get && \
-    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" && \
     cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
@@ -91,6 +90,7 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
 
 COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
+COPY fdw/ /tmp/fdw
 
 # Build the extension
 # Note: We require Rust nightly to build pg_analytics with SIMD
@@ -98,6 +98,35 @@ WORKDIR /tmp/pg_analytics
 RUN rustup update nightly && \
     rustup override set nightly && \
     cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" --force && \
+    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+######################
+# pg_lakehouse
+######################
+
+FROM builder as builder-pg_lakehouse
+
+ARG POSTHOG_API_KEY
+ARG POSTHOG_HOST
+ARG COMMIT_SHA
+ARG TELEMETRY
+
+# Declare compile-time environment variables
+ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
+    POSTHOG_HOST=${POSTHOG_HOST} \
+    COMMIT_SHA=${COMMIT_SHA} \
+    TELEMETRY=${TELEMETRY}
+
+COPY pg_lakehouse/ /tmp/pg_lakehouse
+COPY shared/ /tmp/shared
+COPY fdw/ /tmp/fdw
+
+# Build the extension
+# Note: We require a different version of pgrx (0.11.3) due to version compatibility
+# with the supabase/wrappers project on which pg_lakehouse is based
+WORKDIR /tmp/pg_lakehouse
+RUN cargo install --locked cargo-pgrx --version "0.11.3" --force && \
+    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
@@ -153,6 +182,8 @@ COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VER
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
+COPY --from=builder-pg_lakehouse /tmp/pg_lakehouse/target/release/pg_lakehouse-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root

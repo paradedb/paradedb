@@ -14,8 +14,12 @@ on:
       - dev
     paths:
       - "docker/**"
+      - "fdw/**"
       - "pg_analytics/src/**"
+      - "pg_lakehouse/src/**"
       - "pg_search/src/**"
+      - "shared/**"
+      - "tokenizers/**"
       - ".github/workflows/test-paradedb.yml"
   workflow_dispatch:
 

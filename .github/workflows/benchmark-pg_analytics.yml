@@ -16,8 +16,10 @@ on:
       - main
     paths:
       - "docker/Dockerfile"
+      - "fdw/Cargo.toml"
       - "pg_analytics/Cargo.toml"
       - "pg_analytics/benchmarks/**"
+      - "shared/Cargo.toml"
       - ".github/workflows/benchmark-pg_analytics.yml"
   workflow_dispatch:
 
@@ -57,4 +59,4 @@ jobs:
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         run: |
-          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_analytics Workflow failed on ${{ steps.system.outputs.system_to_benchmark }} -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_analytics on ${{ matrix.name }} workflow failed -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}

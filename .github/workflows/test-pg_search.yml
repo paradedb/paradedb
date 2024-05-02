@@ -14,6 +14,7 @@ on:
     paths:
       - "pg_search/**"
       - "tokenizers/**"
+      - "shared/**"
       - "!pg_search/README.md"
       - ".github/workflows/test-pg_search.yml"
   push:

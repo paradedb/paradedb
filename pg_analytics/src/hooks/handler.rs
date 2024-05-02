@@ -41,17 +41,22 @@ impl TableClassifier for *mut pg_sys::List {
             }
             let relation = pg_sys::RelationIdGetRelation((*rte).relid);
             let pg_relation = PgRelation::from_pg_owned(relation);
-            if !pg_relation.is_table() {
-                continue;
+
+            if pg_relation.is_table() {
+                let relation_handler_oid = (*relation).rd_amhandler;
+
+                if col_oid != pg_sys::InvalidOid && relation_handler_oid == col_oid {
+                    col_tables.push(pg_relation)
+                } else {
+                    row_tables.push(pg_relation)
+                }
             }
 
-            let relation_handler_oid = (*relation).rd_amhandler;
-
-            if col_oid != pg_sys::InvalidOid && relation_handler_oid == col_oid {
-                col_tables.push(pg_relation)
-            } else {
-                row_tables.push(pg_relation)
-            }
+            // if pg_relation.is_foreign_table() {
+            //     let foreign_table = pg_sys::GetForeignTable(pg_relation.oid());
+            //     let foreign_server = pg_sys::GetForeignServer((*foreign_table).serverid);
+            //     let fdw_handler = get_fdw_handler((*foreign_server).fdwid);
+            // }
         }
 
         let mut classified_tables = HashMap::new();

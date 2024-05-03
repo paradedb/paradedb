@@ -30,9 +30,9 @@
 
 ## Motivation
 
-Today, an enormous amount of time and money is spent running and moving data into cloud data warehouses. At the same time, much of this big data — events, metrics, historical snapshots, etc. — already lives in S3. `pg_lakehouse` allows companies to build a data warehouse on top of their existing Postgres and S3 with zero new infrastructure, data movement, loss of data freshness, or vendor lock-in.
+Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is delivered into object stores like S3. Loading this data into a cloud data warehouse or even Postgres is expensive and time consuming. By allowing companies to query this data where it already lives, `pg_lakehouse` eliminates the need for new infrastructure, data movement, and loss of data freshness.
 
-`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While FDWs over S3 and Parquet have existed in the Postgres extension ecosystem, these FDWs lack support for many object stores and table formats and are very slow for large analytical workloads. `pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being very fast.
+`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs over object stores like S3 have existed in the Postgres extension ecosystem, these FDWs lack support for most object stores and table formats and are very slow for large analytical workloads. `pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being very fast.
 
 ## Getting Started
 
@@ -48,7 +48,7 @@ OPTIONS (region 'us-east-1', url 's3://paradedb-benchmarks', skip_signature 'tru
 
 -- Create foreign table
 CREATE FOREIGN TABLE trips (
-    trip_id             INT,
+    "VendorID"          INT,
     pickup_datetime     TIMESTAMP,
     dropoff_datetime    TIMESTAMP,
     pickup_longitude    DOUBLE PRECISION,
@@ -147,7 +147,7 @@ Note: To make credentials available to all users, you can set the user to `publi
 
 - `path` (required): Must start with `s3://` and point to the location of your file. The path should end in a `/` if it points to a directory of partitioned Parquet files.
 - `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
-- `format`: One of `delta` or `iceberg`. If omitted, no table format is assumed.
+- `format`: One of `delta` or `iceberg`. If omitted, `pg_lakehouse` assumes that no table format is used.
 
 ## Local File System
 

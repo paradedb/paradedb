@@ -1,7 +1,9 @@
-use datafusion::arrow::array::types::{Date32Type, TimestampMicrosecondType};
+use datafusion::arrow::array::types::{
+    Date32Type, TimestampMicrosecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+};
 use datafusion::arrow::array::{
-    Array, ArrayAccessor, ArrayRef, AsArray, BooleanArray, Float32Array, Float64Array, Int16Array,
-    Int32Array, Int64Array, StringArray,
+    Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BooleanArray, Float32Array,
+    Float64Array, Int16Array, Int32Array, Int64Array, StringArray,
 };
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{downcast_value, DataFusionError};
@@ -74,9 +76,31 @@ where
     }
 }
 
+pub trait GetUIntValue
+where
+    Self: Array + AsArray,
+{
+    fn get_uint_value<A>(&self, index: usize) -> Result<Option<i64>, DataTypeError>
+    where
+        A: ArrowPrimitiveType,
+        i64: TryFrom<A::Native>,
+    {
+        let downcast_array = self.as_primitive::<A>();
+        match downcast_array.is_null(index) {
+            false => {
+                let value: A::Native = downcast_array.value(index);
+                Ok(Some(
+                    i64::try_from(value).map_err(|_| DataTypeError::UIntConversionError)?,
+                ))
+            }
+            true => Ok(None),
+        }
+    }
+}
+
 pub trait GetCell
 where
-    Self: Array + AsArray + GetDateValue + GetPrimitiveValue + GetTimestampValue,
+    Self: Array + AsArray + GetDateValue + GetPrimitiveValue + GetTimestampValue + GetUIntValue,
 {
     fn get_cell(&self, index: usize, oid: pg_sys::Oid) -> Result<Option<Cell>, DataTypeError> {
         match oid {
@@ -107,6 +131,22 @@ where
                 },
                 DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
                     Some(value) => Ok(Some(Cell::F64(value))),
+                    None => Ok(None),
+                },
+                DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value as i16))),
+                    None => Ok(None),
+                },
+                DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value as i16))),
+                    None => Ok(None),
+                },
+                DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value as i32))),
+                    None => Ok(None),
+                },
+                DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value))),
                     None => Ok(None),
                 },
                 unsupported => Err(DataTypeError::DataTypeMismatch(
@@ -151,6 +191,7 @@ impl GetCell for ArrayRef {}
 impl GetDateValue for ArrayRef {}
 impl GetPrimitiveValue for ArrayRef {}
 impl GetTimestampValue for ArrayRef {}
+impl GetUIntValue for ArrayRef {}
 
 #[derive(Error, Debug)]
 pub enum DataTypeError {
@@ -171,6 +212,9 @@ pub enum DataTypeError {
 
     #[error("Downcast Arrow array failed")]
     DowncastError,
+
+    #[error("Failed to convert UInt to i64")]
+    UIntConversionError,
 
     #[error("Postgres data type {0:?} is not supported")]
     UnsupportedPostgresType(PgOid),

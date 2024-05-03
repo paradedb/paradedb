@@ -129,6 +129,35 @@ impl QueryContext {
                 if fdw_handler == FdwHandler::S3 || fdw_handler == FdwHandler::LocalFile {
                     let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
                     let server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
+                    let user_id = unsafe { pg_sys::GetUserId() };
+
+                    let user_mapping_exists = unsafe {
+                        !pg_sys::SearchSysCache2(
+                            pg_sys::SysCacheIdentifier_USERMAPPINGUSERSERVER as i32,
+                            pg_sys::Datum::from(user_id),
+                            pg_sys::Datum::from((*foreign_server).serverid),
+                        )
+                        .is_null()
+                    };
+                    let public_mapping_exists = unsafe {
+                        !pg_sys::SearchSysCache2(
+                            pg_sys::SysCacheIdentifier_USERMAPPINGUSERSERVER as i32,
+                            pg_sys::Datum::from(pg_sys::InvalidOid),
+                            pg_sys::Datum::from((*foreign_server).serverid),
+                        )
+                        .is_null()
+                    };
+
+                    let user_mapping_options = unsafe {
+                        match user_mapping_exists || public_mapping_exists {
+                            true => {
+                                let user_mapping =
+                                    pg_sys::GetUserMapping(user_id, (*foreign_server).serverid);
+                                options_to_hashmap((*user_mapping).options)?
+                            }
+                            false => HashMap::new(),
+                        }
+                    };
 
                     let format =
                         require_option_or(TableOption::Format.as_str(), &table_options, "");
@@ -138,8 +167,10 @@ impl QueryContext {
                         FdwHandler::S3 => {
                             Session::with_session_context(|context| {
                                 Box::pin(async move {
-                                    let object_store =
-                                        AmazonS3::try_from(ServerOptions(server_options.clone()))?;
+                                    let object_store = AmazonS3::try_from(ServerOptions::new(
+                                        server_options.clone(),
+                                        user_mapping_options.clone(),
+                                    ))?;
                                     let url = require_option(
                                         AmazonServerOption::Url.as_str(),
                                         &server_options,

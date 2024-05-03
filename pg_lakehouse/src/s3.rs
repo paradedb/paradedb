@@ -94,7 +94,10 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
         user_mapping_options: &HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         // Create S3 ObjectStore
-        let object_store = AmazonS3::try_from(ServerOptions(server_options.clone()))?;
+        let object_store = AmazonS3::try_from(ServerOptions::new(
+            server_options.clone(),
+            user_mapping_options.clone(),
+        ))?;
         let url = require_option(AmazonServerOption::Url.as_str(), server_options)?;
 
         // Create SessionContext with ObjectStore

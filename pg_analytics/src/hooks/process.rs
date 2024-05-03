@@ -1,6 +1,7 @@
 use crate::datafusion::query::{ASTVec, QueryString};
 use async_std::task;
-use pgrx::pg_sys::NodeTag;
+use deltalake::datafusion::sql::parser::{ExplainStatement, Statement};
+use pgrx::pg_sys::{AsPgCStr, NodeTag};
 use pgrx::*;
 use std::ffi::CStr;
 use thiserror::Error;
@@ -11,6 +12,7 @@ use super::query::{Query, QueryStringError};
 use super::rename::{rename, RenameHookError};
 use super::truncate::{truncate, TruncateHookError};
 use crate::datafusion::catalog::CatalogError;
+use crate::datafusion::plan::LogicalPlanDetails;
 use crate::datafusion::udf::{createfunction, UDFError};
 
 #[allow(clippy::type_complexity)]
@@ -63,6 +65,22 @@ pub fn process_utility(
             }
             NodeTag::T_TruncateStmt => {
                 task::block_on(truncate(plan as *mut pg_sys::TruncateStmt))?;
+            }
+            NodeTag::T_ExplainStmt => {
+                if let Ok(ASTVec(ast)) = ast {
+                    // TODO: only show the logical plan if we use datafusion
+                    if let Ok(logical_plan_details) = LogicalPlanDetails::try_from(QueryString(&query)) {
+                        let es = pg_sys::NewExplainState();
+                        pg_sys::appendStringInfoString((*es).str_, format!("{:?}", logical_plan_details.logical_plan()).as_pg_cstr());
+                        let tupdesc = pg_sys::CreateTemplateTupleDesc(1);
+                        pg_sys::TupleDescInitEntry(tupdesc, 1, "QUERY PLAN".as_pg_cstr(), pg_sys::TEXTOID, -1, 0);
+                        let tstate = pg_sys::begin_tup_output_tupdesc(dest.as_ptr(), tupdesc, &pg_sys::TTSOpsVirtual);
+                        pg_sys::do_text_output_multiline(tstate, (*(*es).str_).data);
+                        pg_sys::end_tup_output(tstate);
+                        pg_sys::pfree((*(*es).str_).data as *mut std::ffi::c_void);
+                    }
+                }
+                return Ok(())
             }
             _ => {}
         };

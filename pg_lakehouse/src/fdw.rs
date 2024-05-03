@@ -60,16 +60,16 @@ pub trait BaseFdw {
     ) -> Result<(), BaseFdwError> {
         self.set_target_columns(columns.to_vec());
 
-        let attribute_map: HashMap<usize, (pg_sys::Oid, i32)> = columns
+        let oid_map: HashMap<usize, pg_sys::Oid> = columns
             .iter()
             .cloned()
-            .map(|col| (col.num - 1, (col.type_oid, col.type_mod)))
+            .map(|col| (col.num - 1, col.type_oid))
             .collect();
 
         let format = require_option_or(TableOption::Format.as_str(), options, "");
         let provider = match TableFormat::from(format) {
             TableFormat::None => {
-                create_listing_provider(options.clone(), attribute_map, &self.get_session_state())?
+                create_listing_provider(options.clone(), oid_map, &self.get_session_state())?
             }
             TableFormat::Delta => task::block_on(create_delta_provider(options.clone()))?,
         };
@@ -122,7 +122,11 @@ pub trait BaseFdw {
             self.get_target_columns().clone().into_iter().enumerate()
         {
             let batch_column = current_batch.column(column_index);
-            let cell = batch_column.get_cell(current_batch_index, target_column.type_oid)?;
+            let cell = batch_column.get_cell(
+                current_batch_index,
+                target_column.type_oid,
+                target_column.type_mod,
+            )?;
             row.push(target_column.name.as_str(), cell);
         }
 
@@ -146,7 +150,7 @@ impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
 #[inline]
 fn create_listing_provider(
     table_options: HashMap<String, String>,
-    mut attribute_map: HashMap<usize, (pg_sys::Oid, i32)>,
+    mut oid_map: HashMap<usize, pg_sys::Oid>,
     state: &SessionState,
 ) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
     let path = require_option(TableOption::Path.as_str(), &table_options)?;
@@ -159,21 +163,21 @@ fn create_listing_provider(
     let mut schema_builder = SchemaBuilder::new();
 
     for (index, field) in inferred_schema.fields().iter().enumerate() {
-        match attribute_map.remove(&index) {
-            Some((oid, type_mod)) => {
+        match oid_map.remove(&index) {
+            Some(oid) => {
                 // Types can get incorrectly inferred, so we override them
-                let data_type = match ((oid, type_mod), field.data_type()) {
-                    ((pg_sys::BOOLOID, _), _) => DataType::Boolean,
-                    ((pg_sys::DATEOID, _), _) => DataType::Int32,
-                    ((pg_sys::TIMESTAMPOID, _), _) => DataType::Int64,
-                    ((pg_sys::VARCHAROID, _), _) => DataType::Utf8,
-                    ((pg_sys::BPCHAROID, _), _) => DataType::Utf8,
-                    ((pg_sys::TEXTOID, _), _) => DataType::Utf8,
-                    ((pg_sys::INT2OID, _), _) => DataType::Int16,
-                    ((pg_sys::INT4OID, _), _) => DataType::Int32,
-                    ((pg_sys::INT8OID, _), _) => DataType::Int64,
-                    ((pg_sys::FLOAT4OID, _), _) => DataType::Float32,
-                    ((pg_sys::FLOAT8OID, _), _) => DataType::Float64,
+                let data_type = match (oid, field.data_type()) {
+                    (pg_sys::BOOLOID, _) => DataType::Boolean,
+                    (pg_sys::DATEOID, _) => DataType::Int32,
+                    (pg_sys::TIMESTAMPOID, _) => DataType::Int64,
+                    (pg_sys::VARCHAROID, _) => DataType::Utf8,
+                    (pg_sys::BPCHAROID, _) => DataType::Utf8,
+                    (pg_sys::TEXTOID, _) => DataType::Utf8,
+                    (pg_sys::INT2OID, _) => DataType::Int16,
+                    (pg_sys::INT4OID, _) => DataType::Int32,
+                    (pg_sys::INT8OID, _) => DataType::Int64,
+                    (pg_sys::FLOAT4OID, _) => DataType::Float32,
+                    (pg_sys::FLOAT8OID, _) => DataType::Float64,
                     (_, data_type) => data_type.clone(),
                 };
                 schema_builder.push(Field::new(field.name(), data_type, field.is_nullable()))

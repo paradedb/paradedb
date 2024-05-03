@@ -1,5 +1,6 @@
 use datafusion::arrow::array::types::{
-    Date32Type, TimestampMicrosecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+    ArrowTemporalType, Date32Type, TimestampMicrosecondType, TimestampMillisecondType,
+    TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
 };
 use datafusion::arrow::array::{
     Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BooleanArray, Float32Array,
@@ -59,9 +60,15 @@ pub trait GetTimestampValue
 where
     Self: Array + AsArray,
 {
-    fn get_timestamp_value(&self, index: usize) -> Result<Option<datum::Timestamp>, DataTypeError> {
+    fn get_timestamp_value<A>(
+        &self,
+        index: usize,
+    ) -> Result<Option<datum::Timestamp>, DataTypeError>
+    where
+        A: ArrowPrimitiveType<Native = i64> + ArrowTemporalType,
+    {
         let downcast_array = downcast_value!(self, Int64Array);
-        let timestamp_array = downcast_array.reinterpret_cast::<TimestampMicrosecondType>();
+        let timestamp_array = downcast_array.reinterpret_cast::<A>();
 
         match timestamp_array.nulls().is_some() && timestamp_array.is_null(index) {
             false => {
@@ -102,7 +109,12 @@ pub trait GetCell
 where
     Self: Array + AsArray + GetDateValue + GetPrimitiveValue + GetTimestampValue + GetUIntValue,
 {
-    fn get_cell(&self, index: usize, oid: pg_sys::Oid) -> Result<Option<Cell>, DataTypeError> {
+    fn get_cell(
+        &self,
+        index: usize,
+        oid: pg_sys::Oid,
+        type_mod: i32,
+    ) -> Result<Option<Cell>, DataTypeError> {
         match oid {
             pg_sys::BOOLOID => match self.get_primitive_value::<BooleanArray>(index)? {
                 Some(value) => Ok(Some(Cell::Bool(value))),
@@ -171,9 +183,25 @@ where
                 )),
             },
             pg_sys::TIMESTAMPOID => match self.data_type() {
-                DataType::Int64 => match self.get_timestamp_value(index)? {
-                    Some(value) => Ok(Some(Cell::Timestamp(value))),
-                    None => Ok(None),
+                DataType::Int64 => match PgTimestampPrecision::try_from(PgTypeMod(type_mod))? {
+                    PgTimestampPrecision::Default | PgTimestampPrecision::Microsecond => {
+                        match self.get_timestamp_value::<TimestampMicrosecondType>(index)? {
+                            Some(value) => Ok(Some(Cell::Timestamp(value))),
+                            None => Ok(None),
+                        }
+                    }
+                    PgTimestampPrecision::Millisecond => {
+                        match self.get_timestamp_value::<TimestampMillisecondType>(index)? {
+                            Some(value) => Ok(Some(Cell::Timestamp(value))),
+                            None => Ok(None),
+                        }
+                    }
+                    PgTimestampPrecision::Second => {
+                        match self.get_timestamp_value::<TimestampSecondType>(index)? {
+                            Some(value) => Ok(Some(Cell::Timestamp(value))),
+                            None => Ok(None),
+                        }
+                    }
                 },
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
@@ -195,6 +223,9 @@ impl GetUIntValue for ArrayRef {}
 
 #[derive(Error, Debug)]
 pub enum DataTypeError {
+    #[error(transparent)]
+    DatetimeError(#[from] DatetimeError),
+
     #[error(transparent)]
     DateTimeConversionError(#[from] datum::datetime_support::DateTimeConversionError),
 

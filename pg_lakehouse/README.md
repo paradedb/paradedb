@@ -90,7 +90,7 @@ This can be solved by installing [`pg_analytics`](https://github.com/paradedb/pa
 CREATE EXTENSION pg_analytics;
 ```
 
-Note: In the future, we will move the relevant parts of `pg_analytics` into `pg_lakehouse` so this is no longer necessary.
+Note: In the future, we will move the relevant parts of `pg_analytics` into `pg_lakehouse` so that this is no longer necessary.
 
 ## Amazon S3
 

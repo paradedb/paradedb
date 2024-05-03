@@ -34,6 +34,8 @@ use super::session::Session;
 use super::table::PgTableProvider;
 
 use crate::hooks::handler::get_fdw_handler;
+use crate::types::datatype::PgTypeMod;
+use crate::types::timestamp::PgTimestampPrecision;
 
 pub struct QueryContext {
     options: ConfigOptions,
@@ -317,7 +319,15 @@ fn create_listing_provider(
                 pg_sys::BuiltinOid::BOOLOID => DataType::Boolean,
                 pg_sys::BuiltinOid::DATEOID => DataType::Int32,
                 pg_sys::BuiltinOid::TIMESTAMPOID => {
-                    DataType::Timestamp(TimeUnit::Microsecond, None)
+                    match PgTimestampPrecision::try_from(PgTypeMod(attribute.type_mod()))? {
+                        PgTimestampPrecision::Microsecond | PgTimestampPrecision::Default => {
+                            DataType::Timestamp(TimeUnit::Microsecond, None)
+                        }
+                        PgTimestampPrecision::Millisecond => {
+                            DataType::Timestamp(TimeUnit::Millisecond, None)
+                        }
+                        PgTimestampPrecision::Second => DataType::Timestamp(TimeUnit::Second, None),
+                    }
                 }
                 pg_sys::BuiltinOid::VARCHAROID => DataType::Utf8,
                 pg_sys::BuiltinOid::BPCHAROID => DataType::Utf8,

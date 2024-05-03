@@ -133,6 +133,9 @@ pub enum CatalogError {
     ParseIntError(#[from] std::num::ParseIntError),
 
     #[error(transparent)]
+    TimestampError(#[from] crate::types::timestamp::TimestampError),
+
+    #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
 
     #[error(transparent)]

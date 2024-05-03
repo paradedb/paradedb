@@ -5,8 +5,6 @@ pub enum AmazonServerOption {
     Endpoint,
     Url,
     Region,
-    AccessKeyId,
-    SecretAccessKey,
     SessionToken,
     AllowHttp,
     SkipSignature,
@@ -18,8 +16,6 @@ impl AmazonServerOption {
             Self::Endpoint => "endpoint",
             Self::Url => "url",
             Self::Region => "region",
-            Self::AccessKeyId => "access_key_id",
-            Self::SecretAccessKey => "secret_access_key",
             Self::SessionToken => "session_token",
             Self::AllowHttp => "allow_http",
             Self::SkipSignature => "skip_signature",
@@ -31,8 +27,6 @@ impl AmazonServerOption {
             Self::Endpoint => false,
             Self::Url => true,
             Self::Region => true,
-            Self::AccessKeyId => false,
-            Self::SecretAccessKey => false,
             Self::SessionToken => false,
             Self::AllowHttp => false,
             Self::SkipSignature => false,
@@ -44,13 +38,31 @@ impl AmazonServerOption {
             Self::Endpoint,
             Self::Url,
             Self::Region,
-            Self::AccessKeyId,
-            Self::SecretAccessKey,
             Self::SessionToken,
             Self::AllowHttp,
             Self::SkipSignature,
         ]
         .into_iter()
+    }
+}
+
+pub enum AmazonUserMappingOption {
+    AccessKeyId,
+    SecretAccessKey,
+    SessionToken,
+}
+
+impl AmazonUserMappingOption {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::AccessKeyId => "access_key_id",
+            Self::SecretAccessKey => "secret_access_key",
+            Self::SessionToken => "session_token",
+        }
+    }
+
+    pub fn iter() -> impl Iterator<Item = Self> {
+        [Self::AccessKeyId, Self::SecretAccessKey, Self::SessionToken].into_iter()
     }
 }
 
@@ -105,7 +117,30 @@ pub fn require_option_or<'a>(
 }
 
 #[derive(Clone, Debug)]
-pub struct ServerOptions(pub HashMap<String, String>);
+pub struct ServerOptions {
+    server_options: HashMap<String, String>,
+    user_mapping_options: HashMap<String, String>,
+}
+
+impl ServerOptions {
+    pub fn new(
+        server_options: HashMap<String, String>,
+        user_mapping_options: HashMap<String, String>,
+    ) -> Self {
+        Self {
+            server_options,
+            user_mapping_options,
+        }
+    }
+
+    pub fn server_options(&self) -> &HashMap<String, String> {
+        &self.server_options
+    }
+
+    pub fn user_mapping_options(&self) -> &HashMap<String, String> {
+        &self.user_mapping_options
+    }
+}
 
 #[derive(Error, Debug)]
 pub enum OptionsError {

@@ -98,8 +98,7 @@ CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
 OPTIONS (
     region 'us-east-1',
     url 's3://path/to/bucket'
-    access_key_id 'XXXXXXX'
-    secret_access_key 'XXXXXXX'
+    skip_signature 'true'
 );
 
 -- Replace the dummy schema with the actual schema of your file data
@@ -112,14 +111,37 @@ OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 
 - `region` (required): AWS region, e.g. `us-east-1`
 - `url` (required): Path to the S3 bucket, starting with `s3://`
-- `access_key_id`: AWS access key ID
-- `secret_access_key`: AWS secret access key
 - `endpoint`: The endpoint for communicating with the S3 instance. Defaults to the [region endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example, can be set to `http://localhost:4566` if testing against a Localstack instance.
-- `session_token`: Sets the AWS session token
 - `allow_http`: If set to `true`, allows both HTTP and HTTPS endpoints. Defaults to `false`.
 - `skip_signature`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
 
-User permissions should be set accordingly, as Postgres stores these credentials in the `pg_catalog.pg_foreign_server` table and can be seen by anyone with access to this table. Additional credential security measures will be introduced in future updates.
+### S3 Credentials
+
+`CREATE USER MAPPING` is used to pass in credentials for private buckets.
+
+```sql
+-- Get the name of the current user
+SELECT current_user;
+ current_user
+--------------
+ example_user
+
+-- Run this before CREATE FOREIGN TABLE
+CREATE USER MAPPING FOR example_user
+SERVER s3_server
+OPTIONS (
+  access_key_id 'XXXXXX',
+  secret_access_key 'XXXXXX'
+);
+
+-- Now, run CREATE FOREIGN TABLE
+```
+
+Note: To make credentials available to all users, you can set the user to `public`. Valid user mapping options are:
+
+- `access_key_id`: AWS access key ID
+- `secret_access_key`: AWS secret access key
+- `session_token`: Sets the AWS session token
 
 ### S3 Table Options
 

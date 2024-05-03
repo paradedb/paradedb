@@ -5,22 +5,22 @@ use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::{DataFrame, SessionContext};
-use fdw::options::*;
-use object_store::local::LocalFileSystem;
+use fdw::options::{AmazonServerOption, ServerOptions, TableOption};
+use object_store::aws::AmazonS3;
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
 
-use super::fdw::*;
+use super::base::*;
 
 #[wrappers_fdw(
     author = "ParadeDB",
     website = "https://github.com/paradedb/paradedb",
     error_type = "BaseFdwError"
 )]
-pub(crate) struct LocalFileFdw {
+pub(crate) struct S3Fdw {
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
@@ -28,7 +28,7 @@ pub(crate) struct LocalFileFdw {
     target_columns: Vec<Column>,
 }
 
-impl BaseFdw for LocalFileFdw {
+impl BaseFdw for S3Fdw {
     fn get_current_batch(&self) -> Option<RecordBatch> {
         self.current_batch.clone()
     }
@@ -88,19 +88,23 @@ impl BaseFdw for LocalFileFdw {
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
+impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
     fn new(
-        _server_options: &HashMap<String, String>,
-        _user_mapping_options: &HashMap<String, String>,
+        server_options: &HashMap<String, String>,
+        user_mapping_options: &HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         // Create S3 ObjectStore
-        let object_store = LocalFileSystem::new();
+        let object_store = AmazonS3::try_from(ServerOptions::new(
+            server_options.clone(),
+            user_mapping_options.clone(),
+        ))?;
+        let url = require_option(AmazonServerOption::Url.as_str(), server_options)?;
 
         // Create SessionContext with ObjectStore
         let context = SessionContext::new();
         context
             .runtime_env()
-            .register_object_store(&Url::parse("file://")?, Arc::new(object_store));
+            .register_object_store(&Url::parse(url)?, Arc::new(object_store));
 
         Ok(Self {
             current_batch: None,
@@ -118,7 +122,13 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
         if let Some(oid) = catalog {
             match oid {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
-                FOREIGN_SERVER_RELATION_ID => {}
+                FOREIGN_SERVER_RELATION_ID => {
+                    for opt in AmazonServerOption::iter() {
+                        if opt.is_required() {
+                            check_options_contain(&opt_list, opt.as_str())?;
+                        }
+                    }
+                }
                 FOREIGN_TABLE_RELATION_ID => {
                     for opt in TableOption::iter() {
                         if opt.is_required() {
@@ -126,9 +136,7 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
                         }
                     }
                 }
-                unsupported => {
-                    return Err(BaseFdwError::UnsupportedFdwOid(PgOid::from(unsupported)))
-                }
+                _ => {}
             }
         }
 

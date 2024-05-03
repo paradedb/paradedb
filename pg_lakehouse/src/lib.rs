@@ -1,8 +1,4 @@
-mod cell;
-mod datetime;
 mod fdw;
-mod local;
-mod s3;
 
 use pgrx::*;
 

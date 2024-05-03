@@ -5,7 +5,7 @@
 
 ## Overview
 
-`pg_lakehouse` is an extension that transforms Postgres into an analytical query engine over data lakes like S3 and table formats like Apache Iceberg. Queries are pushed down to [Apache DataFusion](https://github.com/apache/datafusion), which significantly improves performance. Combinations of the following object stores, table formats, and file formats are supported.
+`pg_lakehouse` is an extension that transforms Postgres into a big data query engine over object stores like S3 and table formats like Apache Iceberg. Queries are pushed down to [Apache DataFusion](https://github.com/apache/datafusion), which delivers excellent analytical performance. Combinations of the following object stores, table formats, and file formats are supported.
 
 ### Object Stores
 
@@ -30,7 +30,7 @@
 
 ## Motivation
 
-Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is delivered into object stores like S3. Loading this data into a cloud data warehouse or even Postgres is expensive and time consuming. By allowing companies to query this data where it already lives, `pg_lakehouse` eliminates the need for expensive new infrastructure, data movement, and loss of data freshness.
+Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is ingested into data lakes like S3. Moving this data into a cloud data warehouse or even Postgres is expensive and time consuming. By allowing companies to query data where it already lives, `pg_lakehouse` eliminates the need for expensive new infrastructure, data movement, and loss of data freshness.
 
 `pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs over object stores like S3 have existed in the Postgres extension ecosystem, these FDWs lack support for most object stores and table formats and are very slow for large analytical workloads. `pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being very fast.
 
@@ -90,6 +90,8 @@ This can be solved by installing [`pg_analytics`](https://github.com/paradedb/pa
 CREATE EXTENSION pg_analytics;
 ```
 
+Note: In the future, we will move the relevant parts of `pg_analytics` into `pg_lakehouse` so this is no longer necessary.
+
 ## Amazon S3
 
 This code block demonstrates how to create a foreign table over S3.
@@ -132,10 +134,10 @@ OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 SELECT current_user;
  current_user
 --------------
- example_user
+ myuser
 
 -- Run this before CREATE FOREIGN TABLE
-CREATE USER MAPPING FOR example_user
+CREATE USER MAPPING FOR myuser
 SERVER s3_server
 OPTIONS (
   access_key_id 'XXXXXX',

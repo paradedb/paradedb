@@ -30,7 +30,7 @@
 
 ## Motivation
 
-Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is delivered into object stores like S3. Loading this data into a cloud data warehouse or even Postgres is expensive and time consuming. By allowing companies to query this data where it already lives, `pg_lakehouse` eliminates the need for new infrastructure, data movement, and loss of data freshness.
+Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is delivered into object stores like S3. Loading this data into a cloud data warehouse or even Postgres is expensive and time consuming. By allowing companies to query this data where it already lives, `pg_lakehouse` eliminates the need for expensive new infrastructure, data movement, and loss of data freshness.
 
 `pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs over object stores like S3 have existed in the Postgres extension ecosystem, these FDWs lack support for most object stores and table formats and are very slow for large analytical workloads. `pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being very fast.
 

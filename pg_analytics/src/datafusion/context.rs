@@ -1,7 +1,7 @@
 use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::catalog::CatalogProvider;
-use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, SchemaBuilder};
+use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, SchemaBuilder, TimeUnit};
 use deltalake::datafusion::common::config::ConfigOptions;
 use deltalake::datafusion::common::DataFusionError;
 use deltalake::datafusion::datasource::listing::{
@@ -316,7 +316,9 @@ fn create_listing_provider(
             PgOid::BuiltIn(oid) => match oid {
                 pg_sys::BuiltinOid::BOOLOID => DataType::Boolean,
                 pg_sys::BuiltinOid::DATEOID => DataType::Int32,
-                pg_sys::BuiltinOid::TIMESTAMPOID => DataType::Int64,
+                pg_sys::BuiltinOid::TIMESTAMPOID => {
+                    DataType::Timestamp(TimeUnit::Microsecond, None)
+                }
                 pg_sys::BuiltinOid::VARCHAROID => DataType::Utf8,
                 pg_sys::BuiltinOid::BPCHAROID => DataType::Utf8,
                 pg_sys::BuiltinOid::TEXTOID => DataType::Utf8,

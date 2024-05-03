@@ -8,6 +8,7 @@ use thiserror::Error;
 
 use super::alter::{alter, AlterHookError};
 use super::drop::{drop, DropHookError};
+use super::executor::{execute_datafusion, ExecutorHookError};
 use super::query::{Query, QueryStringError};
 use super::rename::{rename, RenameHookError};
 use super::truncate::{truncate, TruncateHookError};
@@ -68,8 +69,15 @@ pub fn process_utility(
             }
             NodeTag::T_ExplainStmt => {
                 if let Ok(ASTVec(ast)) = ast {
-                    // TODO: only show the logical plan if we use datafusion
-                    if let Ok(logical_plan_details) = LogicalPlanDetails::try_from(QueryString(&query)) {
+                    // TODO: instrument_option (last arg)
+                    // TODO: get the query string being explained, not the whole thing
+                    let query_desc = pg_sys::CreateQueryDesc(
+                        pstmt.as_ptr(), query_string.to_str().unwrap().as_pg_cstr(), pg_sys::GetActiveSnapshot(),
+                        std::ptr::null_mut(), dest.as_ptr(), params.as_ptr(), query_env.as_ptr(), 0
+                    );
+                    let logical_plan_details_opt = execute_datafusion(&query, pgbox::PgBox::from_pg(query_desc))?;
+                    info!("logical_plan_details_opt: {:?}", logical_plan_details_opt.is_some());
+                    if let Some(logical_plan_details) = logical_plan_details_opt {
                         let es = pg_sys::NewExplainState();
                         pg_sys::appendStringInfoString((*es).str_, format!("{:?}", logical_plan_details.logical_plan()).as_pg_cstr());
                         let tupdesc = pg_sys::CreateTemplateTupleDesc(1);
@@ -78,9 +86,10 @@ pub fn process_utility(
                         pg_sys::do_text_output_multiline(tstate, (*(*es).str_).data);
                         pg_sys::end_tup_output(tstate);
                         pg_sys::pfree((*(*es).str_).data as *mut std::ffi::c_void);
+
+                        return Ok(())
                     }
                 }
-                return Ok(())
             }
             _ => {}
         };
@@ -110,6 +119,9 @@ pub enum ProcessHookError {
 
     #[error(transparent)]
     DropHook(#[from] DropHookError),
+
+    #[error(transparent)]
+    ExecutorHook(#[from] ExecutorHookError),
 
     #[error(transparent)]
     QueryString(#[from] QueryStringError),

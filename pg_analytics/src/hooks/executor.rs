@@ -1,4 +1,5 @@
 use async_std::task;
+use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::logical_expr::{DdlStatement, LogicalPlan};
 use pgrx::*;
 use std::ffi::CStr;
@@ -18,6 +19,43 @@ macro_rules! fallback_warning {
     ($msg:expr) => {
         warning!("This query was not pushed down to DataFusion because DataFusion returned an error: {}. Query times may be impacted.", $msg);
     };
+}
+
+pub fn execute_datafusion(query: &str, query_desc: PgBox<pg_sys::QueryDesc>) -> Result<Option<LogicalPlanDetails>, ExecutorHookError> {
+    // Parse the query into a LogicalPlan
+    match LogicalPlanDetails::try_from(QueryString(&query)) {
+        Ok(logical_plan_details) => {
+            let logical_plan = logical_plan_details.logical_plan();
+
+            // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
+            // We should let these queries go through to the table access method
+            match logical_plan {
+                LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_))
+                | LogicalPlan::Ddl(DdlStatement::CreateView(_)) => {
+                    return Ok(None);
+                }
+                _ => {}
+            };
+
+            info!("op: {:?}", query_desc.operation);
+
+            // Execute SELECT, DELETE, UPDATE
+            match query_desc.operation {
+                pg_sys::CmdType_CMD_SELECT => {
+                    Ok(Some(logical_plan_details))
+                }
+                pg_sys::CmdType_CMD_UPDATE => {
+                    Err(ExecutorHookError::UpdateNotSupported)
+                }
+                _ => {
+                    Ok(None)
+                }
+            }
+        }
+        Err(_) => {
+            Ok(None)
+        }
+    }
 }
 
 pub fn executor_run(
@@ -75,46 +113,62 @@ pub fn executor_run(
             };
         } else {
             // Parse the query into a LogicalPlan
-            match LogicalPlanDetails::try_from(QueryString(&query)) {
-                Ok(logical_plan_details) => {
-                    let logical_plan = logical_plan_details.logical_plan();
-
-                    // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
-                    // We should let these queries go through to the table access method
-                    match logical_plan {
-                        LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_))
-                        | LogicalPlan::Ddl(DdlStatement::CreateView(_)) => {
-                            prev_hook(query_desc, direction, count, execute_once);
-                            return Ok(());
-                        }
-                        _ => {}
-                    };
-
-                    // Execute SELECT, DELETE, UPDATE
-                    match query_desc.operation {
-                        pg_sys::CmdType_CMD_SELECT => {
-                            let single_thread = logical_plan_details.includes_udf();
-                            match get_datafusion_batches(logical_plan, single_thread) {
-                                Ok(batches) => write_batches_to_slots(query_desc, batches)?,
-                                Err(err) => {
-                                    fallback_warning!(err.to_string());
-                                    prev_hook(query_desc, direction, count, execute_once);
-                                    return Ok(());
-                                }
-                            };
-                        }
-                        pg_sys::CmdType_CMD_UPDATE => {
-                            return Err(ExecutorHookError::UpdateNotSupported);
-                        }
-                        _ => {
+            let logical_plan_details_opt = execute_datafusion(&query, query_desc.clone())?;
+            info!("logical_plan_details_opt: {:?}", logical_plan_details_opt.is_some());
+            match logical_plan_details_opt {
+                Some(logical_plan_details) => {
+                    let single_thread = logical_plan_details.includes_udf();
+                    match get_datafusion_batches(logical_plan_details.logical_plan(), single_thread) {
+                        Ok(batches) => write_batches_to_slots(query_desc, batches)?,
+                        Err(err) => {
+                            fallback_warning!(err.to_string());
                             prev_hook(query_desc, direction, count, execute_once);
                         }
                     }
-                }
-                Err(_) => {
-                    prev_hook(query_desc, direction, count, execute_once);
-                }
+                },
+                None => { prev_hook(query_desc, direction, count, execute_once); }
             };
+
+            // match LogicalPlanDetails::try_from(QueryString(&query)) {
+            //     Ok(logical_plan_details) => {
+            //         let logical_plan = logical_plan_details.logical_plan();
+
+            //         // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
+            //         // We should let these queries go through to the table access method
+            //         match logical_plan {
+            //             LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_))
+            //             | LogicalPlan::Ddl(DdlStatement::CreateView(_)) => {
+            //                 prev_hook(query_desc, direction, count, execute_once);
+            //                 return Ok(());
+            //             }
+            //             _ => {}
+            //         };
+
+            //         // Execute SELECT, DELETE, UPDATE
+            //         match query_desc.operation {
+            //             pg_sys::CmdType_CMD_SELECT => {
+            //                 let single_thread = logical_plan_details.includes_udf();
+            //                 match get_datafusion_batches(logical_plan, single_thread) {
+            //                     Ok(batches) => write_batches_to_slots(query_desc, batches)?,
+            //                     Err(err) => {
+            //                         fallback_warning!(err.to_string());
+            //                         prev_hook(query_desc, direction, count, execute_once);
+            //                         return Ok(());
+            //                     }
+            //                 };
+            //             }
+            //             pg_sys::CmdType_CMD_UPDATE => {
+            //                 return Err(ExecutorHookError::UpdateNotSupported);
+            //             }
+            //             _ => {
+            //                 prev_hook(query_desc, direction, count, execute_once);
+            //             }
+            //         }
+            //     }
+            //     Err(_) => {
+            //         prev_hook(query_desc, direction, count, execute_once);
+            //     }
+            // };
         }
 
         Ok(())

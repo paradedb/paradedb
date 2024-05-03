@@ -36,7 +36,7 @@ Today, a vast amount of non-operational data — events, metrics, historical sna
 
 ## Getting Started
 
-The following example uses `pg_lakehouse` to query an example dataset of NYC taxi trips from January 2024, hosted in a public S3 bucket provided by ParadeDB.
+The following example uses `pg_lakehouse` to query an example dataset of 3 million NYC taxi trips from January 2024, hosted in a public S3 bucket provided by ParadeDB.
 
 ```sql
 CREATE EXTENSION pg_lakehouse;
@@ -48,23 +48,23 @@ OPTIONS (region 'us-east-1', url 's3://paradedb-benchmarks', skip_signature 'tru
 
 -- Create foreign table
 CREATE FOREIGN TABLE trips (
-    "VendorID"          INT,
-    pickup_datetime     TIMESTAMP,
-    dropoff_datetime    TIMESTAMP,
-    pickup_longitude    DOUBLE PRECISION,
-    pickup_latitude     DOUBLE PRECISION,
-    dropoff_longitude   DOUBLE PRECISION,
-    dropoff_latitude    DOUBLE PRECISION,
-    passenger_count     SMALLINT,
-    trip_distance       REAL,
-    fare_amount         REAL,
-    extra               REAL,
-    tip_amount          REAL,
-    tolls_amount        REAL,
-    total_amount        REAL,
-    payment_type        INT,
-    pickup_ntaname      REAL,
-    dropoff_ntaname     REAL
+    "VendorID"              INT,
+    "tpep_pickup_datetime"  TIMESTAMP,
+    "tpep_dropoff_datetime" TIMESTAMP,
+    "passenger_count"       INT,
+    "trip_distance"         REAL,
+    "RatecodeID"            REAL,
+    "store_and_fwd_flag"    INT,
+    "PULocationID"          REAL,
+    "DOLocationID"          REAL,
+    "payment_type"          REAL,
+    "fare_amount"           REAL,
+    "extra"                 REAL,
+    "mta_tax"               REAL,
+    "tip_amount"            REAL,
+    "tolls_amount"          REAL,
+    "improvement_surcharge" REAL,
+    "total_amount"          REAL
 )
 SERVER s3_server
 OPTIONS (path 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet', extension 'parquet');
@@ -76,6 +76,8 @@ SELECT COUNT(*) FROM trips;
  2964624
 (1 row)
 ```
+
+Note that column names must be wrapped in double quotes to preserve uppercase letters. This is because DataFusion is case-sensitive and Postgres' foreign table column names must match the foreign table's column names exactly.
 
 ## Query Acceleration
 
@@ -102,7 +104,7 @@ OPTIONS (
 );
 
 -- Replace the dummy schema with the actual schema of your file data
-CREATE FOREIGN TABLE local_file_table (x INT)
+CREATE FOREIGN TABLE local_file_table ("x" INT)
 SERVER s3_server
 OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 ```
@@ -114,6 +116,12 @@ OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 - `endpoint`: The endpoint for communicating with the S3 instance. Defaults to the [region endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example, can be set to `http://localhost:4566` if testing against a Localstack instance.
 - `allow_http`: If set to `true`, allows both HTTP and HTTPS endpoints. Defaults to `false`.
 - `skip_signature`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
+
+### S3 Table Options
+
+- `path` (required): Must start with `s3://` and point to the location of your file. The path should end in a `/` if it points to a directory of partitioned Parquet files.
+- `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
+- `format`: One of `delta` or `iceberg`. If omitted, `pg_lakehouse` assumes that no table format is used.
 
 ### S3 Credentials
 
@@ -143,12 +151,6 @@ Note: To make credentials available to all users, you can set the user to `publi
 - `secret_access_key`: AWS secret access key
 - `session_token`: Sets the AWS session token
 
-### S3 Table Options
-
-- `path` (required): Must start with `s3://` and point to the location of your file. The path should end in a `/` if it points to a directory of partitioned Parquet files.
-- `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
-- `format`: One of `delta` or `iceberg`. If omitted, `pg_lakehouse` assumes that no table format is used.
-
 ## Local File System
 
 To be queryable, files must exist on the same machine as your Postgres instance.
@@ -158,7 +160,7 @@ CREATE FOREIGN DATA WRAPPER local_file_wrapper HANDLER local_file_fdw_handler VA
 CREATE SERVER local_file_server FOREIGN DATA WRAPPER local_file_wrapper;
 
 -- Replace the dummy schema with the actual schema of your file data
-CREATE FOREIGN TABLE local_file_table (x INT)
+CREATE FOREIGN TABLE local_file_table ("x" INT)
 SERVER local_file_server
 OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
 ```

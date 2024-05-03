@@ -144,8 +144,8 @@ pub enum CatalogError {
     #[error("Catalog provider {0} not found")]
     CatalogProviderNotFound(String),
 
-    #[error("Column name mismatch: Expected {0} for column at position {1} but got {2}. Note that column names are case-sensitive and must be enclosed in double quotes")]
-    ColumnNameMismatch(String, usize, String),
+    #[error("Column name mismatch: Expected column {0} to be named {1} but found {2}. Note that column names are case-sensitive and must be enclosed in double quotes")]
+    ColumnNameMismatch(usize, String, String),
 
     #[error("Database {0} not found")]
     DatabaseNotFound(String),

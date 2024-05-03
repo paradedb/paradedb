@@ -306,8 +306,8 @@ fn create_listing_provider(
     for (index, attribute) in pg_relation.tuple_desc().iter().enumerate() {
         if attribute.name() != inferred_schema.field(index).name() {
             return Err(CatalogError::ColumnNameMismatch(
-                inferred_schema.field(index).name().to_string(),
                 index + 1,
+                inferred_schema.field(index).name().to_string(),
                 attribute.name().to_string(),
             ));
         }
@@ -365,8 +365,8 @@ async fn create_delta_provider(
     for (index, attribute) in pg_relation.tuple_desc().iter().enumerate() {
         if attribute.name() != schema.field(index).name() {
             return Err(CatalogError::ColumnNameMismatch(
-                schema.field(index).name().to_string(),
                 index + 1,
+                schema.field(index).name().to_string(),
                 attribute.name().to_string(),
             ));
         }

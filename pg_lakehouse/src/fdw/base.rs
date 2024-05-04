@@ -1,9 +1,19 @@
 use async_std::task;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::catalog::CatalogProvider;
+use datafusion::common::arrow::datatypes::{DataType, Field, SchemaBuilder};
 use datafusion::common::DataFusionError;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use deltalake::DeltaTableError;
+use fdw::format::*;
+use fdw::lake::*;
+use fdw::options::TableOption;
+use iceberg::{Catalog, NamespaceIdent};
+use iceberg_catalog_glue::{
+    GlueCatalog, GlueCatalogConfig, AWS_ACCESS_KEY_ID, AWS_REGION_NAME, AWS_SECRET_ACCESS_KEY,
+};
+use iceberg_datafusion::IcebergCatalogProvider;
 use pgrx::*;
 use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
@@ -57,6 +67,16 @@ pub trait BaseFdw {
 
         let limit = limit.clone();
         let columns = columns.to_vec();
+        let format = require_option_or(TableOption::Format.as_str(), options, "");
+
+        pgrx::info!("FORMAT {format}, {:?}", oid_map);
+        let provider = match TableFormat::from(format) {
+            TableFormat::None => {
+                create_listing_provider(options.clone(), oid_map, &self.get_session_state())?
+            }
+            TableFormat::Delta => task::block_on(create_delta_provider(options.clone()))?,
+            TableFormat::Iceberg => task::block_on(create_iceberg_provider(options.clone()))?,
+        };
 
         let result = Session::with_session_context(|context| {
             Box::pin(async move {
@@ -152,6 +172,119 @@ impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
     fn from(value: BaseFdwError) -> Self {
         pg_sys::panic::ErrorReport::new(PgSqlErrorCode::ERRCODE_FDW_ERROR, format!("{}", value), "")
     }
+}
+
+#[inline]
+fn create_listing_provider(
+    table_options: HashMap<String, String>,
+    mut oid_map: HashMap<usize, pg_sys::Oid>,
+    state: &SessionState,
+) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
+    let path = require_option(TableOption::Path.as_str(), &table_options)?;
+    let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
+
+    let listing_url = ListingTableUrl::parse(path)?;
+    let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
+
+    let inferred_schema = task::block_on(listing_options.infer_schema(state, &listing_url))?;
+    let mut schema_builder = SchemaBuilder::new();
+
+    for (index, field) in inferred_schema.fields().iter().enumerate() {
+        match oid_map.remove(&index) {
+            Some(oid) => {
+                // Types can get incorrectly inferred, so we override them
+                let data_type = match (oid, field.data_type()) {
+                    (pg_sys::BOOLOID, _) => DataType::Boolean,
+                    (pg_sys::DATEOID, _) => DataType::Int32,
+                    (pg_sys::TIMESTAMPOID, _) => DataType::Int64,
+                    (pg_sys::VARCHAROID, _) => DataType::Utf8,
+                    (pg_sys::BPCHAROID, _) => DataType::Utf8,
+                    (pg_sys::TEXTOID, _) => DataType::Utf8,
+                    (pg_sys::INT2OID, _) => DataType::Int16,
+                    (pg_sys::INT4OID, _) => DataType::Int32,
+                    (pg_sys::INT8OID, _) => DataType::Int64,
+                    (pg_sys::FLOAT4OID, _) => DataType::Float32,
+                    (pg_sys::FLOAT8OID, _) => DataType::Float64,
+                    (_, data_type) => data_type.clone(),
+                };
+                schema_builder.push(Field::new(field.name(), data_type, field.is_nullable()))
+            }
+            None => schema_builder.push(field.clone()),
+        };
+    }
+
+    let updated_schema = Arc::new(schema_builder.finish());
+
+    let listing_config = ListingTableConfig::new(listing_url)
+        .with_listing_options(listing_options)
+        .with_schema(updated_schema);
+
+    let listing_table = ListingTable::try_new(listing_config)?;
+
+    Ok(Arc::new(listing_table) as Arc<dyn TableProvider>)
+}
+
+#[inline]
+async fn create_delta_provider(
+    table_options: HashMap<String, String>,
+) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
+    let path = require_option(TableOption::Path.as_str(), &table_options)?;
+    let delta_table = deltalake::open_table(path).await?;
+
+    Ok(Arc::new(delta_table) as Arc<dyn TableProvider>)
+}
+
+#[inline]
+async fn create_iceberg_provider(
+    table_options: HashMap<String, String>,
+) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
+    let path = require_option(TableOption::Path.as_str(), &table_options)?;
+
+    // TODO: Replace with non-REST.
+    let config = GlueCatalogConfig::builder()
+        .warehouse(path.to_string())
+        .props(HashMap::from([
+            (AWS_ACCESS_KEY_ID.to_string(), "".to_string()),
+            (AWS_SECRET_ACCESS_KEY.to_string(), "".to_string()),
+            (AWS_REGION_NAME.to_string(), "us-east-1".to_string()),
+            // (
+            //     S3_ENDPOINT.to_string(),
+            //     format!("http://{}:{}", minio_ip, MINIO_PORT),
+            // ),
+            // (S3_ACCESS_KEY_ID.to_string(), "admin".to_string()),
+            // (S3_SECRET_ACCESS_KEY.to_string(), "password".to_string()),
+            // (S3_REGION.to_string(), "us-east-1".to_string()),
+        ]))
+        .build();
+    pgrx::info!("config {config:?}");
+
+    let client = Arc::new(GlueCatalog::new(config).await.unwrap());
+    pgrx::info!("client {client:?}");
+
+    client
+        .create_namespace(&NamespaceIdent::new("default".into()), HashMap::default())
+        .await
+        .unwrap();
+
+    let catalog = Arc::new(
+        IcebergCatalogProvider::try_new(client)
+            .await
+            .expect("no catalog provider"),
+    );
+    pgrx::info!("catalog");
+
+    pgrx::info!("schema names {:?}", catalog.schema_names());
+    let schema = catalog.schema("default").expect("no schema");
+    pgrx::info!("schema");
+
+    let table = schema
+        .table(path)
+        .await
+        .expect("no inner table")
+        .expect("no outer table");
+    pgrx::info!("table");
+
+    Ok(table)
 }
 
 #[derive(Error, Debug)]

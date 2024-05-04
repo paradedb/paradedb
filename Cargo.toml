@@ -6,6 +6,7 @@ members = [
     "pg_search",
     "shared",
     "tokenizers",
+    # "pg_lakehouse",
 ]
 exclude = [
     "pg_lakehouse",

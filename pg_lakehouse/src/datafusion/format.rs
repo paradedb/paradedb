@@ -11,6 +11,7 @@ pub struct FileExtension(pub String);
 pub enum TableFormat {
     None,
     Delta,
+    Iceberg,
 }
 
 impl TableFormat {
@@ -18,6 +19,7 @@ impl TableFormat {
         match format {
             "" => Self::None,
             "delta" => Self::Delta,
+            "iceberg" => Self::Iceberg,
             _ => Self::None,
         }
     }

@@ -1,3 +1,4 @@
+use super::fdw::*;
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
@@ -238,6 +239,15 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
         })
     }
 
+    /// Called by Postgres during any of:
+    /// - `CREATE FOREIGN DATA WRAPPER`.
+    /// - `CREATE SERVER`
+    /// - `CREATE USER MAPPING`    /// - `CREATE USER MAPPING`
+    /// - `CREATE FOREIGN TABLE`
+    /// The corresponding Oid for each call is passed as the second argument,
+    /// so we know which command we're validating. An additonal case will also
+    /// trigger `validator`, which is when `CREATE FOREIGN TABLE` configures its
+    /// columns with their own `OPTIONS`, triggering this with `AttributeRelationId`.
     fn validator(
         opt_list: Vec<Option<String>>,
         catalog: Option<pg_sys::Oid>,

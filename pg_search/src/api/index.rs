@@ -331,7 +331,7 @@ macro_rules! term_fn {
             let convert = $conversion;
             if let Some(value) = value {
                 SearchQueryInput::Term {
-                    field: field,
+                    field,
                     value: convert(value),
                 }
             } else {
@@ -435,13 +435,7 @@ pub fn term_set(
     let terms: Vec<_> = terms
         .into_iter()
         .filter_map(|input| match input {
-            SearchQueryInput::Term { field, value, .. } => {
-                if let Some(field) = field {
-                    Some((field, value))
-                } else {
-                    None
-                }
-            }
+            SearchQueryInput::Term { field, value, .. } => field.map(|field| (field, value)),
             _ => panic!("only term queries can be passed to term_set"),
         })
         .collect();

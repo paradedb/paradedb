@@ -28,7 +28,7 @@ impl PgAttribute {
 
 impl PartialEq for PgAttribute {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name && self.oid == other.oid && self.typemod == other.typemod
+        self.name == other.name && self.oid == other.oid
     }
 }
 
@@ -48,7 +48,7 @@ impl fmt::Debug for PgAttribute {
         }
 
         let type_form = unsafe { pg_sys::GETSTRUCT(tuple) as pg_sys::Form_pg_type };
-        let type_name = unsafe { name_data_to_str(&(*type_form).typname) };
+        let type_name = unsafe { name_data_to_str(&(*type_form).typname).to_uppercase() };
 
         if self.typemod >= 0 {
             write!(f, "{}({})", type_name, self.typemod)
@@ -178,11 +178,27 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
 
     if !supported_attributes.contains(&attribute) {
         return Err(SchemaError::UnsupportedConversion(
-            field.data_type().clone(),
-            attribute,
             field.name().to_string(),
+            attribute,
+            field.data_type().clone(),
             supported_attributes,
         ));
+    }
+
+    // For TIMESTAMP, the type modifier must match the precision of the Arrow field
+    if let DataType::Timestamp(_, None) = field.data_type() {
+        if supported_attributes
+            .iter()
+            .find(|attr| attr.typemod == attribute.typemod)
+            .is_none()
+        {
+            return Err(SchemaError::UnsupportedConversion(
+                field.name().to_string(),
+                attribute,
+                field.data_type().clone(),
+                supported_attributes,
+            ));
+        }
     }
 
     Ok(())
@@ -196,6 +212,6 @@ pub enum SchemaError {
     #[error("Unsupported Arrow type: {0:?}")]
     UnsupportedArrowType(DataType),
 
-    #[error("Type mismatch: Cannot convert Arrow type {0:?} to Postgres type {1:?} for column {2}. Supported Postgres types are: {3:?}")]
-    UnsupportedConversion(DataType, PgAttribute, String, Vec<PgAttribute>),
+    #[error("Type mismatch: Column {0} was assigned type {1:?}, which is not valid for the underlying Arrow type {2:?}. Please change the column type to one of the supported types: {3:?}")]
+    UnsupportedConversion(String, PgAttribute, DataType, Vec<PgAttribute>),
 }

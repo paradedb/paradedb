@@ -215,7 +215,7 @@ pub fn more_like_this(
     fields: default!(Array<SearchQueryInput>, "ARRAY[]::searchqueryinput[]"),
 ) -> SearchQueryInput {
     let fields = fields.iter_deny_null().map(|input| match input {
-        SearchQueryInput::Term { field, value, .. } => (field, value),
+        SearchQueryInput::Term { field, value, .. } => (field.unwrap_or("".into()), value),
         _ => panic!("only term queries can be passed to more_like_this"),
     });
     SearchQueryInput::MoreLikeThis {
@@ -324,11 +324,18 @@ pub fn regex(field: String, pattern: String) -> SearchQueryInput {
 macro_rules! term_fn {
     ($func_name:ident, $value_type:ty, $conversion:expr) => {
         #[pg_extern(name = "term", immutable, parallel_safe)]
-        pub fn $func_name(field: String, value: $value_type) -> SearchQueryInput {
+        pub fn $func_name(
+            field: default!(Option<String>, "NULL"),
+            value: default!(Option<$value_type>, "NULL"),
+        ) -> SearchQueryInput {
             let convert = $conversion;
-            SearchQueryInput::Term {
-                field,
-                value: convert(value),
+            if let Some(value) = value {
+                SearchQueryInput::Term {
+                    field: field,
+                    value: convert(value),
+                }
+            } else {
+                panic!("no value provided to term query")
             }
         }
     };
@@ -427,8 +434,14 @@ pub fn term_set(
 ) -> SearchQueryInput {
     let terms: Vec<_> = terms
         .into_iter()
-        .map(|input| match input {
-            SearchQueryInput::Term { field, value, .. } => (field, value),
+        .filter_map(|input| match input {
+            SearchQueryInput::Term { field, value, .. } => {
+                if let Some(field) = field {
+                    Some((field, value))
+                } else {
+                    None
+                }
+            }
             _ => panic!("only term queries can be passed to term_set"),
         })
         .collect();

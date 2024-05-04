@@ -417,6 +417,16 @@ fn default_as_freqs_and_positions() -> IndexRecordOption {
 }
 
 impl AsFieldType<String> for SearchIndexSchema {
+    fn fields(&self) -> Vec<(tantivy::schema::FieldType, Field)> {
+        self.fields
+            .iter()
+            .map(|search_field| {
+                let field = search_field.id.0;
+                let field_type = self.schema.get_field_entry(field).field_type().clone();
+                (field_type, field)
+            })
+            .collect()
+    }
     fn as_field_type(&self, from: &String) -> Option<(tantivy::schema::FieldType, Field)> {
         self.get_search_field(&SearchFieldName(from.into()))
             .map(|search_field| {

@@ -206,6 +206,16 @@ fn single_queries(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 3);
 
+    // Term with no field (should search all columns)
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+    	query => paradedb.term(value => 'shoes'),
+	    stable_sort => true
+
+	)"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 3);
+
     // TermSet with invalid term list
     match r#"
     SELECT * FROM bm25_search.search(

@@ -1,3 +1,4 @@
+mod datafusion;
 mod fdw;
 
 use pgrx::*;

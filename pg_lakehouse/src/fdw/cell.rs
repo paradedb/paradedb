@@ -13,7 +13,7 @@ use std::fmt::Debug;
 use supabase_wrappers::interface::Cell;
 use thiserror::Error;
 
-use super::datetime::*;
+use crate::types::datetime::*;
 
 pub trait GetDateValue
 where

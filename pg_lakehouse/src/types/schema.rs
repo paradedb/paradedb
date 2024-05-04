@@ -180,6 +180,7 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
         return Err(SchemaError::UnsupportedConversion(
             field.data_type().clone(),
             attribute,
+            field.name().to_string(),
             supported_attributes,
         ));
     }
@@ -195,6 +196,6 @@ pub enum SchemaError {
     #[error("Unsupported Arrow type: {0:?}")]
     UnsupportedArrowType(DataType),
 
-    #[error("Cannot convert Arrow type {0:?} to Postgres type {1:?}. Supported Postgres types are: {2:?}")]
-    UnsupportedConversion(DataType, PgAttribute, Vec<PgAttribute>),
+    #[error("Type mismatch: Cannot convert Arrow type {0:?} to Postgres type {1:?} for column {2}. Supported Postgres types are: {3:?}")]
+    UnsupportedConversion(DataType, PgAttribute, String, Vec<PgAttribute>),
 }

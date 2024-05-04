@@ -51,20 +51,20 @@ CREATE FOREIGN TABLE trips (
     "VendorID"              INT,
     "tpep_pickup_datetime"  TIMESTAMP,
     "tpep_dropoff_datetime" TIMESTAMP,
-    "passenger_count"       INT,
-    "trip_distance"         REAL,
-    "RatecodeID"            REAL,
-    "store_and_fwd_flag"    INT,
+    "passenger_count"       BIGINT,
+    "trip_distance"         DOUBLE PRECISION,
+    "RatecodeID"            DOUBLE PRECISION,
+    "store_and_fwd_flag"    TEXT,
     "PULocationID"          REAL,
     "DOLocationID"          REAL,
-    "payment_type"          REAL,
-    "fare_amount"           REAL,
-    "extra"                 REAL,
-    "mta_tax"               REAL,
-    "tip_amount"            REAL,
-    "tolls_amount"          REAL,
-    "improvement_surcharge" REAL,
-    "total_amount"          REAL
+    "payment_type"          DOUBLE PRECISION,
+    "fare_amount"           DOUBLE PRECISION,
+    "extra"                 DOUBLE PRECISION,
+    "mta_tax"               DOUBLE PRECISION,
+    "tip_amount"            DOUBLE PRECISION,
+    "tolls_amount"          DOUBLE PRECISION,
+    "improvement_surcharge" DOUBLE PRECISION,
+    "total_amount"          DOUBLE PRECISION
 )
 SERVER s3_server
 OPTIONS (path 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet', extension 'parquet');

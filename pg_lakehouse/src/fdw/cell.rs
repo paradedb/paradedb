@@ -1,12 +1,12 @@
 use datafusion::arrow::array::types::{
-    ArrowTemporalType, Date32Type, TimestampMicrosecondType, TimestampMillisecondType,
+    ArrowTemporalType, Date32Type, Date64Type, TimestampMicrosecondType, TimestampMillisecondType,
     TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
 };
 use datafusion::arrow::array::{
     Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BooleanArray, Float32Array,
-    Float64Array, Int16Array, Int32Array, Int64Array, StringArray,
+    Float64Array, GenericByteArray, Int16Array, Int32Array, Int64Array, Int8Array, StringArray,
 };
-use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::datatypes::{DataType, GenericStringType, TimeUnit};
 use datafusion::common::{downcast_value, DataFusionError};
 use pgrx::*;
 use std::fmt::Debug;
@@ -15,17 +15,23 @@ use thiserror::Error;
 
 use crate::types::datetime::*;
 
+type LargeStringArray = GenericByteArray<GenericStringType<i64>>;
+
 pub trait GetDateValue
 where
     Self: Array + AsArray,
 {
-    fn get_date_value(&self, index: usize) -> Result<Option<datum::Date>, DataTypeError> {
-        let downcast_array = downcast_value!(self, Int32Array);
-        let date_array = downcast_array.reinterpret_cast::<Date32Type>();
+    fn get_date_value<N, T>(&self, index: usize) -> Result<Option<datum::Date>, DataTypeError>
+    where
+        N: std::marker::Send + std::marker::Sync,
+        i64: From<N>,
+        T: ArrowPrimitiveType<Native = N> + ArrowTemporalType,
+    {
+        let downcast_array = self.as_primitive::<T>();
 
-        match date_array.nulls().is_some() && date_array.is_null(index) {
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => {
-                let date = date_array
+                let date = downcast_array
                     .value_as_date(index)
                     .ok_or(DataTypeError::DateConversion)?;
 
@@ -60,19 +66,18 @@ pub trait GetTimestampValue
 where
     Self: Array + AsArray,
 {
-    fn get_timestamp_value<A>(
+    fn get_timestamp_value<T>(
         &self,
         index: usize,
     ) -> Result<Option<datum::Timestamp>, DataTypeError>
     where
-        A: ArrowPrimitiveType<Native = i64> + ArrowTemporalType,
+        T: ArrowPrimitiveType<Native = i64> + ArrowTemporalType,
     {
-        let downcast_array = downcast_value!(self, Int64Array);
-        let timestamp_array = downcast_array.reinterpret_cast::<A>();
+        let downcast_array = self.as_primitive::<T>();
 
-        match timestamp_array.nulls().is_some() && timestamp_array.is_null(index) {
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => {
-                let datetime = timestamp_array
+                let datetime = downcast_array
                     .value_as_datetime(index)
                     .ok_or(DataTypeError::DateTimeConversion)?;
 
@@ -113,7 +118,7 @@ where
         &self,
         index: usize,
         oid: pg_sys::Oid,
-        type_mod: i32,
+        _type_mod: i32,
     ) -> Result<Option<Cell>, DataTypeError> {
         match oid {
             pg_sys::BOOLOID => match self.get_primitive_value::<BooleanArray>(index)? {
@@ -125,6 +130,10 @@ where
             | pg_sys::INT8OID
             | pg_sys::FLOAT4OID
             | pg_sys::FLOAT8OID => match self.data_type() {
+                DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value as i16))),
+                    None => Ok(None),
+                },
                 DataType::Int16 => match self.get_primitive_value::<Int16Array>(index)? {
                     Some(value) => Ok(Some(Cell::I16(value))),
                     None => Ok(None),
@@ -166,14 +175,26 @@ where
                     PgOid::from(oid),
                 )),
             },
-            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::BPCHAROID => {
-                match self.get_primitive_value::<StringArray>(index)? {
+            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::BPCHAROID => match self.data_type() {
+                DataType::Utf8 => match self.get_primitive_value::<StringArray>(index)? {
                     Some(value) => Ok(Some(Cell::String(value.to_string()))),
                     None => Ok(None),
-                }
-            }
+                },
+                DataType::LargeUtf8 => match self.get_primitive_value::<LargeStringArray>(index)? {
+                    Some(value) => Ok(Some(Cell::String(value.to_string()))),
+                    None => Ok(None),
+                },
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )),
+            },
             pg_sys::DATEOID => match self.data_type() {
-                DataType::Int32 => match self.get_date_value(index)? {
+                DataType::Date32 => match self.get_date_value::<i32, Date32Type>(index)? {
+                    Some(value) => Ok(Some(Cell::Date(value))),
+                    None => Ok(None),
+                },
+                DataType::Date64 => match self.get_date_value::<i64, Date64Type>(index)? {
                     Some(value) => Ok(Some(Cell::Date(value))),
                     None => Ok(None),
                 },
@@ -183,26 +204,24 @@ where
                 )),
             },
             pg_sys::TIMESTAMPOID => match self.data_type() {
-                DataType::Int64 => match PgTimestampPrecision::try_from(PgTypeMod(type_mod))? {
-                    PgTimestampPrecision::Default | PgTimestampPrecision::Microsecond => {
-                        match self.get_timestamp_value::<TimestampMicrosecondType>(index)? {
-                            Some(value) => Ok(Some(Cell::Timestamp(value))),
-                            None => Ok(None),
-                        }
+                DataType::Timestamp(TimeUnit::Microsecond, None) => {
+                    match self.get_timestamp_value::<TimestampMicrosecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::Timestamp(value))),
+                        None => Ok(None),
                     }
-                    PgTimestampPrecision::Millisecond => {
-                        match self.get_timestamp_value::<TimestampMillisecondType>(index)? {
-                            Some(value) => Ok(Some(Cell::Timestamp(value))),
-                            None => Ok(None),
-                        }
+                }
+                DataType::Timestamp(TimeUnit::Millisecond, None) => {
+                    match self.get_timestamp_value::<TimestampMillisecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::Timestamp(value))),
+                        None => Ok(None),
                     }
-                    PgTimestampPrecision::Second => {
-                        match self.get_timestamp_value::<TimestampSecondType>(index)? {
-                            Some(value) => Ok(Some(Cell::Timestamp(value))),
-                            None => Ok(None),
-                        }
+                }
+                DataType::Timestamp(TimeUnit::Second, None) => {
+                    match self.get_timestamp_value::<TimestampSecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::Timestamp(value))),
+                        None => Ok(None),
                     }
-                },
+                }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
                     PgOid::from(oid),

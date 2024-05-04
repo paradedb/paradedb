@@ -19,7 +19,6 @@ impl TryFrom<QueryString<'_>> for LogicalPlan {
 
         let dialect = PostgreSqlDialect {};
         let statement = DFParser::new_with_dialect(query, &dialect)?.parse_statement()?;
-        // let statement = &ast[0];
 
         // Convert the AST into a logical plan
         let context_provider = QueryContext::new();

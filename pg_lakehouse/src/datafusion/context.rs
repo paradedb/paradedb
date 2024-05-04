@@ -16,15 +16,14 @@ use std::sync::Arc;
 use thiserror::Error;
 use url::Url;
 
-use crate::types::schema::*;
-
 use crate::fdw::format::*;
 use crate::fdw::handler::*;
 use crate::fdw::object_store::*;
 use crate::fdw::options::*;
+use crate::types::schema::*;
 
+use super::plan::*;
 use super::provider::*;
-use super::query::*;
 use super::session::Session;
 
 pub struct QueryContext {
@@ -117,7 +116,7 @@ async fn get_table_source(
     if pg_relation.is_foreign_table() {
         let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
         let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
-        let fdw_handler = unsafe { get_fdw_handler((*foreign_server).fdwid) };
+        let fdw_handler = unsafe { FdwHandler::from((*foreign_server).fdwid) };
 
         if fdw_handler == FdwHandler::S3 || fdw_handler == FdwHandler::LocalFile {
             // Get foreign table and server options
@@ -243,20 +242,6 @@ pub unsafe fn options_to_hashmap(
     Ok(ret)
 }
 
-pub unsafe fn get_fdw_handler(oid: pg_sys::Oid) -> FdwHandler {
-    let fdw = pg_sys::GetForeignDataWrapper(oid);
-    let handler_oid = (*fdw).fdwhandler;
-    let proc_tuple = pg_sys::SearchSysCache1(
-        pg_sys::SysCacheIdentifier_PROCOID as i32,
-        handler_oid.into_datum().unwrap(),
-    );
-    let pg_proc = pg_sys::GETSTRUCT(proc_tuple) as pg_sys::Form_pg_proc;
-    let handler_name = name_data_to_str(&(*pg_proc).proname);
-    pg_sys::ReleaseSysCache(proc_tuple);
-
-    FdwHandler::from(handler_name)
-}
-
 #[derive(Error, Debug)]
 pub enum ContextError {
     #[error(transparent)]
@@ -275,7 +260,7 @@ pub enum ContextError {
     OptionsError(#[from] OptionsError),
 
     #[error(transparent)]
-    QueryParserError(#[from] QueryParserError),
+    LogicalPlanError(#[from] LogicalPlanError),
 
     #[error(transparent)]
     SchemaError(#[from] SchemaError),

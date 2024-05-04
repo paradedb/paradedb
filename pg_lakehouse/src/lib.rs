@@ -1,10 +1,22 @@
 mod datafusion;
 mod fdw;
+mod hooks;
 mod types;
 
+use hooks::LakehouseHook;
 use pgrx::*;
 
 pg_module_magic!();
+
+static mut EXTENSION_HOOK: LakehouseHook = LakehouseHook;
+
+#[pg_guard]
+pub extern "C" fn _PG_init() {
+    #[allow(static_mut_refs)]
+    unsafe {
+        register_hook(&mut EXTENSION_HOOK)
+    };
+}
 
 #[cfg(test)]
 pub mod pg_test {

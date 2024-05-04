@@ -25,9 +25,6 @@ pub async fn create_listing_provider(
     let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
     let schema = listing_options.infer_schema(state, &listing_url).await?;
 
-    let listing_url = ListingTableUrl::parse(path)?;
-    let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
-
     for (index, field) in schema.fields().iter().enumerate() {
         if let Some(attribute) = attribute_map.remove(&index) {
             can_convert_to_attribute(field, attribute)?;

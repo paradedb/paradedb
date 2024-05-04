@@ -125,33 +125,13 @@ where
                 Some(value) => Ok(Some(Cell::Bool(value))),
                 None => Ok(None),
             },
-            pg_sys::INT2OID
-            | pg_sys::INT4OID
-            | pg_sys::INT8OID
-            | pg_sys::FLOAT4OID
-            | pg_sys::FLOAT8OID => match self.data_type() {
+            pg_sys::INT2OID => match self.data_type() {
                 DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
                     Some(value) => Ok(Some(Cell::I16(value as i16))),
                     None => Ok(None),
                 },
                 DataType::Int16 => match self.get_primitive_value::<Int16Array>(index)? {
-                    Some(value) => Ok(Some(Cell::I16(value))),
-                    None => Ok(None),
-                },
-                DataType::Int32 => match self.get_primitive_value::<Int32Array>(index)? {
-                    Some(value) => Ok(Some(Cell::I32(value))),
-                    None => Ok(None),
-                },
-                DataType::Int64 => match self.get_primitive_value::<Int64Array>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value))),
-                    None => Ok(None),
-                },
-                DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
-                    Some(value) => Ok(Some(Cell::F32(value))),
-                    None => Ok(None),
-                },
-                DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
-                    Some(value) => Ok(Some(Cell::F64(value))),
+                    Some(value) => Ok(Some(Cell::I16(value as i16))),
                     None => Ok(None),
                 },
                 DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
@@ -162,12 +142,160 @@ where
                     Some(value) => Ok(Some(Cell::I16(value as i16))),
                     None => Ok(None),
                 },
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )),
+            },
+            pg_sys::INT4OID => match self.data_type() {
+                DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value as i32))),
+                    None => Ok(None),
+                },
+                DataType::Int16 => match self.get_primitive_value::<Int16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value as i32))),
+                    None => Ok(None),
+                },
+                DataType::Int32 => match self.get_primitive_value::<Int32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value as i32))),
+                    None => Ok(None),
+                },
+                DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value as i32))),
+                    None => Ok(None),
+                },
+                DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value as i32))),
+                    None => Ok(None),
+                },
                 DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
                     Some(value) => Ok(Some(Cell::I32(value as i32))),
                     None => Ok(None),
                 },
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )),
+            },
+            pg_sys::INT8OID => match self.data_type() {
+                DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    None => Ok(None),
+                },
+                DataType::Int16 => match self.get_primitive_value::<Int16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    None => Ok(None),
+                },
+                DataType::Int32 => match self.get_primitive_value::<Int32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    None => Ok(None),
+                },
+                DataType::Int64 => match self.get_primitive_value::<Int64Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    None => Ok(None),
+                },
+                DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    None => Ok(None),
+                },
+                DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    None => Ok(None),
+                },
+                DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    None => Ok(None),
+                },
                 DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value))),
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    None => Ok(None),
+                },
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )),
+            },
+            pg_sys::FLOAT4OID => match self.data_type() {
+                DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value as f32))),
+                    None => Ok(None),
+                },
+                DataType::Int16 => match self.get_primitive_value::<Int16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value as f32))),
+                    None => Ok(None),
+                },
+                DataType::Int32 => match self.get_primitive_value::<Int32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value as f32))),
+                    None => Ok(None),
+                },
+                DataType::Int64 => match self.get_primitive_value::<Int64Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value as f32))),
+                    None => Ok(None),
+                },
+                DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value as f32))),
+                    None => Ok(None),
+                },
+                DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value as f32))),
+                    None => Ok(None),
+                },
+                DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value as f32))),
+                    None => Ok(None),
+                },
+                DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value as f32))),
+                    None => Ok(None),
+                },
+                DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value as f32))),
+                    None => Ok(None),
+                },
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )),
+            },
+            pg_sys::FLOAT8OID => match self.data_type() {
+                DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::Int16 => match self.get_primitive_value::<Int16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::Int32 => match self.get_primitive_value::<Int32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::Int64 => match self.get_primitive_value::<Int64Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value))),
                     None => Ok(None),
                 },
                 unsupported => Err(DataTypeError::DataTypeMismatch(

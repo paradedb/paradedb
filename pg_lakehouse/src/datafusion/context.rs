@@ -23,6 +23,8 @@ use std::sync::Arc;
 use thiserror::Error;
 use url::Url;
 
+use crate::types::schema::*;
+
 use super::query::*;
 use super::session::Session;
 
@@ -215,67 +217,23 @@ fn create_listing_provider(
     pg_relation: PgRelation,
     state: &SessionState,
 ) -> Result<Arc<dyn TableProvider>, ContextError> {
-    // TODO: Move to shared
     let path = require_option(TableOption::Path.as_str(), &table_options)?;
     let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
 
     let listing_url = ListingTableUrl::parse(path)?;
     let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
     let inferred_schema = task::block_on(listing_options.infer_schema(state, &listing_url))?;
-    let mut schema_builder = SchemaBuilder::new();
 
     for (index, attribute) in pg_relation.tuple_desc().iter().enumerate() {
-        if attribute.name() != inferred_schema.field(index).name() {
-            return Err(ContextError::ColumnNameMismatch(
-                index + 1,
-                inferred_schema.field(index).name().to_string(),
-                attribute.name().to_string(),
-            ));
-        }
-
-        let data_type = match attribute.type_oid() {
-            PgOid::BuiltIn(oid) => match oid {
-                pg_sys::BuiltinOid::BOOLOID => DataType::Boolean,
-                pg_sys::BuiltinOid::DATEOID => DataType::Int32,
-                // pg_sys::BuiltinOid::TIMESTAMPOID => {
-                //     match PgTimestampPrecision::try_from(PgTypeMod(attribute.type_mod()))? {
-                //         PgTimestampPrecision::Microsecond | PgTimestampPrecision::Default => {
-                //             DataType::Timestamp(TimeUnit::Microsecond, None)
-                //         }
-                //         PgTimestampPrecision::Millisecond => {
-                //             DataType::Timestamp(TimeUnit::Millisecond, None)
-                //         }
-                //         PgTimestampPrecision::Second => DataType::Timestamp(TimeUnit::Second, None),
-                //     }
-                // }
-                pg_sys::BuiltinOid::VARCHAROID => DataType::Utf8,
-                pg_sys::BuiltinOid::BPCHAROID => DataType::Utf8,
-                pg_sys::BuiltinOid::TEXTOID => DataType::Utf8,
-                pg_sys::BuiltinOid::INT2OID => DataType::Int16,
-                pg_sys::BuiltinOid::INT4OID => DataType::Int32,
-                pg_sys::BuiltinOid::INT8OID => DataType::Int64,
-                pg_sys::BuiltinOid::FLOAT4OID => DataType::Float32,
-                pg_sys::BuiltinOid::FLOAT8OID => DataType::Float64,
-                unsupported => {
-                    return Err(ContextError::ForeignTypeNotSupported(PgOid::from(
-                        unsupported,
-                    )))
-                }
-            },
-            unsupported => return Err(ContextError::ForeignTypeNotSupported(unsupported)),
-        };
-        schema_builder.push(Field::new(
-            inferred_schema.field(index).name(),
-            data_type,
-            true,
-        ));
+        can_convert_to_attribute(
+            inferred_schema.field(index),
+            PgAttribute::new(attribute.name(), attribute.atttypid, attribute.type_mod()),
+        )?;
     }
-
-    let schema = Arc::new(schema_builder.finish());
 
     let listing_config = ListingTableConfig::new(listing_url)
         .with_listing_options(listing_options)
-        .with_schema(schema);
+        .with_schema(inferred_schema);
 
     let listing_table = ListingTable::try_new(listing_config)?;
 
@@ -292,13 +250,10 @@ async fn create_delta_provider(
     let schema = (provider.clone()).schema();
 
     for (index, attribute) in pg_relation.tuple_desc().iter().enumerate() {
-        if attribute.name() != schema.field(index).name() {
-            return Err(ContextError::ColumnNameMismatch(
-                index + 1,
-                schema.field(index).name().to_string(),
-                attribute.name().to_string(),
-            ));
-        }
+        can_convert_to_attribute(
+            schema.field(index),
+            PgAttribute::new(attribute.name(), attribute.atttypid, attribute.type_mod()),
+        )?;
     }
 
     Ok(provider)
@@ -355,16 +310,13 @@ pub enum ContextError {
     QueryParserError(#[from] QueryParserError),
 
     #[error(transparent)]
+    SchemaError(#[from] SchemaError),
+
+    #[error(transparent)]
     UrlParseError(#[from] url::ParseError),
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
-
-    #[error("Column name mismatch: Expected column {0} to be named {1} but found {2}. Note that column names are case-sensitive and must be enclosed in double quotes")]
-    ColumnNameMismatch(usize, String, String),
-
-    #[error("Type {0:?} is unsupported for this foreign table")]
-    ForeignTypeNotSupported(PgOid),
 
     #[error("No table registered with name {0}")]
     TableNotFound(String),

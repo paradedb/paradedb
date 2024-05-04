@@ -1553,17 +1553,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "658bd65b1cf4c852a3cc96f18a8ce7b5640f6b703f905c7d74532294c2a63984"
 
 [[package]]
-name = "fdw"
-version = "0.6.2"
-dependencies = [
- "datafusion",
- "deltalake",
- "object_store",
- "thiserror",
- "url",
-]
-
-[[package]]
 name = "finl_unicode"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2626,7 +2615,6 @@ dependencies = [
  "chrono",
  "datafusion",
  "deltalake",
- "fdw",
  "object_store",
  "pgrx",
  "pgrx-tests",

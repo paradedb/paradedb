@@ -60,10 +60,6 @@ impl AmazonUserMappingOption {
             Self::SessionToken => "session_token",
         }
     }
-
-    pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::AccessKeyId, Self::SecretAccessKey, Self::SessionToken].into_iter()
-    }
 }
 
 pub enum TableOption {

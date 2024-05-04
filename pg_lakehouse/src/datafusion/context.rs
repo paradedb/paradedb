@@ -7,9 +7,6 @@ use datafusion::execution::FunctionRegistry;
 use datafusion::logical_expr::{AggregateUDF, LogicalPlan, ScalarUDF, TableSource, WindowUDF};
 use datafusion::sql::planner::ContextProvider;
 use datafusion::sql::TableReference;
-use fdw::format::*;
-use fdw::handler::*;
-use fdw::options::*;
 use object_store::aws::AmazonS3;
 use object_store::local::LocalFileSystem;
 use pgrx::*;
@@ -20,6 +17,11 @@ use thiserror::Error;
 use url::Url;
 
 use crate::types::schema::*;
+
+use crate::fdw::format::*;
+use crate::fdw::handler::*;
+use crate::fdw::object_store::*;
+use crate::fdw::options::*;
 
 use super::provider::*;
 use super::query::*;
@@ -267,7 +269,7 @@ pub enum ContextError {
     FormatError(#[from] FormatError),
 
     #[error(transparent)]
-    LakeError(#[from] fdw::lake::LakeError),
+    ObjectStoreError(#[from] ObjectStoreError),
 
     #[error(transparent)]
     OptionsError(#[from] OptionsError),

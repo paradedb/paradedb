@@ -21,6 +21,12 @@ pub enum PgTimestampPrecision {
     Microsecond = 6,
 }
 
+impl PgTimestampPrecision {
+    pub fn value(&self) -> i32 {
+        *self as i32
+    }
+}
+
 impl TryFrom<PgTypeMod> for PgTimestampPrecision {
     type Error = DatetimeError;
 

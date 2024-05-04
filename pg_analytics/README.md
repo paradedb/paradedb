@@ -76,14 +76,14 @@ As `pg_analytics` becomes production-ready, many of these will be resolved.
 
 ### Install Rust
 
-To develop the extension, first install Rust v1.77.2 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
+To develop the extension, first install Rust v1.76.0 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup install 1.77.2
+rustup install 1.76.0
 
-# We recommend setting the default version to 1.77.2 for consistency across your system
-rustup default 1.77.2
+# We recommend setting the default version to 1.76.0 for consistency across your system
+rustup default 1.76.0
 ```
 
 Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconcistencies with Homebrew's Rust installation on macOS.

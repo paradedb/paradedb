@@ -112,31 +112,16 @@ pub enum CatalogError {
     DirectoryError(#[from] DirectoryError),
 
     #[error(transparent)]
-    FormatError(#[from] fdw::format::FormatError),
-
-    #[error(transparent)]
     FromUtf8Error(#[from] std::string::FromUtf8Error),
 
     #[error(transparent)]
     IO(#[from] std::io::Error),
 
     #[error(transparent)]
-    LakeError(#[from] fdw::lake::LakeError),
-
-    #[error(transparent)]
     NulError(#[from] std::ffi::NulError),
 
     #[error(transparent)]
-    OptionsError(#[from] fdw::options::OptionsError),
-
-    #[error(transparent)]
     ParseIntError(#[from] std::num::ParseIntError),
-
-    #[error(transparent)]
-    TimestampError(#[from] crate::types::timestamp::TimestampError),
-
-    #[error(transparent)]
-    UrlParseError(#[from] url::ParseError),
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
@@ -147,14 +132,8 @@ pub enum CatalogError {
     #[error("Catalog provider {0} not found")]
     CatalogProviderNotFound(String),
 
-    #[error("Column name mismatch: Expected column {0} to be named {1} but found {2}. Note that column names are case-sensitive and must be enclosed in double quotes")]
-    ColumnNameMismatch(usize, String, String),
-
     #[error("Database {0} not found")]
     DatabaseNotFound(String),
-
-    #[error("Type {0:?} is unsupported for this foreign table")]
-    ForeignTypeNotSupported(PgOid),
 
     #[error("{0}")]
     OsString(String),

@@ -42,8 +42,6 @@ impl TryFrom<PgTypeMod> for PgTimestampPrecision {
 
         match typemod {
             -1 => Ok(PgTimestampPrecision::Default),
-            1 => Ok(PgTimestampPrecision::Second),
-            3 => Ok(PgTimestampPrecision::Millisecond),
             6 => Ok(PgTimestampPrecision::Microsecond),
             unsupported => Err(TimestampError::UnsupportedTypeMod(unsupported)),
         }

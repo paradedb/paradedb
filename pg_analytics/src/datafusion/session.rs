@@ -145,9 +145,7 @@ impl Session {
             return Err(CatalogError::SharedPreload);
         }
 
-        let session_config = SessionConfig::from_env()?
-            .with_information_schema(true)
-            .set_bool("datafusion.sql_parser.enable_ident_normalization", false);
+        let session_config = SessionConfig::from_env()?.with_information_schema(true);
 
         let rn_config = RuntimeConfig::new();
         let runtime_env = RuntimeEnv::new(rn_config)?;

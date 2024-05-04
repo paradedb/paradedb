@@ -75,7 +75,6 @@ download_and_verify() {
 
   # Check if the file already exists and verify its checksum
   if [ -e "$filename" ]; then
-    echo "Dataset '$filename' already exists, verifying checksum..."
     if echo "$checksum $filename" | md5sum -c --status; then
       echo "Dataset '$filename' already exists and is verified, skipping download..."
       return

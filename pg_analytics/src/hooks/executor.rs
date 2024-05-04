@@ -111,8 +111,7 @@ pub fn executor_run(
                         }
                     }
                 }
-                Err(err) => {
-                    fallback_warning!(err.to_string());
+                Err(_) => {
                     prev_hook(query_desc, direction, count, execute_once);
                 }
             };

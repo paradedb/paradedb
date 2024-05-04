@@ -1,8 +1,7 @@
+use crate::types::datatype::PgTypeMod;
 use deltalake::datafusion::arrow::datatypes::{DECIMAL128_MAX_PRECISION, DECIMAL128_MAX_SCALE};
 use pgrx::*;
 use thiserror::Error;
-
-use super::datatype::PgTypeMod;
 
 const NUMERIC_BASE: i128 = 10;
 

@@ -1,29 +1,17 @@
-use async_std::task;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::catalog::CatalogProvider;
-use deltalake::datafusion::common::arrow::datatypes::{DataType, Field, SchemaBuilder, TimeUnit};
+use deltalake::datafusion::common::arrow::datatypes::DataType;
 use deltalake::datafusion::common::config::ConfigOptions;
 use deltalake::datafusion::common::DataFusionError;
-use deltalake::datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-};
-use deltalake::datafusion::datasource::{provider_as_source, view::ViewTable, TableProvider};
-use deltalake::datafusion::execution::context::SessionState;
+use deltalake::datafusion::datasource::{provider_as_source, view::ViewTable};
 use deltalake::datafusion::execution::FunctionRegistry;
 use deltalake::datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use deltalake::datafusion::sql::planner::ContextProvider;
 use deltalake::datafusion::sql::TableReference;
-use fdw::format::*;
-use fdw::handler::*;
-use fdw::options::*;
-use object_store::aws::AmazonS3;
-use object_store::local::LocalFileSystem;
 use pgrx::*;
-use std::collections::HashMap;
 use std::ffi::{c_char, CStr};
 use std::sync::Arc;
 use thiserror::Error;
-use url::Url;
 
 use super::catalog::CatalogError;
 use super::directory::ParadeDirectory;
@@ -32,10 +20,6 @@ use super::query::QueryString;
 use super::schema::ParadeSchemaProvider;
 use super::session::Session;
 use super::table::PgTableProvider;
-
-use crate::hooks::handler::get_fdw_handler;
-use crate::types::datatype::PgTypeMod;
-use crate::types::timestamp::PgTimestampPrecision;
 
 pub struct QueryContext {
     options: ConfigOptions,
@@ -123,104 +107,6 @@ impl QueryContext {
                 return Ok(provider_as_source(Arc::new(view_table)));
             }
 
-            if pg_relation.is_foreign_table() {
-                let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
-                let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
-                let fdw_handler = unsafe { get_fdw_handler((*foreign_server).fdwid) };
-
-                if fdw_handler == FdwHandler::S3 || fdw_handler == FdwHandler::LocalFile {
-                    let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
-                    let server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
-                    let user_id = unsafe { pg_sys::GetUserId() };
-
-                    let user_mapping_exists = unsafe {
-                        !pg_sys::SearchSysCache2(
-                            pg_sys::SysCacheIdentifier_USERMAPPINGUSERSERVER as i32,
-                            pg_sys::Datum::from(user_id),
-                            pg_sys::Datum::from((*foreign_server).serverid),
-                        )
-                        .is_null()
-                    };
-                    let public_mapping_exists = unsafe {
-                        !pg_sys::SearchSysCache2(
-                            pg_sys::SysCacheIdentifier_USERMAPPINGUSERSERVER as i32,
-                            pg_sys::Datum::from(pg_sys::InvalidOid),
-                            pg_sys::Datum::from((*foreign_server).serverid),
-                        )
-                        .is_null()
-                    };
-
-                    let user_mapping_options = unsafe {
-                        match user_mapping_exists || public_mapping_exists {
-                            true => {
-                                let user_mapping =
-                                    pg_sys::GetUserMapping(user_id, (*foreign_server).serverid);
-                                options_to_hashmap((*user_mapping).options)?
-                            }
-                            false => HashMap::new(),
-                        }
-                    };
-
-                    let format =
-                        require_option_or(TableOption::Format.as_str(), &table_options, "");
-
-                    // Register object store
-                    match fdw_handler {
-                        FdwHandler::S3 => {
-                            Session::with_session_context(|context| {
-                                Box::pin(async move {
-                                    let object_store = AmazonS3::try_from(ServerOptions::new(
-                                        server_options.clone(),
-                                        user_mapping_options.clone(),
-                                    ))?;
-                                    let url = require_option(
-                                        AmazonServerOption::Url.as_str(),
-                                        &server_options,
-                                    )?;
-
-                                    context.runtime_env().register_object_store(
-                                        &Url::parse(url)?,
-                                        Arc::new(object_store),
-                                    );
-                                    Ok(())
-                                })
-                            })?;
-                        }
-                        FdwHandler::LocalFile => {
-                            let object_store = LocalFileSystem::new();
-                            Session::with_session_context(|context| {
-                                Box::pin(async move {
-                                    context.runtime_env().register_object_store(
-                                        &Url::parse("file://")?,
-                                        Arc::new(object_store),
-                                    );
-                                    Ok(())
-                                })
-                            })?;
-                        }
-                        _ => {}
-                    };
-
-                    let provider = match TableFormat::from(format) {
-                        TableFormat::None => Session::with_session_context(|context| {
-                            Box::pin(async move {
-                                create_listing_provider(
-                                    table_options,
-                                    pg_relation,
-                                    &context.state(),
-                                )
-                            })
-                        })?,
-                        TableFormat::Delta => task::block_on(create_delta_provider(
-                            table_options.clone(),
-                            pg_relation,
-                        ))?,
-                    };
-
-                    return Ok(provider_as_source(provider));
-                }
-            }
-
             Err(ContextError::TableNotFound(reference.table().to_string()))
         }
     }
@@ -290,117 +176,6 @@ fn get_source(schema_name: &str, table_name: &str) -> Result<Arc<dyn TableSource
     })?)
 }
 
-#[inline]
-fn create_listing_provider(
-    table_options: HashMap<String, String>,
-    pg_relation: PgRelation,
-    state: &SessionState,
-) -> Result<Arc<dyn TableProvider>, CatalogError> {
-    // TODO: Move to shared
-    let path = require_option(TableOption::Path.as_str(), &table_options)?;
-    let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
-
-    let listing_url = ListingTableUrl::parse(path)?;
-    let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
-    let inferred_schema = task::block_on(listing_options.infer_schema(state, &listing_url))?;
-    let mut schema_builder = SchemaBuilder::new();
-
-    for (index, attribute) in pg_relation.tuple_desc().iter().enumerate() {
-        if attribute.name() != inferred_schema.field(index).name() {
-            return Err(CatalogError::ColumnNameMismatch(
-                index + 1,
-                inferred_schema.field(index).name().to_string(),
-                attribute.name().to_string(),
-            ));
-        }
-
-        let data_type = match attribute.type_oid() {
-            PgOid::BuiltIn(oid) => match oid {
-                pg_sys::BuiltinOid::BOOLOID => DataType::Boolean,
-                pg_sys::BuiltinOid::DATEOID => DataType::Int32,
-                pg_sys::BuiltinOid::TIMESTAMPOID => {
-                    match PgTimestampPrecision::try_from(PgTypeMod(attribute.type_mod()))? {
-                        PgTimestampPrecision::Microsecond | PgTimestampPrecision::Default => {
-                            DataType::Timestamp(TimeUnit::Microsecond, None)
-                        }
-                        PgTimestampPrecision::Millisecond => {
-                            DataType::Timestamp(TimeUnit::Millisecond, None)
-                        }
-                        PgTimestampPrecision::Second => DataType::Timestamp(TimeUnit::Second, None),
-                    }
-                }
-                pg_sys::BuiltinOid::VARCHAROID => DataType::Utf8,
-                pg_sys::BuiltinOid::BPCHAROID => DataType::Utf8,
-                pg_sys::BuiltinOid::TEXTOID => DataType::Utf8,
-                pg_sys::BuiltinOid::INT2OID => DataType::Int16,
-                pg_sys::BuiltinOid::INT4OID => DataType::Int32,
-                pg_sys::BuiltinOid::INT8OID => DataType::Int64,
-                pg_sys::BuiltinOid::FLOAT4OID => DataType::Float32,
-                pg_sys::BuiltinOid::FLOAT8OID => DataType::Float64,
-                unsupported => {
-                    return Err(CatalogError::ForeignTypeNotSupported(PgOid::from(
-                        unsupported,
-                    )))
-                }
-            },
-            unsupported => return Err(CatalogError::ForeignTypeNotSupported(unsupported)),
-        };
-        schema_builder.push(Field::new(
-            inferred_schema.field(index).name(),
-            data_type,
-            true,
-        ));
-    }
-
-    let schema = Arc::new(schema_builder.finish());
-
-    let listing_config = ListingTableConfig::new(listing_url)
-        .with_listing_options(listing_options)
-        .with_schema(schema);
-
-    let listing_table = ListingTable::try_new(listing_config)?;
-
-    Ok(Arc::new(listing_table) as Arc<dyn TableProvider>)
-}
-
-#[inline]
-async fn create_delta_provider(
-    table_options: HashMap<String, String>,
-    pg_relation: PgRelation,
-) -> Result<Arc<dyn TableProvider>, CatalogError> {
-    let path = require_option(TableOption::Path.as_str(), &table_options)?;
-    let provider = Arc::new(deltalake::open_table(path).await?) as Arc<dyn TableProvider>;
-    let schema = (provider.clone()).schema();
-
-    for (index, attribute) in pg_relation.tuple_desc().iter().enumerate() {
-        if attribute.name() != schema.field(index).name() {
-            return Err(CatalogError::ColumnNameMismatch(
-                index + 1,
-                schema.field(index).name().to_string(),
-                attribute.name().to_string(),
-            ));
-        }
-    }
-
-    Ok(provider)
-}
-
-#[inline]
-pub unsafe fn options_to_hashmap(
-    options: *mut pg_sys::List,
-) -> Result<HashMap<String, String>, ContextError> {
-    let mut ret = HashMap::new();
-    let options: PgList<pg_sys::DefElem> = PgList::from_pg(options);
-    for option in options.iter_ptr() {
-        let name = CStr::from_ptr((*option).defname);
-        let value = CStr::from_ptr(pg_sys::defGetString(option));
-        let name = name.to_str()?;
-        let value = value.to_str()?;
-        ret.insert(name.to_string(), value.to_string());
-    }
-    Ok(ret)
-}
-
 #[derive(Error, Debug)]
 pub enum ContextError {
     #[error(transparent)]
@@ -408,15 +183,6 @@ pub enum ContextError {
 
     #[error(transparent)]
     DataFusionError(#[from] DataFusionError),
-
-    #[error(transparent)]
-    DeltaTableError(#[from] deltalake::DeltaTableError),
-
-    #[error(transparent)]
-    LakeError(#[from] fdw::lake::LakeError),
-
-    #[error(transparent)]
-    OptionsError(#[from] OptionsError),
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),

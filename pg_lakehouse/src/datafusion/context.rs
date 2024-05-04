@@ -118,10 +118,12 @@ async fn get_table_source(
         let fdw_handler = unsafe { get_fdw_handler((*foreign_server).fdwid) };
 
         if fdw_handler == FdwHandler::S3 || fdw_handler == FdwHandler::LocalFile {
+            // Get foreign table and server options
             let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
             let server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
             let user_id = unsafe { pg_sys::GetUserId() };
 
+            // Get foreign server user mapping options
             let user_mapping_exists = unsafe {
                 !pg_sys::SearchSysCache2(
                     pg_sys::SysCacheIdentifier_USERMAPPINGUSERSERVER as i32,
@@ -149,8 +151,6 @@ async fn get_table_source(
                     false => HashMap::new(),
                 }
             };
-
-            let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
 
             // Register object store
             match fdw_handler {
@@ -186,6 +186,7 @@ async fn get_table_source(
                 _ => {}
             };
 
+            // Create provider for foreign table
             let attribute_map: HashMap<usize, PgAttribute> = pg_relation
                 .tuple_desc()
                 .iter()
@@ -202,6 +203,7 @@ async fn get_table_source(
                 })
                 .collect();
 
+            let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
             let provider = match TableFormat::from(format) {
                 TableFormat::None => Session::with_session_context(|context| {
                     Box::pin(async move {

@@ -1,11 +1,7 @@
 use async_std::task;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::arrow::datatypes::{DataType, Field, SchemaBuilder};
 use datafusion::common::DataFusionError;
-use datafusion::datasource::listing::{
-    ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
-};
 use datafusion::datasource::{provider_as_source, TableProvider};
 use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder};
@@ -20,6 +16,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
+
+use crate::datafusion::provider::*;
+use crate::types::schema::*;
 
 use super::cell::*;
 
@@ -60,18 +59,27 @@ pub trait BaseFdw {
     ) -> Result<(), BaseFdwError> {
         self.set_target_columns(columns.to_vec());
 
-        let oid_map: HashMap<usize, pg_sys::Oid> = columns
+        let attribute_map: HashMap<usize, PgAttribute> = columns
             .iter()
             .cloned()
-            .map(|col| (col.num - 1, col.type_oid))
+            .map(|col| {
+                (
+                    col.num - 1,
+                    PgAttribute::new(&col.name, col.type_oid, col.type_mod),
+                )
+            })
             .collect();
 
         let format = require_option_or(TableOption::Format.as_str(), options, "");
         let provider = match TableFormat::from(format) {
-            TableFormat::None => {
-                create_listing_provider(options.clone(), oid_map, &self.get_session_state())?
+            TableFormat::None => task::block_on(create_listing_provider(
+                options.clone(),
+                attribute_map,
+                &self.get_session_state(),
+            ))?,
+            TableFormat::Delta => {
+                task::block_on(create_delta_provider(options.clone(), attribute_map))?
             }
-            TableFormat::Delta => task::block_on(create_delta_provider(options.clone()))?,
         };
 
         self.register_table(DEFAULT_TABLE_NAME, provider.clone())?;
@@ -147,66 +155,6 @@ impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
     }
 }
 
-#[inline]
-fn create_listing_provider(
-    table_options: HashMap<String, String>,
-    mut oid_map: HashMap<usize, pg_sys::Oid>,
-    state: &SessionState,
-) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
-    let path = require_option(TableOption::Path.as_str(), &table_options)?;
-    let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
-
-    let listing_url = ListingTableUrl::parse(path)?;
-    let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
-
-    let inferred_schema = task::block_on(listing_options.infer_schema(state, &listing_url))?;
-    let mut schema_builder = SchemaBuilder::new();
-
-    for (index, field) in inferred_schema.fields().iter().enumerate() {
-        match oid_map.remove(&index) {
-            Some(oid) => {
-                // Types can get incorrectly inferred, so we override them
-                let data_type = match (oid, field.data_type()) {
-                    (pg_sys::BOOLOID, _) => DataType::Boolean,
-                    (pg_sys::DATEOID, _) => DataType::Int32,
-                    (pg_sys::TIMESTAMPOID, _) => DataType::Int64,
-                    (pg_sys::VARCHAROID, _) => DataType::Utf8,
-                    (pg_sys::BPCHAROID, _) => DataType::Utf8,
-                    (pg_sys::TEXTOID, _) => DataType::Utf8,
-                    (pg_sys::INT2OID, _) => DataType::Int16,
-                    (pg_sys::INT4OID, _) => DataType::Int32,
-                    (pg_sys::INT8OID, _) => DataType::Int64,
-                    (pg_sys::FLOAT4OID, _) => DataType::Float32,
-                    (pg_sys::FLOAT8OID, _) => DataType::Float64,
-                    (_, data_type) => data_type.clone(),
-                };
-                schema_builder.push(Field::new(field.name(), data_type, field.is_nullable()))
-            }
-            None => schema_builder.push(field.clone()),
-        };
-    }
-
-    let updated_schema = Arc::new(schema_builder.finish());
-
-    let listing_config = ListingTableConfig::new(listing_url)
-        .with_listing_options(listing_options)
-        .with_schema(updated_schema);
-
-    let listing_table = ListingTable::try_new(listing_config)?;
-
-    Ok(Arc::new(listing_table) as Arc<dyn TableProvider>)
-}
-
-#[inline]
-async fn create_delta_provider(
-    table_options: HashMap<String, String>,
-) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
-    let path = require_option(TableOption::Path.as_str(), &table_options)?;
-    let delta_table = deltalake::open_table(path).await?;
-
-    Ok(Arc::new(delta_table) as Arc<dyn TableProvider>)
-}
-
 #[derive(Error, Debug)]
 pub enum BaseFdwError {
     #[error(transparent)]
@@ -232,6 +180,12 @@ pub enum BaseFdwError {
 
     #[error(transparent)]
     OptionsError(#[from] supabase_wrappers::options::OptionsError),
+
+    #[error(transparent)]
+    SchemaError(#[from] SchemaError),
+
+    #[error(transparent)]
+    TableProviderError(#[from] TableProviderError),
 
     #[error(transparent)]
     UrlParseError(#[from] url::ParseError),

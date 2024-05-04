@@ -5,12 +5,12 @@ use datafusion::datasource::listing::{
 use datafusion::datasource::TableProvider;
 use datafusion::execution::context::SessionState;
 use deltalake::DeltaTableError;
-use fdw::format::*;
-use fdw::options::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 
+use crate::fdw::format::*;
+use crate::fdw::options::*;
 use crate::types::schema::*;
 
 pub async fn create_listing_provider(

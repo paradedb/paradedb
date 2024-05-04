@@ -4,7 +4,7 @@ use thiserror::Error;
 use super::options::*;
 
 impl TryFrom<ServerOptions> for AmazonS3 {
-    type Error = LakeError;
+    type Error = ObjectStoreError;
 
     fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
         let server_options = options.server_options();
@@ -55,7 +55,7 @@ impl TryFrom<ServerOptions> for AmazonS3 {
 }
 
 #[derive(Error, Debug)]
-pub enum LakeError {
+pub enum ObjectStoreError {
     #[error(transparent)]
     OptionsError(#[from] OptionsError),
 

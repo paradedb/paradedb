@@ -5,7 +5,6 @@ use datafusion::execution::context::SessionState;
 use datafusion::logical_expr::LogicalPlan;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::{DataFrame, SessionContext};
-use fdw::options::*;
 use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
@@ -14,6 +13,7 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use super::base::*;
+use super::options::*;
 
 #[wrappers_fdw(
     author = "ParadeDB",

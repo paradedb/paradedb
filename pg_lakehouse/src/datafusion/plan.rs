@@ -12,7 +12,7 @@ pub struct QueryString<'a>(pub &'a str);
 
 // Parses the query string into a DataFusion LogicalPlan
 impl TryFrom<QueryString<'_>> for LogicalPlan {
-    type Error = QueryParserError;
+    type Error = LogicalPlanError;
 
     fn try_from(query: QueryString) -> Result<Self, Self::Error> {
         let QueryString(query) = query;
@@ -28,7 +28,7 @@ impl TryFrom<QueryString<'_>> for LogicalPlan {
 }
 
 #[derive(Error, Debug)]
-pub enum QueryParserError {
+pub enum LogicalPlanError {
     #[error(transparent)]
     DataFusion(#[from] DataFusionError),
 

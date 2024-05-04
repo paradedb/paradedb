@@ -30,7 +30,7 @@
 
 ## Motivation
 
-Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is ingested into data lakes like S3. Moving this data into a cloud data warehouse or even Postgres is expensive and time consuming. By allowing companies to query data where it already lives, `pg_lakehouse` eliminates the need for expensive new infrastructure, data movement, and loss of data freshness.
+Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is ingested into data lakes like S3. Operating a query engine or moving this data into a data warehouse is expensive and time consuming. By allowing companies to query data where it already lives from Postgres, `pg_lakehouse` eliminates the need for expensive new infrastructure, data movement, and loss of data freshness.
 
 `pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs over object stores like S3 have existed in the Postgres extension ecosystem, these FDWs lack support for most object stores and table formats and are very slow for large analytical workloads. `pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being very fast.
 
@@ -81,16 +81,13 @@ Note that column names must be wrapped in double quotes to preserve uppercase le
 
 ## Query Acceleration
 
-On its own, `pg_lakehouse` is only able to push down column projections, sorts, and limits to DataFusion. This means that queries containing
-aggregates, joins, etc. are not fully accelerated.
+This extension uses Postgres hooks to intercept and push queries down to DataFusion. In order to enable these hooks, the extension
+must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are using Postgres 16, this file can be found under `~/.pgrx/data-16`.
 
-This can be solved by installing [`pg_analytics`](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview), which is able to push down the entirety of most queries over `pg_lakehouse` foreign tables to DataFusion.
-
-```sql
-CREATE EXTENSION pg_analytics;
+```bash
+# Inside postgresql.conf
+shared_preload_libraries = 'pg_lakehouse'
 ```
-
-Note: In the future, we will move the relevant parts of `pg_analytics` into `pg_lakehouse` so that this is no longer necessary.
 
 ## Amazon S3
 

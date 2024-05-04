@@ -61,8 +61,8 @@ impl fmt::Debug for PgAttribute {
 pub static DEFAULT_TYPE_MOD: i32 = -1;
 
 pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result<(), SchemaError> {
-    if field.name().to_string() != attribute.name() {
-        return Err(SchemaError::UnsupportedColumnName(
+    if *field.name() != attribute.name() {
+        return Err(SchemaError::ColumnNameMismatch(
             field.name().to_string(),
             attribute.name(),
         ));
@@ -75,9 +75,9 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
             DEFAULT_TYPE_MOD,
         )],
         DataType::Utf8 => vec![
-            PgAttribute::new(&field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
         ],
         DataType::LargeUtf8 => vec![PgAttribute::new(
             field.name(),
@@ -85,91 +85,91 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
             DEFAULT_TYPE_MOD,
         )],
         DataType::Int8 => vec![
-            PgAttribute::new(&field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::Int16 => vec![
-            PgAttribute::new(&field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::Int32 => vec![
-            PgAttribute::new(&field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::Int64 => vec![
-            PgAttribute::new(&field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::UInt8 => vec![
-            PgAttribute::new(&field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::UInt16 => vec![
-            PgAttribute::new(&field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::UInt32 => vec![
-            PgAttribute::new(&field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::UInt64 => vec![
-            PgAttribute::new(&field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::Float16 => vec![
-            PgAttribute::new(&field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::Float32 => vec![
-            PgAttribute::new(&field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(&field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
         ],
         DataType::Float64 => vec![PgAttribute::new(
-            &field.name(),
+            field.name(),
             pg_sys::FLOAT8OID,
             DEFAULT_TYPE_MOD,
         )],
         DataType::Date32 => vec![PgAttribute::new(
-            &field.name(),
+            field.name(),
             pg_sys::DATEOID,
             DEFAULT_TYPE_MOD,
         )],
         DataType::Date64 => vec![PgAttribute::new(
-            &field.name(),
+            field.name(),
             pg_sys::DATEOID,
             DEFAULT_TYPE_MOD,
         )],
         DataType::Timestamp(TimeUnit::Microsecond, None) => vec![
-            PgAttribute::new(&field.name(), pg_sys::TIMESTAMPOID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::TIMESTAMPOID, DEFAULT_TYPE_MOD),
             PgAttribute::new(
-                &field.name(),
+                field.name(),
                 pg_sys::TIMESTAMPOID,
                 PgTimestampPrecision::Microsecond.value(),
             ),
         ],
         DataType::Timestamp(TimeUnit::Millisecond, None) => vec![PgAttribute::new(
-            &field.name(),
+            field.name(),
             pg_sys::TIMESTAMPOID,
             PgTimestampPrecision::Millisecond.value(),
         )],
         DataType::Timestamp(TimeUnit::Second, None) => vec![PgAttribute::new(
-            &field.name(),
+            field.name(),
             pg_sys::TIMESTAMPOID,
             PgTimestampPrecision::Second.value(),
         )],
@@ -189,11 +189,11 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
 
 #[derive(Error, Debug)]
 pub enum SchemaError {
+    #[error("Column name mismatch: Expected column to be named {0} but found {1}. Note that column names are case-sensitive and must be enclosed in double quotes")]
+    ColumnNameMismatch(String, String),
+
     #[error("Unsupported Arrow type: {0:?}")]
     UnsupportedArrowType(DataType),
-
-    #[error("Column name mismatch: Expected column to be named {0} but found {1}. Note that column names are case-sensitive and must be enclosed in double quotes")]
-    UnsupportedColumnName(String, String),
 
     #[error("Cannot convert Arrow type {0:?} to Postgres type {1:?}. Supported Postgres types are: {2:?}")]
     UnsupportedConversion(DataType, PgAttribute, Vec<PgAttribute>),

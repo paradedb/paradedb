@@ -2,9 +2,9 @@ use pgrx::*;
 use std::ffi::CStr;
 use std::str::Utf8Error;
 
-use crate::datafusion::plan::QueryString;
 use crate::fdw::handler::FdwHandler;
 
+#[allow(dead_code)]
 #[derive(PartialEq, Clone)]
 pub enum QueryType {
     Federated,
@@ -35,10 +35,10 @@ impl TryFrom<PgBox<pg_sys::QueryDesc>> for PgQuery {
     type Error = Utf8Error;
 
     fn try_from(query_desc: PgBox<pg_sys::QueryDesc>) -> Result<Self, Self::Error> {
-        let planned_stmt = unsafe { (*query_desc).plannedstmt };
+        let planned_stmt = query_desc.plannedstmt;
         let query_start_index = unsafe { (*planned_stmt).stmt_location };
         let query_len = unsafe { (*planned_stmt).stmt_len };
-        let query = unsafe { CStr::from_ptr((*query_desc).sourceText) }.to_str()?;
+        let query = unsafe { CStr::from_ptr(query_desc.sourceText) }.to_str()?;
 
         let raw_text = if query_start_index != -1 {
             if query_len == 0 {
@@ -80,9 +80,8 @@ impl TryFrom<PgBox<pg_sys::QueryDesc>> for PgQuery {
                 let pg_relation = PgRelation::from_pg_owned(relation);
 
                 if pg_relation.is_foreign_table() {
-                    let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
-                    let foreign_server =
-                        unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+                    let foreign_table = pg_sys::GetForeignTable(pg_relation.oid());
+                    let foreign_server = pg_sys::GetForeignServer((*foreign_table).serverid);
                     let fdw_handler = FdwHandler::from((*foreign_server).fdwid);
                     if fdw_handler != FdwHandler::Other {
                         col_tables.push(pg_relation)

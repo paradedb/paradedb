@@ -1,3 +1,4 @@
+mod api;
 mod datafusion;
 mod fdw;
 mod hooks;

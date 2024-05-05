@@ -1,7 +1,6 @@
 mod executor;
 mod query;
 
-use async_std::task;
 use pgrx::*;
 
 pub struct LakehouseHook;

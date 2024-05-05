@@ -1,8 +1,6 @@
 use datafusion::common::arrow::array::RecordBatch;
-use datafusion::common::DataFusionError;
 use datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
-use std::ffi::CStr;
 use thiserror::Error;
 
 use crate::datafusion::context::ContextError;
@@ -32,7 +30,6 @@ pub unsafe fn executor_run(
 ) -> Result<(), ExecutorHookError> {
     let ps = query_desc.plannedstmt;
     let rtable = (*ps).rtable;
-    let pg_plan = query_desc.plannedstmt;
     let pg_query = PgQuery::try_from(query_desc.clone())?;
 
     // Only use this hook for deltalake tables
@@ -80,12 +77,12 @@ pub unsafe fn executor_run(
 #[inline]
 fn get_datafusion_batches(logical_plan: LogicalPlan) -> Result<Vec<RecordBatch>, ContextError> {
     // Execute the logical plan and collect the resulting batches
-    Ok(Session::with_session_context(|context| {
+    Session::with_session_context(|context| {
         Box::pin(async move {
             let dataframe = context.execute_logical_plan(logical_plan).await?;
             Ok(dataframe.collect().await?)
         })
-    })?)
+    })
 }
 
 #[inline]

@@ -90,7 +90,6 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
 
 COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
-COPY fdw/ /tmp/fdw
 
 # Build the extension
 # Note: We require Rust nightly to build pg_analytics with SIMD
@@ -119,7 +118,6 @@ ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
 
 COPY pg_lakehouse/ /tmp/pg_lakehouse
 COPY shared/ /tmp/shared
-COPY fdw/ /tmp/fdw
 
 # Build the extension
 # Note: We require a different version of pgrx (0.11.3) due to version compatibility

@@ -75,8 +75,10 @@
       "pages": [
         "introduction",
         "import",
+        "deploy_pg_search",
+        "deploy_pg_analytics",
         {
-          "group": "Deployment",
+          "group": "Deploying ParadeDB",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
         },
         "upgrading",

@@ -150,7 +150,7 @@ echo "Done!"
 echo ""
 echo "Loading dataset..."
 export PGPASSWORD='postgres'
-for file in /*.parquet; do
+for file in *.parquet; do
     docker cp "$file" paradedb:/tmp/
 done
 psql -h localhost -U postgres -d mydatabase -p 5432 -t < create.sql

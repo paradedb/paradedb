@@ -60,6 +60,23 @@ impl TryFrom<DateTime> for datum::Timestamp {
     }
 }
 
+impl TryFrom<DateTime> for datum::TimestampWithTimeZone {
+    type Error = datum::datetime_support::DateTimeConversionError;
+
+    fn try_from(datetime: DateTime) -> Result<Self, Self::Error> {
+        let DateTime(datetime) = datetime;
+
+        datum::TimestampWithTimeZone::new(
+            datetime.year(),
+            datetime.month() as u8,
+            datetime.day() as u8,
+            datetime.hour() as u8,
+            datetime.minute() as u8,
+            (datetime.second() + datetime.nanosecond() / NANOSECONDS_IN_SECOND).into(),
+        )
+    }
+}
+
 impl TryFrom<Date> for datum::Date {
     type Error = datum::datetime_support::DateTimeConversionError;
 

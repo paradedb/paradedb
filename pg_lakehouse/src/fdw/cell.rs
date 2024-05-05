@@ -89,6 +89,34 @@ where
     }
 }
 
+pub trait GetTimestampTzValue
+where
+    Self: Array + AsArray,
+{
+    fn get_timestamptz_value<T>(
+        &self,
+        index: usize,
+    ) -> Result<Option<datum::TimestampWithTimeZone>, DataTypeError>
+    where
+        T: ArrowPrimitiveType<Native = i64> + ArrowTemporalType,
+    {
+        let downcast_array = self.as_primitive::<T>();
+
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            false => {
+                let datetime = downcast_array
+                    .value_as_datetime(index)
+                    .ok_or(DataTypeError::DateTimeConversion)?;
+
+                Ok(Some(datum::TimestampWithTimeZone::try_from(DateTime(
+                    datetime,
+                ))?))
+            }
+            true => Ok(None),
+        }
+    }
+}
+
 pub trait GetUIntValue
 where
     Self: Array + AsArray,
@@ -113,7 +141,13 @@ where
 
 pub trait GetCell
 where
-    Self: Array + AsArray + GetDateValue + GetPrimitiveValue + GetTimestampValue + GetUIntValue,
+    Self: Array
+        + AsArray
+        + GetDateValue
+        + GetPrimitiveValue
+        + GetTimestampValue
+        + GetTimestampTzValue
+        + GetUIntValue,
 {
     fn get_cell(
         &self,
@@ -132,6 +166,14 @@ where
                     None => Ok(None),
                 },
                 DataType::Int16 => match self.get_primitive_value::<Int16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value))),
+                    None => Ok(None),
+                },
+                DataType::Int32 => match self.get_primitive_value::<Int32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value as i16))),
+                    None => Ok(None),
+                },
+                DataType::Int64 => match self.get_uint_value::<UInt8Type>(index)? {
                     Some(value) => Ok(Some(Cell::I16(value as i16))),
                     None => Ok(None),
                 },
@@ -140,6 +182,26 @@ where
                     None => Ok(None),
                 },
                 DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value as i16))),
+                    None => Ok(None),
+                },
+                DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value as i16))),
+                    None => Ok(None),
+                },
+                DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value as i16))),
+                    None => Ok(None),
+                },
+                DataType::Float16 => match self.get_primitive_value::<Float16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value.to_f32() as i16))),
+                    None => Ok(None),
+                },
+                DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I16(value as i16))),
+                    None => Ok(None),
+                },
+                DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
                     Some(value) => Ok(Some(Cell::I16(value as i16))),
                     None => Ok(None),
                 },
@@ -158,6 +220,10 @@ where
                     None => Ok(None),
                 },
                 DataType::Int32 => match self.get_primitive_value::<Int32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value))),
+                    None => Ok(None),
+                },
+                DataType::Int64 => match self.get_primitive_value::<Int64Array>(index)? {
                     Some(value) => Ok(Some(Cell::I32(value as i32))),
                     None => Ok(None),
                 },
@@ -170,6 +236,22 @@ where
                     None => Ok(None),
                 },
                 DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value as i32))),
+                    None => Ok(None),
+                },
+                DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value as i32))),
+                    None => Ok(None),
+                },
+                DataType::Float16 => match self.get_primitive_value::<Float16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value.to_f32() as i32))),
+                    None => Ok(None),
+                },
+                DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I32(value as i32))),
+                    None => Ok(None),
+                },
+                DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
                     Some(value) => Ok(Some(Cell::I32(value as i32))),
                     None => Ok(None),
                 },
@@ -192,22 +274,34 @@ where
                     None => Ok(None),
                 },
                 DataType::Int64 => match self.get_primitive_value::<Int64Array>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    Some(value) => Ok(Some(Cell::I64(value))),
                     None => Ok(None),
                 },
                 DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    Some(value) => Ok(Some(Cell::I64(value))),
                     None => Ok(None),
                 },
                 DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    Some(value) => Ok(Some(Cell::I64(value))),
                     None => Ok(None),
                 },
                 DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
-                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    Some(value) => Ok(Some(Cell::I64(value))),
                     None => Ok(None),
                 },
                 DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value))),
+                    None => Ok(None),
+                },
+                DataType::Float16 => match self.get_primitive_value::<Float16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value.to_f32() as i64))),
+                    None => Ok(None),
+                },
+                DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::I64(value as i64))),
+                    None => Ok(None),
+                },
+                DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
                     Some(value) => Ok(Some(Cell::I64(value as i64))),
                     None => Ok(None),
                 },
@@ -254,6 +348,10 @@ where
                     None => Ok(None),
                 },
                 DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value))),
+                    None => Ok(None),
+                },
+                DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
                     Some(value) => Ok(Some(Cell::F32(value as f32))),
                     None => Ok(None),
                 },
@@ -305,6 +403,56 @@ where
                 },
                 DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
                     Some(value) => Ok(Some(Cell::F64(value))),
+                    None => Ok(None),
+                },
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )),
+            },
+            pg_sys::NUMERICOID => match self.data_type() {
+                DataType::Int8 => match self.get_primitive_value::<Int8Array>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as i64)))),
+                    None => Ok(None),
+                },
+                DataType::Int16 => match self.get_primitive_value::<Int16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as i64)))),
+                    None => Ok(None),
+                },
+                DataType::Int32 => match self.get_primitive_value::<Int32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as i64)))),
+                    None => Ok(None),
+                },
+                DataType::Int64 => match self.get_primitive_value::<Int64Array>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value)))),
+                    None => Ok(None),
+                },
+                DataType::UInt8 => match self.get_uint_value::<UInt8Type>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as u64)))),
+                    None => Ok(None),
+                },
+                DataType::UInt16 => match self.get_uint_value::<UInt16Type>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as u64)))),
+                    None => Ok(None),
+                },
+                DataType::UInt32 => match self.get_uint_value::<UInt32Type>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as u64)))),
+                    None => Ok(None),
+                },
+                DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from(value as u64)))),
+                    None => Ok(None),
+                },
+                DataType::Float16 => match self.get_primitive_value::<Float16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::try_from(value.to_f32())?))),
+                    None => Ok(None),
+                },
+                DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::try_from(value)?))),
+                    None => Ok(None),
+                },
+                DataType::Float64 => match self.get_primitive_value::<Float64Array>(index)? {
+                    Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::try_from(value)?))),
                     None => Ok(None),
                 },
                 unsupported => Err(DataTypeError::DataTypeMismatch(
@@ -370,9 +518,40 @@ where
                     PgOid::from(oid),
                 )),
             },
-            unsupported => Err(DataTypeError::UnsupportedPostgresType(PgOid::from(
-                unsupported,
-            ))),
+            pg_sys::TIMESTAMPTZOID => match self.data_type() {
+                DataType::Timestamp(TimeUnit::Nanosecond, None) => {
+                    match self.get_timestamptz_value::<TimestampNanosecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::TimestampTz(value))),
+                        None => Ok(None),
+                    }
+                }
+                DataType::Timestamp(TimeUnit::Microsecond, None) => {
+                    match self.get_timestamptz_value::<TimestampMicrosecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::TimestampTz(value))),
+                        None => Ok(None),
+                    }
+                }
+                DataType::Timestamp(TimeUnit::Millisecond, None) => {
+                    match self.get_timestamptz_value::<TimestampMillisecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::TimestampTz(value))),
+                        None => Ok(None),
+                    }
+                }
+                DataType::Timestamp(TimeUnit::Second, None) => {
+                    match self.get_timestamptz_value::<TimestampSecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::TimestampTz(value))),
+                        None => Ok(None),
+                    }
+                }
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )),
+            },
+            unsupported => Err(DataTypeError::UnsupportedPostgresType(
+                self.data_type().clone(),
+                PgOid::from(unsupported),
+            )),
         }
     }
 }
@@ -381,6 +560,7 @@ impl GetCell for ArrayRef {}
 impl GetDateValue for ArrayRef {}
 impl GetPrimitiveValue for ArrayRef {}
 impl GetTimestampValue for ArrayRef {}
+impl GetTimestampTzValue for ArrayRef {}
 impl GetUIntValue for ArrayRef {}
 
 #[derive(Error, Debug)]
@@ -393,6 +573,9 @@ pub enum DataTypeError {
 
     #[error(transparent)]
     DataFusionError(#[from] DataFusionError),
+
+    #[error(transparent)]
+    NumericError(#[from] numeric::Error),
 
     #[error("Failed to convert date to NaiveDate")]
     DateConversion,
@@ -409,6 +592,6 @@ pub enum DataTypeError {
     #[error("Failed to convert UInt to i64")]
     UIntConversionError,
 
-    #[error("Postgres data type {0:?} is not supported")]
-    UnsupportedPostgresType(PgOid),
+    #[error("Converting {0:?} to Postgres data type {1:?} is not supported")]
+    UnsupportedPostgresType(DataType, PgOid),
 }

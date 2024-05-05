@@ -1,5 +1,5 @@
 mod base;
-mod cell;
+pub mod cell;
 pub mod format;
 pub mod handler;
 mod local;

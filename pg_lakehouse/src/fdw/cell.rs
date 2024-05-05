@@ -1,10 +1,11 @@
 use datafusion::arrow::array::types::{
     ArrowTemporalType, Date32Type, Date64Type, TimestampMicrosecondType, TimestampMillisecondType,
-    TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+    TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
 };
 use datafusion::arrow::array::{
-    Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BooleanArray, Float32Array,
-    Float64Array, GenericByteArray, Int16Array, Int32Array, Int64Array, Int8Array, StringArray,
+    Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BooleanArray, Float16Array,
+    Float32Array, Float64Array, GenericByteArray, Int16Array, Int32Array, Int64Array, Int8Array,
+    StringArray,
 };
 use datafusion::arrow::datatypes::{DataType, GenericStringType, TimeUnit};
 use datafusion::common::{downcast_value, DataFusionError};
@@ -248,6 +249,10 @@ where
                     Some(value) => Ok(Some(Cell::F32(value as f32))),
                     None => Ok(None),
                 },
+                DataType::Float16 => match self.get_primitive_value::<Float16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F32(value.to_f32()))),
+                    None => Ok(None),
+                },
                 DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
                     Some(value) => Ok(Some(Cell::F32(value as f32))),
                     None => Ok(None),
@@ -288,6 +293,10 @@ where
                 },
                 DataType::UInt64 => match self.get_uint_value::<UInt64Type>(index)? {
                     Some(value) => Ok(Some(Cell::F64(value as f64))),
+                    None => Ok(None),
+                },
+                DataType::Float16 => match self.get_primitive_value::<Float16Array>(index)? {
+                    Some(value) => Ok(Some(Cell::F64(value.to_f64()))),
                     None => Ok(None),
                 },
                 DataType::Float32 => match self.get_primitive_value::<Float32Array>(index)? {
@@ -332,6 +341,12 @@ where
                 )),
             },
             pg_sys::TIMESTAMPOID => match self.data_type() {
+                DataType::Timestamp(TimeUnit::Nanosecond, None) => {
+                    match self.get_timestamp_value::<TimestampNanosecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::Timestamp(value))),
+                        None => Ok(None),
+                    }
+                }
                 DataType::Timestamp(TimeUnit::Microsecond, None) => {
                     match self.get_timestamp_value::<TimestampMicrosecondType>(index)? {
                         Some(value) => Ok(Some(Cell::Timestamp(value))),

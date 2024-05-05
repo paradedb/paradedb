@@ -150,9 +150,16 @@ echo "Done!"
 echo ""
 echo "Loading dataset..."
 export PGPASSWORD='postgres'
-for file in *.parquet; do
+if [ "$WORKLOAD" == "single" ]; then
+  docker cp "hits.parquet" paradedb:/tmp/hits.parquet
+elif [ "$WORKLOAD" == "partitioned" ]; then
+  for file in partitioned/*.parquet; do
     docker cp "$file" paradedb:/tmp/
-done
+  done
+else
+  echo "Invalid workload: $WORKLOAD"
+  exit 1
+fi
 psql -h localhost -U postgres -d mydatabase -p 5432 -t < create.sql
 
 echo ""

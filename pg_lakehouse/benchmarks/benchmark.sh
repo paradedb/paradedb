@@ -11,19 +11,24 @@ usage() {
   echo "Usage: $0 [OPTIONS]"
   echo "Options:"
   echo " -h (optional),  Display this help message"
-  echo " -t (optional),  Version tag to benchmark:"
+  echo " -t (optional),  Version tag to benchmark (default: local):"
   echo "                  - 'x.y.z'  Runs the full ClickBench benchmark against a specific ParadeDB Docker image (e.g. 0.3.1)"
   echo "                  - 'latest' Runs the full ClickBench benchmark the latest ParadeDB Docker image"
   echo "                  - 'local'  Runs the full ClickBench benchmark the current commit inside a local ParadeDB Docker build"
+  echo " -w (optional),  Workload to benchmark (default: single):"
+  echo "                  - 'single' Runs the full ClickBench benchmark against a single Parquet file"
+  echo "                  - 'partitioned' Runs the full ClickBench benchmark against one hundred partitioned Parquet files"
   exit 1
 }
 
 # Instantiate vars
 FLAG_TAG="local"
+WORKLOAD="single"
 DOCKER_PORT=5432
+OS=$(uname)
 
 # Assign flags to vars and check
-while getopts "ht:s:" flag
+while getopts "ht:w:s:" flag
 do
   case $flag in
     h)
@@ -31,6 +36,9 @@ do
       ;;
     t)
       FLAG_TAG=$OPTARG
+      ;;
+    w)
+      WORKLOAD=$OPTARG
       ;;
     *)
       usage
@@ -96,7 +104,15 @@ echo "**************************************************************************
 echo ""
 
 # For CI benchmarking via Docker, use the full dataset (hits.parquet: 100M rows ~15GBs)
-download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.parquet" "e903fd8cc8462a454df107390326844a" "hits.parquet"
+if [ "$WORKLOAD" == "single" ]; then
+  echo "Using ClickBench's single Parquet file for benchmarking..."
+  download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.parquet" "e903fd8cc8462a454df107390326844a" "hits.parquet"
+elif [ "$WORKLOAD" == "partitioned" ]; then
+  # TODO: Clean this up
+  echo "Using ClickBench's one hundred partitioned Parquet files for benchmarking..."
+  mkdir -p partitioned
+  seq 0 99 | xargs -P100 -I{} bash -c 'wget --no-verbose --directory-prefix partitioned --continue https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_{}.parquet'
+fi
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit
 if [ "$FLAG_TAG" == "local" ]; then
@@ -134,7 +150,9 @@ echo "Done!"
 echo ""
 echo "Loading dataset..."
 export PGPASSWORD='postgres'
-docker cp 'hits.parquet' paradedb:/tmp/hits.parquet
+for file in /*.parquet; do
+    docker cp "$file" paradedb:/tmp/
+done
 psql -h localhost -U postgres -d mydatabase -p 5432 -t < create.sql
 
 echo ""
@@ -143,7 +161,6 @@ echo "Running queries..."
 
 echo ""
 echo "Printing disk usage..."
-OS=$(uname)
 if [ "$OS" == "Linux" ]; then
   sudo docker exec paradedb du -bcs /bitnami/postgresql/data
 else

@@ -11,7 +11,7 @@ usage() {
   echo "Usage: $0 [OPTIONS]"
   echo "Options:"
   echo " -h (optional),  Display this help message"
-  echo " -t (optional),  Version tag to benchmark:"
+  echo " -t (optional),  Version tag to benchmark (default: local):"
   echo "                  - 'x.y.z'  Runs the full ClickBench benchmark against a specific ParadeDB Docker image (e.g. 0.3.1)"
   echo "                  - 'latest' Runs the full ClickBench benchmark the latest ParadeDB Docker image"
   echo "                  - 'local'  Runs the full ClickBench benchmark the current commit inside a local ParadeDB Docker build"

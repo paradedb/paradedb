@@ -5,6 +5,8 @@ use thiserror::Error;
 
 use super::datetime::*;
 
+pub static DEFAULT_TYPE_MOD: i32 = -1;
+
 #[derive(Clone)]
 pub struct PgAttribute {
     name: String,
@@ -58,8 +60,6 @@ impl fmt::Debug for PgAttribute {
     }
 }
 
-pub static DEFAULT_TYPE_MOD: i32 = -1;
-
 pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result<(), SchemaError> {
     if *field.name() != attribute.name() {
         return Err(SchemaError::ColumnNameMismatch(
@@ -69,22 +69,32 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
     }
 
     let supported_attributes = match field.data_type() {
+        DataType::Binary => vec![
+            PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
+        ],
         DataType::Boolean => vec![PgAttribute::new(
             field.name(),
             pg_sys::BOOLOID,
             DEFAULT_TYPE_MOD,
         )],
-        DataType::Utf8 => vec![
+        DataType::Utf8 | DataType::LargeUtf8 => vec![
             PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
             PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
             PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
         ],
-        DataType::LargeUtf8 => vec![
-            PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::Int8 => vec![
+        DataType::Int8
+        | DataType::Int16
+        | DataType::Int32
+        | DataType::Int64
+        | DataType::UInt8
+        | DataType::UInt16
+        | DataType::UInt32
+        | DataType::UInt64
+        | DataType::Float16
+        | DataType::Float32
+        | DataType::Float64 => vec![
             PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
             PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
             PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
@@ -92,75 +102,7 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
             PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
             PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
         ],
-        DataType::Int16 => vec![
-            PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::Int32 => vec![
-            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::Int64 => vec![
-            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::UInt8 => vec![
-            PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::UInt16 => vec![
-            PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::UInt32 => vec![
-            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::UInt64 => vec![
-            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::Float16 => vec![
-            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::Float32 => vec![
-            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::Float64 => vec![
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
-        ],
-        DataType::Date32 => vec![PgAttribute::new(
-            field.name(),
-            pg_sys::DATEOID,
-            DEFAULT_TYPE_MOD,
-        )],
-        DataType::Date64 => vec![PgAttribute::new(
+        DataType::Date32 | DataType::Date64 => vec![PgAttribute::new(
             field.name(),
             pg_sys::DATEOID,
             DEFAULT_TYPE_MOD,
@@ -201,11 +143,6 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
             pg_sys::TIMESTAMPTZOID,
             PgTimestampPrecision::Second.value(),
         )],
-        DataType::Binary => vec![
-            PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
-        ],
         unsupported => {
             return Err(SchemaError::UnsupportedArrowType(
                 field.name().to_string(),

@@ -12,9 +12,9 @@ use thiserror::Error;
 use crate::datafusion::context::ContextError;
 use crate::datafusion::provider::*;
 use crate::datafusion::session::Session;
-use crate::types::schema::*;
+use crate::schema::attribute::*;
+use crate::schema::cell::*;
 
-use super::cell::*;
 use super::format::*;
 use super::object_store::*;
 use super::options::TableOption;

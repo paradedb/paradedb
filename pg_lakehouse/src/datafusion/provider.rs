@@ -9,7 +9,7 @@ use std::sync::Arc;
 use thiserror::Error;
 
 use crate::fdw::format::*;
-use crate::types::schema::*;
+use crate::schema::attribute::*;
 
 pub async fn create_listing_provider(
     path: &str,

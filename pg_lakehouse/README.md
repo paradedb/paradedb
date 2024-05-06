@@ -172,9 +172,9 @@ OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
 
 ## Arrow Types
 
-When a foreign table is created, DataFusion infers the schema of the foreign table using [Arrow datatypes](https://docs.rs/datafusion/latest/datafusion/common/arrow/datatypes/enum.DataType.html). Each column of the foreign table must have a Postgres type that can be converted to the underlying Arrow datatype. For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT` or `VARCHAR` column.
+DataFusion assigns an [Arrow datatype](https://docs.rs/datafusion/latest/datafusion/common/arrow/datatypes/enum.DataType.html) to each field of a foreign file's schema. This means that every column in the corresponding Postgres foreign table must have a Postgres type that can be converted to the underlying Arrow datatype. For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT`, `VARCHAR`, or `BPCHAR` column. If an incompatible Postgres type is chosen, querying the table will fail.
 
-The `arrow_schema` function displays the schema of a foreign table:
+The `arrow_schema` function displays the schema of a foreign table, which is helpful in choosing the schema of the Postgres foreign table.
 
 ```sql
 SELECT * FROM arrow_schema(

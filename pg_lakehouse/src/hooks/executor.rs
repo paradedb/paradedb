@@ -6,13 +6,17 @@ use thiserror::Error;
 use crate::datafusion::context::ContextError;
 use crate::datafusion::plan::QueryString;
 use crate::datafusion::session::Session;
-use crate::fdw::cell::*;
+use crate::schema::cell::*;
 
 use super::query::*;
 
 macro_rules! fallback_warning {
     ($msg:expr) => {
-        warning!("This query was not pushed down to DataFusion because DataFusion returned an error: {}. Query times may be impacted.", $msg);
+        warning!(r#"
+                This query was not pushed down to DataFusion because DataFusion returned an error: {}. Query times may be impacted.
+                Please submit a request at https://github.com/paradedb/paradedb/issues if you would like to see this query pushed down.
+            "#
+        , $msg);
     };
 }
 

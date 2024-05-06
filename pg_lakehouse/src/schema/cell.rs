@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use supabase_wrappers::interface::Cell;
 use thiserror::Error;
 
-use crate::types::datetime::*;
+use crate::schema::datetime::*;
 
 type LargeStringArray = GenericByteArray<GenericStringType<i64>>;
 

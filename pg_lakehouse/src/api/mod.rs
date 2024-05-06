@@ -1,17 +1,13 @@
 use async_std::task;
 use chrono::Datelike;
-use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
-use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use crate::datafusion::context::ContextError;
 use crate::datafusion::provider::*;
 use crate::datafusion::session::Session;
 use crate::fdw::format::*;
-use crate::fdw::handler::*;
-use crate::fdw::local::register_local_file_server;
-use crate::fdw::s3::register_s3_server;
+use crate::stores::utils::*;
 
 #[pg_extern]
 pub fn arrow_schema(
@@ -41,28 +37,7 @@ async fn arrow_schema_impl(
     format: Option<String>,
 ) -> Result<iter::TableIterator<'static, (name!(field, String), name!(datatype, String))>, ApiError>
 {
-    let foreign_server =
-        unsafe { pg_sys::GetForeignServerByName(server.clone().as_pg_cstr(), true) };
-
-    if foreign_server.is_null() {
-        return Err(ApiError::ForeignServerNotFound(server.clone()));
-    }
-
-    let server_options = unsafe { options_to_hashmap((*foreign_server).options) }?;
-    let user_mapping_options = unsafe { user_mapping_options(foreign_server) };
-    let fdw_handler = unsafe { FdwHandler::from((*foreign_server).fdwid) };
-
-    match fdw_handler {
-        FdwHandler::S3 => {
-            register_s3_server(server_options, user_mapping_options)?;
-        }
-        FdwHandler::LocalFile => {
-            register_local_file_server()?;
-        }
-        _ => {
-            return Err(ApiError::InvalidServerName(server.clone()));
-        }
-    }
+    register_object_store(server.as_str())?;
 
     let provider = Session::with_session_context(|context| {
         Box::pin(async move {
@@ -88,14 +63,8 @@ async fn arrow_schema_impl(
 #[derive(Error, Debug)]
 pub enum ApiError {
     #[error(transparent)]
-    ContextError(#[from] ContextError),
+    Context(#[from] ContextError),
 
     #[error(transparent)]
-    OptionsError(#[from] supabase_wrappers::prelude::OptionsError),
-
-    #[error("No foreign server with name {0} was found")]
-    ForeignServerNotFound(String),
-
-    #[error("Server {0} was not created by this extension")]
-    InvalidServerName(String),
+    StoreUtils(#[from] StoreUtilsError),
 }

@@ -59,7 +59,7 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
     }
 
     let supported_attributes = match field.data_type() {
-        DataType::Binary => vec![
+        DataType::Binary | DataType::LargeBinary => vec![
             PgAttribute::new(field.name(), pg_sys::TEXTOID),
             PgAttribute::new(field.name(), pg_sys::VARCHAROID),
             PgAttribute::new(field.name(), pg_sys::BPCHAROID),

@@ -1,16 +1,15 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::datasource::TableProvider;
-use datafusion::execution::context::SessionState;
-use datafusion::logical_expr::LogicalPlan;
 use datafusion::physical_plan::SendableRecordBatchStream;
-use datafusion::prelude::{DataFrame, SessionContext};
 use object_store::aws::AmazonS3;
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
+
+use crate::datafusion::context::ContextError;
+use crate::datafusion::session::Session;
 
 use super::base::*;
 use super::options::{AmazonServerOption, ServerOptions, TableOption};
@@ -24,7 +23,6 @@ pub(crate) struct S3Fdw {
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
-    context: SessionContext,
     target_columns: Vec<Column>,
 }
 
@@ -35,10 +33,6 @@ impl BaseFdw for S3Fdw {
 
     fn get_current_batch_index(&self) -> usize {
         self.current_batch_index
-    }
-
-    fn get_session_state(&self) -> SessionState {
-        self.context.state()
     }
 
     fn get_target_columns(&self) -> Vec<Column> {
@@ -57,8 +51,8 @@ impl BaseFdw for S3Fdw {
         self.stream = stream;
     }
 
-    fn set_target_columns(&mut self, columns: Vec<Column>) {
-        self.target_columns = columns;
+    fn set_target_columns(&mut self, columns: &[Column]) {
+        self.target_columns = columns.to_vec();
     }
 
     async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>, BaseFdwError> {
@@ -74,44 +68,20 @@ impl BaseFdw for S3Fdw {
             Some(Err(err)) => Err(BaseFdwError::DataFusionError(err)),
         }
     }
-
-    async fn execute_logical_plan(&self, plan: LogicalPlan) -> Result<DataFrame, BaseFdwError> {
-        Ok(self.context.execute_logical_plan(plan).await?)
-    }
-
-    fn register_table(
-        &mut self,
-        name: &str,
-        provider: Arc<dyn TableProvider>,
-    ) -> Result<Option<Arc<dyn TableProvider>>, BaseFdwError> {
-        Ok(self.context.register_table(name, provider)?)
-    }
 }
 
 impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
     fn new(
-        server_options: &HashMap<String, String>,
-        user_mapping_options: &HashMap<String, String>,
+        server_options: HashMap<String, String>,
+        user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        // Create S3 ObjectStore
-        let object_store = AmazonS3::try_from(ServerOptions::new(
-            server_options.clone(),
-            user_mapping_options.clone(),
-        ))?;
-        let url = require_option(AmazonServerOption::Url.as_str(), server_options)?;
-
-        // Create SessionContext with ObjectStore
-        let context = SessionContext::new();
-        context
-            .runtime_env()
-            .register_object_store(&Url::parse(url)?, Arc::new(object_store));
+        register_s3_server(server_options, user_mapping_options)?;
 
         Ok(Self {
             current_batch: None,
             current_batch_index: 0,
             stream: None,
             target_columns: Vec::new(),
-            context,
         })
     }
 
@@ -149,7 +119,7 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
         columns: &[Column],
         _sorts: &[Sort],
         limit: &Option<Limit>,
-        options: &HashMap<String, String>,
+        options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
         self.begin_scan_impl(_quals, columns, _sorts, limit, options)
     }
@@ -161,4 +131,25 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
     fn end_scan(&mut self) -> Result<(), BaseFdwError> {
         self.end_scan_impl()
     }
+}
+
+pub fn register_s3_server(
+    server_options: HashMap<String, String>,
+    user_mapping_options: HashMap<String, String>,
+) -> Result<(), ContextError> {
+    Session::with_session_context(|context| {
+        Box::pin(async move {
+            let object_store = Arc::new(AmazonS3::try_from(ServerOptions::new(
+                server_options.clone(),
+                user_mapping_options.clone(),
+            ))?);
+
+            let url = require_option(AmazonServerOption::Url.as_str(), &server_options)?;
+
+            context
+                .runtime_env()
+                .register_object_store(&Url::parse(url)?, object_store);
+            Ok(())
+        })
+    })
 }

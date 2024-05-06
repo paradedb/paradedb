@@ -2,19 +2,16 @@ use async_std::task;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::DataFusionError;
-use datafusion::datasource::{provider_as_source, TableProvider};
-use datafusion::execution::context::SessionState;
-use datafusion::logical_expr::{LogicalPlan, LogicalPlanBuilder};
 use datafusion::physical_plan::SendableRecordBatchStream;
-use datafusion::prelude::DataFrame;
 use deltalake::DeltaTableError;
 use pgrx::*;
 use std::collections::HashMap;
-use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
+use crate::datafusion::context::ContextError;
 use crate::datafusion::provider::*;
+use crate::datafusion::session::Session;
 use crate::types::schema::*;
 
 use super::cell::*;
@@ -22,31 +19,20 @@ use super::format::*;
 use super::object_store::*;
 use super::options::TableOption;
 
-// Because the SessionContext is recreated on each scan, we don't need to worry about
-// assigning a unique name to the DataFusion table
-const DEFAULT_TABLE_NAME: &str = "listing_table";
-
 pub trait BaseFdw {
     // Getter methods
     fn get_current_batch(&self) -> Option<RecordBatch>;
     fn get_current_batch_index(&self) -> usize;
     fn get_target_columns(&self) -> Vec<Column>;
-    fn get_session_state(&self) -> SessionState;
 
     // Setter methods
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
     fn set_current_batch_index(&mut self, index: usize);
     fn set_stream(&mut self, stream: Option<SendableRecordBatchStream>);
-    fn set_target_columns(&mut self, columns: Vec<Column>);
+    fn set_target_columns(&mut self, columns: &[Column]);
 
     // DataFusion methods
-    async fn execute_logical_plan(&self, plan: LogicalPlan) -> Result<DataFrame, BaseFdwError>;
     async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>, BaseFdwError>;
-    fn register_table(
-        &mut self,
-        name: &str,
-        provider: Arc<dyn TableProvider>,
-    ) -> Result<Option<Arc<dyn TableProvider>>, BaseFdwError>;
 
     // Default trait methods
     fn begin_scan_impl(
@@ -55,11 +41,11 @@ pub trait BaseFdw {
         columns: &[Column],
         _sorts: &[Sort],
         limit: &Option<Limit>,
-        options: &HashMap<String, String>,
+        options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
-        self.set_target_columns(columns.to_vec());
+        self.set_target_columns(columns);
 
-        let attribute_map: HashMap<usize, PgAttribute> = columns
+        let mut attribute_map: HashMap<usize, PgAttribute> = columns
             .iter()
             .cloned()
             .map(|col| {
@@ -70,33 +56,47 @@ pub trait BaseFdw {
             })
             .collect();
 
-        let format = require_option_or(TableOption::Format.as_str(), options, "");
-        let provider = match TableFormat::from(format) {
-            TableFormat::None => task::block_on(create_listing_provider(
-                options.clone(),
-                attribute_map,
-                &self.get_session_state(),
-            ))?,
-            TableFormat::Delta => {
-                task::block_on(create_delta_provider(options.clone(), attribute_map))?
-            }
-        };
+        let limit = limit.clone();
+        let columns = columns.to_vec();
 
-        self.register_table(DEFAULT_TABLE_NAME, provider.clone())?;
+        let result = Session::with_session_context(|context| {
+            Box::pin(async move {
+                let format = require_option_or(TableOption::Format.as_str(), &options, "");
+                let path = require_option(TableOption::Path.as_str(), &options)?;
+                let extension = require_option(TableOption::Extension.as_str(), &options)?;
 
-        // Construct LogicalPlan
-        let mut logical_plan = LogicalPlanBuilder::scan(
-            DEFAULT_TABLE_NAME,
-            provider_as_source(provider),
-            Some(columns.iter().map(|c| c.num - 1).collect::<Vec<usize>>()),
-        )?;
+                let provider = match TableFormat::from(format) {
+                    TableFormat::None => {
+                        task::block_on(create_listing_provider(path, extension, &context.state()))?
+                    }
+                    TableFormat::Delta => task::block_on(create_delta_provider(path, extension))?,
+                };
 
-        if let Some(limit) = limit {
-            logical_plan = logical_plan.limit(limit.offset as usize, Some(limit.count as usize))?;
-        }
+                for (index, field) in provider.schema().fields().iter().enumerate() {
+                    if let Some(attribute) = attribute_map.remove(&index) {
+                        can_convert_to_attribute(field, attribute)?;
+                    }
+                }
 
-        let dataframe = task::block_on(self.execute_logical_plan(logical_plan.build()?))?;
-        self.set_stream(Some(task::block_on(dataframe.execute_stream())?));
+                let mut dataframe = context.read_table(provider)?.select_columns(
+                    &columns
+                        .iter()
+                        .map(|c| c.name.as_str())
+                        .collect::<Vec<&str>>(),
+                )?;
+
+                if let Some(limit) = limit {
+                    dataframe =
+                        dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
+                }
+
+                Ok(context
+                    .execute_logical_plan(dataframe.logical_plan().clone())
+                    .await?)
+            })
+        })?;
+
+        self.set_stream(Some(task::block_on(result.execute_stream())?));
 
         Ok(())
     }
@@ -159,6 +159,9 @@ impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
 pub enum BaseFdwError {
     #[error(transparent)]
     ArrowError(#[from] ArrowError),
+
+    #[error(transparent)]
+    ContextError(#[from] ContextError),
 
     #[error(transparent)]
     DataFusionError(#[from] DataFusionError),

@@ -126,7 +126,6 @@ WORKDIR /tmp/pg_lakehouse
 RUN rustup update nightly && \
     rustup override set nightly && \
     cargo install --locked cargo-pgrx --version "0.11.3" --force && \
-    cargo pgrx init "--pg${PG_VERSION_MAJOR}=/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config" && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################

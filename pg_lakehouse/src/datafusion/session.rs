@@ -8,6 +8,7 @@ use std::collections::{
     hash_map::Entry::{Occupied, Vacant},
     HashMap,
 };
+use std::ffi::CStr;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -30,14 +31,27 @@ impl Session {
     {
         let mut lock = task::block_on(SESSION_CACHE.lock());
 
-        let session_config = SessionConfig::from_env()?.with_information_schema(true);
-        let rn_config = RuntimeConfig::new();
-        let runtime_env = RuntimeEnv::new(rn_config)?;
-        let context = SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
-
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(context),
+            Vacant(entry) => {
+                // Set current timezone
+                let mut session_config = SessionConfig::from_env()?.with_information_schema(true);
+                let session_timezone = unsafe {
+                    CStr::from_ptr(pg_sys::pg_get_timezone_name(pg_sys::session_timezone))
+                        .to_str()
+                        .unwrap_or_else(|err| panic!("{:?}", err))
+                };
+                session_config.options_mut().execution.time_zone =
+                    Some(session_timezone.to_string());
+
+                // Create a new context
+                let rn_config = RuntimeConfig::new();
+                let runtime_env = RuntimeEnv::new(rn_config)?;
+                let context =
+                    SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
+
+                entry.insert(context)
+            }
         };
 
         task::block_on(f(context))

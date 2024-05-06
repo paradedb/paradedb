@@ -7,7 +7,7 @@ use datafusion::arrow::array::types::{
 use datafusion::arrow::array::{
     timezone::Tz, Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BinaryArray,
     BooleanArray, Float16Array, Float32Array, Float64Array, GenericByteArray, Int16Array,
-    Int32Array, Int64Array, Int8Array, StringArray,
+    Int32Array, Int64Array, Int8Array, LargeBinaryArray, StringArray,
 };
 use datafusion::arrow::datatypes::{DataType, GenericStringType, TimeUnit};
 use datafusion::arrow::error::ArrowError;
@@ -27,12 +27,17 @@ pub trait GetBinaryValue
 where
     Self: Array + AsArray,
 {
-    fn get_binary_value(&self, index: usize) -> Result<Option<String>, DataTypeError> {
-        let downcast_array = downcast_value!(self, BinaryArray);
+    fn get_binary_value<A>(&self, index: usize) -> Result<Option<String>, DataTypeError>
+    where
+        A: Array + Debug + 'static,
+        for<'a> &'a A: ArrayAccessor,
+        for<'a> <&'a A as ArrayAccessor>::Item: AsRef<[u8]>,
+    {
+        let downcast_array = downcast_value!(self, A);
 
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => {
-                let value = String::from_utf8(downcast_array.value(index).to_vec())?;
+                let value = String::from_utf8(downcast_array.value(index).as_ref().to_vec())?;
                 Ok(Some(value))
             }
             true => Ok(None),
@@ -531,7 +536,11 @@ where
                     Some(value) => Ok(Some(Cell::String(value.to_string()))),
                     None => Ok(None),
                 },
-                DataType::Binary => match self.get_binary_value(index)? {
+                DataType::Binary => match self.get_binary_value::<BinaryArray>(index)? {
+                    Some(value) => Ok(Some(Cell::String(value))),
+                    None => Ok(None),
+                },
+                DataType::LargeBinary => match self.get_binary_value::<LargeBinaryArray>(index)? {
                     Some(value) => Ok(Some(Cell::String(value))),
                     None => Ok(None),
                 },

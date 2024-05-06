@@ -3,18 +3,21 @@ use datafusion::arrow::array::types::{
     TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
 };
 use datafusion::arrow::array::{
-    Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BinaryArray, BooleanArray,
-    Float16Array, Float32Array, Float64Array, GenericByteArray, Int16Array, Int32Array, Int64Array,
-    Int8Array, StringArray,
+    timezone::Tz, Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BinaryArray,
+    BooleanArray, Float16Array, Float32Array, Float64Array, GenericByteArray, Int16Array,
+    Int32Array, Int64Array, Int8Array, StringArray,
 };
 use datafusion::arrow::datatypes::{DataType, GenericStringType, TimeUnit};
+use datafusion::arrow::error::ArrowError;
 use datafusion::common::{downcast_value, DataFusionError};
 use pgrx::*;
 use std::fmt::Debug;
+use std::str::FromStr;
+use std::sync::Arc;
 use supabase_wrappers::interface::Cell;
 use thiserror::Error;
 
-use crate::schema::datetime::*;
+use super::datetime::*;
 
 type LargeStringArray = GenericByteArray<GenericStringType<i64>>;
 
@@ -99,7 +102,7 @@ where
                     .value_as_datetime(index)
                     .ok_or(DataTypeError::DateTimeConversion)?;
 
-                Ok(Some(datum::Timestamp::try_from(DateTime(datetime))?))
+                Ok(Some(datum::Timestamp::try_from(DateTimeNoTz(datetime))?))
             }
             true => Ok(None),
         }
@@ -113,23 +116,36 @@ where
     fn get_timestamptz_value<T>(
         &self,
         index: usize,
+        tz: Option<Arc<str>>,
     ) -> Result<Option<datum::TimestampWithTimeZone>, DataTypeError>
     where
         T: ArrowPrimitiveType<Native = i64> + ArrowTemporalType,
     {
         let downcast_array = self.as_primitive::<T>();
 
-        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
-            false => {
+        if downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            return Ok(None);
+        }
+
+        match tz {
+            Some(tz) => {
+                let datetime = downcast_array
+                    .value_as_datetime_with_tz(index, Tz::from_str(&tz)?)
+                    .ok_or(DataTypeError::DateTimeConversion)?;
+
+                Ok(Some(datum::TimestampWithTimeZone::try_from(
+                    DateTimeTz::new(datetime, datetime.timezone()),
+                )?))
+            }
+            None => {
                 let datetime = downcast_array
                     .value_as_datetime(index)
                     .ok_or(DataTypeError::DateTimeConversion)?;
 
-                Ok(Some(datum::TimestampWithTimeZone::try_from(DateTime(
+                Ok(Some(datum::TimestampWithTimeZone::try_from(DateTimeNoTz(
                     datetime,
                 ))?))
             }
-            true => Ok(None),
         }
     }
 }
@@ -511,25 +527,25 @@ where
                 )),
             },
             pg_sys::TIMESTAMPOID => match self.data_type() {
-                DataType::Timestamp(TimeUnit::Nanosecond, None) => {
+                DataType::Timestamp(TimeUnit::Nanosecond, _) => {
                     match self.get_timestamp_value::<TimestampNanosecondType>(index)? {
                         Some(value) => Ok(Some(Cell::Timestamp(value))),
                         None => Ok(None),
                     }
                 }
-                DataType::Timestamp(TimeUnit::Microsecond, None) => {
+                DataType::Timestamp(TimeUnit::Microsecond, _) => {
                     match self.get_timestamp_value::<TimestampMicrosecondType>(index)? {
                         Some(value) => Ok(Some(Cell::Timestamp(value))),
                         None => Ok(None),
                     }
                 }
-                DataType::Timestamp(TimeUnit::Millisecond, None) => {
+                DataType::Timestamp(TimeUnit::Millisecond, _) => {
                     match self.get_timestamp_value::<TimestampMillisecondType>(index)? {
                         Some(value) => Ok(Some(Cell::Timestamp(value))),
                         None => Ok(None),
                     }
                 }
-                DataType::Timestamp(TimeUnit::Second, None) => {
+                DataType::Timestamp(TimeUnit::Second, _) => {
                     match self.get_timestamp_value::<TimestampSecondType>(index)? {
                         Some(value) => Ok(Some(Cell::Timestamp(value))),
                         None => Ok(None),
@@ -541,26 +557,32 @@ where
                 )),
             },
             pg_sys::TIMESTAMPTZOID => match self.data_type() {
-                DataType::Timestamp(TimeUnit::Nanosecond, None) => {
-                    match self.get_timestamptz_value::<TimestampNanosecondType>(index)? {
+                DataType::Timestamp(TimeUnit::Nanosecond, tz) => {
+                    match self
+                        .get_timestamptz_value::<TimestampNanosecondType>(index, tz.clone())?
+                    {
                         Some(value) => Ok(Some(Cell::TimestampTz(value))),
                         None => Ok(None),
                     }
                 }
-                DataType::Timestamp(TimeUnit::Microsecond, None) => {
-                    match self.get_timestamptz_value::<TimestampMicrosecondType>(index)? {
+                DataType::Timestamp(TimeUnit::Microsecond, tz) => {
+                    match self
+                        .get_timestamptz_value::<TimestampMicrosecondType>(index, tz.clone())?
+                    {
                         Some(value) => Ok(Some(Cell::TimestampTz(value))),
                         None => Ok(None),
                     }
                 }
-                DataType::Timestamp(TimeUnit::Millisecond, None) => {
-                    match self.get_timestamptz_value::<TimestampMillisecondType>(index)? {
+                DataType::Timestamp(TimeUnit::Millisecond, tz) => {
+                    match self
+                        .get_timestamptz_value::<TimestampMillisecondType>(index, tz.clone())?
+                    {
                         Some(value) => Ok(Some(Cell::TimestampTz(value))),
                         None => Ok(None),
                     }
                 }
-                DataType::Timestamp(TimeUnit::Second, None) => {
-                    match self.get_timestamptz_value::<TimestampSecondType>(index)? {
+                DataType::Timestamp(TimeUnit::Second, tz) => {
+                    match self.get_timestamptz_value::<TimestampSecondType>(index, tz.clone())? {
                         Some(value) => Ok(Some(Cell::TimestampTz(value))),
                         None => Ok(None),
                     }
@@ -588,6 +610,9 @@ impl GetUIntValue for ArrayRef {}
 
 #[derive(Error, Debug)]
 pub enum DataTypeError {
+    #[error(transparent)]
+    ArrowError(#[from] ArrowError),
+
     #[error(transparent)]
     DatetimeError(#[from] DatetimeError),
 

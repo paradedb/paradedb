@@ -79,11 +79,11 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
             PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
             PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
         ],
-        DataType::LargeUtf8 => vec![PgAttribute::new(
-            field.name(),
-            pg_sys::TEXTOID,
-            DEFAULT_TYPE_MOD,
-        )],
+        DataType::LargeUtf8 => vec![
+            PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
+        ],
         DataType::Int8 => vec![
             PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
             PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
@@ -183,6 +183,24 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
             pg_sys::TIMESTAMPOID,
             PgTimestampPrecision::Second.value(),
         )],
+        DataType::Timestamp(TimeUnit::Microsecond, _tz) => vec![
+            PgAttribute::new(field.name(), pg_sys::TIMESTAMPTZOID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(
+                field.name(),
+                pg_sys::TIMESTAMPTZOID,
+                PgTimestampPrecision::Microsecond.value(),
+            ),
+        ],
+        DataType::Timestamp(TimeUnit::Millisecond, _tz) => vec![PgAttribute::new(
+            field.name(),
+            pg_sys::TIMESTAMPTZOID,
+            PgTimestampPrecision::Millisecond.value(),
+        )],
+        DataType::Timestamp(TimeUnit::Second, _tz) => vec![PgAttribute::new(
+            field.name(),
+            pg_sys::TIMESTAMPTZOID,
+            PgTimestampPrecision::Second.value(),
+        )],
         DataType::Binary => vec![
             PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
             PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
@@ -206,7 +224,7 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
     }
 
     // For TIMESTAMP, the type modifier must match the precision of the Arrow field
-    if let DataType::Timestamp(_, None) = field.data_type() {
+    if let DataType::Timestamp(_, _) = field.data_type() {
         if !supported_attributes
             .iter()
             .any(|attr| attr.typemod == attribute.typemod)

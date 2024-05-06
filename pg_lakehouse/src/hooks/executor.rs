@@ -13,7 +13,7 @@ use super::query::*;
 macro_rules! fallback_warning {
     ($msg:expr) => {
         warning!(r#"
-                This query was not pushed down to DataFusion because DataFusion returned an error: {}. Query times may be impacted.
+                This query was not fully pushed down to DataFusion because DataFusion returned an error: {}. Query times may be impacted.
                 Please submit a request at https://github.com/paradedb/paradedb/issues if you would like to see this query pushed down.
             "#
         , $msg);

@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, TimeZone, Timelike};
+use chrono::{DateTime, Datelike, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike};
 use pgrx::*;
 use std::fmt::Debug;
 use std::panic::{RefUnwindSafe, UnwindSafe};
@@ -12,6 +12,9 @@ pub struct Date(pub NaiveDate);
 
 #[derive(Clone, Debug)]
 pub struct DateTimeNoTz(pub NaiveDateTime);
+
+#[derive(Clone, Debug)]
+pub struct Time(pub NaiveTime);
 
 #[derive(Copy, Clone, Debug)]
 pub struct PgTypeMod(pub i32);
@@ -45,12 +48,6 @@ pub enum PgTimestampPrecision {
     Second = 0,
     Millisecond = 3,
     Microsecond = 6,
-}
-
-impl PgTimestampPrecision {
-    pub fn value(&self) -> i32 {
-        *self as i32
-    }
 }
 
 impl TryFrom<PgTypeMod> for PgTimestampPrecision {
@@ -131,6 +128,20 @@ impl TryFrom<Date> for datum::Date {
     fn try_from(date: Date) -> Result<Self, Self::Error> {
         let Date(date) = date;
         datum::Date::new(date.year(), date.month() as u8, date.day() as u8)
+    }
+}
+
+impl TryFrom<Time> for datum::Time {
+    type Error = datum::datetime_support::DateTimeConversionError;
+
+    fn try_from(time: Time) -> Result<Self, Self::Error> {
+        let Time(time) = time;
+
+        datum::Time::new(
+            time.hour() as u8,
+            time.minute() as u8,
+            time.second() as f64 + time.nanosecond() as f64 / NANOSECONDS_IN_SECOND as f64,
+        )
     }
 }
 

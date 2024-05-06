@@ -1,6 +1,8 @@
 use datafusion::arrow::array::types::{
-    ArrowTemporalType, Date32Type, Date64Type, TimestampMicrosecondType, TimestampMillisecondType,
-    TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
+    ArrowTemporalType, Date32Type, Date64Type, Time32MillisecondType, Time32SecondType,
+    Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
+    TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type,
+    UInt64Type, UInt8Type,
 };
 use datafusion::arrow::array::{
     timezone::Tz, Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BinaryArray,
@@ -78,6 +80,31 @@ where
         let downcast_array = downcast_value!(self, A);
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => Ok(Some(downcast_array.value(index))),
+            true => Ok(None),
+        }
+    }
+}
+
+pub trait GetTimeValue
+where
+    Self: Array + AsArray,
+{
+    fn get_time_value<N, T>(&self, index: usize) -> Result<Option<datum::Time>, DataTypeError>
+    where
+        N: std::marker::Send + std::marker::Sync,
+        i64: From<N>,
+        T: ArrowPrimitiveType<Native = N> + ArrowTemporalType,
+    {
+        let downcast_array = self.as_primitive::<T>();
+
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            false => {
+                let time = downcast_array
+                    .value_as_time(index)
+                    .ok_or(DataTypeError::DateTimeConversion)?;
+
+                Ok(Some(datum::Time::try_from(Time(time))?))
+            }
             true => Ok(None),
         }
     }
@@ -179,6 +206,7 @@ where
         + GetBinaryValue
         + GetDateValue
         + GetPrimitiveValue
+        + GetTimeValue
         + GetTimestampValue
         + GetTimestampTzValue
         + GetUIntValue,
@@ -526,6 +554,36 @@ where
                     PgOid::from(oid),
                 )),
             },
+            pg_sys::TIMEOID => match self.data_type() {
+                DataType::Time64(TimeUnit::Nanosecond) => {
+                    match self.get_time_value::<i64, Time64NanosecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::Time(value))),
+                        None => Ok(None),
+                    }
+                }
+                DataType::Time64(TimeUnit::Microsecond) => {
+                    match self.get_time_value::<i64, Time64MicrosecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::Time(value))),
+                        None => Ok(None),
+                    }
+                }
+                DataType::Time32(TimeUnit::Millisecond) => {
+                    match self.get_time_value::<i32, Time32MillisecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::Time(value))),
+                        None => Ok(None),
+                    }
+                }
+                DataType::Time32(TimeUnit::Second) => {
+                    match self.get_time_value::<i32, Time32SecondType>(index)? {
+                        Some(value) => Ok(Some(Cell::Time(value))),
+                        None => Ok(None),
+                    }
+                }
+                unsupported => Err(DataTypeError::DataTypeMismatch(
+                    unsupported.clone(),
+                    PgOid::from(oid),
+                )),
+            },
             pg_sys::TIMESTAMPOID => match self.data_type() {
                 DataType::Timestamp(TimeUnit::Nanosecond, _) => {
                     match self.get_timestamp_value::<TimestampNanosecondType>(index)? {
@@ -604,6 +662,7 @@ impl GetBinaryValue for ArrayRef {}
 impl GetCell for ArrayRef {}
 impl GetDateValue for ArrayRef {}
 impl GetPrimitiveValue for ArrayRef {}
+impl GetTimeValue for ArrayRef {}
 impl GetTimestampValue for ArrayRef {}
 impl GetTimestampTzValue for ArrayRef {}
 impl GetUIntValue for ArrayRef {}

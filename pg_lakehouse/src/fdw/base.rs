@@ -48,12 +48,7 @@ pub trait BaseFdw {
         let mut attribute_map: HashMap<usize, PgAttribute> = columns
             .iter()
             .cloned()
-            .map(|col| {
-                (
-                    col.num - 1,
-                    PgAttribute::new(&col.name, col.type_oid, col.type_mod),
-                )
-            })
+            .map(|col| (col.num - 1, PgAttribute::new(&col.name, col.type_oid)))
             .collect();
 
         let limit = limit.clone();

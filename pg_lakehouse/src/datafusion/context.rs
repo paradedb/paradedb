@@ -127,11 +127,7 @@ async fn get_table_source(
                 .map(|(index, attribute)| {
                     (
                         index,
-                        PgAttribute::new(
-                            attribute.name(),
-                            attribute.atttypid,
-                            attribute.type_mod(),
-                        ),
+                        PgAttribute::new(attribute.name(), attribute.atttypid),
                     )
                 })
                 .collect();

@@ -122,7 +122,7 @@ pub enum SchemaError {
     ColumnNameMismatch(String, String),
 
     #[error(
-        "Unsupported Arrow type: Column {0} has Arrow type {1:?}, which is not yet supported."
+        "Unsupported Arrow type: Column {0} has Arrow type {1:?}, which is not yet supported. Please submit a request at https://github.com/paradedb/paradedb/issues if you would like to see this type supported."
     )]
     UnsupportedArrowType(String, DataType),
 

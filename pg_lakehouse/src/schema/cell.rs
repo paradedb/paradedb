@@ -659,7 +659,7 @@ where
                     PgOid::from(oid),
                 )),
             },
-            unsupported => Err(DataTypeError::UnsupportedPostgresType(
+            unsupported => Err(DataTypeError::DataTypeMismatch(
                 self.data_type().clone(),
                 PgOid::from(unsupported),
             )),
@@ -699,7 +699,7 @@ pub enum DataTypeError {
     #[error("Failed to convert timestamp to NaiveDateTime")]
     DateTimeConversion,
 
-    #[error("Received unsupported data type {0:?} for {1:?}")]
+    #[error("Received unsupported data type {0:?} for {1:?}. Please submit a request at https://github.com/paradedb/paradedb/issues if you believe this conversion should be supported")]
     DataTypeMismatch(DataType, PgOid),
 
     #[error("Downcast Arrow array failed")]
@@ -707,7 +707,4 @@ pub enum DataTypeError {
 
     #[error("Failed to convert UInt to i64")]
     UIntConversionError,
-
-    #[error("Converting {0:?} to Postgres data type {1:?} is not supported")]
-    UnsupportedPostgresType(DataType, PgOid),
 }

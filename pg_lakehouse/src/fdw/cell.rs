@@ -3,9 +3,9 @@ use datafusion::arrow::array::types::{
     TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type, UInt64Type, UInt8Type,
 };
 use datafusion::arrow::array::{
-    Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BooleanArray, Float16Array,
-    Float32Array, Float64Array, GenericByteArray, Int16Array, Int32Array, Int64Array, Int8Array,
-    StringArray,
+    Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BinaryArray, BooleanArray,
+    Float16Array, Float32Array, Float64Array, GenericByteArray, Int16Array, Int32Array, Int64Array,
+    Int8Array, StringArray,
 };
 use datafusion::arrow::datatypes::{DataType, GenericStringType, TimeUnit};
 use datafusion::common::{downcast_value, DataFusionError};
@@ -17,6 +17,23 @@ use thiserror::Error;
 use crate::types::datetime::*;
 
 type LargeStringArray = GenericByteArray<GenericStringType<i64>>;
+
+pub trait GetBinaryValue
+where
+    Self: Array + AsArray,
+{
+    fn get_binary_value(&self, index: usize) -> Result<Option<String>, DataTypeError> {
+        let downcast_array = downcast_value!(self, BinaryArray);
+
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            false => {
+                let value = String::from_utf8(downcast_array.value(index).to_vec())?;
+                Ok(Some(value))
+            }
+            true => Ok(None),
+        }
+    }
+}
 
 pub trait GetDateValue
 where
@@ -143,6 +160,7 @@ pub trait GetCell
 where
     Self: Array
         + AsArray
+        + GetBinaryValue
         + GetDateValue
         + GetPrimitiveValue
         + GetTimestampValue
@@ -469,6 +487,10 @@ where
                     Some(value) => Ok(Some(Cell::String(value.to_string()))),
                     None => Ok(None),
                 },
+                DataType::Binary => match self.get_binary_value(index)? {
+                    Some(value) => Ok(Some(Cell::String(value))),
+                    None => Ok(None),
+                },
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
                     PgOid::from(oid),
@@ -556,6 +578,7 @@ where
     }
 }
 
+impl GetBinaryValue for ArrayRef {}
 impl GetCell for ArrayRef {}
 impl GetDateValue for ArrayRef {}
 impl GetPrimitiveValue for ArrayRef {}
@@ -573,6 +596,9 @@ pub enum DataTypeError {
 
     #[error(transparent)]
     DataFusionError(#[from] DataFusionError),
+
+    #[error(transparent)]
+    FromUtf8Error(#[from] std::string::FromUtf8Error),
 
     #[error(transparent)]
     NumericError(#[from] numeric::Error),

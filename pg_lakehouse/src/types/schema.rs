@@ -183,7 +183,17 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
             pg_sys::TIMESTAMPOID,
             PgTimestampPrecision::Second.value(),
         )],
-        unsupported => return Err(SchemaError::UnsupportedArrowType(unsupported.clone())),
+        DataType::Binary => vec![
+            PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
+        ],
+        unsupported => {
+            return Err(SchemaError::UnsupportedArrowType(
+                field.name().to_string(),
+                unsupported.clone(),
+            ))
+        }
     };
 
     if !supported_attributes.contains(&attribute) {
@@ -218,8 +228,10 @@ pub enum SchemaError {
     #[error("Column name mismatch: Expected column to be named {0} but found {1}. Note that column names are case-sensitive and must be enclosed in double quotes")]
     ColumnNameMismatch(String, String),
 
-    #[error("Unsupported Arrow type: {0:?}")]
-    UnsupportedArrowType(DataType),
+    #[error(
+        "Unsupported Arrow type: Column {0} has Arrow type {1:?}, which is not yet supported."
+    )]
+    UnsupportedArrowType(String, DataType),
 
     #[error("Type mismatch: Column {0} was assigned type {1:?}, which is not valid for the underlying Arrow type {2:?}. Please change the column type to one of the supported types: {3:?}")]
     UnsupportedConversion(String, PgAttribute, DataType, Vec<PgAttribute>),

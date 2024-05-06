@@ -2,7 +2,7 @@ mod api;
 mod datafusion;
 mod fdw;
 mod hooks;
-mod types;
+mod schema;
 
 use hooks::LakehouseHook;
 use pgrx::*;

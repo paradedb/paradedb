@@ -17,7 +17,7 @@ use crate::fdw::format::*;
 use crate::fdw::handler::*;
 use crate::fdw::object_store::*;
 use crate::fdw::options::*;
-use crate::types::schema::*;
+use crate::schema::attribute::*;
 
 use super::plan::*;
 use super::provider::*;

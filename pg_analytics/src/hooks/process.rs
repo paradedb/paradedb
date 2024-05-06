@@ -1,6 +1,6 @@
 use crate::datafusion::query::{ASTVec, QueryString};
 use async_std::task;
-use deltalake::datafusion::sql::parser::{ExplainStatement, Statement};
+use deltalake::datafusion::sql::parser::Statement;
 use pgrx::pg_sys::{AsPgCStr, NodeTag};
 use pgrx::*;
 use std::ffi::CStr;
@@ -13,7 +13,6 @@ use super::query::{Query, QueryStringError};
 use super::rename::{rename, RenameHookError};
 use super::truncate::{truncate, TruncateHookError};
 use crate::datafusion::catalog::CatalogError;
-use crate::datafusion::plan::LogicalPlanDetails;
 use crate::datafusion::udf::{createfunction, UDFError};
 
 #[allow(clippy::type_complexity)]
@@ -69,25 +68,39 @@ pub fn process_utility(
             }
             NodeTag::T_ExplainStmt => {
                 if let Ok(ASTVec(ast)) = ast {
-                    // TODO: instrument_option (last arg)
-                    // TODO: get the query string being explained, not the whole thing
-                    let query_desc = pg_sys::CreateQueryDesc(
-                        pstmt.as_ptr(), query_string.to_str().unwrap().as_pg_cstr(), pg_sys::GetActiveSnapshot(),
-                        std::ptr::null_mut(), dest.as_ptr(), params.as_ptr(), query_env.as_ptr(), 0
-                    );
-                    let logical_plan_details_opt = execute_datafusion(&query, pgbox::PgBox::from_pg(query_desc))?;
-                    info!("logical_plan_details_opt: {:?}", logical_plan_details_opt.is_some());
-                    if let Some(logical_plan_details) = logical_plan_details_opt {
-                        let es = pg_sys::NewExplainState();
-                        pg_sys::appendStringInfoString((*es).str_, format!("{:?}", logical_plan_details.logical_plan()).as_pg_cstr());
-                        let tupdesc = pg_sys::CreateTemplateTupleDesc(1);
-                        pg_sys::TupleDescInitEntry(tupdesc, 1, "QUERY PLAN".as_pg_cstr(), pg_sys::TEXTOID, -1, 0);
-                        let tstate = pg_sys::begin_tup_output_tupdesc(dest.as_ptr(), tupdesc, &pg_sys::TTSOpsVirtual);
-                        pg_sys::do_text_output_multiline(tstate, (*(*es).str_).data);
-                        pg_sys::end_tup_output(tstate);
-                        pg_sys::pfree((*(*es).str_).data as *mut std::ffi::c_void);
+                    if let Statement::Explain(estmt) = &ast[0] {
+                        let inner_query_string = estmt.statement.to_string();
 
-                        return Ok(())
+                        // Get the query desc for the explained query
+                        let stmt = plan as *mut pg_sys::ExplainStmt;
+                        let explained_query_tree = (*stmt).query as *mut pg_sys::Query;
+                        let es = pg_sys::NewExplainState();
+                        (*es).format = pg_sys::ExplainFormat_EXPLAIN_FORMAT_TEXT;
+                        let internal_pstmt = pg_sys::pg_plan_query(
+                            explained_query_tree, 
+                            query.clone().as_pg_cstr(), 
+                            pg_sys::CURSOR_OPT_PARALLEL_OK.try_into().unwrap(), 
+                            params.as_ptr()
+                        );
+                        let query_desc = pg_sys::CreateQueryDesc(
+                            internal_pstmt, query.clone().as_pg_cstr(), std::ptr::null_mut(),
+                            std::ptr::null_mut(), dest.as_ptr(), params.as_ptr(), query_env.as_ptr(), 0
+                        );
+
+                        // If successfully get logical plan details, then that means we use the datafusion plan
+                        let logical_plan_details_opt = execute_datafusion(&inner_query_string, pgbox::PgBox::from_pg(query_desc))?;
+                        if let Some(logical_plan_details) = logical_plan_details_opt {
+                            let es = pg_sys::NewExplainState();
+                            pg_sys::appendStringInfoString((*es).str_, format!("{:?}", logical_plan_details.logical_plan()).as_pg_cstr());
+                            let tupdesc = pg_sys::CreateTemplateTupleDesc(1);
+                            pg_sys::TupleDescInitEntry(tupdesc, 1, "QUERY PLAN".as_pg_cstr(), pg_sys::TEXTOID, -1, 0);
+                            let tstate = pg_sys::begin_tup_output_tupdesc(dest.as_ptr(), tupdesc, &pg_sys::TTSOpsVirtual);
+                            pg_sys::do_text_output_multiline(tstate, (*(*es).str_).data);
+                            pg_sys::end_tup_output(tstate);
+                            pg_sys::pfree((*(*es).str_).data as *mut std::ffi::c_void);
+
+                            return Ok(())
+                        }
                     }
                 }
             }

@@ -1,5 +1,4 @@
 use async_std::task;
-use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::logical_expr::{DdlStatement, LogicalPlan};
 use pgrx::*;
 use std::ffi::CStr;
@@ -21,7 +20,7 @@ macro_rules! fallback_warning {
     };
 }
 
-pub fn execute_datafusion(query: &str, query_desc: PgBox<pg_sys::QueryDesc>) -> Result<Option<LogicalPlanDetails>, ExecutorHookError> {
+pub fn get_logical_plan_details(query: &str, query_desc: PgBox<pg_sys::QueryDesc>) -> Result<Option<LogicalPlanDetails>, ExecutorHookError> {
     // Parse the query into a LogicalPlan
     match LogicalPlanDetails::try_from(QueryString(&query)) {
         Ok(logical_plan_details) => {
@@ -36,8 +35,6 @@ pub fn execute_datafusion(query: &str, query_desc: PgBox<pg_sys::QueryDesc>) -> 
                 }
                 _ => {}
             };
-
-            info!("op: {:?}", query_desc.operation);
 
             // Execute SELECT, DELETE, UPDATE
             match query_desc.operation {

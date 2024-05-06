@@ -3,7 +3,6 @@ use pgrx::*;
 use std::fmt::Debug;
 use std::panic::{RefUnwindSafe, UnwindSafe};
 use std::str::FromStr;
-use thiserror::Error;
 
 const NANOSECONDS_IN_SECOND: u32 = 1_000_000_000;
 
@@ -15,9 +14,6 @@ pub struct DateTimeNoTz(pub NaiveDateTime);
 
 #[derive(Clone, Debug)]
 pub struct Time(pub NaiveTime);
-
-#[derive(Copy, Clone, Debug)]
-pub struct PgTypeMod(pub i32);
 
 #[derive(Clone, Debug)]
 pub struct DateTimeTz<Tz: TimeZone> {
@@ -39,30 +35,6 @@ impl<Tz: TimeZone> DateTimeTz<Tz> {
 
     pub fn tz(&self) -> String {
         self.tz.clone()
-    }
-}
-
-#[derive(Copy, Clone)]
-pub enum PgTimestampPrecision {
-    Default = -1,
-    Second = 0,
-    Millisecond = 3,
-    Microsecond = 6,
-}
-
-impl TryFrom<PgTypeMod> for PgTimestampPrecision {
-    type Error = DatetimeError;
-
-    fn try_from(typemod: PgTypeMod) -> Result<Self, Self::Error> {
-        let PgTypeMod(typemod) = typemod;
-
-        match typemod {
-            -1 => Ok(PgTimestampPrecision::Default),
-            1 => Ok(PgTimestampPrecision::Second),
-            3 => Ok(PgTimestampPrecision::Millisecond),
-            6 => Ok(PgTimestampPrecision::Microsecond),
-            unsupported => Err(DatetimeError::UnsupportedTimestampPrecision(unsupported)),
-        }
     }
 }
 
@@ -143,10 +115,4 @@ impl TryFrom<Time> for datum::Time {
             time.second() as f64 + time.nanosecond() as f64 / NANOSECONDS_IN_SECOND as f64,
         )
     }
-}
-
-#[derive(Error, Debug)]
-pub enum DatetimeError {
-    #[error("Precision ({0}) is not supported for TIMESTAMP. Supported precisions are 1 for second, 3 for millisecond, and 6 for microsecond")]
-    UnsupportedTimestampPrecision(i32),
 }

@@ -673,9 +673,6 @@ pub enum DataTypeError {
     ArrowError(#[from] ArrowError),
 
     #[error(transparent)]
-    DatetimeError(#[from] DatetimeError),
-
-    #[error(transparent)]
     DateTimeConversionError(#[from] datum::datetime_support::DateTimeConversionError),
 
     #[error(transparent)]

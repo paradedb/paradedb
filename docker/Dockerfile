@@ -94,10 +94,11 @@ COPY shared/ /tmp/shared
 # Build the extension
 # Note: We require Rust nightly to build pg_analytics with SIMD
 WORKDIR /tmp/pg_analytics
-RUN rustup update nightly && \
-    rustup override set nightly && \
-    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" --force && \
+RUN cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" --force && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+# rustup update nightly && \
+# rustup override set nightly && \
 
 ######################
 # pg_lakehouse

@@ -110,7 +110,6 @@ if [ "$WORKLOAD" == "single" ]; then
 elif [ "$WORKLOAD" == "partitioned" ]; then
   # TODO: Clean this up
   echo "Using ClickBench's one hundred partitioned Parquet files for benchmarking..."
-c
 fi
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit

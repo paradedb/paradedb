@@ -115,7 +115,7 @@ async fn get_table_source(
         let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
         let fdw_handler = unsafe { FdwHandler::from((*foreign_server).fdwid) };
 
-        if fdw_handler == FdwHandler::S3 || fdw_handler == FdwHandler::LocalFile {
+        if fdw_handler != FdwHandler::Other {
             // Get foreign table and server options
             let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
 

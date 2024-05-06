@@ -1,6 +1,7 @@
 use async_std::sync::Mutex;
 use async_std::task;
-use datafusion::prelude::SessionContext;
+use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
+use datafusion::prelude::{SessionConfig, SessionContext};
 use once_cell::sync::Lazy;
 use pgrx::*;
 use std::collections::{
@@ -29,9 +30,14 @@ impl Session {
     {
         let mut lock = task::block_on(SESSION_CACHE.lock());
 
+        let session_config = SessionConfig::from_env()?.with_information_schema(true);
+        let rn_config = RuntimeConfig::new();
+        let runtime_env = RuntimeEnv::new(rn_config)?;
+        let context = SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
+
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(SessionContext::new()),
+            Vacant(entry) => entry.insert(context),
         };
 
         task::block_on(f(context))

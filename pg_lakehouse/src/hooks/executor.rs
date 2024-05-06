@@ -66,7 +66,8 @@ pub unsafe fn executor_run(
                 }
             };
         }
-        Err(_) => {
+        Err(err) => {
+            fallback_warning!(err.to_string());
             prev_hook(query_desc, direction, count, execute_once);
         }
     };

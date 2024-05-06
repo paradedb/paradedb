@@ -166,7 +166,7 @@ OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
 
 ### Local File Table Options
 
-- `path` (required): Must start with `file:///` and point to the location of your file. The path should end in a `/` if it points to a directory of partitioned Parquet files.
+- `path` (required): An absolute path starting with `file:///`. The path should end in a `/` if it points to a directory of partitioned Parquet files.
 - `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
 - `format`: Only `delta` is accepted for the Deltalake format. If omitted, no table format is assumed.
 

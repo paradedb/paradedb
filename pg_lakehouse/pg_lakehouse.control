@@ -2,5 +2,5 @@ comment = 'pg_lakehouse:  Created by pgrx'
 default_version = '@CARGO_VERSION@'
 module_pathname = '$libdir/pg_lakehouse'
 relocatable = false
-superuser = true
-trusted = false
+superuser = false
+schema = paradedb

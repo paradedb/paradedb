@@ -1,25 +1,19 @@
-use datafusion::arrow::datatypes::{DataType, Field, TimeUnit};
+use datafusion::arrow::datatypes::{DataType, Field};
 use pgrx::*;
 use std::fmt;
 use thiserror::Error;
-
-use super::datetime::*;
-
-pub static DEFAULT_TYPE_MOD: i32 = -1;
 
 #[derive(Clone)]
 pub struct PgAttribute {
     name: String,
     oid: pg_sys::Oid,
-    typemod: i32,
 }
 
 impl PgAttribute {
-    pub fn new(name: &str, oid: pg_sys::Oid, typemod: i32) -> Self {
+    pub fn new(name: &str, oid: pg_sys::Oid) -> Self {
         Self {
             name: name.to_string(),
             oid,
-            typemod,
         }
     }
 
@@ -52,11 +46,7 @@ impl fmt::Debug for PgAttribute {
         let type_form = unsafe { pg_sys::GETSTRUCT(tuple) as pg_sys::Form_pg_type };
         let type_name = unsafe { name_data_to_str(&(*type_form).typname).to_uppercase() };
 
-        if self.typemod >= 0 {
-            write!(f, "{}({})", type_name, self.typemod)
-        } else {
-            write!(f, "{}", type_name)
-        }
+        write!(f, "{}", type_name)
     }
 }
 
@@ -70,19 +60,15 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
 
     let supported_attributes = match field.data_type() {
         DataType::Binary => vec![
-            PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::TEXTOID),
+            PgAttribute::new(field.name(), pg_sys::VARCHAROID),
+            PgAttribute::new(field.name(), pg_sys::BPCHAROID),
         ],
-        DataType::Boolean => vec![PgAttribute::new(
-            field.name(),
-            pg_sys::BOOLOID,
-            DEFAULT_TYPE_MOD,
-        )],
+        DataType::Boolean => vec![PgAttribute::new(field.name(), pg_sys::BOOLOID)],
         DataType::Utf8 | DataType::LargeUtf8 => vec![
-            PgAttribute::new(field.name(), pg_sys::TEXTOID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::VARCHAROID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::BPCHAROID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::TEXTOID),
+            PgAttribute::new(field.name(), pg_sys::VARCHAROID),
+            PgAttribute::new(field.name(), pg_sys::BPCHAROID),
         ],
         DataType::Int8
         | DataType::Int16
@@ -95,54 +81,21 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
         | DataType::Float16
         | DataType::Float32
         | DataType::Float64 => vec![
-            PgAttribute::new(field.name(), pg_sys::INT2OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::INT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT4OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::FLOAT8OID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(field.name(), pg_sys::NUMERICOID, DEFAULT_TYPE_MOD),
+            PgAttribute::new(field.name(), pg_sys::INT2OID),
+            PgAttribute::new(field.name(), pg_sys::INT4OID),
+            PgAttribute::new(field.name(), pg_sys::INT8OID),
+            PgAttribute::new(field.name(), pg_sys::FLOAT4OID),
+            PgAttribute::new(field.name(), pg_sys::FLOAT8OID),
+            PgAttribute::new(field.name(), pg_sys::NUMERICOID),
         ],
-        DataType::Date32 | DataType::Date64 => vec![PgAttribute::new(
-            field.name(),
-            pg_sys::DATEOID,
-            DEFAULT_TYPE_MOD,
-        )],
-        DataType::Timestamp(TimeUnit::Microsecond, None) => vec![
-            PgAttribute::new(field.name(), pg_sys::TIMESTAMPOID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(
-                field.name(),
-                pg_sys::TIMESTAMPOID,
-                PgTimestampPrecision::Microsecond.value(),
-            ),
-        ],
-        DataType::Timestamp(TimeUnit::Millisecond, None) => vec![PgAttribute::new(
-            field.name(),
-            pg_sys::TIMESTAMPOID,
-            PgTimestampPrecision::Millisecond.value(),
-        )],
-        DataType::Timestamp(TimeUnit::Second, None) => vec![PgAttribute::new(
-            field.name(),
-            pg_sys::TIMESTAMPOID,
-            PgTimestampPrecision::Second.value(),
-        )],
-        DataType::Timestamp(TimeUnit::Microsecond, _tz) => vec![
-            PgAttribute::new(field.name(), pg_sys::TIMESTAMPTZOID, DEFAULT_TYPE_MOD),
-            PgAttribute::new(
-                field.name(),
-                pg_sys::TIMESTAMPTZOID,
-                PgTimestampPrecision::Microsecond.value(),
-            ),
-        ],
-        DataType::Timestamp(TimeUnit::Millisecond, _tz) => vec![PgAttribute::new(
-            field.name(),
-            pg_sys::TIMESTAMPTZOID,
-            PgTimestampPrecision::Millisecond.value(),
-        )],
-        DataType::Timestamp(TimeUnit::Second, _tz) => vec![PgAttribute::new(
-            field.name(),
-            pg_sys::TIMESTAMPTZOID,
-            PgTimestampPrecision::Second.value(),
-        )],
+        DataType::Date32 | DataType::Date64 => {
+            vec![PgAttribute::new(field.name(), pg_sys::DATEOID)]
+        }
+        DataType::Time32(_) | DataType::Time64(_) => {
+            vec![PgAttribute::new(field.name(), pg_sys::TIMEOID)]
+        }
+        DataType::Timestamp(_, None) => vec![PgAttribute::new(field.name(), pg_sys::TIMESTAMPOID)],
+        DataType::Timestamp(_, _tz) => vec![PgAttribute::new(field.name(), pg_sys::TIMESTAMPTZOID)],
         unsupported => {
             return Err(SchemaError::UnsupportedArrowType(
                 field.name().to_string(),
@@ -158,21 +111,6 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
             field.data_type().clone(),
             supported_attributes,
         ));
-    }
-
-    // For TIMESTAMP, the type modifier must match the precision of the Arrow field
-    if let DataType::Timestamp(_, _) = field.data_type() {
-        if !supported_attributes
-            .iter()
-            .any(|attr| attr.typemod == attribute.typemod)
-        {
-            return Err(SchemaError::UnsupportedConversion(
-                field.name().to_string(),
-                attribute,
-                field.data_type().clone(),
-                supported_attributes,
-            ));
-        }
     }
 
     Ok(())

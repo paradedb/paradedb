@@ -1,7 +1,7 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
-use object_store::aws::AmazonS3;
+use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,23 +10,42 @@ use url::Url;
 
 use crate::datafusion::context::ContextError;
 use crate::datafusion::session::Session;
+use crate::fdw::options::*;
 
 use super::base::*;
-use super::options::{AmazonServerOption, ServerOptions, TableOption};
 
 #[wrappers_fdw(
     author = "ParadeDB",
     website = "https://github.com/paradedb/paradedb",
     error_type = "BaseFdwError"
 )]
-pub(crate) struct S3Fdw {
+pub(crate) struct LocalFileFdw {
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
     target_columns: Vec<Column>,
 }
 
-impl BaseFdw for S3Fdw {
+impl BaseFdw for LocalFileFdw {
+    fn register_object_store(
+        _server_options: HashMap<String, String>,
+        _user_mapping_options: HashMap<String, String>,
+    ) -> Result<(), ContextError> {
+        // Create S3 ObjectStore
+        let object_store = LocalFileSystem::new();
+
+        // Create SessionContext with ObjectStore
+        Session::with_session_context(|context| {
+            Box::pin(async move {
+                context
+                    .runtime_env()
+                    .register_object_store(&Url::parse("file://")?, Arc::new(object_store));
+
+                Ok(())
+            })
+        })
+    }
+
     fn get_current_batch(&self) -> Option<RecordBatch> {
         self.current_batch.clone()
     }
@@ -70,12 +89,12 @@ impl BaseFdw for S3Fdw {
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
+impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
     fn new(
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        register_s3_server(server_options, user_mapping_options)?;
+        LocalFileFdw::register_object_store(server_options, user_mapping_options)?;
 
         Ok(Self {
             current_batch: None,
@@ -92,13 +111,7 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
         if let Some(oid) = catalog {
             match oid {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
-                FOREIGN_SERVER_RELATION_ID => {
-                    for opt in AmazonServerOption::iter() {
-                        if opt.is_required() {
-                            check_options_contain(&opt_list, opt.as_str())?;
-                        }
-                    }
-                }
+                FOREIGN_SERVER_RELATION_ID => {}
                 FOREIGN_TABLE_RELATION_ID => {
                     for opt in TableOption::iter() {
                         if opt.is_required() {
@@ -106,7 +119,9 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
                         }
                     }
                 }
-                _ => {}
+                unsupported => {
+                    return Err(BaseFdwError::UnsupportedFdwOid(PgOid::from(unsupported)))
+                }
             }
         }
 
@@ -131,25 +146,4 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
     fn end_scan(&mut self) -> Result<(), BaseFdwError> {
         self.end_scan_impl()
     }
-}
-
-pub fn register_s3_server(
-    server_options: HashMap<String, String>,
-    user_mapping_options: HashMap<String, String>,
-) -> Result<(), ContextError> {
-    Session::with_session_context(|context| {
-        Box::pin(async move {
-            let object_store = Arc::new(AmazonS3::try_from(ServerOptions::new(
-                server_options.clone(),
-                user_mapping_options.clone(),
-            ))?);
-
-            let url = require_option(AmazonServerOption::Url.as_str(), &server_options)?;
-
-            context
-                .runtime_env()
-                .register_object_store(&Url::parse(url)?, object_store);
-            Ok(())
-        })
-    })
 }

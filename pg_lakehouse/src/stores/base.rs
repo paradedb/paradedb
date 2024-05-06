@@ -12,14 +12,19 @@ use thiserror::Error;
 use crate::datafusion::context::ContextError;
 use crate::datafusion::provider::*;
 use crate::datafusion::session::Session;
+use crate::fdw::format::*;
+use crate::fdw::object_store::*;
+use crate::fdw::options::TableOption;
 use crate::schema::attribute::*;
 use crate::schema::cell::*;
 
-use super::format::*;
-use super::object_store::*;
-use super::options::TableOption;
-
 pub trait BaseFdw {
+    // Public methods
+    fn register_object_store(
+        server_options: HashMap<String, String>,
+        user_mapping_options: HashMap<String, String>,
+    ) -> Result<(), ContextError>;
+
     // Getter methods
     fn get_current_batch(&self) -> Option<RecordBatch>;
     fn get_current_batch_index(&self) -> usize;

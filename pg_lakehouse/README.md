@@ -170,20 +170,48 @@ OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
 - `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
 - `format`: Only `delta` is accepted for the Deltalake format. If omitted, no table format is assumed.
 
-## Data Movement
+## Arrow Types
 
-### To Postgres
+When a foreign table is created, DataFusion infers the schema of the foreign table using [Arrow datatypes](https://docs.rs/datafusion/latest/datafusion/common/arrow/datatypes/enum.DataType.html). Each column of the foreign table must have a Postgres type that can be converted to the underlying Arrow datatype. For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT` or `VARCHAR` column.
 
-Moving data from a data lake into Postgres can be done in a single query.
+The `arrow_schema` function displays the schema of a foreign table:
 
 ```sql
--- Assumes you have created the trips table from the quickstart
-CREATE TABLE trips_copy AS SELECT * FROM trips;
+SELECT * FROM arrow_schema(
+  server => 's3_server',
+  path => 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
+  extension => 'parquet'
+);
 ```
 
-### To Data Lake
+## Datetime Types
 
-Writes to data lakes are not yet supported but are coming soon.
+Datetime fields are often stored as integers representing the number of days, seconds, milliseconds, etc. since the UNIX epoch (January 1, 1970). When converting these fields to Postgres datetime types, the precision of these integers must be accounted for in order to convert them
+to the correct datetime value.
+
+### Date
+
+`pg_lakehouse` provides a `to_date` function that converts an integer representing the number of days elapsed since the UNIX epoch (January 1, 1970) to a Postgres `DATE` type.
+
+```sql
+CREATE FOREIGN TABLE hits (
+  "EventDate" INTEGER
+) USING foreign_server OPTIONS (...);
+
+SELECT to_date("EventDate") FROM hits LIMIT 1;
+```
+
+### Timestamp
+
+Similarly, the `to_timestamp` function converts an integer representing the number of seconds elapsed since the UNIX epoch to a Postgres `TIMESTAMP` type.
+
+```sql
+CREATE FOREIGN TABLE hits (
+  "EventTime" BIGINT
+) USING foreign_server OPTIONS (...);
+
+SELECT to_timestamp("EventTime") FROM hits LIMIT 1;
+```
 
 ## Development
 

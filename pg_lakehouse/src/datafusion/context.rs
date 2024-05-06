@@ -7,14 +7,11 @@ use datafusion::execution::FunctionRegistry;
 use datafusion::logical_expr::{AggregateUDF, LogicalPlan, ScalarUDF, TableSource, WindowUDF};
 use datafusion::sql::planner::ContextProvider;
 use datafusion::sql::TableReference;
-use object_store::aws::AmazonS3;
-use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
-use std::ffi::CStr;
 use std::sync::Arc;
+use supabase_wrappers::prelude::*;
 use thiserror::Error;
-use url::Url;
 
 use crate::fdw::format::*;
 use crate::fdw::handler::*;
@@ -121,74 +118,9 @@ async fn get_table_source(
         if fdw_handler == FdwHandler::S3 || fdw_handler == FdwHandler::LocalFile {
             // Get foreign table and server options
             let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
-            let server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
-            let user_id = unsafe { pg_sys::GetUserId() };
-
-            // Get foreign server user mapping options
-            let user_mapping_exists = unsafe {
-                !pg_sys::SearchSysCache2(
-                    pg_sys::SysCacheIdentifier_USERMAPPINGUSERSERVER as i32,
-                    pg_sys::Datum::from(user_id),
-                    pg_sys::Datum::from((*foreign_server).serverid),
-                )
-                .is_null()
-            };
-            let public_mapping_exists = unsafe {
-                !pg_sys::SearchSysCache2(
-                    pg_sys::SysCacheIdentifier_USERMAPPINGUSERSERVER as i32,
-                    pg_sys::Datum::from(pg_sys::InvalidOid),
-                    pg_sys::Datum::from((*foreign_server).serverid),
-                )
-                .is_null()
-            };
-
-            let user_mapping_options = unsafe {
-                match user_mapping_exists || public_mapping_exists {
-                    true => {
-                        let user_mapping =
-                            pg_sys::GetUserMapping(user_id, (*foreign_server).serverid);
-                        options_to_hashmap((*user_mapping).options)?
-                    }
-                    false => HashMap::new(),
-                }
-            };
-
-            // Register object store
-            match fdw_handler {
-                FdwHandler::S3 => {
-                    Session::with_session_context(|context| {
-                        Box::pin(async move {
-                            let object_store = AmazonS3::try_from(ServerOptions::new(
-                                server_options.clone(),
-                                user_mapping_options.clone(),
-                            ))?;
-                            let url =
-                                require_option(AmazonServerOption::Url.as_str(), &server_options)?;
-
-                            context
-                                .runtime_env()
-                                .register_object_store(&Url::parse(url)?, Arc::new(object_store));
-                            Ok(())
-                        })
-                    })?;
-                }
-                FdwHandler::LocalFile => {
-                    let object_store = LocalFileSystem::new();
-                    Session::with_session_context(|context| {
-                        Box::pin(async move {
-                            context.runtime_env().register_object_store(
-                                &Url::parse("file://")?,
-                                Arc::new(object_store),
-                            );
-                            Ok(())
-                        })
-                    })?;
-                }
-                _ => {}
-            };
 
             // Create provider for foreign table
-            let attribute_map: HashMap<usize, PgAttribute> = pg_relation
+            let mut attribute_map: HashMap<usize, PgAttribute> = pg_relation
                 .tuple_desc()
                 .iter()
                 .enumerate()
@@ -205,41 +137,30 @@ async fn get_table_source(
                 .collect();
 
             let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
+            let path = require_option(TableOption::Path.as_str(), &table_options)?.to_string();
+            let extension =
+                require_option(TableOption::Extension.as_str(), &table_options)?.to_string();
+
             let provider = match TableFormat::from(format) {
                 TableFormat::None => Session::with_session_context(|context| {
                     Box::pin(async move {
-                        Ok(
-                            create_listing_provider(table_options, attribute_map, &context.state())
-                                .await?,
-                        )
+                        Ok(create_listing_provider(&path, &extension, &context.state()).await?)
                     })
                 })?,
-                TableFormat::Delta => {
-                    create_delta_provider(table_options.clone(), attribute_map).await?
-                }
+                TableFormat::Delta => create_delta_provider(&path, &extension).await?,
             };
+
+            for (index, field) in provider.schema().fields().iter().enumerate() {
+                if let Some(attribute) = attribute_map.remove(&index) {
+                    can_convert_to_attribute(field, attribute)?;
+                }
+            }
 
             return Ok(provider_as_source(provider));
         }
     }
 
     Err(ContextError::TableNotFound(reference.table().to_string()))
-}
-
-#[inline]
-pub unsafe fn options_to_hashmap(
-    options: *mut pg_sys::List,
-) -> Result<HashMap<String, String>, ContextError> {
-    let mut ret = HashMap::new();
-    let options: PgList<pg_sys::DefElem> = PgList::from_pg(options);
-    for option in options.iter_ptr() {
-        let name = CStr::from_ptr((*option).defname);
-        let value = CStr::from_ptr(pg_sys::defGetString(option));
-        let name = name.to_str()?;
-        let value = value.to_str()?;
-        ret.insert(name.to_string(), value.to_string());
-    }
-    Ok(ret)
 }
 
 #[derive(Error, Debug)]
@@ -257,7 +178,7 @@ pub enum ContextError {
     ObjectStoreError(#[from] ObjectStoreError),
 
     #[error(transparent)]
-    OptionsError(#[from] OptionsError),
+    OptionsError(#[from] supabase_wrappers::options::OptionsError),
 
     #[error(transparent)]
     LogicalPlanError(#[from] LogicalPlanError),

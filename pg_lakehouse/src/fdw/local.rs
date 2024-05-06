@@ -1,16 +1,15 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::datasource::TableProvider;
-use datafusion::execution::context::SessionState;
-use datafusion::logical_expr::LogicalPlan;
 use datafusion::physical_plan::SendableRecordBatchStream;
-use datafusion::prelude::{DataFrame, SessionContext};
 use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
+
+use crate::datafusion::context::ContextError;
+use crate::datafusion::session::Session;
 
 use super::base::*;
 use super::options::*;
@@ -24,7 +23,6 @@ pub(crate) struct LocalFileFdw {
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
-    context: SessionContext,
     target_columns: Vec<Column>,
 }
 
@@ -35,10 +33,6 @@ impl BaseFdw for LocalFileFdw {
 
     fn get_current_batch_index(&self) -> usize {
         self.current_batch_index
-    }
-
-    fn get_session_state(&self) -> SessionState {
-        self.context.state()
     }
 
     fn get_target_columns(&self) -> Vec<Column> {
@@ -57,8 +51,8 @@ impl BaseFdw for LocalFileFdw {
         self.stream = stream;
     }
 
-    fn set_target_columns(&mut self, columns: Vec<Column>) {
-        self.target_columns = columns;
+    fn set_target_columns(&mut self, columns: &[Column]) {
+        self.target_columns = columns.to_vec();
     }
 
     async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>, BaseFdwError> {
@@ -74,40 +68,20 @@ impl BaseFdw for LocalFileFdw {
             Some(Err(err)) => Err(BaseFdwError::DataFusionError(err)),
         }
     }
-
-    async fn execute_logical_plan(&self, plan: LogicalPlan) -> Result<DataFrame, BaseFdwError> {
-        Ok(self.context.execute_logical_plan(plan).await?)
-    }
-
-    fn register_table(
-        &mut self,
-        name: &str,
-        provider: Arc<dyn TableProvider>,
-    ) -> Result<Option<Arc<dyn TableProvider>>, BaseFdwError> {
-        Ok(self.context.register_table(name, provider)?)
-    }
 }
 
 impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
     fn new(
-        _server_options: &HashMap<String, String>,
-        _user_mapping_options: &HashMap<String, String>,
+        _server_options: HashMap<String, String>,
+        _user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        // Create S3 ObjectStore
-        let object_store = LocalFileSystem::new();
-
-        // Create SessionContext with ObjectStore
-        let context = SessionContext::new();
-        context
-            .runtime_env()
-            .register_object_store(&Url::parse("file://")?, Arc::new(object_store));
+        register_local_file_server()?;
 
         Ok(Self {
             current_batch: None,
             current_batch_index: 0,
             stream: None,
             target_columns: Vec::new(),
-            context,
         })
     }
 
@@ -141,7 +115,7 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
         columns: &[Column],
         _sorts: &[Sort],
         limit: &Option<Limit>,
-        options: &HashMap<String, String>,
+        options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
         self.begin_scan_impl(_quals, columns, _sorts, limit, options)
     }
@@ -153,4 +127,20 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
     fn end_scan(&mut self) -> Result<(), BaseFdwError> {
         self.end_scan_impl()
     }
+}
+
+pub fn register_local_file_server() -> Result<(), ContextError> {
+    // Create S3 ObjectStore
+    let object_store = LocalFileSystem::new();
+
+    // Create SessionContext with ObjectStore
+    Session::with_session_context(|context| {
+        Box::pin(async move {
+            context
+                .runtime_env()
+                .register_object_store(&Url::parse("file://")?, Arc::new(object_store));
+
+            Ok(())
+        })
+    })
 }

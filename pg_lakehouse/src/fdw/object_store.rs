@@ -1,4 +1,5 @@
 use object_store::aws::{AmazonS3, AmazonS3Builder};
+use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use super::options::*;

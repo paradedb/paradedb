@@ -134,7 +134,7 @@ where
                     .ok_or(DataTypeError::DateTimeConversion)?;
 
                 Ok(Some(datum::TimestampWithTimeZone::try_from(
-                    DateTimeTz::new(datetime, datetime.timezone()),
+                    DateTimeTz::new(datetime, &tz),
                 )?))
             }
             None => {

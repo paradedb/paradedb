@@ -12,7 +12,6 @@ on:
       - staging
       - main
     paths:
-      - "fdw/**"
       - "pg_lakehouse/**"
       - "!pg_lakehouse/README.md"
       - "shared/**"
@@ -84,6 +83,11 @@ jobs:
             exit 1
           fi
           echo "Version check passed!"
+
+      # We need Rust nightly for an optimized build with packed_simd
+      - name: Install Rust
+        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
+        uses: dtolnay/rust-toolchain@nightly
 
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.

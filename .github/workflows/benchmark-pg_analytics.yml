@@ -16,7 +16,6 @@ on:
       - main
     paths:
       - "docker/Dockerfile"
-      - "fdw/Cargo.toml"
       - "pg_analytics/Cargo.toml"
       - "pg_analytics/benchmarks/**"
       - "shared/Cargo.toml"

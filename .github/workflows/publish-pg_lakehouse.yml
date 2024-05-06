@@ -44,6 +44,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      # We need Rust nightly for an optimized build with packed_simd
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly
+
       - name: Retrieve Ubuntu & GitHub Tag Versions
         id: version
         run: |

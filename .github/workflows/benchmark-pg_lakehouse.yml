@@ -16,7 +16,6 @@ on:
       - main
     paths:
       - "docker/Dockerfile"
-      - "fdw/Cargo.toml"
       - "pg_lakehouse/Cargo.toml"
       - "pg_lakehouse/benchmarks/**"
       - "shared/Cargo.toml"
@@ -29,18 +28,25 @@ concurrency:
 
 jobs:
   benchmark-pg_lakehouse:
-    name: Benchmark pg_lakehouse on ClickBench
+    name: Benchmark pg_lakehouse on ${{ matrix.name }}
     runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+    strategy:
+      matrix:
+        include:
+          - name: ClickBench (Parquet, single)
+            flags: -w single
+          - name: ClickBench (Parquet, partitioned)
+            flags: -w partitioned
 
     steps:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Run Official ClickBench Benchmark
+      - name: Run Official ${{ matrix.name }} Benchmark
         working-directory: pg_lakehouse/benchmarks/
-        run: ./benchmark.sh -t local
+        run: ./benchmark.sh -t local ${{ matrix.flags }}
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
         run: |
-          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_lakehouse on ClickBench workflow failed -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_lakehouse on ${{ matrix.name }} h workflow failed -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}

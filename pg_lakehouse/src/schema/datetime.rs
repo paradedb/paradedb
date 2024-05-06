@@ -19,19 +19,22 @@ pub struct PgTypeMod(pub i32);
 #[derive(Clone, Debug)]
 pub struct DateTimeTz<Tz: TimeZone> {
     datetime: DateTime<Tz>,
-    tz: Tz,
+    tz: String,
 }
 
 impl<Tz: TimeZone> DateTimeTz<Tz> {
-    pub fn new(datetime: DateTime<Tz>, tz: Tz) -> Self {
-        Self { datetime, tz }
+    pub fn new(datetime: DateTime<Tz>, tz: &str) -> Self {
+        Self {
+            datetime,
+            tz: tz.to_string(),
+        }
     }
 
     pub fn datetime(&self) -> DateTime<Tz> {
         self.datetime.clone()
     }
 
-    pub fn tz(&self) -> Tz {
+    pub fn tz(&self) -> String {
         self.tz.clone()
     }
 }
@@ -117,7 +120,7 @@ where
             datetime.hour() as u8,
             datetime.minute() as u8,
             (datetime.second() + datetime.nanosecond() / NANOSECONDS_IN_SECOND).into(),
-            format!("{:?}", tz),
+            tz,
         )
     }
 }

@@ -14,7 +14,8 @@
 - [x] Local file system
 - [ ] Azure Blob Storage (coming soon)
 - [ ] Google Cloud Storage (coming soon)
-- [ ] HDFS (coming soon)
+
+...and many more services supported by [OpenDAL](https://opendal.apache.org/docs/category/services). See the Development section for instructions on how to [add a service](#adding-a-service).
 
 ### File Formats
 
@@ -284,3 +285,9 @@ cargo pgrx init --pg16=/usr/lib/postgresql/16/bin/pg_config
 If you prefer to use a different version of Postgres, update the `--pg` flag accordingly.
 
 Note: While it is possible to develop using pgrx's own Postgres installation(s), via `cargo pgrx init` without specifying a `pg_config` path, we recommend using your system package manager's Postgres as we've observed inconsistent behaviours when using pgrx's.
+
+### Adding a Service
+
+`pg_lakehouse` uses Apache OpenDAL to integrate with various object stores. As of the time of writing, some — but not all — of the object stores supported by OpenDAL have been integrated.
+
+Adding support for a new object store is as straightforward as creating a file in the `fdw/` folder that implements the `BaseFdw` trait.

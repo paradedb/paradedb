@@ -93,7 +93,7 @@ shared_preload_libraries = 'pg_lakehouse'
 ## S3
 
 This code block demonstrates how to create a foreign table over S3 or an S3-compatible object
-store like MinIO.
+store.
 
 ```sql
 CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
@@ -112,10 +112,10 @@ OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 
 ### S3 Server Options
 
-- `bucket` (required): Name of the S3 bucket
-- `root`: Path to the S3 bucket, e.g. `path/to/bucket`
-- `region`: AWS region, e.g. `us-east-1`
-- `endpoint`: The endpoint for communicating with the S3 instance. Defaults to the [region endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example, can be set to `http://localhost:4566` if testing against a Localstack instance, or `http://127.0.0.1:9000` for MinIO.
+- `bucket`: Name of the S3 bucket. Required for all object stores.
+- `root`: Path to the S3 bucket, e.g. `path/to/bucket`.
+- `region`: AWS region, e.g. `us-east-1`. Required for connecting to certain cloud object stores like MinIO. Required for MinIO, Scaleway, and Cloudflare R2.
+- `endpoint`: The endpoint for communicating with the S3 instance. Defaults to the [region endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example, can be set to `http://localhost:4566` if testing against a Localstack instance, or `http://127.0.0.1:9000` for MinIO. Required for all non Amazon S3 object stores.
 - `allow_anonymous`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
 
 ### S3 Table Options
@@ -151,6 +151,18 @@ Note: To make credentials available to all users, you can set the user to `publi
 - `access_key_id`: AWS access key ID
 - `secret_access_key`: AWS secret access key
 - `security_token`: Sets the AWS session token
+
+### S3 Compatible Services
+
+In addition to Amazon S3, following S3-compatible object stores are supported:
+
+- [x] Alibaba Object Storage Service
+- [x] MinIO
+- [x] QingStor Object Storage
+- [x] Scaleway Object Storage
+- [x] Tencent Cloud Object Storage
+- [x] Wasabi Object Storage
+- [x] Cloudflare R2
 
 ## Local File System
 

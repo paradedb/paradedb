@@ -113,6 +113,12 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
                 FOREIGN_SERVER_RELATION_ID => {}
                 FOREIGN_TABLE_RELATION_ID => {
+                    let valid_options: Vec<String> = TableOption::iter()
+                        .map(|opt| opt.as_str().to_string())
+                        .collect();
+
+                    validate_options(opt_list.clone(), valid_options)?;
+
                     for opt in TableOption::iter() {
                         if opt.is_required() {
                             check_options_contain(&opt_list, opt.as_str())?;

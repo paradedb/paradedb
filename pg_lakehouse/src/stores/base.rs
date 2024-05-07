@@ -13,7 +13,6 @@ use crate::datafusion::context::ContextError;
 use crate::datafusion::provider::*;
 use crate::datafusion::session::Session;
 use crate::fdw::format::*;
-use crate::fdw::object_store::*;
 use crate::fdw::options::TableOption;
 use crate::schema::attribute::*;
 use crate::schema::cell::*;
@@ -176,9 +175,6 @@ pub enum BaseFdwError {
     FormatError(#[from] FormatError),
 
     #[error(transparent)]
-    ObjectStoreError(#[from] ObjectStoreError),
-
-    #[error(transparent)]
     OptionsError(#[from] supabase_wrappers::options::OptionsError),
 
     #[error(transparent)]
@@ -192,6 +188,9 @@ pub enum BaseFdwError {
 
     #[error("Unexpected error: Expected RecordBatch but found None")]
     BatchNotFound,
+
+    #[error("Received unexpected option \"{0}\". Valid options are: {1:?}")]
+    InvalidOption(String, Vec<String>),
 
     #[error("Unexpected error: Expected SendableRecordBatchStream but found None")]
     StreamNotFound,

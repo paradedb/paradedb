@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use super::alter::{alter, AlterHookError};
 use super::drop::{drop, DropHookError};
-use super::executor::{get_df_exec_logical_plan_details, ExecutorHookError};
+use super::executor::{ExecutableDatafusion, ExecutorHookError};
 use super::query::{Query, QueryStringError};
 use super::rename::{rename, RenameHookError};
 use super::truncate::{truncate, TruncateHookError};
@@ -94,11 +94,9 @@ pub fn process_utility(
                         );
 
                         // If successfully get logical plan details, then that means we use the datafusion plan
-                        let logical_plan_details_opt = get_df_exec_logical_plan_details(
-                            &inner_query_string,
-                            pgbox::PgBox::from_pg(query_desc),
-                        )?;
-                        if let Some(logical_plan_details) = logical_plan_details_opt {
+                        if let Some(logical_plan_details) = pgbox::PgBox::from_pg(query_desc)
+                            .try_get_logical_plan_details(&inner_query_string)?
+                        {
                             let es = pg_sys::NewExplainState();
                             pg_sys::appendStringInfoString(
                                 (*es).str_,

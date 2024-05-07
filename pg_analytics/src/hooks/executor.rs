@@ -20,33 +20,43 @@ macro_rules! fallback_warning {
     };
 }
 
-pub fn get_df_exec_logical_plan_details(
-    query: &str,
-    query_desc: PgBox<pg_sys::QueryDesc>,
-) -> Result<Option<LogicalPlanDetails>, ExecutorHookError> {
-    // Parse the query into a LogicalPlan
-    match LogicalPlanDetails::try_from(QueryString(query)) {
-        Ok(logical_plan_details) => {
-            let logical_plan = logical_plan_details.logical_plan();
+// Use QueryDesc details to determine whether this plan should even be executed by Datafusion
+pub trait ExecutableDatafusion {
+    fn try_get_logical_plan_details(
+        &self,
+        query: &str,
+    ) -> Result<Option<LogicalPlanDetails>, ExecutorHookError>;
+}
 
-            // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
-            // We should let these queries go through to the table access method
-            match logical_plan {
-                LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_))
-                | LogicalPlan::Ddl(DdlStatement::CreateView(_)) => {
-                    return Ok(None);
+impl ExecutableDatafusion for PgBox<pg_sys::QueryDesc> {
+    fn try_get_logical_plan_details(
+        &self,
+        query: &str,
+    ) -> Result<Option<LogicalPlanDetails>, ExecutorHookError> {
+        // Parse the query into a LogicalPlan
+        match LogicalPlanDetails::try_from(QueryString(query)) {
+            Ok(logical_plan_details) => {
+                let logical_plan = logical_plan_details.logical_plan();
+
+                // CREATE TABLE queries can reach the executor for CREATE TABLE AS SELECT
+                // We should let these queries go through to the table access method
+                match logical_plan {
+                    LogicalPlan::Ddl(DdlStatement::CreateMemoryTable(_))
+                    | LogicalPlan::Ddl(DdlStatement::CreateView(_)) => {
+                        return Ok(None);
+                    }
+                    _ => {}
+                };
+
+                // Execute SELECT, DELETE, UPDATE
+                match self.operation {
+                    pg_sys::CmdType_CMD_SELECT => Ok(Some(logical_plan_details)),
+                    pg_sys::CmdType_CMD_UPDATE => Err(ExecutorHookError::UpdateNotSupported),
+                    _ => Ok(None),
                 }
-                _ => {}
-            };
-
-            // Execute SELECT, DELETE, UPDATE
-            match query_desc.operation {
-                pg_sys::CmdType_CMD_SELECT => Ok(Some(logical_plan_details)),
-                pg_sys::CmdType_CMD_UPDATE => Err(ExecutorHookError::UpdateNotSupported),
-                _ => Ok(None),
             }
+            Err(_) => Ok(None),
         }
-        Err(_) => Ok(None),
     }
 }
 
@@ -105,9 +115,7 @@ pub fn executor_run(
             };
         } else {
             // Parse the query into a LogicalPlan
-            let logical_plan_details_opt =
-                get_df_exec_logical_plan_details(&query, query_desc.clone())?;
-            match logical_plan_details_opt {
+            match query_desc.try_get_logical_plan_details(&query)? {
                 Some(logical_plan_details) => {
                     let single_thread = logical_plan_details.includes_udf();
                     match get_datafusion_batches(logical_plan_details.logical_plan(), single_thread)

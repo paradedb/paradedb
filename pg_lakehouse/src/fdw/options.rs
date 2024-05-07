@@ -1,61 +1,5 @@
+use crate::stores::base::BaseFdwError;
 use std::collections::HashMap;
-
-pub enum AmazonServerOption {
-    Endpoint,
-    Bucket,
-    Root,
-    Region,
-    AllowAnonymous,
-}
-
-impl AmazonServerOption {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Endpoint => "endpoint",
-            Self::Bucket => "bucket",
-            Self::Root => "root",
-            Self::Region => "region",
-            Self::AllowAnonymous => "allow_anonymous",
-        }
-    }
-
-    pub fn is_required(&self) -> bool {
-        match self {
-            Self::Endpoint => false,
-            Self::Bucket => true,
-            Self::Root => false,
-            Self::Region => false,
-            Self::AllowAnonymous => false,
-        }
-    }
-
-    pub fn iter() -> impl Iterator<Item = Self> {
-        [
-            Self::Endpoint,
-            Self::Bucket,
-            Self::Root,
-            Self::Region,
-            Self::AllowAnonymous,
-        ]
-        .into_iter()
-    }
-}
-
-pub enum AmazonUserMappingOption {
-    AccessKeyId,
-    SecretAccessKey,
-    SecurityToken,
-}
-
-impl AmazonUserMappingOption {
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::AccessKeyId => "access_key_id",
-            Self::SecretAccessKey => "secret_access_key",
-            Self::SecurityToken => "security_token",
-        }
-    }
-}
 
 pub enum TableOption {
     Path,
@@ -109,4 +53,21 @@ impl ServerOptions {
     pub fn user_mapping_options(&self) -> &HashMap<String, String> {
         &self.user_mapping_options
     }
+}
+
+pub fn validate_options(
+    opt_list: Vec<Option<String>>,
+    valid_options: Vec<String>,
+) -> Result<(), BaseFdwError> {
+    for opt in opt_list
+        .iter()
+        .flatten()
+        .map(|opt| opt.splitn(2, "=").next().unwrap_or(""))
+    {
+        if !valid_options.contains(&opt.to_string()) {
+            return Err(BaseFdwError::InvalidOption(opt.to_string(), valid_options));
+        }
+    }
+
+    Ok(())
 }

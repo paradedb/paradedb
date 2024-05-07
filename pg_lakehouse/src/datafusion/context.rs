@@ -15,7 +15,6 @@ use thiserror::Error;
 
 use crate::fdw::format::*;
 use crate::fdw::handler::*;
-use crate::fdw::object_store::*;
 use crate::fdw::options::*;
 use crate::schema::attribute::*;
 
@@ -169,9 +168,6 @@ pub enum ContextError {
 
     #[error(transparent)]
     FormatError(#[from] FormatError),
-
-    #[error(transparent)]
-    ObjectStoreError(#[from] ObjectStoreError),
 
     #[error(transparent)]
     OpendalError(#[from] opendal::Error),

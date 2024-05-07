@@ -114,10 +114,10 @@ OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 ### S3 Server Options
 
 - `bucket`: Name of the S3 bucket. Required for all object stores.
-- `root`: Path to the S3 bucket, e.g. `path/to/bucket`.
-- `region`: AWS region, e.g. `us-east-1`. Required for connecting to certain cloud object stores like MinIO. Required for MinIO, Scaleway, and Cloudflare R2.
+- `region`: AWS region, e.g. `us-east-1`. Required for connecting to certain cloud object stores like MinIO. Required for Amazon S3, MinIO, Scaleway, and Cloudflare R2.
 - `endpoint`: The endpoint for communicating with the S3 instance. Defaults to the [region endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example, can be set to `http://localhost:4566` if testing against a Localstack instance, or `http://127.0.0.1:9000` for MinIO. Required for all non Amazon S3 object stores.
 - `allow_anonymous`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
+- `root`: Working directory for the backend.
 
 ### S3 Table Options
 
@@ -232,14 +232,13 @@ SELECT to_timestamp("EventTime") FROM hits LIMIT 1;
 
 ### Install Rust
 
-To develop the extension, first install Rust v1.77.2 using `rustup`. We will soon make the extension compatible with newer versions of Rust:
+To develop the extension, first install Rust via `rustup`.
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-rustup install 1.77.2
+rustup install <version>
 
-# We recommend setting the default version to 1.77.2  for consistency across your system
-rustup default 1.77.2
+rustup default <version>
 ```
 
 Note: While it is possible to install Rust via your package manager, we recommend using `rustup` as we've observed inconcistencies with Homebrew's Rust installation on macOS.

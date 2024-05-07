@@ -15,7 +15,7 @@
 - [ ] Azure Blob Storage (coming soon)
 - [ ] Google Cloud Storage (coming soon)
 
-...and many more services supported by [OpenDAL](https://opendal.apache.org/docs/category/services). See the Development section for instructions on how to [add a service](#adding-a-service).
+...and potentially any service supported by [OpenDAL](https://opendal.apache.org/docs/category/services). See the Development section for instructions on how to [add a service](#adding-a-service).
 
 ### File Formats
 

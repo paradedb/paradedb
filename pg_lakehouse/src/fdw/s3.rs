@@ -157,8 +157,8 @@ impl BaseFdw for S3Fdw {
 
                 let mut path = match server_options.get(AmazonServerOption::Root.as_str()) {
                     Some(root) => {
-                        let mut path = PathBuf::from(root);
-                        path.push(bucket);
+                        let mut path = PathBuf::from(bucket);
+                        path.push(root);
                         path
                     }
                     None => PathBuf::from(bucket),

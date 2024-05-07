@@ -10,6 +10,7 @@
 ### Object Stores
 
 - [x] Amazon S3
+- [x] S3-compatible object stores (e.g. MinIO)
 - [x] Local file system
 - [ ] Azure Blob Storage (coming soon)
 - [ ] Google Cloud Storage (coming soon)
@@ -44,7 +45,7 @@ CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_v
 
 -- Provide S3 credentials
 CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
-OPTIONS (region 'us-east-1', url 's3://paradedb-benchmarks', skip_signature 'true');
+OPTIONS (bucket 'paradedb-benchmarks', region 'us-east-1', allow_anonymous 'true');
 
 -- Create foreign table
 CREATE FOREIGN TABLE trips (
@@ -89,17 +90,18 @@ must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are
 shared_preload_libraries = 'pg_lakehouse'
 ```
 
-## Amazon S3
+## S3
 
-This code block demonstrates how to create a foreign table over S3.
+This code block demonstrates how to create a foreign table over S3 or an S3-compatible object
+store like MinIO.
 
 ```sql
 CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
 CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
 OPTIONS (
+    bucket 'bucket_name'
     region 'us-east-1',
-    url 's3://path/to/bucket'
-    skip_signature 'true'
+    allow_anonymous 'true'
 );
 
 -- Replace the dummy schema with the actual schema of your file data
@@ -110,17 +112,17 @@ OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 
 ### S3 Server Options
 
-- `region` (required): AWS region, e.g. `us-east-1`
-- `url` (required): Path to the S3 bucket, starting with `s3://`
-- `endpoint`: The endpoint for communicating with the S3 instance. Defaults to the [region endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example, can be set to `http://localhost:4566` if testing against a Localstack instance.
-- `allow_http`: If set to `true`, allows both HTTP and HTTPS endpoints. Defaults to `false`.
-- `skip_signature`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
+- `bucket` (required): Name of the S3 bucket
+- `root`: Path to the S3 bucket, e.g. `path/to/bucket`
+- `region`: AWS region, e.g. `us-east-1`
+- `endpoint`: The endpoint for communicating with the S3 instance. Defaults to the [region endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example, can be set to `http://localhost:4566` if testing against a Localstack instance, or `http://127.0.0.1:9000` for MinIO.
+- `allow_anonymous`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
 
 ### S3 Table Options
 
 - `path` (required): Must start with `s3://` and point to the location of your file. The path should end in a `/` if it points to a directory of partitioned Parquet files.
 - `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
-- `format`: One of `delta` or `iceberg`. If omitted, `pg_lakehouse` assumes that no table format is used.
+- `format`: Only `delta` is supported for now. If omitted, `pg_lakehouse` assumes that no table format is used.
 
 ### S3 Credentials
 
@@ -148,7 +150,7 @@ Note: To make credentials available to all users, you can set the user to `publi
 
 - `access_key_id`: AWS access key ID
 - `secret_access_key`: AWS secret access key
-- `session_token`: Sets the AWS session token
+- `security_token`: Sets the AWS session token
 
 ## Local File System
 

@@ -174,6 +174,9 @@ pub enum ContextError {
     ObjectStoreError(#[from] ObjectStoreError),
 
     #[error(transparent)]
+    OpendalError(#[from] opendal::Error),
+
+    #[error(transparent)]
     OptionsError(#[from] supabase_wrappers::options::OptionsError),
 
     #[error(transparent)]

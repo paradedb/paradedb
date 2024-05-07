@@ -76,12 +76,29 @@ pub fn process_utility(
                         let explained_query_tree = (*stmt).query as *mut pg_sys::Query;
                         let es = pg_sys::NewExplainState();
                         (*es).format = pg_sys::ExplainFormat_EXPLAIN_FORMAT_TEXT;
-                        let internal_pstmt = pg_sys::pg_plan_query(
-                            explained_query_tree,
-                            query.clone().as_pg_cstr(),
-                            pg_sys::CURSOR_OPT_PARALLEL_OK.try_into().unwrap(),
-                            params.as_ptr(),
-                        );
+                        let internal_pstmt: *mut pg_sys::PlannedStmt;
+                        #[cfg(feature = "pg12")]
+                        {
+                            internal_pstmt = pg_sys::pg_plan_query(
+                                explained_query_tree,
+                                pg_sys::CURSOR_OPT_PARALLEL_OK.try_into().unwrap(),
+                                params.as_ptr(),
+                            );
+                        }
+                        #[cfg(any(
+                            feature = "pg13",
+                            feature = "pg14",
+                            feature = "pg15",
+                            feature = "pg16"
+                        ))]
+                        {
+                            internal_pstmt = pg_sys::pg_plan_query(
+                                explained_query_tree,
+                                query.clone().as_pg_cstr(),
+                                pg_sys::CURSOR_OPT_PARALLEL_OK.try_into().unwrap(),
+                                params.as_ptr(),
+                            );
+                        }
                         let query_desc = pg_sys::CreateQueryDesc(
                             internal_pstmt,
                             query.clone().as_pg_cstr(),

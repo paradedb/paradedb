@@ -7,7 +7,7 @@ use bytes::Bytes;
 use sqlx::{
     postgres::PgRow,
     testing::{TestArgs, TestContext, TestSupport},
-    ConnectOptions, Executor, FromRow, PgConnection, Postgres,
+    ConnectOptions, Decode, Executor, FromRow, PgConnection, Postgres, Type,
 };
 
 pub struct Db {
@@ -79,6 +79,18 @@ where
     fn fetch_dynamic(self, connection: &mut PgConnection) -> Vec<PgRow> {
         block_on(async {
             sqlx::query(self.as_ref())
+                .fetch_all(connection)
+                .await
+                .unwrap()
+        })
+    }
+
+    fn fetch_scalar<T>(self, connection: &mut PgConnection) -> Vec<T>
+    where
+        T: Type<Postgres> + for<'a> Decode<'a, sqlx::Postgres> + Send + Unpin,
+    {
+        block_on(async {
+            sqlx::query_scalar(self.as_ref())
                 .fetch_all(connection)
                 .await
                 .unwrap()

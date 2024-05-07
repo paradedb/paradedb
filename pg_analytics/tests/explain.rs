@@ -1,4 +1,4 @@
-#[allow(clippy::get_first)]
+#![allow(clippy::get_first)]
 mod fixtures;
 
 use fixtures::*;

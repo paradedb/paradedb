@@ -1,6 +1,7 @@
 mod alter;
 mod drop;
 mod executor;
+mod explain;
 mod handler;
 mod process;
 mod query;

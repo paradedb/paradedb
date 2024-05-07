@@ -1,5 +1,6 @@
 use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::common::arrow::error::ArrowError;
+use deltalake::datafusion::dataframe::DataFrame;
 use deltalake::datafusion::logical_expr::LogicalPlan;
 use deltalake::datafusion::prelude::SessionContext;
 use pgrx::*;
@@ -68,10 +69,10 @@ pub fn write_batches_to_slots(
     Ok(())
 }
 
-pub fn get_datafusion_batches(
+pub fn get_datafusion_dataframe(
     logical_plan: LogicalPlan,
     single_thread: bool,
-) -> Result<Vec<RecordBatch>, SelectHookError> {
+) -> Result<DataFrame, SelectHookError> {
     // Execute the logical plan and collect the resulting batches
     Ok(Session::with_session_context(|context| {
         Box::pin(async move {
@@ -83,7 +84,7 @@ pub fn get_datafusion_batches(
             } else {
                 context.execute_logical_plan(logical_plan).await?
             };
-            Ok(dataframe.collect().await?)
+            Ok(dataframe)
         })
     })?)
 }

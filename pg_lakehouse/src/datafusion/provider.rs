@@ -8,7 +8,7 @@ use deltalake::DeltaTableError;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::fdw::format::*;
+use crate::datafusion::format::*;
 use crate::schema::attribute::*;
 
 pub async fn create_listing_provider(

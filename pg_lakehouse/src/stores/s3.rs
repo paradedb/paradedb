@@ -1,9 +1,12 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
-use object_store::aws::AmazonS3;
+use object_store_opendal::OpendalStore;
+use opendal::services::S3;
+use opendal::Operator;
 use pgrx::*;
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
@@ -33,16 +36,35 @@ impl BaseFdw for S3Fdw {
     ) -> Result<(), ContextError> {
         Session::with_session_context(|context| {
             Box::pin(async move {
-                let object_store = Arc::new(AmazonS3::try_from(ServerOptions::new(
+                let builder = S3::try_from(ServerOptions::new(
                     server_options.clone(),
                     user_mapping_options.clone(),
-                ))?);
+                ))?;
 
-                let url = require_option(AmazonServerOption::Url.as_str(), &server_options)?;
+                let operator = Operator::new(builder)?.finish();
+                let object_store = Arc::new(OpendalStore::new(operator));
+                let bucket = require_option(AmazonServerOption::Bucket.as_str(), &server_options)?;
+
+                let mut path = match server_options.get(AmazonServerOption::Root.as_str()) {
+                    Some(root) => {
+                        let mut path = PathBuf::from(root);
+                        path.push(bucket);
+                        path
+                    }
+                    None => PathBuf::from(bucket),
+                };
+
+                if let Some(path_str) = path.to_str() {
+                    if path_str.starts_with("/") {
+                        path = PathBuf::from(&path_str[1..]);
+                    }
+                }
+
+                let url = format!("s3://{}", path.to_string_lossy());
 
                 context
                     .runtime_env()
-                    .register_object_store(&Url::parse(url)?, object_store);
+                    .register_object_store(&Url::parse(&url)?, object_store);
                 Ok(())
             })
         })

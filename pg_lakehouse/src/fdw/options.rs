@@ -2,44 +2,40 @@ use std::collections::HashMap;
 
 pub enum AmazonServerOption {
     Endpoint,
-    Url,
+    Bucket,
+    Root,
     Region,
-    SessionToken,
-    AllowHttp,
-    SkipSignature,
+    AllowAnonymous,
 }
 
 impl AmazonServerOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Endpoint => "endpoint",
-            Self::Url => "url",
+            Self::Bucket => "bucket",
+            Self::Root => "root",
             Self::Region => "region",
-            Self::SessionToken => "session_token",
-            Self::AllowHttp => "allow_http",
-            Self::SkipSignature => "skip_signature",
+            Self::AllowAnonymous => "allow_anonymous",
         }
     }
 
     pub fn is_required(&self) -> bool {
         match self {
             Self::Endpoint => false,
-            Self::Url => true,
-            Self::Region => true,
-            Self::SessionToken => false,
-            Self::AllowHttp => false,
-            Self::SkipSignature => false,
+            Self::Bucket => true,
+            Self::Root => false,
+            Self::Region => false,
+            Self::AllowAnonymous => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
         [
             Self::Endpoint,
-            Self::Url,
+            Self::Bucket,
+            Self::Root,
             Self::Region,
-            Self::SessionToken,
-            Self::AllowHttp,
-            Self::SkipSignature,
+            Self::AllowAnonymous,
         ]
         .into_iter()
     }
@@ -48,7 +44,7 @@ impl AmazonServerOption {
 pub enum AmazonUserMappingOption {
     AccessKeyId,
     SecretAccessKey,
-    SessionToken,
+    SecurityToken,
 }
 
 impl AmazonUserMappingOption {
@@ -56,7 +52,7 @@ impl AmazonUserMappingOption {
         match self {
             Self::AccessKeyId => "access_key_id",
             Self::SecretAccessKey => "secret_access_key",
-            Self::SessionToken => "session_token",
+            Self::SecurityToken => "security_token",
         }
     }
 }

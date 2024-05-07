@@ -1,4 +1,4 @@
-use crate::stores::base::BaseFdwError;
+use crate::fdw::base::BaseFdwError;
 use std::collections::HashMap;
 
 pub enum TableOption {

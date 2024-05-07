@@ -8,7 +8,7 @@ use thiserror::Error;
 
 use super::alter::{alter, AlterHookError};
 use super::drop::{drop, DropHookError};
-use super::executor::{execute_datafusion, ExecutorHookError};
+use super::executor::{get_df_exec_logical_plan_details, ExecutorHookError};
 use super::query::{Query, QueryStringError};
 use super::rename::{rename, RenameHookError};
 use super::truncate::{truncate, TruncateHookError};
@@ -77,29 +77,53 @@ pub fn process_utility(
                         let es = pg_sys::NewExplainState();
                         (*es).format = pg_sys::ExplainFormat_EXPLAIN_FORMAT_TEXT;
                         let internal_pstmt = pg_sys::pg_plan_query(
-                            explained_query_tree, 
-                            query.clone().as_pg_cstr(), 
-                            pg_sys::CURSOR_OPT_PARALLEL_OK.try_into().unwrap(), 
-                            params.as_ptr()
+                            explained_query_tree,
+                            query.clone().as_pg_cstr(),
+                            pg_sys::CURSOR_OPT_PARALLEL_OK.try_into().unwrap(),
+                            params.as_ptr(),
                         );
                         let query_desc = pg_sys::CreateQueryDesc(
-                            internal_pstmt, query.clone().as_pg_cstr(), std::ptr::null_mut(),
-                            std::ptr::null_mut(), dest.as_ptr(), params.as_ptr(), query_env.as_ptr(), 0
+                            internal_pstmt,
+                            query.clone().as_pg_cstr(),
+                            std::ptr::null_mut(),
+                            std::ptr::null_mut(),
+                            dest.as_ptr(),
+                            params.as_ptr(),
+                            query_env.as_ptr(),
+                            0,
                         );
 
                         // If successfully get logical plan details, then that means we use the datafusion plan
-                        let logical_plan_details_opt = execute_datafusion(&inner_query_string, pgbox::PgBox::from_pg(query_desc))?;
+                        let logical_plan_details_opt = get_df_exec_logical_plan_details(
+                            &inner_query_string,
+                            pgbox::PgBox::from_pg(query_desc),
+                        )?;
                         if let Some(logical_plan_details) = logical_plan_details_opt {
                             let es = pg_sys::NewExplainState();
-                            pg_sys::appendStringInfoString((*es).str_, format!("{:?}", logical_plan_details.logical_plan()).as_pg_cstr());
+                            pg_sys::appendStringInfoString(
+                                (*es).str_,
+                                format!("{:?}", logical_plan_details.logical_plan()).as_pg_cstr(),
+                            );
                             let tupdesc = pg_sys::CreateTemplateTupleDesc(1);
-                            pg_sys::TupleDescInitEntry(tupdesc, 1, "QUERY PLAN".as_pg_cstr(), pg_sys::TEXTOID, -1, 0);
-                            let tstate = pg_sys::begin_tup_output_tupdesc(dest.as_ptr(), tupdesc, &pg_sys::TTSOpsVirtual);
+                            pg_sys::TupleDescInitEntry(
+                                tupdesc,
+                                1,
+                                "QUERY PLAN".as_pg_cstr(),
+                                pg_sys::TEXTOID,
+                                -1,
+                                0,
+                            );
+                            let tstate = pg_sys::begin_tup_output_tupdesc(
+                                dest.as_ptr(),
+                                tupdesc,
+                                &pg_sys::TTSOpsVirtual,
+                            );
                             pg_sys::do_text_output_multiline(tstate, (*(*es).str_).data);
                             pg_sys::end_tup_output(tstate);
                             pg_sys::pfree((*(*es).str_).data as *mut std::ffi::c_void);
 
-                            return Ok(())
+                            // Don't execute prev_hook for EXPLAIN
+                            return Ok(());
                         }
                     }
                 }

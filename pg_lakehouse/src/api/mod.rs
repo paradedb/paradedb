@@ -4,9 +4,9 @@ use pgrx::*;
 use thiserror::Error;
 
 use crate::datafusion::context::ContextError;
+use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
 use crate::datafusion::session::Session;
-use crate::fdw::format::*;
 use crate::stores::utils::*;
 
 #[pg_extern]

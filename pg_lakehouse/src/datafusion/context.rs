@@ -13,7 +13,7 @@ use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
-use crate::fdw::format::*;
+use crate::datafusion::format::*;
 use crate::fdw::handler::*;
 use crate::fdw::options::*;
 use crate::schema::attribute::*;

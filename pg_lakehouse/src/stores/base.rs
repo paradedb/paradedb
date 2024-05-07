@@ -10,9 +10,9 @@ use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use crate::datafusion::context::ContextError;
+use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
 use crate::datafusion::session::Session;
-use crate::fdw::format::*;
 use crate::fdw::options::TableOption;
 use crate::schema::attribute::*;
 use crate::schema::cell::*;

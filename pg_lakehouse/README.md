@@ -27,7 +27,7 @@
 
 ### Table Formats
 
-- [x] Deltalake
+- [x] Delta Lake
 - [ ] Apache Iceberg (coming soon)
 
 `pg_lakehouse` is supported on Postgres 14, 15, and 16. Support for Postgres 12 and 13 is coming soon.
@@ -190,7 +190,7 @@ OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
 
 - `path` (required): An absolute path starting with `file:///`. The path should end in a `/` if it points to a directory of partitioned Parquet files.
 - `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
-- `format`: Only `delta` is accepted for the Deltalake format. If omitted, no table format is assumed.
+- `format`: Only `delta` is accepted for the Delta Lake format. If omitted, no table format is assumed.
 
 ## Arrow Types
 

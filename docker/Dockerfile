@@ -92,12 +92,8 @@ COPY pg_analytics/ /tmp/pg_analytics
 COPY shared/ /tmp/shared
 
 # Build the extension
-# Note: We need Rust nightly for an optimized build with packed_simd
 WORKDIR /tmp/pg_analytics
-RUN rustup update nightly && \
-    rustup override set nightly && \
-    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" --force && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
 # pg_lakehouse
@@ -120,13 +116,10 @@ COPY pg_lakehouse/ /tmp/pg_lakehouse
 COPY shared/ /tmp/shared
 
 # Build the extension
-# Note: We need Rust nightly for an optimized build with packed_simd
 # Note: We require a different version of pgrx (0.11.3) due to version compatibility
 # with the supabase/wrappers project on which pg_lakehouse is based
 WORKDIR /tmp/pg_lakehouse
-RUN rustup update nightly && \
-    rustup override set nightly && \
-    cargo install --locked cargo-pgrx --version "0.11.3" --force && \
+RUN cargo install --locked cargo-pgrx --version "0.11.3" --force && \
     cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################

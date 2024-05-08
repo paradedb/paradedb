@@ -140,44 +140,15 @@ must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are
 shared_preload_libraries = 'pg_analytics'
 ```
 
-### Run Without Optimized Build
+### Run the Extension
 
-The extension can be developed with or without an optimized build. An optimized build improves query times by 10-20x but also significantly increases build times.
-
-To launch the extension without an optimized build, run
+To run the extension, simply run:
 
 ```bash
 cargo pgrx run
 ```
 
-### Run With Optimized Build
-
-First, switch to latest Rust Nightly (as of writing, 1.78) via:
-
-```bash
-rustup update nightly
-rustup override set nightly
-```
-
-Then, reinstall `pgrx` for the new version of Rust:
-
-```bash
-cargo install --locked cargo-pgrx --version 0.12.0-alpha.1 --force
-```
-
-Finally, run to build in release mode with SIMD, via `packed_simd`:
-
-```bash
-cargo pgrx run --release
-```
-
-Note that this may take several minutes to execute.
-
-To revert to the stable version of Rust, run:
-
-```bash
-rustup override unset
-```
+This will run the extension in debug mode, which has a much faster build. To run the extension in release mode, simply add `--release`. This will result in a much slower build time, but faster query times.
 
 ### Run Benchmarks
 

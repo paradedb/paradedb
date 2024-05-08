@@ -41,7 +41,7 @@ Today, a vast amount of non-operational data — events, metrics, historical sna
 1. Lack of support for most object stores, file, and table formats
 2. Too slow over large datasets to be a viable analytical engine
 
-`pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats (thanks to OpenDAL) and by being very fast (thanks to DataFusion).
+`pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats (thanks to [OpenDAL](https://github.com/apache/opendal)) and by being very fast (thanks to [DataFusion](https://github.com/apache/datafusion)).
 
 ## Getting Started
 

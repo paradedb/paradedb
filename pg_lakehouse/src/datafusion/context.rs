@@ -112,7 +112,7 @@ async fn get_table_source(
     if pg_relation.is_foreign_table() {
         let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
         let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
-        let fdw_handler = unsafe { FdwHandler::from(foreign_server) };
+        let fdw_handler = FdwHandler::from(foreign_server);
 
         if fdw_handler != FdwHandler::Other {
             // Get foreign table and server options

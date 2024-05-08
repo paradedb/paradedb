@@ -110,6 +110,8 @@ if [ "$WORKLOAD" == "single" ]; then
 elif [ "$WORKLOAD" == "partitioned" ]; then
   # TODO: Clean this up
   echo "Using ClickBench's one hundred partitioned Parquet files for benchmarking..."
+  mkdir -p partitioned
+  seq 0 99 | xargs -P100 -I{} bash -c 'wget --no-verbose --directory-prefix partitioned --continue https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_{}.parquet'
 fi
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit

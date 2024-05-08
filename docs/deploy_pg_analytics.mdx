@@ -8,6 +8,11 @@ Note: We only provide instructions for deploying on Linux Debian/Ubuntu. If you 
 
 # Step-by-Step Guide
 
+## Prerequisites
+
+The `pg_analytics` extension has no additional dependencies for its standalone functionality. If you would like to create BM25 search indexes on `pg_analytics` tables, you will also need to install
+the `pg_search` extension. You can find the instructions for doing so [here](/deploy_pg_search).
+
 ## Installing `pg_analytics`
 
 ParadeDB provides pre-built binaries for the `pg_analytics` extension for Postgres 15 and 16, for Ubuntu 22.04. You can find them in the [GitHub Releases](https://github.com/paradedb/paradedb/releases/latest). If you
@@ -41,7 +46,7 @@ You will then need to reload your PostgreSQL server for the changes to take effe
 Once the extension binary is installed on your system, connect to your Postgres database via your client of choice (e.g. `psql`) and run the following command:
 
 ```sql
-CREATE EXTENSION pg_analytics CASCADE;
+CREATE EXTENSION pg_analytics;
 ```
 
 That's it! You're all set to use `pg_analytics` in your database. To get started, we suggest you follow the [quickstart guide](/search/quickstart).

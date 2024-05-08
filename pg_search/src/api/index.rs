@@ -365,9 +365,11 @@ term_fn!(jsonb, pgrx::JsonB, |pgrx::JsonB(v)| {
             .clone(),
     )
 });
-term_fn!(date, pgrx::Date, |_v| unimplemented!(
-    "date in term query not implemented"
-));
+term_fn!(date, pgrx::Date, |v: pgrx::Date| {
+    tantivy::schema::Value::Date(
+        tantivy::DateTime::from_timestamp_secs((v.to_unix_epoch_days() as i64) * 24 * 60 * 60)
+    )
+});
 term_fn!(time, pgrx::Time, |_v| unimplemented!(
     "time in term query not implemented"
 ));

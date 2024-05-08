@@ -1,13 +1,15 @@
 use async_std::task;
 use chrono::Datelike;
+use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
+use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
 use crate::datafusion::session::Session;
-use crate::fdw::utils::*;
+use crate::fdw::handler::*;
 
 #[pg_extern]
 pub fn arrow_schema(
@@ -37,7 +39,18 @@ async fn arrow_schema_impl(
     format: Option<String>,
 ) -> Result<iter::TableIterator<'static, (name!(field, String), name!(datatype, String))>, ApiError>
 {
-    register_object_store(server.as_str())?;
+    let foreign_server =
+        unsafe { pg_sys::GetForeignServerByName(server.clone().as_pg_cstr(), true) };
+
+    if foreign_server.is_null() {
+        return Err(ApiError::ForeignServerNotFound(server.to_string()));
+    }
+
+    let server_options = unsafe { options_to_hashmap((*foreign_server).options) }?;
+    let user_mapping_options = unsafe { user_mapping_options(foreign_server) };
+    let fdw_handler = FdwHandler::from(foreign_server);
+
+    register_object_store(fdw_handler, server_options, user_mapping_options)?;
 
     let provider = Session::with_session_context(|context| {
         Box::pin(async move {
@@ -66,5 +79,8 @@ pub enum ApiError {
     Context(#[from] ContextError),
 
     #[error(transparent)]
-    StoreUtils(#[from] StoreUtilsError),
+    Option(#[from] OptionsError),
+
+    #[error("No foreign server with name {0} was found")]
+    ForeignServerNotFound(String),
 }

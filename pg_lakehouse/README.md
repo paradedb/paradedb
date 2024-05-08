@@ -12,8 +12,8 @@
 - [x] Amazon S3
 - [x] S3-compatible object stores (e.g. MinIO)
 - [x] Local file system
+- [x] Google Cloud Storage
 - [ ] Azure Blob Storage (coming soon)
-- [ ] Google Cloud Storage (coming soon)
 
 ...and potentially any service supported by [Apache OpenDAL](https://opendal.apache.org/docs/category/services). See the Development section for instructions on how to [add a service](#adding-a-service).
 
@@ -36,7 +36,7 @@
 
 Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is ingested into data lakes like S3. Querying this data by moving it into a cloud data warehouse or operating a new query engine is expensive and time consuming. The goal of `pg_lakehouse` is to enable this data to be queried directly from Postgres. This eliminates the need for new infrastructure, loss of data freshness, data movement, and non-Postgres dialects of other query engines.
 
-`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs like `aws_s3` have existed in the Postgres extension ecosystem, these FDWs have two major limitations:
+`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs like `aws_s3` have existed in the Postgres extension ecosystem, these FDWs suffer from two limitations:
 
 1. Lack of support for most object stores, file, and table formats
 2. Too slow over large datasets to be a viable analytical engine
@@ -100,7 +100,7 @@ shared_preload_libraries = 'pg_lakehouse'
 
 ## Inspecting the Foreign Schema
 
-The `arrow_schema` function displays the schema of a foreign table. This function is useful for verifying that the server and table credentials you've provided are valid. If the connection is successful, a table will be returned with the [Arrow schema](https://docs.rs/datafusion/latest/datafusion/common/arrow/datatypes/enum.DataType.html) of the foreign table.
+The `arrow_schema` function displays the schema of a foreign table. This function is useful for verifying that the server and table credentials you've provided are valid. If the connection is successful and `pg_lakehouse` is able to read the foreign data, a table will be returned with the [Arrow schema](https://docs.rs/datafusion/latest/datafusion/common/arrow/datatypes/enum.DataType.html) of the foreign table. Otherwise, an empty table will be returned or an error will be thrown.
 
 ```sql
 SELECT * FROM arrow_schema(
@@ -296,4 +296,8 @@ Note: While it is possible to develop using pgrx's own Postgres installation(s),
 
 `pg_lakehouse` uses Apache OpenDAL to integrate with various object stores. As of the time of writing, some — but not all — of the object stores supported by OpenDAL have been integrated.
 
-Adding support for a new object store is as straightforward as creating a file in the `fdw/` folder that implements the `BaseFdw` trait.
+Adding support for a new object store is as straightforward as
+
+1. Adding the service feature to `opendal` in `Cargo.toml`. For instance, S3 requires `services-s3`.
+2. Creating a file in the `fdw/` folder that implements the `BaseFdw` trait. For instance, `fdw/s3.rs` implements the S3 FDW.
+3. Registering the FDW in `fdw/handler.rs`.

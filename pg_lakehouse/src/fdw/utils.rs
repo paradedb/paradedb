@@ -4,9 +4,10 @@ use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use crate::datafusion::context::ContextError;
-use crate::fdw::handler::FdwHandler;
 
 use super::base::*;
+use super::gcs::GcsFdw;
+use super::handler::*;
 use super::local::LocalFileFdw;
 use super::s3::S3Fdw;
 
@@ -19,7 +20,7 @@ pub fn register_object_store(server: &str) -> Result<(), StoreUtilsError> {
 
     let server_options = unsafe { options_to_hashmap((*foreign_server).options) }?;
     let user_mapping_options = unsafe { user_mapping_options(foreign_server) };
-    let fdw_handler = unsafe { FdwHandler::from((*foreign_server).fdwid) };
+    let fdw_handler = unsafe { FdwHandler::from(foreign_server) };
 
     match fdw_handler {
         FdwHandler::S3 => {
@@ -27,6 +28,9 @@ pub fn register_object_store(server: &str) -> Result<(), StoreUtilsError> {
         }
         FdwHandler::LocalFile => {
             LocalFileFdw::register_object_store(server_options, user_mapping_options)?;
+        }
+        FdwHandler::Gcs => {
+            GcsFdw::register_object_store(server_options, user_mapping_options)?;
         }
         _ => {
             return Err(StoreUtilsError::InvalidServerName(server.to_string()));

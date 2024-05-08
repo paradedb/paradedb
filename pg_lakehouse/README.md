@@ -98,6 +98,20 @@ must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are
 shared_preload_libraries = 'pg_lakehouse'
 ```
 
+## Inspecting the Foreign Schema
+
+The `arrow_schema` function displays the schema of a foreign table. This function is useful for verifying that the server and table credentials you've provided are valid. If the connection is successful, a table will be returned with the [Arrow schema](https://docs.rs/datafusion/latest/datafusion/common/arrow/datatypes/enum.DataType.html) of the foreign table.
+
+```sql
+SELECT * FROM arrow_schema(
+  server => 's3_server',
+  path => 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
+  extension => 'parquet'
+);
+```
+
+You can also use this function to decide what Postgres types to assign to each column of the foreign table. For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT`, `VARCHAR`, or `BPCHAR` column. If an incompatible Postgres type is chosen, querying the table will fail.
+
 ## S3
 
 This code block demonstrates how to create a foreign table over S3 or an S3-compatible object
@@ -191,20 +205,6 @@ OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
 - `path` (required): An absolute path starting with `file:///`. The path should end in a `/` if it points to a directory of partitioned Parquet files.
 - `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
 - `format`: Only `delta` is accepted for the Delta Lake format. If omitted, no table format is assumed.
-
-## Arrow Types
-
-DataFusion assigns an [Arrow datatype](https://docs.rs/datafusion/latest/datafusion/common/arrow/datatypes/enum.DataType.html) to each field of a foreign file's schema. This means that every column in the corresponding Postgres foreign table must have a Postgres type that can be converted to the underlying Arrow datatype. For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT`, `VARCHAR`, or `BPCHAR` column. If an incompatible Postgres type is chosen, querying the table will fail.
-
-The `arrow_schema` function displays the schema of a foreign table, which is helpful in choosing the schema of the Postgres foreign table.
-
-```sql
-SELECT * FROM arrow_schema(
-  server => 's3_server',
-  path => 's3://paradedb-benchmarks/yellow_tripdata_2024-01.parquet',
-  extension => 'parquet'
-);
-```
 
 ## Datetime Types
 

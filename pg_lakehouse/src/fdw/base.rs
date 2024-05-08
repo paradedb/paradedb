@@ -1,21 +1,13 @@
 use async_std::task;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::catalog::CatalogProvider;
-use datafusion::common::arrow::datatypes::{DataType, Field, SchemaBuilder};
 use datafusion::common::DataFusionError;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use deltalake::DeltaTableError;
-use fdw::format::*;
-use fdw::lake::*;
-use fdw::options::TableOption;
-use iceberg::{Catalog, NamespaceIdent};
-use iceberg_catalog_glue::{
-    GlueCatalog, GlueCatalogConfig, AWS_ACCESS_KEY_ID, AWS_REGION_NAME, AWS_SECRET_ACCESS_KEY,
-};
 use iceberg_datafusion::IcebergCatalogProvider;
 use pgrx::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
@@ -67,16 +59,35 @@ pub trait BaseFdw {
 
         let limit = limit.clone();
         let columns = columns.to_vec();
-        let format = require_option_or(TableOption::Format.as_str(), options, "");
 
-        pgrx::info!("FORMAT {format}, {:?}", oid_map);
-        let provider = match TableFormat::from(format) {
-            TableFormat::None => {
-                create_listing_provider(options.clone(), oid_map, &self.get_session_state())?
-            }
-            TableFormat::Delta => task::block_on(create_delta_provider(options.clone()))?,
-            TableFormat::Iceberg => task::block_on(create_iceberg_provider(options.clone()))?,
-        };
+        // The Oids passed into options where converted to strings, and their Display impls
+        // cause them to appear like: 'oid=#'. As a hack, we'll just strip that and parse the
+        // remaining string as a u32
+        let database_oid = options
+            .get("database_oid")
+            .expect("no database_oid passed to being_scan_impl")
+            .strip_prefix("oid=#")
+            .and_then(|s| s.parse::<u32>().ok())
+            .expect("error parsing database oid in begin_scan_impl")
+            .clone();
+        let schema_oid = options
+            .get("namespace_oid")
+            .expect("no database_oid passed to being_scan_impl")
+            .strip_prefix("oid=#")
+            .and_then(|s| s.parse::<u32>().ok())
+            .expect("error parsing schema oid in begin_scan_impl")
+            .clone();
+        let table_oid = options
+            .get("table_oid")
+            .expect("no database_oid passed to being_scan_impl")
+            .strip_prefix("oid=#")
+            .and_then(|s| s.parse::<u32>().ok())
+            .expect("error parsing table oid in begin_scan_impl")
+            .clone();
+
+        let foreign_table = unsafe { pg_sys::GetForeignTable(pg_sys::Oid::from(table_oid)) };
+        let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+        let user_mapping_options = unsafe { user_mapping_options(foreign_server) };
 
         let result = Session::with_session_context(|context| {
             Box::pin(async move {
@@ -89,6 +100,52 @@ pub trait BaseFdw {
                         task::block_on(create_listing_provider(path, extension, &context.state()))?
                     }
                     TableFormat::Delta => task::block_on(create_delta_provider(path, extension))?,
+                    TableFormat::Iceberg => {
+                        let table_config = IcebergTableConfigBuilder::default()
+                            .warehouse(path)
+                            .database(database_oid.to_string())
+                            .namespace(schema_oid.to_string())
+                            .table(table_oid.to_string())
+                            .columns(&columns)
+                            .map_err(|err| BaseFdwError::Unexpected(err.to_string()))
+                            .expect("could not convert columns to arrow schema")
+                            .build()
+                            .map_err(|err| BaseFdwError::Unexpected(err.to_string()))
+                            .expect("could not build iceberg table config");
+                        let catalog_config = IcebergCatalogConfigBuilder::default()
+                            .aws_access_key_opt(user_mapping_options.get("aws_access_key"))
+                            .aws_secret_access_key_opt(
+                                user_mapping_options.get("aws_secret_access_key"),
+                            )
+                            .aws_region("us-east-1")
+                            .build()
+                            .map_err(|err| BaseFdwError::Unexpected(err.to_string()))
+                            .expect("could not build iceberg catalog config");
+
+                        let catalog = task::block_on(catalog_config.catalog(&table_config))
+                            .expect("could not create iceberg catalog");
+
+                        task::block_on(catalog_config.ensure_namespace(&catalog, &table_config))
+                            .expect("could not create iceberg namespace");
+
+                        task::block_on(catalog_config.ensure_table(&catalog, &table_config))
+                            .expect("could not create iceberg table");
+
+                        let table_provider =
+                            task::block_on(catalog_config.table_provider(&table_config))
+                                .expect("could not build iceberg table provider");
+
+                        context.register_catalog(
+                            "iceberg",
+                            Arc::new(
+                                IcebergCatalogProvider::try_new(Arc::new(catalog))
+                                    .await
+                                    .expect("could not create iceberg catalog provider"),
+                            ),
+                        );
+
+                        table_provider
+                    }
                 };
 
                 for (index, field) in provider.schema().fields().iter().enumerate() {
@@ -174,123 +231,13 @@ impl From<BaseFdwError> for pg_sys::panic::ErrorReport {
     }
 }
 
-#[inline]
-fn create_listing_provider(
-    table_options: HashMap<String, String>,
-    mut oid_map: HashMap<usize, pg_sys::Oid>,
-    state: &SessionState,
-) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
-    let path = require_option(TableOption::Path.as_str(), &table_options)?;
-    let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
-
-    let listing_url = ListingTableUrl::parse(path)?;
-    let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
-
-    let inferred_schema = task::block_on(listing_options.infer_schema(state, &listing_url))?;
-    let mut schema_builder = SchemaBuilder::new();
-
-    for (index, field) in inferred_schema.fields().iter().enumerate() {
-        match oid_map.remove(&index) {
-            Some(oid) => {
-                // Types can get incorrectly inferred, so we override them
-                let data_type = match (oid, field.data_type()) {
-                    (pg_sys::BOOLOID, _) => DataType::Boolean,
-                    (pg_sys::DATEOID, _) => DataType::Int32,
-                    (pg_sys::TIMESTAMPOID, _) => DataType::Int64,
-                    (pg_sys::VARCHAROID, _) => DataType::Utf8,
-                    (pg_sys::BPCHAROID, _) => DataType::Utf8,
-                    (pg_sys::TEXTOID, _) => DataType::Utf8,
-                    (pg_sys::INT2OID, _) => DataType::Int16,
-                    (pg_sys::INT4OID, _) => DataType::Int32,
-                    (pg_sys::INT8OID, _) => DataType::Int64,
-                    (pg_sys::FLOAT4OID, _) => DataType::Float32,
-                    (pg_sys::FLOAT8OID, _) => DataType::Float64,
-                    (_, data_type) => data_type.clone(),
-                };
-                schema_builder.push(Field::new(field.name(), data_type, field.is_nullable()))
-            }
-            None => schema_builder.push(field.clone()),
-        };
-    }
-
-    let updated_schema = Arc::new(schema_builder.finish());
-
-    let listing_config = ListingTableConfig::new(listing_url)
-        .with_listing_options(listing_options)
-        .with_schema(updated_schema);
-
-    let listing_table = ListingTable::try_new(listing_config)?;
-
-    Ok(Arc::new(listing_table) as Arc<dyn TableProvider>)
-}
-
-#[inline]
-async fn create_delta_provider(
-    table_options: HashMap<String, String>,
-) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
-    let path = require_option(TableOption::Path.as_str(), &table_options)?;
-    let delta_table = deltalake::open_table(path).await?;
-
-    Ok(Arc::new(delta_table) as Arc<dyn TableProvider>)
-}
-
-#[inline]
-async fn create_iceberg_provider(
-    table_options: HashMap<String, String>,
-) -> Result<Arc<dyn TableProvider>, BaseFdwError> {
-    let path = require_option(TableOption::Path.as_str(), &table_options)?;
-
-    // TODO: Replace with non-REST.
-    let config = GlueCatalogConfig::builder()
-        .warehouse(path.to_string())
-        .props(HashMap::from([
-            (AWS_ACCESS_KEY_ID.to_string(), "".to_string()),
-            (AWS_SECRET_ACCESS_KEY.to_string(), "".to_string()),
-            (AWS_REGION_NAME.to_string(), "us-east-1".to_string()),
-            // (
-            //     S3_ENDPOINT.to_string(),
-            //     format!("http://{}:{}", minio_ip, MINIO_PORT),
-            // ),
-            // (S3_ACCESS_KEY_ID.to_string(), "admin".to_string()),
-            // (S3_SECRET_ACCESS_KEY.to_string(), "password".to_string()),
-            // (S3_REGION.to_string(), "us-east-1".to_string()),
-        ]))
-        .build();
-    pgrx::info!("config {config:?}");
-
-    let client = Arc::new(GlueCatalog::new(config).await.unwrap());
-    pgrx::info!("client {client:?}");
-
-    client
-        .create_namespace(&NamespaceIdent::new("default".into()), HashMap::default())
-        .await
-        .unwrap();
-
-    let catalog = Arc::new(
-        IcebergCatalogProvider::try_new(client)
-            .await
-            .expect("no catalog provider"),
-    );
-    pgrx::info!("catalog");
-
-    pgrx::info!("schema names {:?}", catalog.schema_names());
-    let schema = catalog.schema("default").expect("no schema");
-    pgrx::info!("schema");
-
-    let table = schema
-        .table(path)
-        .await
-        .expect("no inner table")
-        .expect("no outer table");
-    pgrx::info!("table");
-
-    Ok(table)
-}
-
 #[derive(Error, Debug)]
 pub enum BaseFdwError {
     #[error(transparent)]
     ArrowError(#[from] ArrowError),
+
+    #[error("could not convert oid/typemod to arrow data type: {0}")]
+    ArrowConversionError(String),
 
     #[error(transparent)]
     ContextError(#[from] ContextError),
@@ -330,4 +277,7 @@ pub enum BaseFdwError {
 
     #[error("Received unsupported FDW oid {0:?}")]
     UnsupportedFdwOid(PgOid),
+
+    #[error("Unexpected error: {0}")]
+    Unexpected(String),
 }

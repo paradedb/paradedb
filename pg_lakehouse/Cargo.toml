@@ -17,11 +17,12 @@ pg16 = ["pgrx/pg16", "pgrx-tests/pg16" ]
 pg_test = []
 
 [dependencies]
+arrow = "51.0.0"
 async-std = { version = "1.12.0", features = ["tokio1"] }
 chrono = "0.4.34"
 datafusion = "37.1.0"
 deltalake = { git = "https://github.com/paradedb/delta-rs.git", branch = "main", features = ["datafusion"] }
-fdw = { path = "../fdw" }
+derive_builder = "0.20.0"
 iceberg = { git = "https://github.com/apache/iceberg-rust", rev = "1c66e5a", version = "0.2.0" }
 iceberg-catalog-glue = { git = "https://github.com/apache/iceberg-rust", rev = "1c66e5a", version = "0.2.0" }
 iceberg-catalog-rest = { git = "https://github.com/apache/iceberg-rust", rev = "1c66e5a", version = "0.2.0" }
@@ -30,9 +31,10 @@ object_store = { version = "0.9.1", features = ["aws", "http"] }
 object_store_opendal = { git = "https://github.com/apache/opendal.git" }
 opendal = { git = "https://github.com/apache/opendal.git", features = ["services-gcs", "services-s3"] }
 pgrx = "0.11.3"
-supabase-wrappers = { git = "https://github.com/paradedb/wrappers", default-features = false }
+supabase-wrappers = { git = "https://github.com/paradedb/wrappers", rev = "7475092", default-features = false }
 thiserror = "1.0.59"
 url = "2.5.0"
+uuid = "1.8.0"
 
 [dev-dependencies]
 pgrx-tests = "0.11.3"

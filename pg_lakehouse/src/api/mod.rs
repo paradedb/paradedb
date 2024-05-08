@@ -59,6 +59,9 @@ async fn arrow_schema_impl(
                     create_listing_provider(&path, &extension, &context.state()).await?
                 }
                 TableFormat::Delta => (create_delta_provider(&path, &extension)).await?,
+                TableFormat::Iceberg => {
+                    unimplemented!("arrow schema not implemented for iceberg tables")
+                }
             })
         })
     })?;

@@ -7,6 +7,7 @@ use datafusion::execution::FunctionRegistry;
 use datafusion::logical_expr::{AggregateUDF, LogicalPlan, ScalarUDF, TableSource, WindowUDF};
 use datafusion::sql::planner::ContextProvider;
 use datafusion::sql::TableReference;
+use pgrx::pg_sys::MyDatabaseId;
 use pgrx::*;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -22,6 +23,8 @@ use super::plan::*;
 use super::provider::*;
 use super::session::Session;
 
+/// Implements "get_table_source", which is called by Datafusion when it needs a table provider.
+/// Called when you create or execute a logical plan.
 pub struct QueryContext {
     options: ConfigOptions,
 }
@@ -111,12 +114,17 @@ async fn get_table_source(
 
     if pg_relation.is_foreign_table() {
         let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+        let foreign_table_oid = unsafe { (*foreign_table).relid };
         let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+        let database_oid = unsafe { MyDatabaseId };
+        let namespace_oid = pg_relation.namespace_oid();
         let fdw_handler = FdwHandler::from(foreign_server);
 
         if fdw_handler != FdwHandler::Other {
             // Get foreign table and server options
             let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+            let _server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
+            let user_mapping_options = unsafe { user_mapping_options(foreign_server) };
 
             // Create provider for foreign table
             let mut attribute_map: HashMap<usize, PgAttribute> = pg_relation
@@ -143,6 +151,61 @@ async fn get_table_source(
                     })
                 })?,
                 TableFormat::Delta => create_delta_provider(&path, &extension).await?,
+                TableFormat::Iceberg => {
+                    let mut columns = vec![];
+                    // Iterate over the attributes of the relation
+                    for (attno, attr) in pg_relation.tuple_desc().into_iter().enumerate() {
+                        if !attr.is_dropped() {
+                            // Append to the vector
+                            columns.push(supabase_wrappers::interface::Column {
+                                name: attr.name().to_string(),
+                                num: attno,
+                                type_oid: attr.type_oid().value(),
+                                type_mod: attr.type_mod(),
+                            });
+                        }
+                    }
+                    let table_config = IcebergTableConfigBuilder::default()
+                        .warehouse(path)
+                        .database(database_oid.to_string())
+                        .namespace(namespace_oid.to_string())
+                        .table(foreign_table_oid.to_string())
+                        .columns(&columns)
+                        .map_err(|err| ContextError::Unexpected(err.to_string()))
+                        .expect("could not convert columns to arrow schema")
+                        .build()
+                        .map_err(|err| ContextError::Unexpected(err.to_string()))
+                        .expect("could not build iceberg table config");
+                    let catalog_config = IcebergCatalogConfigBuilder::default()
+                        .aws_access_key_opt(user_mapping_options.get("aws_access_key"))
+                        .aws_secret_access_key_opt(
+                            user_mapping_options.get("aws_secret_access_key"),
+                        )
+                        .aws_region("us-east-1")
+                        .build()
+                        .map_err(|err| ContextError::Unexpected(err.to_string()))
+                        .expect("could not build iceberg catalog config");
+
+                    let catalog = catalog_config
+                        .catalog(&table_config)
+                        .await
+                        .expect("could not create iceberg catalog");
+
+                    catalog_config
+                        .ensure_namespace(&catalog, &table_config)
+                        .await
+                        .expect("could not create iceberg namespace");
+
+                    catalog_config
+                        .ensure_table(&catalog, &table_config)
+                        .await
+                        .expect("could not create iceberg table");
+
+                    catalog_config
+                        .table_provider(&table_config)
+                        .await
+                        .expect("could not build iceberg table provider")
+                }
             };
 
             for (index, field) in provider.schema().fields().iter().enumerate() {
@@ -195,4 +258,7 @@ pub enum ContextError {
 
     #[error("Could not get definition for view {0}")]
     ViewNotFound(String),
+
+    #[error("Unexpected error: {0}")]
+    Unexpected(String),
 }

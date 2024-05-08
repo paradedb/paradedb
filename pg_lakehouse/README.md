@@ -5,7 +5,7 @@
 
 ## Overview
 
-`pg_lakehouse` is an extension that transforms Postgres into a big data query engine over object stores like S3 and table formats like Apache Iceberg. Queries are pushed down to [Apache DataFusion](https://github.com/apache/datafusion), which delivers excellent analytical performance. Combinations of the following object stores, table formats, and file formats are supported.
+`pg_lakehouse` is an extension that transforms Postgres into an analytical query engine over object stores like S3 and table formats like Apache Iceberg. Queries are pushed down to [Apache DataFusion](https://github.com/apache/datafusion), which delivers excellent analytical performance. Combinations of the following object stores, table formats, and file formats are supported.
 
 ### Object Stores
 
@@ -15,7 +15,7 @@
 - [ ] Azure Blob Storage (coming soon)
 - [ ] Google Cloud Storage (coming soon)
 
-...and potentially any service supported by [OpenDAL](https://opendal.apache.org/docs/category/services). See the Development section for instructions on how to [add a service](#adding-a-service).
+...and potentially any service supported by [Apache OpenDAL](https://opendal.apache.org/docs/category/services). See the Development section for instructions on how to [add a service](#adding-a-service).
 
 ### File Formats
 
@@ -36,7 +36,12 @@
 
 Today, a vast amount of non-operational data — events, metrics, historical snapshots, vendor data, etc. — is ingested into data lakes like S3. Querying this data by moving it into a cloud data warehouse or operating a new query engine is expensive and time consuming. The goal of `pg_lakehouse` is to enable this data to be queried directly from Postgres. This eliminates the need for new infrastructure, loss of data freshness, data movement, and non-Postgres dialects of other query engines.
 
-`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs like `aws_s3` have existed in the Postgres extension ecosystem, these FDWs lack support for most object stores, file, and table formats and are very slow for large analytical queries. `pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats and by being very fast.
+`pg_lakehouse` uses the foreign data wrapper (FDW) API to connect to any object store or table format and the executor hook API to push queries to DataFusion. While other FDWs like `aws_s3` have existed in the Postgres extension ecosystem, these FDWs have two major limitations:
+
+1. Lack of support for most object stores, file, and table formats
+2. Too slow over large datasets to be a viable analytical engine
+
+`pg_lakehouse` differentiates itself by supporting a wide breadth of stores and formats (thanks to OpenDAL) and by being very fast (thanks to DataFusion).
 
 ## Getting Started
 

@@ -116,7 +116,7 @@ OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
 ### S3 Server Options
 
 - `bucket`: Name of the S3 bucket. Required for all object stores.
-- `region`: AWS region, e.g. `us-east-1`. Required for connecting to certain cloud object stores like MinIO. Required for Amazon S3, MinIO, Scaleway, and Cloudflare R2.
+- `region`: AWS region, e.g. `us-east-1`. Required for Amazon S3, MinIO, Scaleway, and Cloudflare R2.
 - `endpoint`: The endpoint for communicating with the S3 instance. Defaults to the [region endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example, can be set to `http://localhost:4566` if testing against a Localstack instance, or `http://127.0.0.1:9000` for MinIO. Required for all non Amazon S3 object stores.
 - `allow_anonymous`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
 - `root`: Working directory for the backend.

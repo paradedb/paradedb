@@ -38,12 +38,6 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-latest
-            pg_version: 12
-            arch: amd64
-          - runner: ubuntu-latest
-            pg_version: 13
-            arch: amd64
-          - runner: ubuntu-latest
             pg_version: 14
             arch: amd64
           - runner: ubuntu-latest

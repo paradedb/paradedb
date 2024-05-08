@@ -1,4 +1,4 @@
-comment = 'pg_lakehouse:  Created by pgrx'
+comment = 'pg_lakehouse: An analytical query engine for Postgres'
 default_version = '@CARGO_VERSION@'
 module_pathname = '$libdir/pg_lakehouse'
 relocatable = false

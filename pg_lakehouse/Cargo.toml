@@ -1,6 +1,7 @@
 [package]
 name = "pg_lakehouse"
-version = "0.0.0"
+description = "An analytical query engine for Postgres"
+version = "0.6.2"
 edition = "2021"
 
 [lib]

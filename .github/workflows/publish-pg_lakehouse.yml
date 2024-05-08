@@ -113,7 +113,7 @@ jobs:
           echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
           echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-          echo 'Description: TODO' >> $CONTROL_FILE
+          echo 'Description: An analytical query engine for Postgres' >> $CONTROL_FILE
 
           # Create .deb package
           sudo chown -R root:root ${package_dir}

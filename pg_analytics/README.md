@@ -133,7 +133,7 @@ Note: While it is possible to develop using pgrx's own Postgres installation(s),
 ### Configure Shared Preload Libraries
 
 This extension uses Postgres hooks to intercept Postgres queries. In order to enable these hooks, the extension
-must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are using Postgres 16, this file can be found under `~/.pgrx/data-16`.
+must be added to `shared_preload_libraries` inside `postgresql.conf`.
 
 ```bash
 # Inside postgresql.conf

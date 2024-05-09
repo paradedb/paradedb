@@ -3,9 +3,6 @@
 /docs/search/full-text/autocomplete.mdx
 /docs/search/full-text/fuzzy.mdx
 /docs/upgrading.mdx
-/pg_analytics/benchmarks/clickbench/*.tsv
-/pg_analytics/benchmarks/tpch/__MACOSX/
-/pg_analytics/benchmarks/tpch/TPC-H_V3.0.1/
 /pg_search/benchmarks/out/
 /pg_search/benchmarks/*_ts.json
 /pg_search/benchmarks/wiki-articles.json

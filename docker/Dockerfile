@@ -73,34 +73,6 @@ WORKDIR /tmp/pg_search
 RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
-# pg_analytics
-######################
-
-FROM builder as builder-pg_analytics
-
-ARG POSTHOG_API_KEY
-ARG POSTHOG_HOST
-ARG COMMIT_SHA
-ARG TELEMETRY
-
-# Declare compile-time environment variables
-ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
-    POSTHOG_HOST=${POSTHOG_HOST} \
-    COMMIT_SHA=${COMMIT_SHA} \
-    TELEMETRY=${TELEMETRY}
-
-COPY pg_analytics/ /tmp/pg_analytics
-COPY shared/ /tmp/shared
-
-# Build the extension
-# Note: We require Rust nightly to build pg_analytics with SIMD
-WORKDIR /tmp/pg_analytics
-RUN rustup update nightly && \
-    rustup override set nightly && \
-    cargo install --locked cargo-pgrx --version "${PGRX_VERSION}" --force && \
-    cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
-
-######################
 # pgvector
 ######################
 
@@ -151,8 +123,6 @@ COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /opt/bitnami/postgresql/share/ext
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
-COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/
-COPY --from=builder-pg_analytics /tmp/pg_analytics/target/release/pg_analytics-pg${PG_VERSION_MAJOR}/usr/share/postgresql/${PG_VERSION_MAJOR}/extension/* /opt/bitnami/postgresql/share/extension/
 
 # Install runtime dependencies (requires switching to root temporarily)
 USER root
@@ -164,7 +134,7 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
-ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_search,pg_analytics"
+ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_search"
 
 # We set a default password to enable users to get started quickly, as it is a required
 # environment variable for the Bitnami image.

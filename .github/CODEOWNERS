@@ -6,7 +6,6 @@
 /cargo-paradedb/                                               @neilyio @rebasedming
 /docker/                                                       @philippemnoel @rebasedming
 /docs/                                                         @rebasedming @neilyio
-/pg_analytics/                                                 @rebasedming @sardination
 /pg_search/                                                    @rebasedming @neilyio
 /shared/                                                       @rebasedming @neilyio
 /tokenizers/                                                   @rebasedming @neilyio

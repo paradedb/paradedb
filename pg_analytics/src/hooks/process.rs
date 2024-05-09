@@ -7,6 +7,8 @@ use thiserror::Error;
 
 use super::alter::{alter, AlterHookError};
 use super::drop::{drop, DropHookError};
+use super::executor::ExecutorHookError;
+use super::explain::{explain, ExplainHookError};
 use super::query::{Query, QueryStringError};
 use super::rename::{rename, RenameHookError};
 use super::truncate::{truncate, TruncateHookError};
@@ -64,6 +66,21 @@ pub fn process_utility(
             NodeTag::T_TruncateStmt => {
                 task::block_on(truncate(plan as *mut pg_sys::TruncateStmt))?;
             }
+            NodeTag::T_ExplainStmt => {
+                if let Ok(ASTVec(ast)) = ast {
+                    if explain(
+                        plan as *mut pg_sys::ExplainStmt,
+                        &ast[0],
+                        &query,
+                        &params,
+                        &query_env,
+                        &dest,
+                    )? {
+                        // If explain returns true for a successful Datafusion explain, then we don't run prev_hook
+                        return Ok(());
+                    }
+                }
+            }
             _ => {}
         };
 
@@ -92,6 +109,12 @@ pub enum ProcessHookError {
 
     #[error(transparent)]
     DropHook(#[from] DropHookError),
+
+    #[error(transparent)]
+    ExecutorHook(#[from] ExecutorHookError),
+
+    #[error(transparent)]
+    ExplainHook(#[from] ExplainHookError),
 
     #[error(transparent)]
     QueryString(#[from] QueryStringError),

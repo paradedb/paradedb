@@ -15,7 +15,7 @@ pub extern "C" fn deltalake_tuple_update(
     _lockmode: *mut pg_sys::LockTupleMode,
     _update_indexes: *mut bool,
 ) -> pg_sys::TM_Result {
-    panic!("{}", UpdateError::UpdateNotsupported.to_string());
+    panic!("{}", UpdateError::UpdateNotSupported.to_string());
 }
 
 #[pg_guard]
@@ -32,11 +32,11 @@ pub extern "C" fn deltalake_tuple_update(
     _lockmode: *mut pg_sys::LockTupleMode,
     _update_indexes: *mut pg_sys::TU_UpdateIndexes,
 ) -> pg_sys::TM_Result {
-    panic!("{}", UpdateError::UpdateNotsupported.to_string());
+    panic!("{}", UpdateError::UpdateNotSupported.to_string());
 }
 
 #[derive(Error, Debug)]
 pub enum UpdateError {
-    #[error("UPDATE is not supported because Parquet tables are append only.")]
-    UpdateNotsupported,
+    #[error("UPDATE is not currently supported because Parquet tables are append only.")]
+    UpdateNotSupported,
 }

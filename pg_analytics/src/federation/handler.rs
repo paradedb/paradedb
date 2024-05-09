@@ -1,8 +1,8 @@
 use datafusion_federation::{FederatedQueryPlanner, FederationAnalyzerRule};
 use datafusion_federation_sql::{MultiSchemaProvider, SQLFederationProvider, SQLSchemaProvider};
-use deltalake::datafusion::arrow::record_batch::RecordBatch;
 use deltalake::datafusion::catalog::schema::SchemaProvider;
 use deltalake::datafusion::common::DataFusionError;
+use deltalake::datafusion::dataframe::DataFrame;
 use deltalake::datafusion::execution::config::SessionConfig;
 use deltalake::datafusion::execution::context::SessionState;
 use deltalake::datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
@@ -15,10 +15,10 @@ use thiserror::Error;
 use crate::federation::executor::{ColumnExecutor, RowExecutor};
 use crate::federation::{COLUMN_FEDERATION_KEY, ROW_FEDERATION_KEY};
 
-pub async fn get_federated_batches(
+pub async fn get_federated_dataframe(
     query: String,
     classified_tables: HashMap<&'static str, Vec<PgRelation>>,
-) -> Result<Vec<RecordBatch>, FederatedHandlerError> {
+) -> Result<DataFrame, FederatedHandlerError> {
     // Create a separate session context to process the federated query
     // Can only use one partition because pgrx cannot work on multiple threads
     let config = SessionConfig::new().with_target_partitions(1);
@@ -88,7 +88,7 @@ pub async fn get_federated_batches(
     let ctx = SessionContext::new_with_state(state);
     let df = ctx.sql(query.as_str()).await?;
 
-    Ok(df.collect().await?)
+    Ok(df)
 }
 
 #[derive(Error, Debug)]

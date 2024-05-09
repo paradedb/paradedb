@@ -103,7 +103,7 @@ jobs:
           touch ${package_dir}/DEBIAN/control
           deb_version=${{ steps.version.outputs.version }}
           CONTROL_FILE="${package_dir}/DEBIAN/control"
-          echo 'Package: pg-bm25' >> $CONTROL_FILE
+          echo 'Package: pg-search' >> $CONTROL_FILE
           echo 'Version:' ${deb_version} >> $CONTROL_FILE
           echo 'Section: database' >> $CONTROL_FILE
           echo 'Priority: optional' >> $CONTROL_FILE

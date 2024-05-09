@@ -106,12 +106,18 @@ echo ""
 # For CI benchmarking via Docker, use the full dataset (hits.parquet: 100M rows ~15GBs)
 if [ "$WORKLOAD" == "single" ]; then
   echo "Using ClickBench's single Parquet file for benchmarking..."
-  download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.parquet" "e903fd8cc8462a454df107390326844a" "hits.parquet"
+  # Full dataset (100M rows)
+  # download_and_verify "https://datasets.clickhouse.com/hits_compatible/hits.parquet" "e903fd8cc8462a454df107390326844a" "hits.parquet"
+  # 5M rows dataset, for CI
+  download_and_verify "https://paradedb-benchmarks.s3.amazonaws.com/hits_5m_rows.parquet" "5182ed3b0ad35137db38faac395d7f55" "hits.parquet"
 elif [ "$WORKLOAD" == "partitioned" ]; then
   # TODO: Clean this up
   echo "Using ClickBench's one hundred partitioned Parquet files for benchmarking..."
   mkdir -p partitioned
-  seq 0 99 | xargs -P100 -I{} bash -c 'wget --no-verbose --directory-prefix partitioned --continue https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_{}.parquet'
+  # Full dataset (100M rows)
+  # seq 0 99 | xargs -P100 -I{} bash -c 'wget --no-verbose --directory-prefix partitioned --continue https://datasets.clickhouse.com/hits_compatible/athena_partitioned/hits_{}.parquet'
+  # 5M rows dataset, for CI
+  seq 0 99 | xargs -P100 -I{} bash -c 'wget --no-verbose --directory-prefix partitioned --continue https://paradedb-benchmarks.s3.amazonaws.com/partitioned_5m_rows/hits_{}.parquet'
 fi
 
 # If the version tag is "local", we build the ParadeDB Docker image from source to test the current commit

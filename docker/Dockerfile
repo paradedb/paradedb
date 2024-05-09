@@ -13,7 +13,7 @@ FROM postgres:${PG_VERSION_MAJOR}-bullseye as builder
 
 ARG PG_VERSION_MAJOR=16
 ARG RUST_VERSION=1.77.2
-ARG PGRX_VERSION=0.12.0-alpha.1
+ARG PGRX_VERSION=0.11.3
 
 # Declare buildtime environment variables
 ENV PG_VERSION_MAJOR=${PG_VERSION_MAJOR} \

@@ -68,6 +68,7 @@ pub fn schema_bm25(
                         expand_dots,
                     )
                 }
+                FieldType::Date(_) => ("Date".to_string(), None, None, None, None),
                 _ => ("Other".to_string(), None, None, None, None),
             };
 
@@ -366,6 +367,7 @@ term_fn!(jsonb, pgrx::JsonB, |pgrx::JsonB(v)| {
     )
 });
 term_fn!(date, pgrx::Date, |v: pgrx::Date| {
+    info!("date: {:?}", v.to_unix_epoch_days());
     tantivy::schema::Value::Date(
         tantivy::DateTime::from_timestamp_secs((v.to_unix_epoch_days() as i64) * 24 * 60 * 60)
     )
@@ -373,9 +375,12 @@ term_fn!(date, pgrx::Date, |v: pgrx::Date| {
 term_fn!(time, pgrx::Time, |_v| unimplemented!(
     "time in term query not implemented"
 ));
-term_fn!(timestamp, pgrx::Timestamp, |_v| unimplemented!(
-    "timestamp in term query not implemented"
-));
+term_fn!(timestamp, pgrx::Timestamp, |v: pgrx::Timestamp| {
+    info!("i64 from {:?}", i64::from(v));
+    tantivy::schema::Value::Date(
+        tantivy::DateTime::from_timestamp_micros(i64::from(v))
+    )
+});
 term_fn!(
     time_with_time_zone,
     pgrx::TimeWithTimeZone,

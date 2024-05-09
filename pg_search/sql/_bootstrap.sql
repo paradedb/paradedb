@@ -107,7 +107,8 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     text_fields text DEFAULT '{}',
     numeric_fields text DEFAULT '{}',
     boolean_fields text DEFAULT '{}',
-    json_fields text DEFAULT '{}'
+    json_fields text DEFAULT '{}',
+    date_fields text DEFAULT '{}'
 )
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -134,8 +135,8 @@ BEGIN
         RAISE EXCEPTION 'no key_field parameter given for bm25 index "%"', index_name;
     END IF;
 
-    IF text_fields = '{}' AND numeric_fields = '{}' AND boolean_fields = '{}' AND json_fields = '{}' THEN
-        RAISE EXCEPTION 'no text_fields, numeric_fields, boolean_fields, or json_fields were specified for index %', index_name;
+    IF text_fields = '{}' AND numeric_fields = '{}' AND boolean_fields = '{}' AND json_fields = '{}' AND date_fields = '{}' THEN
+        RAISE EXCEPTION 'no text_fields, numeric_fields, boolean_fields, json_fields, or date_fields were specified for index %', index_name;
     END IF;
 
     index_json := jsonb_build_object(
@@ -150,8 +151,8 @@ BEGIN
 
     -- Create a new BM25 index on the specified table.
     -- The index is created dynamically based on the function parameters.
-    EXECUTE format('CREATE INDEX %s_bm25_index ON %I.%I USING bm25 ((%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L);',
-                   index_name, schema_name, table_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields);
+    EXECUTE format('CREATE INDEX %s_bm25_index ON %I.%I USING bm25 ((%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L, date_fields=%L);',
+                   index_name, schema_name, table_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields, date_fields);
 
     -- Dynamically create a new function for performing searches on the indexed table.
     -- The variable '__paradedb_search_config__' is available to the function_body parameter.

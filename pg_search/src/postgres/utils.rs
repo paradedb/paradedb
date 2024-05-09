@@ -154,6 +154,19 @@ pub unsafe fn row_to_search_document(
                         serde_json::from_slice::<Map<String, serde_json::Value>>(&value)?.into(),
                     );
                 }
+                PgBuiltInOids::DATEOID => {
+                    let value = pgrx::datum::Date::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+                    pgrx::info!("DATE");
+                    document.insert(search_field.id, tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_secs((((value.to_unix_epoch_days() as i64) * 24 * 60 * 60)).into()).into()));
+                }
+                PgBuiltInOids::TIMESTAMPOID => {
+                    pgrx::info!("TIMESTAMP");
+                    let value = pgrx::datum::Timestamp::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+                    pgrx::info!("i64 from {:?}", i64::from(value));
+                    document.insert(search_field.id, tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(i64::from(value))));
+                }
                 unsupported => Err(IndexError::UnsupportedValue(
                     search_field.name.0.to_string(),
                     format!("{unsupported:?}"),

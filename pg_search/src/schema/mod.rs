@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use tantivy::schema::{
-    Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing,
+    DateOptions, Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing,
     TextOptions, FAST, INDEXED, STORED,
 };
 use thiserror::Error;
@@ -38,6 +38,7 @@ pub enum SearchFieldType {
     F64,
     Bool,
     Json,
+    Date,
 }
 
 impl TryFrom<&PgOid> for SearchFieldType {
@@ -56,6 +57,7 @@ impl TryFrom<&PgOid> for SearchFieldType {
                 }
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool),
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => Ok(SearchFieldType::Json),
+                PgBuiltInOids::DATEOID | PgBuiltInOids::TIMESTAMPOID => Ok(SearchFieldType::Date),
                 _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
             },
             _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
@@ -115,6 +117,14 @@ pub enum SearchFieldConfig {
         #[serde(default = "default_as_true")]
         stored: bool,
     },
+    Date {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+        #[serde(default = "default_as_true")]
+        stored: bool,
+    },
     Key,
     Ctid,
 }
@@ -138,6 +148,10 @@ impl SearchFieldConfig {
 
     pub fn default_json() -> Self {
         Self::from_json(json!({"Json": {}}))
+    }
+
+    pub fn default_date() -> Self {
+        Self::from_json(json!({"Date": {}}))
     }
 }
 
@@ -245,6 +259,35 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
     }
 }
 
+impl From<SearchFieldConfig> for DateOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut date_options = DateOptions::default();
+        match config {
+            SearchFieldConfig::Date {
+                indexed,
+                fast,
+                stored
+            } => {
+                if stored {
+                    date_options = date_options.set_stored();
+                }
+                if fast {
+                    date_options = date_options.set_fast();
+                }
+                if indexed {
+                    date_options = date_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!(
+                    "attemped to convert non-date search field config to tantivy date config"
+                )
+            }
+        }
+        date_options
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SearchField {
     /// The id of the field, stored in the index.
@@ -305,6 +348,9 @@ impl SearchIndexSchema {
                 }
                 SearchFieldConfig::Json { .. } => {
                     builder.add_json_field(name.as_ref(), config.clone())
+                }
+                SearchFieldConfig::Date { .. } => {
+                    builder.add_date_field(name.as_ref(), config.clone())
                 }
                 SearchFieldConfig::Key { .. } => {
                     builder.add_i64_field(name.as_ref(), INDEXED | STORED | FAST)

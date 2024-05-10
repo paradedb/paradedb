@@ -72,15 +72,3 @@ Query a `pg_search` index (index must already exist):
 ```sh
 cargo paradedb bench eslogs query-search-index
 ```
-
-Build a `pg_analytics` table using `parquet`:
-
-```sh
-cargo paradedb bench eslogs build-parquet-table
-```
-
-Count rows in a `pg_analytics` table using `parquet`:
-
-```sh
-cargo paradedb bench eslogs count-parquet-table
-```

@@ -67,7 +67,7 @@ jobs:
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx
-        run: cargo install --locked cargo-pgrx --version 0.12.0-alpha.1
+        run: cargo install --locked cargo-pgrx --version 0.11.3
 
       - name: Initialize pgrx for Current PostgreSQL Version
         working-directory: pg_search/

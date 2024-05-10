@@ -13,6 +13,18 @@ updates:
         patterns:
           - "*"
 
+  # - package-ecosystem: "cargo"
+  #   directory: "/cargo-paradedb"
+  #   schedule:
+  #     interval: "monthly"
+  #   ignore:
+  #     - dependency-name: "*"
+  #       update-types: ["version-update:semver-patch"]
+  #   groups:
+  #     cargo-paradedb-dependencies:
+  #       patterns:
+  #         - "*"
+
   # - package-ecosystem: "docker"
   #   directory: "/docker"
   #   schedule:
@@ -26,14 +38,14 @@ updates:
   #         - "*"
 
   # - package-ecosystem: "cargo"
-  #   directory: "/pg_analytics"
+  #   directory: "/pg_lakehouse"
   #   schedule:
   #     interval: "monthly"
   #   ignore:
   #     - dependency-name: "*"
   #       update-types: ["version-update:semver-patch"]
   #   groups:
-  #     pg_analytics-dependencies:
+  #     pg_lakehouse-dependencies:
   #       patterns:
   #         - "*"
 
@@ -58,5 +70,17 @@ updates:
   #       update-types: ["version-update:semver-patch"]
   #   groups:
   #     shared-dependencies:
+  #       patterns:
+  #         - "*"
+
+  # - package-ecosystem: "cargo"
+  #   directory: "/tokenizers"
+  #   schedule:
+  #     interval: "monthly"
+  #   ignore:
+  #     - dependency-name: "*"
+  #       update-types: ["version-update:semver-patch"]
+  #   groups:
+  #     tokenizers-dependencies:
   #       patterns:
   #         - "*"

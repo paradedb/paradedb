@@ -19,7 +19,6 @@
 
 [![Publish ParadeDB](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml/badge.svg)](https://github.com/paradedb/paradedb/actions/workflows/publish-paradedb.yml)
 [![Docker Pulls](https://img.shields.io/docker/pulls/paradedb/paradedb)](https://hub.docker.com/r/paradedb/paradedb)
-[![pg_analytics Deployments](https://img.shields.io/badge/20k-violet?label=pg_analytics%20deployments)](https://github.com/paradedb/paradedb/releases/latest)
 [![pg_search Deployments](https://img.shields.io/badge/22k-green?label=pg_search%20deployments)](https://github.com/paradedb/paradedb/releases/latest)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/paradedb)](https://artifacthub.io/packages/search?repo=paradedb)
 
@@ -36,7 +35,7 @@ ParadeDB is currently in Public Beta. Star and watch this repository to get noti
   - [x] Dense and sparse vector search with [pgvector](https://github.com/pgvector/pgvector#pgvector)
   - [x] Hybrid search
 - [ ] Analytics
-  - [x] Accelerated analytical queries and column-oriented storage with [pg_analytics](https://github.com/paradedb/paradedb/tree/dev/pg_analytics#overview)
+  - [x] Accelerated analytical queries and column-oriented storage with [pg_analytics](https://github.com/paradedb/pg_analytics/tree/main)
   - [ ] External object store integrations (S3/Azure/GCS/HDFS)
   - [ ] External Apache Iceberg and Delta Lake support
   - [ ] High-volume data/Kafka ingest
@@ -58,7 +57,7 @@ To get started, please visit our [documentation](https://docs.paradedb.com).
 
 ## Deploying ParadeDB
 
-ParadeDB and its extensions, `pg_analytics` and `pg_search`, are available as commercial software for installation on self-hosted Postgres deployment, and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
+ParadeDB and its extensions are available as commercial software for installation on self-hosted Postgres deployment, and via Docker and Kubernetes as standalone images. For more information, including enterprise features and support, please [contact us by email](mailto:sales@paradedb.com).
 
 ### Extensions
 
@@ -114,7 +113,6 @@ ParadeDB collects anonymous telemetry to help us understand how many people are 
 
 ```sql
 ALTER SYSTEM SET paradedb.pg_search_telemetry TO 'off';
-ALTER SYSTEM SET paradedb.pg_analytics_telemetry TO 'off';
 ```
 
 ### Helm Chart

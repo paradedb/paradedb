@@ -1,6 +1,0 @@
-comment = 'Real-time analytics for PostgreSQL using columnar storage and vectorized execution'
-default_version = '@CARGO_VERSION@'
-module_pathname = '$libdir/pg_analytics'
-relocatable = false
-superuser = false
-schema = paradedb

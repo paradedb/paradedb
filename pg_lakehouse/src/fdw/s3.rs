@@ -97,6 +97,7 @@ impl TryFrom<ServerOptions> for S3 {
         let bucket = require_option(AmazonServerOption::Bucket.as_str(), server_options)?;
         builder.bucket(bucket);
         builder.disable_config_load();
+        builder.disable_ec2_metadata();
 
         if let Some(root) = server_options.get(AmazonServerOption::Root.as_str()) {
             builder.root(root);

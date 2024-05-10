@@ -1,0 +1,11 @@
+# macOS
+.DS_Store
+
+# Cargo
+target/
+
+# Rustfmt
+*.rs.bk
+
+# Benchmarks
+*.parquet

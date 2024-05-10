@@ -1,0 +1,52 @@
+# workflows/benchmark-pg_lakehouse.yml
+#
+# Benchmark pg_lakehouse
+# Benchmark ParadeDB's pg_lakehouse performance on a nightly basis. This workflow can also be triggered
+# manually to benchmark other systems on one-off basis, to compare against ParadeDB.
+
+name: Benchmark pg_lakehouse
+
+on:
+  schedule:
+    - cron: "1 0 * * 1,2,3,4,5" # Run once per day on weekdays (days of the week 1-5) at 00:01 UTC
+  pull_request:
+    branches:
+      - dev
+      - staging
+      - main
+    paths:
+      - "docker/Dockerfile"
+      - "pg_lakehouse/Cargo.toml"
+      - "pg_lakehouse/benchmarks/**"
+      - "shared/Cargo.toml"
+      - ".github/workflows/benchmark-pg_lakehouse.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: benchmark-pg_lakehouse-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark-pg_lakehouse:
+    name: Benchmark pg_lakehouse on ${{ matrix.name }}
+    runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+    strategy:
+      matrix:
+        include:
+          - name: ClickBench (Parquet, single)
+            flags: -w single
+          - name: ClickBench (Parquet, partitioned)
+            flags: -w partitioned
+
+    steps:
+      - name: Checkout Git Repository
+        uses: actions/checkout@v4
+
+      - name: Run Official ${{ matrix.name }} Benchmark
+        working-directory: pg_lakehouse/benchmarks/
+        run: ./benchmark.sh -t local ${{ matrix.flags }}
+
+      - name: Notify Slack on Failure
+        if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"Benchmark pg_lakehouse on ${{ matrix.name }} h workflow failed -- investigate immediately!"}' ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,0 +1,73 @@
+---
+title: Table Schema and Types
+---
+
+## Overview
+
+The `CREATE FOREIGN TABLE` command creates a virtual Postgres table that is used to query over data in external
+files. Foreign tables can be created over files, partitioned directories, or table formats like Delta Lake.
+
+For foreign table options, please refer to the [Object Stores](/analytics/object_stores) section.
+
+## Inspecting the Foreign Schema
+
+The `arrow_schema` function displays the schema of a foreign table. This function is useful for verifying that
+the server and table credentials you've provided are valid. If the foreign data is successfully read, a table will be returned with the
+[Arrow schema](https://docs.rs/datafusion/latest/datafusion/common/arrow/datatypes/enum.DataType.html) of the
+foreign table. Otherwise, an empty table will be returned or an error will be thrown.
+
+```sql
+SELECT * FROM arrow_schema(
+  server => '<server>',
+  path => '<path>',
+  extension => '<extension>'
+);
+```
+
+<ParamField body="server" required>
+  Name of the foreign server created with `CREATE FOREIGN SERVER`.
+</ParamField>
+<ParamField body="path" required>
+  Must start with `s3://` and point to the location of your file. The path
+  should end in a `/` if it points to a directory of partitioned Parquet files.
+</ParamField>
+<ParamField body="extension" required>
+  One of `avro`, `csv`, `json`, and `parquet`.
+</ParamField>
+<ParamField body="format">
+  For now, only `delta` is supported for Delta Lake (Iceberg is coming soon). If
+  omitted, no table format is assumed.
+</ParamField>
+
+You can also use this function to decide what Postgres types to assign to each column of the foreign table.
+For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT`, `VARCHAR`, or `BPCHAR` column.
+If an incompatible Postgres type is chosen, querying the table will fail.
+
+## Datetime Types
+
+Datetime fields are often stored as integers representing the number of days, seconds, milliseconds, etc. since the UNIX epoch (January 1, 1970). When converting these fields to Postgres datetime types, the precision of these integers must be accounted for in order to convert them
+to the correct datetime value.
+
+### Date
+
+The `to_date` function converts an integer representing the number of days elapsed since the UNIX epoch (January 1, 1970) to a Postgres `DATE` type.
+
+```sql
+CREATE FOREIGN TABLE hits (
+  "EventDate" INTEGER
+) USING foreign_server OPTIONS (...);
+
+SELECT to_date("EventDate") FROM hits LIMIT 1;
+```
+
+### Timestamp
+
+The `to_timestamp` function converts an integer representing the number of seconds elapsed since the UNIX epoch to a Postgres `TIMESTAMP` type.
+
+```sql
+CREATE FOREIGN TABLE hits (
+  "EventTime" BIGINT
+) USING foreign_server OPTIONS (...);
+
+SELECT to_timestamp("EventTime") FROM hits LIMIT 1;
+```

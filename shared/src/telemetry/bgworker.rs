@@ -17,6 +17,7 @@ use std::time::Duration;
 pub enum ParadeExtension {
     PgSearch = 1,
     PgAnalytics = 2,
+    PgLakehouse = 3,
 }
 
 impl ParadeExtension {
@@ -24,6 +25,7 @@ impl ParadeExtension {
         match self {
             Self::PgSearch => "pg_search",
             Self::PgAnalytics => "pg_analytics",
+            Self::PgLakehouse => "pg_lakehouse",
         }
         .into()
     }
@@ -32,6 +34,7 @@ impl ParadeExtension {
         match n {
             1 => Some(Self::PgSearch),
             2 => Some(Self::PgAnalytics),
+            3 => Some(Self::PgLakehouse),
             _ => None,
         }
     }

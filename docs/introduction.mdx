@@ -12,19 +12,19 @@ ships with Postgres 16.
 
 ## Why ParadeDB
 
-Today, developers implementing search and analytics over Postgres face one of two options: adopt an external
-service like Elasticsearch, which is powerful but painful to run, tune, and sync, or use Postgres’ native
-search and aggregations, which lack functionality and perform poorly over large datasets.
+Today, Postgres users that need a search and analytics engine face two options: adopt an external service like
+Elasticsearch, which is powerful but painful to run, tune, and sync, or use Postgres’ native search and
+aggregations, which lack critical functionality and perform poorly over large datasets.
 
 ParadeDB aims to be the best of both worlds, providing developers with the familiarity of Postgres and the
 performance of a dedicated search and analytical database.
 
 ParadeDB is a good fit for:
 
+- Developers who trust Postgres and don't want to operate a non-Postgres database/query engine
 - Full-text, similarity, or hybrid search over large volumes of operational data
 - Backends that are bottlenecked by Postgres' analytical performance over hundreds of millions or billions of rows
-- OLAP-style (i.e. analytical) workloads that also require an OLTP (i.e transactional) data store for frequently-updated data or metadata retrieval
-- Developers who trust Postgres and want data products within the Postgres ecosystem
+- Latency-sensitive analytical queries over external object stores like S3 and table formats like Delta Lake
 
 ## Get Started
 

@@ -5,7 +5,7 @@
 
 ## Overview
 
-`pg_lakehouse` is an extension that transforms Postgres into an analytical query engine over object stores like S3 and table formats like Apache Iceberg. Queries are pushed down to [Apache DataFusion](https://github.com/apache/datafusion), which delivers excellent analytical performance. Combinations of the following object stores, table formats, and file formats are supported.
+`pg_lakehouse` is an extension that transforms Postgres into an analytical query engine over object stores like S3 and table formats like Delta Lake. Queries are pushed down to [Apache DataFusion](https://github.com/apache/datafusion), which delivers excellent analytical performance. Combinations of the following object stores, table formats, and file formats are supported.
 
 ### Object Stores
 
@@ -90,8 +90,7 @@ Note that column names must be wrapped in double quotes to preserve uppercase le
 
 ## Query Acceleration
 
-This extension uses Postgres hooks to intercept and push queries down to DataFusion. In order to enable these hooks, the extension
-must be added to `shared_preload_libraries` inside `postgresql.conf`. If you are using Postgres 16, this file can be found under `~/.pgrx/data-16`.
+This extension uses Postgres hooks to intercept and push queries down to DataFusion. In order to enable these hooks, the extension must be added to `shared_preload_libraries` inside `postgresql.conf`.
 
 ```bash
 # Inside postgresql.conf
@@ -112,128 +111,13 @@ SELECT * FROM arrow_schema(
 
 You can also use this function to decide what Postgres types to assign to each column of the foreign table. For instance, an Arrow `Utf8` datatype should map to a Postgres `TEXT`, `VARCHAR`, or `BPCHAR` column. If an incompatible Postgres type is chosen, querying the table will fail.
 
-## S3
+## Connect an Object Store
 
-This code block demonstrates how to create a foreign table over S3 or an S3-compatible object
-store.
+To connect your own object store, please refer to the [documentation](https://docs.paradedb.com/analytics/object_stores).
 
-```sql
-CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
-CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
-OPTIONS (
-    bucket 'bucket_name'
-    region 'us-east-1',
-    allow_anonymous 'true'
-);
+## Types
 
--- Replace the dummy schema with the actual schema of your file data
-CREATE FOREIGN TABLE local_file_table ("x" INT)
-SERVER s3_server
-OPTIONS (path 's3://path/to/file.parquet', extension 'parquet');
-```
-
-### S3 Server Options
-
-- `bucket`: Name of the S3 bucket. Required for all object stores.
-- `region`: AWS region, e.g. `us-east-1`. Required for Amazon S3, MinIO, Scaleway, and Cloudflare R2.
-- `endpoint`: The endpoint for communicating with the S3 instance. Defaults to the [region endpoint](https://docs.aws.amazon.com/general/latest/gr/s3.html). For example, can be set to `http://localhost:4566` if testing against a Localstack instance, or `http://127.0.0.1:9000` for MinIO. Required for all non Amazon S3 object stores.
-- `allow_anonymous`: If set to `true`, will not sign requests. This is useful for connecting to public S3 buckets. Defaults to `false`.
-- `root`: Working directory for the backend.
-
-### S3 Table Options
-
-- `path` (required): Must start with `s3://` and point to the location of your file. The path should end in a `/` if it points to a directory of partitioned Parquet files.
-- `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
-- `format`: Only `delta` is supported for now. If omitted, `pg_lakehouse` assumes that no table format is used.
-
-### S3 Credentials
-
-`CREATE USER MAPPING` is used to pass in credentials for private buckets.
-
-```sql
--- Get the name of the current user
-SELECT current_user;
- current_user
---------------
- myuser
-
--- Run this before CREATE FOREIGN TABLE
-CREATE USER MAPPING FOR myuser
-SERVER s3_server
-OPTIONS (
-  access_key_id 'XXXXXX',
-  secret_access_key 'XXXXXX'
-);
-
--- Now, run CREATE FOREIGN TABLE
-```
-
-Note: To make credentials available to all users, you can set the user to `public`. Valid user mapping options are:
-
-- `access_key_id`: AWS access key ID
-- `secret_access_key`: AWS secret access key
-- `security_token`: Sets the AWS session token
-
-### S3 Compatible Services
-
-In addition to Amazon S3, following S3-compatible object stores are supported:
-
-- [x] Alibaba Object Storage Service
-- [x] MinIO
-- [x] QingStor Object Storage
-- [x] Scaleway Object Storage
-- [x] Tencent Cloud Object Storage
-- [x] Wasabi Object Storage
-- [x] Cloudflare R2
-
-## Local File System
-
-To be queryable, files must exist on the same machine as your Postgres instance.
-
-```sql
-CREATE FOREIGN DATA WRAPPER local_file_wrapper HANDLER local_file_fdw_handler VALIDATOR local_file_fdw_validator;
-CREATE SERVER local_file_server FOREIGN DATA WRAPPER local_file_wrapper;
-
--- Replace the dummy schema with the actual schema of your file data
-CREATE FOREIGN TABLE local_file_table ("x" INT)
-SERVER local_file_server
-OPTIONS (path 'file:///path/to/file.parquet', extension 'parquet');
-```
-
-### Local File Table Options
-
-- `path` (required): An absolute path starting with `file:///`. The path should end in a `/` if it points to a directory of partitioned Parquet files.
-- `extension` (required): One of `avro`, `csv`, `json`, and `parquet`.
-- `format`: Only `delta` is accepted for the Delta Lake format. If omitted, no table format is assumed.
-
-## Datetime Types
-
-Datetime fields are often stored as integers representing the number of days, seconds, milliseconds, etc. since the UNIX epoch (January 1, 1970). When converting these fields to Postgres datetime types, the precision of these integers must be accounted for in order to convert them
-to the correct datetime value.
-
-### Date
-
-`pg_lakehouse` provides a `to_date` function that converts an integer representing the number of days elapsed since the UNIX epoch (January 1, 1970) to a Postgres `DATE` type.
-
-```sql
-CREATE FOREIGN TABLE hits (
-  "EventDate" INTEGER
-) USING foreign_server OPTIONS (...);
-
-SELECT to_date("EventDate") FROM hits LIMIT 1;
-```
-
-### Timestamp
-
-Similarly, the `to_timestamp` function converts an integer representing the number of seconds elapsed since the UNIX epoch to a Postgres `TIMESTAMP` type.
-
-```sql
-CREATE FOREIGN TABLE hits (
-  "EventTime" BIGINT
-) USING foreign_server OPTIONS (...);
-
-SELECT to_timestamp("EventTime") FROM hits LIMIT 1;
-```
+Some types like `date`, `timestamp`, and `timestamptz` must be handled carefully. Please refer to the [documentation](https://docs.paradedb.com/analytics/schema#datetime-types).
 
 ## Development
 
@@ -294,7 +178,7 @@ Note: While it is possible to develop using pgrx's own Postgres installation(s),
 
 ### Adding a Service
 
-`pg_lakehouse` uses Apache OpenDAL to integrate with various object stores. As of the time of writing, some — but not all — of the object stores supported by OpenDAL have been integrated.
+`pg_lakehouse` uses OpenDAL to integrate with various object stores. As of the time of writing, some — but not all — of the object stores supported by OpenDAL have been integrated.
 
 Adding support for a new object store is as straightforward as
 

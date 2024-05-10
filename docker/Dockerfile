@@ -72,6 +72,30 @@ WORKDIR /tmp/pg_search
 RUN cargo pgrx package --features icu --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
 
 ######################
+# pg_lakehouse
+######################
+
+FROM builder as builder-pg_lakehouse
+
+ARG POSTHOG_API_KEY
+ARG POSTHOG_HOST
+ARG COMMIT_SHA
+ARG TELEMETRY
+
+# Declare compile-time environment variables
+ENV POSTHOG_API_KEY=${POSTHOG_API_KEY} \
+    POSTHOG_HOST=${POSTHOG_HOST} \
+    COMMIT_SHA=${COMMIT_SHA} \
+    TELEMETRY=${TELEMETRY}
+
+COPY pg_lakehouse/ /tmp/pg_lakehouse
+COPY shared/ /tmp/shared
+
+# Build the extension
+WORKDIR /tmp/pg_lakehouse
+RUN cargo pgrx package --pg-config "/usr/lib/postgresql/${PG_VERSION_MAJOR}/bin/pg_config"
+
+######################
 # pgvector
 ######################
 

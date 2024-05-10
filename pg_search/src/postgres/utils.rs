@@ -1,7 +1,8 @@
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use crate::globals::{MICROSECONDS_IN_SECOND, SECONDS_IN_DAY};
 use crate::index::SearchIndex;
 use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use pgrx::{
     pg_sys, varsize, Array, FromDatum, JsonB, JsonString, PgBuiltInOids, PgOid, PgRelation,
     PgTupleDesc,
@@ -158,11 +159,14 @@ pub unsafe fn row_to_search_document(
                 PgBuiltInOids::DATEOID => {
                     let value = pgrx::datum::Date::from_datum(datum, false)
                         .ok_or(IndexError::DatumDeref)?;
-                    pgrx::info!("DATE");
-                    document.insert(search_field.id, tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_secs((((value.to_unix_epoch_days() as i64) * 24 * 60 * 60)).into()).into()));
+                    document.insert(
+                        search_field.id,
+                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_secs(
+                            (value.to_unix_epoch_days() as i64) * SECONDS_IN_DAY,
+                        )),
+                    );
                 }
                 PgBuiltInOids::TIMESTAMPOID => {
-                    pgrx::info!("TIMESTAMP");
                     let value = pgrx::datum::Timestamp::from_datum(datum, false)
                         .ok_or(IndexError::DatumDeref)?;
 
@@ -176,14 +180,16 @@ pub unsafe fn row_to_search_document(
                         value.hour().into(),
                         value.minute().into(),
                         value.second() as u32,
-                        value.microseconds() % 1000000,
-                    ).unwrap();
+                        value.microseconds() % MICROSECONDS_IN_SECOND,
+                    )
+                    .unwrap();
                     let datetime = NaiveDateTime::new(date, time);
-
-                    pgrx::info!("i64 from {:?} {:?} {:?} {:?}", i64::from(value), value.day(), value.month(), value.year());
-                    // let translated = tantivy::DateTime::from_timestamp_micros(i64::from(value));
-                    // pgrx::info!("translated {:?} {:?} {:?}", translated.)
-                    document.insert(search_field.id, tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(datetime.and_utc().timestamp_micros())));
+                    document.insert(
+                        search_field.id,
+                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
+                            datetime.and_utc().timestamp_micros(),
+                        )),
+                    );
                 }
                 unsupported => Err(IndexError::UnsupportedValue(
                     search_field.name.0.to_string(),

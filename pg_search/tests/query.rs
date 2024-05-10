@@ -28,31 +28,6 @@ fn boolean_tree(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn date_field(mut conn: PgConnection) {
-    UserSessionLogsTable::setup_heap().execute(&mut conn);
-    r#"
-    CALL paradedb.create_bm25(
-            index_name => 'search_idx',
-            schema_name => 'public',
-            table_name => 'user_session_logs',
-            key_field => 'id',
-            date_fields => '{event_date: {}}'
-    );
-    "#
-    .execute(&mut conn);
-
-    let rows: Vec<(String, i32)> = r#"
-    SELECT event_name, user_id
-    FROM search_idx.search('event_date:[2024-01-01T00:00:00Z TO 2024-01-08T00:00:00Z]', stable_sort => true);
-    "#
-    .fetch(&mut conn);
-
-    println!("rows: {:?}", rows);
-
-    assert_eq!(1, 0);
-}
-
-#[rstest]
 fn fuzzy_fields(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"

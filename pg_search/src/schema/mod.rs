@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use tantivy::schema::{
-    DateOptions, Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing,
-    TextOptions, FAST, INDEXED, STORED,
+    DateOptions, Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema,
+    TextFieldIndexing, TextOptions, FAST, INDEXED, STORED,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -44,7 +44,6 @@ pub enum SearchFieldType {
 impl TryFrom<&PgOid> for SearchFieldType {
     type Error = SearchIndexSchemaError;
     fn try_from(pg_oid: &PgOid) -> Result<Self, Self::Error> {
-        pgrx::info!("pg_oid: {:?}", pg_oid);
         match &pg_oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => Ok(SearchFieldType::Text),
@@ -267,7 +266,7 @@ impl From<SearchFieldConfig> for DateOptions {
             SearchFieldConfig::Date {
                 indexed,
                 fast,
-                stored
+                stored,
             } => {
                 if stored {
                     date_options = date_options.set_stored();
@@ -280,9 +279,7 @@ impl From<SearchFieldConfig> for DateOptions {
                 }
             }
             _ => {
-                panic!(
-                    "attemped to convert non-date search field config to tantivy date config"
-                )
+                panic!("attemped to convert non-date search field config to tantivy date config")
             }
         }
         date_options

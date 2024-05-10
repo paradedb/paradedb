@@ -19,7 +19,8 @@ pg_test = []
 telemetry = ["shared/telemetry"]
 
 [dependencies]
-async-std = { version = "1.12.0", features = ["tokio1"] }
+anyhow = "1.0.83"
+async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
 datafusion = "37.1.0"
 deltalake = { git = "https://github.com/paradedb/delta-rs.git", branch = "main", features = [
@@ -38,4 +39,10 @@ thiserror = "1.0.59"
 url = "2.5.0"
 
 [dev-dependencies]
+aws-config = "1.4.0"
+aws-sdk-s3 = "1.28.0"
 pgrx-tests = "0.11.3"
+rstest = "0.19.0"
+sqlx = { version = "0.7.4", features = ["postgres", "runtime-async-std", "time", "bigdecimal", "uuid"] }
+testcontainers = "0.16.7"
+testcontainers-modules = { version = "0.4.2", features = ["localstack"] }

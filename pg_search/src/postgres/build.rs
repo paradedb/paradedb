@@ -56,6 +56,7 @@ pub extern "C" fn ambuild(
             } else {
                 attribute_type_oid
             };
+            info!("attname: {:?} base_oid: {:?}", attname, base_oid);
             if let Ok(search_field_type) = SearchFieldType::try_from(&base_oid) {
                 Some((attname.into(), search_field_type))
             } else {
@@ -63,6 +64,8 @@ pub extern "C" fn ambuild(
             }
         })
         .collect();
+
+    info!("name_type_map: {:?}", name_type_map);
 
     // Parse and validate the index configurations for each column.
     let text_fields =

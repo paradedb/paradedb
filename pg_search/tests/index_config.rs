@@ -287,6 +287,55 @@ fn json_field_with_options(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn default_date_field(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        date_fields => '{created_at: {}, last_updated_date: {}}'
+    )"
+    .execute(&mut conn);
+
+    let rows: Vec<(String, String)> =
+        "SELECT name, field_type FROM index_config.schema()".fetch(&mut conn);
+
+    assert_eq!(rows[0], ("created_at".into(), "Date".into()));
+    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[2], ("id".into(), "I64".into()));
+    assert_eq!(rows[3], ("last_updated_date".into(), "Date".into()));
+}
+
+#[rstest]
+fn date_field_with_options(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    r#"CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        date_fields => '{
+            created_at: {fast: true},
+            last_updated_date: {fast: false}
+        }'
+    )"#
+    .execute(&mut conn);
+
+    let rows: Vec<(String, String)> =
+        "SELECT name, field_type FROM index_config.schema()".fetch(&mut conn);
+
+    assert_eq!(rows[0], ("created_at".into(), "Date".into()));
+    assert_eq!(rows[1], ("ctid".into(), "U64".into()));
+    assert_eq!(rows[2], ("id".into(), "I64".into()));
+    assert_eq!(rows[3], ("last_updated_date".into(), "Date".into()));
+}
+
+#[rstest]
 fn multiple_fields(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);

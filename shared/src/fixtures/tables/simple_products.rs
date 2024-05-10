@@ -1,5 +1,6 @@
 use soa_derive::StructOfArray;
 use sqlx::FromRow;
+use chrono::{NaiveDate, NaiveDateTime};
 
 #[derive(Debug, PartialEq, FromRow, StructOfArray, Default)]
 pub struct SimpleProductsTable {
@@ -9,6 +10,8 @@ pub struct SimpleProductsTable {
     pub rating: i32,
     pub in_stock: bool,
     pub metadata: serde_json::Value,
+    pub created_at: NaiveDateTime,
+    pub last_updated_date: NaiveDate
 }
 
 impl SimpleProductsTable {
@@ -33,7 +36,8 @@ BEGIN;
         text_fields => '{"description": {}, "category": {}}',
     	numeric_fields => '{"rating": {}}',
     	boolean_fields => '{"in_stock": {}}',
-    	json_fields => '{"metadata": {}}'
+    	json_fields => '{"metadata": {}}',
+        date_fields => '{"created_at": {}, "last_updated_date": {}}'
     );
 COMMIT;
 "#;

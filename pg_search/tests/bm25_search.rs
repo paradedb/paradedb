@@ -77,6 +77,26 @@ fn json_search(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn date_search(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('last_updated_date:[2023-04-15T00:00:00Z TO 2023-04-18T00:00:00Z]', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![2, 23]);
+}
+
+#[rstest]
+fn timestamp_search(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('created_at:[2023-04-15T00:00:00Z TO 2023-04-18T00:00:00Z]', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![2, 22, 23]);
+}
+
+#[rstest]
 fn real_time_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 

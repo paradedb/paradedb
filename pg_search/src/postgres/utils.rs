@@ -1,3 +1,4 @@
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use crate::index::SearchIndex;
 use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
@@ -164,8 +165,25 @@ pub unsafe fn row_to_search_document(
                     pgrx::info!("TIMESTAMP");
                     let value = pgrx::datum::Timestamp::from_datum(datum, false)
                         .ok_or(IndexError::DatumDeref)?;
-                    pgrx::info!("i64 from {:?}", i64::from(value));
-                    document.insert(search_field.id, tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(i64::from(value))));
+
+                    let date = NaiveDate::from_ymd_opt(
+                        value.year(),
+                        value.month().into(),
+                        value.day().into(),
+                    )
+                    .unwrap();
+                    let time = NaiveTime::from_hms_micro_opt(
+                        value.hour().into(),
+                        value.minute().into(),
+                        value.second() as u32,
+                        value.microseconds() % 1000000,
+                    ).unwrap();
+                    let datetime = NaiveDateTime::new(date, time);
+
+                    pgrx::info!("i64 from {:?} {:?} {:?} {:?}", i64::from(value), value.day(), value.month(), value.year());
+                    // let translated = tantivy::DateTime::from_timestamp_micros(i64::from(value));
+                    // pgrx::info!("translated {:?} {:?} {:?}", translated.)
+                    document.insert(search_field.id, tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(datetime.and_utc().timestamp_micros())));
                 }
                 unsupported => Err(IndexError::UnsupportedValue(
                     search_field.name.0.to_string(),

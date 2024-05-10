@@ -121,6 +121,11 @@ BEGIN
         RAISE EXCEPTION 'no index_name parameter given for bm25 index';
     END IF;
 
+    -- Disallow creation of an index with existing name
+    IF EXISTS(SELECT i.schema_name FROM information_schema.schemata i WHERE i.schema_name = index_name) THEN
+        RAISE EXCEPTION 'relation "%" already exists', index_name;
+    END IF;
+
     IF table_name IS NULL OR table_name = '' THEN
         RAISE EXCEPTION 'no table_name parameter given for bm25 index "%"', index_name;
     END IF;
@@ -139,9 +144,6 @@ BEGIN
         'key_field', key_field,
         'schema_name', schema_name
     );
-
-    -- Drop any existing index and function with the same name to avoid conflicts.
-    CALL paradedb.drop_bm25(index_name, schema_name => schema_name);
 
     -- Create the new, empty schema.
     EXECUTE format('CREATE SCHEMA %s', index_name);

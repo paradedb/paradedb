@@ -50,6 +50,36 @@ fn invalid_create_bm25(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn prevent_duplicate(mut conn: PgConnection) {
+    "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
+        .execute(&mut conn);
+
+    "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => '{description: {}}')"
+        .execute(&mut conn);
+
+    match "CALL paradedb.create_bm25(
+        index_name => 'index_config',
+        table_name => 'index_config',
+        schema_name => 'paradedb',
+        key_field => 'id',
+        text_fields => '{description: {}}')"
+        .execute_result(&mut conn)
+    {
+        Ok(_) => panic!("should fail with relation already exists"),
+        Err(err) => assert!(
+            err.to_string().contains("already exists"),
+            "{}",
+            fmt_err(err)
+        ),
+    };
+}
+
+#[rstest]
 fn default_text_field(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);

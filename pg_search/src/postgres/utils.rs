@@ -191,6 +191,32 @@ pub unsafe fn row_to_search_document(
                         )),
                     );
                 }
+                PgBuiltInOids::TIMESTAMPTZOID => {
+                    let value = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?
+                        .to_utc();
+
+                    let date = NaiveDate::from_ymd_opt(
+                        value.year(),
+                        value.month().into(),
+                        value.day().into(),
+                    )
+                    .ok_or(IndexError::DatumDeref)?;
+                    let time = NaiveTime::from_hms_micro_opt(
+                        value.hour().into(),
+                        value.minute().into(),
+                        value.second() as u32,
+                        value.microseconds() % MICROSECONDS_IN_SECOND,
+                    )
+                    .ok_or(IndexError::DatumDeref)?;
+                    let datetime = NaiveDateTime::new(date, time);
+                    document.insert(
+                        search_field.id,
+                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
+                            datetime.and_utc().timestamp_micros(),
+                        )),
+                    );
+                }
                 unsupported => Err(IndexError::UnsupportedValue(
                     search_field.name.0.to_string(),
                     format!("{unsupported:?}"),

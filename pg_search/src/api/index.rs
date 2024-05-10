@@ -386,7 +386,11 @@ term_fn!(
 term_fn!(
     timestamp_with_time_zome,
     pgrx::TimestampWithTimeZone,
-    |_v| unimplemented!("timestamp with time zone in term query not implemented")
+    |v: pgrx::TimestampWithTimeZone| {
+        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(i64::from(
+            v.to_utc(),
+        )))
+    }
 );
 term_fn!(anyarray, pgrx::AnyArray, |_v| unimplemented!(
     "array in term query not implemented"

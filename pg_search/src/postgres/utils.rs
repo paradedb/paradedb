@@ -175,14 +175,14 @@ pub unsafe fn row_to_search_document(
                         value.month().into(),
                         value.day().into(),
                     )
-                    .unwrap();
+                    .ok_or(IndexError::DatumDeref)?;
                     let time = NaiveTime::from_hms_micro_opt(
                         value.hour().into(),
                         value.minute().into(),
                         value.second() as u32,
                         value.microseconds() % MICROSECONDS_IN_SECOND,
                     )
-                    .unwrap();
+                    .ok_or(IndexError::DatumDeref)?;
                     let datetime = NaiveDateTime::new(date, time);
                     document.insert(
                         search_field.id,

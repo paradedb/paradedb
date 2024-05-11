@@ -65,9 +65,7 @@ pub trait BaseFdw {
                 let extension = require_option(TableOption::Extension.as_str(), &options)?;
 
                 let provider = match TableFormat::from(format) {
-                    TableFormat::None => {
-                        task::block_on(create_listing_provider(path, extension, &context.state()))?
-                    }
+                    TableFormat::None => task::block_on(create_listing_provider(path, extension))?,
                     TableFormat::Delta => task::block_on(create_delta_provider(path, extension))?,
                 };
 

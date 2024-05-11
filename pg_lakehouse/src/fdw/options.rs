@@ -1,5 +1,7 @@
 use crate::fdw::base::BaseFdwError;
+use pgrx::*;
 use std::collections::HashMap;
+use supabase_wrappers::prelude::*;
 
 pub enum TableOption {
     Path,
@@ -52,6 +54,36 @@ impl ServerOptions {
 
     pub fn user_mapping_options(&self) -> &HashMap<String, String> {
         &self.user_mapping_options
+    }
+}
+
+pub trait ForeignOptions {
+    fn table_options(&self) -> Result<HashMap<String, String>, OptionsError>;
+    fn server_options(&self) -> Result<HashMap<String, String>, OptionsError>;
+}
+
+impl ForeignOptions for PgRelation {
+    fn table_options(&self) -> Result<HashMap<String, String>, OptionsError> {
+        if !self.is_foreign_table() {
+            return Ok(HashMap::new());
+        }
+
+        let foreign_table = unsafe { pg_sys::GetForeignTable(self.oid()) };
+        let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+
+        Ok(table_options)
+    }
+
+    fn server_options(&self) -> Result<HashMap<String, String>, OptionsError> {
+        if !self.is_foreign_table() {
+            return Ok(HashMap::new());
+        }
+
+        let foreign_table = unsafe { pg_sys::GetForeignTable(self.oid()) };
+        let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+        let server_options = unsafe { options_to_hashmap((*foreign_server).options)? };
+
+        Ok(server_options)
     }
 }
 

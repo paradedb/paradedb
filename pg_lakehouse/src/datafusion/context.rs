@@ -116,7 +116,7 @@ async fn get_table_source(
 
         if fdw_handler != FdwHandler::Other {
             // Get foreign table and server options
-            let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
+            let table_options = pg_relation.table_options()?;
 
             // Create provider for foreign table
             let mut attribute_map: HashMap<usize, PgAttribute> = pg_relation
@@ -137,11 +137,7 @@ async fn get_table_source(
                 require_option(TableOption::Extension.as_str(), &table_options)?.to_string();
 
             let provider = match TableFormat::from(format) {
-                TableFormat::None => Session::with_session_context(|context| {
-                    Box::pin(async move {
-                        Ok(create_listing_provider(&path, &extension, &context.state()).await?)
-                    })
-                })?,
+                TableFormat::None => create_listing_provider(&path, &extension).await?,
                 TableFormat::Delta => create_delta_provider(&path, &extension).await?,
             };
 

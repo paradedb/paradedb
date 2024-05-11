@@ -2,18 +2,15 @@
 title: Helm
 ---
 
-# Deploying Using the ParadeDB Helm Chart
-
-## Introduction:
-
-**Prerequisites**
+## Prerequisites
 
 - A Kubernetes cluster up and running.
 - Helm installed. If not, please refer to the official Helm documentation for installation guidelines.
 
-## Deployment Steps:
+## Deployment
 
 **Step 1: Add the ParadeDB Helm Repository**
+
 First, add the ParadeDB repository to Helm. This repo contains all the necessary charts for ParadeDB.
 
 ```bash
@@ -49,7 +46,7 @@ helm install my-db paradedb/paradedb
   services, and any other Kubernetes resources.
 </Note>
 
-## Uninstallation Steps:
+## Uninstallation
 
 If for any reason you wish to uninstall the ParadeDB deployment, you can do so with the following command:
 
@@ -57,4 +54,4 @@ If for any reason you wish to uninstall the ParadeDB deployment, you can do so w
 helm delete my-db
 ```
 
-Remember to replace my-db with the release name you chose during installation.
+Remember to replace `my-db` with the release name you chose during installation.

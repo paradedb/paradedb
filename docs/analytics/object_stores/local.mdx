@@ -1,0 +1,46 @@
+---
+title: Local File System
+---
+
+## Overview
+
+This code block demonstrates how to create a foreign table over the local file system. Note that this only works
+for files on the same machine as the Postgres instance.
+
+```sql
+CREATE FOREIGN DATA WRAPPER <wrapper_name>
+HANDLER s3_fdw_handler
+VALIDATOR s3_fdw_validator;
+
+CREATE SERVER <server_name>
+FOREIGN DATA WRAPPER <wrapper_name> ;
+
+-- Replace the dummy schema with the actual schema
+CREATE FOREIGN TABLE <table_name> ("x" INT)
+SERVER <server_name>
+OPTIONS (path '<path>', extension '<extension>');
+```
+
+<ParamField body="wrapper_name" required>
+  Foreign data wrapper name. Can be any string.
+</ParamField>
+<ParamField body="server_name">
+  Foreign server name. Can be any string.
+</ParamField>
+<ParamField body="table_name">
+  Foreign table name. Can be any string.
+</ParamField>
+
+### Options for `CREATE FOREIGN TABLE`
+
+<ParamField body="path" required>
+  Must start with `s3://` and point to the location of your file. The path
+  should end in a `/` if it points to a directory of partitioned Parquet files.
+</ParamField>
+<ParamField body="extension" required>
+  One of `avro`, `csv`, `json`, and `parquet`.
+</ParamField>
+<ParamField body="format">
+  For now, only `delta` is supported for Delta Lake (Iceberg is coming soon). If
+  omitted, no table format is assumed.
+</ParamField>

@@ -2,12 +2,10 @@
 resolver = "2"
 members = [
     "cargo-paradedb",
+    "pg_lakehouse",
     "pg_search",
     "shared",
     "tokenizers",
-]
-exclude = [
-    "pg_lakehouse",
 ]
 
 [profile.dev]

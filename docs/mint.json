@@ -74,12 +74,17 @@
       "group": "Documentation",
       "pages": [
         "introduction",
-        "import",
-        "deploy_pg_search",
-        "deploy_pg_analytics",
         {
           "group": "Deploying ParadeDB",
           "pages": ["deploy/aws", "deploy/gcp", "deploy/helm"]
+        },
+        {
+          "group": "Deploying Extensions",
+          "pages": [
+            "deploy/pg_search",
+            "deploy/pg_lakehouse",
+            "deploy/pg_analytics"
+          ]
         },
         "upgrading",
         "support"
@@ -126,11 +131,15 @@
       "group": "Analytics",
       "pages": [
         "analytics/quickstart",
-        "analytics/replication",
-        "analytics/htap",
-        "analytics/security",
-        "analytics/storage",
-        "analytics/limitations"
+        {
+          "group": "Object Stores",
+          "pages": [
+            "analytics/object_stores/local",
+            "analytics/object_stores/s3",
+            "analytics/object_stores/unsupported"
+          ]
+        },
+        "analytics/schema"
       ]
     },
     {

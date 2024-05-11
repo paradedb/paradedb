@@ -6,6 +6,7 @@ mod schema;
 
 use hooks::LakehouseHook;
 use pgrx::*;
+use shared::telemetry::{setup_telemetry_background_worker, ParadeExtension};
 
 pg_module_magic!();
 
@@ -17,6 +18,8 @@ pub extern "C" fn _PG_init() {
     unsafe {
         register_hook(&mut EXTENSION_HOOK)
     };
+
+    setup_telemetry_background_worker(ParadeExtension::PgLakehouse);
 }
 
 #[cfg(test)]

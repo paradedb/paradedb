@@ -62,7 +62,7 @@ pub fn validate_options(
     for opt in opt_list
         .iter()
         .flatten()
-        .map(|opt| opt.splitn(2, "=").next().unwrap_or(""))
+        .map(|opt| opt.split("=").next().unwrap_or(""))
     {
         if !valid_options.contains(&opt.to_string()) {
             return Err(BaseFdwError::InvalidOption(opt.to_string(), valid_options));

@@ -167,7 +167,7 @@ impl BaseFdw for S3Fdw {
                 };
 
                 if let Some(path_str) = path.to_str() {
-                    if let Some(stripped) = path_str.strip_prefix("/") {
+                    if let Some(stripped) = path_str.strip_prefix('/') {
                         path = PathBuf::from(stripped);
                     }
                 }

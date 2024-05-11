@@ -174,6 +174,8 @@ impl BaseFdw for S3Fdw {
 
                 let url = format!("s3://{}", path.to_string_lossy());
 
+                info!("Registering S3 object store: {}", url);
+
                 context
                     .runtime_env()
                     .register_object_store(&Url::parse(&url)?, object_store);

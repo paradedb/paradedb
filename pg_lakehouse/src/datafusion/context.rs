@@ -115,37 +115,12 @@ async fn get_table_source(
         let fdw_handler = FdwHandler::from(foreign_server);
 
         if fdw_handler != FdwHandler::Other {
-            // Get foreign table and server options
-            let table_options = pg_relation.table_options()?;
-
-            // Create provider for foreign table
-            let mut attribute_map: HashMap<usize, PgAttribute> = pg_relation
-                .tuple_desc()
-                .iter()
-                .enumerate()
-                .map(|(index, attribute)| {
-                    (
-                        index,
-                        PgAttribute::new(attribute.name(), attribute.atttypid),
-                    )
+            let reference_str = reference.to_quoted_string();
+            let provider = Session::with_session_context(|context| {
+                Box::pin(async move { 
+                    Ok(context.table_provider(reference_str).await?)
                 })
-                .collect();
-
-            let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
-            let path = require_option(TableOption::Path.as_str(), &table_options)?.to_string();
-            let extension =
-                require_option(TableOption::Extension.as_str(), &table_options)?.to_string();
-
-            let provider = match TableFormat::from(format) {
-                TableFormat::None => create_listing_provider(&path, &extension).await?,
-                TableFormat::Delta => create_delta_provider(&path, &extension).await?,
-            };
-
-            for (index, field) in provider.schema().fields().iter().enumerate() {
-                if let Some(attribute) = attribute_map.remove(&index) {
-                    can_convert_to_attribute(field, attribute)?;
-                }
-            }
+            })?;
 
             return Ok(provider_as_source(provider));
         }

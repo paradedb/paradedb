@@ -8,7 +8,6 @@ use thiserror::Error;
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
-use crate::datafusion::session::Session;
 use crate::fdw::handler::*;
 
 #[pg_extern]

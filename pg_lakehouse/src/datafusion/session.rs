@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use super::catalog::*;
 use super::context::ContextError;
+use super::schema::LakehouseSchemaProvider;
 
 const SESSION_ID: &str = "lakehouse_session_context";
 
@@ -72,7 +73,7 @@ impl Session {
 
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(task::block_on(Self::init())?),
+            Vacant(entry) => entry.insert(Self::init()?),
         };
 
         let catalog_provider = context.catalog(&Self::catalog_name()?).ok_or(
@@ -99,7 +100,7 @@ impl Session {
 
         let context = match lock.entry(SESSION_ID.to_string()) {
             Occupied(entry) => entry.into_mut(),
-            Vacant(entry) => entry.insert(task::block_on(Self::init())?),
+            Vacant(entry) => entry.insert(Self::init()?),
         };
 
         let catalog =
@@ -110,9 +111,7 @@ impl Session {
                 ))?;
 
         if catalog.schema(schema_name).is_none() {
-            let new_schema_provider = Arc::new(task::block_on(LakehouseSchemaProvider::try_new(
-                schema_name,
-            ))?);
+            let new_schema_provider = Arc::new(LakehouseSchemaProvider::new(schema_name));
             catalog.register_schema(schema_name, new_schema_provider)?;
         }
 
@@ -155,14 +154,12 @@ impl Session {
                 .to_str()
                 .unwrap_or_else(|err| panic!("{:?}", err))
         };
-        session_config.options_mut().execution.time_zone =
-            Some(session_timezone.to_string());
+        session_config.options_mut().execution.time_zone = Some(session_timezone.to_string());
 
         // Create a new context
         let rn_config = RuntimeConfig::new();
         let runtime_env = RuntimeEnv::new(rn_config)?;
-        let mut context =
-            SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
+        let mut context = SessionContext::new_with_config_rt(session_config, Arc::new(runtime_env));
 
         // Register catalog
         context.register_catalog_list(Arc::new(LakehouseCatalogList::new()));

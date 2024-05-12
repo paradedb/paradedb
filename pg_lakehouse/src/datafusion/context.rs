@@ -1,26 +1,25 @@
 use async_std::task;
+use datafusion::catalog::schema::SchemaProvider;
 use datafusion::catalog::CatalogProvider;
 use datafusion::common::arrow::datatypes::DataType;
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::DataFusionError;
-use datafusion::datasource::{provider_as_source, view::ViewTable};
+use datafusion::datasource::provider_as_source;
 use datafusion::execution::FunctionRegistry;
-use datafusion::logical_expr::{AggregateUDF, LogicalPlan, ScalarUDF, TableSource, WindowUDF};
+use datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use datafusion::sql::planner::ContextProvider;
 use datafusion::sql::TableReference;
 use pgrx::*;
-use std::collections::HashMap;
+use std::ffi::{c_char, CStr};
 use std::sync::Arc;
-use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use crate::datafusion::format::*;
-use crate::fdw::handler::*;
-use crate::fdw::options::*;
 use crate::schema::attribute::*;
 
 use super::plan::*;
 use super::provider::*;
+use super::schema::LakehouseSchemaProvider;
 use super::session::Session;
 
 pub struct QueryContext {
@@ -87,53 +86,56 @@ async fn get_table_source(
 ) -> Result<Arc<dyn TableSource>, ContextError> {
     let catalog_name = Session::catalog_name()?;
     let schema_name = reference.schema();
-    let table_name = reference.table();
 
-    if let Some(schema_name) = schema_name {
-        // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
-        return get_source(&catalog_name, schema_name, table_name);
-    } else {
-        // If no schema was provided in the query, i.e. SELECT * FROM <table>
-        // Read all schemas from the Postgres search path and cascade through them
-        // until a table is found
-        let current_schemas = unsafe {
-            direct_function_call::<Array<pg_sys::Datum>>(
-                pg_sys::current_schemas,
-                &[Some(pg_sys::Datum::from(true))],
-            )
-        };
+    match schema_name {
+        Some(schema_name) => {
+            // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
+            get_source(&catalog_name, schema_name, reference.table())
+        }
+        None => {
+            // If no schema was provided in the query, i.e. SELECT * FROM <table>
+            // Read all schemas from the Postgres search path and cascade through them
+            // until a table is found
+            let current_schemas = unsafe {
+                direct_function_call::<Array<pg_sys::Datum>>(
+                    pg_sys::current_schemas,
+                    &[Some(pg_sys::Datum::from(true))],
+                )
+            };
 
-        if let Some(current_schemas) = current_schemas {
-            for datum in current_schemas.iter().flatten() {
-                let schema_name =
-                    unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
+            if let Some(current_schemas) = current_schemas {
+                for datum in current_schemas.iter().flatten() {
+                    // let schema_name =
+                    //     unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
 
-                Session::with_catalog(|catalog| {
-                    Box::pin(async move {
-                        if catalog.schema(schema_name).is_none() {
-                            let new_schema_provider =
-                                Arc::new(LakehouseSchemaProvider::new(schema_name));
-                            catalog.register_schema(schema_name, new_schema_provider)?;
-                        }
+                    // Session::with_catalog(|catalog| {
+                    //     Box::pin(async move {
+                    //         if catalog.schema(schema_name).is_none() {
+                    //             let new_schema_provider =
+                    //                 Arc::new(LakehouseSchemaProvider::new(schema_name));
+                    //             catalog.register_schema(schema_name, new_schema_provider)?;
+                    //         }
 
-                        Ok(())
-                    })
-                })?;
+                    //         Ok(())
+                    //     })
+                    // })?;
 
-                let table_exists = Session::with_schema_provider(schema_name, |provider| {
-                    Box::pin(async move { Ok(provider.table_exist(&table_name)) })
-                })?;
+                    let table_name = reference.table().to_string();
+                    let table_exists = Session::with_schema_provider(schema_name, |provider| {
+                        Box::pin(async move { Ok(provider.table_exist(&table_name.clone())) })
+                    })?;
 
-                if !table_exists {
-                    continue;
+                    if !table_exists {
+                        continue;
+                    }
+
+                    return get_source(&catalog_name, schema_name, reference.table());
                 }
-
-                return get_source(&catalog_name, schema_name, table_name);
             }
+
+            Err(ContextError::TableNotFound(reference.table().to_string()))
         }
     }
-
-    Err(ContextError::TableNotFound(reference.table().to_string()))
 }
 
 #[inline]
@@ -142,6 +144,10 @@ fn get_source(
     schema_name: &str,
     table_name: &str,
 ) -> Result<Arc<dyn TableSource>, ContextError> {
+    let catalog_name = catalog_name.to_string();
+    let schema_name = schema_name.to_string();
+    let table_name = table_name.to_string();
+
     let provider = Session::with_session_context(|context| {
         Box::pin(async move {
             let table_reference = TableReference::full(catalog_name, schema_name, table_name);
@@ -171,9 +177,6 @@ pub enum ContextError {
 
     #[error(transparent)]
     LogicalPlanError(#[from] LogicalPlanError),
-
-    #[error(transparent)]
-    ParseIntError(#[from] std::num::ParseIntError),
 
     #[error(transparent)]
     SchemaError(#[from] SchemaError),

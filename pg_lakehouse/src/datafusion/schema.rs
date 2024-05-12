@@ -2,25 +2,22 @@ use async_std::sync::Mutex;
 use async_std::task;
 use async_trait::async_trait;
 use datafusion::catalog::schema::SchemaProvider;
-use datafusion::common::DataFusionError;
 use datafusion::datasource::TableProvider;
 use datafusion::error::Result;
 use pgrx::*;
 use std::any::Any;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
-use thiserror::Error;
 
-use crate::datafusion::format::*;
-use crate::datafusion::handler::*;
-use crate::datafusion::provider::*;
+use crate::fdw::handler::*;
 use crate::fdw::options::*;
 use crate::schema::attribute::*;
 
 use super::catalog::CatalogError;
+use super::format::*;
+use super::provider::*;
 
 pub struct LakehouseSchemaProvider {
     schema_name: String,
@@ -70,8 +67,8 @@ impl LakehouseSchemaProvider {
                     .collect();
 
                 let provider = match TableFormat::from(format) {
-                    TableFormat::None => create_listing_provider(&path, &extension).await?,
-                    TableFormat::Delta => create_delta_provider(&path, &extension).await?,
+                    TableFormat::None => create_listing_provider(path, extension).await?,
+                    TableFormat::Delta => create_delta_provider(path, extension).await?,
                 };
 
                 for (index, field) in provider.schema().fields().iter().enumerate() {

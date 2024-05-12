@@ -943,7 +943,7 @@ dependencies = [
 
 [[package]]
 name = "cargo-paradedb"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-std",
@@ -4393,7 +4393,7 @@ dependencies = [
 
 [[package]]
 name = "pg_lakehouse"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "async-std",
  "chrono",
@@ -4412,7 +4412,7 @@ dependencies = [
 
 [[package]]
 name = "pg_search"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "approx",
@@ -5802,7 +5802,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.6.2"
+version = "0.7.0"
 dependencies = [
  "async-std",
  "bigdecimal",

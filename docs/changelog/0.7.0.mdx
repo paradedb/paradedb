@@ -1,0 +1,32 @@
+---
+title: 0.7.0
+---
+
+## pg_lakehouse
+
+This release introduces our new extension, `pg_lakehouse` 🎉
+
+`pg_lakehouse` transforms Postgres into an analytical query engine over external object stores like S3
+and table formats like Delta Lake. You can check it out [here](https://github.com/paradedb/paradedb/tree/dev/pg_lakehouse).
+
+## pg_sparse
+
+Because `pgvector` now has sparse vector support, `pg_sparse` has been deprecated. We
+encourage all users to migrate to the latest version of `pgvector` for sparse vector search.
+
+## pg_analytics
+
+`pg_analytics` has been succeeded by `pg_lakehouse` and is now in maintenance mode. You can read more
+about our rationale [here](https://github.com/paradedb/pg_analytics).
+
+## pg_search
+
+### Bug Fixes
+
+- Fixed a bug where hybrid search can throw a division by zero error
+- Calling `create_bm25` on an index that already exists will now throw an error instead of recreating the index
+- The `key_field` argument in `create_bm25` can now be called anything, not just `id`
+
+## Full Changelog
+
+The full changelog is available [here](https://github.com/paradedb/paradedb/releases/tag/v0.7.0).

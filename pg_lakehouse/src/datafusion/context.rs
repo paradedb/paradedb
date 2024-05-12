@@ -1,4 +1,5 @@
 use async_std::task;
+use datafusion::catalog::CatalogProvider;
 use datafusion::common::arrow::datatypes::DataType;
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::DataFusionError;
@@ -84,49 +85,71 @@ impl ContextProvider for QueryContext {
 async fn get_table_source(
     reference: TableReference<'_>,
 ) -> Result<Arc<dyn TableSource>, ContextError> {
+    let catalog_name = Session::catalog_name()?;
     let schema_name = reference.schema();
+    let table_name = reference.table();
 
-    // If no table was found, try to register it as a view
-    let pg_relation = (match schema_name {
-        None => unsafe { PgRelation::open_with_name(reference.table()) },
-        Some(schema_name) => unsafe {
-            PgRelation::open_with_name(format!("{}.{}", schema_name, reference.table()).as_str())
-        },
-    })
-    .map_err(|_| ContextError::TableNotFound(reference.table().to_string()))?;
-
-    if pg_relation.is_view() {
-        let view_definition = unsafe {
-            direct_function_call::<String>(
-                pg_sys::pg_get_viewdef,
-                &[Some(pg_sys::Datum::from(pg_relation.oid()))],
+    if let Some(schema_name) = schema_name {
+        // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
+        return get_source(&catalog_name, schema_name, table_name);
+    } else {
+        // If no schema was provided in the query, i.e. SELECT * FROM <table>
+        // Read all schemas from the Postgres search path and cascade through them
+        // until a table is found
+        let current_schemas = unsafe {
+            direct_function_call::<Array<pg_sys::Datum>>(
+                pg_sys::current_schemas,
+                &[Some(pg_sys::Datum::from(true))],
             )
-            .ok_or(ContextError::ViewNotFound(reference.table().to_string()))?
         };
 
-        let logical_plan = LogicalPlan::try_from(QueryString(&view_definition))?;
-        let view_table = ViewTable::try_new(logical_plan, None)?;
-        return Ok(provider_as_source(Arc::new(view_table)));
-    }
+        if let Some(current_schemas) = current_schemas {
+            for datum in current_schemas.iter().flatten() {
+                let schema_name =
+                    unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
 
-    if pg_relation.is_foreign_table() {
-        let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
-        let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
-        let fdw_handler = FdwHandler::from(foreign_server);
+                Session::with_catalog(|catalog| {
+                    Box::pin(async move {
+                        if catalog.schema(schema_name).is_none() {
+                            let new_schema_provider =
+                                Arc::new(LakehouseSchemaProvider::new(schema_name));
+                            catalog.register_schema(schema_name, new_schema_provider)?;
+                        }
 
-        if fdw_handler != FdwHandler::Other {
-            let reference_str = reference.to_quoted_string();
-            let provider = Session::with_session_context(|context| {
-                Box::pin(async move { 
-                    Ok(context.table_provider(reference_str).await?)
-                })
-            })?;
+                        Ok(())
+                    })
+                })?;
 
-            return Ok(provider_as_source(provider));
+                let table_exists = Session::with_schema_provider(schema_name, |provider| {
+                    Box::pin(async move { Ok(provider.table_exist(&table_name)) })
+                })?;
+
+                if !table_exists {
+                    continue;
+                }
+
+                return get_source(&catalog_name, schema_name, table_name);
+            }
         }
     }
 
     Err(ContextError::TableNotFound(reference.table().to_string()))
+}
+
+#[inline]
+fn get_source(
+    catalog_name: &str,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<Arc<dyn TableSource>, ContextError> {
+    let provider = Session::with_session_context(|context| {
+        Box::pin(async move {
+            let table_reference = TableReference::full(catalog_name, schema_name, table_name);
+            Ok(context.table_provider(table_reference).await?)
+        })
+    })?;
+
+    Ok(provider_as_source(provider))
 }
 
 #[derive(Error, Debug)]
@@ -150,6 +173,9 @@ pub enum ContextError {
     LogicalPlanError(#[from] LogicalPlanError),
 
     #[error(transparent)]
+    ParseIntError(#[from] std::num::ParseIntError),
+
+    #[error(transparent)]
     SchemaError(#[from] SchemaError),
 
     #[error(transparent)]
@@ -161,9 +187,24 @@ pub enum ContextError {
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
 
+    #[error("Database {0} not found")]
+    DatabaseNotFound(String),
+
     #[error("No table registered with name {0}")]
     TableNotFound(String),
 
     #[error("Could not get definition for view {0}")]
     ViewNotFound(String),
+
+    #[error("Catalog {0} not found")]
+    CatalogNotFound(String),
+
+    #[error("Catalog provider {0} not found")]
+    CatalogProviderNotFound(String),
+
+    #[error("Schema {0} not found")]
+    SchemaNotFound(String),
+
+    #[error("Schema provider {0} not found")]
+    SchemaProviderNotFound(String),
 }

@@ -15,18 +15,19 @@ use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use crate::datafusion::format::*;
+use crate::datafusion::handler::*;
 use crate::datafusion::provider::*;
 use crate::fdw::options::*;
 use crate::schema::attribute::*;
 
 use super::catalog::CatalogError;
 
-pub struct ParadeSchemaProvider {
+pub struct LakehouseSchemaProvider {
     schema_name: String,
     tables: Arc<Mutex<HashMap<pg_sys::Oid, Arc<dyn TableProvider>>>>,
 }
 
-impl ParadeSchemaProvider {
+impl LakehouseSchemaProvider {
     pub fn new(schema_name: &str) -> Self {
         Self {
             schema_name: schema_name.to_string(),
@@ -88,7 +89,7 @@ impl ParadeSchemaProvider {
 }
 
 #[async_trait]
-impl SchemaProvider for ParadeSchemaProvider {
+impl SchemaProvider for LakehouseSchemaProvider {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -113,6 +114,14 @@ impl SchemaProvider for ParadeSchemaProvider {
             Err(_) => return false,
         };
 
-        pg_relation.is_foreign_table()
+        if !pg_relation.is_foreign_table() {
+            return false;
+        }
+
+        let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
+        let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
+        let fdw_handler = FdwHandler::from(foreign_server);
+
+        fdw_handler != FdwHandler::Other
     }
 }

@@ -12,23 +12,23 @@ use crate::schema::attribute::SchemaError;
 
 use super::provider::TableProviderError;
 
-pub struct ParadeCatalog {
+pub struct LakehouseCatalog {
     schemas: RwLock<HashMap<String, Arc<dyn SchemaProvider>>>,
 }
 
-pub struct ParadeCatalogList {
+pub struct LakehouseCatalogList {
     catalogs: RwLock<HashMap<String, Arc<dyn CatalogProvider>>>,
 }
 
-impl ParadeCatalog {
-    pub fn try_new() -> Result<Self, CatalogError> {
-        Ok(Self {
+impl LakehouseCatalog {
+    pub fn new() -> Self {
+        Self {
             schemas: RwLock::new(HashMap::new()),
-        })
+        }
     }
 }
 
-impl CatalogProvider for ParadeCatalog {
+impl CatalogProvider for LakehouseCatalog {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -60,15 +60,15 @@ impl CatalogProvider for ParadeCatalog {
     }
 }
 
-impl ParadeCatalogList {
-    pub fn try_new() -> Result<Self, CatalogError> {
-        Ok(Self {
+impl LakehouseCatalogList {
+    pub fn new() -> Self {
+        Self {
             catalogs: RwLock::new(HashMap::new()),
-        })
+        }
     }
 }
 
-impl CatalogProviderList for ParadeCatalogList {
+impl CatalogProviderList for LakehouseCatalogList {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -122,19 +122,4 @@ pub enum CatalogError {
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
-
-    #[error("Catalog {0} not found")]
-    CatalogNotFound(String),
-
-    #[error("Catalog provider {0} not found")]
-    CatalogProviderNotFound(String),
-
-    #[error("Database {0} not found")]
-    DatabaseNotFound(String),
-
-    #[error("Schema {0} not found")]
-    SchemaNotFound(String),
-
-    #[error("Schema provider {0} not found")]
-    SchemaProviderNotFound(String),
 }

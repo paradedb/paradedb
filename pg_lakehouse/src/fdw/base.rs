@@ -60,27 +60,17 @@ pub trait BaseFdw {
 
         let result = Session::with_session_context(|context| {
             Box::pin(async move {
-                let format = require_option_or(TableOption::Format.as_str(), &options, "");
-                let path = require_option(TableOption::Path.as_str(), &options)?;
-                let extension = require_option(TableOption::Extension.as_str(), &options)?;
-
-                let provider = match TableFormat::from(format) {
-                    TableFormat::None => task::block_on(create_listing_provider(path, extension))?,
-                    TableFormat::Delta => task::block_on(create_delta_provider(path, extension))?,
-                };
-
-                for (index, field) in provider.schema().fields().iter().enumerate() {
-                    if let Some(attribute) = attribute_map.remove(&index) {
-                        can_convert_to_attribute(field, attribute)?;
-                    }
-                }
-
-                let mut dataframe = context.read_table(provider)?.select_columns(
-                    &columns
-                        .iter()
-                        .map(|c| c.name.as_str())
-                        .collect::<Vec<&str>>(),
-                )?;
+                info!("oid is {:?}", options.get("table_oid"));
+                let oid_u32: u32 = options.get("table_oid").unwrap().parse()?;
+                let table_oid = pg_sys::Oid::from(oid_u32);
+                let pg_relation = unsafe { PgRelation::open(table_oid) };
+                let mut dataframe = context
+                    .table(format!(
+                        "{}.{}",
+                        pg_relation.namespace(),
+                        pg_relation.name()
+                    ))
+                    .await?;
 
                 if let Some(limit) = limit {
                     dataframe =

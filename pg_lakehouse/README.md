@@ -192,6 +192,6 @@ We use `cargo test` as our runner for `pg_lakehouse` tests. Tests are conducted 
 
 You also need a running Postgres instance to run the tests. The test suite will look for a connection string on the `DATABASE_URL` environment variable. You can set this variable manually, or use `.env` file with contents like this:
 
-```
+```text
 DATABASE_URL=postgres://<username>@<host>:<port>/<database>
 ```

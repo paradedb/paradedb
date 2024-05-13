@@ -38,10 +38,8 @@ walkdir = "2.5.0"
 os_info = { version = "3", default-features = false }
 chrono = { version = "0.4.34", features = ["clock", "alloc"] }
 humansize = "2.1.3"
-polars = { version = "0.39.2", features = ["parquet", "polars-io"] }
 
 [dev-dependencies]
 mockall = "0.12.1"
 pgrx-tests = "0.11.3"
-polars = { version = "0.39.2", features = ["parquet", "polars-io"] }
 tempfile = "3.10.1"

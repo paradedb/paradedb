@@ -23,7 +23,7 @@ Check out the `pg_search` benchmarks [here](../benchmarks/README.md).
 - [x] Fuzzy search
 - [x] Hybrid search
 - [x] JSON fields
-- [ ] Datetime fields
+- [x] Datetime fields
 - [ ] Distributed search
 
 ## Installation

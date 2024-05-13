@@ -287,7 +287,7 @@ fn json_field_with_options(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn default_date_field(mut conn: PgConnection) {
+fn default_datetime_field(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
@@ -296,7 +296,7 @@ fn default_date_field(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        date_fields => '{created_at: {}, last_updated_date: {}}'
+        datetime_fields => '{created_at: {}, last_updated_date: {}}'
     )"
     .execute(&mut conn);
 
@@ -310,7 +310,7 @@ fn default_date_field(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn date_field_with_options(mut conn: PgConnection) {
+fn datetime_field_with_options(mut conn: PgConnection) {
     "CALL paradedb.create_bm25_test_table(table_name => 'index_config', schema_name => 'paradedb')"
         .execute(&mut conn);
 
@@ -319,7 +319,7 @@ fn date_field_with_options(mut conn: PgConnection) {
         table_name => 'index_config',
         schema_name => 'paradedb',
         key_field => 'id',
-        date_fields => '{
+        datetime_fields => '{
             created_at: {fast: true},
             last_updated_date: {fast: false}
         }'

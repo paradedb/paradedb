@@ -99,9 +99,9 @@ pub extern "C" fn ambuild(
                 _ => panic!("'{name}' cannot be indexed as a JSON field"),
             });
 
-    let date_fields =
+    let datetime_fields =
         rdopts
-            .get_date_fields()
+            .get_datetime_fields()
             .into_iter()
             .map(|(name, config)| match name_type_map.get(&name) {
                 Some(SearchFieldType::Date) => (name, config),
@@ -121,7 +121,7 @@ pub extern "C" fn ambuild(
         .chain(numeric_fields)
         .chain(boolean_fields)
         .chain(json_fields)
-        .chain(date_fields)
+        .chain(datetime_fields)
         .chain(std::iter::once((key_field, SearchFieldConfig::Key)))
         // "ctid" is a reserved column name in Postgres, so we don't need to worry about
         // creating a name conflict with a user-named column.

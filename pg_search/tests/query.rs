@@ -28,6 +28,28 @@ fn boolean_tree(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn datetime_search(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.boolean(
+            should => ARRAY[
+                paradedb.parse('description:shoes'),
+                paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
+                paradedb.term(field => 'description', value => 'speaker'),
+                paradedb.fuzzy_term(field => 'description', value => 'wolo'),
+                paradedb.term(field => 'last_updated_date', value => '2023-05-03T00:00:00.00Z')
+            ]
+        ),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    // TODO: not correct???
+    assert_eq!(columns.id, vec![32, 5, 3, 4, 7, 34, 37, 10, 33, 39, 41]);
+}
+
+#[rstest]
 fn fuzzy_fields(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"

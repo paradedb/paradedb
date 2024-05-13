@@ -51,7 +51,24 @@ BEGIN
                 ('Slim-fit denim jeans', 5, 'Apparel', false, '{"color": "Blue", "location": "China"}'::JSONB, TIMESTAMP '2023-04-28 16:54:33', DATE '2023-04-30'),
                 ('Fast charging power bank', 4, 'Electronics', true, '{"color": "Black", "location": "United States"}'::JSONB, TIMESTAMP '2023-04-17 11:35:52', DATE '2023-04-19'),
                 ('Comfortable slippers', 3, 'Footwear', true, '{"color": "Brown", "location": "Canada"}'::JSONB, TIMESTAMP '2023-04-16 09:20:37', DATE '2023-04-17'),
-                ('Classic leather sofa', 5, 'Furniture', false, '{"color": "Brown", "location": "China"}'::JSONB, TIMESTAMP '2023-05-06 14:45:27', DATE '2023-05-08')
+                ('Classic leather sofa', 5, 'Furniture', false, '{"color": "Brown", "location": "China"}'::JSONB, TIMESTAMP '2023-05-06 14:45:27', DATE '2023-05-08'),
+                ('Anti-aging serum', 4, 'Beauty', true, '{"color": "White", "location": "United States"}'::JSONB, TIMESTAMP '2023-05-09 10:30:15', DATE '2023-05-10'),
+                ('Portable tripod stand', 4, 'Photography', true, '{"color": "Black", "location": "Canada"}'::JSONB, TIMESTAMP '2023-05-07 15:20:48', DATE '2023-05-09'),
+                ('Mystery detective novel', 2, 'Books', false, '{"color": "Multicolor", "location": "China"}'::JSONB, TIMESTAMP '2023-05-04 11:55:23', DATE '2023-05-05'),
+                ('Organic breakfast cereal', 5, 'Groceries', true, '{"color": "Brown", "location": "United States"}'::JSONB, TIMESTAMP '2023-05-02 07:40:59', DATE '2023-05-03'),
+                ('Designer wall paintings', 5, 'Home Decor', true, '{"color": "Multicolor", "location": "Canada"}'::JSONB, TIMESTAMP '2023-04-30 14:18:37', DATE '2023-05-01'),
+                ('Robot building kit', 4, 'Toys', true, '{"color": "Multicolor", "location": "China"}'::JSONB, TIMESTAMP '2023-04-29 16:25:42', DATE '2023-05-01'),
+                ('Sporty tank top', 4, 'Apparel', true, '{"color": "Blue", "location": "United States"}'::JSONB, TIMESTAMP '2023-04-27 12:09:53', DATE '2023-04-28'),
+                ('Bluetooth-enabled speaker', 3, 'Electronics', true, '{"color": "Black", "location": "Canada"}'::JSONB, TIMESTAMP '2023-04-26 09:34:11', DATE '2023-04-28'),
+                ('Winter woolen socks', 5, 'Footwear', false, '{"color": "Gray", "location": "China"}'::JSONB, TIMESTAMP '2023-04-25 14:55:08', DATE '2023-04-27'),
+                ('Rustic bookshelf', 4, 'Furniture', true, '{"color": "Brown", "location": "United States"}'::JSONB, TIMESTAMP '2023-04-24 08:20:47', DATE '2023-04-25'),
+                ('Moisturizing lip balm', 4, 'Beauty', true, '{"color": "Pink", "location": "Canada"}'::JSONB, TIMESTAMP '2023-04-23 13:48:29', DATE '2023-04-24'),
+                ('Lightweight camera bag', 5, 'Photography', false, '{"color": "Black", "location": "China"}'::JSONB, TIMESTAMP '2023-04-22 17:10:55', DATE '2023-04-24'),
+                ('Historical fiction book', 3, 'Books', true, '{"color": "Multicolor", "location": "United States"}'::JSONB, TIMESTAMP '2023-04-21 10:35:40', DATE '2023-04-22'),
+                ('Pure honey jar', 4, 'Groceries', true, '{"color": "Yellow", "location": "Canada"}'::JSONB, TIMESTAMP '2023-04-20 15:22:14', DATE '2023-04-22'),
+                ('Handcrafted wooden frame', 5, 'Home Decor', false, '{"color": "Brown", "location": "China"}'::JSONB, TIMESTAMP '2023-04-19 08:55:06', DATE '2023-04-21'),
+                ('Plush teddy bear', 4, 'Toys', true, '{"color": "Brown", "location": "United States"}'::JSONB, TIMESTAMP '2023-04-18 11:40:59', DATE '2023-04-19'),
+                ('Warm woolen sweater', 3, 'Apparel', false, '{"color": "Red", "location": "Canada"}'::JSONB, TIMESTAMP '2023-04-17 14:28:37', DATE '2023-04-18')
                 ) AS t(description, rating, category, in_stock, metadata, created_at, last_updated_date)
         LOOP
             EXECUTE 'INSERT INTO ' || full_table_name || ' (description, rating, category, in_stock, metadata, created_at, last_updated_date) VALUES ($1, $2, $3, $4, $5, $6, $7)'
@@ -93,7 +110,7 @@ CREATE OR REPLACE PROCEDURE paradedb.create_bm25(
     numeric_fields text DEFAULT '{}',
     boolean_fields text DEFAULT '{}',
     json_fields text DEFAULT '{}',
-    date_fields text DEFAULT '{}'
+    datetime_fields text DEFAULT '{}'
 )
 LANGUAGE plpgsql AS $$
 DECLARE
@@ -120,8 +137,8 @@ BEGIN
         RAISE EXCEPTION 'no key_field parameter given for bm25 index "%"', index_name;
     END IF;
 
-    IF text_fields = '{}' AND numeric_fields = '{}' AND boolean_fields = '{}' AND json_fields = '{}' AND date_fields = '{}' THEN
-        RAISE EXCEPTION 'no text_fields, numeric_fields, boolean_fields, json_fields, or date_fields were specified for index %', index_name;
+    IF text_fields = '{}' AND numeric_fields = '{}' AND boolean_fields = '{}' AND json_fields = '{}' AND datetime_fields = '{}' THEN
+        RAISE EXCEPTION 'no text_fields, numeric_fields, boolean_fields, json_fields, or datetime_fields were specified for index %', index_name;
     END IF;
 
     index_json := jsonb_build_object(
@@ -136,8 +153,8 @@ BEGIN
 
     -- Create a new BM25 index on the specified table.
     -- The index is created dynamically based on the function parameters.
-    EXECUTE format('CREATE INDEX %s_bm25_index ON %I.%I USING bm25 ((%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L, date_fields=%L);',
-                   index_name, schema_name, table_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields, date_fields);
+    EXECUTE format('CREATE INDEX %s_bm25_index ON %I.%I USING bm25 ((%I.*)) WITH (key_field=%L, text_fields=%L, numeric_fields=%L, boolean_fields=%L, json_fields=%L, datetime_fields=%L);',
+                   index_name, schema_name, table_name, table_name, key_field, text_fields, numeric_fields, boolean_fields, json_fields, datetime_fields);
 
     -- Dynamically create a new function for performing searches on the indexed table.
     -- The variable '__paradedb_search_config__' is available to the function_body parameter.

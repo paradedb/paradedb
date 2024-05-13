@@ -37,7 +37,7 @@ BEGIN;
     	numeric_fields => '{"rating": {}}',
     	boolean_fields => '{"in_stock": {}}',
     	json_fields => '{"metadata": {}}',
-        date_fields => '{"created_at": {}, "last_updated_date": {}}'
+        datetime_fields => '{"created_at": {}, "last_updated_date": {}}'
     );
 COMMIT;
 "#;

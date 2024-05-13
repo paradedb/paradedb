@@ -9,7 +9,7 @@ pub struct NycTripsTable {
     pub vendor_id: Option<i32>,
     // For now, we're commenting out the datetime fields because they are presenting
     // a problem when serializing to parquet with serde-arrow. While these fields
-    // do exist in in the nyc_trips Postgres table that we create, we'll entirely
+    // do exist in the nyc_trips Postgres table that we create, we'll entirely
     // skip reading them into Rust with sqlx.
     // pub tpep_pickup_datetime: Option<PrimitiveDateTime>,
     // pub tpep_dropoff_datetime: Option<PrimitiveDateTime>,

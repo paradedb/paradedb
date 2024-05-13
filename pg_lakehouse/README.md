@@ -185,3 +185,13 @@ Adding support for a new object store is as straightforward as
 1. Adding the service feature to `opendal` in `Cargo.toml`. For instance, S3 requires `services-s3`.
 2. Creating a file in the `fdw/` folder that implements the `BaseFdw` trait. For instance, `fdw/s3.rs` implements the S3 FDW.
 3. Registering the FDW in `fdw/handler.rs`.
+
+### Running Tests
+
+We use `cargo test` as our runner for `pg_lakehouse` tests. Tests are conducted using [testcontainers](https://github.com/testcontainers/testcontainers-rs) to manage testing containers like [LocalStack](https://hub.docker.com/r/localstack/localstack). `testcontainers` will pull any Docker images that it requires to perform the test.
+
+You also need a running Postgres instance to run the tests. The test suite will look for a connection string on the `DATABASE_URL` environment variable. You can set this variable manually, or use `.env` file with contents like this:
+
+```text
+DATABASE_URL=postgres://<username>@<host>:<port>/<database>
+```

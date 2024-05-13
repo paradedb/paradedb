@@ -52,6 +52,7 @@ pub struct S3 {
     #[allow(unused)]
     container: ContainerAsync<LocalStack>,
     pub client: aws_sdk_s3::Client,
+    pub url: String,
 }
 
 impl S3 {
@@ -62,20 +63,23 @@ impl S3 {
 
         let host_ip = container.get_host().await;
         let host_port = container.get_host_port_ipv4(4566).await;
-        // Set up AWS client
-        let endpoint_url = format!("http://{host_ip}:{host_port}");
+        let url = format!("http://{host_ip}:{host_port}");
         let creds = aws_sdk_s3::config::Credentials::new("fake", "fake", None, None, "test");
 
         let config = aws_sdk_s3::config::Builder::default()
             .behavior_version(BehaviorVersion::v2024_03_28())
             .region(Region::new("us-east-1"))
             .credentials_provider(creds)
-            .endpoint_url(endpoint_url)
+            .endpoint_url(url.clone())
             .force_path_style(true)
             .build();
 
         let client = aws_sdk_s3::Client::from_conf(config);
-        Self { container, client }
+        Self {
+            container,
+            client,
+            url,
+        }
     }
 }
 

@@ -35,7 +35,7 @@ opendal = { git = "https://github.com/apache/opendal.git", features = [
 pgrx = "0.11.3"
 serde = "1.0.201"
 shared = { path = "../shared" }
-supabase-wrappers = { path = "../../wrappers/supabase-wrappers", default-features = false }
+supabase-wrappers = { git = "https://github.com/paradedb/wrappers.git", default-features = false }
 thiserror = "1.0.59"
 url = "2.5.0"
 

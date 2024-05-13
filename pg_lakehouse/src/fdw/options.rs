@@ -59,6 +59,7 @@ impl ServerOptions {
 
 pub trait ForeignOptions {
     fn table_options(&self) -> Result<HashMap<String, String>, OptionsError>;
+    #[allow(dead_code)]
     fn server_options(&self) -> Result<HashMap<String, String>, OptionsError>;
 }
 

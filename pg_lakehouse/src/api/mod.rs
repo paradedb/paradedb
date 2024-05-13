@@ -53,7 +53,7 @@ async fn arrow_schema_impl(
 
     let provider = match TableFormat::from(&format.unwrap_or("".to_string())) {
         TableFormat::None => create_listing_provider(&path, &extension).await?,
-        TableFormat::Delta => (create_delta_provider(&path, &extension)).await?,
+        TableFormat::Delta => create_delta_provider(&path, &extension).await?,
     };
 
     Ok(iter::TableIterator::new(

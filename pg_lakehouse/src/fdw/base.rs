@@ -52,7 +52,7 @@ pub trait BaseFdw {
     ) -> Result<(), BaseFdwError> {
         self.set_target_columns(columns);
 
-        let oid_u32: u32 = options.get("table_oid").unwrap().parse()?;
+        let oid_u32: u32 = options.get(OPTS_TABLE_KEY).unwrap().parse()?;
         let table_oid = pg_sys::Oid::from(oid_u32);
         let pg_relation = unsafe { PgRelation::open(table_oid) };
         let schema_name = pg_relation.namespace().to_string();
@@ -60,8 +60,7 @@ pub trait BaseFdw {
         Session::with_catalog(|catalog| {
             Box::pin(async move {
                 if catalog.schema(&schema_name).is_none() {
-                    let new_schema_provider =
-                        Arc::new(LakehouseSchemaProvider::new(&schema_name));
+                    let new_schema_provider = Arc::new(LakehouseSchemaProvider::new(&schema_name));
                     catalog.register_schema(&schema_name, new_schema_provider)?;
                 }
 
@@ -71,7 +70,7 @@ pub trait BaseFdw {
 
         let limit = limit.clone();
 
-        let result = Session::with_session_context(|context| {
+        let result = Session::with_session_context_read(|context| {
             Box::pin(async move {
                 let reference = TableReference::full(
                     Session::catalog_name()?,
@@ -175,7 +174,7 @@ pub enum BaseFdwError {
 
     #[error(transparent)]
     ParseIntError(#[from] std::num::ParseIntError),
-    
+
     #[error(transparent)]
     SchemaError(#[from] SchemaError),
 

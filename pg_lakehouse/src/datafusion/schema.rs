@@ -32,10 +32,6 @@ impl LakehouseSchemaProvider {
         }
     }
 
-    pub fn tables(&self) -> Arc<Mutex<HashMap<pg_sys::Oid, Arc<dyn TableProvider>>>> {
-        self.tables.clone()
-    }
-
     async fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>, CatalogError> {
         let pg_relation = unsafe {
             PgRelation::open_with_name(table_name).unwrap_or_else(|err| {
@@ -49,7 +45,6 @@ impl LakehouseSchemaProvider {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => {
                 let table_options = pg_relation.table_options()?;
-
                 let path = require_option(TableOption::Path.as_str(), &table_options)?;
                 let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
                 let format = require_option_or(TableOption::Format.as_str(), &table_options, "");

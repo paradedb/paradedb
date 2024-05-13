@@ -3,13 +3,14 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::datasource::TableProvider;
-use datafusion::execution::context::SessionContext;
 use deltalake::DeltaTableError;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::datafusion::format::*;
 use crate::schema::attribute::*;
+
+use super::format::*;
+use super::session::*;
 
 pub async fn create_listing_provider(
     path: &str,
@@ -17,14 +18,18 @@ pub async fn create_listing_provider(
 ) -> Result<Arc<dyn TableProvider>, TableProviderError> {
     let listing_url = ListingTableUrl::parse(path)?;
     let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
-    let context = SessionContext::new();
-    let schema = listing_options
-        .infer_schema(&context.state(), &listing_url)
-        .await?;
-    let listing_config = ListingTableConfig::new(listing_url)
-        .with_listing_options(listing_options)
-        .with_schema(schema);
-    let listing_table = ListingTable::try_new(listing_config)?;
+    let listing_table = Session::with_session_context_read(|context| {
+        Box::pin(async move {
+            let schema = listing_options
+                .infer_schema(&context.state(), &listing_url)
+                .await?;
+            let listing_config = ListingTableConfig::new(listing_url)
+                .with_listing_options(listing_options)
+                .with_schema(schema);
+            Ok(ListingTable::try_new(listing_config)?)
+        })
+    })
+    .unwrap();
 
     Ok(Arc::new(listing_table) as Arc<dyn TableProvider>)
 }

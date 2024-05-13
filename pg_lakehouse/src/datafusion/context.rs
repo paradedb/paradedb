@@ -1,6 +1,5 @@
 use async_std::task;
 use datafusion::catalog::schema::SchemaProvider;
-use datafusion::catalog::CatalogProvider;
 use datafusion::common::arrow::datatypes::DataType;
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::DataFusionError;
@@ -19,7 +18,6 @@ use crate::schema::attribute::*;
 
 use super::plan::*;
 use super::provider::*;
-use super::schema::LakehouseSchemaProvider;
 use super::session::Session;
 
 pub struct QueryContext {
@@ -44,7 +42,7 @@ impl ContextProvider for QueryContext {
     }
 
     fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
-        Session::with_session_context(|context| {
+        Session::with_session_context_read(|context| {
             let context_res = context.udf(name);
             Box::pin(async move { Ok(context_res?) })
         })
@@ -105,22 +103,10 @@ async fn get_table_source(
 
             if let Some(current_schemas) = current_schemas {
                 for datum in current_schemas.iter().flatten() {
-                    // let schema_name =
-                    //     unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
-
-                    // Session::with_catalog(|catalog| {
-                    //     Box::pin(async move {
-                    //         if catalog.schema(schema_name).is_none() {
-                    //             let new_schema_provider =
-                    //                 Arc::new(LakehouseSchemaProvider::new(schema_name));
-                    //             catalog.register_schema(schema_name, new_schema_provider)?;
-                    //         }
-
-                    //         Ok(())
-                    //     })
-                    // })?;
-
+                    let schema_name =
+                        unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
                     let table_name = reference.table().to_string();
+
                     let table_exists = Session::with_schema_provider(schema_name, |provider| {
                         Box::pin(async move { Ok(provider.table_exist(&table_name.clone())) })
                     })?;
@@ -148,7 +134,7 @@ fn get_source(
     let schema_name = schema_name.to_string();
     let table_name = table_name.to_string();
 
-    let provider = Session::with_session_context(|context| {
+    let provider = Session::with_session_context_read(|context| {
         Box::pin(async move {
             let table_reference = TableReference::full(catalog_name, schema_name, table_name);
             Ok(context.table_provider(table_reference).await?)
@@ -189,6 +175,9 @@ pub enum ContextError {
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
+
+    #[error("Session context not initialized. This is likely a bug with ParadeDB.")]
+    ContextNotFound,
 
     #[error("Database {0} not found")]
     DatabaseNotFound(String),

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_std::task::block_on;
 use aws_config::{BehaviorVersion, Region};
-use aws_sdk_s3;
+
 use datafusion::{arrow::datatypes::FieldRef, parquet::arrow::ArrowWriter};
 use rstest::*;
 use serde::Serialize;

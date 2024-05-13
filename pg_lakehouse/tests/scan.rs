@@ -15,7 +15,7 @@ async fn test_trip_setup(#[future(awt)] s3: S3, mut conn: PgConnection) -> Resul
     NycTripsTable::setup().execute(&mut conn);
     let rows: Vec<NycTripsTable> = "SELECT * FROM nyc_trips".fetch(&mut conn);
     s3.client.create_bucket().bucket(s3_bucket).send().await?;
-    s3.create_bucket(&s3_bucket).await?;
+    s3.create_bucket(s3_bucket).await?;
     s3.put(s3_bucket, s3_key, &rows).await?;
 
     NycTripsTable::setup_fdw(&s3_endpoint, s3_bucket, &s3_object_path).execute(&mut conn);

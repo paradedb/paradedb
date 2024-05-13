@@ -41,6 +41,40 @@ impl NycTripsTable {
     pub fn setup() -> String {
         NYC_TRIPS_TABLE_SETUP.to_string()
     }
+
+    pub fn setup_fdw(s3_endpoint: &str, s3_bucket: &str, s3_object_path: &str) -> String {
+        format!(
+            r#"
+        CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
+        
+        CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
+        OPTIONS (bucket '{s3_bucket}', region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');
+        
+        CREATE FOREIGN TABLE trips (
+            "VendorID"              INT,
+            -- Commented out until serde-arrow serialization issue is addressed.
+            -- "tpep_pickup_datetime"  TIMESTAMP,
+            -- "tpep_dropoff_datetime" TIMESTAMP,
+            "passenger_count"       BIGINT,
+            "trip_distance"         DOUBLE PRECISION,
+            "RatecodeID"            DOUBLE PRECISION,
+            "store_and_fwd_flag"    TEXT,
+            "PULocationID"          REAL,
+            "DOLocationID"          REAL,
+            "payment_type"          DOUBLE PRECISION,
+            "fare_amount"           DOUBLE PRECISION,
+            "extra"                 DOUBLE PRECISION,
+            "mta_tax"               DOUBLE PRECISION,
+            "tip_amount"            DOUBLE PRECISION,
+            "tolls_amount"          DOUBLE PRECISION,
+            "improvement_surcharge" DOUBLE PRECISION,
+            "total_amount"          DOUBLE PRECISION
+        )
+        SERVER s3_server
+        OPTIONS (path '{s3_object_path}', extension 'parquet'); 
+    "#
+        )
+    }
 }
 
 static NYC_TRIPS_TABLE_SETUP: &str = r#"

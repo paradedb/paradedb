@@ -1,7 +1,11 @@
+use anyhow::Result;
 use async_std::task::block_on;
 use aws_config::{BehaviorVersion, Region};
 use aws_sdk_s3;
+use datafusion::{arrow::datatypes::FieldRef, parquet::arrow::ArrowWriter};
 use rstest::*;
+use serde::Serialize;
+use serde_arrow::schema::{SchemaLike, TracingOptions};
 use sqlx::PgConnection;
 use testcontainers::ContainerAsync;
 use testcontainers_modules::{
@@ -80,6 +84,30 @@ impl S3 {
             client,
             url,
         }
+    }
+
+    pub async fn create_bucket(&self, bucket: &str) -> Result<()> {
+        self.client.create_bucket().bucket(bucket).send().await?;
+        Ok(())
+    }
+
+    pub async fn put<T: Serialize>(&self, bucket: &str, key: &str, rows: &[T]) -> Result<()> {
+        let fields = Vec::<FieldRef>::from_type::<NycTripsTable>(TracingOptions::default())?;
+        let batch = serde_arrow::to_record_batch(&fields, &rows)?;
+
+        let mut buf = vec![];
+        let mut writer = ArrowWriter::try_new(&mut buf, batch.schema(), None)?;
+        writer.write(&batch)?;
+        writer.close()?;
+
+        self.client
+            .put_object()
+            .bucket(bucket)
+            .key(key)
+            .body(buf.into())
+            .send()
+            .await?;
+        Ok(())
     }
 }
 

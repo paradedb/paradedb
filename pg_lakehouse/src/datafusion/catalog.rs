@@ -52,12 +52,9 @@ impl CatalogProvider for LakehouseCatalog {
 
     fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
         let schemas = task::block_on(self.schemas.read());
-        let maybe_schema = schemas.get(name);
-        if let Some(schema) = maybe_schema {
-            let schema = schema.clone() as Arc<dyn SchemaProvider>;
-            Some(schema)
-        } else {
-            None
+        match schemas.get(name) {
+            Some(schema) => Some(schema.clone() as Arc<dyn SchemaProvider>),
+            None => None,
         }
     }
 }

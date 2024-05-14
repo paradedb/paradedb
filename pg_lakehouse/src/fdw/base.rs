@@ -16,7 +16,7 @@ use crate::datafusion::context::ContextError;
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
 use crate::datafusion::schema::LakehouseSchemaProvider;
-use crate::datafusion::session::Session;
+use crate::datafusion::session::*;
 use crate::schema::attribute::*;
 use crate::schema::cell::*;
 
@@ -52,43 +52,36 @@ pub trait BaseFdw {
     ) -> Result<(), BaseFdwError> {
         self.set_target_columns(columns);
 
-        let oid_u32: u32 = options.get(OPTS_TABLE_KEY).unwrap().parse()?;
+        let oid_u32: u32 = options
+            .get(OPTS_TABLE_KEY)
+            .ok_or(BaseFdwError::TableOidNotFound)?
+            .parse()?;
         let table_oid = pg_sys::Oid::from(oid_u32);
         let pg_relation = unsafe { PgRelation::open(table_oid) };
         let schema_name = pg_relation.namespace().to_string();
+        let catalog = Session::catalog()?;
 
-        Session::with_catalog(|catalog| {
-            Box::pin(async move {
-                if catalog.schema(&schema_name).is_none() {
-                    let new_schema_provider = Arc::new(LakehouseSchemaProvider::new(&schema_name));
-                    catalog.register_schema(&schema_name, new_schema_provider)?;
-                }
-
-                Ok(())
-            })
-        })?;
+        if catalog.schema(&schema_name).is_none() {
+            let new_schema_provider = Arc::new(LakehouseSchemaProvider::new(&schema_name));
+            catalog.register_schema(&schema_name, new_schema_provider)?;
+        }
 
         let limit = limit.clone();
+        let context = Session::session_context()?;
 
-        let result = Session::with_session_context_read(|context| {
-            Box::pin(async move {
-                let reference = TableReference::full(
-                    Session::catalog_name()?,
-                    pg_relation.namespace(),
-                    pg_relation.name(),
-                );
-                let mut dataframe = context.table(reference).await?;
+        let reference = TableReference::full(
+            Session::catalog_name()?,
+            pg_relation.namespace(),
+            pg_relation.name(),
+        );
+        let mut dataframe = task::block_on(context.table(reference))?;
 
-                if let Some(limit) = limit {
-                    dataframe =
-                        dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
-                }
+        if let Some(limit) = limit {
+            dataframe = dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
+        }
 
-                Ok(context
-                    .execute_logical_plan(dataframe.logical_plan().clone())
-                    .await?)
-            })
-        })?;
+        let result =
+            task::block_on(context.execute_logical_plan(dataframe.logical_plan().clone()))?;
 
         self.set_stream(Some(task::block_on(result.execute_stream())?));
 
@@ -179,6 +172,9 @@ pub enum BaseFdwError {
     SchemaError(#[from] SchemaError),
 
     #[error(transparent)]
+    SessionError(#[from] SessionError),
+
+    #[error(transparent)]
     TableProviderError(#[from] TableProviderError),
 
     #[error(transparent)]
@@ -192,6 +188,9 @@ pub enum BaseFdwError {
 
     #[error("Unexpected error: Expected SendableRecordBatchStream but found None")]
     StreamNotFound,
+
+    #[error("Unexpected error: Table OID not found")]
+    TableOidNotFound,
 
     #[error("Received unsupported FDW oid {0:?}")]
     UnsupportedFdwOid(PgOid),

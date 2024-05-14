@@ -33,17 +33,14 @@ impl BaseFdw for LocalFileFdw {
     ) -> Result<(), ContextError> {
         // Create S3 ObjectStore
         let object_store = LocalFileSystem::new();
+        let context = Session::session_context()?;
 
         // Create SessionContext with ObjectStore
-        Session::with_session_context(|context| {
-            Box::pin(async move {
-                context
-                    .runtime_env()
-                    .register_object_store(&Url::parse("file://")?, Arc::new(object_store));
+        context
+            .runtime_env()
+            .register_object_store(&Url::parse("file://")?, Arc::new(object_store));
 
-                Ok(())
-            })
-        })
+        Ok(())
     }
 
     fn get_current_batch(&self) -> Option<RecordBatch> {

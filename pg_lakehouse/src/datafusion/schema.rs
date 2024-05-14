@@ -19,6 +19,7 @@ use super::catalog::CatalogError;
 use super::format::*;
 use super::provider::*;
 
+#[derive(Clone)]
 pub struct LakehouseSchemaProvider {
     schema_name: String,
     tables: Arc<Mutex<HashMap<pg_sys::Oid, Arc<dyn TableProvider>>>>,

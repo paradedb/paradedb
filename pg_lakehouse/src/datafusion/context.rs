@@ -18,7 +18,7 @@ use crate::schema::attribute::*;
 
 use super::plan::*;
 use super::provider::*;
-use super::session::Session;
+use super::session::*;
 
 pub struct QueryContext {
     options: ConfigOptions,
@@ -42,11 +42,11 @@ impl ContextProvider for QueryContext {
     }
 
     fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
-        Session::with_session_context_read(|context| {
-            let context_res = context.udf(name);
-            Box::pin(async move { Ok(context_res?) })
-        })
-        .ok()
+        let context = Session::session_context().unwrap_or_else(|err| {
+            panic!("{:?}", err);
+        });
+
+        context.udf(name).ok()
     }
 
     fn get_aggregate_meta(&self, _name: &str) -> Option<Arc<AggregateUDF>> {
@@ -106,12 +106,9 @@ async fn get_table_source(
                     let schema_name =
                         unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
                     let table_name = reference.table().to_string();
+                    let schema_provider = Session::schema_provider(schema_name)?;
 
-                    let table_exists = Session::with_schema_provider(schema_name, |provider| {
-                        Box::pin(async move { Ok(provider.table_exist(&table_name.clone())) })
-                    })?;
-
-                    if !table_exists {
+                    if !schema_provider.table_exist(&table_name.clone()) {
                         continue;
                     }
 
@@ -133,13 +130,9 @@ fn get_source(
     let catalog_name = catalog_name.to_string();
     let schema_name = schema_name.to_string();
     let table_name = table_name.to_string();
-
-    let provider = Session::with_session_context_read(|context| {
-        Box::pin(async move {
-            let table_reference = TableReference::full(catalog_name, schema_name, table_name);
-            Ok(context.table_provider(table_reference).await?)
-        })
-    })?;
+    let context = Session::session_context()?;
+    let table_reference = TableReference::full(catalog_name, schema_name, table_name);
+    let provider = task::block_on(context.table_provider(table_reference))?;
 
     Ok(provider_as_source(provider))
 }
@@ -176,27 +169,12 @@ pub enum ContextError {
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
 
-    #[error("Session context not initialized. This is likely a bug with ParadeDB.")]
-    ContextNotFound,
-
-    #[error("Database {0} not found")]
-    DatabaseNotFound(String),
+    #[error(transparent)]
+    SessionError(#[from] SessionError),
 
     #[error("No table registered with name {0}")]
     TableNotFound(String),
 
     #[error("Could not get definition for view {0}")]
     ViewNotFound(String),
-
-    #[error("Catalog {0} not found")]
-    CatalogNotFound(String),
-
-    #[error("Catalog provider {0} not found")]
-    CatalogProviderNotFound(String),
-
-    #[error("Schema {0} not found")]
-    SchemaNotFound(String),
-
-    #[error("Schema provider {0} not found")]
-    SchemaProviderNotFound(String),
 }

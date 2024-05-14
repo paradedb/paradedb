@@ -1,3 +1,4 @@
+use async_std::task;
 use datafusion::common::arrow::array::RecordBatch;
 use datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
@@ -12,8 +13,10 @@ use super::query::*;
 
 macro_rules! fallback_warning {
     ($msg:expr) => {
-        warning!(r#"
-                This query was not fully pushed down to DataFusion because DataFusion returned an error: {}. Query times may be impacted.
+        warning!(
+            r#"
+                This query was not fully pushed down to DataFusion because DataFusion returned an error: {}. 
+                Query times may be impacted.
                 Please submit a request at https://github.com/paradedb/paradedb/issues if you would like to see this query pushed down.
             "#
         , $msg);
@@ -61,7 +64,7 @@ pub unsafe fn executor_run(
             };
 
             // Execute SELECT
-            match get_datafusion_batches(logical_plan) {
+            match task::block_on(get_datafusion_batches(logical_plan)) {
                 Ok(batches) => write_batches_to_slots(query_desc, batches)?,
                 Err(err) => {
                     fallback_warning!(err.to_string());
@@ -80,14 +83,13 @@ pub unsafe fn executor_run(
 }
 
 #[inline]
-fn get_datafusion_batches(logical_plan: LogicalPlan) -> Result<Vec<RecordBatch>, ContextError> {
+async fn get_datafusion_batches(
+    logical_plan: LogicalPlan,
+) -> Result<Vec<RecordBatch>, ContextError> {
     // Execute the logical plan and collect the resulting batches
-    Session::with_session_context(|context| {
-        Box::pin(async move {
-            let dataframe = context.execute_logical_plan(logical_plan).await?;
-            Ok(dataframe.collect().await?)
-        })
-    })
+    let context = Session::session_context()?;
+    let dataframe = context.execute_logical_plan(logical_plan).await?;
+    Ok(dataframe.collect().await?)
 }
 
 #[inline]

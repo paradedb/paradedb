@@ -12,18 +12,20 @@ use crate::schema::attribute::SchemaError;
 
 use super::provider::TableProviderError;
 
+#[derive(Clone)]
 pub struct LakehouseCatalog {
-    schemas: RwLock<HashMap<String, Arc<dyn SchemaProvider>>>,
+    schemas: Arc<RwLock<HashMap<String, Arc<dyn SchemaProvider>>>>,
 }
 
+#[derive(Clone)]
 pub struct LakehouseCatalogList {
-    catalogs: RwLock<HashMap<String, Arc<dyn CatalogProvider>>>,
+    catalogs: Arc<RwLock<HashMap<String, Arc<dyn CatalogProvider>>>>,
 }
 
 impl LakehouseCatalog {
     pub fn new() -> Self {
         Self {
-            schemas: RwLock::new(HashMap::new()),
+            schemas: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }
@@ -63,7 +65,7 @@ impl CatalogProvider for LakehouseCatalog {
 impl LakehouseCatalogList {
     pub fn new() -> Self {
         Self {
-            catalogs: RwLock::new(HashMap::new()),
+            catalogs: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 }

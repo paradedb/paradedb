@@ -22,13 +22,12 @@ pub struct Session;
 
 impl Session {
     pub fn session_context() -> Result<Arc<SessionContext>, SessionError> {
-        let mut write_lock = task::block_on(SESSION_CACHE.write());
-
-        if let Vacant(entry) = write_lock.entry(SESSION_ID.to_string()) {
-            entry.insert(Self::init()?);
+        {
+            let mut write_lock = task::block_on(SESSION_CACHE.write());
+            if let Vacant(entry) = write_lock.entry(SESSION_ID.to_string()) {
+                entry.insert(Self::init()?);
+            }
         }
-
-        drop(write_lock);
 
         let read_lock = task::block_on(SESSION_CACHE.read());
         let context = read_lock
@@ -39,13 +38,12 @@ impl Session {
     }
 
     pub fn catalog() -> Result<LakehouseCatalog, SessionError> {
-        let mut write_lock = task::block_on(SESSION_CACHE.write());
-
-        if let Vacant(entry) = write_lock.entry(SESSION_ID.to_string()) {
-            entry.insert(Self::init()?);
+        {
+            let mut write_lock = task::block_on(SESSION_CACHE.write());
+            if let Vacant(entry) = write_lock.entry(SESSION_ID.to_string()) {
+                entry.insert(Self::init()?);
+            }
         }
-
-        drop(write_lock);
 
         let read_lock = task::block_on(SESSION_CACHE.read());
         let context = read_lock
@@ -67,13 +65,12 @@ impl Session {
     }
 
     pub fn schema_provider(schema_name: &str) -> Result<LakehouseSchemaProvider, SessionError> {
-        let mut write_lock = task::block_on(SESSION_CACHE.write());
-
-        if let Vacant(entry) = write_lock.entry(SESSION_ID.to_string()) {
-            entry.insert(Self::init()?);
+        {
+            let mut write_lock = task::block_on(SESSION_CACHE.write());
+            if let Vacant(entry) = write_lock.entry(SESSION_ID.to_string()) {
+                entry.insert(Self::init()?);
+            }
         }
-
-        drop(write_lock);
 
         let read_lock = task::block_on(SESSION_CACHE.read());
         let context = read_lock

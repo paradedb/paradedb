@@ -102,6 +102,9 @@ pub enum CatalogError {
     DataFusionError(#[from] DataFusionError),
 
     #[error(transparent)]
+    DeltaTableError(#[from] deltalake::DeltaTableError),
+
+    #[error(transparent)]
     FromUtf8Error(#[from] std::string::FromUtf8Error),
 
     #[error(transparent)]

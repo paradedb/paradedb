@@ -1,13 +1,16 @@
 use async_std::sync::Mutex;
 use async_std::task;
-use async_trait::async_trait;
 use datafusion::catalog::schema::SchemaProvider;
+use datafusion::common::DataFusionError;
 use datafusion::datasource::TableProvider;
 use datafusion::error::Result;
+use deltalake::DeltaTable;
 use pgrx::*;
 use std::any::Any;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 
@@ -33,23 +36,22 @@ impl LakehouseSchemaProvider {
         }
     }
 
-    async fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>, CatalogError> {
+    fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>, CatalogError> {
         let pg_relation = unsafe {
             PgRelation::open_with_name(table_name).unwrap_or_else(|err| {
                 panic!("{:?}", err);
             })
         };
 
-        let mut tables = self.tables.lock().await;
+        let table_options = pg_relation.table_options()?;
+        let path = require_option(TableOption::Path.as_str(), &table_options)?;
+        let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
+        let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
+        let mut tables = task::block_on(self.tables.lock());
 
         let table = match tables.entry(pg_relation.oid()) {
             Occupied(entry) => entry.into_mut(),
             Vacant(entry) => {
-                let table_options = pg_relation.table_options()?;
-                let path = require_option(TableOption::Path.as_str(), &table_options)?;
-                let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
-                let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
-
                 let mut attribute_map: HashMap<usize, PgAttribute> = pg_relation
                     .tuple_desc()
                     .iter()
@@ -63,8 +65,8 @@ impl LakehouseSchemaProvider {
                     .collect();
 
                 let provider = match TableFormat::from(format) {
-                    TableFormat::None => create_listing_provider(path, extension).await?,
-                    TableFormat::Delta => create_delta_provider(path, extension).await?,
+                    TableFormat::None => task::block_on(create_listing_provider(path, extension))?,
+                    TableFormat::Delta => task::block_on(create_delta_provider(path, extension))?,
                 };
 
                 for (index, field) in provider.schema().fields().iter().enumerate() {
@@ -77,11 +79,20 @@ impl LakehouseSchemaProvider {
             }
         };
 
-        Ok(table.clone())
+        let provider = match TableFormat::from(format) {
+            TableFormat::Delta => {
+                let mut delta_table = table.as_any().downcast_ref::<DeltaTable>().unwrap().clone();
+                task::block_on(delta_table.load())?;
+
+                Arc::new(delta_table) as Arc<dyn TableProvider>
+            }
+            _ => table.clone(),
+        };
+
+        Ok(provider)
     }
 }
 
-#[async_trait]
 impl SchemaProvider for LakehouseSchemaProvider {
     fn as_any(&self) -> &dyn Any {
         self
@@ -92,11 +103,28 @@ impl SchemaProvider for LakehouseSchemaProvider {
         todo!("table_names not implemented")
     }
 
-    async fn table(&self, table_name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
-        let table =
-            task::block_on(self.table_impl(table_name)).unwrap_or_else(|err| panic!("{:?}", err));
+    fn table<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        table_name: &'life1 str,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<Option<Arc<dyn TableProvider>>, DataFusionError>>
+                + Send
+                + 'async_trait,
+        >,
+    >
+    where
+        Self: 'async_trait,
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+    {
+        Box::pin(async move {
+            let table = self
+                .table_impl(table_name)
+                .unwrap_or_else(|err| panic!("{:?}", err));
 
-        Ok(Some(table))
+            Ok(Some(table))
+        })
     }
 
     fn table_exist(&self, table_name: &str) -> bool {

@@ -3,22 +3,25 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::datasource::TableProvider;
-use datafusion::execution::context::SessionState;
 use deltalake::DeltaTableError;
 use std::sync::Arc;
 use thiserror::Error;
 
-use crate::datafusion::format::*;
 use crate::schema::attribute::*;
+
+use super::format::*;
+use super::session::*;
 
 pub async fn create_listing_provider(
     path: &str,
     extension: &str,
-    state: &SessionState,
 ) -> Result<Arc<dyn TableProvider>, TableProviderError> {
     let listing_url = ListingTableUrl::parse(path)?;
     let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
-    let schema = listing_options.infer_schema(state, &listing_url).await?;
+    let context = Session::session_context()?;
+    let schema = listing_options
+        .infer_schema(&context.state(), &listing_url)
+        .await?;
     let listing_config = ListingTableConfig::new(listing_url)
         .with_listing_options(listing_options)
         .with_schema(schema);
@@ -57,6 +60,9 @@ pub enum TableProviderError {
 
     #[error(transparent)]
     Schema(#[from] SchemaError),
+
+    #[error(transparent)]
+    Session(#[from] SessionError),
 
     #[error(
         "File extension '{0}' is not supported for table format '{1}', extension must be 'parquet'"

@@ -1,19 +1,22 @@
 use async_std::task;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::catalog::CatalogProvider;
 use datafusion::common::DataFusionError;
 use datafusion::physical_plan::SendableRecordBatchStream;
+use datafusion::sql::TableReference;
 use deltalake::DeltaTableError;
 use pgrx::*;
 use std::collections::HashMap;
+use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
-use crate::datafusion::session::Session;
-use crate::fdw::options::TableOption;
+use crate::datafusion::schema::LakehouseSchemaProvider;
+use crate::datafusion::session::*;
 use crate::schema::attribute::*;
 use crate::schema::cell::*;
 
@@ -49,51 +52,36 @@ pub trait BaseFdw {
     ) -> Result<(), BaseFdwError> {
         self.set_target_columns(columns);
 
-        let mut attribute_map: HashMap<usize, PgAttribute> = columns
-            .iter()
-            .cloned()
-            .map(|col| (col.num - 1, PgAttribute::new(&col.name, col.type_oid)))
-            .collect();
+        let oid_u32: u32 = options
+            .get(OPTS_TABLE_KEY)
+            .ok_or(BaseFdwError::TableOidNotFound)?
+            .parse()?;
+        let table_oid = pg_sys::Oid::from(oid_u32);
+        let pg_relation = unsafe { PgRelation::open(table_oid) };
+        let schema_name = pg_relation.namespace().to_string();
+        let catalog = Session::catalog()?;
+
+        if catalog.schema(&schema_name).is_none() {
+            let new_schema_provider = Arc::new(LakehouseSchemaProvider::new(&schema_name));
+            catalog.register_schema(&schema_name, new_schema_provider)?;
+        }
 
         let limit = limit.clone();
-        let columns = columns.to_vec();
+        let context = Session::session_context()?;
 
-        let result = Session::with_session_context(|context| {
-            Box::pin(async move {
-                let format = require_option_or(TableOption::Format.as_str(), &options, "");
-                let path = require_option(TableOption::Path.as_str(), &options)?;
-                let extension = require_option(TableOption::Extension.as_str(), &options)?;
+        let reference = TableReference::full(
+            Session::catalog_name()?,
+            pg_relation.namespace(),
+            pg_relation.name(),
+        );
+        let mut dataframe = task::block_on(context.table(reference))?;
 
-                let provider = match TableFormat::from(format) {
-                    TableFormat::None => {
-                        task::block_on(create_listing_provider(path, extension, &context.state()))?
-                    }
-                    TableFormat::Delta => task::block_on(create_delta_provider(path, extension))?,
-                };
+        if let Some(limit) = limit {
+            dataframe = dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
+        }
 
-                for (index, field) in provider.schema().fields().iter().enumerate() {
-                    if let Some(attribute) = attribute_map.remove(&index) {
-                        can_convert_to_attribute(field, attribute)?;
-                    }
-                }
-
-                let mut dataframe = context.read_table(provider)?.select_columns(
-                    &columns
-                        .iter()
-                        .map(|c| c.name.as_str())
-                        .collect::<Vec<&str>>(),
-                )?;
-
-                if let Some(limit) = limit {
-                    dataframe =
-                        dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
-                }
-
-                Ok(context
-                    .execute_logical_plan(dataframe.logical_plan().clone())
-                    .await?)
-            })
-        })?;
+        let result =
+            task::block_on(context.execute_logical_plan(dataframe.logical_plan().clone()))?;
 
         self.set_stream(Some(task::block_on(result.execute_stream())?));
 
@@ -178,7 +166,13 @@ pub enum BaseFdwError {
     OptionsError(#[from] supabase_wrappers::options::OptionsError),
 
     #[error(transparent)]
+    ParseIntError(#[from] std::num::ParseIntError),
+
+    #[error(transparent)]
     SchemaError(#[from] SchemaError),
+
+    #[error(transparent)]
+    SessionError(#[from] SessionError),
 
     #[error(transparent)]
     TableProviderError(#[from] TableProviderError),
@@ -194,6 +188,9 @@ pub enum BaseFdwError {
 
     #[error("Unexpected error: Expected SendableRecordBatchStream but found None")]
     StreamNotFound,
+
+    #[error("Unexpected error: Table OID not found")]
+    TableOidNotFound,
 
     #[error("Received unsupported FDW oid {0:?}")]
     UnsupportedFdwOid(PgOid),

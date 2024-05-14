@@ -1,26 +1,24 @@
 use async_std::task;
+use datafusion::catalog::schema::SchemaProvider;
 use datafusion::common::arrow::datatypes::DataType;
 use datafusion::common::config::ConfigOptions;
 use datafusion::common::DataFusionError;
-use datafusion::datasource::{provider_as_source, view::ViewTable};
+use datafusion::datasource::provider_as_source;
 use datafusion::execution::FunctionRegistry;
-use datafusion::logical_expr::{AggregateUDF, LogicalPlan, ScalarUDF, TableSource, WindowUDF};
+use datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use datafusion::sql::planner::ContextProvider;
 use datafusion::sql::TableReference;
 use pgrx::*;
-use std::collections::HashMap;
+use std::ffi::{c_char, CStr};
 use std::sync::Arc;
-use supabase_wrappers::prelude::*;
 use thiserror::Error;
 
 use crate::datafusion::format::*;
-use crate::fdw::handler::*;
-use crate::fdw::options::*;
 use crate::schema::attribute::*;
 
 use super::plan::*;
 use super::provider::*;
-use super::session::Session;
+use super::session::*;
 
 pub struct QueryContext {
     options: ConfigOptions,
@@ -44,11 +42,11 @@ impl ContextProvider for QueryContext {
     }
 
     fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
-        Session::with_session_context(|context| {
-            let context_res = context.udf(name);
-            Box::pin(async move { Ok(context_res?) })
-        })
-        .ok()
+        let context = Session::session_context().unwrap_or_else(|err| {
+            panic!("{:?}", err);
+        });
+
+        context.udf(name).ok()
     }
 
     fn get_aggregate_meta(&self, _name: &str) -> Option<Arc<AggregateUDF>> {
@@ -84,78 +82,59 @@ impl ContextProvider for QueryContext {
 async fn get_table_source(
     reference: TableReference<'_>,
 ) -> Result<Arc<dyn TableSource>, ContextError> {
+    let catalog_name = Session::catalog_name()?;
     let schema_name = reference.schema();
 
-    // If no table was found, try to register it as a view
-    let pg_relation = (match schema_name {
-        None => unsafe { PgRelation::open_with_name(reference.table()) },
-        Some(schema_name) => unsafe {
-            PgRelation::open_with_name(format!("{}.{}", schema_name, reference.table()).as_str())
-        },
-    })
-    .map_err(|_| ContextError::TableNotFound(reference.table().to_string()))?;
-
-    if pg_relation.is_view() {
-        let view_definition = unsafe {
-            direct_function_call::<String>(
-                pg_sys::pg_get_viewdef,
-                &[Some(pg_sys::Datum::from(pg_relation.oid()))],
-            )
-            .ok_or(ContextError::ViewNotFound(reference.table().to_string()))?
-        };
-
-        let logical_plan = LogicalPlan::try_from(QueryString(&view_definition))?;
-        let view_table = ViewTable::try_new(logical_plan, None)?;
-        return Ok(provider_as_source(Arc::new(view_table)));
-    }
-
-    if pg_relation.is_foreign_table() {
-        let foreign_table = unsafe { pg_sys::GetForeignTable(pg_relation.oid()) };
-        let foreign_server = unsafe { pg_sys::GetForeignServer((*foreign_table).serverid) };
-        let fdw_handler = FdwHandler::from(foreign_server);
-
-        if fdw_handler != FdwHandler::Other {
-            // Get foreign table and server options
-            let table_options = unsafe { options_to_hashmap((*foreign_table).options)? };
-
-            // Create provider for foreign table
-            let mut attribute_map: HashMap<usize, PgAttribute> = pg_relation
-                .tuple_desc()
-                .iter()
-                .enumerate()
-                .map(|(index, attribute)| {
-                    (
-                        index,
-                        PgAttribute::new(attribute.name(), attribute.atttypid),
-                    )
-                })
-                .collect();
-
-            let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
-            let path = require_option(TableOption::Path.as_str(), &table_options)?.to_string();
-            let extension =
-                require_option(TableOption::Extension.as_str(), &table_options)?.to_string();
-
-            let provider = match TableFormat::from(format) {
-                TableFormat::None => Session::with_session_context(|context| {
-                    Box::pin(async move {
-                        Ok(create_listing_provider(&path, &extension, &context.state()).await?)
-                    })
-                })?,
-                TableFormat::Delta => create_delta_provider(&path, &extension).await?,
+    match schema_name {
+        Some(schema_name) => {
+            // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
+            get_source(&catalog_name, schema_name, reference.table())
+        }
+        None => {
+            // If no schema was provided in the query, i.e. SELECT * FROM <table>
+            // Read all schemas from the Postgres search path and cascade through them
+            // until a table is found
+            let current_schemas = unsafe {
+                direct_function_call::<Array<pg_sys::Datum>>(
+                    pg_sys::current_schemas,
+                    &[Some(pg_sys::Datum::from(true))],
+                )
             };
 
-            for (index, field) in provider.schema().fields().iter().enumerate() {
-                if let Some(attribute) = attribute_map.remove(&index) {
-                    can_convert_to_attribute(field, attribute)?;
+            if let Some(current_schemas) = current_schemas {
+                for datum in current_schemas.iter().flatten() {
+                    let schema_name =
+                        unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
+                    let table_name = reference.table().to_string();
+                    let schema_provider = Session::schema_provider(schema_name)?;
+
+                    if !schema_provider.table_exist(&table_name.clone()) {
+                        continue;
+                    }
+
+                    return get_source(&catalog_name, schema_name, reference.table());
                 }
             }
 
-            return Ok(provider_as_source(provider));
+            Err(ContextError::TableNotFound(reference.table().to_string()))
         }
     }
+}
 
-    Err(ContextError::TableNotFound(reference.table().to_string()))
+#[inline]
+fn get_source(
+    catalog_name: &str,
+    schema_name: &str,
+    table_name: &str,
+) -> Result<Arc<dyn TableSource>, ContextError> {
+    let catalog_name = catalog_name.to_string();
+    let schema_name = schema_name.to_string();
+    let table_name = table_name.to_string();
+    let context = Session::session_context()?;
+    let table_reference = TableReference::full(catalog_name, schema_name, table_name);
+    let provider = task::block_on(context.table_provider(table_reference))?;
+
+    Ok(provider_as_source(provider))
 }
 
 #[derive(Error, Debug)]
@@ -189,6 +168,9 @@ pub enum ContextError {
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
+
+    #[error(transparent)]
+    SessionError(#[from] SessionError),
 
     #[error("No table registered with name {0}")]
     TableNotFound(String),

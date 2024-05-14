@@ -146,40 +146,39 @@ impl BaseFdw for S3Fdw {
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
-        Session::with_session_context(|context| {
-            Box::pin(async move {
-                let builder = S3::try_from(ServerOptions::new(
-                    server_options.clone(),
-                    user_mapping_options.clone(),
-                ))?;
+        let context = Session::session_context()?;
 
-                let operator = Operator::new(builder)?.finish();
-                let object_store = Arc::new(OpendalStore::new(operator));
-                let bucket = require_option(AmazonServerOption::Bucket.as_str(), &server_options)?;
+        let builder = S3::try_from(ServerOptions::new(
+            server_options.clone(),
+            user_mapping_options.clone(),
+        ))?;
 
-                let mut path = match server_options.get(AmazonServerOption::Root.as_str()) {
-                    Some(root) => {
-                        let mut path = PathBuf::from(bucket);
-                        path.push(root);
-                        path
-                    }
-                    None => PathBuf::from(bucket),
-                };
+        let operator = Operator::new(builder)?.finish();
+        let object_store = Arc::new(OpendalStore::new(operator));
+        let bucket = require_option(AmazonServerOption::Bucket.as_str(), &server_options)?;
 
-                if let Some(path_str) = path.to_str() {
-                    if let Some(stripped) = path_str.strip_prefix('/') {
-                        path = PathBuf::from(stripped);
-                    }
-                }
+        let mut path = match server_options.get(AmazonServerOption::Root.as_str()) {
+            Some(root) => {
+                let mut path = PathBuf::from(bucket);
+                path.push(root);
+                path
+            }
+            None => PathBuf::from(bucket),
+        };
 
-                let url = format!("s3://{}", path.to_string_lossy());
+        if let Some(path_str) = path.to_str() {
+            if let Some(stripped) = path_str.strip_prefix('/') {
+                path = PathBuf::from(stripped);
+            }
+        }
 
-                context
-                    .runtime_env()
-                    .register_object_store(&Url::parse(&url)?, object_store);
-                Ok(())
-            })
-        })
+        let url = format!("s3://{}", path.to_string_lossy());
+
+        context
+            .runtime_env()
+            .register_object_store(&Url::parse(&url)?, object_store);
+
+        Ok(())
     }
 
     fn get_current_batch(&self) -> Option<RecordBatch> {

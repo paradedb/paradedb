@@ -8,7 +8,6 @@ use thiserror::Error;
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::*;
 use crate::datafusion::provider::*;
-use crate::datafusion::session::Session;
 use crate::fdw::handler::*;
 
 #[pg_extern]
@@ -52,16 +51,10 @@ async fn arrow_schema_impl(
 
     register_object_store(fdw_handler, server_options, user_mapping_options)?;
 
-    let provider = Session::with_session_context(|context| {
-        Box::pin(async move {
-            Ok(match TableFormat::from(&format.unwrap_or("".to_string())) {
-                TableFormat::None => {
-                    create_listing_provider(&path, &extension, &context.state()).await?
-                }
-                TableFormat::Delta => (create_delta_provider(&path, &extension)).await?,
-            })
-        })
-    })?;
+    let provider = match TableFormat::from(&format.unwrap_or("".to_string())) {
+        TableFormat::None => create_listing_provider(&path, &extension).await?,
+        TableFormat::Delta => create_delta_provider(&path, &extension).await?,
+    };
 
     Ok(iter::TableIterator::new(
         provider
@@ -77,6 +70,9 @@ async fn arrow_schema_impl(
 pub enum ApiError {
     #[error(transparent)]
     Context(#[from] ContextError),
+
+    #[error(transparent)]
+    TableProviderError(#[from] TableProviderError),
 
     #[error(transparent)]
     Option(#[from] OptionsError),

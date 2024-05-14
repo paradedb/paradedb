@@ -63,6 +63,7 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
             PgAttribute::new(field.name(), pg_sys::TEXTOID),
             PgAttribute::new(field.name(), pg_sys::VARCHAROID),
             PgAttribute::new(field.name(), pg_sys::BPCHAROID),
+            PgAttribute::new(field.name(), pg_sys::BYTEAOID),
         ],
         DataType::Boolean => vec![PgAttribute::new(field.name(), pg_sys::BOOLOID)],
         DataType::Utf8 | DataType::LargeUtf8 => vec![

@@ -70,8 +70,7 @@ CREATE FOREIGN TABLE trips (
     "fare_amount"           DOUBLE PRECISION,
     "extra"                 DOUBLE PRECISION,
     "mta_tax"               DOUBLE PRECISION,
-    "tip_amount"            DOUBLE PRECISION,
-    "tolls_amount"          DOUBLE PRECISION,
+    "tip_amount"            DOUBLE PRECISION,d    "tolls_amount"          DOUBLE PRECISION,
     "improvement_surcharge" DOUBLE PRECISION,
     "total_amount"          DOUBLE PRECISION
 )

@@ -2,7 +2,10 @@ use anyhow::Result;
 use async_std::task::block_on;
 use aws_config::{BehaviorVersion, Region};
 
-use datafusion::{arrow::datatypes::FieldRef, parquet::arrow::ArrowWriter};
+use datafusion::{
+    arrow::{datatypes::FieldRef, record_batch::RecordBatch},
+    parquet::arrow::ArrowWriter,
+};
 use rstest::*;
 use serde::Serialize;
 use serde_arrow::schema::{SchemaLike, TracingOptions};
@@ -91,10 +94,7 @@ impl S3 {
         Ok(())
     }
 
-    pub async fn put<T: Serialize>(&self, bucket: &str, key: &str, rows: &[T]) -> Result<()> {
-        let fields = Vec::<FieldRef>::from_type::<NycTripsTable>(TracingOptions::default())?;
-        let batch = serde_arrow::to_record_batch(&fields, &rows)?;
-
+    pub async fn put_batch(&self, bucket: &str, key: &str, batch: &RecordBatch) -> Result<()> {
         let mut buf = vec![];
         let mut writer = ArrowWriter::try_new(&mut buf, batch.schema(), None)?;
         writer.write(&batch)?;
@@ -108,6 +108,13 @@ impl S3 {
             .send()
             .await?;
         Ok(())
+    }
+
+    pub async fn put_rows<T: Serialize>(&self, bucket: &str, key: &str, rows: &[T]) -> Result<()> {
+        let fields = Vec::<FieldRef>::from_type::<NycTripsTable>(TracingOptions::default())?;
+        let batch = serde_arrow::to_record_batch(&fields, &rows)?;
+
+        self.put_batch(bucket, key, &batch).await
     }
 }
 

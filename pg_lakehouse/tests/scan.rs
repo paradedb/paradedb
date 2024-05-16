@@ -39,7 +39,7 @@ async fn test_arrow_types_roundtrip(#[future(awt)] s3: S3, mut conn: PgConnectio
     s3.create_bucket(s3_bucket).await?;
     s3.put_batch(s3_bucket, s3_key, &stored_batch).await?;
 
-    primitive_setup_fdw(&s3_endpoint, &s3_bucket, &s3_object_path).execute(&mut conn);
+    primitive_setup_fdw(&s3_endpoint, s3_bucket, &s3_object_path).execute(&mut conn);
 
     let retrieved_batch =
         "SELECT * FROM primitive".fetch_recordbatch(&mut conn, &stored_batch.schema());

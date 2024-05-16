@@ -97,7 +97,7 @@ impl S3 {
     pub async fn put_batch(&self, bucket: &str, key: &str, batch: &RecordBatch) -> Result<()> {
         let mut buf = vec![];
         let mut writer = ArrowWriter::try_new(&mut buf, batch.schema(), None)?;
-        writer.write(&batch)?;
+        writer.write(batch)?;
         writer.close()?;
 
         self.client

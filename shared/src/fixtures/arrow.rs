@@ -258,7 +258,7 @@ fn decode<'r, T: sqlx::Decode<'r, Postgres> + sqlx::Type<Postgres>>(
     let col = row.try_get_raw(field.name().as_str())?;
     let info = col.type_info();
     let oid = info.oid().map(|o| o.0).unwrap_or(InvalidOid.into());
-    if !valid(&field_type, oid) {
+    if !valid(field_type, oid) {
         bail!(
             "field '{}' has arrow type '{}', which cannot be read from postgres type '{}'",
             field.name(),
@@ -279,86 +279,86 @@ pub fn schema_to_batch(schema: &SchemaRef, rows: &[PgRow]) -> Result<RecordBatch
             Ok(match field.data_type() {
                 DataType::Boolean => Arc::new(BooleanArray::from(
                     rows.iter()
-                        .map(|row| decode::<Option<bool>>(&field, row))
+                        .map(|row| decode::<Option<bool>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::Int8 => Arc::new(Int8Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<i16>>(&field, row))
+                        .map(|row| decode::<Option<i16>>(field, row))
                         .map(|row| row.map(|o| o.map(|n| n as i8)))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::Int16 => Arc::new(Int16Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<i16>>(&field, row))
+                        .map(|row| decode::<Option<i16>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::Int32 => Arc::new(Int32Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<i32>>(&field, row))
+                        .map(|row| decode::<Option<i32>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::Int64 => Arc::new(Int64Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<i64>>(&field, row))
+                        .map(|row| decode::<Option<i64>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::UInt8 => Arc::new(UInt8Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<i16>>(&field, row))
+                        .map(|row| decode::<Option<i16>>(field, row))
                         .map(|row| row.map(|o| o.map(|n| n as u8)))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::UInt16 => Arc::new(UInt16Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<i32>>(&field, row))
+                        .map(|row| decode::<Option<i32>>(field, row))
                         .map(|row| row.map(|o| o.map(|n| n as u16)))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::UInt32 => Arc::new(UInt32Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<i64>>(&field, row))
+                        .map(|row| decode::<Option<i64>>(field, row))
                         .map(|row| row.map(|o| o.map(|n| n as u32)))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::UInt64 => Arc::new(UInt64Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<BigDecimal>>(&field, row))
+                        .map(|row| decode::<Option<BigDecimal>>(field, row))
                         .map(|row| row.map(|o| o.and_then(|n| n.to_u64())))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::Float32 => Arc::new(Float32Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<f32>>(&field, row))
+                        .map(|row| decode::<Option<f32>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::Float64 => Arc::new(Float64Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<f64>>(&field, row))
+                        .map(|row| decode::<Option<f64>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::Timestamp(unit, _) => match unit {
                     TimeUnit::Second => Arc::new(TimestampSecondArray::from(
                         rows.iter()
-                            .map(|row| decode::<Option<NaiveDateTime>>(&field, row))
+                            .map(|row| decode::<Option<NaiveDateTime>>(field, row))
                             .map(|row| row.map(|o| o.map(|n| n.and_utc().timestamp())))
                             .collect::<Result<Vec<_>>>()?,
                     )) as ArrayRef,
                     TimeUnit::Millisecond => Arc::new(TimestampMillisecondArray::from(
                         rows.iter()
-                            .map(|row| decode::<Option<NaiveDateTime>>(&field, row))
+                            .map(|row| decode::<Option<NaiveDateTime>>(field, row))
                             .map(|row| row.map(|o| o.map(|n| n.and_utc().timestamp_millis())))
                             .collect::<Result<Vec<_>>>()?,
                     )) as ArrayRef,
                     TimeUnit::Microsecond => Arc::new(TimestampMicrosecondArray::from(
                         rows.iter()
-                            .map(|row| decode::<Option<NaiveDateTime>>(&field, row))
+                            .map(|row| decode::<Option<NaiveDateTime>>(field, row))
                             .map(|row| row.map(|o| o.map(|n| n.and_utc().timestamp_micros())))
                             .collect::<Result<Vec<_>>>()?,
                     )) as ArrayRef,
                     TimeUnit::Nanosecond => Arc::new(TimestampNanosecondArray::from(
                         rows.iter()
-                            .map(|row| decode::<Option<NaiveDateTime>>(&field, row))
+                            .map(|row| decode::<Option<NaiveDateTime>>(field, row))
                             .map(|row| {
                                 row.map(|o| o.and_then(|n| n.and_utc().timestamp_nanos_opt()))
                             })
@@ -367,7 +367,7 @@ pub fn schema_to_batch(schema: &SchemaRef, rows: &[PgRow]) -> Result<RecordBatch
                 },
                 DataType::Date32 => Arc::new(Date32Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<NaiveDate>>(&field, row))
+                        .map(|row| decode::<Option<NaiveDate>>(field, row))
                         .map(|row| {
                             row.map(|o| {
                                 o.map(|n| n.signed_duration_since(unix_epoch).num_days() as i32)
@@ -377,12 +377,10 @@ pub fn schema_to_batch(schema: &SchemaRef, rows: &[PgRow]) -> Result<RecordBatch
                 )) as ArrayRef,
                 DataType::Date64 => Arc::new(Date64Array::from(
                     rows.iter()
-                        .map(|row| decode::<Option<NaiveDate>>(&field, row))
+                        .map(|row| decode::<Option<NaiveDate>>(field, row))
                         .map(|row| {
                             row.map(|o| {
-                                o.map(|n| {
-                                    n.signed_duration_since(unix_epoch).num_milliseconds() as i64
-                                })
+                                o.map(|n| n.signed_duration_since(unix_epoch).num_milliseconds())
                             })
                         })
                         .collect::<Result<Vec<_>>>()?,
@@ -390,13 +388,13 @@ pub fn schema_to_batch(schema: &SchemaRef, rows: &[PgRow]) -> Result<RecordBatch
                 DataType::Time32(unit) => match unit {
                     TimeUnit::Second => Arc::new(Time32SecondArray::from(
                         rows.iter()
-                            .map(|row| decode::<Option<NaiveTime>>(&field, row))
+                            .map(|row| decode::<Option<NaiveTime>>(field, row))
                             .map(|row| row.map(|o| o.map(|n| n.num_seconds_from_midnight() as i32)))
                             .collect::<Result<Vec<_>>>()?,
                     )) as ArrayRef,
                     TimeUnit::Millisecond => Arc::new(Time32MillisecondArray::from(
                         rows.iter()
-                            .map(|row| decode::<Option<NaiveTime>>(&field, row))
+                            .map(|row| decode::<Option<NaiveTime>>(field, row))
                             .map(|row| {
                                 row.map(|o| {
                                     o.map(|n| {
@@ -416,7 +414,7 @@ pub fn schema_to_batch(schema: &SchemaRef, rows: &[PgRow]) -> Result<RecordBatch
                     TimeUnit::Millisecond => bail!("arrow time64 does not support millseconds"),
                     TimeUnit::Microsecond => Arc::new(Time64MicrosecondArray::from(
                         rows.iter()
-                            .map(|row| decode::<Option<NaiveTime>>(&field, row))
+                            .map(|row| decode::<Option<NaiveTime>>(field, row))
                             .map(|row| {
                                 row.map(|o| {
                                     o.map(|n| {
@@ -430,7 +428,7 @@ pub fn schema_to_batch(schema: &SchemaRef, rows: &[PgRow]) -> Result<RecordBatch
                     )) as ArrayRef,
                     TimeUnit::Nanosecond => Arc::new(Time64NanosecondArray::from(
                         rows.iter()
-                            .map(|row| decode::<Option<NaiveTime>>(&field, row))
+                            .map(|row| decode::<Option<NaiveTime>>(field, row))
                             .map(|row| {
                                 row.map(|o| {
                                     o.map(|n| {
@@ -447,22 +445,22 @@ pub fn schema_to_batch(schema: &SchemaRef, rows: &[PgRow]) -> Result<RecordBatch
                 },
                 DataType::Binary => Arc::new(BinaryArray::from(
                     rows.iter()
-                        .map(|row| decode::<Option<&[u8]>>(&field, row))
+                        .map(|row| decode::<Option<&[u8]>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::LargeBinary => Arc::new(LargeBinaryArray::from(
                     rows.iter()
-                        .map(|row| decode::<Option<&[u8]>>(&field, row))
+                        .map(|row| decode::<Option<&[u8]>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::Utf8 => Arc::new(StringArray::from(
                     rows.iter()
-                        .map(|row| decode::<Option<&str>>(&field, row))
+                        .map(|row| decode::<Option<&str>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 DataType::LargeUtf8 => Arc::new(LargeStringArray::from(
                     rows.iter()
-                        .map(|row| decode::<Option<&str>>(&field, row))
+                        .map(|row| decode::<Option<&str>>(field, row))
                         .collect::<Result<Vec<_>>>()?,
                 )) as ArrayRef,
                 _ => bail!("cannot read into arrow type '{}'", field.data_type()),

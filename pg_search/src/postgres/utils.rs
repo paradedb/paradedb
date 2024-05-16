@@ -159,10 +159,20 @@ pub unsafe fn row_to_search_document(
                 PgBuiltInOids::DATEOID => {
                     let value = pgrx::datum::Date::from_datum(datum, false)
                         .ok_or(IndexError::DatumDeref)?;
+                    let ms = chrono::NaiveDate::from_ymd_opt(
+                            value.year(),
+                            value.month().into(),
+                            value.day().into(),
+                        )
+                        .unwrap()
+                        .and_hms_opt(0, 0, 0)
+                        .unwrap()
+                        .and_utc()
+                        .timestamp_micros();
                     document.insert(
                         search_field.id,
-                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_secs(
-                            (value.to_unix_epoch_days() as i64) * SECONDS_IN_DAY,
+                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
+                            ms,
                         )),
                     );
                 }

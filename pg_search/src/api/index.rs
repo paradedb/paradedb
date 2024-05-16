@@ -368,8 +368,18 @@ term_fn!(jsonb, pgrx::JsonB, |pgrx::JsonB(v)| {
     )
 });
 term_fn!(date, pgrx::Date, |v: pgrx::Date| {
-    tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_secs(
-        (v.to_unix_epoch_days() as i64) * SECONDS_IN_DAY,
+    let ms = chrono::NaiveDate::from_ymd_opt(
+            v.year(),
+            v.month().into(),
+            v.day().into(),
+        )
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc()
+        .timestamp_micros();
+    tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
+        ms,
     ))
 });
 term_fn!(time, pgrx::Time, |_v| unimplemented!(

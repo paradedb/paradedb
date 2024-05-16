@@ -227,6 +227,58 @@ pub unsafe fn row_to_search_document(
                         )),
                     );
                 }
+                PgBuiltInOids::TIMEOID => {
+                    let value = pgrx::datum::Time::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+                    let (v_h, v_m, v_s, v_ms) = value.to_hms_micro();
+                    let ms = chrono::NaiveDate::from_ymd_opt(
+                        0,
+                        0,
+                        0
+                    )
+                    .unwrap()
+                    .and_hms_micro_opt(
+                        v_h.into(),
+                        v_m.into(),
+                        v_s.into(),
+                        v_ms
+                    )
+                    .unwrap()
+                    .and_utc()
+                    .timestamp_micros();
+                    document.insert(
+                        search_field.id,
+                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
+                            ms,
+                        )),
+                    );
+                }
+                PgBuiltInOids::TIMETZOID => {
+                    let value = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+                    let (v_h, v_m, v_s, v_ms) = value.to_utc().to_hms_micro();
+                    let ms = chrono::NaiveDate::from_ymd_opt(
+                        0,
+                        0,
+                        0
+                    )
+                    .unwrap()
+                    .and_hms_micro_opt(
+                        v_h.into(),
+                        v_m.into(),
+                        v_s.into(),
+                        v_ms
+                    )
+                    .unwrap()
+                    .and_utc()
+                    .timestamp_micros();
+                    document.insert(
+                        search_field.id,
+                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
+                            ms,
+                        )),
+                    );
+                }
                 unsupported => Err(IndexError::UnsupportedValue(
                     search_field.name.0.to_string(),
                     format!("{unsupported:?}"),

@@ -14,10 +14,7 @@ fn boolean_tree(mut conn: PgConnection) {
     SELECT * FROM bm25_search.search(
 	    query => paradedb.boolean(
 		    should => ARRAY[
-			    paradedb.parse('description:shoes'),
-			    paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
-			    paradedb.term(field => 'description', value => 'speaker'),
-			    paradedb.fuzzy_term(field => 'description', value => 'wolo')
+			    paradedb.term(field => 'category', value => 'Electronics')
 		    ]
 	    ),
 	    stable_sort => true
@@ -34,11 +31,16 @@ fn datetime_search(mut conn: PgConnection) {
     SELECT * FROM bm25_search.search(
         query => paradedb.boolean(
             should => ARRAY[
-                paradedb.parse('description:shoes'),
-                paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
-                paradedb.term(field => 'description', value => 'speaker'),
-                paradedb.fuzzy_term(field => 'description', value => 'wolo'),
-                paradedb.term(field => 'last_updated_date', value => '2023-05-03T00:00:00.00Z')
+                paradedb.term(field => 'last_updated_date', value => '2023-05-03'::date))
+            ]
+        ),
+        stable_sort => true
+    );
+
+    SELECT * FROM bm25_search.search(
+        query => paradedb.boolean(
+            should => ARRAY[
+                paradedb.range(field => 'last_updated_date', range => '[2023-05-01,2023-05-03]'::daterange)
             ]
         ),
         stable_sort => true

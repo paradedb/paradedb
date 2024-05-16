@@ -8,6 +8,35 @@ use crate::schema::ToString;
 use core::panic;
 use std::ops::Bound;
 
+fn pgrx_date_to_tantivy_date(v: pgrx::Date) -> tantivy::schema::Value {
+    let ms = chrono::NaiveDate::from_ymd_opt(
+        v.year(),
+        v.month().into(),
+        v.day().into(),
+    )
+    .unwrap()
+    .and_hms_opt(0, 0, 0)
+    .unwrap()
+    .and_utc()
+    .timestamp_micros();
+
+    tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
+        ms,
+    ))
+}
+
+fn pgrx_timestamp_to_tantivy_date(v: pgrx::Timestamp) -> tantivy::schema::Value {
+    tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(i64::from(
+        v
+    )))
+}
+
+fn pgrx_timestamptz_to_tantivy_date(v: pgrx::TimestampWithTimeZone) -> tantivy::schema::Value {
+    tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(i64::from(
+        v.to_utc(),
+    )))
+}
+
 #[allow(clippy::type_complexity)]
 #[pg_extern]
 pub fn schema_bm25(
@@ -267,8 +296,8 @@ pub fn phrase_prefix(
 // We'll also avoid exposing range queries for now, as they are slightly complex
 // to map to Tantivy ranges, and it's not clear if they're necessary at all in the context of
 // Postgres, which can query by range on its own.
-#[allow(unused)]
-// #[pg_extern(name = "range", immutable, parallel_safe)]
+// #[allow(unused)]
+#[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i32(field: String, range: Range<i32>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
@@ -293,8 +322,8 @@ pub fn range_i32(field: String, range: Range<i32>) -> SearchQueryInput {
 }
 
 // As with range_i32, we'll avoid exposing range queries for now.
-#[allow(unused)]
-// #[pg_extern(name = "range", immutable, parallel_safe)]
+// #[allow(unused)]
+#[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i64(field: String, range: Range<i64>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {
@@ -313,6 +342,78 @@ pub fn range_i64(field: String, range: Range<i64>) -> SearchQueryInput {
                 RangeBound::Infinite => Bound::Unbounded,
                 RangeBound::Inclusive(n) => Bound::Included(Value::I64(n)),
                 RangeBound::Exclusive(n) => Bound::Excluded(Value::I64(n)),
+            },
+        },
+    }
+}
+
+#[pg_extern(name = "range", immutable, parallel_safe)]
+pub fn range_date(field: String, range: Range<pgrx::Date>) -> SearchQueryInput {
+    match range.into_inner() {
+        None => SearchQueryInput::Range {
+            field,
+            lower_bound: Bound::Included(tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(0))),
+            upper_bound: Bound::Excluded(tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(0))),
+        },
+        Some((lower, upper)) => SearchQueryInput::Range {
+            field,
+            lower_bound: match lower {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_date(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_date(n)),
+            },
+            upper_bound: match upper {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_date_to_tantivy_date(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_date_to_tantivy_date(n)),
+            },
+        },
+    }
+}
+
+#[pg_extern(name = "range", immutable, parallel_safe)]
+pub fn range_timestamp(field: String, range: Range<pgrx::Timestamp>) -> SearchQueryInput {
+    match range.into_inner() {
+        None => SearchQueryInput::Range {
+            field,
+            lower_bound: Bound::Included(tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(0))),
+            upper_bound: Bound::Excluded(tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(0))),
+        },
+        Some((lower, upper)) => SearchQueryInput::Range {
+            field,
+            lower_bound: match lower {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamp_to_tantivy_date(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamp_to_tantivy_date(n)),
+            },
+            upper_bound: match upper {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamp_to_tantivy_date(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamp_to_tantivy_date(n)),
+            },
+        },
+    }
+}
+
+#[pg_extern(name = "range", immutable, parallel_safe)]
+pub fn range_timestamptz(field: String, range: Range<pgrx::TimestampWithTimeZone>) -> SearchQueryInput {
+    match range.into_inner() {
+        None => SearchQueryInput::Range {
+            field,
+            lower_bound: Bound::Included(tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(0))),
+            upper_bound: Bound::Excluded(tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(0))),
+        },
+        Some((lower, upper)) => SearchQueryInput::Range {
+            field,
+            lower_bound: match lower {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamptz_to_tantivy_date(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamptz_to_tantivy_date(n)),
+            },
+            upper_bound: match upper {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(pgrx_timestamptz_to_tantivy_date(n)),
+                RangeBound::Exclusive(n) => Bound::Excluded(pgrx_timestamptz_to_tantivy_date(n)),
             },
         },
     }
@@ -368,39 +469,59 @@ term_fn!(jsonb, pgrx::JsonB, |pgrx::JsonB(v)| {
     )
 });
 term_fn!(date, pgrx::Date, |v: pgrx::Date| {
+    pgrx_date_to_tantivy_date(v)
+});
+term_fn!(time, pgrx::Time, |v: pgrx::Time| {
+    let (v_h, v_m, v_s, v_ms) = v.to_hms_micro();
     let ms = chrono::NaiveDate::from_ymd_opt(
-            v.year(),
-            v.month().into(),
-            v.day().into(),
-        )
-        .unwrap()
-        .and_hms_opt(0, 0, 0)
-        .unwrap()
-        .and_utc()
-        .timestamp_micros();
+        0,
+        0,
+        0
+    )
+    .unwrap()
+    .and_hms_micro_opt(
+        v_h.into(),
+        v_m.into(),
+        v_s.into(),
+        v_ms
+    )
+    .unwrap()
+    .and_utc()
+    .timestamp_micros();
     tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
         ms,
     ))
 });
-term_fn!(time, pgrx::Time, |_v| unimplemented!(
-    "time in term query not implemented"
-));
-term_fn!(timestamp, pgrx::Timestamp, |v: pgrx::Timestamp| {
-    tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(i64::from(v)))
-});
+term_fn!(timestamp, pgrx::Timestamp, pgrx_timestamp_to_tantivy_date);
 term_fn!(
     time_with_time_zone,
     pgrx::TimeWithTimeZone,
-    |_v| unimplemented!("time with time zone in term query not implemented")
+    |v: pgrx::TimeWithTimeZone| {
+        let (v_h, v_m, v_s, v_ms) = v.to_utc().to_hms_micro();
+        let ms = chrono::NaiveDate::from_ymd_opt(
+            0,
+            0,
+            0
+        )
+        .unwrap()
+        .and_hms_micro_opt(
+            v_h.into(),
+            v_m.into(),
+            v_s.into(),
+            v_ms
+        )
+        .unwrap()
+        .and_utc()
+        .timestamp_micros();
+        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
+            ms,
+        ))
+    }
 );
 term_fn!(
     timestamp_with_time_zome,
     pgrx::TimestampWithTimeZone,
-    |v: pgrx::TimestampWithTimeZone| {
-        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(i64::from(
-            v.to_utc(),
-        )))
-    }
+    pgrx_timestamptz_to_tantivy_date
 );
 term_fn!(anyarray, pgrx::AnyArray, |_v| unimplemented!(
     "array in term query not implemented"

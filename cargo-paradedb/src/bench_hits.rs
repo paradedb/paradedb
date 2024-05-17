@@ -26,7 +26,7 @@ fn download_and_verify(url: &str, checksum: &str, filename: &str) -> Result<()> 
     Ok(())
 }
 
-pub async fn bench_hits(url: &str, tag: &str, workload: &str) -> Result<()> {
+pub async fn bench_hits(url: &str, tag: &str, workload: &str, full_dataset: bool) -> Result<()> {
     let _os = run_fun!(uname)?;
 
     println!("\n*********************************************************************************");
@@ -39,7 +39,11 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str) -> Result<()> {
     if workload == "single" {
         run_cmd!(echo "Using ClickBench's single Parquet file for benchmarking...")?;
         download_and_verify(
-            "https://paradedb-benchmarks.s3.amazonaws.com/hits_5m_rows.parquet",
+            if full_dataset {
+                "https://paradedb-benchmarks.s3.amazonaws.com/partitioned/hits_{}.parquet"
+            } else {
+                "https://paradedb-benchmarks.s3.amazonaws.com/hits_5m_rows.parquet"
+            },
             "5182ed3b0ad35137db38faac395d7f55",
             "/tmp/hits.parquet",
         )?;

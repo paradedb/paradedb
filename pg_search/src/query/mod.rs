@@ -459,7 +459,7 @@ fn value_to_term(field: Field, value: Value, field_type: &FieldType) -> Term {
     match value {
         Value::Str(text) => {
             match field_type {
-                FieldType::Date(datetime_options) => {
+                FieldType::Date(_) => {
                     // JSONB turns date into string, so we have to turn it back into a Tantivy date
 
                     // First try with no precision beyond seconds, then try with precision
@@ -481,7 +481,14 @@ fn value_to_term(field: Field, value: Value, field_type: &FieldType) -> Term {
             }
         }
         Value::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
-        Value::U64(u64) => Term::from_field_u64(field, u64),
+        Value::U64(u64) => {
+            // Positive numbers seem to be automatically turned into u64s even if they are i64s
+            match field_type {
+                FieldType::I64(_) => Term::from_field_i64(field, u64 as i64),
+                FieldType::U64(_) => Term::from_field_u64(field, u64),
+                _ => panic!("invalid field type for u64 value"),
+            }
+        }
         Value::I64(i64) => Term::from_field_i64(field, i64),
         Value::F64(f64) => Term::from_field_f64(field, f64),
         Value::Bool(bool) => Term::from_field_bool(field, bool),

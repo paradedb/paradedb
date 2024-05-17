@@ -38,6 +38,3 @@ impl WriterGlobal {
 }
 
 unsafe impl PGRXSharedMemory for WriterGlobal {}
-
-pub static SECONDS_IN_DAY: i64 = 24 * 60 * 60;
-pub static MICROSECONDS_IN_SECOND: u32 = 1_000_000;

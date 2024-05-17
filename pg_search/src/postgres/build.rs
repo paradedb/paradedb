@@ -104,7 +104,7 @@ pub extern "C" fn ambuild(
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
             Some(SearchFieldType::Date) => (name, config),
-            _ => panic!("'{name}' cannot be indexed as a date field"),
+            _ => panic!("'{name}' cannot be indexed as a datetime field"),
         });
 
     let key_field = rdopts.get_key_field().expect("must specify key field");

@@ -1,13 +1,13 @@
-use crate::globals::{MICROSECONDS_IN_SECOND, SECONDS_IN_DAY};
 use crate::index::SearchIndex;
 use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use pgrx::{
     pg_sys, varsize, Array, FromDatum, JsonB, JsonString, PgBuiltInOids, PgOid, PgRelation,
     PgTupleDesc,
 };
 use serde_json::Map;
+
+static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
 pub fn get_search_index(index_name: &str) -> &'static mut SearchIndex {
     let directory = WriterDirectory::from_index_name(index_name);
@@ -34,35 +34,21 @@ pub fn lookup_index_tupdesc(indexrel: &PgRelation) -> PgTupleDesc<'static> {
 }
 
 fn datetime_components_to_tantivy_date(
-    year: i32,
-    month: u8,
-    day: u8,
-    hour: u8,
-    minute: u8,
-    second: u8,
-    microsecond: u32,
+    ymd: Option<(i32, u8, u8)>,
+    hms_micro: (u8, u8, u8, u32),
 ) -> tantivy::schema::Value {
-    pgrx::info!(
-        "datetime_components_to_tantivy_date: {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-        microsecond
-    );
-    let naive_dt = chrono::NaiveDate::from_ymd_opt(year, month.into(), day.into())
-        .unwrap()
-        .and_hms_micro_opt(
-            hour.into(),
-            minute.into(),
-            second.into(),
-            microsecond % MICROSECONDS_IN_SECOND,
-        )
-        .unwrap()
-        .and_utc();
-    pgrx::info!("datetime_components_to_tantivy_date done");
+    let naive_dt = match ymd {
+        Some(ymd) => chrono::NaiveDate::from_ymd_opt(ymd.0, ymd.1.into(), ymd.2.into()).unwrap(),
+        None => chrono::NaiveDateTime::UNIX_EPOCH.date(),
+    }
+    .and_hms_micro_opt(
+        hms_micro.0.into(),
+        hms_micro.1.into(),
+        hms_micro.2.into(),
+        hms_micro.3 % MICROSECONDS_IN_SECOND,
+    )
+    .unwrap()
+    .and_utc();
 
     tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
         naive_dt.timestamp_micros(),
@@ -71,28 +57,26 @@ fn datetime_components_to_tantivy_date(
 
 pub fn pgrx_time_to_tantivy_value(value: pgrx::Time) -> tantivy::schema::Value {
     let (v_h, v_m, v_s, v_ms) = value.to_hms_micro();
-    datetime_components_to_tantivy_date(0, 0, 0, v_h, v_m, v_s, v_ms)
+    datetime_components_to_tantivy_date(None, (v_h, v_m, v_s, v_ms))
 }
 
 pub fn pgrx_timetz_to_tantivy_value(value: pgrx::TimeWithTimeZone) -> tantivy::schema::Value {
     let (v_h, v_m, v_s, v_ms) = value.to_utc().to_hms_micro();
-    datetime_components_to_tantivy_date(0, 0, 0, v_h, v_m, v_s, v_ms)
+    datetime_components_to_tantivy_date(None, (v_h, v_m, v_s, v_ms))
 }
 
 pub fn pgrx_date_to_tantivy_value(value: pgrx::Date) -> tantivy::schema::Value {
-    datetime_components_to_tantivy_date(value.year(), value.month(), value.day(), 0, 0, 0, 0)
+    datetime_components_to_tantivy_date(
+        Some((value.year(), value.month(), value.day())),
+        (0, 0, 0, 0),
+    )
 }
 
 pub fn pgrx_timestamp_to_tantivy_value(value: pgrx::Timestamp) -> tantivy::schema::Value {
     let (v_h, v_m, v_s, v_ms) = value.to_hms_micro();
     datetime_components_to_tantivy_date(
-        value.year(),
-        value.month(),
-        value.day(),
-        v_h,
-        v_m,
-        v_s,
-        v_ms,
+        Some((value.year(), value.month(), value.day())),
+        (v_h, v_m, v_s, v_ms),
     )
 }
 
@@ -101,13 +85,8 @@ pub fn pgrx_timestamptz_to_tantivy_value(
 ) -> tantivy::schema::Value {
     let (v_h, v_m, v_s, v_ms) = value.to_utc().to_hms_micro();
     datetime_components_to_tantivy_date(
-        value.year(),
-        value.month(),
-        value.day(),
-        v_h,
-        v_m,
-        v_s,
-        v_ms,
+        Some((value.year(), value.month(), value.day())),
+        (v_h, v_m, v_s, v_ms),
     )
 }
 

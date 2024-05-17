@@ -1,7 +1,6 @@
 use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
-use crate::globals::SECONDS_IN_DAY;
 use crate::postgres::utils::{
     get_search_index, pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value,
     pgrx_timestamp_to_tantivy_value, pgrx_timestamptz_to_tantivy_value,
@@ -452,9 +451,7 @@ term_fn!(jsonb, pgrx::JsonB, |pgrx::JsonB(v)| {
             .clone(),
     )
 });
-term_fn!(date, pgrx::Date, |v: pgrx::Date| {
-    pgrx_date_to_tantivy_value(v)
-});
+term_fn!(date, pgrx::Date, pgrx_date_to_tantivy_value);
 term_fn!(time, pgrx::Time, pgrx_time_to_tantivy_value);
 term_fn!(timestamp, pgrx::Timestamp, pgrx_timestamp_to_tantivy_value);
 term_fn!(

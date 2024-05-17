@@ -59,7 +59,9 @@ impl TryFrom<&PgOid> for SearchFieldType {
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => Ok(SearchFieldType::Json),
                 PgBuiltInOids::DATEOID
                 | PgBuiltInOids::TIMESTAMPOID
-                | PgBuiltInOids::TIMESTAMPTZOID => Ok(SearchFieldType::Date),
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | PgBuiltInOids::TIMEOID
+                | PgBuiltInOids::TIMETZOID => Ok(SearchFieldType::Date),
                 _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
             },
             _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),

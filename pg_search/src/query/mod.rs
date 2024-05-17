@@ -459,10 +459,19 @@ fn value_to_term(field: Field, value: Value, field_type: &FieldType) -> Term {
     match value {
         Value::Str(text) => {
             match field_type {
-                FieldType::Date(_) => {
-                    // JSONB turns date into string, which is annoying
+                FieldType::Date(datetime_options) => {
+                    // JSONB turns date into string, so we have to turn it back into a Tantivy date
+
+                    // First try with no precision beyond seconds, then try with precision
                     let datetime =
-                        chrono::NaiveDateTime::parse_from_str(&text, "%Y-%m-%dT%H:%M:%SZ").unwrap();
+                        match chrono::NaiveDateTime::parse_from_str(&text, "%Y-%m-%dT%H:%M:%SZ") {
+                            Ok(dt) => dt,
+                            Err(_) => chrono::NaiveDateTime::parse_from_str(
+                                &text,
+                                "%Y-%m-%dT%H:%M:%S%.fZ",
+                            )
+                            .unwrap(),
+                        };
                     let tantivy_datetime = tantivy::DateTime::from_timestamp_micros(
                         datetime.and_utc().timestamp_micros(),
                     );

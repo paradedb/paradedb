@@ -268,10 +268,6 @@ pub fn phrase_prefix(
     }
 }
 
-// We'll also avoid exposing range queries for now, as they are slightly complex
-// to map to Tantivy ranges, and it's not clear if they're necessary at all in the context of
-// Postgres, which can query by range on its own.
-// #[allow(unused)]
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i32(field: String, range: Range<i32>) -> SearchQueryInput {
     match range.into_inner() {
@@ -296,8 +292,6 @@ pub fn range_i32(field: String, range: Range<i32>) -> SearchQueryInput {
     }
 }
 
-// As with range_i32, we'll avoid exposing range queries for now.
-// #[allow(unused)]
 #[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_i64(field: String, range: Range<i64>) -> SearchQueryInput {
     match range.into_inner() {

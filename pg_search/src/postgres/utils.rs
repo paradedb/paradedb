@@ -42,11 +42,27 @@ fn datetime_components_to_tantivy_date(
     second: u8,
     microsecond: u32,
 ) -> tantivy::schema::Value {
+    pgrx::info!(
+        "datetime_components_to_tantivy_date: {:?} {:?} {:?} {:?} {:?} {:?} {:?}",
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        microsecond
+    );
     let naive_dt = chrono::NaiveDate::from_ymd_opt(year, month.into(), day.into())
         .unwrap()
-        .and_hms_micro_opt(hour.into(), minute.into(), second.into(), microsecond)
+        .and_hms_micro_opt(
+            hour.into(),
+            minute.into(),
+            second.into(),
+            microsecond % MICROSECONDS_IN_SECOND,
+        )
         .unwrap()
         .and_utc();
+    pgrx::info!("datetime_components_to_tantivy_date done");
 
     tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
         naive_dt.timestamp_micros(),

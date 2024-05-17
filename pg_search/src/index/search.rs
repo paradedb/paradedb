@@ -128,6 +128,7 @@ impl SearchIndex {
             .filter_map(|field| {
                 let field_config = &field.config;
                 let field_name: &str = field.name.as_ref();
+                info!(field_name, "attempting to create tokenizer");
                 match field_config {
                     SearchFieldConfig::Text { tokenizer, .. }
                     | SearchFieldConfig::Json { tokenizer, .. } => Some(tokenizer),

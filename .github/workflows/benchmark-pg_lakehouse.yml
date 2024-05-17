@@ -30,6 +30,20 @@ jobs:
   benchmark-pg_lakehouse:
     name: Benchmark pg_lakehouse on ${{ matrix.name }}
     runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: myuser
+          POSTGRES_PASSWORD: mypassword
+          POSTGRES_DB: mydb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     strategy:
       matrix:
         include:
@@ -42,9 +56,16 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Install the ParadeDB Benchmarking Tool
+        working-directory: cargo-paradedb/
+        run: cargo run install
+
+      - name: Wait for PostgreSQL to be ready
+        run: until pg_isready -h localhost -p 5432; do sleep 1; done
+
       - name: Run Official ${{ matrix.name }} Benchmark
         working-directory: pg_lakehouse/benchmarks/
-        run: ./benchmark.sh -t local ${{ matrix.flags }}
+        run: cargo paradedb bench hits run ${{ matrix.flags }} --url postgres://myuser:mypassword@localhost:5432/mydb
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

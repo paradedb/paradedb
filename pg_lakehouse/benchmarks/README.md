@@ -19,10 +19,10 @@ brew install docker postgresql
 
 ## Running the Benchmarks
 
-You can then run the benchmarks via:
+You can then run the benchmarks via the `cargo-paradedb` tool with:
 
 ```bash
-./benchmark.sh -t <version> -w <workload>
+cargo paradedb bench hits run -w partitioned
 ```
 
 Note that you may need to run with `sudo` on Linux, depending on your Docker configuration.

@@ -138,7 +138,6 @@ pub enum EsLogsCommand {
 pub enum HitsCommand {
     /// Generate the hits corpus, inserting into a Postgres table.
     Run {
-        /// Starting seed for random generation.
         /// Version tag to benchmark
         /// - 'x.y.z' Runs the full ClickBench benchmark against a specific ParadeDB Docker image (e.g. 0.3.1)
         /// - 'latest' Runs the full ClickBench benchmark the latest ParadeDB Docker image

@@ -52,12 +52,13 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/bin/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Install pg_lakehouse
+      - name: Install pgrx, pg_lakehouse, and Start Postgres
         working-directory: pg_lakehouse/
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
           cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
           cargo pgrx install
+          cargo pgrx start
 
       - name: Install the ParadeDB Benchmarking Tool
         working-directory: cargo-paradedb/
@@ -65,7 +66,7 @@ jobs:
 
       - name: Run Official ${{ matrix.name }} Benchmark
         working-directory: pg_lakehouse/benchmarks/
-        run: cargo paradedb bench hits run ${{ matrix.flags }} --url postgres://myuser:mypassword@localhost:5432/mydb
+        run: cargo paradedb bench hits run ${{ matrix.flags }} --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

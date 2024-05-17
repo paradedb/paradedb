@@ -137,6 +137,7 @@ async fn run_queries(conn: &mut PgConnection) -> Result<()> {
 }
 
 static CREATE_QUERY: &str = r#"
+CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
 DO $$
 BEGIN
    IF NOT EXISTS (

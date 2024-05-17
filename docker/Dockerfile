@@ -159,7 +159,7 @@ COPY ./docker/01_bootstrap.sh /docker-entrypoint-initdb.d/
 
 # Configure shared_preload_libraries
 # Note: pgaudit is needed here as it comes pre-packaged in the Bitnami image
-ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_search"
+ENV POSTGRESQL_SHARED_PRELOAD_LIBRARIES="pgaudit,pg_cron,pg_search,pg_lakehouse"
 
 # We set a default password to enable users to get started quickly, as it is a required
 # environment variable for the Bitnami image.

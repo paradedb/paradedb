@@ -3,6 +3,9 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::datasource::TableProvider;
+use datafusion::execution::object_store::ObjectStoreUrl;
+use deltalake::table::builder::ensure_table_uri;
+use deltalake::table::builder::DeltaTableBuilder;
 use deltalake::DeltaTableError;
 use std::sync::Arc;
 use thiserror::Error;
@@ -41,7 +44,22 @@ pub async fn create_delta_provider(
         ));
     }
 
-    Ok(Arc::new(deltalake::open_table(path).await?) as Arc<dyn TableProvider>)
+    deltalake::gcp::register_handlers(None);
+
+    let temp_path = "gs://paradedb-hits/1189121";
+
+    let context = Session::session_context()?;
+    let object_store = context
+        .runtime_env()
+        .object_store(ObjectStoreUrl::parse(path)?)?;
+    let location = ensure_table_uri(temp_path).unwrap();
+    pgrx::info!("object sotre: {:?}", object_store);
+    let table = DeltaTableBuilder::from_valid_uri("./1189121")?
+        .with_storage_backend(object_store, location)
+        .load()
+        .await?;
+
+    Ok(Arc::new(table) as Arc<dyn TableProvider>)
 }
 
 #[derive(Error, Debug)]
@@ -63,6 +81,9 @@ pub enum TableProviderError {
 
     #[error(transparent)]
     Session(#[from] SessionError),
+
+    #[error(transparent)]
+    UrlParseError(#[from] url::ParseError),
 
     #[error(
         "File extension '{0}' is not supported for table format '{1}', extension must be 'parquet'"

@@ -35,8 +35,6 @@ enum GcsServerOption {
     Endpoint,
     PredefinedAcl,
     Root,
-    Scope,
-    ServiceAccount,
 }
 
 impl GcsServerOption {
@@ -47,8 +45,6 @@ impl GcsServerOption {
             Self::Endpoint => "endpoint",
             Self::PredefinedAcl => "predefined_acl",
             Self::Root => "root",
-            Self::Scope => "scope",
-            Self::ServiceAccount => "service_account",
         }
     }
 
@@ -59,8 +55,6 @@ impl GcsServerOption {
             Self::Endpoint => false,
             Self::PredefinedAcl => false,
             Self::Root => false,
-            Self::Scope => false,
-            Self::ServiceAccount => false,
         }
     }
 
@@ -71,8 +65,6 @@ impl GcsServerOption {
             Self::Endpoint,
             Self::PredefinedAcl,
             Self::Root,
-            Self::Scope,
-            Self::ServiceAccount,
         ]
         .into_iter()
     }
@@ -80,12 +72,18 @@ impl GcsServerOption {
 
 enum GcsUserMappingOption {
     Credential,
+    CredentialPath,
+    Scope,
+    ServiceAccount,
 }
 
 impl GcsUserMappingOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Credential => "credential",
+            Self::CredentialPath => "credential_path",
+            Self::Scope => "scope",
+            Self::ServiceAccount => "service_account",
         }
     }
 }
@@ -107,6 +105,12 @@ impl TryFrom<ServerOptions> for Gcs {
             builder.credential(credential);
         }
 
+        if let Some(credential_path) =
+            user_mapping_options.get(GcsUserMappingOption::CredentialPath.as_str())
+        {
+            builder.credential_path(credential_path);
+        }
+
         if let Some(default_storage_class) =
             server_options.get(GcsServerOption::DefaultStorageClass.as_str())
         {
@@ -125,11 +129,12 @@ impl TryFrom<ServerOptions> for Gcs {
             builder.root(root);
         }
 
-        if let Some(scope) = server_options.get(GcsServerOption::Scope.as_str()) {
+        if let Some(scope) = user_mapping_options.get(GcsUserMappingOption::Scope.as_str()) {
             builder.scope(scope);
         }
 
-        if let Some(service_account) = server_options.get(GcsServerOption::ServiceAccount.as_str())
+        if let Some(service_account) =
+            user_mapping_options.get(GcsUserMappingOption::ServiceAccount.as_str())
         {
             builder.service_account(service_account);
         }

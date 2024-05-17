@@ -1,3 +1,4 @@
+mod bench_hits;
 mod benchmark;
 mod cli;
 mod elastic;
@@ -6,7 +7,7 @@ mod tables;
 
 use anyhow::Result;
 use async_std::task::block_on;
-use cli::{Cli, Corpus, EsLogsCommand, Subcommand};
+use cli::{Cli, Corpus, EsLogsCommand, HitsCommand, Subcommand};
 use dotenvy::dotenv;
 use tracing_subscriber::EnvFilter;
 
@@ -64,6 +65,11 @@ fn main() -> Result<()> {
                     field,
                     term,
                 )),
+            },
+            Corpus::Hits(hits) => match hits.command {
+                HitsCommand::Run { tag, workload, url } => {
+                    block_on(bench_hits::bench_hits(&url, &tag, &workload))
+                }
             },
         },
     }

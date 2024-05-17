@@ -1,6 +1,6 @@
+use chrono::{NaiveDate, NaiveDateTime};
 use soa_derive::StructOfArray;
 use sqlx::FromRow;
-use chrono::{NaiveDate, NaiveDateTime};
 
 #[derive(Debug, PartialEq, FromRow, StructOfArray, Default)]
 pub struct SimpleProductsTable {
@@ -11,7 +11,7 @@ pub struct SimpleProductsTable {
     pub in_stock: bool,
     pub metadata: serde_json::Value,
     pub created_at: NaiveDateTime,
-    pub last_updated_date: NaiveDate
+    pub last_updated_date: NaiveDate,
 }
 
 impl SimpleProductsTable {

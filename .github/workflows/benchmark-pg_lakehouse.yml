@@ -56,6 +56,9 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Install PostgreSQL client
+        run: sudo apt-get install -y postgresql-client
+
       - name: Install the ParadeDB Benchmarking Tool
         working-directory: cargo-paradedb/
         run: cargo run install

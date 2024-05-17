@@ -33,6 +33,68 @@ pub fn lookup_index_tupdesc(indexrel: &PgRelation) -> PgTupleDesc<'static> {
     unsafe { PgTupleDesc::from_pg_is_copy(pg_sys::lookup_rowtype_tupdesc_copy(typid, typmod)) }
 }
 
+fn datetime_components_to_tantivy_date(
+    year: i32,
+    month: u8,
+    day: u8,
+    hour: u8,
+    minute: u8,
+    second: u8,
+    microsecond: u32,
+) -> tantivy::schema::Value {
+    let naive_dt = chrono::NaiveDate::from_ymd_opt(year, month.into(), day.into())
+        .unwrap()
+        .and_hms_micro_opt(hour.into(), minute.into(), second.into(), microsecond)
+        .unwrap()
+        .and_utc();
+
+    tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
+        naive_dt.timestamp_micros(),
+    ))
+}
+
+pub fn pgrx_time_to_tantivy_value(value: pgrx::Time) -> tantivy::schema::Value {
+    let (v_h, v_m, v_s, v_ms) = value.to_hms_micro();
+    datetime_components_to_tantivy_date(0, 0, 0, v_h, v_m, v_s, v_ms)
+}
+
+pub fn pgrx_timetz_to_tantivy_value(value: pgrx::TimeWithTimeZone) -> tantivy::schema::Value {
+    let (v_h, v_m, v_s, v_ms) = value.to_utc().to_hms_micro();
+    datetime_components_to_tantivy_date(0, 0, 0, v_h, v_m, v_s, v_ms)
+}
+
+pub fn pgrx_date_to_tantivy_value(value: pgrx::Date) -> tantivy::schema::Value {
+    datetime_components_to_tantivy_date(value.year(), value.month(), value.day(), 0, 0, 0, 0)
+}
+
+pub fn pgrx_timestamp_to_tantivy_value(value: pgrx::Timestamp) -> tantivy::schema::Value {
+    let (v_h, v_m, v_s, v_ms) = value.to_hms_micro();
+    datetime_components_to_tantivy_date(
+        value.year(),
+        value.month(),
+        value.day(),
+        v_h,
+        v_m,
+        v_s,
+        v_ms,
+    )
+}
+
+pub fn pgrx_timestamptz_to_tantivy_value(
+    value: pgrx::TimestampWithTimeZone,
+) -> tantivy::schema::Value {
+    let (v_h, v_m, v_s, v_ms) = value.to_utc().to_hms_micro();
+    datetime_components_to_tantivy_date(
+        value.year(),
+        value.month(),
+        value.day(),
+        v_h,
+        v_m,
+        v_s,
+        v_ms,
+    )
+}
+
 pub unsafe fn row_to_search_document(
     tupdesc: &PgTupleDesc,
     values: *mut pg_sys::Datum,
@@ -159,125 +221,29 @@ pub unsafe fn row_to_search_document(
                 PgBuiltInOids::DATEOID => {
                     let value = pgrx::datum::Date::from_datum(datum, false)
                         .ok_or(IndexError::DatumDeref)?;
-                    let ms = chrono::NaiveDate::from_ymd_opt(
-                            value.year(),
-                            value.month().into(),
-                            value.day().into(),
-                        )
-                        .unwrap()
-                        .and_hms_opt(0, 0, 0)
-                        .unwrap()
-                        .and_utc()
-                        .timestamp_micros();
-                    document.insert(
-                        search_field.id,
-                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
-                            ms,
-                        )),
-                    );
+                    document.insert(search_field.id, pgrx_date_to_tantivy_value(value));
                 }
                 PgBuiltInOids::TIMESTAMPOID => {
                     let value = pgrx::datum::Timestamp::from_datum(datum, false)
                         .ok_or(IndexError::DatumDeref)?;
 
-                    let date = NaiveDate::from_ymd_opt(
-                        value.year(),
-                        value.month().into(),
-                        value.day().into(),
-                    )
-                    .ok_or(IndexError::DatumDeref)?;
-                    let time = NaiveTime::from_hms_micro_opt(
-                        value.hour().into(),
-                        value.minute().into(),
-                        value.second() as u32,
-                        value.microseconds() % MICROSECONDS_IN_SECOND,
-                    )
-                    .ok_or(IndexError::DatumDeref)?;
-                    let datetime = NaiveDateTime::new(date, time);
-                    document.insert(
-                        search_field.id,
-                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
-                            datetime.and_utc().timestamp_micros(),
-                        )),
-                    );
+                    document.insert(search_field.id, pgrx_timestamp_to_tantivy_value(value));
                 }
                 PgBuiltInOids::TIMESTAMPTZOID => {
                     let value = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
-                        .ok_or(IndexError::DatumDeref)?
-                        .to_utc();
+                        .ok_or(IndexError::DatumDeref)?;
 
-                    let date = NaiveDate::from_ymd_opt(
-                        value.year(),
-                        value.month().into(),
-                        value.day().into(),
-                    )
-                    .ok_or(IndexError::DatumDeref)?;
-                    let time = NaiveTime::from_hms_micro_opt(
-                        value.hour().into(),
-                        value.minute().into(),
-                        value.second() as u32,
-                        value.microseconds() % MICROSECONDS_IN_SECOND,
-                    )
-                    .ok_or(IndexError::DatumDeref)?;
-                    let datetime = NaiveDateTime::new(date, time);
-                    document.insert(
-                        search_field.id,
-                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
-                            datetime.and_utc().timestamp_micros(),
-                        )),
-                    );
+                    document.insert(search_field.id, pgrx_timestamptz_to_tantivy_value(value));
                 }
                 PgBuiltInOids::TIMEOID => {
                     let value = pgrx::datum::Time::from_datum(datum, false)
                         .ok_or(IndexError::DatumDeref)?;
-                    let (v_h, v_m, v_s, v_ms) = value.to_hms_micro();
-                    let ms = chrono::NaiveDate::from_ymd_opt(
-                        0,
-                        0,
-                        0
-                    )
-                    .unwrap()
-                    .and_hms_micro_opt(
-                        v_h.into(),
-                        v_m.into(),
-                        v_s.into(),
-                        v_ms
-                    )
-                    .unwrap()
-                    .and_utc()
-                    .timestamp_micros();
-                    document.insert(
-                        search_field.id,
-                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
-                            ms,
-                        )),
-                    );
+                    document.insert(search_field.id, pgrx_time_to_tantivy_value(value));
                 }
                 PgBuiltInOids::TIMETZOID => {
-                    let value = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
+                    let value = pgrx::datum::TimeWithTimeZone::from_datum(datum, false)
                         .ok_or(IndexError::DatumDeref)?;
-                    let (v_h, v_m, v_s, v_ms) = value.to_utc().to_hms_micro();
-                    let ms = chrono::NaiveDate::from_ymd_opt(
-                        0,
-                        0,
-                        0
-                    )
-                    .unwrap()
-                    .and_hms_micro_opt(
-                        v_h.into(),
-                        v_m.into(),
-                        v_s.into(),
-                        v_ms
-                    )
-                    .unwrap()
-                    .and_utc()
-                    .timestamp_micros();
-                    document.insert(
-                        search_field.id,
-                        tantivy::schema::Value::Date(tantivy::DateTime::from_timestamp_micros(
-                            ms,
-                        )),
-                    );
+                    document.insert(search_field.id, pgrx_timetz_to_tantivy_value(value));
                 }
                 unsupported => Err(IndexError::UnsupportedValue(
                     search_field.name.0.to_string(),

@@ -99,14 +99,13 @@ pub extern "C" fn ambuild(
                 _ => panic!("'{name}' cannot be indexed as a JSON field"),
             });
 
-    let datetime_fields =
-        rdopts
-            .get_datetime_fields()
-            .into_iter()
-            .map(|(name, config)| match name_type_map.get(&name) {
-                Some(SearchFieldType::Date) => (name, config),
-                _ => panic!("'{name}' cannot be indexed as a date field"),
-            });
+    let datetime_fields = rdopts
+        .get_datetime_fields()
+        .into_iter()
+        .map(|(name, config)| match name_type_map.get(&name) {
+            Some(SearchFieldType::Date) => (name, config),
+            _ => panic!("'{name}' cannot be indexed as a date field"),
+        });
 
     let key_field = rdopts.get_key_field().expect("must specify key field");
 

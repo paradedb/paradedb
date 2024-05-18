@@ -66,7 +66,7 @@ jobs:
 
       - name: Run Official ${{ matrix.name }} Benchmark
         working-directory: pg_lakehouse/benchmarks/
-        run: cargo paradedb bench hits run ${{ matrix.flags }} --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+        run: sudo cargo paradedb bench hits run ${{ matrix.flags }} --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

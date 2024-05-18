@@ -45,14 +45,14 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str, full_dataset: bool
                 "https://paradedb-benchmarks.s3.amazonaws.com/hits_5m_rows.parquet"
             },
             "5182ed3b0ad35137db38faac395d7f55",
-            "/~/hits.parquet",
+            "~/hits.parquet",
         )?;
     } else if workload == "partitioned" {
         run_cmd!(echo "Using ClickBench's one hundred partitioned Parquet files for benchmarking...")?;
-        run_cmd!(mkdir -p "/~/partitioned")?;
+        run_cmd!(mkdir -p "~/partitioned")?;
         run_cmd!(
            seq 0 99
-          | xargs "-P100" "-I{}" wget --no-verbose --directory-prefix "/~/partitioned"
+          | xargs "-P100" "-I{}" wget --no-verbose --directory-prefix "~/partitioned"
             --continue "https://paradedb-benchmarks.s3.amazonaws.com/partitioned_5m_rows/hits_{}.parquet"
         )?;
     } else {
@@ -276,7 +276,7 @@ CREATE FOREIGN TABLE IF NOT EXISTS hits
     -- PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 )
 SERVER local_file_server
-OPTIONS (path 'file:///~/', extension 'parquet');
+OPTIONS (path 'file://~/', extension 'parquet');
 "#;
 
 static RUN_QUERY: &str = r#"

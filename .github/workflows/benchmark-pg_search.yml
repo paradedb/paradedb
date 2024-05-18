@@ -54,7 +54,7 @@ jobs:
           cargo pgrx install
 
       - name: Add pg_search to shared_preload_libraries
-        working-directory: ~/.pgrx/data-${{ env.pg_version }}/
+        working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search' "postgresql.conf"
 
       - name: Install the ParadeDB Benchmarking Tool

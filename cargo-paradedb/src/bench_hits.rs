@@ -23,7 +23,7 @@ fn download_and_verify(url: &str, checksum: &str, filename: &str) -> Result<()> 
     }
 
     run_cmd!(echo "Downloading $filename dataset...")?;
-    run_cmd!(wget --no-verbose --continue -O $filename $url)?;
+    run_cmd!(wget --no-verbose --no-check-certificate --continue -O $filename $url)?;
     Ok(())
 }
 
@@ -53,7 +53,7 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str, no_cache: bool) ->
         run_cmd!(mkdir -p $partitioned_dir_path)?;
         run_cmd!(
            seq 0 99
-          | xargs "-P100" "-I{}" wget --no-verbose --directory-prefix $partitioned_dir_path
+          | xargs "-P100" "-I{}" wget --no-verbose --no-check-certificate --directory-prefix $partitioned_dir_path
             --continue "https://paradedb-benchmarks.s3.amazonaws.com/partitioned_5m_rows/hits_{}.parquet"
         )?;
     } else {
@@ -280,7 +280,7 @@ CREATE FOREIGN TABLE IF NOT EXISTS hits
     -- PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 )
 SERVER local_file_server
-OPTIONS (path 'file://{file_path}', extension 'parquet');
+OPTIONS (path 'file:///{file_path}', extension 'parquet');
 "#
     )
 }

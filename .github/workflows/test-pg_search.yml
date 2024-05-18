@@ -85,10 +85,6 @@ jobs:
           fi
           echo "Version check passed!"
 
-      - name: Install Rust
-        if: steps.check_skip.outputs.skip_remaining_steps != 'true'
-        uses: dtolnay/rust-toolchain@stable
-
       # Caches from base branches are available to PRs, but not across unrelated branches, so we only
       # save the cache on the 'dev' branch, but load it on all branches.
       - name: Install Rust Cache

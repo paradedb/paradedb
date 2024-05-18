@@ -37,12 +37,7 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str, no_cache: bool) ->
     );
     println!("*********************************************************************************\n");
 
-    let temp_cache = TempDir::new()?;
-    let root_file_path = if no_cache {
-        temp_cache.path().to_path_buf()
-    } else {
-        PathBuf::from_str("/tmp")?
-    };
+    let root_file_path = PathBuf::from_str("/tmp")?;
     let single_file_path = root_file_path.join("hits.parquet").display().to_string();
     let partitioned_dir_path = root_file_path.join("partitioned").display().to_string();
 

@@ -2,6 +2,7 @@ use crate::fdw::base::BaseFdwError;
 use pgrx::*;
 use std::collections::HashMap;
 use supabase_wrappers::prelude::*;
+use url::Url;
 
 pub enum TableOption {
     Path,
@@ -33,16 +34,19 @@ impl TableOption {
 
 #[derive(Clone, Debug)]
 pub struct ServerOptions {
+    url: Url,
     server_options: HashMap<String, String>,
     user_mapping_options: HashMap<String, String>,
 }
 
 impl ServerOptions {
     pub fn new(
+        url: &Url,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Self {
         Self {
+            url: url.clone(),
             server_options,
             user_mapping_options,
         }
@@ -50,6 +54,10 @@ impl ServerOptions {
 
     pub fn server_options(&self) -> &HashMap<String, String> {
         &self.server_options
+    }
+
+    pub fn url(&self) -> &Url {
+        &self.url
     }
 
     pub fn user_mapping_options(&self) -> &HashMap<String, String> {

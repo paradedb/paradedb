@@ -94,7 +94,11 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
-        LocalFileFdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
+        LocalFileFdw::register_object_store(
+            &Url::parse(path)?,
+            server_options,
+            user_mapping_options,
+        )?;
 
         Ok(Self {
             current_batch: None,

@@ -50,7 +50,12 @@ async fn arrow_schema_impl(
     let user_mapping_options = unsafe { user_mapping_options(foreign_server) };
     let fdw_handler = FdwHandler::from(foreign_server);
 
-    register_object_store(fdw_handler, &Url::parse(&path)?, server_options, user_mapping_options)?;
+    register_object_store(
+        fdw_handler,
+        &Url::parse(&path)?,
+        server_options,
+        user_mapping_options,
+    )?;
 
     let provider = match TableFormat::from(&format.unwrap_or("".to_string())) {
         TableFormat::None => create_listing_provider(&path, &extension).await?,

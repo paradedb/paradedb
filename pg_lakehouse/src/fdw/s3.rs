@@ -6,7 +6,6 @@ use opendal::services::S3;
 use opendal::Operator;
 use pgrx::*;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
@@ -31,8 +30,6 @@ pub(crate) struct S3Fdw {
 
 pub enum AmazonServerOption {
     Endpoint,
-    Bucket,
-    Root,
     Region,
     AllowAnonymous,
 }
@@ -41,8 +38,6 @@ impl AmazonServerOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Endpoint => "endpoint",
-            Self::Bucket => "bucket",
-            Self::Root => "root",
             Self::Region => "region",
             Self::AllowAnonymous => "allow_anonymous",
         }
@@ -51,22 +46,13 @@ impl AmazonServerOption {
     pub fn is_required(&self) -> bool {
         match self {
             Self::Endpoint => false,
-            Self::Bucket => true,
-            Self::Root => false,
             Self::Region => false,
             Self::AllowAnonymous => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [
-            Self::Endpoint,
-            Self::Bucket,
-            Self::Root,
-            Self::Region,
-            Self::AllowAnonymous,
-        ]
-        .into_iter()
+        [Self::Endpoint, Self::Region, Self::AllowAnonymous].into_iter()
     }
 }
 
@@ -90,17 +76,17 @@ impl TryFrom<ServerOptions> for S3 {
     type Error = ContextError;
 
     fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
+        let url = options.url();
         let server_options = options.server_options();
         let user_mapping_options = options.user_mapping_options();
 
         let mut builder = S3::default();
-        let bucket = require_option(AmazonServerOption::Bucket.as_str(), server_options)?;
-        builder.bucket(bucket);
         builder.disable_config_load();
         builder.disable_ec2_metadata();
+        builder.root(url.path());
 
-        if let Some(root) = server_options.get(AmazonServerOption::Root.as_str()) {
-            builder.root(root);
+        if let Some(bucket) = url.host_str() {
+            builder.bucket(bucket);
         }
 
         if let Some(region) = server_options.get(AmazonServerOption::Region.as_str()) {
@@ -150,13 +136,13 @@ impl BaseFdw for S3Fdw {
         let context = Session::session_context()?;
 
         let builder = S3::try_from(ServerOptions::new(
+            url,
             server_options.clone(),
             user_mapping_options.clone(),
         ))?;
 
         let operator = Operator::new(builder)?.finish();
         let object_store = Arc::new(OpendalStore::new(operator));
-        let bucket = require_option(AmazonServerOption::Bucket.as_str(), &server_options)?;
 
         context
             .runtime_env()

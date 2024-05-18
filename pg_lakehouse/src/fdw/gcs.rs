@@ -6,7 +6,6 @@ use opendal::services::Gcs;
 use opendal::Operator;
 use pgrx::*;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
@@ -30,41 +29,33 @@ pub(crate) struct GcsFdw {
 }
 
 enum GcsServerOption {
-    Bucket,
     DefaultStorageClass,
     Endpoint,
     PredefinedAcl,
-    Root,
 }
 
 impl GcsServerOption {
     pub fn as_str(&self) -> &str {
         match self {
-            Self::Bucket => "bucket",
             Self::DefaultStorageClass => "default_storage_class",
             Self::Endpoint => "endpoint",
             Self::PredefinedAcl => "predefined_acl",
-            Self::Root => "root",
         }
     }
 
     pub fn is_required(&self) -> bool {
         match self {
-            Self::Bucket => true,
             Self::DefaultStorageClass => false,
             Self::Endpoint => false,
             Self::PredefinedAcl => false,
-            Self::Root => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
         [
-            Self::Bucket,
             Self::DefaultStorageClass,
             Self::Endpoint,
             Self::PredefinedAcl,
-            Self::Root,
         ]
         .into_iter()
     }
@@ -93,11 +84,15 @@ impl TryFrom<ServerOptions> for Gcs {
 
     fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
         let server_options = options.server_options();
+        let url = options.url();
         let user_mapping_options = options.user_mapping_options();
 
         let mut builder = Gcs::default();
-        let bucket = require_option(GcsServerOption::Bucket.as_str(), server_options)?;
-        builder.bucket(bucket);
+        builder.root(url.path());
+
+        if let Some(bucket) = url.host_str() {
+            builder.bucket(bucket);
+        }
 
         if let Some(credential) =
             user_mapping_options.get(GcsUserMappingOption::Credential.as_str())
@@ -125,10 +120,6 @@ impl TryFrom<ServerOptions> for Gcs {
             builder.predefined_acl(predefined_acl);
         }
 
-        if let Some(root) = server_options.get(GcsServerOption::Root.as_str()) {
-            builder.root(root);
-        }
-
         if let Some(scope) = user_mapping_options.get(GcsUserMappingOption::Scope.as_str()) {
             builder.scope(scope);
         }
@@ -152,13 +143,13 @@ impl BaseFdw for GcsFdw {
         let context = Session::session_context()?;
 
         let builder = Gcs::try_from(ServerOptions::new(
+            url,
             server_options.clone(),
             user_mapping_options.clone(),
         ))?;
 
         let operator = Operator::new(builder)?.finish();
         let object_store = Arc::new(OpendalStore::new(operator));
-        let bucket = require_option(GcsServerOption::Bucket.as_str(), &server_options)?;
 
         context
             .runtime_env()

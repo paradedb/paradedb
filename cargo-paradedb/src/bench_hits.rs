@@ -27,7 +27,7 @@ fn download_and_verify(url: &str, checksum: &str, filename: &str) -> Result<()> 
     Ok(())
 }
 
-pub async fn bench_hits(url: &str, tag: &str, workload: &str, no_cache: bool) -> Result<()> {
+pub async fn bench_hits(url: &str, tag: &str, workload: &str) -> Result<()> {
     let _os = run_fun!(uname)?;
 
     println!("\n*********************************************************************************");
@@ -39,7 +39,7 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str, no_cache: bool) ->
 
     let root_file_path = PathBuf::from_str("/tmp")?;
     let single_file_path = root_file_path.join("hits.parquet").display().to_string();
-    let partitioned_dir_path = root_file_path.join("partitioned").display().to_string();
+    let partitioned_dir_path = root_file_path.join("partitioned/").display().to_string();
 
     if workload == "single" {
         run_cmd!(echo "Using ClickBench's single Parquet file for benchmarking...")?;

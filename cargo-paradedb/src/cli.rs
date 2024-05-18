@@ -153,9 +153,6 @@ pub enum HitsCommand {
         /// Postgres database url to connect to.
         #[arg(short, long, env = "DATABASE_URL")]
         url: String,
-        /// Should results be cached in /tmp folder?
-        #[arg(short, long, default_value_t = false)]
-        no_cache: bool,
     },
 }
 

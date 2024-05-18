@@ -150,9 +150,6 @@ pub enum HitsCommand {
         /// - 'partitioned' Runs the full ClickBench benchmark against one hundred partitioned Parquet files
         #[arg(long, short, default_value = "single")]
         workload: String,
-        /// Use the full dataset, or a shortened one.
-        #[arg(long, short, default_value_t = false)]
-        full: bool,
         /// Postgres database url to connect to.
         #[arg(short, long, env = "DATABASE_URL")]
         url: String,

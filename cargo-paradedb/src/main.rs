@@ -71,11 +71,8 @@ fn main() -> Result<()> {
                     tag,
                     workload,
                     url,
-                    full,
                     no_cache,
-                } => block_on(bench_hits::bench_hits(
-                    &url, &tag, &workload, full, no_cache,
-                )),
+                } => block_on(bench_hits::bench_hits(&url, &tag, &workload, no_cache)),
             },
         },
     }

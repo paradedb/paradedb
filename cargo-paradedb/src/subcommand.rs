@@ -166,8 +166,7 @@ pub async fn bench_eslogs_build_search_index(
 
     let text_fields = r#"{"message": {}}"#;
     let create_query = format!(
-        "CREATE EXTENSION IF NOT EXISTS pg_search;
-        CALL paradedb.create_bm25(
+        "CALL paradedb.create_bm25(
             table_name => '{table}',
             index_name => '{index}',
             key_field => 'id',

@@ -66,7 +66,16 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str, no_cache: bool) ->
 
     let conn_opts = &PgConnectOptions::from_str(url)?;
     let mut conn = PgConnection::connect_with(conn_opts).await?;
-    conn.execute(create_query_sql(&root_file_path.display().to_string()).as_str())
+
+    let file_path = if workload == "single" {
+        single_file_path
+    } else {
+        partitioned_dir_path
+    };
+
+    println!("Creating foreign table from '{}'", file_path);
+
+    conn.execute(create_query_sql(&file_path).as_str())
         .await
         .unwrap();
 
@@ -145,7 +154,9 @@ async fn run_queries(conn: &mut PgConnection) -> Result<()> {
 fn create_query_sql(file_path: &str) -> String {
     format!(
         r#"
+DROP EXTENSION IF EXISTS pg_lakehouse CASCADE;
 CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
+DROP FOREIGN DATA WRAPPER IF EXISTS local_file_wrapper CASCADE;
 DO $$
 BEGIN
    IF NOT EXISTS (
@@ -280,7 +291,7 @@ CREATE FOREIGN TABLE IF NOT EXISTS hits
     -- PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 )
 SERVER local_file_server
-OPTIONS (path 'file:///{file_path}', extension 'parquet');
+OPTIONS (path 'file://{file_path}', extension 'parquet');
 "#
     )
 }

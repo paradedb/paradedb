@@ -58,7 +58,7 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str, no_cache: bool) ->
         run_cmd!(mkdir -p $partitioned_dir_path)?;
         run_cmd!(
            seq 0 99
-          | xargs "-P100" "-I{}" wget --no-verbose --directory-prefix "~/partitioned"
+          | xargs "-P100" "-I{}" wget --no-verbose --directory-prefix $partitioned_dir_path
             --continue "https://paradedb-benchmarks.s3.amazonaws.com/partitioned_5m_rows/hits_{}.parquet"
         )?;
     } else {

@@ -1,14 +1,15 @@
 #![allow(unused_imports)]
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
 use cmd_lib::*;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::{Connection, Executor, PgConnection};
 use std::fs::File;
 use std::io::BufRead;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::time::Instant;
 use std::{env, io};
+use tempfile::TempDir;
 
 fn download_and_verify(url: &str, checksum: &str, filename: &str) -> Result<()> {
     if Path::new(filename).exists() {
@@ -26,7 +27,13 @@ fn download_and_verify(url: &str, checksum: &str, filename: &str) -> Result<()> 
     Ok(())
 }
 
-pub async fn bench_hits(url: &str, tag: &str, workload: &str, full_dataset: bool) -> Result<()> {
+pub async fn bench_hits(
+    url: &str,
+    tag: &str,
+    workload: &str,
+    full_dataset: bool,
+    no_cache: bool,
+) -> Result<()> {
     let _os = run_fun!(uname)?;
 
     println!("\n*********************************************************************************");
@@ -35,6 +42,15 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str, full_dataset: bool
         tag
     );
     println!("*********************************************************************************\n");
+
+    let temp_cache = TempDir::new()?;
+    let root_file_path = if no_cache {
+        temp_cache.path().to_path_buf()
+    } else {
+        PathBuf::from_str("/tmp")?
+    };
+    let single_file_path = root_file_path.join("hits.parquet").display().to_string();
+    let partitioned_dir_path = root_file_path.join("partitioned").display().to_string();
 
     if workload == "single" {
         run_cmd!(echo "Using ClickBench's single Parquet file for benchmarking...")?;
@@ -45,11 +61,11 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str, full_dataset: bool
                 "https://paradedb-benchmarks.s3.amazonaws.com/hits_5m_rows.parquet"
             },
             "5182ed3b0ad35137db38faac395d7f55",
-            "~/hits.parquet",
+            &single_file_path,
         )?;
     } else if workload == "partitioned" {
         run_cmd!(echo "Using ClickBench's one hundred partitioned Parquet files for benchmarking...")?;
-        run_cmd!(mkdir -p "~/partitioned")?;
+        run_cmd!(mkdir -p $partitioned_dir_path)?;
         run_cmd!(
            seq 0 99
           | xargs "-P100" "-I{}" wget --no-verbose --directory-prefix "~/partitioned"
@@ -63,10 +79,11 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str, full_dataset: bool
     run_cmd!(echo "\nLoading dataset...")?;
     env::set_var("PGPASSWORD", "postgres");
 
-    // run_cmd!(psql $url -t -c $CREATE_QUERY)?;
     let conn_opts = &PgConnectOptions::from_str(url)?;
     let mut conn = PgConnection::connect_with(conn_opts).await?;
-    conn.execute(CREATE_QUERY).await.unwrap();
+    conn.execute(create_query_sql(&root_file_path.display().to_string()).as_str())
+        .await
+        .unwrap();
 
     run_cmd!(echo "\nRunning queries...")?;
     run_queries(&mut conn).await?;
@@ -109,7 +126,7 @@ async fn run_queries(conn: &mut PgConnection) -> Result<()> {
     let os = run_fun!(uname)?;
     env::set_var("PGPASSWORD", "postgres");
 
-    for query in RUN_QUERY.lines() {
+    for query in run_query_sql().lines() {
         if query.trim().is_empty() {
             continue;
         }
@@ -140,7 +157,9 @@ async fn run_queries(conn: &mut PgConnection) -> Result<()> {
     Ok(())
 }
 
-static CREATE_QUERY: &str = r#"
+fn create_query_sql(file_path: &str) -> String {
+    format!(
+        r#"
 CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
 DO $$
 BEGIN
@@ -276,10 +295,13 @@ CREATE FOREIGN TABLE IF NOT EXISTS hits
     -- PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
 )
 SERVER local_file_server
-OPTIONS (path 'file://~/', extension 'parquet');
-"#;
+OPTIONS (path 'file://{file_path}', extension 'parquet');
+"#
+    )
+}
 
-static RUN_QUERY: &str = r#"
+fn run_query_sql() -> String {
+    r#"
 SELECT COUNT(*) FROM hits;
 SELECT COUNT(*) FROM hits WHERE "AdvEngineID" <> 0;
 SELECT SUM("AdvEngineID"), COUNT(*), AVG("ResolutionWidth") FROM hits;
@@ -323,4 +345,5 @@ SELECT "TraficSourceID", "SearchEngineID", "AdvEngineID", CASE WHEN ("SearchEngi
 SELECT "URLHash", to_date("EventDate"::INT), COUNT(*) AS PageViews FROM hits WHERE "CounterID" = 62 AND to_date("EventDate"::INT) >= '2013-07-01' AND to_date("EventDate"::INT) <= '2013-07-31' AND "IsRefresh" = 0 AND "TraficSourceID" IN (-1, 6) AND "RefererHash" = 3594120000172545465 GROUP BY "URLHash", to_date("EventDate"::INT) ORDER BY PageViews DESC LIMIT 10 OFFSET 100;
 SELECT "WindowClientWidth", "WindowClientHeight", COUNT(*) AS PageViews FROM hits WHERE "CounterID" = 62 AND to_date("EventDate"::INT) >= '2013-07-01' AND to_date("EventDate"::INT) <= '2013-07-31' AND "IsRefresh" = 0 AND "DontCountHits" = 0 AND "URLHash" = 2868770270353813622 GROUP BY "WindowClientWidth", "WindowClientHeight" ORDER BY PageViews DESC LIMIT 10 OFFSET 10000;
 SELECT DATE_TRUNC('minute', to_timestamp("EventTime")) AS M, COUNT(*) AS PageViews FROM hits WHERE "CounterID" = 62 AND to_date("EventDate"::INT) >= '2013-07-14' AND to_date("EventDate"::INT) <= '2013-07-15' AND "IsRefresh" = 0 AND "DontCountHits" = 0 GROUP BY DATE_TRUNC('minute', to_timestamp("EventTime")) ORDER BY DATE_TRUNC('minute', to_timestamp("EventTime")) LIMIT 10 OFFSET 1000;
-"#;
+"#.into()
+}

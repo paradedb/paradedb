@@ -72,7 +72,10 @@ fn main() -> Result<()> {
                     workload,
                     url,
                     full,
-                } => block_on(bench_hits::bench_hits(&url, &tag, &workload, full)),
+                    no_cache,
+                } => block_on(bench_hits::bench_hits(
+                    &url, &tag, &workload, full, no_cache,
+                )),
             },
         },
     }

@@ -70,7 +70,7 @@ jobs:
       - name: Run Official ${{ matrix.name }} Benchmark
         working-directory: pg_lakehouse/
         run: |
-          cargp pgrx start
+          cargo pgrx start
           cargo paradedb bench hits run ${{ matrix.flags }} --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       - name: Notify Slack on Failure

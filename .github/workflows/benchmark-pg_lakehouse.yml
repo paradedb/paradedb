@@ -44,8 +44,8 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Configure Rust Toolchain
+        run: rustup default stable
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

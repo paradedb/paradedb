@@ -1,5 +1,6 @@
 use pgrx::*;
 use std::collections::HashMap;
+use url::Url;
 
 use crate::datafusion::context::ContextError;
 
@@ -50,18 +51,19 @@ impl From<*mut pg_sys::ForeignServer> for FdwHandler {
 
 pub fn register_object_store(
     handler: FdwHandler,
+    url: &Url,
     server_options: HashMap<String, String>,
     user_mapping_options: HashMap<String, String>,
 ) -> Result<(), ContextError> {
     match handler {
         FdwHandler::S3 => {
-            S3Fdw::register_object_store(server_options, user_mapping_options)?;
+            S3Fdw::register_object_store(url, server_options, user_mapping_options)?;
         }
         FdwHandler::LocalFile => {
-            LocalFileFdw::register_object_store(server_options, user_mapping_options)?;
+            LocalFileFdw::register_object_store(url, server_options, user_mapping_options)?;
         }
         FdwHandler::Gcs => {
-            GcsFdw::register_object_store(server_options, user_mapping_options)?;
+            GcsFdw::register_object_store(url, server_options, user_mapping_options)?;
         }
         _ => {}
     }

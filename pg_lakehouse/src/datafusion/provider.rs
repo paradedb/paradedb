@@ -3,17 +3,25 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::datasource::TableProvider;
-use datafusion::execution::object_store::ObjectStoreUrl;
 use deltalake::table::builder::ensure_table_uri;
 use deltalake::table::builder::DeltaTableBuilder;
 use deltalake::DeltaTableError;
 use std::sync::Arc;
 use thiserror::Error;
+use url::Url;
 
 use crate::schema::attribute::*;
 
 use super::format::*;
 use super::session::*;
+
+struct ObjectStoreUrl(pub Url);
+
+impl AsRef<Url> for ObjectStoreUrl {
+    fn as_ref(&self) -> &Url {
+        &self.0
+    }
+}
 
 pub async fn create_listing_provider(
     path: &str,
@@ -45,16 +53,14 @@ pub async fn create_delta_provider(
     }
 
     deltalake::gcp::register_handlers(None);
+    deltalake::aws::register_handlers(None);
 
-    let temp_path = "gs://paradedb-hits/1189121";
-
+    let url = Url::parse(path)?;
     let context = Session::session_context()?;
-    let object_store = context
-        .runtime_env()
-        .object_store(ObjectStoreUrl::parse(path)?)?;
-    let location = ensure_table_uri(temp_path).unwrap();
-    pgrx::info!("object sotre: {:?}", object_store);
-    let table = DeltaTableBuilder::from_valid_uri("./1189121")?
+    let object_store = context.runtime_env().object_store(ObjectStoreUrl(url))?;
+    let location = ensure_table_uri(path).unwrap();
+
+    let table = DeltaTableBuilder::from_valid_uri(path)?
         .with_storage_backend(object_store, location)
         .load()
         .await?;

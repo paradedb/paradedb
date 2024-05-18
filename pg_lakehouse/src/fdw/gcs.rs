@@ -145,6 +145,7 @@ impl TryFrom<ServerOptions> for Gcs {
 
 impl BaseFdw for GcsFdw {
     fn register_object_store(
+        url: &Url,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
@@ -159,26 +160,9 @@ impl BaseFdw for GcsFdw {
         let object_store = Arc::new(OpendalStore::new(operator));
         let bucket = require_option(GcsServerOption::Bucket.as_str(), &server_options)?;
 
-        let mut path = match server_options.get(GcsServerOption::Root.as_str()) {
-            Some(root) => {
-                let mut path = PathBuf::from(bucket);
-                path.push(root);
-                path
-            }
-            None => PathBuf::from(bucket),
-        };
-
-        if let Some(path_str) = path.to_str() {
-            if let Some(stripped) = path_str.strip_prefix('/') {
-                path = PathBuf::from(stripped);
-            }
-        }
-
-        let url = format!("gs://{}", path.to_string_lossy());
-
         context
             .runtime_env()
-            .register_object_store(&Url::parse(&url)?, object_store);
+            .register_object_store(url, object_store);
 
         Ok(())
     }
@@ -228,10 +212,12 @@ impl BaseFdw for GcsFdw {
 
 impl ForeignDataWrapper<BaseFdwError> for GcsFdw {
     fn new(
+        table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        GcsFdw::register_object_store(server_options, user_mapping_options)?;
+        let path = require_option(TableOption::Path.as_str(), &table_options)?;
+        GcsFdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
 
         Ok(Self {
             current_batch: None,

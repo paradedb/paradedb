@@ -15,7 +15,6 @@ VALIDATOR s3_fdw_validator;
 CREATE SERVER <server_name>
 FOREIGN DATA WRAPPER <wrapper_name>
 OPTIONS (
-    bucket '<bucket>'
     region '<region>',
     allow_anonymous 'true'
 );
@@ -38,9 +37,6 @@ OPTIONS (path '<path>', extension '<extension>');
 
 ### Options for `CREATE SERVER`
 
-<ParamField body="bucket" required>
-  Name of the S3 bucket.
-</ParamField>
 <ParamField body="region">
   AWS region, e.g. `us-east-1`. Required for Amazon S3, MinIO, Scaleway, and
   Cloudflare R2.
@@ -55,11 +51,6 @@ OPTIONS (path '<path>', extension '<extension>');
 <ParamField body="allow_anonymous">
   If set to `true`, will not sign requests. This is useful for connecting to
   public S3 buckets. Defaults to `false`.
-</ParamField>
-<ParamField body="root">
-  Working directory for the bucket. For instance, if `bucket` is `'bucket_name'`
-  and `root` is `'/folder'`, the server will be created over
-  `s3://bucket_name/folder`.
 </ParamField>
 
 ### Options for `CREATE FOREIGN TABLE`

@@ -53,7 +53,7 @@ CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_v
 
 -- Provide S3 credentials
 CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
-OPTIONS (bucket 'paradedb-benchmarks', region 'us-east-1', allow_anonymous 'true');
+OPTIONS (region 'us-east-1', allow_anonymous 'true');
 
 -- Create foreign table
 CREATE FOREIGN TABLE trips (

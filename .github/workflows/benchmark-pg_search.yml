@@ -46,7 +46,7 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ env.pg_version }}/extension/ /usr/lib/postgresql/${{ env.pg_version }}/lib/ /var/lib/postgresql/${{ env.pg_version }}/ /usr/lib/postgresql/${{ env.pg_version }}/bin/
           echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Install pgrx, pg_search
+      - name: Install pgrx & pg_search
         working-directory: pg_search/
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
@@ -61,14 +61,10 @@ jobs:
         working-directory: cargo-paradedb/
         run: cargo run install
 
-      # First start Postgres
-      - name: Run pg_search Benchmark
+      - name: Run pg_search Benchmarks
         working-directory: pg_search/
         run: |
           cargo pgrx start
-          rustup update
-          rustup default stable
-          export PATH="$HOME/.cargo/bin:$PATH"
           cargo paradedb bench eslogs generate --url postgresql://localhost:288${{ env.pg_version }}/postgres
           cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ env.pg_version }}/postgres
           cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ env.pg_version }}/postgres

@@ -1,3 +1,4 @@
+pub mod azdls;
 pub mod base;
 pub mod gcs;
 pub mod handler;

@@ -1,9 +1,8 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
-use datafusion::prelude::DataFrame;
 use object_store_opendal::OpendalStore;
-use opendal::services::S3;
+use opendal::services::Azdls;
 use opendal::Operator;
 use pgrx::*;
 use std::collections::HashMap;
@@ -12,7 +11,6 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use crate::datafusion::context::ContextError;
-use crate::datafusion::format::TableFormat;
 use crate::datafusion::session::Session;
 use crate::fdw::options::*;
 
@@ -23,122 +21,96 @@ use super::base::*;
     website = "https://github.com/paradedb/paradedb",
     error_type = "BaseFdwError"
 )]
-pub(crate) struct S3Fdw {
-    dataframe: Option<DataFrame>,
+pub(crate) struct AzdlsFdw {
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
     target_columns: Vec<Column>,
 }
 
-pub enum AmazonServerOption {
+enum AzdlsServerOption {
     Endpoint,
-    Region,
-    AllowAnonymous,
 }
 
-impl AmazonServerOption {
+impl AzdlsServerOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Endpoint => "endpoint",
-            Self::Region => "region",
-            Self::AllowAnonymous => "allow_anonymous",
         }
     }
 
     pub fn is_required(&self) -> bool {
         match self {
             Self::Endpoint => false,
-            Self::Region => false,
-            Self::AllowAnonymous => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Endpoint, Self::Region, Self::AllowAnonymous].into_iter()
+        [Self::Endpoint].into_iter()
     }
 }
 
-pub enum AmazonUserMappingOption {
-    AccessKeyId,
-    SecretAccessKey,
-    SecurityToken,
+enum AzdlsUserMappingOption {
+    AccountKey,
+    AccountName,
 }
 
-impl AmazonUserMappingOption {
+impl AzdlsUserMappingOption {
     pub fn as_str(&self) -> &str {
         match self {
-            Self::AccessKeyId => "access_key_id",
-            Self::SecretAccessKey => "secret_access_key",
-            Self::SecurityToken => "security_token",
+            Self::AccountKey => "account_key",
+            Self::AccountName => "account_name",
         }
     }
 }
 
-impl TryFrom<ServerOptions> for S3 {
+impl TryFrom<ServerOptions> for Azdls {
     type Error = ContextError;
 
     fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
-        let url = options.url();
         let server_options = options.server_options();
+        let url = options.url();
         let user_mapping_options = options.user_mapping_options();
 
-        let mut builder = S3::default();
-        builder.disable_config_load();
-        builder.disable_ec2_metadata();
+        let mut builder = Azdls::default();
 
-        if let Some(bucket) = url.host_str() {
-            builder.bucket(bucket);
+        if let Root(Some(root)) = Root::from(url.clone()) {
+            builder.root(&root);
         }
 
-        if let Some(region) = server_options.get(AmazonServerOption::Region.as_str()) {
-            builder.region(region);
+        if let Some(filesystem) = url.host_str() {
+            builder.filesystem(filesystem);
         }
 
-        if let Some(access_key_id) =
-            user_mapping_options.get(AmazonUserMappingOption::AccessKeyId.as_str())
+        if let Some(account_key) =
+            user_mapping_options.get(AzdlsUserMappingOption::AccountKey.as_str())
         {
-            builder.access_key_id(access_key_id);
+            builder.account_key(account_key);
         }
 
-        if let Some(secret_access_key) =
-            user_mapping_options.get(AmazonUserMappingOption::SecretAccessKey.as_str())
+        if let Some(account_name) =
+            user_mapping_options.get(AzdlsUserMappingOption::AccountName.as_str())
         {
-            builder.secret_access_key(secret_access_key);
+            builder.account_name(account_name);
         }
 
-        if let Some(security_token) =
-            user_mapping_options.get(AmazonUserMappingOption::SecurityToken.as_str())
-        {
-            builder.security_token(security_token);
-        }
-
-        if let Some(endpoint) = server_options.get(AmazonServerOption::Endpoint.as_str()) {
+        if let Some(endpoint) = server_options.get(AzdlsServerOption::Endpoint.as_str()) {
             builder.endpoint(endpoint);
-        }
-
-        if let Some(allow_anonymous) =
-            server_options.get(AmazonServerOption::AllowAnonymous.as_str())
-        {
-            if allow_anonymous == "true" {
-                builder.allow_anonymous();
-            }
         }
 
         Ok(builder)
     }
 }
 
-impl BaseFdw for S3Fdw {
+impl BaseFdw for AzdlsFdw {
     fn register_object_store(
         url: &Url,
-        _format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
         let context = Session::session_context()?;
 
-        let builder = S3::try_from(ServerOptions::new(
+        let builder = Azdls::try_from(ServerOptions::new(
             url,
             server_options.clone(),
             user_mapping_options.clone(),
@@ -174,26 +146,8 @@ impl BaseFdw for S3Fdw {
         self.current_batch_index = index;
     }
 
-    fn set_dataframe(&mut self, dataframe: DataFrame) {
-        self.dataframe = Some(dataframe);
-    }
-
-    async fn create_stream(&mut self) -> Result<(), BaseFdwError> {
-        if self.stream.is_none() {
-            self.stream = Some(
-                self.dataframe
-                    .clone()
-                    .ok_or(BaseFdwError::DataFrameNotFound)?
-                    .execute_stream()
-                    .await?,
-            );
-        }
-
-        Ok(())
-    }
-
-    fn clear_stream(&mut self) {
-        self.stream = None;
+    fn set_stream(&mut self, stream: Option<SendableRecordBatchStream>) {
+        self.stream = stream;
     }
 
     fn set_target_columns(&mut self, columns: &[Column]) {
@@ -215,24 +169,16 @@ impl BaseFdw for S3Fdw {
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
+impl ForeignDataWrapper<BaseFdwError> for AzdlsFdw {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
-        let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
-
-        S3Fdw::register_object_store(
-            &Url::parse(path)?,
-            TableFormat::from(format),
-            server_options,
-            user_mapping_options,
-        )?;
+        AzdlsFdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
 
         Ok(Self {
-            dataframe: None,
             current_batch: None,
             current_batch_index: 0,
             stream: None,
@@ -248,13 +194,13 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
             match oid {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
                 FOREIGN_SERVER_RELATION_ID => {
-                    let valid_options: Vec<String> = AmazonServerOption::iter()
+                    let valid_options: Vec<String> = AzdlsServerOption::iter()
                         .map(|opt| opt.as_str().to_string())
                         .collect();
 
                     validate_options(opt_list.clone(), valid_options)?;
 
-                    for opt in AmazonServerOption::iter() {
+                    for opt in AzdlsServerOption::iter() {
                         if opt.is_required() {
                             check_options_contain(&opt_list, opt.as_str())?;
                         }

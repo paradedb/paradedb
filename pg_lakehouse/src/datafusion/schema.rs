@@ -81,7 +81,11 @@ impl LakehouseSchemaProvider {
 
         let provider = match TableFormat::from(format) {
             TableFormat::Delta => {
-                let mut delta_table = table.as_any().downcast_ref::<DeltaTable>().unwrap().clone();
+                let mut delta_table = table
+                    .as_any()
+                    .downcast_ref::<DeltaTable>()
+                    .ok_or(CatalogError::DowncastDeltaTable)?
+                    .clone();
                 task::block_on(delta_table.load())?;
                 Arc::new(delta_table) as Arc<dyn TableProvider>
             }

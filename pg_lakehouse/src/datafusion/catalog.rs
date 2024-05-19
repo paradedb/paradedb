@@ -124,4 +124,7 @@ pub enum CatalogError {
 
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
+
+    #[error("Unexpected error: Failed to downcast table provider to Delta table")]
+    DowncastDeltaTable,
 }

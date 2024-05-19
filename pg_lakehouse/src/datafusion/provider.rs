@@ -58,7 +58,7 @@ pub async fn create_delta_provider(
     let url = Url::parse(path)?;
     let context = Session::session_context()?;
     let object_store = context.runtime_env().object_store(ObjectStoreUrl(url))?;
-    let location = ensure_table_uri(path).unwrap();
+    let location = ensure_table_uri(path)?;
 
     let table = DeltaTableBuilder::from_valid_uri(path)?
         .with_storage_backend(object_store, location)

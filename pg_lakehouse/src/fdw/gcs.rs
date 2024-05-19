@@ -88,7 +88,10 @@ impl TryFrom<ServerOptions> for Gcs {
         let user_mapping_options = options.user_mapping_options();
 
         let mut builder = Gcs::default();
-        builder.root(url.path());
+
+        if let Root(Some(root)) = Root::from(url.clone()) {
+            builder.root(&root);
+        }
 
         if let Some(bucket) = url.host_str() {
             builder.bucket(bucket);

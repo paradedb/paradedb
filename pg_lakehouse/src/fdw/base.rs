@@ -196,4 +196,7 @@ pub enum BaseFdwError {
 
     #[error("Received unsupported FDW oid {0:?}")]
     UnsupportedFdwOid(PgOid),
+
+    #[error("Url path {0:?} cannot be a base")]
+    UrlNotBase(Url),
 }

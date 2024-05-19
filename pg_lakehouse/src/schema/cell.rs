@@ -1,15 +1,15 @@
 use datafusion::arrow::array::types::{
-    ArrowTemporalType, Date32Type, Date64Type, Time32MillisecondType, Time32SecondType,
-    Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
+    ArrowTemporalType, Date32Type, Date64Type, Decimal128Type, Time32MillisecondType,
+    Time32SecondType, Time64MicrosecondType, Time64NanosecondType, TimestampMicrosecondType,
     TimestampMillisecondType, TimestampNanosecondType, TimestampSecondType, UInt16Type, UInt32Type,
     UInt64Type, UInt8Type,
 };
 use datafusion::arrow::array::{
     timezone::Tz, Array, ArrayAccessor, ArrayRef, ArrowPrimitiveType, AsArray, BinaryArray,
-    BooleanArray, Float16Array, Float32Array, Float64Array, GenericByteArray, Int16Array,
-    Int32Array, Int64Array, Int8Array, LargeBinaryArray, StringArray,
+    BooleanArray, Decimal128Array, Float16Array, Float32Array, Float64Array, GenericByteArray,
+    Int16Array, Int32Array, Int64Array, Int8Array, LargeBinaryArray, StringArray,
 };
-use datafusion::arrow::datatypes::{DataType, GenericStringType, TimeUnit};
+use datafusion::arrow::datatypes::{DataType, DecimalType, GenericStringType, TimeUnit};
 use datafusion::arrow::error::ArrowError;
 use datafusion::common::{downcast_value, DataFusionError};
 use pgrx::*;
@@ -85,6 +85,33 @@ where
         let downcast_array = downcast_value!(self, A);
         match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
             false => Ok(Some(downcast_array.value(index))),
+            true => Ok(None),
+        }
+    }
+}
+
+pub trait GetDecimalValue
+where
+    Self: Array + AsArray,
+{
+    fn get_decimal_value<N>(
+        &self,
+        index: usize,
+        precision: u8,
+        scale: i8,
+    ) -> Result<Option<N>, DataTypeError>
+    where
+        N: std::marker::Send + std::marker::Sync + TryFrom<AnyNumeric>,
+        DataTypeError: From<<N as TryFrom<pgrx::AnyNumeric>>::Error>,
+    {
+        let downcast_array = downcast_value!(self, Decimal128Array);
+        match downcast_array.nulls().is_some() && downcast_array.is_null(index) {
+            false => {
+                let value = downcast_array.value(index);
+                let numeric =
+                    AnyNumeric::from_str(&Decimal128Type::format_decimal(value, precision, scale))?;
+                Ok(Some(N::try_from(numeric)?))
+            }
             true => Ok(None),
         }
     }
@@ -210,6 +237,7 @@ where
         + AsArray
         + GetBinaryValue
         + GetDateValue
+        + GetDecimalValue
         + GetPrimitiveValue
         + GetTimeValue
         + GetTimestampValue
@@ -272,6 +300,12 @@ where
                     Some(value) => Ok(Some(Cell::I16(value as i16))),
                     None => Ok(None),
                 },
+                DataType::Decimal128(p, s) => {
+                    match self.get_decimal_value::<i16>(index, *p, *s)? {
+                        Some(value) => Ok(Some(Cell::I16(value))),
+                        None => Ok(None),
+                    }
+                }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
                     PgOid::from(oid),
@@ -322,6 +356,12 @@ where
                     Some(value) => Ok(Some(Cell::I32(value as i32))),
                     None => Ok(None),
                 },
+                DataType::Decimal128(p, s) => {
+                    match self.get_decimal_value::<i32>(index, *p, *s)? {
+                        Some(value) => Ok(Some(Cell::I32(value))),
+                        None => Ok(None),
+                    }
+                }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
                     PgOid::from(oid),
@@ -372,6 +412,12 @@ where
                     Some(value) => Ok(Some(Cell::I64(value as i64))),
                     None => Ok(None),
                 },
+                DataType::Decimal128(p, s) => {
+                    match self.get_decimal_value::<i64>(index, *p, *s)? {
+                        Some(value) => Ok(Some(Cell::I64(value))),
+                        None => Ok(None),
+                    }
+                }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
                     PgOid::from(oid),
@@ -422,6 +468,12 @@ where
                     Some(value) => Ok(Some(Cell::F32(value as f32))),
                     None => Ok(None),
                 },
+                DataType::Decimal128(p, s) => {
+                    match self.get_decimal_value::<f32>(index, *p, *s)? {
+                        Some(value) => Ok(Some(Cell::F32(value))),
+                        None => Ok(None),
+                    }
+                }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
                     PgOid::from(oid),
@@ -472,6 +524,12 @@ where
                     Some(value) => Ok(Some(Cell::F64(value))),
                     None => Ok(None),
                 },
+                DataType::Decimal128(p, s) => {
+                    match self.get_decimal_value::<f64>(index, *p, *s)? {
+                        Some(value) => Ok(Some(Cell::F64(value))),
+                        None => Ok(None),
+                    }
+                }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
                     PgOid::from(oid),
@@ -522,6 +580,14 @@ where
                     Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::try_from(value)?))),
                     None => Ok(None),
                 },
+                DataType::Decimal128(p, s) => {
+                    match self.get_primitive_value::<Decimal128Array>(index)? {
+                        Some(value) => Ok(Some(Cell::Numeric(AnyNumeric::from_str(
+                            &Decimal128Type::format_decimal(value, *p, *s),
+                        )?))),
+                        None => Ok(None),
+                    }
+                }
                 unsupported => Err(DataTypeError::DataTypeMismatch(
                     unsupported.clone(),
                     PgOid::from(oid),
@@ -670,6 +736,7 @@ where
 impl GetBinaryValue for ArrayRef {}
 impl GetCell for ArrayRef {}
 impl GetDateValue for ArrayRef {}
+impl GetDecimalValue for ArrayRef {}
 impl GetPrimitiveValue for ArrayRef {}
 impl GetTimeValue for ArrayRef {}
 impl GetTimestampValue for ArrayRef {}

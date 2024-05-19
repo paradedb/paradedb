@@ -1,0 +1,114 @@
+---
+title: Google Cloud Storage
+---
+
+## Overview
+
+This code block demonstrates how to create a foreign table over Google Cloud Storage.
+
+```sql
+CREATE FOREIGN DATA WRAPPER <wrapper_name>
+HANDLER gcs_fdw_handler
+VALIDATOR gcs_fdw_validator;
+
+CREATE SERVER <server_name>
+FOREIGN DATA WRAPPER <wrapper_name>;
+
+-- Replace the dummy schema with the actual schema
+CREATE FOREIGN TABLE <table_name> ("x" INT)
+SERVER <server_name>
+OPTIONS (path '<path>', extension '<extension>');
+```
+
+<ParamField body="wrapper_name" required>
+  Foreign data wrapper name. Can be any string.
+</ParamField>
+<ParamField body="server_name">
+  Foreign server name. Can be any string.
+</ParamField>
+<ParamField body="table_name">
+  Foreign table name. Can be any string.
+</ParamField>
+
+### Options for `CREATE SERVER`
+
+<ParamField body="endpoint">The endpoint used by GCS.</ParamField>
+<ParamField body="default_storage_class">
+  The default storage class for GCS. Options are `STANDARD`, `NEARLINE`,
+  `COLDLINE`, and `ARCHIVE`.
+</ParamField>
+<ParamField body="predefined_acl">
+  The predefined ACL for GCS. Options are `authenticatedRead`,
+  `bucketOwnerFullControl`, `bucketOwnerRead`, `private`, `projectPrivate`, and
+  `projectPrivate`.
+</ParamField>
+
+### Options for `CREATE FOREIGN TABLE`
+
+<ParamField body="path" required>
+  Must start with `gs://` and point to the location of your file. The path
+  should end in a `/` if it points to a directory of partitioned Parquet files.
+</ParamField>
+<ParamField body="extension" required>
+  One of `avro`, `csv`, `json`, and `parquet`.
+</ParamField>
+<ParamField body="format">
+  For now, only `delta` is supported for Delta Lake (Iceberg is coming soon). If
+  omitted, no table format is assumed.
+</ParamField>
+
+## S3 Credentials
+
+`CREATE USER MAPPING` is used to pass in credentials for private buckets.
+
+```sql
+-- Get the name of the current user
+SELECT current_user;
+ current_user
+--------------
+ myuser
+
+-- Run this before CREATE FOREIGN TABLE
+CREATE USER MAPPING FOR <current_user>
+SERVER <server_name>
+OPTIONS (
+  credential '<credential>'
+);
+
+-- Now, run CREATE FOREIGN TABLE
+```
+
+<ParamField body="current_user">
+  The name of the Postgres user. If set to `public`, these credentials will be
+  applied to all users.
+</ParamField>
+<ParamField body="server_name">Foreign server name.</ParamField>
+
+### Options for `CREATE USER MAPPING`
+
+<ParamField body="credential">
+    A Base64 hashed credentials string. This string should be generated from the contents of your
+    credentials `.json` file.
+    <Accordion title="Generating a Base64 string">
+        ```python Python
+        credentials_path = '/path/to/credentials.json'
+
+        with open(credentials_path, 'r') as file:
+            json_data = file.read()
+
+        encoded_data = base64.b64encode(json_data.encode('utf-8')).decode('utf-8')
+        print(encoded_data)
+        ```
+    </Accordion>
+
+</ParamField>
+<ParamField body="credential_path">
+    The path to the credentials `.json` file. Mostly useful for testing, as this file must be present on the same machine as
+    the Postgres instance. Only one of `credential` or `credential_path` should be provided.
+</ParamField>
+<ParamField body="scope">
+    The GCS service scope. Defaults to `https://www.googleapis.com/auth/devstorage.read_write`.
+</ParamField>
+<ParamField body="service_account">
+    The name of the GCS service account.
+</ParamField>

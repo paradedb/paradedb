@@ -50,6 +50,11 @@ processing.
 
 [Apache DataFusion](https://arrow.apache.org/datafusion/) is a very fast, extensible query engine for building high-quality data-centric systems in Rust, using the Apache Arrow in-memory format. ParadeDB uses Apache DataFusion to do vectorized query processing for columnar data.
 
+## Apache OpenDAL
+
+[Apache OpenDAL](https://opendal.apache.org/) offers a unified data access layer, empowering users to seamlessly and efficiently retrieve data from diverse storage services. ParadeDB uses Apache OpenDAL to do fast analytics from Postgres over data stored in
+various storage services, like S3, GCS, and more.
+
 ## Delta Rust
 
 [Delta Lake Rust](https://github.com/delta-io/delta-rs) is a Rust implementation of the Delta Lake transactional storage layer. ParadeDB uses Delta Rust implement ACID transactions over Parquet files.

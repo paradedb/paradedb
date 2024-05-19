@@ -52,8 +52,7 @@ processing.
 
 ## Apache OpenDAL
 
-[Apache OpenDAL](https://opendal.apache.org/) offers a unified data access layer, empowering users to seamlessly and efficiently retrieve data from diverse storage services. ParadeDB uses Apache OpenDAL to do fast analytics from Postgres over data stored in
-various storage services, like S3, GCS, and more.
+[Apache OpenDAL](https://opendal.apache.org/) offers a unified data access layer, empowering users to seamlessly and efficiently retrieve data from diverse storage services. ParadeDB uses Apache OpenDAL to do fast analytics from Postgres over data stored in various storage services, like S3, GCS, and more.
 
 ## Delta Rust
 

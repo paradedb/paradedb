@@ -86,7 +86,9 @@ SELECT COUNT(*) FROM trips;
 (1 row)
 ```
 
-Note that column names must be wrapped in double quotes to preserve uppercase letters. This is because DataFusion is case-sensitive and Postgres' foreign table column names must match the foreign table's column names exactly.
+Note: If `path` points to a directory of partitioned files, it should end in a `/`.
+
+Note: Column names must be wrapped in double quotes to preserve uppercase letters. This is because DataFusion is case-sensitive and Postgres' foreign table column names must match the foreign table's column names exactly.
 
 ## Query Acceleration
 

@@ -42,7 +42,7 @@ impl NycTripsTable {
         NYC_TRIPS_TABLE_SETUP.to_string()
     }
 
-    pub fn setup_fdw(s3_endpoint: &str, s3_bucket: &str, s3_object_path: &str) -> String {
+    pub fn setup_fdw(s3_endpoint: &str, s3_object_path: &str) -> String {
         format!(
             r#"
         CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;

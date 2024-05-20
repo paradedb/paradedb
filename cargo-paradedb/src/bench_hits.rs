@@ -124,9 +124,7 @@ async fn run_queries(conn: &mut PgConnection) -> Result<()> {
 fn create_query_sql(file_path: &str) -> String {
     format!(
         r#"
-DROP EXTENSION IF EXISTS pg_lakehouse CASCADE;
 CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
-DROP FOREIGN DATA WRAPPER IF EXISTS local_file_wrapper CASCADE;
 DO $$
 BEGIN
    IF NOT EXISTS (

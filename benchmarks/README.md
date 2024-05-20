@@ -112,4 +112,3 @@ Found 4 outliers among 60 measurements (6.67%)
   2 (3.33%) high mild
   2 (3.33%) high severe
 ```
-

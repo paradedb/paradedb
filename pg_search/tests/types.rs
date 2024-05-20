@@ -1,7 +1,5 @@
 mod fixtures;
 
-use core::panic;
-
 use fixtures::*;
 use pretty_assertions::assert_eq;
 use rstest::*;
@@ -169,33 +167,238 @@ fn float_search(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn datetime_search(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-    let mut columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.boolean(
-            should => ARRAY[
-                paradedb.parse('description:shoes'),
-                paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
-                paradedb.term(field => 'description', value => 'speaker'),
-                paradedb.fuzzy_term(field => 'description', value => 'wolo'),
-                paradedb.term(field => 'last_updated_date', value => '2023-05-03'::date)
-            ]
-        ),
+fn text_search(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        value_text TEXT,
+        value_varchar VARCHAR(64)
+    );
+
+    INSERT INTO test_table (value_text, value_varchar) VALUES 
+        ('abc', 'var abc'), 
+        ('def', 'var def'), 
+        ('ghi', 'var ghi'), 
+        ('jkl', 'var jkl');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_table',
+        index_name => 'test_index',
+        key_field => 'id',
+        text_fields => '{"value_text": {}, "value_varchar": {}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // TEXT
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, value_text FROM test_index.search(
+        query => paradedb.term(field => 'value_text', value => 'abc'),
         stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
     assert_eq!(
-        columns.id,
-        vec![5, 32, 1, 3, 4, 28, 7, 34, 37, 10, 33, 39, 41]
+        rows,
+        vec![(1, "abc".into())]
     );
 
-    columns = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.term(field => 'latest_available_time', value => '10:55:43'::time)
+    // VARCHAR
+    let rows: Vec<(i32, String)> = r#"
+    SELECT id, value_varchar FROM test_index.search(
+        query => paradedb.term(field => 'value_varchar', value => 'ghi'),
+        stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(columns.id, vec![3])
+    assert_eq!(
+        rows,
+        vec![(3, "var ghi".into())]
+    );
+}
+
+#[rstest]
+fn json_search(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        value_json JSON,
+        value_jsonb JSONB
+    );
+
+    INSERT INTO test_table (value_json, value_jsonb) VALUES 
+        ('{"color": "Silver", "location": "United States"}'::JSON, '{"color": "Silver", "location": "United States"}'::JSONB),
+        ('{"color": "Black", "location": "Canada"}'::JSON, '{"color": "Black", "location": "Canada"}'::JSONB);
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_table',
+        index_name => 'test_index',
+        key_field => 'id',
+        json_fields => '{"value_json": {}, "value_jsonb": {}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    // JSON
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_index.search(
+        query => paradedb.term(field => 'value_json', value => '{"color": "Silver", "location": "United States"}'::JSON),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+        rows,
+        vec![(1,)]
+    );
+
+    // JSONB
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_index.search(
+        query => paradedb.term(field => 'value_jsonb', value => '{"color": "Black", "location": "Canada"}'::JSONB),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+        rows,
+        vec![(2,)]
+    );
+
+    // Search JSONB using JSON
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_index.search(
+        query => paradedb.term(field => 'value_jsonb', value => '{"color": "Black", "location": "Canada"}'::JSON),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+        rows,
+        vec![(2,)]
+    );
+
+    // Search JSON using JSONB
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_index.search(
+        query => paradedb.term(field => 'value_json', value => '{"color": "Silver", "location": "United States"}'::JSONB),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+        rows,
+        vec![(1,)]
+    );
+}
+
+#[rstest]
+fn datetime_search(mut conn: PgConnection) {
+    r#"
+    CREATE TABLE test_table (
+        id SERIAL PRIMARY KEY,
+        value_date DATE,
+        value_timestamp TIMESTAMP,
+        value_timestamptz TIMESTAMP WITH TIME ZONE,
+        value_time TIME,
+        value_timetz TIME WITH TIME ZONE
+    );
+
+    INSERT INTO test_table (value_date, value_timestamp, value_timestamptz, value_time, value_timetz) VALUES 
+        (DATE '2023-05-03', TIMESTAMP '2023-04-15 13:27:09', TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 PST', TIME '08:09:10', TIME WITH TIME ZONE '08:09:10 PST'),
+        (DATE '2021-06-28', TIMESTAMP '2019-08-02 07:52:43', TIMESTAMP WITH TIME ZONE '2019-08-02 07:52:43 EST', TIME '11:43:21', TIME WITH TIME ZONE '11:43:21 EST');
+    "#
+    .execute(&mut conn);
+
+    r#"
+    CALL paradedb.create_bm25(
+        table_name => 'test_table',
+        index_name => 'test_index',
+        key_field => 'id',
+        datetime_fields => '{"value_date": {}, "value_timestamp": {}, "value_timestamptz": {}, "value_time": {}, "value_timetz": {}}'
+    );
+    "#
+    .execute(&mut conn);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_index.search(
+        query => paradedb.term(field => 'value_date', value => DATE '2023-05-03')
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_index.search(
+        query => paradedb.term(field => 'value_timestamp', value => TIMESTAMP '2019-08-02 07:52:43')
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_index.search(
+        query => paradedb.term(field => 'value_timestamptz', value => TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 PST')
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    // Change time zone in query
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_index.search(
+        query => paradedb.term(field => 'value_timestamptz', value => TIMESTAMP WITH TIME ZONE '2023-04-15 16:27:09 EST')
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_index.search(
+        query => paradedb.term(field => 'value_time', value => TIME '11:43:21')
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_index.search(
+        query => paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '11:43:21 EST')
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+
+    // Change time zone in query
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_index.search(
+        query => paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '08:43:21 PST')
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
+
+    // Query no time zone with time zone
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_index.search(
+        query => paradedb.term(field => 'value_timestamp', value => TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 GMT')
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(1,)]);
+
+    // Query time zone with no time zone (GMT = EST + 5)
+    let rows: Vec<(i32,)> = r#"
+    SELECT * FROM test_index.search(
+        query => paradedb.term(field => 'value_timestamptz', value => TIMESTAMP '2019-08-02 12:52:43')
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(2,)]);
 }

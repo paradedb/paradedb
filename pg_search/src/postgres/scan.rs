@@ -39,11 +39,14 @@ pub extern "C" fn amrescan(
     let nkeys = nkeys as usize;
     let keys = unsafe { std::slice::from_raw_parts(keys as *const pg_sys::ScanKeyData, nkeys) };
 
+    info!("here 1");
     // Convert the first scan key argument into a byte array. This is assumed to be the `::jsonb` search config.
     let config_jsonb = unsafe {
         JsonB::from_datum(keys[0].sk_argument, false)
             .expect("failed to convert query to tuple of strings")
     };
+
+    info!("here 2");
 
     let search_config =
         SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");

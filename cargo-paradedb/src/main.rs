@@ -67,8 +67,8 @@ fn main() -> Result<()> {
                 )),
             },
             Corpus::Hits(hits) => match hits.command {
-                HitsCommand::Run { tag, workload, url } => {
-                    block_on(bench_hits::bench_hits(&url, &tag, &workload))
+                HitsCommand::Run { workload, url } => {
+                    block_on(bench_hits::bench_hits(&url, &workload))
                 }
             },
         },

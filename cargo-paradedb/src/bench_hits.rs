@@ -27,14 +27,11 @@ fn download_and_verify(url: &str, checksum: &str, filename: &str) -> Result<()> 
     Ok(())
 }
 
-pub async fn bench_hits(url: &str, tag: &str, workload: &str) -> Result<()> {
+pub async fn bench_hits(url: &str, workload: &str) -> Result<()> {
     let _os = run_fun!(uname)?;
 
     println!("\n*********************************************************************************");
-    println!(
-        "* Benchmarking pg_lakehouse version '{}' against ClickBench",
-        tag
-    );
+    println!("* Benchmarking pg_lakehouse against ClickBench");
     println!("*********************************************************************************\n");
 
     let root_file_path = PathBuf::from_str("/tmp")?;

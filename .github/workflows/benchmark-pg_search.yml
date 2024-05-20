@@ -65,7 +65,7 @@ jobs:
         working-directory: pg_search/
         run: |
           cargo pgrx start
-          cargo paradedb bench eslogs generate --url postgresql://localhost:288${{ env.pg_version }}/postgres
+          cargo paradedb bench eslogs generate --events 5000000 --url postgresql://localhost:288${{ env.pg_version }}/postgres
           cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ env.pg_version }}/postgres
           cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ env.pg_version }}/postgres
 

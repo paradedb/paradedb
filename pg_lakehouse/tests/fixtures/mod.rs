@@ -122,3 +122,13 @@ impl S3 {
 pub async fn s3() -> S3 {
     S3::new().await
 }
+
+#[fixture]
+pub fn tempdir() -> shared::fixtures::tempfile::TempDir {
+    shared::fixtures::tempfile::tempdir().unwrap()
+}
+
+#[fixture]
+pub fn tempfile() -> std::fs::File {
+    shared::fixtures::tempfile::tempfile().unwrap()
+}

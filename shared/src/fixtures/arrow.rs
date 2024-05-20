@@ -159,15 +159,21 @@ pub fn primitive_record_batch() -> Result<RecordBatch> {
     )?)
 }
 
-pub fn primitive_setup_fdw(s3_endpoint: &str, s3_bucket: &str, s3_object_path: &str) -> String {
-    format!(
-        r#"
-        CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;        
-        CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
-        OPTIONS (bucket '{s3_bucket}', region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');
-            
+pub fn primitive_create_foreign_data_wrapper(
+    wrapper: &str,
+    handler: &str,
+    validator: &str,
+) -> String {
+    format!("CREATE FOREIGN DATA WRAPPER {wrapper} HANDLER {handler} VALIDATOR {validator}")
+}
 
-        CREATE FOREIGN TABLE primitive (
+pub fn primitive_create_server(server: &str, wrapper: &str) -> String {
+    format!("CREATE SERVER {server} FOREIGN DATA WRAPPER {wrapper}")
+}
+
+pub fn primitive_create_table(server: &str) -> String {
+    format!(
+        "CREATE FOREIGN TABLE primitive (
             boolean_col       boolean,
             int8_col          smallint,
             int16_col         smallint,
@@ -193,8 +199,80 @@ pub fn primitive_setup_fdw(s3_endpoint: &str, s3_bucket: &str, s3_object_path: &
             utf8_col          text,
             large_utf8_col    text
         )
-        SERVER s3_server
-        OPTIONS (path '{s3_object_path}', extension 'parquet'); 
+        SERVER {server}"
+    )
+}
+
+pub fn primitive_setup_fdw_s3_listing(
+    s3_endpoint: &str,
+    s3_object_path: &str,
+    extension: &str,
+) -> String {
+    let create_foreign_data_wrapper =
+        primitive_create_foreign_data_wrapper("s3_wrapper", "s3_fdw_handler", "s3_fdw_validator");
+    let create_server = primitive_create_server("s3_server", "s3_wrapper");
+    let create_table = primitive_create_table("s3_server");
+
+    format!(
+        r#"
+        {create_foreign_data_wrapper};
+        {create_server} OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');         
+        {create_table} OPTIONS (path '{s3_object_path}', extension '{extension}'); 
+    "#
+    )
+}
+
+pub fn primitive_setup_fdw_s3_delta(
+    s3_endpoint: &str,
+    s3_object_path: &str,
+    extension: &str,
+) -> String {
+    let create_foreign_data_wrapper =
+        primitive_create_foreign_data_wrapper("s3_wrapper", "s3_fdw_handler", "s3_fdw_validator");
+    let create_server = primitive_create_server("s3_server", "s3_wrapper");
+    let create_table = primitive_create_table("s3_server");
+
+    format!(
+        r#"
+        {create_foreign_data_wrapper};
+        {create_server} OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');         
+        {create_table} OPTIONS (path '{s3_object_path}', extension '{extension}', format 'delta'); 
+    "#
+    )
+}
+
+pub fn primitive_setup_fdw_local_file_listing(local_file_path: &str, extension: &str) -> String {
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "local_file_wrapper",
+        "local_file_fdw_handler",
+        "local_file_fdw_validator",
+    );
+    let create_server = primitive_create_server("local_file_server", "local_file_wrapper");
+    let create_table = primitive_create_table("local_file_server");
+
+    format!(
+        r#"
+        {create_foreign_data_wrapper};
+        {create_server};
+        {create_table} OPTIONS (path 'file://{local_file_path}', extension '{extension}'); 
+    "#
+    )
+}
+
+pub fn primitive_setup_fdw_local_file_delta(local_file_path: &str, extension: &str) -> String {
+    let create_foreign_data_wrapper = primitive_create_foreign_data_wrapper(
+        "local_file_wrapper",
+        "local_file_fdw_handler",
+        "local_file_fdw_validator",
+    );
+    let create_server = primitive_create_server("local_file_server", "local_file_wrapper");
+    let create_table = primitive_create_table("local_file_server");
+
+    format!(
+        r#"
+        {create_foreign_data_wrapper};
+        {create_server};
+        {create_table} OPTIONS (path 'file://{local_file_path}', extension '{extension}', format 'delta'); 
     "#
     )
 }

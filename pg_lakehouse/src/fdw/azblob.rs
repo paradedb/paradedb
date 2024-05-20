@@ -29,30 +29,38 @@ pub(crate) struct AzblobFdw {
 }
 
 enum AzblobServerOption {
+    EncryptionAlgorithm,
     Endpoint,
 }
 
 impl AzblobServerOption {
     pub fn as_str(&self) -> &str {
         match self {
+            Self::EncryptionAlgorithm => "encryption_algorithm",
             Self::Endpoint => "endpoint",
         }
     }
 
     pub fn is_required(&self) -> bool {
         match self {
+            Self::EncryptionAlgorithm => false,
             Self::Endpoint => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [Self::Endpoint].into_iter()
+        [Self::EncryptionAlgorithm, Self::Endpoint].into_iter()
     }
 }
 
 enum AzblobUserMappingOption {
     AccountKey,
     AccountName,
+    ConnectionString,
+    CustomerProvidedKey,
+    EncryptionKey,
+    EncyptionKeySha256,
+    SasToken,
 }
 
 impl AzblobUserMappingOption {
@@ -60,6 +68,11 @@ impl AzblobUserMappingOption {
         match self {
             Self::AccountKey => "account_key",
             Self::AccountName => "account_name",
+            Self::ConnectionString => "connection_string",
+            Self::CustomerProvidedKey => "customer_provided_key",
+            Self::EncryptionKey => "encryption_key",
+            Self::EncyptionKeySha256 => "encryption_key_sha256",
+            Self::SasToken => "sas_token",
         }
     }
 }
@@ -90,8 +103,45 @@ impl TryFrom<ServerOptions> for Azblob {
             builder.account_name(account_name);
         }
 
+        if let Some(customer_provided_key) =
+            user_mapping_options.get(AzblobUserMappingOption::CustomerProvidedKey.as_str())
+        {
+            builder.server_side_encryption_with_customer_key(customer_provided_key.as_bytes());
+        }
+
+        if let Some(encryption_key) =
+            user_mapping_options.get(AzblobUserMappingOption::EncryptionKey.as_str())
+        {
+            builder.encryption_key(encryption_key);
+        }
+
+        if let Some(encryption_key_sha256) =
+            user_mapping_options.get(AzblobUserMappingOption::EncyptionKeySha256.as_str())
+        {
+            builder.encryption_key_sha256(encryption_key_sha256);
+        }
+
+        if let Some(sas_token) =
+            user_mapping_options.get(AzblobUserMappingOption::SasToken.as_str())
+        {
+            builder.sas_token(sas_token);
+        }
+
+        if let Some(encryption_algorithm) =
+            server_options.get(AzblobServerOption::EncryptionAlgorithm.as_str())
+        {
+            builder.encryption_algorithm(encryption_algorithm);
+        }
+
         if let Some(endpoint) = server_options.get(AzblobServerOption::Endpoint.as_str()) {
             builder.endpoint(endpoint);
+        }
+
+        if let Some(connection_string) =
+            user_mapping_options.get(AzblobUserMappingOption::ConnectionString.as_str())
+        {
+            warning!("Because connection_string is provided, other options will be ignored");
+            builder = Azblob::from_connection_string(connection_string)?;
         }
 
         Ok(builder)

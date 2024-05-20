@@ -146,6 +146,9 @@ pub enum HitsCommand {
         /// Postgres database url to connect to.
         #[arg(short, long, env = "DATABASE_URL")]
         url: String,
+        /// Use the full dataset or a smaller version?
+        #[arg(short, long, default_value_t = false)]
+        full: bool,
     },
 }
 

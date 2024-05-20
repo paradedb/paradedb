@@ -82,36 +82,6 @@ pub async fn bench_hits(url: &str, tag: &str, workload: &str) -> Result<()> {
     run_cmd!(echo "\nRunning queries...")?;
     run_queries(&mut conn).await?;
 
-    // run_cmd!(echo "\nPrinting disk usage...")?;
-    // if os.trim() == "Linux" {
-    //     run_cmd!(sudo docker exec paradedb du -bcs /bitnami/postgresql/data)?;
-    // } else {
-    //     run_cmd!(docker exec paradedb du -bcs /bitnami/postgresql/data)?;
-    // }
-
-    // run_cmd!(echo "\nPrinting results...")?;
-    // let file = File::open("log.txt")?;
-    // let reader = io::BufReader::new(file);
-    // let mut i = 0;
-
-    // for line in reader.lines() {
-    //     let line = line?;
-    //     if let Some(time_str) = line.split("Time: ").nth(1) {
-    //         if let Some(time_str) = time_str.split(" ms").next() {
-    //             let time: f64 = time_str.parse().unwrap_or(0.0);
-    //             if i % 3 == 0 {
-    //                 print!("[");
-    //             }
-    //             print!("{}", time / 1000.0);
-    //             if i % 3 != 2 {
-    //                 print!(",");
-    //             } else {
-    //                 println!("],");
-    //             }
-    //             i += 1;
-    //         }
-    //     }
-    // }
     Ok(())
 }
 

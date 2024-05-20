@@ -136,6 +136,11 @@ fn create_query_sql(file_path: &str) -> String {
         r#"
 CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
 DROP FOREIGN DATA WRAPPER IF EXISTS local_file_wrapper CASCADE;
+CREATE FOREIGN DATA WRAPPER local_file_wrapper
+    HANDLER local_file_fdw_handler
+    VALIDATOR local_file_fdw_validator;
+CREATE SERVER local_file_server
+    FOREIGN DATA WRAPPER local_file_wrapper;
 CREATE FOREIGN TABLE IF NOT EXISTS hits
 (
     "WatchID" BIGINT NOT NULL,

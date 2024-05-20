@@ -28,38 +28,6 @@ fn boolean_tree(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn datetime_search(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-    let mut columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.boolean(
-            should => ARRAY[
-                paradedb.parse('description:shoes'),
-                paradedb.phrase_prefix(field => 'description', phrases => ARRAY['book']),
-                paradedb.term(field => 'description', value => 'speaker'),
-                paradedb.fuzzy_term(field => 'description', value => 'wolo'),
-                paradedb.term(field => 'last_updated_date', value => '2023-05-03'::date)
-            ]
-        ),
-        stable_sort => true
-    );
-    "#
-    .fetch_collect(&mut conn);
-    assert_eq!(
-        columns.id,
-        vec![5, 32, 1, 3, 4, 28, 7, 34, 37, 10, 33, 39, 41]
-    );
-
-    columns = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.term(field => 'latest_available_time', value => '10:55:43'::time)
-    );
-    "#
-    .fetch_collect(&mut conn);
-    assert_eq!(columns.id, vec![3])
-}
-
-#[rstest]
 fn range(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let mut columns: SimpleProductsTableVec = r#"

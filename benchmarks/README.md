@@ -6,7 +6,7 @@ The ParadeDB benchmarks are split into:
 
 In the future, we'll be adding benchmarks for workloads intersecting both search and analytics. If there's anything specific you'd like to see, please open a GitHub issue or come chat with us in the [ParadeDB Community Slack](https://join.slack.com/t/paradedbcommunity/shared_invite/zt-217mordsh-ielS6BiZf7VW3rqKBFgAlQ).
 
-## Benchmark pg_search
+## pg_search
 
 Currently, the following systems are benchmarked:
 
@@ -112,16 +112,4 @@ Found 4 outliers among 60 measurements (6.67%)
   2 (3.33%) high mild
   2 (3.33%) high severe
 ```
-## Benchmark pg_lakehouse
 
-Note: This benchmark pulls the entire 100 million-row ClickBench dataset in Parquet format, which is ~15GBs.
-
-You can run the benchmarks via the `cargo-paradedb` tool with:
-
-```bash
-cargo paradedb bench hits run
-```
-
-The benchmark tool will look for a `DATABASE_URL` environment variable for a running Postgres instance. You can also pass the url directly with the `--url` option.
-
-The benchmark tool also accepts a `--workload / -w` option. This can be either `single`, to use the ClickBench dataset as a single large Parquet file, or `partitioned`, to use the ClickBench dataset as one hundred small partitioned Parquet files. The default is `single`.

@@ -1,7 +1,7 @@
 [package]
 name = "pg_lakehouse"
 description = "An analytical query engine for Postgres"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -23,11 +23,7 @@ anyhow = "1.0.83"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
 datafusion = "37.1.0"
-deltalake = { version = "0.17.3", features = [
-  "datafusion",
-  "s3",
-  "gcs"
-] }
+deltalake = { version = "0.17.3", features = ["datafusion", "s3", "gcs"] }
 object_store = { version = "0.9.1", features = ["aws", "http"] }
 object_store_opendal = { git = "https://github.com/apache/opendal.git", rev = "79ab57f" }
 opendal = { git = "https://github.com/apache/opendal.git", features = [

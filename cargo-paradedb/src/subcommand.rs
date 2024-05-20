@@ -161,7 +161,8 @@ pub async fn bench_eslogs_build_search_index(
     index: String,
     url: String,
 ) -> Result<()> {
-    let drop_query = format!("CALL paradedb.drop_bm25('{index}')");
+    let drop_query =
+        format!("CREATE EXTENSION IF NOT EXISTS pg_search; CALL paradedb.drop_bm25('{index}');");
 
     let text_fields = r#"{"message": {}}"#;
     let create_query = format!(

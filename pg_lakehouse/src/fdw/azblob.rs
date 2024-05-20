@@ -2,7 +2,7 @@ use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use object_store_opendal::OpendalStore;
-use opendal::services::Azdls;
+use opendal::services::Azblob;
 use opendal::Operator;
 use pgrx::*;
 use std::collections::HashMap;
@@ -21,18 +21,18 @@ use super::base::*;
     website = "https://github.com/paradedb/paradedb",
     error_type = "BaseFdwError"
 )]
-pub(crate) struct AzdlsFdw {
+pub(crate) struct AzblobFdw {
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
     target_columns: Vec<Column>,
 }
 
-enum AzdlsServerOption {
+enum AzblobServerOption {
     Endpoint,
 }
 
-impl AzdlsServerOption {
+impl AzblobServerOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Endpoint => "endpoint",
@@ -50,12 +50,12 @@ impl AzdlsServerOption {
     }
 }
 
-enum AzdlsUserMappingOption {
+enum AzblobUserMappingOption {
     AccountKey,
     AccountName,
 }
 
-impl AzdlsUserMappingOption {
+impl AzblobUserMappingOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::AccountKey => "account_key",
@@ -64,7 +64,7 @@ impl AzdlsUserMappingOption {
     }
 }
 
-impl TryFrom<ServerOptions> for Azdls {
+impl TryFrom<ServerOptions> for Azblob {
     type Error = ContextError;
 
     fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
@@ -72,25 +72,25 @@ impl TryFrom<ServerOptions> for Azdls {
         let url = options.url();
         let user_mapping_options = options.user_mapping_options();
 
-        let mut builder = Azdls::default();
+        let mut builder = Azblob::default();
 
-        if let Some(filesystem) = url.host_str() {
-            builder.filesystem(filesystem);
+        if let Some(container) = url.host_str() {
+            builder.container(container);
         }
 
         if let Some(account_key) =
-            user_mapping_options.get(AzdlsUserMappingOption::AccountKey.as_str())
+            user_mapping_options.get(AzblobUserMappingOption::AccountKey.as_str())
         {
             builder.account_key(account_key);
         }
 
         if let Some(account_name) =
-            user_mapping_options.get(AzdlsUserMappingOption::AccountName.as_str())
+            user_mapping_options.get(AzblobUserMappingOption::AccountName.as_str())
         {
             builder.account_name(account_name);
         }
 
-        if let Some(endpoint) = server_options.get(AzdlsServerOption::Endpoint.as_str()) {
+        if let Some(endpoint) = server_options.get(AzblobServerOption::Endpoint.as_str()) {
             builder.endpoint(endpoint);
         }
 
@@ -98,7 +98,7 @@ impl TryFrom<ServerOptions> for Azdls {
     }
 }
 
-impl BaseFdw for AzdlsFdw {
+impl BaseFdw for AzblobFdw {
     fn register_object_store(
         url: &Url,
         server_options: HashMap<String, String>,
@@ -106,7 +106,7 @@ impl BaseFdw for AzdlsFdw {
     ) -> Result<(), ContextError> {
         let context = Session::session_context()?;
 
-        let builder = Azdls::try_from(ServerOptions::new(
+        let builder = Azblob::try_from(ServerOptions::new(
             url,
             server_options.clone(),
             user_mapping_options.clone(),
@@ -165,14 +165,14 @@ impl BaseFdw for AzdlsFdw {
     }
 }
 
-impl ForeignDataWrapper<BaseFdwError> for AzdlsFdw {
+impl ForeignDataWrapper<BaseFdwError> for AzblobFdw {
     fn new(
         table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
-        AzdlsFdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
+        AzblobFdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
 
         Ok(Self {
             current_batch: None,
@@ -190,13 +190,13 @@ impl ForeignDataWrapper<BaseFdwError> for AzdlsFdw {
             match oid {
                 FOREIGN_DATA_WRAPPER_RELATION_ID => {}
                 FOREIGN_SERVER_RELATION_ID => {
-                    let valid_options: Vec<String> = AzdlsServerOption::iter()
+                    let valid_options: Vec<String> = AzblobServerOption::iter()
                         .map(|opt| opt.as_str().to_string())
                         .collect();
 
                     validate_options(opt_list.clone(), valid_options)?;
 
-                    for opt in AzdlsServerOption::iter() {
+                    for opt in AzblobServerOption::iter() {
                         if opt.is_required() {
                             check_options_contain(&opt_list, opt.as_str())?;
                         }

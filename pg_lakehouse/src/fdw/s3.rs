@@ -84,10 +84,6 @@ impl TryFrom<ServerOptions> for S3 {
         builder.disable_config_load();
         builder.disable_ec2_metadata();
 
-        if let Root(Some(root)) = Root::from(url.clone()) {
-            builder.root(&root);
-        }
-
         if let Some(bucket) = url.host_str() {
             builder.bucket(bucket);
         }

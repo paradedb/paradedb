@@ -28,7 +28,6 @@ VALIDATOR s3_fdw_validator;
 -- Provide S3 credentials
 CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
 OPTIONS (
-    bucket 'paradedb-benchmarks',
     region 'us-east-1',
     allow_anonymous 'true'
 );

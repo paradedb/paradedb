@@ -3,14 +3,25 @@ use datafusion::datasource::listing::{
     ListingOptions, ListingTable, ListingTableConfig, ListingTableUrl,
 };
 use datafusion::datasource::TableProvider;
+use deltalake::table::builder::ensure_table_uri;
+use deltalake::table::builder::DeltaTableBuilder;
 use deltalake::DeltaTableError;
 use std::sync::Arc;
 use thiserror::Error;
+use url::Url;
 
 use crate::schema::attribute::*;
 
 use super::format::*;
 use super::session::*;
+
+struct ObjectStoreUrl(pub Url);
+
+impl AsRef<Url> for ObjectStoreUrl {
+    fn as_ref(&self) -> &Url {
+        &self.0
+    }
+}
 
 pub async fn create_listing_provider(
     path: &str,
@@ -41,7 +52,20 @@ pub async fn create_delta_provider(
         ));
     }
 
-    Ok(Arc::new(deltalake::open_table(path).await?) as Arc<dyn TableProvider>)
+    deltalake::gcp::register_handlers(None);
+    deltalake::aws::register_handlers(None);
+
+    let url = Url::parse(path)?;
+    let context = Session::session_context()?;
+    let object_store = context.runtime_env().object_store(ObjectStoreUrl(url))?;
+    let location = ensure_table_uri(path)?;
+
+    let table = DeltaTableBuilder::from_valid_uri(path)?
+        .with_storage_backend(object_store, location)
+        .load()
+        .await?;
+
+    Ok(Arc::new(table) as Arc<dyn TableProvider>)
 }
 
 #[derive(Error, Debug)]
@@ -63,6 +87,9 @@ pub enum TableProviderError {
 
     #[error(transparent)]
     Session(#[from] SessionError),
+
+    #[error(transparent)]
+    UrlParseError(#[from] url::ParseError),
 
     #[error(
         "File extension '{0}' is not supported for table format '{1}', extension must be 'parquet'"

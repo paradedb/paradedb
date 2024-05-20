@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use thiserror::Error;
+use url::Url;
 
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::*;
@@ -23,6 +24,7 @@ use crate::schema::cell::*;
 pub trait BaseFdw {
     // Public methods
     fn register_object_store(
+        url: &Url,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError>;
@@ -194,4 +196,7 @@ pub enum BaseFdwError {
 
     #[error("Received unsupported FDW oid {0:?}")]
     UnsupportedFdwOid(PgOid),
+
+    #[error("Url path {0:?} cannot be a base")]
+    UrlNotBase(Url),
 }

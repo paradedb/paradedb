@@ -28,6 +28,7 @@ pub(crate) struct LocalFileFdw {
 
 impl BaseFdw for LocalFileFdw {
     fn register_object_store(
+        url: &Url,
         _server_options: HashMap<String, String>,
         _user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
@@ -38,7 +39,7 @@ impl BaseFdw for LocalFileFdw {
         // Create SessionContext with ObjectStore
         context
             .runtime_env()
-            .register_object_store(&Url::parse("file://")?, Arc::new(object_store));
+            .register_object_store(url, Arc::new(object_store));
 
         Ok(())
     }
@@ -88,10 +89,16 @@ impl BaseFdw for LocalFileFdw {
 
 impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
     fn new(
+        table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        LocalFileFdw::register_object_store(server_options, user_mapping_options)?;
+        let path = require_option(TableOption::Path.as_str(), &table_options)?;
+        LocalFileFdw::register_object_store(
+            &Url::parse(path)?,
+            server_options,
+            user_mapping_options,
+        )?;
 
         Ok(Self {
             current_batch: None,

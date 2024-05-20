@@ -717,6 +717,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "aws-sdk-dynamodb"
+version = "1.28.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1da0290e57949a362d3f106285bb539e8a282e6c1b0053f6e02b3fc14f2d730"
+dependencies = [
+ "aws-credential-types",
+ "aws-runtime",
+ "aws-smithy-async",
+ "aws-smithy-http",
+ "aws-smithy-json",
+ "aws-smithy-runtime",
+ "aws-smithy-runtime-api",
+ "aws-smithy-types",
+ "aws-types",
+ "bytes",
+ "fastrand 2.0.2",
+ "http 0.2.12",
+ "once_cell",
+ "regex-lite",
+ "tracing",
+]
+
+[[package]]
 name = "aws-sdk-s3"
 version = "1.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1024,6 +1047,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "backoff"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b62ddb9cb1ec0a098ad4bbf9344d0713fa193ae1a80af55febcff2627b6a00c1"
+dependencies = [
+ "futures-core",
+ "getrandom",
+ "instant",
+ "pin-project-lite",
+ "rand",
+ "tokio",
+]
+
+[[package]]
 name = "backon"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1137,7 +1174,7 @@ dependencies = [
  "bitflags 2.5.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "lazy_static",
  "lazycell",
  "proc-macro2",
@@ -2030,7 +2067,7 @@ dependencies = [
  "parquet",
  "pin-project-lite",
  "rand",
- "sqlparser 0.44.0",
+ "sqlparser",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -2058,7 +2095,7 @@ dependencies = [
  "num_cpus",
  "object_store",
  "parquet",
- "sqlparser 0.44.0",
+ "sqlparser",
 ]
 
 [[package]]
@@ -2103,7 +2140,7 @@ dependencies = [
  "chrono",
  "datafusion-common",
  "paste",
- "sqlparser 0.44.0",
+ "sqlparser",
  "strum",
  "strum_macros",
 ]
@@ -2264,22 +2301,53 @@ dependencies = [
  "datafusion-common",
  "datafusion-expr",
  "log",
- "sqlparser 0.44.0",
+ "sqlparser",
  "strum",
 ]
 
 [[package]]
 name = "deltalake"
 version = "0.17.3"
-source = "git+https://github.com/paradedb/delta-rs.git?branch=main#aea47b34b2c1ed9256e2d7b0cf7a738ec1a58302"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d7e6d7dc62f957c02d899cd6a88be74c70594f7782b24c97392267b49ed5c9a5"
 dependencies = [
+ "deltalake-aws",
  "deltalake-core",
+ "deltalake-gcp",
+]
+
+[[package]]
+name = "deltalake-aws"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7c15dda219ed925c28e2387712f9a77ed7253a80b53fce59849067bc0918eb2"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-dynamodb",
+ "aws-sdk-sts",
+ "aws-smithy-runtime-api",
+ "backoff",
+ "bytes",
+ "deltalake-core",
+ "futures",
+ "lazy_static",
+ "maplit",
+ "object_store",
+ "regex",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+ "uuid",
 ]
 
 [[package]]
 name = "deltalake-core"
 version = "0.17.3"
-source = "git+https://github.com/paradedb/delta-rs.git?branch=main#aea47b34b2c1ed9256e2d7b0cf7a738ec1a58302"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6e8dc1bcd91be689ee7f6ce363798dc2e9b6954be9d597f884de11ba27b33add"
 dependencies = [
  "arrow",
  "arrow-arith",
@@ -2329,13 +2397,32 @@ dependencies = [
  "roaring",
  "serde",
  "serde_json",
- "sqlparser 0.46.0",
+ "sqlparser",
  "thiserror",
  "tokio",
  "tracing",
  "url",
  "uuid",
  "z85",
+]
+
+[[package]]
+name = "deltalake-gcp"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c067c1b226d80bfa5468e481708293367dda7664d039d01c75c3f9efb2cd398a"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "deltalake-core",
+ "futures",
+ "lazy_static",
+ "object_store",
+ "regex",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -3458,7 +3545,7 @@ dependencies = [
  "httpdate",
  "itoa",
  "pin-project-lite",
- "socket2 0.5.6",
+ "socket2 0.4.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -4580,6 +4667,7 @@ dependencies = [
  "rand",
  "reqwest 0.11.27",
  "ring",
+ "rustls-pemfile 2.1.2",
  "serde",
  "serde_json",
  "snafu",
@@ -5574,7 +5662,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9554e3ab233f0a932403704f1a1d08c30d5ccd931adfdfa1e8b5a19b52c1d55a"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.55",
@@ -6804,15 +6892,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sqlparser"
-version = "0.46.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "11a81a8cad9befe4cf1b9d2d4b9c6841c76f0882a3fec00d95133953c13b3d3d"
-dependencies = [
- "log",
-]
-
-[[package]]
 name = "sqlparser_derive"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7128,7 +7207,7 @@ checksum = "81cdd64d312baedb58e21336b31bc043b77e01cc99033ce76ef539f78e965ebc"
 [[package]]
 name = "supabase-wrappers"
 version = "0.1.17"
-source = "git+https://github.com/paradedb/wrappers.git?rev=1ef07c8#1ef07c81cefe036ec189d26d2f764d0eb2b366c6"
+source = "git+https://github.com/paradedb/wrappers.git?rev=e5dc405#e5dc40589da11f67fde47f52c2d18bfbee96685a"
 dependencies = [
  "pgrx",
  "supabase-wrappers-macros",
@@ -7140,7 +7219,7 @@ dependencies = [
 [[package]]
 name = "supabase-wrappers-macros"
 version = "0.1.15"
-source = "git+https://github.com/paradedb/wrappers.git?rev=1ef07c8#1ef07c81cefe036ec189d26d2f764d0eb2b366c6"
+source = "git+https://github.com/paradedb/wrappers.git?rev=e5dc405#e5dc40589da11f67fde47f52c2d18bfbee96685a"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -1,7 +1,35 @@
 use crate::fdw::base::BaseFdwError;
 use pgrx::*;
 use std::collections::HashMap;
+use std::path::Path;
 use supabase_wrappers::prelude::*;
+use url::Url;
+
+pub struct Root(pub Option<String>);
+
+impl From<Url> for Root {
+    fn from(url: Url) -> Self {
+        let path = url.path();
+
+        let is_file = Path::new(path).extension().is_some();
+
+        let extracted_path = if is_file {
+            let mut segments = match url.path_segments() {
+                Some(segments) => segments.collect::<Vec<&str>>(),
+                None => {
+                    return Root(None);
+                }
+            };
+
+            segments.pop();
+            segments.join("/")
+        } else {
+            path.to_string()
+        };
+
+        Root(Some(extracted_path))
+    }
+}
 
 pub enum TableOption {
     Path,
@@ -33,16 +61,19 @@ impl TableOption {
 
 #[derive(Clone, Debug)]
 pub struct ServerOptions {
+    url: Url,
     server_options: HashMap<String, String>,
     user_mapping_options: HashMap<String, String>,
 }
 
 impl ServerOptions {
     pub fn new(
+        url: &Url,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Self {
         Self {
+            url: url.clone(),
             server_options,
             user_mapping_options,
         }
@@ -50,6 +81,10 @@ impl ServerOptions {
 
     pub fn server_options(&self) -> &HashMap<String, String> {
         &self.server_options
+    }
+
+    pub fn url(&self) -> &Url {
+        &self.url
     }
 
     pub fn user_mapping_options(&self) -> &HashMap<String, String> {

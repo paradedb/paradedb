@@ -23,8 +23,10 @@ anyhow = "1.0.83"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
 datafusion = "37.1.0"
-deltalake = { git = "https://github.com/paradedb/delta-rs.git", branch = "main", features = [
+deltalake = { version = "0.17.3", features = [
   "datafusion",
+  "s3",
+  "gcs"
 ] }
 object_store = { version = "0.9.1", features = ["aws", "http"] }
 object_store_opendal = { git = "https://github.com/apache/opendal.git", rev = "79ab57f" }
@@ -35,7 +37,7 @@ opendal = { git = "https://github.com/apache/opendal.git", features = [
 pgrx = "0.11.3"
 serde = "1.0.201"
 shared = { path = "../shared" }
-supabase-wrappers = { git = "https://github.com/paradedb/wrappers.git", default-features = false, rev = "1ef07c8" }
+supabase-wrappers = { git = "https://github.com/paradedb/wrappers.git", default-features = false, rev = "e5dc405" }
 thiserror = "1.0.59"
 url = "2.5.0"
 

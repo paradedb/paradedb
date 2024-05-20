@@ -6,7 +6,6 @@ use opendal::services::S3;
 use opendal::Operator;
 use pgrx::*;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
@@ -31,8 +30,6 @@ pub(crate) struct S3Fdw {
 
 pub enum AmazonServerOption {
     Endpoint,
-    Bucket,
-    Root,
     Region,
     AllowAnonymous,
 }
@@ -41,8 +38,6 @@ impl AmazonServerOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Endpoint => "endpoint",
-            Self::Bucket => "bucket",
-            Self::Root => "root",
             Self::Region => "region",
             Self::AllowAnonymous => "allow_anonymous",
         }
@@ -51,22 +46,13 @@ impl AmazonServerOption {
     pub fn is_required(&self) -> bool {
         match self {
             Self::Endpoint => false,
-            Self::Bucket => true,
-            Self::Root => false,
             Self::Region => false,
             Self::AllowAnonymous => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
-        [
-            Self::Endpoint,
-            Self::Bucket,
-            Self::Root,
-            Self::Region,
-            Self::AllowAnonymous,
-        ]
-        .into_iter()
+        [Self::Endpoint, Self::Region, Self::AllowAnonymous].into_iter()
     }
 }
 
@@ -90,17 +76,20 @@ impl TryFrom<ServerOptions> for S3 {
     type Error = ContextError;
 
     fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
+        let url = options.url();
         let server_options = options.server_options();
         let user_mapping_options = options.user_mapping_options();
 
         let mut builder = S3::default();
-        let bucket = require_option(AmazonServerOption::Bucket.as_str(), server_options)?;
-        builder.bucket(bucket);
         builder.disable_config_load();
         builder.disable_ec2_metadata();
 
-        if let Some(root) = server_options.get(AmazonServerOption::Root.as_str()) {
-            builder.root(root);
+        if let Root(Some(root)) = Root::from(url.clone()) {
+            builder.root(&root);
+        }
+
+        if let Some(bucket) = url.host_str() {
+            builder.bucket(bucket);
         }
 
         if let Some(region) = server_options.get(AmazonServerOption::Region.as_str()) {
@@ -143,40 +132,24 @@ impl TryFrom<ServerOptions> for S3 {
 
 impl BaseFdw for S3Fdw {
     fn register_object_store(
+        url: &Url,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
         let context = Session::session_context()?;
 
         let builder = S3::try_from(ServerOptions::new(
+            url,
             server_options.clone(),
             user_mapping_options.clone(),
         ))?;
 
         let operator = Operator::new(builder)?.finish();
         let object_store = Arc::new(OpendalStore::new(operator));
-        let bucket = require_option(AmazonServerOption::Bucket.as_str(), &server_options)?;
-
-        let mut path = match server_options.get(AmazonServerOption::Root.as_str()) {
-            Some(root) => {
-                let mut path = PathBuf::from(bucket);
-                path.push(root);
-                path
-            }
-            None => PathBuf::from(bucket),
-        };
-
-        if let Some(path_str) = path.to_str() {
-            if let Some(stripped) = path_str.strip_prefix('/') {
-                path = PathBuf::from(stripped);
-            }
-        }
-
-        let url = format!("s3://{}", path.to_string_lossy());
 
         context
             .runtime_env()
-            .register_object_store(&Url::parse(&url)?, object_store);
+            .register_object_store(url, object_store);
 
         Ok(())
     }
@@ -226,10 +199,12 @@ impl BaseFdw for S3Fdw {
 
 impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
     fn new(
+        table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        S3Fdw::register_object_store(server_options, user_mapping_options)?;
+        let path = require_option(TableOption::Path.as_str(), &table_options)?;
+        S3Fdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
 
         Ok(Self {
             current_batch: None,

@@ -42,13 +42,13 @@ impl NycTripsTable {
         NYC_TRIPS_TABLE_SETUP.to_string()
     }
 
-    pub fn setup_fdw(s3_endpoint: &str, s3_bucket: &str, s3_object_path: &str) -> String {
+    pub fn setup_fdw(s3_endpoint: &str, s3_object_path: &str) -> String {
         format!(
             r#"
         CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
         
         CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
-        OPTIONS (bucket '{s3_bucket}', region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');
+        OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');
         
         CREATE FOREIGN TABLE trips (
             "VendorID"              INT,

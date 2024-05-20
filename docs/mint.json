@@ -134,6 +134,7 @@
         {
           "group": "Object Stores",
           "pages": [
+            "analytics/object_stores/gcs",
             "analytics/object_stores/local",
             "analytics/object_stores/s3",
             "analytics/object_stores/unsupported"

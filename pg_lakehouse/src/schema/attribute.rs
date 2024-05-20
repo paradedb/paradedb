@@ -80,7 +80,8 @@ pub fn can_convert_to_attribute(field: &Field, attribute: PgAttribute) -> Result
         | DataType::UInt64
         | DataType::Float16
         | DataType::Float32
-        | DataType::Float64 => vec![
+        | DataType::Float64
+        | DataType::Decimal128(_, _) => vec![
             PgAttribute::new(field.name(), pg_sys::INT2OID),
             PgAttribute::new(field.name(), pg_sys::INT4OID),
             PgAttribute::new(field.name(), pg_sys::INT8OID),

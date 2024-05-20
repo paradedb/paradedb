@@ -6,7 +6,6 @@ use opendal::services::Gcs;
 use opendal::Operator;
 use pgrx::*;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
@@ -30,49 +29,33 @@ pub(crate) struct GcsFdw {
 }
 
 enum GcsServerOption {
-    Bucket,
     DefaultStorageClass,
     Endpoint,
     PredefinedAcl,
-    Root,
-    Scope,
-    ServiceAccount,
 }
 
 impl GcsServerOption {
     pub fn as_str(&self) -> &str {
         match self {
-            Self::Bucket => "bucket",
             Self::DefaultStorageClass => "default_storage_class",
             Self::Endpoint => "endpoint",
             Self::PredefinedAcl => "predefined_acl",
-            Self::Root => "root",
-            Self::Scope => "scope",
-            Self::ServiceAccount => "service_account",
         }
     }
 
     pub fn is_required(&self) -> bool {
         match self {
-            Self::Bucket => true,
             Self::DefaultStorageClass => false,
             Self::Endpoint => false,
             Self::PredefinedAcl => false,
-            Self::Root => false,
-            Self::Scope => false,
-            Self::ServiceAccount => false,
         }
     }
 
     pub fn iter() -> impl Iterator<Item = Self> {
         [
-            Self::Bucket,
             Self::DefaultStorageClass,
             Self::Endpoint,
             Self::PredefinedAcl,
-            Self::Root,
-            Self::Scope,
-            Self::ServiceAccount,
         ]
         .into_iter()
     }
@@ -80,12 +63,18 @@ impl GcsServerOption {
 
 enum GcsUserMappingOption {
     Credential,
+    CredentialPath,
+    Scope,
+    ServiceAccount,
 }
 
 impl GcsUserMappingOption {
     pub fn as_str(&self) -> &str {
         match self {
             Self::Credential => "credential",
+            Self::CredentialPath => "credential_path",
+            Self::Scope => "scope",
+            Self::ServiceAccount => "service_account",
         }
     }
 }
@@ -95,16 +84,29 @@ impl TryFrom<ServerOptions> for Gcs {
 
     fn try_from(options: ServerOptions) -> Result<Self, Self::Error> {
         let server_options = options.server_options();
+        let url = options.url();
         let user_mapping_options = options.user_mapping_options();
 
         let mut builder = Gcs::default();
-        let bucket = require_option(GcsServerOption::Bucket.as_str(), server_options)?;
-        builder.bucket(bucket);
+
+        if let Root(Some(root)) = Root::from(url.clone()) {
+            builder.root(&root);
+        }
+
+        if let Some(bucket) = url.host_str() {
+            builder.bucket(bucket);
+        }
 
         if let Some(credential) =
             user_mapping_options.get(GcsUserMappingOption::Credential.as_str())
         {
             builder.credential(credential);
+        }
+
+        if let Some(credential_path) =
+            user_mapping_options.get(GcsUserMappingOption::CredentialPath.as_str())
+        {
+            builder.credential_path(credential_path);
         }
 
         if let Some(default_storage_class) =
@@ -121,15 +123,12 @@ impl TryFrom<ServerOptions> for Gcs {
             builder.predefined_acl(predefined_acl);
         }
 
-        if let Some(root) = server_options.get(GcsServerOption::Root.as_str()) {
-            builder.root(root);
-        }
-
-        if let Some(scope) = server_options.get(GcsServerOption::Scope.as_str()) {
+        if let Some(scope) = user_mapping_options.get(GcsUserMappingOption::Scope.as_str()) {
             builder.scope(scope);
         }
 
-        if let Some(service_account) = server_options.get(GcsServerOption::ServiceAccount.as_str())
+        if let Some(service_account) =
+            user_mapping_options.get(GcsUserMappingOption::ServiceAccount.as_str())
         {
             builder.service_account(service_account);
         }
@@ -140,40 +139,24 @@ impl TryFrom<ServerOptions> for Gcs {
 
 impl BaseFdw for GcsFdw {
     fn register_object_store(
+        url: &Url,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
         let context = Session::session_context()?;
 
         let builder = Gcs::try_from(ServerOptions::new(
+            url,
             server_options.clone(),
             user_mapping_options.clone(),
         ))?;
 
         let operator = Operator::new(builder)?.finish();
         let object_store = Arc::new(OpendalStore::new(operator));
-        let bucket = require_option(GcsServerOption::Bucket.as_str(), &server_options)?;
-
-        let mut path = match server_options.get(GcsServerOption::Root.as_str()) {
-            Some(root) => {
-                let mut path = PathBuf::from(bucket);
-                path.push(root);
-                path
-            }
-            None => PathBuf::from(bucket),
-        };
-
-        if let Some(path_str) = path.to_str() {
-            if let Some(stripped) = path_str.strip_prefix('/') {
-                path = PathBuf::from(stripped);
-            }
-        }
-
-        let url = format!("gs://{}", path.to_string_lossy());
 
         context
             .runtime_env()
-            .register_object_store(&Url::parse(&url)?, object_store);
+            .register_object_store(url, object_store);
 
         Ok(())
     }
@@ -223,10 +206,12 @@ impl BaseFdw for GcsFdw {
 
 impl ForeignDataWrapper<BaseFdwError> for GcsFdw {
     fn new(
+        table_options: HashMap<String, String>,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        GcsFdw::register_object_store(server_options, user_mapping_options)?;
+        let path = require_option(TableOption::Path.as_str(), &table_options)?;
+        GcsFdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
 
         Ok(Self {
             current_batch: None,

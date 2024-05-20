@@ -12,7 +12,7 @@
 - [x] Amazon S3
 - [x] S3-compatible object stores (e.g. MinIO)
 - [x] Local file system
-- [ ] Google Cloud Storage (coming soon)
+- [x] Google Cloud Storage
 - [ ] Azure Blob Storage (coming soon)
 
 ...and potentially any service supported by [Apache OpenDAL](https://opendal.apache.org/docs/category/services). See the Development section for instructions on how to [add a service](#adding-a-service).
@@ -53,7 +53,7 @@ CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_v
 
 -- Provide S3 credentials
 CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
-OPTIONS (bucket 'paradedb-benchmarks', region 'us-east-1', allow_anonymous 'true');
+OPTIONS (region 'us-east-1', allow_anonymous 'true');
 
 -- Create foreign table
 CREATE FOREIGN TABLE trips (

@@ -1,3 +1,264 @@
+#![allow(unused_imports)]
+use anyhow::{anyhow, bail, Result};
+use cmd_lib::*;
+use sqlx::postgres::PgConnectOptions;
+use sqlx::{Connection, Executor, PgConnection};
+use std::fs::File;
+use std::io::BufRead;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::time::Instant;
+use std::{env, io};
+use tempfile::TempDir;
+
+fn download_and_verify(url: &str, checksum: &str, filename: &str) -> Result<()> {
+    if Path::new(filename).exists() {
+        run_cmd!(echo "Dataset '$filename' already exists, verifying checksum...")?;
+        if run_cmd!(echo "$checksum $filename" | md5sum -c --status).is_ok() {
+            run_cmd!(echo "Dataset '$filename' already exists and is verified, skipping download...")?;
+            return Ok(());
+        } else {
+            run_cmd!(echo "Checksum mismatch. Re-downloading '$filename'...")?;
+        }
+    }
+
+    run_cmd!(echo "Downloading $filename dataset...")?;
+    run_cmd!(wget --no-verbose --no-check-certificate --continue -O $filename $url)?;
+    Ok(())
+}
+
+pub async fn bench_hits(url: &str, workload: &str, full: bool) -> Result<()> {
+    let _os = run_fun!(uname)?;
+
+    println!("\n*********************************************************************************");
+    println!("* Benchmarking pg_lakehouse against ClickBench");
+    println!("*********************************************************************************\n");
+
+    let root_file_path = PathBuf::from_str("/tmp")?;
+    let single_file_path = root_file_path.join("hits.parquet").display().to_string();
+    let partitioned_dir_path = root_file_path.join("partitioned/").display().to_string();
+
+    let single_url = if full {
+        "https://paradedb-benchmarks.s3.amazonaws.com/hits.parquet"
+    } else {
+        "https://paradedb-benchmarks.s3.amazonaws.com/hits_5m_rows.parquet"
+    };
+
+    // Including the {} template in the url for xargs to replace.
+    let partitioned_url = if full {
+        "https://paradedb-benchmarks.s3.amazonaws.com/partitioned/hits_{}.parquet"
+    } else {
+        "https://paradedb-benchmarks.s3.amazonaws.com/partitioned_5m_rows/hits_{}.parquet"
+    };
+
+    if workload == "single" {
+        run_cmd!(echo "Using ClickBench's single Parquet file for benchmarking...")?;
+        download_and_verify(
+            single_url,
+            "5182ed3b0ad35137db38faac395d7f55",
+            &single_file_path,
+        )?;
+    } else if workload == "partitioned" {
+        run_cmd!(echo "Using ClickBench's one hundred partitioned Parquet files for benchmarking...")?;
+        run_cmd!(mkdir -p $partitioned_dir_path)?;
+        run_cmd!(
+           seq 0 99
+          | xargs "-P100" "-I{}" wget --no-verbose --no-check-certificate --directory-prefix $partitioned_dir_path
+            --continue $partitioned_url
+        )?;
+    } else {
+        eprintln!("Invalid workload: {}", workload);
+        std::process::exit(1);
+    }
+
+    run_cmd!(echo "\nLoading dataset...")?;
+    env::set_var("PGPASSWORD", "postgres");
+
+    let conn_opts = &PgConnectOptions::from_str(url)?;
+    let mut conn = PgConnection::connect_with(conn_opts).await?;
+
+    let file_path = if workload == "single" {
+        single_file_path
+    } else {
+        partitioned_dir_path
+    };
+
+    println!("Creating foreign table from '{}'", file_path);
+
+    conn.execute(create_query_sql(&file_path).as_str())
+        .await
+        .unwrap();
+
+    run_cmd!(echo "\nRunning queries...")?;
+    run_queries(&mut conn).await?;
+
+    Ok(())
+}
+
+async fn run_queries(conn: &mut PgConnection) -> Result<()> {
+    let tries = 3;
+    let os = run_fun!(uname)?;
+    env::set_var("PGPASSWORD", "postgres");
+
+    for query in run_query_sql().lines() {
+        if query.trim().is_empty() {
+            continue;
+        }
+
+        // Clear the cache on Linux systems
+        if os.trim() == "Linux" {
+            run_cmd!(sync)?;
+            run_cmd!(echo 3 | sudo tee /proc/sys/vm/drop_caches)?;
+        }
+
+        println!("{}", query);
+
+        for _ in 1..=tries {
+            // Start timing
+            let start = Instant::now();
+
+            // Execute the query
+            conn.execute(query).await.unwrap();
+
+            // Calculate elapsed time
+            let duration = start.elapsed();
+
+            // Print the elapsed time in milliseconds
+            println!("Time: {:.3} ms", duration.as_secs_f64() * 1000.0);
+        }
+    }
+
+    Ok(())
+}
+
+fn create_query_sql(file_path: &str) -> String {
+    format!(
+        r#"
+CREATE EXTENSION IF NOT EXISTS pg_lakehouse;
+DROP FOREIGN DATA WRAPPER IF EXISTS local_file_wrapper CASCADE;
+CREATE FOREIGN DATA WRAPPER local_file_wrapper
+    HANDLER local_file_fdw_handler
+    VALIDATOR local_file_fdw_validator;
+CREATE SERVER local_file_server
+    FOREIGN DATA WRAPPER local_file_wrapper;
+CREATE FOREIGN TABLE IF NOT EXISTS hits
+(
+    "WatchID" BIGINT NOT NULL,
+    "JavaEnable" SMALLINT NOT NULL,
+    "Title" TEXT NOT NULL,
+    "GoodEvent" SMALLINT NOT NULL,
+    "EventTime" BIGINT NOT NULL,
+    "EventDate" INTEGER NOT NULL,
+    "CounterID" INTEGER NOT NULL,
+    "ClientIP" INTEGER NOT NULL,
+    "RegionID" INTEGER NOT NULL,
+    "UserID" BIGINT NOT NULL,
+    "CounterClass" SMALLINT NOT NULL,
+    "OS" SMALLINT NOT NULL,
+    "UserAgent" SMALLINT NOT NULL,
+    "URL" TEXT NOT NULL,
+    "Referer" TEXT NOT NULL,
+    "IsRefresh" SMALLINT NOT NULL,
+    "RefererCategoryID" SMALLINT NOT NULL,
+    "RefererRegionID" INTEGER NOT NULL,
+    "URLCategoryID" SMALLINT NOT NULL,
+    "URLRegionID" INTEGER NOT NULL,
+    "ResolutionWidth" SMALLINT NOT NULL,
+    "ResolutionHeight" SMALLINT NOT NULL,
+    "ResolutionDepth" SMALLINT NOT NULL,
+    "FlashMajor" SMALLINT NOT NULL,
+    "FlashMinor" SMALLINT NOT NULL,
+    "FlashMinor2" TEXT NOT NULL,
+    "NetMajor" SMALLINT NOT NULL,
+    "NetMinor" SMALLINT NOT NULL,
+    "UserAgentMajor" SMALLINT NOT NULL,
+    "UserAgentMinor" VARCHAR(255) NOT NULL,
+    "CookieEnable" SMALLINT NOT NULL,
+    "JavascriptEnable" SMALLINT NOT NULL,
+    "IsMobile" SMALLINT NOT NULL,
+    "MobilePhone" SMALLINT NOT NULL,
+    "MobilePhoneModel" TEXT NOT NULL,
+    "Params" TEXT NOT NULL,
+    "IPNetworkID" INTEGER NOT NULL,
+    "TraficSourceID" SMALLINT NOT NULL,
+    "SearchEngineID" SMALLINT NOT NULL,
+    "SearchPhrase" TEXT NOT NULL,
+    "AdvEngineID" SMALLINT NOT NULL,
+    "IsArtifical" SMALLINT NOT NULL,
+    "WindowClientWidth" SMALLINT NOT NULL,
+    "WindowClientHeight" SMALLINT NOT NULL,
+    "ClientTimeZone" SMALLINT NOT NULL,
+    "ClientEventTime" BIGINT NOT NULL,
+    "SilverlightVersion1" SMALLINT NOT NULL,
+    "SilverlightVersion2" SMALLINT NOT NULL,
+    "SilverlightVersion3" INTEGER NOT NULL,
+    "SilverlightVersion4" SMALLINT NOT NULL,
+    "PageCharset" TEXT NOT NULL,
+    "CodeVersion" INTEGER NOT NULL,
+    "IsLink" SMALLINT NOT NULL,
+    "IsDownload" SMALLINT NOT NULL,
+    "IsNotBounce" SMALLINT NOT NULL,
+    "FUniqID" BIGINT NOT NULL,
+    "OriginalURL" TEXT NOT NULL,
+    "HID" INTEGER NOT NULL,
+    "IsOldCounter" SMALLINT NOT NULL,
+    "IsEvent" SMALLINT NOT NULL,
+    "IsParameter" SMALLINT NOT NULL,
+    "DontCountHits" SMALLINT NOT NULL,
+    "WithHash" SMALLINT NOT NULL,
+    "HitColor" CHAR NOT NULL,
+    "LocalEventTime" BIGINT NOT NULL,
+    "Age" SMALLINT NOT NULL,
+    "Sex" SMALLINT NOT NULL,
+    "Income" SMALLINT NOT NULL,
+    "Interests" SMALLINT NOT NULL,
+    "Robotness" SMALLINT NOT NULL,
+    "RemoteIP" INTEGER NOT NULL,
+    "WindowName" INTEGER NOT NULL,
+    "OpenerName" INTEGER NOT NULL,
+    "HistoryLength" SMALLINT NOT NULL,
+    "BrowserLanguage" TEXT NOT NULL,
+    "BrowserCountry" TEXT NOT NULL,
+    "SocialNetwork" TEXT NOT NULL,
+    "SocialAction" TEXT NOT NULL,
+    "HTTPError" SMALLINT NOT NULL,
+    "SendTiming" INTEGER NOT NULL,
+    "DNSTiming" INTEGER NOT NULL,
+    "ConnectTiming" INTEGER NOT NULL,
+    "ResponseStartTiming" INTEGER NOT NULL,
+    "ResponseEndTiming" INTEGER NOT NULL,
+    "FetchTiming" INTEGER NOT NULL,
+    "SocialSourceNetworkID" SMALLINT NOT NULL,
+    "SocialSourcePage" TEXT NOT NULL,
+    "ParamPrice" BIGINT NOT NULL,
+    "ParamOrderID" TEXT NOT NULL,
+    "ParamCurrency" TEXT NOT NULL,
+    "ParamCurrencyID" SMALLINT NOT NULL,
+    "OpenstatServiceName" TEXT NOT NULL,
+    "OpenstatCampaignID" TEXT NOT NULL,
+    "OpenstatAdID" TEXT NOT NULL,
+    "OpenstatSourceID" TEXT NOT NULL,
+    "UTMSource" TEXT NOT NULL,
+    "UTMMedium" TEXT NOT NULL,
+    "UTMCampaign" TEXT NOT NULL,
+    "UTMContent" TEXT NOT NULL,
+    "UTMTerm" TEXT NOT NULL,
+    "FromTag" TEXT NOT NULL,
+    "HasGCLID" SMALLINT NOT NULL,
+    "RefererHash" BIGINT NOT NULL,
+    "URLHash" BIGINT NOT NULL,
+    "CLID" INTEGER NOT NULL
+    -- Note: Primary key constraints are not supported on foreign tables
+    -- PRIMARY KEY (CounterID, EventDate, UserID, EventTime, WatchID)
+)
+SERVER local_file_server
+OPTIONS (path 'file://{file_path}', extension 'parquet');
+"#
+    )
+}
+
+fn run_query_sql() -> String {
+    r#"
 SELECT COUNT(*) FROM hits;
 SELECT COUNT(*) FROM hits WHERE "AdvEngineID" <> 0;
 SELECT SUM("AdvEngineID"), COUNT(*), AVG("ResolutionWidth") FROM hits;
@@ -41,3 +302,5 @@ SELECT "TraficSourceID", "SearchEngineID", "AdvEngineID", CASE WHEN ("SearchEngi
 SELECT "URLHash", to_date("EventDate"::INT), COUNT(*) AS PageViews FROM hits WHERE "CounterID" = 62 AND to_date("EventDate"::INT) >= '2013-07-01' AND to_date("EventDate"::INT) <= '2013-07-31' AND "IsRefresh" = 0 AND "TraficSourceID" IN (-1, 6) AND "RefererHash" = 3594120000172545465 GROUP BY "URLHash", to_date("EventDate"::INT) ORDER BY PageViews DESC LIMIT 10 OFFSET 100;
 SELECT "WindowClientWidth", "WindowClientHeight", COUNT(*) AS PageViews FROM hits WHERE "CounterID" = 62 AND to_date("EventDate"::INT) >= '2013-07-01' AND to_date("EventDate"::INT) <= '2013-07-31' AND "IsRefresh" = 0 AND "DontCountHits" = 0 AND "URLHash" = 2868770270353813622 GROUP BY "WindowClientWidth", "WindowClientHeight" ORDER BY PageViews DESC LIMIT 10 OFFSET 10000;
 SELECT DATE_TRUNC('minute', to_timestamp("EventTime")) AS M, COUNT(*) AS PageViews FROM hits WHERE "CounterID" = 62 AND to_date("EventDate"::INT) >= '2013-07-14' AND to_date("EventDate"::INT) <= '2013-07-15' AND "IsRefresh" = 0 AND "DontCountHits" = 0 GROUP BY DATE_TRUNC('minute', to_timestamp("EventTime")) ORDER BY DATE_TRUNC('minute', to_timestamp("EventTime")) LIMIT 10 OFFSET 1000;
+"#.into()
+}

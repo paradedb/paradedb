@@ -43,7 +43,9 @@ Benchmark tools are run under the `cargo paradedb bench` subcommand, which are o
 cargo paradedb bench eslogs query-search-index
 ```
 
-### Generating Benchmark Data
+### Benchmark pg_search
+
+#### Generating pg_search Benchmark Data
 
 Our benchmarks use the same generated data as the [elasticsearch-opensearch-benchmark](https://github.com/elastic/elasticsearch-opensearch-benchmark) project. To run the data generation tool, you must have [Go](https://go.dev/doc/install) installed. Run the generator tool with:
 
@@ -55,7 +57,7 @@ In the command above, `generate` can accept arguments to specify a random seed, 
 
 The `generate` tool is idempotent. It will produce a table in your Postgres database with the number of events that you asked it to generate. As it generates data, it will periodically commit the `INSERT` transaction to Postgres. If you kill the process, it will pick up where it left off the next time you run it.
 
-### Running Benchmarks
+#### Running pg_search Benchmarks
 
 All commands below operate on default tables, visible with `--help`. Defaults can be overidden with options passed to each command.
 
@@ -72,3 +74,17 @@ Query a `pg_search` index (index must already exist):
 ```sh
 cargo paradedb bench eslogs query-search-index
 ```
+
+### Benchmark pg_lakehouse
+
+Note: This benchmark pulls the entire 100 million-row ClickBench dataset in Parquet format, which is ~15GBs.
+
+You can run the benchmarks via the `cargo-paradedb` tool with:
+
+```bash
+cargo paradedb bench hits run
+```
+
+The benchmark tool will look for a `DATABASE_URL` environment variable for a running Postgres instance. You can also pass the url directly with the `--url` option.
+
+The benchmark tool also accepts a `--workload / -w` option. This can be either `single`, to use the ClickBench dataset as a single large Parquet file, or `partitioned`, to use the ClickBench dataset as one hundred small partitioned Parquet files. The default is `single`.

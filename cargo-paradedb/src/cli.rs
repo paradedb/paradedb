@@ -31,6 +31,7 @@ pub struct CorpusArgs {
 pub enum Corpus {
     // The generated logs from the ElasticSearch benchmark tool.
     Eslogs(EsLogsArgs),
+    Hits(HitsArgs),
 }
 
 /// A wrapper struct for the command to run on the eslogs corpus.
@@ -38,6 +39,13 @@ pub enum Corpus {
 pub struct EsLogsArgs {
     #[command(subcommand)]
     pub command: EsLogsCommand,
+}
+
+/// A wrapper struct for the command to run on the hits corpus.
+#[derive(Debug, clap::Args)]
+pub struct HitsArgs {
+    #[command(subcommand)]
+    pub command: HitsCommand,
 }
 
 /// The command to run on the eslogs corpus.
@@ -123,6 +131,24 @@ pub enum EsLogsCommand {
         /// Should contain the index name as a path subcomponent.
         #[arg(short, long)]
         elastic_url: String,
+    },
+}
+/// The command to run on the hits corpus.
+#[derive(Debug, clap::Subcommand)]
+pub enum HitsCommand {
+    /// Generate the hits corpus, inserting into a Postgres table.
+    Run {
+        /// Workload to benchmark, defaults to a file size of 100MB.
+        /// - 'single' Runs the full ClickBench benchmark against a single Parquet file
+        /// - 'partitioned' Runs the full ClickBench benchmark against one hundred partitioned Parquet files
+        #[arg(long, short, default_value = "single")]
+        workload: String,
+        /// Postgres database url to connect to.
+        #[arg(short, long, env = "DATABASE_URL")]
+        url: String,
+        /// Use the full dataset or a smaller version?
+        #[arg(short, long, default_value_t = false)]
+        full: bool,
     },
 }
 

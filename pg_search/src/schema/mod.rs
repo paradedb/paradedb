@@ -36,6 +36,7 @@ pub enum SearchFieldType {
     Text,
     I64,
     F64,
+    U64,
     Bool,
     Json,
     Date,
@@ -324,14 +325,14 @@ pub struct SearchIndexSchema {
 
 impl SearchIndexSchema {
     pub fn new(
-        fields: Vec<(SearchFieldName, SearchFieldConfig)>,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
     ) -> Result<Self, SearchIndexSchemaError> {
         let mut builder = Schema::builder();
         let mut search_fields = vec![];
 
         let mut key_index = 0;
         let mut ctid_index = 0;
-        for (index, (name, config)) in fields.into_iter().enumerate() {
+        for (index, (name, config, field_type)) in fields.into_iter().enumerate() {
             match &config {
                 SearchFieldConfig::Key => key_index = index,
                 SearchFieldConfig::Ctid => ctid_index = index,
@@ -343,7 +344,12 @@ impl SearchIndexSchema {
                     builder.add_text_field(name.as_ref(), config.clone())
                 }
                 SearchFieldConfig::Numeric { .. } => {
-                    builder.add_i64_field(name.as_ref(), config.clone())
+                    match field_type {
+                        SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
+                        SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
+                        SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),
+                        _ => return Err(SearchIndexSchemaError::InvalidNumericType(field_type))
+                    }
                 }
                 SearchFieldConfig::Boolean { .. } => {
                     builder.add_bool_field(name.as_ref(), config.clone())
@@ -448,6 +454,8 @@ impl ToString for IndexRecordOption {
 
 #[derive(Debug, Error)]
 pub enum SearchIndexSchemaError {
+    #[error("invalid field type for numeric: {0:?}")]
+    InvalidNumericType(SearchFieldType),
     #[error("invalid postgres oid passed to search index schema: {0:?}")]
     InvalidPgOid(PgOid),
     #[error("no key field specified for search index")]

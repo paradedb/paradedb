@@ -141,31 +141,31 @@ fn float_search(mut conn: PgConnection) {
     .execute(&mut conn);
 
 
-    // // FLOAT4
-    // let rows: Vec<(i32, f32)> = r#"
-    // SELECT id, value_float4 FROM test_index.search(
-    // 	query => paradedb.term(field => 'value_float4', value => 1.1),
-    // 	stable_sort => true
-    // );
-    // "#
-    // .fetch_collect(&mut conn);
-    // assert_eq!(
-    // 	rows,
-    // 	vec![(1, 1.1)]
-    // );
+    // FLOAT4
+    let rows: Vec<(i32, f32)> = r#"
+    SELECT id, value_float4 FROM test_index.search(
+    	query => paradedb.term(field => 'value_float4', value => 1.1::float4),
+    	stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+    	rows,
+    	vec![(1, 1.1)]
+    );
 
-    // // FLOAT8
-    // let rows: Vec<(i32, f64)> = r#"
-    // SELECT id, value_float8 FROM test_index.search(
-    // 	query => paradedb.term(field => 'value_float8', value => 4444.4444),
-    // 	stable_sort => true
-    // );
-    // "#
-    // .fetch_collect(&mut conn);
-    // assert_eq!(
-    // 	rows,
-    // 	vec![(4, 4444.4444)]
-    // );
+    // FLOAT8
+    let rows: Vec<(i32, f64)> = r#"
+    SELECT id, value_float8 FROM test_index.search(
+    	query => paradedb.term(field => 'value_float8', value => 4444.4444::float8),
+    	stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(
+    	rows,
+    	vec![(4, 4444.4444)]
+    );
 }
 
 #[rstest]

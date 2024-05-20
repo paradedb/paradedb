@@ -15,7 +15,7 @@ use tracing::{error, info};
 use super::state::SearchState;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{
-    SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchIndexSchema,
+    SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
     SearchIndexSchemaError,
 };
 use crate::writer::{
@@ -65,14 +65,14 @@ pub struct SearchIndex {
 impl SearchIndex {
     pub fn new(
         directory: WriterDirectory,
-        fields: Vec<(SearchFieldName, SearchFieldConfig)>,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
     ) -> Result<&'static mut Self, SearchIndexError> {
         // If the writer directory exists, remove it. We need a fresh directory to
         // create an index. This can happen after a VACUUM FULL, where the index needs
         // to be rebuilt and this method is called again.
         directory.remove().map_err(SearchIndexError::from)?;
 
-        let schema = SearchIndexSchema::new(fields)?;
+        let schema = SearchIndexSchema::new(fields.clone())?;
         let settings = IndexSettings {
             // Fields should be returned in the order of their key_field (if their bm25 scores match).
             // Pre-sorting these fields at insert time saves work at query time.

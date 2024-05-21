@@ -172,7 +172,7 @@ Each `_fields` input to `create_bm25()` accepts a [JSON5](https://json5.org)-for
 <ParamField body="datetime_fields">
   A JSON5 string which specifies which datetime columns should be indexed and how they should be indexed.
   Keys are the names of columns, and values are config options. Accepts columns of type `date`, `timestamp`,
-  and `timestamptz`.
+  `timestamptz`, `time`, and `timetz`.
   Search terms will always be read in UTC timezone regardless of the underlying column type. Convert search
   terms accordingly.
   <Expandable title="Config Options">

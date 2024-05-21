@@ -207,7 +207,7 @@ fn datetime_term(mut conn: PgConnection) {
 
     INSERT INTO test_table (value_date, value_timestamp, value_timestamptz, value_time, value_timetz) VALUES 
         (DATE '2023-05-03', TIMESTAMP '2023-04-15 13:27:09', TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 PST', TIME '08:09:10', TIME WITH TIME ZONE '08:09:10 PST'),
-        (DATE '2021-06-28', TIMESTAMP '2019-08-02 07:52:43', TIMESTAMP WITH TIME ZONE '2019-08-02 07:52:43 EST', TIME '11:43:21', TIME WITH TIME ZONE '11:43:21 EST');
+        (DATE '2021-06-28', TIMESTAMP '2019-08-02 07:52:43.123', TIMESTAMP WITH TIME ZONE '2019-08-02 07:52:43.123 EST', TIME '11:43:21.456', TIME WITH TIME ZONE '11:43:21.456 EST');
     "#
     .execute(&mut conn);
 
@@ -233,7 +233,7 @@ fn datetime_term(mut conn: PgConnection) {
     // TIMESTAMP
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
-        query => paradedb.term(field => 'value_timestamp', value => TIMESTAMP '2019-08-02 07:52:43')
+        query => paradedb.term(field => 'value_timestamp', value => TIMESTAMP '2019-08-02 07:52:43.123')
     );
     "#
     .fetch_collect(&mut conn);
@@ -260,7 +260,7 @@ fn datetime_term(mut conn: PgConnection) {
     // TIME
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
-        query => paradedb.term(field => 'value_time', value => TIME '11:43:21')
+        query => paradedb.term(field => 'value_time', value => TIME '11:43:21.456')
     );
     "#
     .fetch_collect(&mut conn);
@@ -269,7 +269,7 @@ fn datetime_term(mut conn: PgConnection) {
     // TIME WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
-        query => paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '11:43:21 EST')
+        query => paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '11:43:21.456 EST')
     );
     "#
     .fetch_collect(&mut conn);
@@ -278,7 +278,7 @@ fn datetime_term(mut conn: PgConnection) {
     // TIME WITH TIME ZONE: Change time zone in query
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
-        query => paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '08:43:21 PST')
+        query => paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '08:43:21.456 PST')
     );
     "#
     .fetch_collect(&mut conn);
@@ -296,7 +296,7 @@ fn datetime_term(mut conn: PgConnection) {
     // TIMESTAMP: Query time zone with no time zone (GMT = EST + 5)
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
-        query => paradedb.term(field => 'value_timestamptz', value => TIMESTAMP '2019-08-02 12:52:43')
+        query => paradedb.term(field => 'value_timestamptz', value => TIMESTAMP '2019-08-02 12:52:43.123')
     );
     "#
     .fetch_collect(&mut conn);

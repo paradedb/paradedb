@@ -4,6 +4,7 @@ use datafusion::physical_plan::SendableRecordBatchStream;
 use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 use url::Url;
@@ -33,7 +34,7 @@ impl BaseFdw for LocalFileFdw {
         _user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
         // Create S3 ObjectStore
-        let object_store = LocalFileSystem::new();
+        let object_store = LocalFileSystem::new_with_prefix(Path::new(&String::from(url.path())))?;
         let context = Session::session_context()?;
 
         // Create SessionContext with ObjectStore

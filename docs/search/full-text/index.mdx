@@ -173,8 +173,26 @@ Each `_fields` input to `create_bm25()` accepts a [JSON5](https://json5.org)-for
   A JSON5 string which specifies which datetime columns should be indexed and how they should be indexed.
   Keys are the names of columns, and values are config options. Accepts columns of type `date`, `timestamp`,
   `timestamptz`, `time`, and `timetz`.
-  Search terms will always be read in UTC timezone regardless of the underlying column type. Convert search
-  terms accordingly.
+  Search terms will use the UTC time zone if not specified.
+
+```sql
+-- To demonstrate time zones, all of these queries are equivalent
+SELECT * FROM bm25_search.search('created_at:"2023-05-01T09:12:34Z"');
+SELECT * FROM bm25_search.search('created_at:"2023-05-01T08:12:34-01:00"');
+SELECT * FROM bm25_search.search(
+  query => paradedb.term(
+    field => 'created_at',
+    value => TIMESTAMP '2023-05-01 09:12:34'
+  )
+);
+SELECT * FROM bm25_search.search(
+  query => paradedb.term(
+    field => 'created_at',
+    value => TIMESTAMP WITH TIME ZONE '2023-05-01 04:12:34 EST'
+  )
+);
+```
+
   <Expandable title="Config Options">
     <ParamField body="indexed" default={true}>
       Whether the field is indexed. Must be `true` in order for the field to be tokenized and

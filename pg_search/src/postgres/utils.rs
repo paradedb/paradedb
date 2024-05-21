@@ -1,4 +1,8 @@
 use crate::index::SearchIndex;
+use crate::postgres::datetime::{
+    pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value, pgrx_timestamp_to_tantivy_value,
+    pgrx_timestamptz_to_tantivy_value, pgrx_timetz_to_tantivy_value,
+};
 use crate::schema::{SearchDocument, SearchIndexSchema};
 use crate::writer::{IndexError, WriterDirectory};
 use pgrx::{
@@ -153,6 +157,33 @@ pub unsafe fn row_to_search_document(
                         search_field.id,
                         serde_json::from_slice::<Map<String, serde_json::Value>>(&value)?.into(),
                     );
+                }
+                PgBuiltInOids::DATEOID => {
+                    let value = pgrx::datum::Date::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+                    document.insert(search_field.id, pgrx_date_to_tantivy_value(value));
+                }
+                PgBuiltInOids::TIMESTAMPOID => {
+                    let value = pgrx::datum::Timestamp::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+
+                    document.insert(search_field.id, pgrx_timestamp_to_tantivy_value(value));
+                }
+                PgBuiltInOids::TIMESTAMPTZOID => {
+                    let value = pgrx::datum::TimestampWithTimeZone::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+
+                    document.insert(search_field.id, pgrx_timestamptz_to_tantivy_value(value));
+                }
+                PgBuiltInOids::TIMEOID => {
+                    let value = pgrx::datum::Time::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+                    document.insert(search_field.id, pgrx_time_to_tantivy_value(value));
+                }
+                PgBuiltInOids::TIMETZOID => {
+                    let value = pgrx::datum::TimeWithTimeZone::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+                    document.insert(search_field.id, pgrx_timetz_to_tantivy_value(value));
                 }
                 unsupported => Err(IndexError::UnsupportedValue(
                     search_field.name.0.to_string(),

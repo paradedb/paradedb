@@ -15,8 +15,8 @@ use tracing::{error, info};
 use super::state::SearchState;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{
-    SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchIndexSchema,
-    SearchIndexSchemaError,
+    SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType,
+    SearchIndexSchema, SearchIndexSchemaError,
 };
 use crate::writer::{
     self, SearchDirectoryError, SearchFs, TantivyDirPath, WriterClient, WriterDirectory,
@@ -65,7 +65,7 @@ pub struct SearchIndex {
 impl SearchIndex {
     pub fn new(
         directory: WriterDirectory,
-        fields: Vec<(SearchFieldName, SearchFieldConfig)>,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
     ) -> Result<&'static mut Self, SearchIndexError> {
         // If the writer directory exists, remove it. We need a fresh directory to
         // create an index. This can happen after a VACUUM FULL, where the index needs

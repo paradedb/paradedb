@@ -34,7 +34,7 @@ CREATE TABLE user_session_logs (
     session_duration INT,
     page_views INT,
     revenue DECIMAL(10, 2)
-) USING {};
+);
 
 INSERT INTO user_session_logs
 (event_date, user_id, event_name, session_duration, page_views, revenue)

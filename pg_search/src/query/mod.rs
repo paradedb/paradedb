@@ -386,14 +386,22 @@ impl SearchQueryInput {
                     .ok_or_else(|| QueryError::WrongFieldType(field_name.clone()))?;
 
                 let lower_bound = match lower_bound {
-                    Bound::Included(value) => Bound::Included(value_to_term(field, value)),
-                    Bound::Excluded(value) => Bound::Excluded(value_to_term(field, value)),
+                    Bound::Included(value) => {
+                        Bound::Included(value_to_term(field, value, &field_type)?)
+                    }
+                    Bound::Excluded(value) => {
+                        Bound::Excluded(value_to_term(field, value, &field_type)?)
+                    }
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
                 let upper_bound = match upper_bound {
-                    Bound::Included(value) => Bound::Included(value_to_term(field, value)),
-                    Bound::Excluded(value) => Bound::Excluded(value_to_term(field, value)),
+                    Bound::Included(value) => {
+                        Bound::Included(value_to_term(field, value, &field_type)?)
+                    }
+                    Bound::Excluded(value) => {
+                        Bound::Excluded(value_to_term(field, value, &field_type)?)
+                    }
                     Bound::Unbounded => Bound::Unbounded,
                 };
 
@@ -416,17 +424,19 @@ impl SearchQueryInput {
             Self::Term { field, value } => {
                 let record_option = IndexRecordOption::WithFreqsAndPositions;
                 if let Some(field) = field {
-                    let (_, field) = field_lookup
+                    let (field_type, field) = field_lookup
                         .as_field_type(&field)
                         .ok_or_else(|| QueryError::NonIndexedField(field))?;
-                    let term = value_to_term(field, value);
+                    let term = value_to_term(field, value, &field_type)?;
                     Ok(Box::new(TermQuery::new(term, record_option)))
                 } else {
                     // If no field is passed, then search all fields.
                     let all_fields = field_lookup.fields();
                     let mut terms = vec![];
-                    for (_, field) in all_fields {
-                        terms.push(value_to_term(field, value.clone()));
+                    for (field_type, field) in all_fields {
+                        if let Ok(term) = value_to_term(field, value.clone(), &field_type) {
+                            terms.push(term);
+                        }
                     }
 
                     Ok(Box::new(TermSetQuery::new(terms)))
@@ -435,10 +445,10 @@ impl SearchQueryInput {
             Self::TermSet { terms: fields } => {
                 let mut terms = vec![];
                 for (field_name, field_value) in fields {
-                    let (_, field) = field_lookup
+                    let (field_type, field) = field_lookup
                         .as_field_type(&field_name)
                         .ok_or_else(|| QueryError::NonIndexedField(field_name))?;
-                    terms.push(value_to_term(field, field_value));
+                    terms.push(value_to_term(field, field_value, &field_type)?);
                 }
 
                 Ok(Box::new(TermSetQuery::new(terms)))
@@ -447,11 +457,44 @@ impl SearchQueryInput {
     }
 }
 
-fn value_to_term(field: Field, value: Value) -> Term {
-    match value {
-        Value::Str(text) => Term::from_field_text(field, &text),
+fn value_to_term(
+    field: Field,
+    value: Value,
+    field_type: &FieldType,
+) -> Result<Term, Box<dyn std::error::Error>> {
+    Ok(match value {
+        Value::Str(text) => {
+            match field_type {
+                FieldType::Date(_) => {
+                    // Serialization turns date into string, so we have to turn it back into a Tantivy date
+                    // First try with no precision beyond seconds, then try with precision
+                    let datetime =
+                        match chrono::NaiveDateTime::parse_from_str(&text, "%Y-%m-%dT%H:%M:%SZ") {
+                            Ok(dt) => dt,
+                            Err(_) => chrono::NaiveDateTime::parse_from_str(
+                                &text,
+                                "%Y-%m-%dT%H:%M:%S%.fZ",
+                            )
+                            .map_err(|_| QueryError::FieldTypeMismatch)?,
+                        };
+                    let tantivy_datetime = tantivy::DateTime::from_timestamp_micros(
+                        datetime.and_utc().timestamp_micros(),
+                    );
+                    Term::from_field_date(field, tantivy_datetime)
+                }
+                _ => Term::from_field_text(field, &text),
+            }
+        }
         Value::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
-        Value::U64(u64) => Term::from_field_u64(field, u64),
+        Value::U64(u64) => {
+            // Positive numbers seem to be automatically turned into u64s even if they are i64s,
+            //     so we should use the field type to assign the term type
+            match field_type {
+                FieldType::I64(_) => Term::from_field_i64(field, u64 as i64),
+                FieldType::U64(_) => Term::from_field_u64(field, u64),
+                _ => panic!("invalid field type for u64 value"),
+            }
+        }
         Value::I64(i64) => Term::from_field_i64(field, i64),
         Value::F64(f64) => Term::from_field_f64(field, f64),
         Value::Bool(bool) => Term::from_field_bool(field, bool),
@@ -460,7 +503,7 @@ fn value_to_term(field: Field, value: Value) -> Term {
         Value::Bytes(bytes) => Term::from_field_bytes(field, &bytes),
         Value::JsonObject(_) => panic!("json cannot be converted to term"),
         Value::IpAddr(ip) => Term::from_field_ip_addr(field, ip),
-    }
+    })
 }
 
 #[derive(Debug, Error)]

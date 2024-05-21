@@ -3,7 +3,9 @@ mod directory;
 mod handler;
 mod index;
 
-use crate::schema::{SearchDocument, SearchFieldConfig, SearchFieldName, SearchIndexSchema};
+use crate::schema::{
+    SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
+};
 pub use crate::writer::SearchFs;
 pub use client::*;
 pub use directory::*;
@@ -14,7 +16,7 @@ use serde_json::json;
 
 #[fixture]
 pub fn simple_schema(
-    default_fields: Vec<(SearchFieldName, SearchFieldConfig)>,
+    default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
 ) -> SearchIndexSchema {
     SearchIndexSchema::new(default_fields).unwrap()
 }
@@ -45,25 +47,25 @@ pub fn mock_dir() -> MockWriterDirectory {
 }
 
 #[fixture]
-pub fn default_fields() -> Vec<(SearchFieldName, SearchFieldConfig)> {
+pub fn default_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
     let text: SearchFieldConfig = serde_json::from_value(json!({"Text": {}})).unwrap();
     let numeric: SearchFieldConfig = serde_json::from_value(json!({"Numeric": {}})).unwrap();
     let json: SearchFieldConfig = serde_json::from_value(json!({"Json": {}})).unwrap();
     let boolean: SearchFieldConfig = serde_json::from_value(json!({"Boolean": {}})).unwrap();
 
     vec![
-        ("id".into(), SearchFieldConfig::Key),
-        ("ctid".into(), SearchFieldConfig::Ctid),
-        ("description".into(), text.clone()),
-        ("rating".into(), numeric.clone()),
-        ("category".into(), text.clone()),
-        ("in_stock".into(), boolean.clone()),
-        ("metadata".into(), json.clone()),
+        ("id".into(), SearchFieldConfig::Key, SearchFieldType::I64),
+        ("ctid".into(), SearchFieldConfig::Ctid, SearchFieldType::U64),
+        ("description".into(), text.clone(), SearchFieldType::Text),
+        ("rating".into(), numeric.clone(), SearchFieldType::I64),
+        ("category".into(), text.clone(), SearchFieldType::Text),
+        ("in_stock".into(), boolean.clone(), SearchFieldType::Bool),
+        ("metadata".into(), json.clone(), SearchFieldType::Json),
     ]
 }
 
 #[fixture]
-pub fn chinese_fields() -> Vec<(SearchFieldName, SearchFieldConfig)> {
+pub fn chinese_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)> {
     let text: SearchFieldConfig =
         serde_json::from_value(json!({"Text": {"tokenizer": {"type": "chinese_compatible"}}}))
             .unwrap();
@@ -71,25 +73,41 @@ pub fn chinese_fields() -> Vec<(SearchFieldName, SearchFieldConfig)> {
     let json: SearchFieldConfig = serde_json::from_value(json!({"Json": {}})).unwrap();
 
     vec![
-        ("id".into(), SearchFieldConfig::Key),
-        ("ctid".into(), SearchFieldConfig::Ctid),
-        ("author".into(), text.clone()),
-        ("title".into(), text.clone()),
-        ("message".into(), numeric.clone()),
-        ("content".into(), json.clone()),
-        ("like_count".into(), numeric.clone()),
-        ("dislike_count".into(), numeric.clone()),
-        ("comment_count".into(), numeric.clone()),
-        ("unix_timestamp_milli".into(), numeric.clone()),
+        ("id".into(), SearchFieldConfig::Key, SearchFieldType::I64),
+        ("ctid".into(), SearchFieldConfig::Ctid, SearchFieldType::U64),
+        ("author".into(), text.clone(), SearchFieldType::Text),
+        ("title".into(), text.clone(), SearchFieldType::Text),
+        ("message".into(), numeric.clone(), SearchFieldType::I64),
+        ("content".into(), json.clone(), SearchFieldType::Json),
+        ("like_count".into(), numeric.clone(), SearchFieldType::I64),
+        (
+            "dislike_count".into(),
+            numeric.clone(),
+            SearchFieldType::I64,
+        ),
+        (
+            "comment_count".into(),
+            numeric.clone(),
+            SearchFieldType::I64,
+        ),
+        (
+            "unix_timestamp_milli".into(),
+            numeric.clone(),
+            SearchFieldType::I64,
+        ),
     ]
 }
 
 #[fixture]
-pub fn default_index(default_fields: Vec<(SearchFieldName, SearchFieldConfig)>) -> MockSearchIndex {
+pub fn default_index(
+    default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+) -> MockSearchIndex {
     MockSearchIndex::new(default_fields)
 }
 
 #[fixture]
-pub fn chinese_index(chinese_fields: Vec<(SearchFieldName, SearchFieldConfig)>) -> MockSearchIndex {
+pub fn chinese_index(
+    chinese_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+) -> MockSearchIndex {
     MockSearchIndex::new(chinese_fields)
 }

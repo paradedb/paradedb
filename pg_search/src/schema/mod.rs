@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use tantivy::schema::{
-    Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema, TextFieldIndexing,
-    TextOptions, FAST, INDEXED, STORED,
+    DateOptions, Field, IndexRecordOption, JsonObjectOptions, NumericOptions, Schema,
+    TextFieldIndexing, TextOptions, FAST, INDEXED, STORED,
 };
 use thiserror::Error;
 use tokenizers::{SearchNormalizer, SearchTokenizer};
@@ -36,8 +36,10 @@ pub enum SearchFieldType {
     Text,
     I64,
     F64,
+    U64,
     Bool,
     Json,
+    Date,
 }
 
 impl TryFrom<&PgOid> for SearchFieldType {
@@ -46,16 +48,20 @@ impl TryFrom<&PgOid> for SearchFieldType {
         match &pg_oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => Ok(SearchFieldType::Text),
-                PgBuiltInOids::INT2OID
-                | PgBuiltInOids::INT4OID
-                | PgBuiltInOids::INT8OID
-                | PgBuiltInOids::OIDOID
-                | PgBuiltInOids::XIDOID => Ok(SearchFieldType::I64),
+                PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID => {
+                    Ok(SearchFieldType::I64)
+                }
+                PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => Ok(SearchFieldType::U64),
                 PgBuiltInOids::FLOAT4OID | PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
                     Ok(SearchFieldType::F64)
                 }
                 PgBuiltInOids::BOOLOID => Ok(SearchFieldType::Bool),
                 PgBuiltInOids::JSONOID | PgBuiltInOids::JSONBOID => Ok(SearchFieldType::Json),
+                PgBuiltInOids::DATEOID
+                | PgBuiltInOids::TIMESTAMPOID
+                | PgBuiltInOids::TIMESTAMPTZOID
+                | PgBuiltInOids::TIMEOID
+                | PgBuiltInOids::TIMETZOID => Ok(SearchFieldType::Date),
                 _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
             },
             _ => Err(SearchIndexSchemaError::InvalidPgOid(*pg_oid)),
@@ -115,6 +121,14 @@ pub enum SearchFieldConfig {
         #[serde(default = "default_as_true")]
         stored: bool,
     },
+    Date {
+        #[serde(default = "default_as_true")]
+        indexed: bool,
+        #[serde(default = "default_as_true")]
+        fast: bool,
+        #[serde(default = "default_as_true")]
+        stored: bool,
+    },
     Key,
     Ctid,
 }
@@ -138,6 +152,10 @@ impl SearchFieldConfig {
 
     pub fn default_json() -> Self {
         Self::from_json(json!({"Json": {}}))
+    }
+
+    pub fn default_date() -> Self {
+        Self::from_json(json!({"Date": {}}))
     }
 }
 
@@ -245,6 +263,33 @@ impl From<SearchFieldConfig> for JsonObjectOptions {
     }
 }
 
+impl From<SearchFieldConfig> for DateOptions {
+    fn from(config: SearchFieldConfig) -> Self {
+        let mut date_options = DateOptions::default();
+        match config {
+            SearchFieldConfig::Date {
+                indexed,
+                fast,
+                stored,
+            } => {
+                if stored {
+                    date_options = date_options.set_stored();
+                }
+                if fast {
+                    date_options = date_options.set_fast();
+                }
+                if indexed {
+                    date_options = date_options.set_indexed();
+                }
+            }
+            _ => {
+                panic!("attemped to convert non-date search field config to tantivy date config")
+            }
+        }
+        date_options
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct SearchField {
     /// The id of the field, stored in the index.
@@ -279,14 +324,14 @@ pub struct SearchIndexSchema {
 
 impl SearchIndexSchema {
     pub fn new(
-        fields: Vec<(SearchFieldName, SearchFieldConfig)>,
+        fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
     ) -> Result<Self, SearchIndexSchemaError> {
         let mut builder = Schema::builder();
         let mut search_fields = vec![];
 
         let mut key_index = 0;
         let mut ctid_index = 0;
-        for (index, (name, config)) in fields.into_iter().enumerate() {
+        for (index, (name, config, field_type)) in fields.into_iter().enumerate() {
             match &config {
                 SearchFieldConfig::Key => key_index = index,
                 SearchFieldConfig::Ctid => ctid_index = index,
@@ -297,14 +342,20 @@ impl SearchIndexSchema {
                 SearchFieldConfig::Text { .. } => {
                     builder.add_text_field(name.as_ref(), config.clone())
                 }
-                SearchFieldConfig::Numeric { .. } => {
-                    builder.add_i64_field(name.as_ref(), config.clone())
-                }
+                SearchFieldConfig::Numeric { .. } => match field_type {
+                    SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
+                    SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
+                    SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),
+                    _ => return Err(SearchIndexSchemaError::InvalidNumericType(field_type)),
+                },
                 SearchFieldConfig::Boolean { .. } => {
                     builder.add_bool_field(name.as_ref(), config.clone())
                 }
                 SearchFieldConfig::Json { .. } => {
                     builder.add_json_field(name.as_ref(), config.clone())
+                }
+                SearchFieldConfig::Date { .. } => {
+                    builder.add_date_field(name.as_ref(), config.clone())
                 }
                 SearchFieldConfig::Key { .. } => {
                     builder.add_i64_field(name.as_ref(), INDEXED | STORED | FAST)
@@ -400,6 +451,8 @@ impl ToString for IndexRecordOption {
 
 #[derive(Debug, Error)]
 pub enum SearchIndexSchemaError {
+    #[error("invalid field type for numeric: {0:?}")]
+    InvalidNumericType(SearchFieldType),
     #[error("invalid postgres oid passed to search index schema: {0:?}")]
     InvalidPgOid(PgOid),
     #[error("no key field specified for search index")]

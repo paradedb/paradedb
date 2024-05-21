@@ -77,10 +77,31 @@ fn json_search(mut conn: PgConnection) {
 }
 
 #[rstest]
+fn date_search(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('last_updated_date:[2023-04-15T00:00:00Z TO 2023-04-18T00:00:00Z]', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![2, 23, 41]);
+}
+
+#[rstest]
+fn timestamp_search(mut conn: PgConnection) {
+    SimpleProductsTable::setup().execute(&mut conn);
+
+    let columns: SimpleProductsTableVec =
+        "SELECT * FROM bm25_search.search('created_at:[2023-04-15T00:00:00Z TO 2023-04-18T00:00:00Z]', stable_sort => true)"
+            .fetch_collect(&mut conn);
+    assert_eq!(columns.id, vec![2, 22, 23, 41]);
+}
+
+#[rstest]
 fn real_time_search(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
 
-    "INSERT INTO paradedb.bm25_search (description, rating, category, in_stock, metadata) VALUES ('New keyboard', 5, 'Electronics', true, '{}')"
+    "INSERT INTO paradedb.bm25_search (description, rating, category, in_stock, metadata, created_at, last_updated_date, latest_available_time)
+        VALUES ('New keyboard', 5, 'Electronics', true, '{}', TIMESTAMP '2023-05-04 11:09:12', DATE '2023-05-06', TIME '10:07:10')"
         .execute(&mut conn);
     "DELETE FROM paradedb.bm25_search WHERE id = 1".execute(&mut conn);
     "UPDATE paradedb.bm25_search SET description = 'PVC Keyboard' WHERE id = 2".execute(&mut conn);

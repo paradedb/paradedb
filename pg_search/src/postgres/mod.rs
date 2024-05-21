@@ -9,6 +9,7 @@ mod scan;
 mod vacuum;
 mod validate;
 
+pub mod datetime;
 pub mod utils;
 
 #[pg_extern(sql = "

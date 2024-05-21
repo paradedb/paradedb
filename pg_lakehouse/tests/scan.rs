@@ -130,7 +130,7 @@ async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: Temp
     writer.write(&stored_batch)?;
     writer.close()?;
 
-    primitive_setup_fdw_local_file_delta(parquet_path.to_str().unwrap(), "parquet")
+    primitive_setup_fdw_local_file_delta(tempdir.path().to_str().unwrap(), "parquet")
         .execute(&mut conn);
 
     let retrieved_batch =

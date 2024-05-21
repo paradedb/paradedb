@@ -48,11 +48,10 @@ impl TryFrom<&PgOid> for SearchFieldType {
         match &pg_oid {
             PgOid::BuiltIn(builtin) => match builtin {
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => Ok(SearchFieldType::Text),
-                PgBuiltInOids::INT2OID
-                | PgBuiltInOids::INT4OID
-                | PgBuiltInOids::INT8OID
-                | PgBuiltInOids::OIDOID
-                | PgBuiltInOids::XIDOID => Ok(SearchFieldType::I64),
+                PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID => {
+                    Ok(SearchFieldType::I64)
+                }
+                PgBuiltInOids::OIDOID | PgBuiltInOids::XIDOID => Ok(SearchFieldType::U64),
                 PgBuiltInOids::FLOAT4OID | PgBuiltInOids::FLOAT8OID | PgBuiltInOids::NUMERICOID => {
                     Ok(SearchFieldType::F64)
                 }

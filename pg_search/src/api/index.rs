@@ -2,9 +2,8 @@ use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
 use crate::postgres::datetime::{
-    pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value,
-    pgrx_timestamp_to_tantivy_value, pgrx_timestamptz_to_tantivy_value,
-    pgrx_timetz_to_tantivy_value,
+    pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value, pgrx_timestamp_to_tantivy_value,
+    pgrx_timestamptz_to_tantivy_value, pgrx_timetz_to_tantivy_value,
 };
 use crate::postgres::utils::get_search_index;
 use crate::query::SearchQueryInput;

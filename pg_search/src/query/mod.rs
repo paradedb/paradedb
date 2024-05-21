@@ -460,8 +460,7 @@ fn value_to_term(field: Field, value: Value, field_type: &FieldType) -> Term {
         Value::Str(text) => {
             match field_type {
                 FieldType::Date(_) => {
-                    // JSONB turns date into string, so we have to turn it back into a Tantivy date
-
+                    // Serialization turns date into string, so we have to turn it back into a Tantivy date
                     // First try with no precision beyond seconds, then try with precision
                     let datetime =
                         match chrono::NaiveDateTime::parse_from_str(&text, "%Y-%m-%dT%H:%M:%SZ") {

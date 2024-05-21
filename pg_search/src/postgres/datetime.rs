@@ -1,3 +1,5 @@
+use chrono::{NaiveDate, NaiveDateTime};
+
 static MICROSECONDS_IN_SECOND: u32 = 1_000_000;
 
 fn datetime_components_to_tantivy_date(
@@ -5,8 +7,8 @@ fn datetime_components_to_tantivy_date(
     hms_micro: (u8, u8, u8, u32),
 ) -> tantivy::schema::Value {
     let naive_dt = match ymd {
-        Some(ymd) => chrono::NaiveDate::from_ymd_opt(ymd.0, ymd.1.into(), ymd.2.into()).unwrap(),
-        None => chrono::NaiveDateTime::UNIX_EPOCH.date(),
+        Some(ymd) => NaiveDate::from_ymd_opt(ymd.0, ymd.1.into(), ymd.2.into()).unwrap(),
+        None => NaiveDateTime::UNIX_EPOCH.date(),
     }
     .and_hms_micro_opt(
         hms_micro.0.into(),

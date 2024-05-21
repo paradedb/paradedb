@@ -158,6 +158,9 @@ pub enum ContextError {
     LogicalPlanError(#[from] LogicalPlanError),
 
     #[error(transparent)]
+    ObjectStoreError(#[from] deltalake::ObjectStoreError),
+
+    #[error(transparent)]
     SchemaError(#[from] SchemaError),
 
     #[error(transparent)]

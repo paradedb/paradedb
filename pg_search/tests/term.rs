@@ -44,8 +44,7 @@ fn integer_term(mut conn: PgConnection) {
     	id SERIAL PRIMARY KEY,
     	value_int2 SMALLINT,
     	value_int4 INTEGER,
-    	value_int8 BIGINT,
-
+    	value_int8 BIGINT
     );
 
     INSERT INTO test_table (value_int2, value_int4, value_int8) VALUES 

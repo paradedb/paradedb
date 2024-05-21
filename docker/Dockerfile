@@ -124,6 +124,20 @@ RUN echo "trusted = true" >> pg_cron.control && \
     make clean -j && \
     make USE_PGXS=1 -j
 
+######################
+# pg_ivm
+######################
+
+FROM builder as builder-pg_ivm
+
+# Build the extension
+WORKDIR /tmp
+RUN git clone --branch v1.8 https://github.com/sraoss/pg_ivm.git
+WORKDIR /tmp/pg_ivm
+RUN echo "trusted = true" >> pg_ivm.control && \
+    make clean -j && \
+    make USE_PGXS=1 -j
+
 ###############################################
 # Second Stage: PostgreSQL
 ###############################################
@@ -142,6 +156,9 @@ COPY --from=builder-pgvector /tmp/pgvector/sql/*.sql /opt/bitnami/postgresql/sha
 COPY --from=builder-pg_cron /tmp/pg_cron/*.so /opt/bitnami/postgresql/lib/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.control /opt/bitnami/postgresql/share/extension/
 COPY --from=builder-pg_cron /tmp/pg_cron/*.sql /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_ivm /tmp/pg_ivm/*.so /opt/bitnami/postgresql/lib/
+COPY --from=builder-pg_ivm /tmp/pg_ivm/*.control /opt/bitnami/postgresql/share/extension/
+COPY --from=builder-pg_ivm /tmp/pg_ivm/*.sql /opt/bitnami/postgresql/share/extension/
 
 # Copy the ParadeDB extensions from their builder stages
 COPY --from=builder-pg_search /tmp/pg_search/target/release/pg_search-pg${PG_VERSION_MAJOR}/usr/lib/postgresql/${PG_VERSION_MAJOR}/lib/* /opt/bitnami/postgresql/lib/

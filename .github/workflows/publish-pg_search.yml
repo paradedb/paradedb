@@ -110,9 +110,10 @@ jobs:
           echo 'Description: Full text search for PostgreSQL using BM25' >> $CONTROL_FILE
 
           # Create .deb package
+          # Note: We specify `xz` compression for compatibility with Debian 11
           sudo chown -R root:root ${package_dir}
           sudo chmod -R 00755 ${package_dir}
-          sudo dpkg-deb --build --root-owner-group ${package_dir}
+          sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       # We retrieve the GitHub release for the specific release version
       - name: Retrieve GitHub Release Upload URL

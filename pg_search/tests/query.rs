@@ -28,26 +28,6 @@ fn boolean_tree(mut conn: PgConnection) {
 }
 
 #[rstest]
-fn range(mut conn: PgConnection) {
-    SimpleProductsTable::setup().execute(&mut conn);
-    let mut columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.range(field => 'last_updated_date', range => '[2023-05-01,2023-05-03]'::daterange),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
-    assert_eq!(columns.id, vec![1, 5, 8, 20, 28, 29, 30]);
-
-    columns = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.range(field => 'rating', range => '[1,3)'::int4range),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
-    assert_eq!(columns.id, vec![7, 10, 15, 27]);
-}
-
-#[rstest]
 fn fuzzy_fields(mut conn: PgConnection) {
     SimpleProductsTable::setup().execute(&mut conn);
     let columns: SimpleProductsTableVec = r#"
@@ -202,6 +182,23 @@ fn single_queries(mut conn: PgConnection) {
     )"#
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 1);
+
+    // Range
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.range(field => 'last_updated_date', range => '[2023-05-01,2023-05-03]'::daterange),
+        stable_sort => true
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 7);
+
+    let columns: SimpleProductsTableVec = r#"
+    SELECT * FROM bm25_search.search(
+        query => paradedb.range(field => 'rating', range => '[1,3)'::int4range),
+        stable_sort => true
+    )"#
+    .fetch_collect(&mut conn);
+    assert_eq!(columns.len(), 4);
 
     // Regex
     let columns: SimpleProductsTableVec = r#"

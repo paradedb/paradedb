@@ -72,7 +72,7 @@ impl SearchIndex {
         // to be rebuilt and this method is called again.
         directory.remove().map_err(SearchIndexError::from)?;
 
-        let schema = SearchIndexSchema::new(fields.clone())?;
+        let schema = SearchIndexSchema::new(fields)?;
         let settings = IndexSettings {
             // Fields should be returned in the order of their key_field (if their bm25 scores match).
             // Pre-sorting these fields at insert time saves work at query time.

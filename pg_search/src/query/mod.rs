@@ -481,7 +481,8 @@ fn value_to_term(field: Field, value: Value, field_type: &FieldType) -> Term {
         }
         Value::PreTokStr(_) => panic!("pre-tokenized text cannot be converted to term"),
         Value::U64(u64) => {
-            // Positive numbers seem to be automatically turned into u64s even if they are i64s
+            // Positive numbers seem to be automatically turned into u64s even if they are i64s,
+            //     so we should use the field type to assign the term type
             match field_type {
                 FieldType::I64(_) => Term::from_field_i64(field, u64 as i64),
                 FieldType::U64(_) => Term::from_field_u64(field, u64),

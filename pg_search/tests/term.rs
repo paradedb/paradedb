@@ -102,14 +102,15 @@ fn float_term(mut conn: PgConnection) {
     CREATE TABLE test_table (
     	id SERIAL PRIMARY KEY,
     	value_float4 FLOAT4,
-    	value_float8 FLOAT8
+    	value_float8 FLOAT8,
+        value_numeric NUMERIC
     );
 
-    INSERT INTO test_table (value_float4, value_float8) VALUES 
-    	(1.1, 1111.1111), 
-    	(2.2, 2222.2222), 
-    	(3.3, 3333.3333), 
-    	(4.4, 4444.4444);
+    INSERT INTO test_table (value_float4, value_float8, value_numeric) VALUES
+    	(-1.1, -1111.1111, -111.11111),
+    	(2.2, 2222.2222, 222.22222),
+    	(3.3, 3333.3333, 333.33333),
+    	(4.4, 4444.4444, 444.44444);
     "#
     .execute(&mut conn);
 
@@ -118,7 +119,7 @@ fn float_term(mut conn: PgConnection) {
     	table_name => 'test_table',
     	index_name => 'test_index',
     	key_field => 'id',
-    	numeric_fields => '{"value_float4": {}, "value_float8": {}}'
+    	numeric_fields => '{"value_float4": {}, "value_float8": {}, "value_numeric": {}}'
     );
     "#
     .execute(&mut conn);
@@ -126,12 +127,12 @@ fn float_term(mut conn: PgConnection) {
     // FLOAT4
     let rows: Vec<(i32, f32)> = r#"
     SELECT id, value_float4 FROM test_index.search(
-    	query => paradedb.term(field => 'value_float4', value => 1.1::float4),
+    	query => paradedb.term(field => 'value_float4', value => -1.1::float4),
     	stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(rows, vec![(1, 1.1)]);
+    assert_eq!(rows, vec![(1, -1.1)]);
 
     // FLOAT8
     let rows: Vec<(i32, f64)> = r#"
@@ -142,6 +143,16 @@ fn float_term(mut conn: PgConnection) {
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(4, 4444.4444)]);
+
+    // NUMERIC
+    let rows: Vec<(i32, f64)> = r#"
+    SELECT id, value_numeric FROM test_index.search(
+        query => paradedb.term(field => 'value_numeric', value => 333.33333::numeric),
+        stable_sort => true
+    );
+    "#
+    .fetch_collect(&mut conn);
+    assert_eq!(rows, vec![(3, 333.33333)]);
 }
 
 #[rstest]

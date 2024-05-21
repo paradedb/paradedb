@@ -471,9 +471,9 @@ term_fn!(tid, pgrx::pg_sys::ItemPointerData, |_v| unimplemented!(
 term_fn!(inet, pgrx::Inet, |_v| unimplemented!(
     "inet in term query not implemented"
 ));
-term_fn!(numeric, pgrx::AnyNumeric, |_v| unimplemented!(
-    "numeric in term query not implemented"
-));
+term_fn!(numeric, pgrx::AnyNumeric, |v: pgrx::AnyNumeric| {
+    tantivy::schema::Value::F64(v.try_into().unwrap())
+});
 term_fn!(int4range, pgrx::Range<i32>, |_v| unimplemented!(
     "int4 range in term query not implemented"
 ));

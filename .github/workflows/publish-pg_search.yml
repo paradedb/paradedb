@@ -28,6 +28,12 @@ jobs:
       matrix:
         include:
           - runner: ubuntu-latest
+            pg_version: 14
+            arch: amd64
+          - runner: depot-ubuntu-22.04-arm-4
+            pg_version: 14
+            arch: arm64
+          - runner: ubuntu-latest
             pg_version: 15
             arch: amd64
           - runner: depot-ubuntu-22.04-arm-4

@@ -343,14 +343,12 @@ impl SearchIndexSchema {
                 SearchFieldConfig::Text { .. } => {
                     builder.add_text_field(name.as_ref(), config.clone())
                 }
-                SearchFieldConfig::Numeric { .. } => {
-                    match field_type {
-                        SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
-                        SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
-                        SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),
-                        _ => return Err(SearchIndexSchemaError::InvalidNumericType(field_type))
-                    }
-                }
+                SearchFieldConfig::Numeric { .. } => match field_type {
+                    SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
+                    SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
+                    SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),
+                    _ => return Err(SearchIndexSchemaError::InvalidNumericType(field_type)),
+                },
                 SearchFieldConfig::Boolean { .. } => {
                     builder.add_bool_field(name.as_ref(), config.clone())
                 }

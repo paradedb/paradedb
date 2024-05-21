@@ -15,8 +15,8 @@ use tracing::{error, info};
 use super::state::SearchState;
 use crate::postgres::utils::row_to_search_document;
 use crate::schema::{
-    SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
-    SearchIndexSchemaError,
+    SearchConfig, SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType,
+    SearchIndexSchema, SearchIndexSchemaError,
 };
 use crate::writer::{
     self, SearchDirectoryError, SearchFs, TantivyDirPath, WriterClient, WriterDirectory,

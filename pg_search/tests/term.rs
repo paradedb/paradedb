@@ -6,8 +6,8 @@ use rstest::*;
 use sqlx::PgConnection;
 
 #[rstest]
-fn boolean_search(mut conn: PgConnection) {
-	r#"
+fn boolean_term(mut conn: PgConnection) {
+    r#"
     CREATE TABLE test_table (
     	id SERIAL PRIMARY KEY,
     	value BOOLEAN
@@ -27,7 +27,6 @@ fn boolean_search(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-
     let rows: Vec<(i32, bool)> = r#"
     SELECT * FROM test_index.search(
     	query => paradedb.term(field => 'value', value => true),
@@ -35,15 +34,12 @@ fn boolean_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-    	rows,
-    	vec![(1, true), (4, true)]
-    );
+    assert_eq!(rows, vec![(1, true), (4, true)]);
 }
 
 #[rstest]
-fn integer_search(mut conn: PgConnection) {
-	r#"
+fn integer_term(mut conn: PgConnection) {
+    r#"
     CREATE TABLE test_table (
     	id SERIAL PRIMARY KEY,
     	value_int2 SMALLINT,
@@ -53,7 +49,7 @@ fn integer_search(mut conn: PgConnection) {
     );
 
     INSERT INTO test_table (value_int2, value_int4, value_int8) VALUES 
-    	(11, 1111, 11111111), 
+    	(-11, -1111, -11111111),
     	(22, 2222, 22222222), 
     	(33, 3333, 33333333), 
     	(44, 4444, 44444444);
@@ -70,19 +66,15 @@ fn integer_search(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-
     // INT2
     let rows: Vec<(i32, i16)> = r#"
     SELECT id, value_int2 FROM test_index.search(
-    	query => paradedb.term(field => 'value_int2', value => 11),
+    	query => paradedb.term(field => 'value_int2', value => -11),
     	stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-    	rows,
-    	vec![(1, 11)]
-    );
+    assert_eq!(rows, vec![(1, -11)]);
 
     // INT4
     let rows: Vec<(i32, i32)> = r#"
@@ -92,10 +84,7 @@ fn integer_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-    	rows,
-    	vec![(2, 2222)]
-    );
+    assert_eq!(rows, vec![(2, 2222)]);
 
     // INT8
     let rows: Vec<(i32, i64)> = r#"
@@ -105,15 +94,12 @@ fn integer_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-    	rows,
-    	vec![(3, 33333333)]
-    );
+    assert_eq!(rows, vec![(3, 33333333)]);
 }
 
 #[rstest]
-fn float_search(mut conn: PgConnection) {
-	r#"
+fn float_term(mut conn: PgConnection) {
+    r#"
     CREATE TABLE test_table (
     	id SERIAL PRIMARY KEY,
     	value_float4 FLOAT4,
@@ -138,7 +124,6 @@ fn float_search(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
-
     // FLOAT4
     let rows: Vec<(i32, f32)> = r#"
     SELECT id, value_float4 FROM test_index.search(
@@ -147,10 +132,7 @@ fn float_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-    	rows,
-    	vec![(1, 1.1)]
-    );
+    assert_eq!(rows, vec![(1, 1.1)]);
 
     // FLOAT8
     let rows: Vec<(i32, f64)> = r#"
@@ -160,14 +142,11 @@ fn float_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-    	rows,
-    	vec![(4, 4444.4444)]
-    );
+    assert_eq!(rows, vec![(4, 4444.4444)]);
 }
 
 #[rstest]
-fn text_search(mut conn: PgConnection) {
+fn text_term(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
         id SERIAL PRIMARY KEY,
@@ -201,10 +180,7 @@ fn text_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-        rows,
-        vec![(1, "abc".into())]
-    );
+    assert_eq!(rows, vec![(1, "abc".into())]);
 
     // VARCHAR
     let rows: Vec<(i32, String)> = r#"
@@ -214,10 +190,7 @@ fn text_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-        rows,
-        vec![(3, "var ghi".into())]
-    );
+    assert_eq!(rows, vec![(3, "var ghi".into())]);
 }
 
 #[rstest]
@@ -253,10 +226,7 @@ fn json_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-        rows,
-        vec![(1,)]
-    );
+    assert_eq!(rows, vec![(1,)]);
 
     // JSONB
     let rows: Vec<(i32,)> = r#"
@@ -266,10 +236,7 @@ fn json_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-        rows,
-        vec![(2,)]
-    );
+    assert_eq!(rows, vec![(2,)]);
 
     // Search JSONB using JSON
     let rows: Vec<(i32,)> = r#"
@@ -279,10 +246,7 @@ fn json_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-        rows,
-        vec![(2,)]
-    );
+    assert_eq!(rows, vec![(2,)]);
 
     // Search JSON using JSONB
     let rows: Vec<(i32,)> = r#"
@@ -292,14 +256,11 @@ fn json_search(mut conn: PgConnection) {
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(
-        rows,
-        vec![(1,)]
-    );
+    assert_eq!(rows, vec![(1,)]);
 }
 
 #[rstest]
-fn datetime_search(mut conn: PgConnection) {
+fn datetime_term(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
         id SERIAL PRIMARY KEY,
@@ -326,6 +287,7 @@ fn datetime_search(mut conn: PgConnection) {
     "#
     .execute(&mut conn);
 
+    // DATE
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
         query => paradedb.term(field => 'value_date', value => DATE '2023-05-03')
@@ -334,6 +296,7 @@ fn datetime_search(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
+    // TIMESTAMP
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
         query => paradedb.term(field => 'value_timestamp', value => TIMESTAMP '2019-08-02 07:52:43')
@@ -342,6 +305,7 @@ fn datetime_search(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 
+    // TIMESTAMP WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
         query => paradedb.term(field => 'value_timestamptz', value => TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 PST')
@@ -350,7 +314,7 @@ fn datetime_search(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
-    // Change time zone in query
+    // TIMESTAMP WITH TIME ZONE: Change time zone in query
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
         query => paradedb.term(field => 'value_timestamptz', value => TIMESTAMP WITH TIME ZONE '2023-04-15 16:27:09 EST')
@@ -359,6 +323,7 @@ fn datetime_search(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
+    // TIME
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
         query => paradedb.term(field => 'value_time', value => TIME '11:43:21')
@@ -367,6 +332,7 @@ fn datetime_search(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 
+    // TIME WITH TIME ZONE
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
         query => paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '11:43:21 EST')
@@ -375,7 +341,7 @@ fn datetime_search(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 
-    // Change time zone in query
+    // TIME WITH TIME ZONE: Change time zone in query
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
         query => paradedb.term(field => 'value_timetz', value => TIME WITH TIME ZONE '08:43:21 PST')
@@ -384,7 +350,7 @@ fn datetime_search(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(2,)]);
 
-    // Query no time zone with time zone
+    // TIMESTAMP WITH TIME ZONE: Query no time zone with time zone
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
         query => paradedb.term(field => 'value_timestamp', value => TIMESTAMP WITH TIME ZONE '2023-04-15 13:27:09 GMT')
@@ -393,7 +359,7 @@ fn datetime_search(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(1,)]);
 
-    // Query time zone with no time zone (GMT = EST + 5)
+    // TIMESTAMP: Query time zone with no time zone (GMT = EST + 5)
     let rows: Vec<(i32,)> = r#"
     SELECT * FROM test_index.search(
         query => paradedb.term(field => 'value_timestamptz', value => TIMESTAMP '2019-08-02 12:52:43')

@@ -3,7 +3,9 @@ mod directory;
 mod handler;
 mod index;
 
-use crate::schema::{SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
+use crate::schema::{
+    SearchDocument, SearchFieldConfig, SearchFieldName, SearchFieldType, SearchIndexSchema,
+};
 pub use crate::writer::SearchFs;
 pub use client::*;
 pub use directory::*;
@@ -78,18 +80,34 @@ pub fn chinese_fields() -> Vec<(SearchFieldName, SearchFieldConfig, SearchFieldT
         ("message".into(), numeric.clone(), SearchFieldType::I64),
         ("content".into(), json.clone(), SearchFieldType::Json),
         ("like_count".into(), numeric.clone(), SearchFieldType::I64),
-        ("dislike_count".into(), numeric.clone(), SearchFieldType::I64),
-        ("comment_count".into(), numeric.clone(), SearchFieldType::I64),
-        ("unix_timestamp_milli".into(), numeric.clone(), SearchFieldType::I64),
+        (
+            "dislike_count".into(),
+            numeric.clone(),
+            SearchFieldType::I64,
+        ),
+        (
+            "comment_count".into(),
+            numeric.clone(),
+            SearchFieldType::I64,
+        ),
+        (
+            "unix_timestamp_milli".into(),
+            numeric.clone(),
+            SearchFieldType::I64,
+        ),
     ]
 }
 
 #[fixture]
-pub fn default_index(default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>) -> MockSearchIndex {
+pub fn default_index(
+    default_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+) -> MockSearchIndex {
     MockSearchIndex::new(default_fields)
 }
 
 #[fixture]
-pub fn chinese_index(chinese_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>) -> MockSearchIndex {
+pub fn chinese_index(
+    chinese_fields: Vec<(SearchFieldName, SearchFieldConfig, SearchFieldType)>,
+) -> MockSearchIndex {
     MockSearchIndex::new(chinese_fields)
 }

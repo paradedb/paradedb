@@ -70,7 +70,7 @@ pub extern "C" fn ambuild(
             .get_text_fields()
             .into_iter()
             .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Text) => (name, config, field_type.clone()),
+                Some(field_type @ SearchFieldType::Text) => (name, config, *field_type),
                 _ => panic!("'{name}' cannot be indexed as a text field"),
             });
 
@@ -78,7 +78,9 @@ pub extern "C" fn ambuild(
         .get_numeric_fields()
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::I64) | Some(field_type @ SearchFieldType::F64) => (name, config, field_type.clone()),
+            Some(field_type @ SearchFieldType::I64) | Some(field_type @ SearchFieldType::F64) => {
+                (name, config, *field_type)
+            }
             _ => panic!("'{name}' cannot be indexed as a numeric field"),
         });
 
@@ -86,7 +88,7 @@ pub extern "C" fn ambuild(
         .get_boolean_fields()
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Bool) => (name, config, field_type.clone()),
+            Some(field_type @ SearchFieldType::Bool) => (name, config, *field_type),
             _ => panic!("'{name}' cannot be indexed as a boolean field"),
         });
 
@@ -95,7 +97,7 @@ pub extern "C" fn ambuild(
             .get_json_fields()
             .into_iter()
             .map(|(name, config)| match name_type_map.get(&name) {
-                Some(field_type @ SearchFieldType::Json) => (name, config, field_type.clone()),
+                Some(field_type @ SearchFieldType::Json) => (name, config, *field_type),
                 _ => panic!("'{name}' cannot be indexed as a JSON field"),
             });
 
@@ -103,7 +105,7 @@ pub extern "C" fn ambuild(
         .get_datetime_fields()
         .into_iter()
         .map(|(name, config)| match name_type_map.get(&name) {
-            Some(field_type @ SearchFieldType::Date) => (name, config, field_type.clone()),
+            Some(field_type @ SearchFieldType::Date) => (name, config, *field_type),
             _ => panic!("'{name}' cannot be indexed as a datetime field"),
         });
 
@@ -121,10 +123,18 @@ pub extern "C" fn ambuild(
         .chain(boolean_fields)
         .chain(json_fields)
         .chain(datetime_fields)
-        .chain(std::iter::once((key_field, SearchFieldConfig::Key, SearchFieldType::I64)))
+        .chain(std::iter::once((
+            key_field,
+            SearchFieldConfig::Key,
+            SearchFieldType::I64,
+        )))
         // "ctid" is a reserved column name in Postgres, so we don't need to worry about
         // creating a name conflict with a user-named column.
-        .chain(std::iter::once(("ctid".into(), SearchFieldConfig::Ctid, SearchFieldType::U64)))
+        .chain(std::iter::once((
+            "ctid".into(),
+            SearchFieldConfig::Ctid,
+            SearchFieldType::U64,
+        )))
         .collect();
 
     // If there's only two fields in the vector, then those are just the Key and Ctid fields,

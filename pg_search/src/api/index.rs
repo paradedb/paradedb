@@ -1,11 +1,12 @@
 use pgrx::{iter::TableIterator, *};
 use tantivy::schema::*;
 
-use crate::postgres::utils::{
-    get_search_index, pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value,
+use crate::postgres::datetime::{
+    pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value,
     pgrx_timestamp_to_tantivy_value, pgrx_timestamptz_to_tantivy_value,
     pgrx_timetz_to_tantivy_value,
 };
+use crate::postgres::utils::get_search_index;
 use crate::query::SearchQueryInput;
 use crate::schema::ToString;
 use core::panic;
@@ -437,20 +438,12 @@ term_fn!(term_i64, i64, tantivy::schema::Value::I64);
 term_fn!(term_f32, f32, |v| tantivy::schema::Value::F64(v as f64));
 term_fn!(term_f64, f64, tantivy::schema::Value::F64);
 term_fn!(term_bool, bool, tantivy::schema::Value::Bool);
-term_fn!(json, pgrx::Json, |pgrx::Json(v)| {
-    tantivy::schema::Value::JsonObject(
-        v.as_object()
-            .expect("json passed to term query must be an object")
-            .clone(),
-    )
-});
-term_fn!(jsonb, pgrx::JsonB, |pgrx::JsonB(v)| {
-    tantivy::schema::Value::JsonObject(
-        v.as_object()
-            .expect("jsonb passed to term query must be an object")
-            .clone(),
-    )
-});
+term_fn!(json, pgrx::Json, |_v| unimplemented!(
+    "json in term query not implemented"
+));
+term_fn!(jsonb, pgrx::JsonB, |_v| unimplemented!(
+    "jsonb in term query not implemented"
+));
 term_fn!(date, pgrx::Date, pgrx_date_to_tantivy_value);
 term_fn!(time, pgrx::Time, pgrx_time_to_tantivy_value);
 term_fn!(timestamp, pgrx::Timestamp, pgrx_timestamp_to_tantivy_value);

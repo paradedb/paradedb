@@ -7,6 +7,9 @@ name: Publish pg_lakehouse
 
 on:
   push:
+    # TODO: remove when done testing
+    branches:
+      - phil/builders
     tags:
       - "v*"
   workflow_dispatch:
@@ -24,27 +27,49 @@ jobs:
   publish-pg_lakehouse:
     name: Publish pg_lakehouse for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+    container:
+      image: ${{ matrix.image }}
+        debian:11
     strategy:
       matrix:
         include:
-          - runner: depot-ubuntu-22.04-4
-            pg_version: 14
-            arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            pg_version: 14
-            arch: arm64
-          - runner: depot-ubuntu-22.04-4
-            pg_version: 15
-            arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            pg_version: 15
-            arch: arm64
-          - runner: depot-ubuntu-22.04-4
-            pg_version: 16
-            arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            pg_version: 16
-            arch: arm64
+          # - runner: depot-ubuntu-22.04-4
+          #   pg_version: 14
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   pg_version: 14
+          #   arch: arm64
+          # - runner: depot-ubuntu-22.04-4
+          #   pg_version: 15
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   pg_version: 15
+          #   arch: arm64
+          # - runner: depot-ubuntu-22.04-4
+          #   pg_version: 16
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   pg_version: 16
+          #   arch: arm64
+          # - runner: ubuntu-latest
+          #   image: debian:11
+          #   pg_version: 14
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   pg_version: 14
+          #   arch: arm64
+          # - runner: ubuntu-latest
+          #   pg_version: 15
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   pg_version: 15
+          #   arch: arm64
+          # - runner: ubuntu-latest
+          #   pg_version: 16
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   pg_version: 16
+          #   arch: arm64
 
     steps:
       - name: Checkout Git Repository
@@ -133,10 +158,11 @@ jobs:
         id: upload_url
         run: echo UPLOAD_URL=$(curl --silent https://api.github.com/repos/${{ github.repository }}/releases/tags/v${{ steps.version.outputs.version }} | jq .upload_url --raw-output) >> $GITHUB_OUTPUT
 
-      - name: Upload pg_lakehouse .deb to GitHub Release
-        uses: shogo82148/actions-upload-release-asset@v1
-        with:
-          github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
-          upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_lakehouse-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
-          asset_name: pg_lakehouse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
+      # TODO: Uncomment when done testing
+      # - name: Upload pg_lakehouse .deb to GitHub Release
+      #   uses: shogo82148/actions-upload-release-asset@v1
+      #   with:
+      #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
+      #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
+      #     asset_path: ./pg_lakehouse-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
+      #     asset_name: pg_lakehouse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb

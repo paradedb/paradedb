@@ -49,15 +49,17 @@ async fn arrow_schema_impl(
     let server_options = unsafe { options_to_hashmap((*foreign_server).options) }?;
     let user_mapping_options = unsafe { user_mapping_options(foreign_server) };
     let fdw_handler = FdwHandler::from(foreign_server);
+    let format = format.unwrap_or("".to_string());
 
     register_object_store(
         fdw_handler,
         &Url::parse(&path)?,
+        TableFormat::from(&format),
         server_options,
         user_mapping_options,
     )?;
 
-    let provider = match TableFormat::from(&format.unwrap_or("".to_string())) {
+    let provider = match TableFormat::from(&format) {
         TableFormat::None => create_listing_provider(&path, &extension).await?,
         TableFormat::Delta => create_delta_provider(&path, &extension).await?,
     };

@@ -11,6 +11,7 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use crate::datafusion::context::ContextError;
+use crate::datafusion::format::TableFormat;
 use crate::datafusion::session::Session;
 use crate::fdw::options::*;
 
@@ -136,6 +137,7 @@ impl TryFrom<ServerOptions> for Gcs {
 impl BaseFdw for GcsFdw {
     fn register_object_store(
         url: &Url,
+        _format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
@@ -207,7 +209,14 @@ impl ForeignDataWrapper<BaseFdwError> for GcsFdw {
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
-        GcsFdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
+        let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
+
+        GcsFdw::register_object_store(
+            &Url::parse(path)?,
+            TableFormat::from(format),
+            server_options,
+            user_mapping_options,
+        )?;
 
         Ok(Self {
             current_batch: None,

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use url::Url;
 
 use crate::datafusion::context::ContextError;
+use crate::datafusion::format::TableFormat;
 
 use super::base::BaseFdw;
 use super::gcs::GcsFdw;
@@ -52,18 +53,19 @@ impl From<*mut pg_sys::ForeignServer> for FdwHandler {
 pub fn register_object_store(
     handler: FdwHandler,
     url: &Url,
+    format: TableFormat,
     server_options: HashMap<String, String>,
     user_mapping_options: HashMap<String, String>,
 ) -> Result<(), ContextError> {
     match handler {
         FdwHandler::S3 => {
-            S3Fdw::register_object_store(url, server_options, user_mapping_options)?;
+            S3Fdw::register_object_store(url, format, server_options, user_mapping_options)?;
         }
         FdwHandler::LocalFile => {
-            LocalFileFdw::register_object_store(url, server_options, user_mapping_options)?;
+            LocalFileFdw::register_object_store(url, format, server_options, user_mapping_options)?;
         }
         FdwHandler::Gcs => {
-            GcsFdw::register_object_store(url, server_options, user_mapping_options)?;
+            GcsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
         }
         _ => {}
     }

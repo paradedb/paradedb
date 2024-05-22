@@ -25,6 +25,7 @@ pub trait BaseFdw {
     // Public methods
     fn register_object_store(
         url: &Url,
+        format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError>;

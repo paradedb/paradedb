@@ -1,7 +1,14 @@
+use std::{
+    fs::{self, File},
+    io::Read,
+    path::Path,
+};
+
 use anyhow::Result;
 use async_std::task::block_on;
 use aws_config::{BehaviorVersion, Region};
 
+use aws_sdk_s3::primitives::ByteStream;
 use datafusion::{
     arrow::{datatypes::FieldRef, record_batch::RecordBatch},
     parquet::arrow::ArrowWriter,
@@ -115,6 +122,34 @@ impl S3 {
         let batch = serde_arrow::to_record_batch(&fields, &rows)?;
 
         self.put_batch(bucket, key, &batch).await
+    }
+
+    pub async fn put_directory(&self, bucket: &str, dir: &Path) -> Result<()> {
+        let entries = fs::read_dir(dir)?
+            .filter_map(|entry| entry.ok())
+            .collect::<Vec<_>>();
+
+        for entry in entries {
+            let path = entry.path();
+            if path.is_file() {
+                let key = path.strip_prefix(dir)?.to_str().unwrap().to_string();
+                let bucket = bucket.to_string();
+                let client = self.client.clone();
+
+                let mut file = File::open(&path)?;
+                let mut buf = vec![];
+                file.read_to_end(&mut buf)?;
+                client
+                    .put_object()
+                    .bucket(&bucket)
+                    .key(&key)
+                    .body(ByteStream::from(buf))
+                    .send()
+                    .await?;
+            }
+        }
+
+        Ok(())
     }
 }
 

@@ -48,6 +48,47 @@ fn binary_array_data() -> ArrayData {
         .unwrap()
 }
 
+/// A separate version of the primitive_record_batch fixture,
+/// narrowed to only the types that Delta Lake supports.
+pub fn delta_primitive_record_batch() -> Result<RecordBatch> {
+    let fields = vec![
+        Field::new("boolean_col", DataType::Boolean, false),
+        // Field::new("int8_col", DataType::Int8, false),
+        // Field::new("int16_col", DataType::Int16, false),
+        // Field::new("int32_col", DataType::Int32, false),
+        // Field::new("int64_col", DataType::Int64, false),
+        // Field::new("float32_col", DataType::Float32, false),
+        // Field::new("float64_col", DataType::Float64, false),
+        // Field::new("date32_col", DataType::Date32, false),
+        // Field::new("binary_col", DataType::Binary, false),
+        // Field::new("utf8_col", DataType::Utf8, false),
+    ];
+
+    let schema = Arc::new(Schema::new(fields));
+    let batch = RecordBatch::try_new(
+        schema,
+        vec![
+            Arc::new(BooleanArray::from(vec![true, true, false])),
+            // Arc::new(Int8Array::from(vec![1, -1, 0])),
+            // Arc::new(Int16Array::from(vec![1, -1, 0])),
+            // Arc::new(Int32Array::from(vec![1, -1, 0])),
+            // Arc::new(Int64Array::from(vec![1, -1, 0])),
+            // Arc::new(Float32Array::from(vec![1.0, -1.0, 0.0])),
+            // Arc::new(Float64Array::from(vec![1.0, -1.0, 0.0])),
+            // Arc::new(Date32Array::from(vec![18262, 18263, 18264])),
+            // Arc::new(BinaryArray::from(array_data())),
+            // Arc::new(StringArray::from(vec![
+            //     Some("Hello"),
+            //     Some("There"),
+            //     Some("World"),
+            // ])),
+        ],
+    )?;
+
+    Ok(batch)
+}
+
+// Blows up deltalake, so comment out for now.
 pub fn primitive_record_batch() -> Result<RecordBatch> {
     // Define the fields for each datatype
     let fields = vec![
@@ -92,69 +133,61 @@ pub fn primitive_record_batch() -> Result<RecordBatch> {
     // Create a schema from the fields
     let schema = Arc::new(Schema::new(fields));
 
-    // Create arrays for each type
-    let boolean_array = BooleanArray::from(vec![Some(true), Some(true), Some(false)]);
-    let int8_array = Int8Array::from(vec![1, -1, 0]);
-    let int16_array = Int16Array::from(vec![1, -1, 0]);
-    let int32_array = Int32Array::from(vec![1, -1, 0]);
-    let int64_array = Int64Array::from(vec![1, -1, 0]);
-    let uint8_array = UInt8Array::from(vec![1, 2, 0]);
-    let uint16_array = UInt16Array::from(vec![1, 2, 0]);
-    let uint32_array = UInt32Array::from(vec![1, 2, 0]);
-    let uint64_array = UInt64Array::from(vec![1, 2, 0]);
-    // No Float16Array implemented in the arrow lib.
-    let float32_array = Float32Array::from(vec![1.0, -1.0, 0.0]);
-    let float64_array = Float64Array::from(vec![1.0, -1.0, 0.0]);
-    let timestamp_array = TimestampSecondArray::from(vec![Some(0), Some(0), Some(1627849445)]);
-    let date32_array = Date32Array::from(vec![18262, 18263, 18264]);
-    let date64_array = Date64Array::from(vec![1609459200000, 1609545600000, 1609632000000]);
-    let time32_array = Time32SecondArray::from(vec![3600, 7200, 10800]);
-    let time64_array =
-        Time64NanosecondArray::from(vec![3600000000000, 7200000000000, 10800000000000]);
-    // Converting Duration to parquet not supported.
-    // let duration_array = DurationMillisecondArray::from(vec![1000, 2000, -1000]);
-    // Arrow IntervalDayTime is not supported by ParadeDB.
-    // let interval_array = IntervalDayTimeArray::from(vec![1, 2, 3]);
-    let binary_array = BinaryArray::from(array_data());
-    // Arrow FixedSizeBinary is not supported by ParadeDB.
-    // let fixed_size_binary_array = FixedSizeBinaryArray::from(fixed_size_array_data());
-    let large_binary_array = LargeBinaryArray::from(binary_array_data());
-    let utf8_array = StringArray::from(vec![Some("Hello"), Some("There"), Some("World")]);
-    let large_utf8_array =
-        LargeStringArray::from(vec![Some("Hello"), Some("There"), Some("World")]);
-
     // Create a RecordBatch
     Ok(RecordBatch::try_new(
         schema,
         vec![
-            Arc::new(boolean_array),
-            Arc::new(int8_array),
-            Arc::new(int16_array),
-            Arc::new(int32_array),
-            Arc::new(int64_array),
-            Arc::new(uint8_array),
-            Arc::new(uint16_array),
-            Arc::new(uint32_array),
-            Arc::new(uint64_array),
-            // No Float16Array implemented yet in the arrow lib.
-            // Arc::new(float16_array),
-            Arc::new(float32_array),
-            Arc::new(float64_array),
-            Arc::new(timestamp_array),
-            Arc::new(date32_array),
-            Arc::new(date64_array),
-            Arc::new(time32_array),
-            Arc::new(time64_array),
-            // Arrow Duration is not supported by ParadeDB.
-            // Arc::new(duration_array),
+            Arc::new(BooleanArray::from(vec![
+                Some(true),
+                Some(true),
+                Some(false),
+            ])),
+            Arc::new(Int8Array::from(vec![1, -1, 0])),
+            Arc::new(Int16Array::from(vec![1, -1, 0])),
+            Arc::new(Int32Array::from(vec![1, -1, 0])),
+            Arc::new(Int64Array::from(vec![1, -1, 0])),
+            Arc::new(UInt8Array::from(vec![1, 2, 0])),
+            Arc::new(UInt16Array::from(vec![1, 2, 0])),
+            Arc::new(UInt32Array::from(vec![1, 2, 0])),
+            Arc::new(UInt64Array::from(vec![1, 2, 0])),
+            // No Float16Array implemented in the arrow lib.
+            Arc::new(Float32Array::from(vec![1.0, -1.0, 0.0])),
+            Arc::new(Float64Array::from(vec![1.0, -1.0, 0.0])),
+            Arc::new(TimestampSecondArray::from(vec![
+                Some(0),
+                Some(0),
+                Some(1627849445),
+            ])),
+            Arc::new(Date32Array::from(vec![18262, 18263, 18264])),
+            Arc::new(Date64Array::from(vec![
+                1609459200000,
+                1609545600000,
+                1609632000000,
+            ])),
+            Arc::new(Time32SecondArray::from(vec![3600, 7200, 10800])),
+            Arc::new(Time64NanosecondArray::from(vec![
+                3600000000000,
+                7200000000000,
+                10800000000000,
+            ])),
+            // Converting Duration to parquet not supported.
+            // Arc::new(DurationMillisecondArray::from(vec![1000, 2000, -1000])),
             // Arrow IntervalDayTime is not supported by ParadeDB.
-            // Arc::new(interval_array),
-            Arc::new(binary_array),
+            // Arc::new(IntervalDayTimeArray::from(vec![1, 2, 3])),
+            Arc::new(BinaryArray::from(array_data())),
             // Arrow FixedSizeBinary is not supported by ParadeDB.
-            // Arc::new(fixed_size_binary_array),
-            Arc::new(large_binary_array),
-            Arc::new(utf8_array),
-            Arc::new(large_utf8_array),
+            // Arc::new(FixedSizeBinaryArray::from(fixed_size_array_data)),
+            Arc::new(LargeBinaryArray::from(binary_array_data())),
+            Arc::new(StringArray::from(vec![
+                Some("Hello"),
+                Some("There"),
+                Some("World"),
+            ])),
+            Arc::new(LargeStringArray::from(vec![
+                Some("Hello"),
+                Some("There"),
+                Some("World"),
+            ])),
         ],
     )?)
 }

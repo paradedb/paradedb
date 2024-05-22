@@ -100,10 +100,6 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/bin/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
-      - name: Add pg_lakehouse to shared_preload_libraries
-        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_lakehouse'/" postgresql.conf
-
       - name: Install pgrx, grcov & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
@@ -111,6 +107,10 @@ jobs:
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
           cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+      - name: Add pg_lakehouse to shared_preload_libraries
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_lakehouse'/" postgresql.conf
 
       # Our Rust Cache action caches the entire ~/target directory, which includes the pg_lakehouse extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we

@@ -179,6 +179,7 @@ jobs:
           fi
           echo ""
           echo "Running Rust tests..."
+          export DATABASE_URL=postgresql://postgres::postgres@localhost:281${{ matrix.pg_version }}/postgres
           cargo pgrx test "pg${{ matrix.pg_version }}"
 
       # On promotion PRs, we test packaging the extension with production features enabled

@@ -155,6 +155,11 @@ pub unsafe fn row_to_search_document(
                         .ok_or(IndexError::DatumDeref)?;
                     document.insert(search_field.id, pgrx_timetz_to_tantivy_value(value));
                 }
+                PgBuiltInOids::UUIDOID => {
+                    let value = pgrx::datum::Uuid::from_datum(datum, false)
+                        .ok_or(IndexError::DatumDeref)?;
+                    document.insert(search_field.id, value.to_string().into());
+                }
                 unsupported => Err(IndexError::UnsupportedValue(
                     search_field.name.0.to_string(),
                     format!("{unsupported:?}"),

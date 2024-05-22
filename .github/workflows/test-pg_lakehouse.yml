@@ -139,7 +139,7 @@ jobs:
 
           echo ""
           echo "Starting Postgres..."
-          cargo pgrx start
+          cargo pgrx start pg${{ matrix.pg_version }}
 
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then

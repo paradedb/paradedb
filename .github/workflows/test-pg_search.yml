@@ -151,6 +151,10 @@ jobs:
           echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
           mkdir -p ../target/coverage ../target/coverage-report
 
+          echo ""
+          echo "Starting Postgres..."
+          cargo pgrx start pg${{ matrix.pg_version }}
+
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             echo ""
@@ -170,10 +174,6 @@ jobs:
             echo "Downloading pg_seach v$BASE_RELEASE..."
             curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_seach-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
             sudo dpkg -i "pg_seach-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
-
-            echo ""
-            echo "Starting Postgres..."
-            cargo pgrx start
 
             echo ""
             echo "Loading pg_seach v$BASE_RELEASE..."

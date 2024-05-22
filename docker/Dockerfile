@@ -9,7 +9,7 @@ ARG PG_VERSION_MAJOR=16
 
 # We build the extensions on the official PostgreSQL image, since the Bitnami
 # image locks root and has few pre-installed packages
-# Note: Debian Bookworm = Debian 12# 
+# Note: Debian Bookworm = Debian 12
 FROM postgres:${PG_VERSION_MAJOR}-bookworm as builder
 
 ARG PG_VERSION_MAJOR=16
@@ -143,7 +143,7 @@ RUN echo "trusted = true" >> pg_ivm.control && \
 # Second Stage: PostgreSQL
 ###############################################
 
-# Note: Debian Bookworm = Debian 12# 
+# Note: Debian Bookworm = Debian 12
 FROM bitnami/postgresql:${PG_VERSION_MAJOR}-debian-12 as paradedb
 
 ARG PG_VERSION_MAJOR=16

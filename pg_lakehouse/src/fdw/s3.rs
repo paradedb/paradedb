@@ -11,6 +11,7 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use crate::datafusion::context::ContextError;
+use crate::datafusion::format::TableFormat;
 use crate::datafusion::session::Session;
 use crate::fdw::options::*;
 
@@ -129,6 +130,7 @@ impl TryFrom<ServerOptions> for S3 {
 impl BaseFdw for S3Fdw {
     fn register_object_store(
         url: &Url,
+        _format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
@@ -200,7 +202,14 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
-        S3Fdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
+        let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
+
+        S3Fdw::register_object_store(
+            &Url::parse(path)?,
+            TableFormat::from(format),
+            server_options,
+            user_mapping_options,
+        )?;
 
         Ok(Self {
             current_batch: None,

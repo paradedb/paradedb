@@ -16,8 +16,7 @@ on:
       - main
     paths:
       - "docker/Dockerfile"
-      - "pg_lakehouse/Cargo.toml"
-      - "pg_lakehouse/benchmarks/**"
+      - "pg_lakehouse/**"
       - "shared/Cargo.toml"
       - ".github/workflows/benchmark-pg_lakehouse.yml"
   workflow_dispatch:

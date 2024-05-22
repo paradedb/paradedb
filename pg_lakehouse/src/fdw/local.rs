@@ -10,6 +10,7 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use crate::datafusion::context::ContextError;
+use crate::datafusion::format::TableFormat;
 use crate::datafusion::session::Session;
 use crate::fdw::options::*;
 
@@ -30,11 +31,15 @@ pub(crate) struct LocalFileFdw {
 impl BaseFdw for LocalFileFdw {
     fn register_object_store(
         url: &Url,
+        format: TableFormat,
         _server_options: HashMap<String, String>,
         _user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
-        // Create S3 ObjectStore
-        let object_store = LocalFileSystem::new_with_prefix(Path::new(&String::from(url.path())))?;
+        let object_store = match format {
+            TableFormat::Delta => LocalFileSystem::new_with_prefix(Path::new(url.path()))?,
+            _ => LocalFileSystem::new(),
+        };
+
         let context = Session::session_context()?;
 
         // Create SessionContext with ObjectStore
@@ -95,8 +100,11 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
+        let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
+
         LocalFileFdw::register_object_store(
             &Url::parse(path)?,
+            TableFormat::from(format),
             server_options,
             user_mapping_options,
         )?;

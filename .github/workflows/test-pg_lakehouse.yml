@@ -137,10 +137,6 @@ jobs:
           echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
           mkdir -p ../target/coverage ../target/coverage-report
 
-          echo ""
-          echo "Starting Postgres..."
-          cargo pgrx start pg${{ matrix.pg_version }}
-
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             echo ""
@@ -162,6 +158,10 @@ jobs:
             sudo dpkg -i "pg_lakehouse-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
 
             echo ""
+            echo "Starting Postgres..."
+            cargo pgrx start pg${{ matrix.pg_version }}
+
+            echo ""
             echo "Loading pg_lakehouse v$BASE_RELEASE..."
             psql -h localhost -U postgres -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_lakehouse VERSION '$BASE_RELEASE';"
 
@@ -176,6 +176,15 @@ jobs:
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"
           fi
+
+          echo ""
+          echo "Building pg_lakehouse v$NEW_VERSION..."
+          cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+
+          echo ""
+          echo "Starting Postgres..."
+          cargo pgrx start pg${{ matrix.pg_version }}
+
           echo ""
           echo "Running Rust tests..."
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres

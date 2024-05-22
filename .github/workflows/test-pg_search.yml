@@ -126,6 +126,7 @@ jobs:
           cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
           cargo install -j $(nproc) --locked grcov
           rustup component add llvm-tools-preview
+          cargo pgrx init "--pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
       # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
@@ -150,11 +151,6 @@ jobs:
           echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
           mkdir -p ../target/coverage ../target/coverage-report
 
-          echo ""
-          echo "Initializing pgrx environment..."
-          cargo pgrx init "--pg${{ matrix.pg_version }}=$PG_CONFIG_PATH"
-          cargo pgrx start
-
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             echo ""
@@ -174,6 +170,10 @@ jobs:
             echo "Downloading pg_seach v$BASE_RELEASE..."
             curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_seach-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
             sudo dpkg -i "pg_seach-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+
+            echo ""
+            echo "Starting Postgres..."
+            cargo pgrx start
 
             echo ""
             echo "Loading pg_seach v$BASE_RELEASE..."

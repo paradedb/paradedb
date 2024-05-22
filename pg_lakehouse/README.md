@@ -200,4 +200,4 @@ DATABASE_URL=postgres://<username>@<host>:<port>/<database>
 
 ## License
 
-`pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).
+`pg_lakehouse` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

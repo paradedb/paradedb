@@ -182,6 +182,12 @@ jobs:
           export PG_VERSION=${{ matrix.pg_version }}
           cargo pgrx test "pg${{ matrix.pg_version }}"
 
+      - name: Print logs
+        if: failure()
+        run: |
+          echo "pg_lakehouse logs:"
+          cat /home/runner/.pgrx/${{ matrix.pg_version }}.log
+
       # On promotion PRs, we test packaging the extension with production features enabled
       - name: Test Packaging pg_lakehouse
         if: steps.check_skip.outputs.skip_remaining_steps != 'true' && github.base_ref == 'main'

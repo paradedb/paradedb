@@ -35,11 +35,8 @@ impl BaseFdw for LocalFileFdw {
         _server_options: HashMap<String, String>,
         _user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
-        let path = Path::new(url.path());
-        let is_file = Path::new(path).extension().is_some();
-
         let object_store = match format {
-            TableFormat::Delta => LocalFileSystem::new_with_prefix(path)?,
+            TableFormat::Delta => LocalFileSystem::new_with_prefix(Path::new(url.path()))?,
             _ => LocalFileSystem::new(),
         };
 

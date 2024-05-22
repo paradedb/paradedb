@@ -112,7 +112,7 @@ pub extern "C" fn ambuild(
     let key_field = rdopts.get_key_field().expect("must specify key field");
 
     match name_type_map.get(&key_field) {
-        Some(SearchFieldType::I64) | Some(SearchFieldType::Text) => {}
+        Some(SearchFieldType::I64) => {}
         None => panic!("key field does not exist"),
         _ => panic!("key field must be an integer"),
     };

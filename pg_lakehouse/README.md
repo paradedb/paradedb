@@ -197,3 +197,7 @@ You also need a running Postgres instance to run the tests. The test suite will 
 ```text
 DATABASE_URL=postgres://<username>@<host>:<port>/<database>
 ```
+
+## License
+
+`pg_search` is licensed under the [GNU Affero General Public License v3.0](../LICENSE).

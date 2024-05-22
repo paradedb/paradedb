@@ -100,6 +100,10 @@ jobs:
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/bin/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
+      - name: Add pg_lakehouse to shared_preload_libraries
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_lakehouse'/" postgresql.conf
+
       - name: Install pgrx, grcov & llvm-tools-preview
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         run: |
@@ -123,24 +127,59 @@ jobs:
           LLVM_PROFILE_FILE: target/coverage/pg_lakehouse-%p-%m.profraw
           RUST_BACKTRACE: full
         run: |
-          # Add the code coverage flags to the config.toml file
+          # Variables (we disable telemetry to avoid skewing the user metrics with CI runs)
+          BASE_RELEASE="0.7.0"
+          TELEMETRY=false
+          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
+
+          echo ""
+          echo "Enabling code coverage..."
           echo -e "\n# Enable code coverage on Linux only, for CI builds\n[target.'cfg(target_os=\"linux\")']\nrustflags = [\"-Cinstrument-coverage\"]" >> ../.cargo/config.toml
           mkdir -p ../target/coverage ../target/coverage-report
 
+          echo ""
+          echo "Initializing pgrx environment..."
+          cargo pgrx init "--pg${{ matrix.pg_version }}=$PG_CONFIG_PATH"
+          cargo pgrx start
+
+          # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
           if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
-            # Retrieve the version to test upgrading to
+            echo ""
+            echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
-              echo "New version not provided, assuming the next release is the GitHub Actions Variable version..."
+              echo "New version is not provided manually, assuming the next release is the GitHub Actions Variable version..."
               NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}
             else
-              echo "Using the provided new version (likely a manual major or minor version increment)..."
+              echo "Using the workflow_dispatch version (likely a manual major or minor version increment)..."
               NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
             fi
+
+            echo "Running extension upgrade test from v$BASE_RELEASE to v$NEW_VERSION..."
             echo "Version to test upgrading to: $NEW_VERSION"
-            ./runtests.sh -p sequential -v "${{ matrix.pg_version }}" -u "$NEW_VERSION" -a "${{ matrix.arch }}"
-          else
-            ./runtests.sh -p sequential -v "${{ matrix.pg_version }}"
+
+            echo ""
+            echo "Downloading pg_lakehouse v$BASE_RELEASE..."
+            curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_lakehouse-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+            sudo dpkg -i "pg_lakehouse-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+
+            echo ""
+            echo "Loading pg_lakehouse v$BASE_RELEASE..."
+            psql -h localhost -U postgres -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_lakehouse VERSION '$BASE_RELEASE';"
+
+            echo ""
+            echo "Building pg_lakehouse v$NEW_VERSION..."
+            cargo pgrx install --pg-config="$PG_CONFIG_PATH" --release
+
+            echo ""
+            echo "Upgrading pg_lakehouse to v$NEW_VERSION..."
+            psql -h localhost -U postgres -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';"
+
+            echo ""
+            echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"
           fi
+          echo ""
+          echo "Running Rust tests..."
+          cargo pgrx test "pg${{ matrix.pg_version }}"
 
       # On promotion PRs, we test packaging the extension with production features enabled
       - name: Test Packaging pg_lakehouse

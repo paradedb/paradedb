@@ -29,7 +29,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
-        debian:11
     strategy:
       matrix:
         include:
@@ -53,11 +52,40 @@ jobs:
           #   arch: arm64
           # - runner: ubuntu-latest
           #   image: debian:11
+          # - runner: ubuntu-latest
+          #   image: debian:11-slim
+          #   pg_version: 14
+          #   arch: amd64
+          - runner: depot-ubuntu-22.04-arm-4
+            image: debian:11-slim
+            pg_version: 14
+            arch: arm64
+
+          # - runner: ubuntu-latest
+          #   image: debian:12-slim
           #   pg_version: 14
           #   arch: amd64
           # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:12-slim
           #   pg_version: 14
           #   arch: arm64
+          # - runner: ubuntu-latest
+          #   image: redhat/ubi8-minimal:latest
+          #   pg_version: 14
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: redhat/ubi8-minimal:latest
+          #   pg_version: 14
+          #   arch: arm64
+          # - runner: ubuntu-latest
+          #   image: redhat/ubi9-minimal:latest
+          #   pg_version: 14
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: redhat/ubi9-minimal:latest
+          #   pg_version: 14
+          #   arch: arm64
+
           # - runner: ubuntu-latest
           #   pg_version: 15
           #   arch: amd64

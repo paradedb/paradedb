@@ -316,6 +316,30 @@ pub fn range_i64(field: String, range: Range<i64>) -> SearchQueryInput {
 }
 
 #[pg_extern(name = "range", immutable, parallel_safe)]
+pub fn range_numeric(field: String, range: Range<pgrx::AnyNumeric>) -> SearchQueryInput {
+    match range.into_inner() {
+        None => SearchQueryInput::Range {
+            field,
+            lower_bound: Bound::Included(Value::F64(0.0)),
+            upper_bound: Bound::Excluded(Value::F64(0.0)),
+        },
+        Some((lower, upper)) => SearchQueryInput::Range {
+            field,
+            lower_bound: match lower {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(Value::F64(n.try_into().unwrap())),
+                RangeBound::Exclusive(n) => Bound::Excluded(Value::F64(n.try_into().unwrap())),
+            },
+            upper_bound: match upper {
+                RangeBound::Infinite => Bound::Unbounded,
+                RangeBound::Inclusive(n) => Bound::Included(Value::F64(n.try_into().unwrap())),
+                RangeBound::Exclusive(n) => Bound::Excluded(Value::F64(n.try_into().unwrap())),
+            },
+        },
+    }
+}
+
+#[pg_extern(name = "range", immutable, parallel_safe)]
 pub fn range_date(field: String, range: Range<pgrx::Date>) -> SearchQueryInput {
     match range.into_inner() {
         None => SearchQueryInput::Range {

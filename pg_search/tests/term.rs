@@ -9,8 +9,8 @@ use sqlx::PgConnection;
 fn boolean_term(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-    	id SERIAL PRIMARY KEY,
-    	value BOOLEAN
+        id SERIAL PRIMARY KEY,
+        value BOOLEAN
     );
 
     INSERT INTO test_table (value) VALUES (true), (false), (false), (true);
@@ -19,18 +19,18 @@ fn boolean_term(mut conn: PgConnection) {
 
     r#"
     CALL paradedb.create_bm25(
-    	table_name => 'test_table',
-    	index_name => 'test_index',
-    	key_field => 'id',
-    	boolean_fields => '{"value": {}}'
+        table_name => 'test_table',
+        index_name => 'test_index',
+        key_field => 'id',
+        boolean_fields => '{"value": {}}'
     );
     "#
     .execute(&mut conn);
 
     let rows: Vec<(i32, bool)> = r#"
     SELECT * FROM test_index.search(
-    	query => paradedb.term(field => 'value', value => true),
-    	stable_sort => true
+        query => paradedb.term(field => 'value', value => true),
+        stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
@@ -41,26 +41,26 @@ fn boolean_term(mut conn: PgConnection) {
 fn integer_term(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-    	id SERIAL PRIMARY KEY,
-    	value_int2 SMALLINT,
-    	value_int4 INTEGER,
-    	value_int8 BIGINT
+        id SERIAL PRIMARY KEY,
+        value_int2 SMALLINT,
+        value_int4 INTEGER,
+        value_int8 BIGINT
     );
 
     INSERT INTO test_table (value_int2, value_int4, value_int8) VALUES 
-    	(-11, -1111, -11111111),
-    	(22, 2222, 22222222), 
-    	(33, 3333, 33333333), 
-    	(44, 4444, 44444444);
+        (-11, -1111, -11111111),
+        (22, 2222, 22222222), 
+        (33, 3333, 33333333), 
+        (44, 4444, 44444444);
     "#
     .execute(&mut conn);
 
     r#"
     CALL paradedb.create_bm25(
-    	table_name => 'test_table',
-    	index_name => 'test_index',
-    	key_field => 'id',
-    	numeric_fields => '{"value_int2": {}, "value_int4": {}, "value_int8": {}}'
+        table_name => 'test_table',
+        index_name => 'test_index',
+        key_field => 'id',
+        numeric_fields => '{"value_int2": {}, "value_int4": {}, "value_int8": {}}'
     );
     "#
     .execute(&mut conn);
@@ -68,8 +68,8 @@ fn integer_term(mut conn: PgConnection) {
     // INT2
     let rows: Vec<(i32, i16)> = r#"
     SELECT id, value_int2 FROM test_index.search(
-    	query => paradedb.term(field => 'value_int2', value => -11),
-    	stable_sort => true
+        query => paradedb.term(field => 'value_int2', value => -11),
+        stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
@@ -78,8 +78,8 @@ fn integer_term(mut conn: PgConnection) {
     // INT4
     let rows: Vec<(i32, i32)> = r#"
     SELECT id, value_int4 FROM test_index.search(
-    	query => paradedb.term(field => 'value_int4', value => 2222),
-    	stable_sort => true
+        query => paradedb.term(field => 'value_int4', value => 2222),
+        stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
@@ -88,8 +88,8 @@ fn integer_term(mut conn: PgConnection) {
     // INT8
     let rows: Vec<(i32, i64)> = r#"
     SELECT id, value_int8 FROM test_index.search(
-    	query => paradedb.term(field => 'value_int8', value => 33333333),
-    	stable_sort => true
+        query => paradedb.term(field => 'value_int8', value => 33333333),
+        stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
@@ -100,26 +100,26 @@ fn integer_term(mut conn: PgConnection) {
 fn float_term(mut conn: PgConnection) {
     r#"
     CREATE TABLE test_table (
-    	id SERIAL PRIMARY KEY,
-    	value_float4 FLOAT4,
-    	value_float8 FLOAT8,
+        id SERIAL PRIMARY KEY,
+        value_float4 FLOAT4,
+        value_float8 FLOAT8,
         value_numeric NUMERIC
     );
 
     INSERT INTO test_table (value_float4, value_float8, value_numeric) VALUES
-    	(-1.1, -1111.1111, -111.11111),
-    	(2.2, 2222.2222, 222.22222),
-    	(3.3, 3333.3333, 333.33333),
-    	(4.4, 4444.4444, 444.44444);
+        (-1.1, -1111.1111, -111.11111),
+        (2.2, 2222.2222, 222.22222),
+        (3.3, 3333.3333, 333.33333),
+        (4.4, 4444.4444, 444.44444);
     "#
     .execute(&mut conn);
 
     r#"
     CALL paradedb.create_bm25(
-    	table_name => 'test_table',
-    	index_name => 'test_index',
-    	key_field => 'id',
-    	numeric_fields => '{"value_float4": {}, "value_float8": {}, "value_numeric": {}}'
+        table_name => 'test_table',
+        index_name => 'test_index',
+        key_field => 'id',
+        numeric_fields => '{"value_float4": {}, "value_float8": {}, "value_numeric": {}}'
     );
     "#
     .execute(&mut conn);
@@ -127,8 +127,8 @@ fn float_term(mut conn: PgConnection) {
     // FLOAT4
     let rows: Vec<(i32, f32)> = r#"
     SELECT id, value_float4 FROM test_index.search(
-    	query => paradedb.term(field => 'value_float4', value => -1.1::float4),
-    	stable_sort => true
+        query => paradedb.term(field => 'value_float4', value => -1.1::float4),
+        stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
@@ -137,22 +137,22 @@ fn float_term(mut conn: PgConnection) {
     // FLOAT8
     let rows: Vec<(i32, f64)> = r#"
     SELECT id, value_float8 FROM test_index.search(
-    	query => paradedb.term(field => 'value_float8', value => 4444.4444::float8),
-    	stable_sort => true
+        query => paradedb.term(field => 'value_float8', value => 4444.4444::float8),
+        stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
     assert_eq!(rows, vec![(4, 4444.4444)]);
 
-    // NUMERIC
-    let rows: Vec<(i32, f64)> = r#"
-    SELECT id, value_numeric FROM test_index.search(
+    // NUMERIC - no sqlx::Type for numerics, so just check id
+    let rows: Vec<(i32,)> = r#"
+    SELECT id FROM test_index.search(
         query => paradedb.term(field => 'value_numeric', value => 333.33333::numeric),
         stable_sort => true
     );
     "#
     .fetch_collect(&mut conn);
-    assert_eq!(rows, vec![(3, 333.33333)]);
+    assert_eq!(rows, vec![(3,)]);
 }
 
 #[rstest]

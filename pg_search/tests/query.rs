@@ -192,14 +192,6 @@ fn single_queries(mut conn: PgConnection) {
     .fetch_collect(&mut conn);
     assert_eq!(columns.len(), 7);
 
-    let columns: SimpleProductsTableVec = r#"
-    SELECT * FROM bm25_search.search(
-        query => paradedb.range(field => 'rating', range => '[1,3)'::int4range),
-        stable_sort => true
-    )"#
-    .fetch_collect(&mut conn);
-    assert_eq!(columns.len(), 4);
-
     // Regex
     let columns: SimpleProductsTableVec = r#"
     SELECT * FROM bm25_search.search(

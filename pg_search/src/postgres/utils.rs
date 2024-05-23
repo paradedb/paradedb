@@ -126,6 +126,14 @@ pub unsafe fn row_to_search_document(
                     let value = f64::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
                     document.insert(search_field.id, value.into());
                 }
+                PgBuiltInOids::NUMERICOID => {
+                    let value =
+                        pgrx::AnyNumeric::from_datum(datum, false).ok_or(IndexError::DatumDeref)?;
+                    document.insert(
+                        search_field.id,
+                        TryInto::<f64>::try_into(value).unwrap().into(),
+                    );
+                }
                 PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID => {
                     if is_array {
                         let array: Array<pg_sys::Datum> =

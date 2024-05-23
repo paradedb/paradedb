@@ -30,9 +30,6 @@ jobs:
           sudo ln -s $(which fdfind) "$HOME/.local/bin/fd"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Add Trailing Newlines
-        run: .github/workflows/helpers/lint_trailing_newlines.sh
-
       - name: Check for CRLF Files
         run: |
           FILES=$(git ls-files --eol | grep crlf || true)
@@ -59,6 +56,7 @@ jobs:
           if [[ ! -z "$FILES" ]]; then
             echo "The following files have incorrect trailing newlines:"
             echo "$FILES"
-            echo "Please fix them using .github/workflows/helpers/lint_trailing_newlines.sh"
+            echo "Please fix them using:"
+            echo -e 'if [[ -f "$1" ]]; then\n  echo -n "$1"\n  if (diff /dev/null "$1" || true) | tail -1 | grep -q "^\\ No newline"; then\n    echo >> "$1"\n    echo "...fixed"\n  else\n    echo ""\n  fi\nfi'
             false
           fi

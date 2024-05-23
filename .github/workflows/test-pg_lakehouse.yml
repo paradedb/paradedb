@@ -64,6 +64,12 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
+      # Fix Rust nightly because 1.80.0 is causing compilation issues with some dependencies
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2024-04-21
+
       # This checks that the version in Cargo.toml is incremented to the next release. We only run it
       # on PRs to main, which are our release promotion PRs.
       - name: Check version in Cargo.toml

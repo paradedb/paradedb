@@ -1,6 +1,7 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
+use datafusion::prelude::DataFrame;
 use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
@@ -22,6 +23,7 @@ use super::base::*;
     error_type = "BaseFdwError"
 )]
 pub(crate) struct LocalFileFdw {
+    dataframe: Option<DataFrame>,
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
@@ -70,8 +72,26 @@ impl BaseFdw for LocalFileFdw {
         self.current_batch_index = index;
     }
 
-    fn set_stream(&mut self, stream: Option<SendableRecordBatchStream>) {
-        self.stream = stream;
+    fn set_dataframe(&mut self, dataframe: DataFrame) {
+        self.dataframe = Some(dataframe);
+    }
+
+    async fn create_stream(&mut self) -> Result<(), BaseFdwError> {
+        if self.stream.is_none() {
+            self.stream = Some(
+                self.dataframe
+                    .clone()
+                    .ok_or(BaseFdwError::DataFrameNotFound)?
+                    .execute_stream()
+                    .await?,
+            );
+        }
+
+        Ok(())
+    }
+
+    fn clear_stream(&mut self) {
+        self.stream = None;
     }
 
     fn set_target_columns(&mut self, columns: &[Column]) {
@@ -110,6 +130,7 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
         )?;
 
         Ok(Self {
+            dataframe: None,
             current_batch: None,
             current_batch_index: 0,
             stream: None,

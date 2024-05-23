@@ -160,7 +160,7 @@ jobs:
             echo ""
             echo "Downloading pg_lakehouse v$BASE_RELEASE..."
             curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_lakehouse-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
-            sudo dpkg -i "pg_lakehouse-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+            dpkg -i "pg_lakehouse-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
 
             echo ""
             echo "Starting Postgres..."
@@ -172,7 +172,7 @@ jobs:
 
             echo ""
             echo "Building pg_lakehouse v$NEW_VERSION..."
-            cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release --sudo
+            cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
             echo ""
             echo "Upgrading pg_lakehouse to v$NEW_VERSION..."

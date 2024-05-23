@@ -103,7 +103,7 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/bin/
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
@@ -149,15 +149,13 @@ jobs:
             echo ""
             echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
-              echo "New version is not provided manually, assuming the next release is the GitHub Actions Variable version..."
+              echo "Using the GitHub Variables version..."
               NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}
             else
-              echo "Using the workflow_dispatch version (likely a manual major or minor version increment)..."
+              echo "Using the workflow_dispatch version..."
               NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
             fi
-
             echo "Running extension upgrade test from v$BASE_RELEASE to v$NEW_VERSION..."
-            echo "Version to test upgrading to: $NEW_VERSION"
 
             echo ""
             echo "Downloading pg_lakehouse v$BASE_RELEASE..."

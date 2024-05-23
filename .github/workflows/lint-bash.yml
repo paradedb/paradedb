@@ -71,6 +71,11 @@ jobs:
       - name: Run ShellCheck
         shell: python {0}
         run: |
+          import argparse
+          import glob
+          import subprocess
+          import sys
+
           # Obtain list of all .sh files after excluding directories
           sh_files = set(glob.glob("**/*.sh", recursive=True))
           for dir_path in exclude_dirs:

@@ -90,11 +90,9 @@ impl SearchIndex {
         // to be rebuilt and this method is called again.
         directory.remove().map_err(SearchIndexError::from)?;
 
-        pgrx::info!("creating schema from fields: {:?}", fields);
         let schema = SearchIndexSchema::new(fields)?;
 
         let tantivy_dir_path = directory.tantivy_dir_path(true)?;
-        pgrx::info!("schema key: {:?}", schema.key_field().name);
         let mut underlying_index = Index::builder()
             .schema(schema.schema.clone())
             .create_in_dir(tantivy_dir_path)

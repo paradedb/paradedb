@@ -68,7 +68,6 @@ pub extern "C" fn ambuild(
         .filter_map(|attribute| {
             let attname = attribute.name();
             let attribute_type_oid = attribute.type_oid();
-            pgrx::info!("name: {:?}, oid: {:?}", attname, attribute_type_oid);
             let array_type = unsafe { pg_sys::get_element_type(attribute_type_oid.value()) };
             let base_oid = if array_type != pg_sys::InvalidOid {
                 PgOid::from(array_type)

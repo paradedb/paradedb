@@ -1,5 +1,7 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::DataFusionError;
+use datafusion::prelude::DataFrame;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use object_store::local::LocalFileSystem;
 use pgrx::*;
@@ -22,6 +24,7 @@ use super::base::*;
     error_type = "BaseFdwError"
 )]
 pub(crate) struct LocalFileFdw {
+    dataframe: Option<DataFrame>,
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
@@ -70,8 +73,16 @@ impl BaseFdw for LocalFileFdw {
         self.current_batch_index = index;
     }
 
-    fn set_stream(&mut self, stream: Option<SendableRecordBatchStream>) {
-        self.stream = stream;
+    fn set_dataframe(&mut self, dataframe: DataFrame) {
+        self.dataframe = Some(dataframe);
+    }
+
+    async fn set_stream(&mut self) -> Result<(), DataFusionError> {
+        if self.stream.is_none() {
+            self.stream = Some(self.dataframe.clone().unwrap().execute_stream().await?);
+        }
+
+        Ok(())
     }
 
     fn set_target_columns(&mut self, columns: &[Column]) {
@@ -99,17 +110,19 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        let path = require_option(TableOption::Path.as_str(), &table_options)?;
-        let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
+        info!("new");
+        // let path = require_option(TableOption::Path.as_str(), &table_options)?;
+        // let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
 
-        LocalFileFdw::register_object_store(
-            &Url::parse(path)?,
-            TableFormat::from(format),
-            server_options,
-            user_mapping_options,
-        )?;
+        // LocalFileFdw::register_object_store(
+        //     &Url::parse(path)?,
+        //     TableFormat::from(format),
+        //     server_options,
+        //     user_mapping_options,
+        // )?;
 
         Ok(Self {
+            dataframe: None,
             current_batch: None,
             current_batch_index: 0,
             stream: None,

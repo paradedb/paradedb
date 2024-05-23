@@ -4,6 +4,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::catalog::CatalogProvider;
 use datafusion::common::DataFusionError;
 use datafusion::physical_plan::SendableRecordBatchStream;
+use datafusion::prelude::DataFrame;
 use datafusion::sql::TableReference;
 use deltalake::DeltaTableError;
 use pgrx::*;
@@ -38,7 +39,8 @@ pub trait BaseFdw {
     // Setter methods
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
     fn set_current_batch_index(&mut self, index: usize);
-    fn set_stream(&mut self, stream: Option<SendableRecordBatchStream>);
+    fn set_dataframe(&mut self, dataframe: DataFrame);
+    async fn set_stream(&mut self) -> Result<(), DataFusionError>;
     fn set_target_columns(&mut self, columns: &[Column]);
 
     // DataFusion methods
@@ -53,6 +55,7 @@ pub trait BaseFdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
+        let start = std::time::Instant::now();
         self.set_target_columns(columns);
 
         let oid_u32: u32 = options
@@ -78,20 +81,19 @@ pub trait BaseFdw {
             pg_relation.name(),
         );
         let mut dataframe = task::block_on(context.table(reference))?;
-
         if let Some(limit) = limit {
             dataframe = dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
         }
 
-        let result =
-            task::block_on(context.execute_logical_plan(dataframe.logical_plan().clone()))?;
-
-        self.set_stream(Some(task::block_on(result.execute_stream())?));
+        self.set_dataframe(dataframe);
 
         Ok(())
     }
 
     fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
+        info!("iter scan");
+        task::block_on(self.set_stream());
+
         if self.get_current_batch().is_none()
             || self.get_current_batch_index()
                 >= self
@@ -134,7 +136,7 @@ pub trait BaseFdw {
     }
 
     fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
-        self.set_stream(None);
+        // self.set_stream(None);
         Ok(())
     }
 }

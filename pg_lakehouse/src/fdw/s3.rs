@@ -1,6 +1,8 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
+use datafusion::common::DataFusionError;
 use datafusion::physical_plan::SendableRecordBatchStream;
+use datafusion::prelude::DataFrame;
 use object_store_opendal::OpendalStore;
 use opendal::services::S3;
 use opendal::Operator;
@@ -23,6 +25,7 @@ use super::base::*;
     error_type = "BaseFdwError"
 )]
 pub(crate) struct S3Fdw {
+    dataframe: Option<DataFrame>,
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
@@ -172,8 +175,16 @@ impl BaseFdw for S3Fdw {
         self.current_batch_index = index;
     }
 
-    fn set_stream(&mut self, stream: Option<SendableRecordBatchStream>) {
-        self.stream = stream;
+    fn set_dataframe(&mut self, dataframe: DataFrame) {
+        self.dataframe = Some(dataframe);
+    }
+
+    async fn set_stream(&mut self) -> Result<(), DataFusionError> {
+        if self.stream.is_none() {
+            self.stream = Some(self.dataframe.clone().unwrap().execute_stream().await?);
+        }
+
+        Ok(())
     }
 
     fn set_target_columns(&mut self, columns: &[Column]) {
@@ -212,6 +223,7 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
         )?;
 
         Ok(Self {
+            dataframe: None,
             current_batch: None,
             current_batch_index: 0,
             stream: None,

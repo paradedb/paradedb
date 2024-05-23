@@ -3,7 +3,6 @@ use datafusion::common::arrow::array::RecordBatch;
 use datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 use thiserror::Error;
-
 use crate::datafusion::context::ContextError;
 use crate::datafusion::plan::QueryString;
 use crate::datafusion::session::Session;
@@ -51,33 +50,60 @@ pub unsafe fn executor_run(
         return Ok(());
     }
 
-    // Parse the query into a LogicalPlan
-    match LogicalPlan::try_from(QueryString(&pg_query.text())) {
-        Ok(logical_plan) => {
-            // Don't intercept any DDL or DML statements
-            match logical_plan {
-                LogicalPlan::Ddl(_) | LogicalPlan::Dml(_) => {
-                    prev_hook(query_desc, direction, count, execute_once);
-                    return Ok(());
-                }
-                _ => {}
-            };
+    let ctx = datafusion::prelude::SessionContext::new();
+    let query = "SELECT COUNT(*) FROM hits WHERE \"AdvEngineID\" <> 0;";
 
-            // Execute SELECT
-            match task::block_on(get_datafusion_batches(logical_plan)) {
-                Ok(batches) => write_batches_to_slots(query_desc, batches)?,
-                Err(err) => {
-                    fallback_warning!(err.to_string());
-                    prev_hook(query_desc, direction, count, execute_once);
-                    return Ok(());
-                }
-            };
-        }
-        Err(err) => {
-            fallback_warning!(err.to_string());
-            prev_hook(query_desc, direction, count, execute_once);
-        }
-    };
+    const PARQUET_PATH: &str = "/Users/mingying/Downloads/hits.parquet";
+
+    task::block_on(ctx.register_parquet(
+        "hits",
+        PARQUET_PATH,
+        datafusion::datasource::file_format::options::ParquetReadOptions::default(),
+    )).unwrap();
+
+    let start = std::time::Instant::now();
+    let ast = datafusion::sql::parser::DFParser::parse_sql_with_dialect(
+        query,
+        &datafusion::sql::sqlparser::dialect::PostgreSqlDialect {},
+    )
+    .unwrap();
+    let statement = &ast[0];
+    let plan = task::block_on(ctx.state().statement_to_plan(statement.clone())).unwrap();
+    let dataframe = task::block_on(ctx.execute_logical_plan(plan)).unwrap();
+    let results = task::block_on(dataframe.collect()).unwrap();
+    info!("test query took {:?} ms", start.elapsed().as_millis());
+
+    // Parse the query into a LogicalPlan
+    // match LogicalPlan::try_from(QueryString(&pg_query.text())) {
+    //     Ok(logical_plan) => {
+    //         // Don't intercept any DDL or DML statements
+    //         match logical_plan {
+    //             LogicalPlan::Ddl(_) | LogicalPlan::Dml(_) => {
+    //                 prev_hook(query_desc, direction, count, execute_once);
+    //                 return Ok(());
+    //             }
+    //             _ => {}
+    //         };
+
+    //         // Execute SELECT
+    //         let start1 = std::time::Instant::now();
+    //         match task::block_on(get_datafusion_batches(logical_plan)) {
+    //             Ok(batches) => {
+    //                 info!("get_datafusion_batches took {:?} ms", start1.elapsed().as_millis());
+    //                 write_batches_to_slots(query_desc, batches)?
+    //             },
+    //             Err(err) => {
+    //                 fallback_warning!(err.to_string());
+    //                 prev_hook(query_desc, direction, count, execute_once);
+    //                 return Ok(());
+    //             }
+    //         };
+    //     }
+    //     Err(err) => {
+    //         fallback_warning!(err.to_string());
+    //         prev_hook(query_desc, direction, count, execute_once);
+    //     }
+    // };
 
     Ok(())
 }

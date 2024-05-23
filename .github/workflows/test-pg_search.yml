@@ -167,7 +167,7 @@ jobs:
             echo ""
             echo "Downloading pg_search v$BASE_RELEASE..."
             curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
-            dpkg -i "pg_search-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+            sudo dpkg -i "pg_search-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
 
             echo ""
             echo "Starting Postgres..."

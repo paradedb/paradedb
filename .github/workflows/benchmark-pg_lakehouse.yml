@@ -43,6 +43,10 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      # Fix Rust nightly because 1.80.0 is causing compilation issues with some dependencies
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@nightly-2024-04-21
+
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -

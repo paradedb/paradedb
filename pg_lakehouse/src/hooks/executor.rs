@@ -1,12 +1,13 @@
-use crate::datafusion::context::ContextError;
-use crate::datafusion::plan::QueryString;
-use crate::datafusion::session::Session;
-use crate::schema::cell::*;
 use async_std::task;
 use datafusion::common::arrow::array::RecordBatch;
 use datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
 use thiserror::Error;
+
+use crate::datafusion::context::ContextError;
+use crate::datafusion::plan::QueryString;
+use crate::datafusion::session::Session;
+use crate::schema::cell::*;
 
 use super::query::*;
 

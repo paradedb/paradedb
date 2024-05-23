@@ -544,7 +544,7 @@ term_fn!(
     |_v| unimplemented!("timestamp ranges with time zone in term query not implemented")
 );
 term_fn!(uuid, pgrx::Uuid, |v: pgrx::Uuid| {
-    tantivy::schema::Value::Str(v.to_string())
+    tantivy::schema::OwnedValue::Str(v.to_string())
 });
 
 #[pg_extern(immutable, parallel_safe)]

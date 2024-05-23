@@ -95,7 +95,7 @@ pub extern "C" fn amgettuple(
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let iter =
-        unsafe { (scan.opaque as *mut std::vec::IntoIter<(Score, DocAddress, i64, u64)>).as_mut() }
+        unsafe { (scan.opaque as *mut std::vec::IntoIter<(Score, DocAddress, String, u64)>).as_mut() }
             .expect("no scandesc state");
 
     scan.xs_recheck = false;

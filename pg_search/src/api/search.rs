@@ -26,14 +26,14 @@ const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
 #[pg_extern]
-pub fn rank_bm25(key: i64, alias: default!(Option<String>, "NULL")) -> f32 {
+pub fn rank_bm25(key: String, alias: default!(Option<String>, "NULL")) -> f32 {
     SearchStateManager::get_score(key, alias.map(SearchAlias::from))
         .expect("could not lookup doc address for search query")
 }
 
 #[pg_extern]
 pub fn highlight(
-    key: i64,
+    key: String,
     field: &str,
     prefix: default!(Option<String>, "NULL"),
     postfix: default!(Option<String>, "NULL"),
@@ -66,7 +66,7 @@ pub fn highlight(
 #[pg_extern]
 pub fn minmax_bm25(
     config_json: JsonB,
-) -> TableIterator<'static, (name!(id, i64), name!(rank_bm25, f32))> {
+) -> TableIterator<'static, (name!(id, String), name!(rank_bm25, f32))> {
     let JsonB(search_config_json) = config_json;
     let search_config: SearchConfig =
         serde_json::from_value(search_config_json).expect("could not parse search config");

@@ -41,7 +41,7 @@ const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_current_search";
 
 pub struct SearchStateManager {
     state_map: HashMap<SearchAlias, SearchState>,
-    result_map: HashMap<SearchAlias, HashMap<i64, (Score, DocAddress)>>,
+    result_map: HashMap<SearchAlias, HashMap<String, (Score, DocAddress)>>,
 }
 
 impl SearchStateManager {
@@ -76,7 +76,7 @@ impl SearchStateManager {
             .ok_or(SearchStateError::AliasLookup(alias))
     }
 
-    pub fn get_score(key: i64, alias: Option<SearchAlias>) -> Result<Score, SearchStateError> {
+    pub fn get_score(key: String, alias: Option<SearchAlias>) -> Result<Score, SearchStateError> {
         let manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;
@@ -90,7 +90,7 @@ impl SearchStateManager {
     }
 
     pub fn get_snippet(
-        key: i64,
+        key: String,
         field_name: &str,
         max_num_chars: Option<usize>,
         alias: Option<SearchAlias>,
@@ -163,7 +163,7 @@ impl SearchStateManager {
     }
 
     pub fn set_result(
-        key: i64,
+        key: String,
         score: Score,
         doc_address: DocAddress,
         alias: Option<SearchAlias>,
@@ -192,7 +192,7 @@ pub enum SearchStateError {
     #[error("a pg_search alias must be unique, found duplicate: '{0}'")]
     DuplicateAlias(SearchAlias),
     #[error("error looking up result data for document with id: '{0}'")]
-    DocLookup(i64),
+    DocLookup(String),
     #[error("no query found with alias: '{0}'")]
     AliasLookup(SearchAlias),
     #[error("could not lock the current search config lookup: {0}")]
@@ -267,7 +267,7 @@ impl SearchState {
     /// index access methods, this may return deleted rows until a VACUUM. If you need to scan
     /// the Tantivy index without a Postgres deduplication, you should use the `search_dedup`
     /// method instead.
-    pub fn search(&self, executor: &Executor) -> Vec<(Score, DocAddress, i64, u64)> {
+    pub fn search(&self, executor: &Executor) -> Vec<(Score, DocAddress, String, u64)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
             // We use unwrap_or_else here so this block doesn't run unless
@@ -291,17 +291,45 @@ impl SearchState {
             let key_field_name = self.config.key_field.clone();
             let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
                 move |segment_reader: &tantivy::SegmentReader| {
-                    let key_field_reader = segment_reader
-                        .fast_fields()
+                    let fast_fields = segment_reader
+                        .fast_fields();
+
+                    if fast_fields.column_num_bytes(&key_field_name).unwrap() == 0 {
+                        panic!("0!!!");
+                    }
+
+                    // let key_field_reader = fast_fields
+                    //     .i64(&key_field_name)
+                    //     .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", "id"))
+                    //     .first_or_default_col(0);
+                    let key = fast_fields
                         .i64(&key_field_name)
-                        .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", "id"))
-                        .first_or_default_col(0);
+                        .map()
+                    // TODO: get the value and turn into a string
 
                     // This function will be called on every document in the index that matches the
                     // query, before limit + offset are applied. It's important that it's efficient.
-                    move |doc: tantivy::DocId, original_score: tantivy::Score| SearchIndexScore {
-                        bm25: original_score,
-                        key: key_field_reader.get_val(doc),
+                    move |doc: tantivy::DocId, original_score: tantivy::Score| {
+                        // let value = doc
+                        //     .get_first(key_field_name)
+                        //     .unwrap();
+
+                        // let key = match value {
+                        //     tantivy::schema::OwnedValue::Str(string) => string.clone(),
+                        //     tantivy::schema::OwnedValue::U64(u64) => format!("{:?}", u64),
+                        //     tantivy::schema::OwnedValue::I64(i64) => format!("{:?}", i64),
+                        //     tantivy::schema::OwnedValue::F64(f64) => format!("{:?}", f64),
+                        //     tantivy::schema::OwnedValue::Bool(bool) => format!("{:?}", bool),
+                        //     tantivy::schema::OwnedValue::Date(datetime) => datetime.into_primitive().to_string(),
+                        //     tantivy::schema::OwnedValue::Bytes(bytes) => String::from_utf8(bytes.clone()).unwrap(),
+                        //     _ => panic!("NO")
+                        // };
+
+                        SearchIndexScore {
+                            bm25: original_score,
+                            // key: key_field_reader.get_val(doc),
+                            key: key
+                        }
                     }
                 },
             );
@@ -360,17 +388,26 @@ impl SearchState {
         }
     }
 
-    pub fn key_value(&self, doc_address: DocAddress) -> i64 {
+    pub fn key_value(&self, doc_address: DocAddress) -> String {
         let retrieved_doc: TantivyDocument = self
             .searcher
             .doc(doc_address)
             .expect("could not retrieve document by address");
 
-        retrieved_doc
+        let value = retrieved_doc
             .get_first(self.schema.key_field().id.0)
-            .unwrap()
-            .as_i64()
-            .expect("could not access key field on document")
+            .unwrap();
+
+        match value {
+            tantivy::schema::OwnedValue::Str(string) => string.clone(),
+            tantivy::schema::OwnedValue::U64(u64) => format!("{:?}", u64),
+            tantivy::schema::OwnedValue::I64(i64) => format!("{:?}", i64),
+            tantivy::schema::OwnedValue::F64(f64) => format!("{:?}", f64),
+            tantivy::schema::OwnedValue::Bool(bool) => format!("{:?}", bool),
+            tantivy::schema::OwnedValue::Date(datetime) => datetime.into_primitive().to_string(),
+            tantivy::schema::OwnedValue::Bytes(bytes) => String::from_utf8(bytes.clone()).unwrap(),
+            _ => panic!("NO")
+        }
     }
 
     pub fn ctid_value(&self, doc_address: DocAddress) -> u64 {
@@ -386,17 +423,31 @@ impl SearchState {
             .expect("could not access ctid field on document")
     }
 
-    pub fn key_and_ctid_value(&self, doc_address: DocAddress) -> (i64, u64) {
+    pub fn key_and_ctid_value(&self, doc_address: DocAddress) -> (String, u64) {
         let retrieved_doc: TantivyDocument = self
             .searcher
             .doc(doc_address)
             .expect("could not retrieve document by address");
 
-        let key = retrieved_doc
+        // let key = retrieved_doc
+        //     .get_first(self.schema.key_field().id.0)
+        //     .unwrap()
+        //     .as_i64()
+        //     .expect("could not access key field on document");
+        let value = retrieved_doc
             .get_first(self.schema.key_field().id.0)
-            .unwrap()
-            .as_i64()
-            .expect("could not access key field on document");
+            .unwrap();
+
+        let key = match value {
+            tantivy::schema::OwnedValue::Str(string) => string.clone(),
+            tantivy::schema::OwnedValue::U64(u64) => format!("{:?}", u64),
+            tantivy::schema::OwnedValue::I64(i64) => format!("{:?}", i64),
+            tantivy::schema::OwnedValue::F64(f64) => format!("{:?}", f64),
+            tantivy::schema::OwnedValue::Bool(bool) => format!("{:?}", bool),
+            tantivy::schema::OwnedValue::Date(datetime) => datetime.into_primitive().to_string(),
+            tantivy::schema::OwnedValue::Bytes(bytes) => String::from_utf8(bytes.clone()).unwrap(),
+            _ => panic!("NO")
+        };
 
         let ctid = retrieved_doc
             .get_first(self.schema.ctid_field().id.0)
@@ -415,15 +466,15 @@ impl SearchState {
         executor: &Executor,
     ) -> impl Iterator<Item = (Score, DocAddress)> {
         let search_results = self.search(executor);
-        let mut dedup_map: HashMap<i64, (Score, DocAddress)> = HashMap::new();
-        let mut order_vec: Vec<i64> = Vec::new();
+        let mut dedup_map: HashMap<String, (Score, DocAddress)> = HashMap::new();
+        let mut order_vec: Vec<String> = Vec::new();
 
         for (score, doc_addr, key, _) in search_results {
             let is_new_or_higher = match dedup_map.get(&key) {
                 Some((_, existing_doc_addr)) => doc_addr > *existing_doc_addr,
                 None => true,
             };
-            if is_new_or_higher && dedup_map.insert(key, (score, doc_addr)).is_none() {
+            if is_new_or_higher && dedup_map.insert(key.clone(), (score, doc_addr)).is_none() {
                 // Key was not already present, remember the order of this key
                 order_vec.push(key);
             }

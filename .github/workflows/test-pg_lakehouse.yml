@@ -146,7 +146,7 @@ jobs:
           mkdir -p ../target/coverage ../target/coverage-report
 
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
-          if [[ "${{ github.base_ref }}" == "dev" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
+          if [[ "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             echo ""
             echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then

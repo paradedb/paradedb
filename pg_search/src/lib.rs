@@ -51,6 +51,11 @@ pub unsafe extern "C" fn _PG_init() {
     postgres::options::init();
     GUCS.init("pg_search");
 
+    std::panic::set_hook(Box::new(|panic_info| {
+        let backtrace = std::backtrace::Backtrace::capture();
+        eprintln!("Panic info: {panic_info:?}, backtrace: {backtrace:#?}");
+    }));
+
     // Set up the writer bgworker shared state.
     pg_shmem_init!(WRITER_GLOBAL);
 

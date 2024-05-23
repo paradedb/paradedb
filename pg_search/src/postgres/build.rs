@@ -177,7 +177,7 @@ pub extern "C" fn ambuild(
         .chain(datetime_fields)
         .chain(std::iter::once((
             key_field,
-            key_config, // make this a type-based config instead
+            SearchFieldConfig::Key(key_config.into()), // make this a type-based config instead
             *key_field_type,
         )))
         // "ctid" is a reserved column name in Postgres, so we don't need to worry about

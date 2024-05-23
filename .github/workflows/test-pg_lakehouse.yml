@@ -64,6 +64,12 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
+      # Fix Rust nightly because 1.80.0 is causing compilation issues with some dependencies
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2024-04-21
+
       # This checks that the version in Cargo.toml is incremented to the next release. We only run it
       # on PRs to main, which are our release promotion PRs.
       - name: Check version in Cargo.toml
@@ -97,7 +103,7 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/bin/
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx, grcov & llvm-tools-preview
@@ -143,15 +149,13 @@ jobs:
             echo ""
             echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
-              echo "New version is not provided manually, assuming the next release is the GitHub Actions Variable version..."
+              echo "Using the GitHub Variables version..."
               NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}
             else
-              echo "Using the workflow_dispatch version (likely a manual major or minor version increment)..."
+              echo "Using the workflow_dispatch version..."
               NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
             fi
-
             echo "Running extension upgrade test from v$BASE_RELEASE to v$NEW_VERSION..."
-            echo "Version to test upgrading to: $NEW_VERSION"
 
             echo ""
             echo "Downloading pg_lakehouse v$BASE_RELEASE..."
@@ -164,15 +168,15 @@ jobs:
 
             echo ""
             echo "Loading pg_lakehouse v$BASE_RELEASE..."
-            psql -h localhost -U postgres -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_lakehouse VERSION '$BASE_RELEASE';"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_lakehouse VERSION '$BASE_RELEASE';"
 
             echo ""
             echo "Building pg_lakehouse v$NEW_VERSION..."
-            cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+            cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release --sudo
 
             echo ""
             echo "Upgrading pg_lakehouse to v$NEW_VERSION..."
-            psql -h localhost -U postgres -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"

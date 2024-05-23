@@ -104,7 +104,7 @@ jobs:
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/extension/ /usr/lib/postgresql/${{ matrix.pg_version }}/lib/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       # Needed for hybrid search unit tests
@@ -145,7 +145,6 @@ jobs:
           # Variables (we disable telemetry to avoid skewing the user metrics with CI runs)
           BASE_RELEASE="0.6.0"
           TELEMETRY=false
-          PG_CONFIG_PATH="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config"
 
           echo ""
           echo "Enabling code coverage..."
@@ -157,43 +156,41 @@ jobs:
             echo ""
             echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
-              echo "New version is not provided manually, assuming the next release is the GitHub Actions Variable version..."
+              echo "Using the GitHub Variables version..."
               NEW_VERSION=${{ vars.VERSION_MAJOR }}.${{ vars.VERSION_MINOR }}.${{ vars.VERSION_PATCH }}
             else
-              echo "Using the workflow_dispatch version (likely a manual major or minor version increment)..."
+              echo "Using the workflow_dispatch version..."
               NEW_VERSION="${{ github.event.inputs.test_upgrade_version }}"
             fi
-
             echo "Running extension upgrade test from v$BASE_RELEASE to v$NEW_VERSION..."
-            echo "Version to test upgrading to: $NEW_VERSION"
 
             echo ""
-            echo "Downloading pg_seach v$BASE_RELEASE..."
-            curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_seach-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
-            sudo dpkg -i "pg_seach-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+            echo "Downloading pg_search v$BASE_RELEASE..."
+            curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+            sudo dpkg -i "pg_search-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
 
             echo ""
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
 
             echo ""
-            echo "Loading pg_seach v$BASE_RELEASE..."
-            psql -h localhost -U postgres -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_seach VERSION '$BASE_RELEASE';"
+            echo "Loading pg_search v$BASE_RELEASE..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE';"
 
             echo ""
-            echo "Building pg_seach v$NEW_VERSION..."
-            cargo pgrx install --features icu --pg-config="$PG_CONFIG_PATH" --release
+            echo "Building pg_search v$NEW_VERSION..."
+            cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
             echo ""
-            echo "Upgrading pg_seach to v$NEW_VERSION..."
-            psql -h localhost -U postgres -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';"
+            echo "Upgrading pg_search to v$NEW_VERSION..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"
           else
             echo ""
             echo "Building pg_search..."
-            cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+            cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release --sudo
 
             echo ""
             echo "Starting Postgres..."

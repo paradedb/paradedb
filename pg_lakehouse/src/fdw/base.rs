@@ -3,7 +3,7 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::catalog::CatalogProvider;
 use datafusion::common::DataFusionError;
-use datafusion::physical_plan::SendableRecordBatchStream;
+use datafusion::prelude::DataFrame;
 use datafusion::sql::TableReference;
 use deltalake::DeltaTableError;
 use pgrx::*;
@@ -38,7 +38,9 @@ pub trait BaseFdw {
     // Setter methods
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
     fn set_current_batch_index(&mut self, index: usize);
-    fn set_stream(&mut self, stream: Option<SendableRecordBatchStream>);
+    fn set_dataframe(&mut self, dataframe: DataFrame);
+    async fn create_stream(&mut self) -> Result<(), BaseFdwError>;
+    fn clear_stream(&mut self);
     fn set_target_columns(&mut self, columns: &[Column]);
 
     // DataFusion methods
@@ -78,20 +80,18 @@ pub trait BaseFdw {
             pg_relation.name(),
         );
         let mut dataframe = task::block_on(context.table(reference))?;
-
         if let Some(limit) = limit {
             dataframe = dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
         }
 
-        let result =
-            task::block_on(context.execute_logical_plan(dataframe.logical_plan().clone()))?;
-
-        self.set_stream(Some(task::block_on(result.execute_stream())?));
+        self.set_dataframe(dataframe);
 
         Ok(())
     }
 
     fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
+        task::block_on(self.create_stream())?;
+
         if self.get_current_batch().is_none()
             || self.get_current_batch_index()
                 >= self
@@ -134,7 +134,7 @@ pub trait BaseFdw {
     }
 
     fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
-        self.set_stream(None);
+        self.clear_stream();
         Ok(())
     }
 }
@@ -185,6 +185,9 @@ pub enum BaseFdwError {
 
     #[error("Unexpected error: Expected RecordBatch but found None")]
     BatchNotFound,
+
+    #[error("Unexpected error: DataFrame not found")]
+    DataFrameNotFound,
 
     #[error("Received unexpected option \"{0}\". Valid options are: {1:?}")]
     InvalidOption(String, Vec<String>),

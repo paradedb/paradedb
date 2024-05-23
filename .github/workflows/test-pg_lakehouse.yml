@@ -8,7 +8,7 @@ name: Test pg_lakehouse
 on:
   pull_request:
     branches:
-      - dev
+      # - dev
       - staging
       - main
     paths:
@@ -177,7 +177,7 @@ jobs:
 
             echo ""
             echo "Upgrading pg_lakehouse to v$NEW_VERSION..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"

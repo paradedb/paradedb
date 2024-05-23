@@ -8,7 +8,7 @@ name: Test pg_search
 on:
   pull_request:
     branches:
-      - dev
+      # - dev
       - staging
       - main
     paths:
@@ -20,6 +20,7 @@ on:
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
+      - phil/no-sudo
   workflow_dispatch:
     inputs:
       test_upgrade_version:
@@ -152,7 +153,7 @@ jobs:
           mkdir -p ../target/coverage ../target/coverage-report
 
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
-          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
+          if [[ "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             echo ""
             echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
@@ -179,11 +180,11 @@ jobs:
 
             echo ""
             echo "Building pg_search v$NEW_VERSION..."
-            cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+            cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
             echo ""
             echo "Upgrading pg_search to v$NEW_VERSION..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"

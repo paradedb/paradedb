@@ -3,7 +3,6 @@ use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::catalog::CatalogProvider;
 use datafusion::common::DataFusionError;
-use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
 use datafusion::sql::TableReference;
 use deltalake::DeltaTableError;
@@ -55,7 +54,6 @@ pub trait BaseFdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
-        let start = std::time::Instant::now();
         self.set_target_columns(columns);
 
         let oid_u32: u32 = options
@@ -91,8 +89,7 @@ pub trait BaseFdw {
     }
 
     fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        info!("iter scan");
-        task::block_on(self.set_stream());
+        task::block_on(self.set_stream())?;
 
         if self.get_current_batch().is_none()
             || self.get_current_batch_index()

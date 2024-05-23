@@ -1,8 +1,8 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::DataFusionError;
-use datafusion::prelude::DataFrame;
 use datafusion::physical_plan::SendableRecordBatchStream;
+use datafusion::prelude::DataFrame;
 use object_store::local::LocalFileSystem;
 use pgrx::*;
 use std::collections::HashMap;
@@ -110,16 +110,15 @@ impl ForeignDataWrapper<BaseFdwError> for LocalFileFdw {
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
-        info!("new");
-        // let path = require_option(TableOption::Path.as_str(), &table_options)?;
-        // let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
+        let path = require_option(TableOption::Path.as_str(), &table_options)?;
+        let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
 
-        // LocalFileFdw::register_object_store(
-        //     &Url::parse(path)?,
-        //     TableFormat::from(format),
-        //     server_options,
-        //     user_mapping_options,
-        // )?;
+        LocalFileFdw::register_object_store(
+            &Url::parse(path)?,
+            TableFormat::from(format),
+            server_options,
+            user_mapping_options,
+        )?;
 
         Ok(Self {
             dataframe: None,

@@ -1,8 +1,8 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::common::DataFusionError;
-use datafusion::prelude::DataFrame;
 use datafusion::physical_plan::SendableRecordBatchStream;
+use datafusion::prelude::DataFrame;
 use object_store_opendal::OpendalStore;
 use opendal::services::Gcs;
 use opendal::Operator;

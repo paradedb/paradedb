@@ -13,11 +13,14 @@ title: 0.7.2
 
 ### New Features
 
--
+- Added support for `datetime` types in search queries. This includes `date`, `time` (with and without timezone), and `timestamp` (with and without timezone) types.
+- Added support for `numeric` types in search queries.
+- Added support for range searches in search queries.
 
 ### Bug Fixes
 
--
+- Fixed a bug where search queries would not work with integer terms.
+- Removed support for JSON terms in search queries, which did not work as intended.
 
 ## ParadeDB
 

@@ -64,7 +64,9 @@ impl TryFrom<&PgOid> for SearchFieldType {
     fn try_from(pg_oid: &PgOid) -> Result<Self, Self::Error> {
         match &pg_oid {
             PgOid::BuiltIn(builtin) => match builtin {
-                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID | PgBuiltInOids::UUIDOID => Ok(SearchFieldType::Text),
+                PgBuiltInOids::TEXTOID | PgBuiltInOids::VARCHAROID | PgBuiltInOids::UUIDOID => {
+                    Ok(SearchFieldType::Text)
+                }
                 PgBuiltInOids::INT2OID | PgBuiltInOids::INT4OID | PgBuiltInOids::INT8OID => {
                     Ok(SearchFieldType::I64)
                 }
@@ -353,13 +355,15 @@ impl SearchIndexSchema {
                 SearchFieldConfig::Key(key_config) => {
                     config = *key_config.clone();
                     key_index = index;
-                },
+                }
                 SearchFieldConfig::Ctid => ctid_index = index,
                 _ => {}
             }
 
             let id: SearchFieldId = match &config {
-                SearchFieldConfig::Ctid => builder.add_u64_field(name.as_ref(), INDEXED | STORED | FAST),
+                SearchFieldConfig::Ctid => {
+                    builder.add_u64_field(name.as_ref(), INDEXED | STORED | FAST)
+                }
                 _ => match field_type {
                     SearchFieldType::Text => builder.add_text_field(name.as_ref(), config.clone()),
                     SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
@@ -368,8 +372,9 @@ impl SearchIndexSchema {
                     SearchFieldType::Bool => builder.add_bool_field(name.as_ref(), config.clone()),
                     SearchFieldType::Json => builder.add_json_field(name.as_ref(), config.clone()),
                     SearchFieldType::Date => builder.add_date_field(name.as_ref(), config.clone()),
-                }
-            }.into();
+                },
+            }
+            .into();
 
             // let id: SearchFieldId = match &config {
             //     SearchFieldConfig::Text { .. } => {

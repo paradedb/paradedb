@@ -133,11 +133,13 @@ pub extern "C" fn ambuild(
         None => panic!("key field does not exist"),
     };
     let key_config = match key_field_type {
-        SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => SearchFieldConfig::Numeric {
-            indexed: true, 
-            fast: true,
-            stored: true,
-        },
+        SearchFieldType::I64 | SearchFieldType::U64 | SearchFieldType::F64 => {
+            SearchFieldConfig::Numeric {
+                indexed: true,
+                fast: true,
+                stored: true,
+            }
+        }
         SearchFieldType::Text => SearchFieldConfig::Text {
             indexed: true,
             fast: true,
@@ -145,7 +147,7 @@ pub extern "C" fn ambuild(
             fieldnorms: false,
             tokenizer: SearchTokenizer::Raw,
             record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw
+            normalizer: SearchNormalizer::Raw,
         },
         SearchFieldType::Json => SearchFieldConfig::Json {
             indexed: true,
@@ -154,7 +156,7 @@ pub extern "C" fn ambuild(
             expand_dots: false,
             tokenizer: SearchTokenizer::Raw,
             record: IndexRecordOption::Basic,
-            normalizer: SearchNormalizer::Raw
+            normalizer: SearchNormalizer::Raw,
         },
         SearchFieldType::Bool => SearchFieldConfig::Boolean {
             indexed: true,
@@ -165,7 +167,7 @@ pub extern "C" fn ambuild(
             indexed: true,
             fast: true,
             stored: true,
-        }
+        },
     };
 
     // Concatenate the separate lists of fields.

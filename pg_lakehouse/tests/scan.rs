@@ -137,8 +137,6 @@ async fn test_arrow_types_local_file_listing(
     Ok(())
 }
 
-// "/private/var/folders/sz/466g4f5x7j1d5_9wnd5rzsf40000gn/T/.tmpgK6z5x/var/folders/sz/466g4f5x7j1d5_9wnd5rzsf40000gn/T/.tmpgK6z5x\"
-
 #[rstest]
 async fn test_arrow_types_local_file_delta(mut conn: PgConnection, tempdir: TempDir) -> Result<()> {
     let temp_path = tempdir.path();

@@ -114,7 +114,7 @@ async fn test_arrow_types_local_file_listing(
 ) -> Result<()> {
     let stored_batch = primitive_record_batch()?;
     let parquet_path = tempdir.path().join("test_arrow_types.parquet");
-    let parquet_file = File::create(&parquet_path)?;
+    let parquet_file = File::create(parquet_path)?;
 
     let mut writer = ArrowWriter::try_new(parquet_file, stored_batch.schema(), None).unwrap();
     writer.write(&stored_batch)?;

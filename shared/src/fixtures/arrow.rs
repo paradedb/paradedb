@@ -53,15 +53,15 @@ fn binary_array_data() -> ArrayData {
 pub fn delta_primitive_record_batch() -> Result<RecordBatch> {
     let fields = vec![
         Field::new("boolean_col", DataType::Boolean, false),
-        // Field::new("int8_col", DataType::Int8, false),
-        // Field::new("int16_col", DataType::Int16, false),
-        // Field::new("int32_col", DataType::Int32, false),
-        // Field::new("int64_col", DataType::Int64, false),
-        // Field::new("float32_col", DataType::Float32, false),
-        // Field::new("float64_col", DataType::Float64, false),
-        // Field::new("date32_col", DataType::Date32, false),
-        // Field::new("binary_col", DataType::Binary, false),
-        // Field::new("utf8_col", DataType::Utf8, false),
+        Field::new("int8_col", DataType::Int8, false),
+        Field::new("int16_col", DataType::Int16, false),
+        Field::new("int32_col", DataType::Int32, false),
+        Field::new("int64_col", DataType::Int64, false),
+        Field::new("float32_col", DataType::Float32, false),
+        Field::new("float64_col", DataType::Float64, false),
+        Field::new("date32_col", DataType::Date32, false),
+        Field::new("binary_col", DataType::Binary, false),
+        Field::new("utf8_col", DataType::Utf8, false),
     ];
 
     let schema = Arc::new(Schema::new(fields));
@@ -69,19 +69,19 @@ pub fn delta_primitive_record_batch() -> Result<RecordBatch> {
         schema,
         vec![
             Arc::new(BooleanArray::from(vec![true, true, false])),
-            // Arc::new(Int8Array::from(vec![1, -1, 0])),
-            // Arc::new(Int16Array::from(vec![1, -1, 0])),
-            // Arc::new(Int32Array::from(vec![1, -1, 0])),
-            // Arc::new(Int64Array::from(vec![1, -1, 0])),
-            // Arc::new(Float32Array::from(vec![1.0, -1.0, 0.0])),
-            // Arc::new(Float64Array::from(vec![1.0, -1.0, 0.0])),
-            // Arc::new(Date32Array::from(vec![18262, 18263, 18264])),
-            // Arc::new(BinaryArray::from(array_data())),
-            // Arc::new(StringArray::from(vec![
-            //     Some("Hello"),
-            //     Some("There"),
-            //     Some("World"),
-            // ])),
+            Arc::new(Int8Array::from(vec![1, -1, 0])),
+            Arc::new(Int16Array::from(vec![1, -1, 0])),
+            Arc::new(Int32Array::from(vec![1, -1, 0])),
+            Arc::new(Int64Array::from(vec![1, -1, 0])),
+            Arc::new(Float32Array::from(vec![1.0, -1.0, 0.0])),
+            Arc::new(Float64Array::from(vec![1.0, -1.0, 0.0])),
+            Arc::new(Date32Array::from(vec![18262, 18263, 18264])),
+            Arc::new(BinaryArray::from(array_data())),
+            Arc::new(StringArray::from(vec![
+                Some("Hello"),
+                Some("There"),
+                Some("World"),
+            ])),
         ],
     )?;
 
@@ -236,6 +236,24 @@ pub fn primitive_create_table(server: &str) -> String {
     )
 }
 
+pub fn primitive_create_delta_table(server: &str) -> String {
+    format!(
+        "CREATE FOREIGN TABLE delta_primitive (
+            boolean_col       boolean,
+            int8_col          smallint,
+            int16_col         smallint,
+            int32_col         integer,
+            int64_col         bigint,
+            float32_col       real,
+            float64_col       double precision,
+            date32_col        date,
+            binary_col        bytea,
+            utf8_col          text
+        )
+        SERVER {server}"
+    )
+}
+
 pub fn primitive_setup_fdw_s3_listing(
     s3_endpoint: &str,
     s3_object_path: &str,
@@ -263,7 +281,7 @@ pub fn primitive_setup_fdw_s3_delta(
     let create_foreign_data_wrapper =
         primitive_create_foreign_data_wrapper("s3_wrapper", "s3_fdw_handler", "s3_fdw_validator");
     let create_server = primitive_create_server("s3_server", "s3_wrapper");
-    let create_table = primitive_create_table("s3_server");
+    let create_table = primitive_create_delta_table("s3_server");
 
     format!(
         r#"
@@ -299,7 +317,7 @@ pub fn primitive_setup_fdw_local_file_delta(local_file_path: &str, extension: &s
         "local_file_fdw_validator",
     );
     let create_server = primitive_create_server("local_file_server", "local_file_wrapper");
-    let create_table = primitive_create_table("local_file_server");
+    let create_table = primitive_create_delta_table("local_file_server");
 
     format!(
         r#"

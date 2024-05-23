@@ -66,6 +66,7 @@ jobs:
             else
               echo "[set -Eeuo pipefail -> NOT FOUND] $file" && exit 1
             fi
+          done < <(find . -name '*.sh')
 
       - name: Run ShellCheck
         shell: python {0}

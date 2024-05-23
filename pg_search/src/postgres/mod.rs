@@ -46,7 +46,7 @@ fn bm25_handler(_fcinfo: pg_sys::FunctionCallInfo) -> PgBox<pg_sys::IndexAmRouti
     // 2. Supporting bitmap scans would require transformation of queries into actual bitmaps, which introduces complexity
     //    without significant performance gain. This complexity is unnecessary as our operator does not require bitmap scans
     //    for optimal functioning.
-    amroutine.amgetbitmap = None;
+    amroutine.amgetbitmap = Some(scan::amgetbitmap);
     amroutine.amendscan = Some(scan::amendscan);
 
     amroutine.into_pg_boxed()

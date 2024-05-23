@@ -100,3 +100,67 @@ pub extern "C" fn amgettuple(
         None => false,
     }
 }
+
+#[pg_guard]
+pub extern "C" fn amgetbitmap(
+    scan: pg_sys::IndexScanDesc,
+    tbm: *mut pg_sys::TIDBitmap,
+) -> ::std::os::raw::c_long {
+    let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
+
+    // Ensure there's at least one key provided for the search.
+    if scan.numberOfKeys == 0 {
+        panic!("no ScanKeys provided");
+    }
+
+    // Convert the raw keys into a slice for easier access.
+    let nkeys = scan.numberOfKeys as usize;
+    let keys =
+        unsafe { std::slice::from_raw_parts(scan.keyData as *const pg_sys::ScanKeyData, nkeys) };
+
+    // Convert the first scan key argument into a byte array. This is assumed to be the `::jsonb` search config.
+    let config_jsonb = unsafe {
+        JsonB::from_datum(keys[0].sk_argument, false)
+            .expect("failed to convert query to tuple of strings")
+    };
+
+    let search_config =
+        SearchConfig::from_jsonb(config_jsonb).expect("could not parse search config");
+    let index_name = &search_config.index_name;
+
+    // Create the index and scan state
+    let search_index = get_search_index(index_name);
+    let writer_client = WriterGlobal::client();
+    let state = search_index
+        .search_state(&writer_client, &search_config, needs_commit())
+        .unwrap();
+
+    let top_docs = state.search(search_index.executor);
+
+    SearchStateManager::set_state(state.clone()).expect("could not store search state in manager");
+
+    // Save the iterator onto the current memory context.
+    let mut iter = top_docs.into_iter();
+
+    // Initialize tuple counter
+    let mut n_tids = 0;
+
+    // Iterate over the results and add them to the bitmap
+    while let Some((_, _, _, ctid)) = iter.next() {
+        let mut tid = pg_sys::ItemPointerData::default();
+        u64_to_item_pointer(ctid, &mut tid);
+
+        unsafe {
+            pg_sys::tbm_add_tuples(
+                tbm,
+                &tid as *const pg_sys::ItemPointerData as *mut pg_sys::ItemPointerData,
+                1,
+                false,
+            );
+        }
+
+        n_tids += 1;
+    }
+
+    n_tids as ::std::os::raw::c_long
+}

@@ -1,8 +1,18 @@
+use std::{
+    fs::{self, File},
+    io::Read,
+    path::{Path, PathBuf},
+};
+
 use anyhow::Result;
 use async_std::task::block_on;
 use aws_config::{BehaviorVersion, Region};
-
-use datafusion::{arrow::datatypes::FieldRef, parquet::arrow::ArrowWriter};
+use aws_sdk_s3::primitives::ByteStream;
+use datafusion::{
+    arrow::{datatypes::FieldRef, record_batch::RecordBatch},
+    parquet::arrow::ArrowWriter,
+};
+use futures::future::{BoxFuture, FutureExt};
 use rstest::*;
 use serde::Serialize;
 use serde_arrow::schema::{SchemaLike, TracingOptions};
@@ -91,13 +101,10 @@ impl S3 {
         Ok(())
     }
 
-    pub async fn put<T: Serialize>(&self, bucket: &str, key: &str, rows: &[T]) -> Result<()> {
-        let fields = Vec::<FieldRef>::from_type::<NycTripsTable>(TracingOptions::default())?;
-        let batch = serde_arrow::to_record_batch(&fields, &rows)?;
-
+    pub async fn put_batch(&self, bucket: &str, key: &str, batch: &RecordBatch) -> Result<()> {
         let mut buf = vec![];
         let mut writer = ArrowWriter::try_new(&mut buf, batch.schema(), None)?;
-        writer.write(&batch)?;
+        writer.write(batch)?;
         writer.close()?;
 
         self.client
@@ -109,9 +116,83 @@ impl S3 {
             .await?;
         Ok(())
     }
+
+    pub async fn put_rows<T: Serialize>(&self, bucket: &str, key: &str, rows: &[T]) -> Result<()> {
+        let fields = Vec::<FieldRef>::from_type::<NycTripsTable>(TracingOptions::default())?;
+        let batch = serde_arrow::to_record_batch(&fields, &rows)?;
+
+        self.put_batch(bucket, key, &batch).await
+    }
+
+    pub async fn put_directory(&self, bucket: &str, path: &str, dir: &Path) -> Result<()> {
+        fn upload_files(
+            client: aws_sdk_s3::Client,
+            bucket: String,
+            base_path: PathBuf,
+            current_path: PathBuf,
+            key_prefix: PathBuf,
+        ) -> BoxFuture<'static, Result<()>> {
+            async move {
+                let entries = fs::read_dir(&current_path)?
+                    .filter_map(|entry| entry.ok())
+                    .collect::<Vec<_>>();
+
+                for entry in entries {
+                    let entry_path = entry.path();
+                    if entry_path.is_file() {
+                        let key = key_prefix.join(entry_path.strip_prefix(&base_path)?);
+                        let mut file = File::open(&entry_path)?;
+                        let mut buf = vec![];
+                        file.read_to_end(&mut buf)?;
+                        client
+                            .put_object()
+                            .bucket(&bucket)
+                            .key(key.to_str().unwrap())
+                            .body(ByteStream::from(buf))
+                            .send()
+                            .await?;
+                    } else if entry_path.is_dir() {
+                        let new_key_prefix = key_prefix.join(entry_path.strip_prefix(&base_path)?);
+                        upload_files(
+                            client.clone(),
+                            bucket.clone(),
+                            base_path.clone(),
+                            entry_path.clone(),
+                            new_key_prefix,
+                        )
+                        .await?;
+                    }
+                }
+
+                Ok(())
+            }
+            .boxed()
+        }
+
+        let key_prefix = PathBuf::from(path);
+        upload_files(
+            self.client.clone(),
+            bucket.to_string(),
+            dir.to_path_buf(),
+            dir.to_path_buf(),
+            key_prefix,
+        )
+        .await?;
+        Ok(())
+    }
 }
 
 #[fixture]
 pub async fn s3() -> S3 {
     S3::new().await
+}
+
+#[fixture]
+pub fn tempdir() -> shared::fixtures::tempfile::TempDir {
+    shared::fixtures::tempfile::tempdir().unwrap()
+}
+
+#[fixture]
+pub fn tempfile() -> std::fs::File {
+    shared::fixtures::tempfile::tempfile().unwrap()
 }

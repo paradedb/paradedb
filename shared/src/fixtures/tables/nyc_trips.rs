@@ -42,14 +42,16 @@ impl NycTripsTable {
         NYC_TRIPS_TABLE_SETUP.to_string()
     }
 
-    pub fn setup_fdw(s3_endpoint: &str, s3_object_path: &str) -> String {
-        format!(
-            r#"
-        CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;
-        
-        CREATE SERVER s3_server FOREIGN DATA WRAPPER s3_wrapper
-        OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');
-        
+    fn create_s3_foreign_data_wrapper() -> String {
+        r#"CREATE FOREIGN DATA WRAPPER s3_wrapper HANDLER s3_fdw_handler VALIDATOR s3_fdw_validator;"#.into()
+    }
+
+    fn create_s3_server() -> String {
+        r#"CREATE SERVER nyc_trips_server FOREIGN DATA WRAPPER s3_wrapper"#.into()
+    }
+
+    fn create_table() -> String {
+        r#"
         CREATE FOREIGN TABLE trips (
             "VendorID"              INT,
             -- Commented out until serde-arrow serialization issue is addressed.
@@ -70,7 +72,23 @@ impl NycTripsTable {
             "improvement_surcharge" DOUBLE PRECISION,
             "total_amount"          DOUBLE PRECISION
         )
-        SERVER s3_server
+        SERVER nyc_trips_server
+        "#
+        .into()
+    }
+
+    pub fn setup_s3_listing_fdw(s3_endpoint: &str, s3_object_path: &str) -> String {
+        let create_foreign_data_wrapper = Self::create_s3_foreign_data_wrapper();
+        let create_server = Self::create_s3_server();
+        let create_table = Self::create_table();
+        format!(
+            r#"
+        {create_foreign_data_wrapper}
+        
+        {create_server}
+        OPTIONS (region 'us-east-1', allow_anonymous 'true', endpoint '{s3_endpoint}');
+        
+        {create_table}
         OPTIONS (path '{s3_object_path}', extension 'parquet'); 
     "#
         )

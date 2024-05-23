@@ -593,28 +593,34 @@ where
                     PgOid::from(oid),
                 )),
             },
-            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::BPCHAROID => match self.data_type() {
-                DataType::Utf8 => match self.get_primitive_value::<StringArray>(index)? {
-                    Some(value) => Ok(Some(Cell::String(value.to_string()))),
-                    None => Ok(None),
-                },
-                DataType::LargeUtf8 => match self.get_primitive_value::<LargeStringArray>(index)? {
-                    Some(value) => Ok(Some(Cell::String(value.to_string()))),
-                    None => Ok(None),
-                },
-                DataType::Binary => match self.get_binary_value::<BinaryArray>(index)? {
-                    Some(value) => Ok(Some(Cell::String(value))),
-                    None => Ok(None),
-                },
-                DataType::LargeBinary => match self.get_binary_value::<LargeBinaryArray>(index)? {
-                    Some(value) => Ok(Some(Cell::String(value))),
-                    None => Ok(None),
-                },
-                unsupported => Err(DataTypeError::DataTypeMismatch(
-                    unsupported.clone(),
-                    PgOid::from(oid),
-                )),
-            },
+            pg_sys::TEXTOID | pg_sys::VARCHAROID | pg_sys::BPCHAROID | pg_sys::BYTEAOID => {
+                match self.data_type() {
+                    DataType::Utf8 => match self.get_primitive_value::<StringArray>(index)? {
+                        Some(value) => Ok(Some(Cell::String(value.to_string()))),
+                        None => Ok(None),
+                    },
+                    DataType::LargeUtf8 => {
+                        match self.get_primitive_value::<LargeStringArray>(index)? {
+                            Some(value) => Ok(Some(Cell::String(value.to_string()))),
+                            None => Ok(None),
+                        }
+                    }
+                    DataType::Binary => match self.get_binary_value::<BinaryArray>(index)? {
+                        Some(value) => Ok(Some(Cell::String(value))),
+                        None => Ok(None),
+                    },
+                    DataType::LargeBinary => {
+                        match self.get_binary_value::<LargeBinaryArray>(index)? {
+                            Some(value) => Ok(Some(Cell::String(value))),
+                            None => Ok(None),
+                        }
+                    }
+                    unsupported => Err(DataTypeError::DataTypeMismatch(
+                        unsupported.clone(),
+                        PgOid::from(oid),
+                    )),
+                }
+            }
             pg_sys::DATEOID => match self.data_type() {
                 DataType::Date32 => match self.get_date_value::<i32, Date32Type>(index)? {
                     Some(value) => Ok(Some(Cell::Date(value))),

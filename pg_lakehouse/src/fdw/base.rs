@@ -39,7 +39,8 @@ pub trait BaseFdw {
     fn set_current_batch(&mut self, batch: Option<RecordBatch>);
     fn set_current_batch_index(&mut self, index: usize);
     fn set_dataframe(&mut self, dataframe: DataFrame);
-    async fn set_stream(&mut self) -> Result<(), DataFusionError>;
+    async fn create_stream(&mut self) -> Result<(), BaseFdwError>;
+    fn clear_stream(&mut self);
     fn set_target_columns(&mut self, columns: &[Column]);
 
     // DataFusion methods
@@ -89,7 +90,7 @@ pub trait BaseFdw {
     }
 
     fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        task::block_on(self.set_stream())?;
+        task::block_on(self.create_stream())?;
 
         if self.get_current_batch().is_none()
             || self.get_current_batch_index()
@@ -133,7 +134,7 @@ pub trait BaseFdw {
     }
 
     fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
-        // self.set_stream(None);
+        self.clear_stream();
         Ok(())
     }
 }
@@ -184,6 +185,9 @@ pub enum BaseFdwError {
 
     #[error("Unexpected error: Expected RecordBatch but found None")]
     BatchNotFound,
+
+    #[error("Unexpected error: DataFrame not found")]
+    DataFrameNotFound,
 
     #[error("Received unexpected option \"{0}\". Valid options are: {1:?}")]
     InvalidOption(String, Vec<String>),

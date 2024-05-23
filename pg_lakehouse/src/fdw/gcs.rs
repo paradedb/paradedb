@@ -1,6 +1,5 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
-use datafusion::common::DataFusionError;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
 use object_store_opendal::OpendalStore;
@@ -186,12 +185,22 @@ impl BaseFdw for GcsFdw {
         self.dataframe = Some(dataframe);
     }
 
-    async fn set_stream(&mut self) -> Result<(), DataFusionError> {
+    async fn create_stream(&mut self) -> Result<(), BaseFdwError> {
         if self.stream.is_none() {
-            self.stream = Some(self.dataframe.clone().unwrap().execute_stream().await?);
+            self.stream = Some(
+                self.dataframe
+                    .clone()
+                    .ok_or(BaseFdwError::DataFrameNotFound)?
+                    .execute_stream()
+                    .await?,
+            );
         }
 
         Ok(())
+    }
+
+    fn clear_stream(&mut self) {
+        self.stream = None;
     }
 
     fn set_target_columns(&mut self, columns: &[Column]) {

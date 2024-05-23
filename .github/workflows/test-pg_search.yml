@@ -168,25 +168,25 @@ jobs:
             echo "Version to test upgrading to: $NEW_VERSION"
 
             echo ""
-            echo "Downloading pg_seach v$BASE_RELEASE..."
-            curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_seach-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
-            sudo dpkg -i "pg_seach-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+            echo "Downloading pg_search v$BASE_RELEASE..."
+            curl -LOJ "https://github.com/paradedb/paradedb/releases/download/v$BASE_RELEASE/pg_search-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
+            sudo dpkg -i "pg_search-v$BASE_RELEASE-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu2204.deb"
 
             echo ""
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
 
             echo ""
-            echo "Loading pg_seach v$BASE_RELEASE..."
-            psql -h localhost -U postgres -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_seach VERSION '$BASE_RELEASE';"
+            echo "Loading pg_search v$BASE_RELEASE..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE';"
 
             echo ""
-            echo "Building pg_seach v$NEW_VERSION..."
+            echo "Building pg_search v$NEW_VERSION..."
             cargo pgrx install --features icu --pg-config="$PG_CONFIG_PATH" --release
 
             echo ""
-            echo "Upgrading pg_seach to v$NEW_VERSION..."
-            psql -h localhost -U postgres -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';"
+            echo "Upgrading pg_search to v$NEW_VERSION..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$FLAG_UPGRADE_VER';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"

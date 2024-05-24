@@ -5,4 +5,4 @@
 
 ## Important Notice
 
-`pg_analytics` has been moved to a [separate repository](https://github.com/paradedb/pg_analytics).
+`pg_analytics` is undergoing a refactor to bring it to production readiness. Therefore, we've temporarily moved it to a [separate repository](https://github.com/paradedb/pg_analytics).

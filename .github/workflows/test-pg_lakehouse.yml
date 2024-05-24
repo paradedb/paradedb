@@ -118,7 +118,13 @@ jobs:
       - name: Add pg_lakehouse to shared_preload_libraries
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_lakehouse'/" postgresql.conf
+        run: |
+          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_lakehouse'/" postgresql.conf
+
+          # To logs
+          sudo sed -i "s/^#\?log_min_messages.*/log_min_messages = 'DEBUG1'/" postgresql.conf
+          sudo sed -i "s/^#\?log_min_error_statement.*/log_min_error_statement = 'DEBUG1'/" postgresql.conf
+          sudo sed -i "s/^#\?log_min_duration_statement.*/log_min_duration_statement = 0/" postgresql.conf
 
       # Our Rust Cache action caches the entire ~/target directory, which includes the pg_lakehouse extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we

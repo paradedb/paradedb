@@ -28,7 +28,7 @@ concurrency:
 jobs:
   benchmark-pg_lakehouse:
     name: Benchmark pg_lakehouse on ${{ matrix.name }}
-    runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+    runs-on: depot-ubuntu-22.04-4 # Size: 4-cores · 16 GB RAM · 150 GB SSD
     strategy:
       matrix:
         include:

@@ -23,7 +23,7 @@ concurrency:
 jobs:
   test-docs:
     name: Test Docs for Broken Links
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-22.04-4
 
     steps:
       - name: Checkout Git Repository

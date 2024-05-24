@@ -29,7 +29,7 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
-    runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+    runs-on: depot-ubuntu-22.04-4 # Size: 4-cores · 16 GB RAM · 150 GB SSD
     env:
       pg_version: 16
 

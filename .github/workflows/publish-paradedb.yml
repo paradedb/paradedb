@@ -25,7 +25,7 @@ concurrency:
 jobs:
   publish-paradedb-container-image:
     name: Publish ParadeDB Container Image for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-22.04-4
     strategy:
       matrix:
         pg_version: [16]
@@ -90,7 +90,7 @@ jobs:
 
   publish-paradedb-helm-chart:
     name: Publish ParadeDB Helm Chart for PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-22.04-4
     strategy:
       matrix:
         pg_version: [16]

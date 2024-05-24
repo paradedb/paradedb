@@ -180,9 +180,19 @@ jobs:
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
 
+            ulimit -c unlimited
+
+            echo "test 1"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
+
+
             echo ""
             echo "Loading pg_search v$BASE_RELEASE..."
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE';"
+
+            echo "test 2"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
+
 
             echo ""
             echo "Building pg_search v$NEW_VERSION..."

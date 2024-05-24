@@ -173,6 +173,9 @@ jobs:
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
 
+            ulimit -c unlimited
+
+
             echo ""
             echo "Loading pg_lakehouse v$BASE_RELEASE..."
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_lakehouse VERSION '$BASE_RELEASE';"

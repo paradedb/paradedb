@@ -7,6 +7,7 @@ name: Lint Rust
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - "**/*.rs"
       - ".github/workflows/lint-rust.yml"
@@ -20,6 +21,7 @@ jobs:
   lint-rust:
     name: Lint Rust Files
     runs-on: depot-ubuntu-22.04-4
+    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         pg_version: [16]

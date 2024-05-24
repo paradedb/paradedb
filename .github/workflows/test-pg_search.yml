@@ -7,6 +7,7 @@ name: Test pg_search
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - dev
       - staging
@@ -35,6 +36,7 @@ jobs:
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
+    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         include:
@@ -62,7 +64,7 @@ jobs:
       - name: Check if Skipping
         id: check_skip
         run: |
-          if [[ "${{ github.event_name }}" = "push" && "${{ matrix.pg_version }}" != "${{ env.default_pg_version }}" ]]; then
+          if [[ "${{ github.event_name }}" == "push" && "${{ matrix.pg_version }}" != "${{ env.default_pg_version }}" ]]; then
             echo "This is a push event to fill Rust cache. Skipping this job."
             echo "skip_remaining_steps=true" >> $GITHUB_OUTPUT
           fi

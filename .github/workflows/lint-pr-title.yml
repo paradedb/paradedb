@@ -7,10 +7,7 @@ name: Lint PR Title
 
 on:
   pull_request:
-    types:
-      - opened
-      - edited
-      - synchronize
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   pull-requests: read
@@ -23,6 +20,7 @@ jobs:
   lint-pr-title:
     name: Validate PR Title
     runs-on: depot-ubuntu-22.04-4
+    if: github.event.pull_request.draft == false
 
     steps:
       - name: Checkout Git Repository

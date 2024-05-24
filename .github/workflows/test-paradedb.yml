@@ -7,6 +7,7 @@ name: Test ParadeDB
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - main
       - staging
@@ -28,6 +29,7 @@ jobs:
   test-paradedb:
     name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }}
     runs-on: depot-ubuntu-22.04-4
+    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         pg_version: [16]

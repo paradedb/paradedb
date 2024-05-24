@@ -1,6 +1,7 @@
 use async_std::stream::StreamExt;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
+use datafusion::prelude::DataFrame;
 use object_store_opendal::OpendalStore;
 use opendal::services::Azblob;
 use opendal::Operator;
@@ -11,6 +12,7 @@ use supabase_wrappers::prelude::*;
 use url::Url;
 
 use crate::datafusion::context::ContextError;
+use crate::datafusion::format::TableFormat;
 use crate::datafusion::session::Session;
 use crate::fdw::options::*;
 
@@ -22,6 +24,7 @@ use super::base::*;
     error_type = "BaseFdwError"
 )]
 pub(crate) struct AzblobFdw {
+    dataframe: Option<DataFrame>,
     stream: Option<SendableRecordBatchStream>,
     current_batch: Option<RecordBatch>,
     current_batch_index: usize,
@@ -87,6 +90,12 @@ impl TryFrom<ServerOptions> for Azblob {
 
         let mut builder = Azblob::default();
 
+        if let Some(connection_string) =
+            user_mapping_options.get(AzblobUserMappingOption::ConnectionString.as_str())
+        {
+            builder = Azblob::from_connection_string(connection_string)?;
+        }
+
         if let Some(container) = url.host_str() {
             builder.container(container);
         }
@@ -137,13 +146,6 @@ impl TryFrom<ServerOptions> for Azblob {
             builder.endpoint(endpoint);
         }
 
-        if let Some(connection_string) =
-            user_mapping_options.get(AzblobUserMappingOption::ConnectionString.as_str())
-        {
-            warning!("Because connection_string is provided, other options will be ignored");
-            builder = Azblob::from_connection_string(connection_string)?;
-        }
-
         Ok(builder)
     }
 }
@@ -151,6 +153,7 @@ impl TryFrom<ServerOptions> for Azblob {
 impl BaseFdw for AzblobFdw {
     fn register_object_store(
         url: &Url,
+        _format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
@@ -192,8 +195,26 @@ impl BaseFdw for AzblobFdw {
         self.current_batch_index = index;
     }
 
-    fn set_stream(&mut self, stream: Option<SendableRecordBatchStream>) {
-        self.stream = stream;
+    fn set_dataframe(&mut self, dataframe: DataFrame) {
+        self.dataframe = Some(dataframe);
+    }
+
+    async fn create_stream(&mut self) -> Result<(), BaseFdwError> {
+        if self.stream.is_none() {
+            self.stream = Some(
+                self.dataframe
+                    .clone()
+                    .ok_or(BaseFdwError::DataFrameNotFound)?
+                    .execute_stream()
+                    .await?,
+            );
+        }
+
+        Ok(())
+    }
+
+    fn clear_stream(&mut self) {
+        self.stream = None;
     }
 
     fn set_target_columns(&mut self, columns: &[Column]) {
@@ -222,9 +243,17 @@ impl ForeignDataWrapper<BaseFdwError> for AzblobFdw {
         user_mapping_options: HashMap<String, String>,
     ) -> Result<Self, BaseFdwError> {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
-        AzblobFdw::register_object_store(&Url::parse(path)?, server_options, user_mapping_options)?;
+        let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
+
+        AzblobFdw::register_object_store(
+            &Url::parse(path)?,
+            TableFormat::from(format),
+            server_options,
+            user_mapping_options,
+        )?;
 
         Ok(Self {
+            dataframe: None,
             current_batch: None,
             current_batch_index: 0,
             stream: None,

@@ -23,10 +23,10 @@ OPTIONS (path '<path>', extension '<extension>');
 <ParamField body="wrapper_name" required>
   Foreign data wrapper name. Can be any string.
 </ParamField>
-<ParamField body="server_name">
+<ParamField body="server_name" required>
   Foreign server name. Can be any string.
 </ParamField>
-<ParamField body="table_name">
+<ParamField body="table_name" required>
   Foreign table name. Can be any string.
 </ParamField>
 
@@ -82,7 +82,9 @@ OPTIONS (
   The name of the Postgres user. If set to `public`, these credentials will be
   applied to all users.
 </ParamField>
-<ParamField body="server_name">Foreign server name.</ParamField>
+<ParamField body="server_name" required>
+  Foreign server name.
+</ParamField>
 
 ### Options for `CREATE USER MAPPING`
 

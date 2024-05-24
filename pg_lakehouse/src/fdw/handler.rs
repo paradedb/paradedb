@@ -74,10 +74,10 @@ pub fn register_object_store(
             GcsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
         }
         FdwHandler::Azdls => {
-            AzdlsFdw::register_object_store(url, server_options, user_mapping_options)?;
+            AzdlsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
         }
         FdwHandler::Azblob => {
-            AzblobFdw::register_object_store(url, server_options, user_mapping_options)?;
+            AzblobFdw::register_object_store(url, format, server_options, user_mapping_options)?;
         }
         _ => {}
     }

@@ -182,7 +182,7 @@ jobs:
 
             echo ""
             echo "Verifying current pg_search installed version..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';"
 
             echo ""
             echo "Building pg_search v$NEW_VERSION..."
@@ -195,7 +195,7 @@ jobs:
 
             echo ""
             echo "Verifying current pg_search installed version..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_search';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"

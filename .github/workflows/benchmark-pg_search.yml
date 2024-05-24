@@ -30,9 +30,9 @@ jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
     runs-on: depot-ubuntu-22.04-4
-    strategy:
-      matrix:
-        pg_version: [16]
+    if: ${{ github.event.pull_request.draft }} == false
+    env:
+      pg_version: 16
 
     steps:
       - name: Checkout Git Repository

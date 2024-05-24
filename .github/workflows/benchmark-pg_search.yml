@@ -29,9 +29,10 @@ concurrency:
 jobs:
   benchmark-pg_search:
     name: Benchmark pg_search
-    runs-on: depot-ubuntu-22.04-4 # Size: 4-cores · 16 GB RAM · 150 GB SSD
-    env:
-      pg_version: 16
+    runs-on: depot-ubuntu-22.04-4
+    strategy:
+      matrix:
+        pg_version: [16]
 
     steps:
       - name: Checkout Git Repository
@@ -41,19 +42,19 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ env.pg_version }} postgresql-server-dev-${{ env.pg_version }}
-          sudo chown -R $(whoami) /usr/share/postgresql/${{ env.pg_version }}/ /usr/lib/postgresql/${{ env.pg_version }}/ /var/lib/postgresql/${{ env.pg_version }}/
-          echo "/usr/lib/postgresql/${{ env.pg_version }}/bin" >> $GITHUB_PATH
+          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }}
+          sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
+          echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
       - name: Install pgrx & pg_search
         working-directory: pg_search/
         run: |
           cargo install -j $(nproc) --locked cargo-pgrx --version 0.11.3
-          cargo pgrx init --pg${{ env.pg_version }}=/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config
-          cargo pgrx install --pg-config="/usr/lib/postgresql/${{ env.pg_version }}/bin/pg_config" --release
+          cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
+          cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
       - name: Add pg_search to shared_preload_libraries
-        working-directory: /home/runner/.pgrx/data-${{ env.pg_version }}/
+        working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
         run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       - name: Install the ParadeDB Benchmarking Tool
@@ -63,10 +64,10 @@ jobs:
       - name: Run pg_search Benchmarks
         working-directory: pg_search/
         run: |
-          cargo pgrx start pg${{ env.pg_version }}
-          cargo paradedb bench eslogs generate --events 5000000 --url postgresql://localhost:288${{ env.pg_version }}/postgres
-          cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ env.pg_version }}/postgres
-          cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ env.pg_version }}/postgres
+          cargo pgrx start pg${{ matrix.pg_version }}
+          cargo paradedb bench eslogs generate --events 5000000 --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          cargo paradedb bench eslogs build-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
+          cargo paradedb bench eslogs query-search-index --url postgresql://localhost:288${{ matrix.pg_version }}/postgres
 
       - name: Notify Slack on Failure
         if: failure() && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/main')

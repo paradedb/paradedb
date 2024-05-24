@@ -28,7 +28,7 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: depot-ubuntu-22.04-4 # Size: 4-cores · 16 GB RAM · 150 GB SSD
+    runs-on: depot-ubuntu-22.04-4
     strategy:
       matrix:
         pg_version: [16]

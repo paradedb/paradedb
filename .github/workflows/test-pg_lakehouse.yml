@@ -8,7 +8,7 @@ name: Test pg_lakehouse
 on:
   pull_request:
     branches:
-      # - dev
+      - dev
       - staging
       - main
     paths:
@@ -19,7 +19,6 @@ on:
   push:
     branches:
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
-      - phil/no-sudo
   workflow_dispatch:
     inputs:
       test_upgrade_version:
@@ -146,7 +145,7 @@ jobs:
           mkdir -p ../target/coverage ../target/coverage-report
 
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
-          if [[ "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
+          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             echo ""
             echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
@@ -195,10 +194,6 @@ jobs:
           echo "Running Rust tests..."
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           cargo pgrx test "pg${{ matrix.pg_version }}"
-
-      - name: Print logs
-        if: failure()
-        run: cat /home/runner/.pgrx/${{ matrix.pg_version }}.log
 
       # On promotion PRs, we test packaging the extension with production features enabled
       - name: Test Packaging pg_lakehouse

@@ -173,6 +173,10 @@ jobs:
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_lakehouse VERSION '$BASE_RELEASE';"
 
             echo ""
+            echo "Verifying current pg_lakehouse installed version..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_lakehouse';"
+
+            echo ""
             echo "Building pg_lakehouse v$NEW_VERSION..."
             sudo chown -R "$(whoami)" "/usr/share/postgresql/${{ matrix.pg_version }}/extension/" "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/"
             cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
@@ -182,7 +186,16 @@ jobs:
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_lakehouse UPDATE TO '$NEW_VERSION';"
 
             echo ""
+            echo "Verifying current pg_lakehouse installed version..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_lakehouse';"
+
+            echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"
+
+            echo ""
+            echo "Restarting Postgres..."
+            cargo pgrx stop pg${{ matrix.pg_version }}
+            cargo pgrx start pg${{ matrix.pg_version }}
           else
             echo ""
             echo "Building pg_lakehouse..."

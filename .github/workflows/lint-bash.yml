@@ -19,7 +19,7 @@ concurrency:
 jobs:
   lint-bash:
     name: Lint Bash Scripts
-    runs-on: ubuntu-latest
+    runs-on: depot-ubuntu-22.04-4
 
     steps:
       - name: Checkout Git Repository

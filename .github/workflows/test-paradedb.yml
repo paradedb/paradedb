@@ -1,8 +1,7 @@
 # workflows/test-paradedb.yml
 #
 # Test ParadeDB
-# Test building the ParadeDB Docker Image using Docker Compose. We use a ubuntu-latest-m
-# runner for faster builds and to avoid running out of storage on the runner.
+# Test building the ParadeDB Docker Image using Docker Compose.
 
 name: Test ParadeDB
 
@@ -28,7 +27,7 @@ concurrency:
 jobs:
   test-paradedb:
     name: Test ParadeDB on PostgreSQL ${{ matrix.pg_version }}
-    runs-on: ubuntu-latest-m # Size: 4-cores · 16 GB RAM · 150 GB SSD
+    runs-on: depot-ubuntu-22.04-4
     strategy:
       matrix:
         pg_version: [16]

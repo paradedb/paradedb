@@ -173,22 +173,21 @@ jobs:
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
 
-            ulimit -c unlimited
-
-
             echo ""
             echo "Loading pg_lakehouse v$BASE_RELEASE..."
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_lakehouse VERSION '$BASE_RELEASE';"
 
             echo ""
             echo "Building pg_lakehouse v$NEW_VERSION..."
-            cargo pgrx install --sudo --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+            sudo chown -R "$(whoami)" "/usr/share/postgresql/${{ matrix.pg_version }}/extension/" "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/"
+            cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
-            sudo psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
+            echo "test 3"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
 
             echo ""
             echo "Upgrading pg_lakehouse to v$NEW_VERSION..."
-            sudo psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"

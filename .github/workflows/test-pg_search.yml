@@ -180,11 +180,8 @@ jobs:
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
 
-            ulimit -c unlimited
-
             echo "test 1"
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
-
 
             echo ""
             echo "Loading pg_search v$BASE_RELEASE..."
@@ -193,18 +190,17 @@ jobs:
             echo "test 2"
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
 
-
             echo ""
             echo "Building pg_search v$NEW_VERSION..."
-            cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+            sudo chown -R "$(whoami)" "/usr/share/postgresql/${{ matrix.pg_version }}/extension/" "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/"
+            cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
-
-            sudo psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
-
+            echo "test 3"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
 
             echo ""
             echo "Upgrading pg_search to v$NEW_VERSION..."
-            sudo psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"

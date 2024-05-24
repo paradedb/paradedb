@@ -128,7 +128,13 @@ jobs:
       - name: Add pg_search to shared_preload_libraries
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+        run: |
+          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
+
+          # To logs
+          sudo sed -i "s/^#\?log_min_messages.*/log_min_messages = 'DEBUG1'/" postgresql.conf
+          sudo sed -i "s/^#\?log_min_error_statement.*/log_min_error_statement = 'DEBUG1'/" postgresql.conf
+          sudo sed -i "s/^#\?log_min_duration_statement.*/log_min_duration_statement = 0/" postgresql.conf
 
       # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
@@ -181,6 +187,11 @@ jobs:
             echo ""
             echo "Building pg_search v$NEW_VERSION..."
             cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
+
+
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
+            sleep 5
+
 
             echo ""
             echo "Upgrading pg_search to v$NEW_VERSION..."

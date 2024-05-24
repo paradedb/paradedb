@@ -1,8 +1,7 @@
 # workflows/test-paradedb.yml
 #
 # Test ParadeDB
-# Test building the ParadeDB Docker Image using Docker Compose. We use a depot-ubuntu-22.04-4
-# runner for faster builds and to avoid running out of storage on the runner.
+# Test building the ParadeDB Docker Image using Docker Compose.
 
 name: Test ParadeDB
 

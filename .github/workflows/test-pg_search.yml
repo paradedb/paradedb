@@ -199,13 +199,12 @@ jobs:
             cargo pgrx install --sudo --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
 
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
-            sleep 5
+            sudo psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
 
 
             echo ""
             echo "Upgrading pg_search to v$NEW_VERSION..."
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
+            sudo psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_search UPDATE TO '$NEW_VERSION';"
 
             echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"

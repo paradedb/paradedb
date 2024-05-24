@@ -22,7 +22,7 @@ telemetry = ["shared/telemetry"]
 anyhow = "1.0.83"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
 chrono = "0.4.34"
-datafusion = "37.1.0"
+datafusion = { version = "37.1.0", features = ["avro"] }
 deltalake = { version = "0.17.3", features = [
   "datafusion",
   "s3",

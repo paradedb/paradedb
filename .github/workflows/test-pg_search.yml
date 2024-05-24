@@ -7,7 +7,7 @@ name: Test pg_search
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, ready_for_review]
     branches:
       - dev
       - staging

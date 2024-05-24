@@ -128,13 +128,7 @@ jobs:
       - name: Add pg_search to shared_preload_libraries
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         working-directory: /home/runner/.pgrx/data-${{ matrix.pg_version }}/
-        run: |
-          sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
-
-          # To logs
-          sudo sed -i "s/^#\?log_min_messages.*/log_min_messages = 'DEBUG1'/" postgresql.conf
-          sudo sed -i "s/^#\?log_min_error_statement.*/log_min_error_statement = 'DEBUG1'/" postgresql.conf
-          sudo sed -i "s/^#\?log_min_duration_statement.*/log_min_duration_statement = 0/" postgresql.conf
+        run: sed -i "s/^#shared_preload_libraries = .*/shared_preload_libraries = 'pg_search'/" postgresql.conf
 
       # Our Rust Cache action caches the entire ~/target directory, which includes the pg_search extension. Since we
       # only want to restore dependencies (to speed up the build) but not the extension itself (so the tests are representative), we
@@ -180,23 +174,14 @@ jobs:
             echo "Starting Postgres..."
             cargo pgrx start pg${{ matrix.pg_version }}
 
-            echo "test 1"
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
-
             echo ""
             echo "Loading pg_search v$BASE_RELEASE..."
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_search VERSION '$BASE_RELEASE';"
 
-            echo "test 2"
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
-
             echo ""
             echo "Building pg_search v$NEW_VERSION..."
             sudo chown -R "$(whoami)" "/usr/share/postgresql/${{ matrix.pg_version }}/extension/" "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/"
-            cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
-
-            echo "test 3"
-            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT 1;"
+            cargo pgrx install --features icu --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
 
             echo ""
             echo "Upgrading pg_search to v$NEW_VERSION..."
@@ -217,10 +202,6 @@ jobs:
           echo "Running Rust tests..."
           export DATABASE_URL=postgresql://localhost:288${{ matrix.pg_version }}/postgres
           cargo pgrx test "pg${{ matrix.pg_version }}" --features icu
-
-      - name: Print logs
-        if: failure()
-        run: cat /home/runner/.pgrx/${{ matrix.pg_version }}.log
 
       # On promotion PRs, we test packaging the extension with production features enabled
       - name: Test Packaging pg_search

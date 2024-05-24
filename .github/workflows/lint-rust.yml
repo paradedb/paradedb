@@ -21,7 +21,7 @@ jobs:
   lint-rust:
     name: Lint Rust Files
     runs-on: depot-ubuntu-22.04-4
-    if: ${{ github.event.pull_request.draft }} != false
+    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         pg_version: [16]

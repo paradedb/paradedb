@@ -36,7 +36,7 @@ jobs:
   test-pg_search:
     name: Test pg_search on PostgreSQL ${{ matrix.pg_version }} for ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
-    if: ${{ github.event.pull_request.draft }} != false
+    if: github.event.pull_request.draft == false
     strategy:
       matrix:
         include:

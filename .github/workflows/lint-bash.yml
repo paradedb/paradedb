@@ -21,7 +21,7 @@ jobs:
   lint-bash:
     name: Lint Bash Scripts
     runs-on: depot-ubuntu-22.04-4
-    if: ${{ github.event.pull_request.draft }} != false
+    if: github.event.pull_request.draft == false
 
     steps:
       - name: Checkout Git Repository

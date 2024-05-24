@@ -11,9 +11,10 @@
 
 - [x] Amazon S3
 - [x] S3-compatible object stores (e.g. MinIO)
-- [x] Local file system
+- [x] Azure Blob Storage
+- [x] Azure Data Lake Storage Gen2
 - [x] Google Cloud Storage
-- [ ] Azure Blob Storage (coming soon)
+- [x] Local file system
 
 ...and potentially any service supported by [Apache OpenDAL](https://opendal.apache.org/docs/category/services). See the Development section for instructions on how to [add a service](#adding-a-service).
 

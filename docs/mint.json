@@ -134,6 +134,8 @@
         {
           "group": "Object Stores",
           "pages": [
+            "analytics/object_stores/azblob",
+            "analytics/object_stores/azdls",
             "analytics/object_stores/gcs",
             "analytics/object_stores/local",
             "analytics/object_stores/s3",

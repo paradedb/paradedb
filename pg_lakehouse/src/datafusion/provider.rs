@@ -54,6 +54,7 @@ pub async fn create_delta_provider(
 
     deltalake::gcp::register_handlers(None);
     deltalake::aws::register_handlers(None);
+    deltalake::azure::register_handlers(None);
 
     let url = Url::parse(path)?;
     let context = Session::session_context()?;

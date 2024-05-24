@@ -2607,6 +2607,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7e6d7dc62f957c02d899cd6a88be74c70594f7782b24c97392267b49ed5c9a5"
 dependencies = [
  "deltalake-aws",
+ "deltalake-azure",
  "deltalake-core",
  "deltalake-gcp",
 ]
@@ -2636,6 +2637,25 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "deltalake-azure"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e074599ebb06706867093e06f29ca4eb77a310a8ca24c83066063d4062acbbfe"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "deltalake-core",
+ "futures",
+ "lazy_static",
+ "object_store",
+ "regex",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -5033,6 +5053,7 @@ dependencies = [
  "reqwest 0.12.3",
  "serde",
  "serde_json",
+ "sha2",
  "tokio",
  "uuid",
 ]

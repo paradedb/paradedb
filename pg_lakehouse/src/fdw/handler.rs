@@ -5,6 +5,8 @@ use url::Url;
 use crate::datafusion::context::ContextError;
 use crate::datafusion::format::TableFormat;
 
+use super::azblob::AzblobFdw;
+use super::azdls::AzdlsFdw;
 use super::base::BaseFdw;
 use super::gcs::GcsFdw;
 use super::local::LocalFileFdw;
@@ -15,6 +17,8 @@ pub enum FdwHandler {
     S3,
     LocalFile,
     Gcs,
+    Azblob,
+    Azdls,
     Other,
 }
 
@@ -26,6 +30,8 @@ impl From<&str> for FdwHandler {
             "s3_fdw_handler" => FdwHandler::S3,
             "local_file_fdw_handler" => FdwHandler::LocalFile,
             "gcs_fdw_handler" => FdwHandler::Gcs,
+            "azblob_fdw_handler" => FdwHandler::Azblob,
+            "azdls_fdw_handler" => FdwHandler::Azdls,
             _ => FdwHandler::Other,
         }
     }
@@ -66,6 +72,12 @@ pub fn register_object_store(
         }
         FdwHandler::Gcs => {
             GcsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
+        }
+        FdwHandler::Azdls => {
+            AzdlsFdw::register_object_store(url, format, server_options, user_mapping_options)?;
+        }
+        FdwHandler::Azblob => {
+            AzblobFdw::register_object_store(url, format, server_options, user_mapping_options)?;
         }
         _ => {}
     }

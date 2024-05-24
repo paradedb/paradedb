@@ -291,7 +291,7 @@ impl SearchState {
             let key_field_name = self.config.key_field.clone();
             let schema = self.schema.clone();
             let collector = TopDocs::with_limit(limit).and_offset(offset).tweak_score(
-                move |segment_reader: &tantivy::SegmentReader| {
+                move |segment_reader: &tantivy::SegmentReader| -> Box<dyn FnMut(tantivy::DocId, Score) -> SearchIndexScore> {
                     let fast_fields = segment_reader
                         .fast_fields();
 
@@ -307,89 +307,83 @@ impl SearchState {
                                 .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", "id"))
                                 .first_or_default_col(0);
 
-                            move |doc: tantivy::DocId, original_score: tantivy::Score| {
+                            Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: format!("{}", key_field_reader.get_val(doc)),
                                 }
-                            }
+                            })
                         }
-                        _ => panic!("test")
+                        SearchFieldType::U64 => {
+                            let key_field_reader = fast_fields
+                                .u64(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a u64: {err:?}", "id"))
+                                .first_or_default_col(0); 
+
+                            Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
+                                SearchIndexScore {
+                                    bm25: original_score,
+                                    key: format!("{}", key_field_reader.get_val(doc)),
+                                }
+                            })
+                        }
+                        SearchFieldType::F64 => {
+                            let key_field_reader = fast_fields
+                                .f64(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a f64: {err:?}", "id"))
+                                .first_or_default_col(0.0);
+
+                            Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
+                                SearchIndexScore {
+                                    bm25: original_score,
+                                    key: format!("{}", key_field_reader.get_val(doc)),
+                                }
+                            })
+                        }
+                        SearchFieldType::Text => {
+                            let key_field_reader = fast_fields
+                                .str(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a string: {err:?}", "id"))
+                                .unwrap();
+
+                            Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
+                                let mut tok_str: String = Default::default();
+                                // TODO: not really sure what the first argument should be here
+                                key_field_reader.ord_to_str(doc.into(), &mut tok_str);
+                                SearchIndexScore {
+                                    bm25: original_score,
+                                    key: tok_str,
+                                }
+                            })
+                        }
+                        SearchFieldType::Bool => {
+                            let key_field_reader = fast_fields
+                                .bool(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a bool: {err:?}", "id"))
+                                .first_or_default_col(false);
+
+                            Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
+                                SearchIndexScore {
+                                    bm25: original_score,
+                                    key: format!("{}", key_field_reader.get_val(doc)),
+                                }
+                            })
+                        }
+                        SearchFieldType::Date => {
+                            let key_field_reader = fast_fields
+                                .date(&key_field_name)
+                                .unwrap_or_else(|err| panic!("key field {} is not a date: {err:?}", "id"))
+                                .first_or_default_col(tantivy::DateTime::MIN);
+
+                            Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
+                                SearchIndexScore {
+                                    bm25: original_score,
+                                    key: format!("{}", key_field_reader.get_val(doc).into_primitive().to_string()),
+                                }
+                            })
+                        }
+                        _ => panic!("not a supported field type")
                     }
-
-                    // let i64_key_field_reader = fast_fields
-                    //     .i64(&key_field_name)
-                    //     .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", "id"))
-                    //     .first_or_default_col(0);
-                    // // let key = fast_fields
-                    // //     .i64(&key_field_name)
-                    // //     .map_or_else(|_| {
-                    // //         fast_fields.str(&key_field_name)
-                    // //         .map_or_else(|_| {
-                    // //             fast_fields.f64(&key_field_name)
-                    // //             .map_or_else(|_| {
-                    // //                 fast_fields.u64(&key_field_name)
-                    // //                 .map_or_else(|_| {
-                    // //                     fast_fields.date(&key_field_name)
-                    // //                     .map_or_else(|_| {
-                    // //                         panic!("key field not a fast field")
-                    // //                     }, |i| format!("{}", i.first_or_default_col(tantivy::DateTime::MIN).get_val(doc)))
-                    // //                 }, |i| format!("{}", i.first_or_default_col(0).get_val(doc)))
-                    // //             }, |i| format!("{}", i.first_or_default_col(0.0).get_val(doc)))
-                    // //         }, |i| {
-                    // //             let mut ret_str: String;
-                    // //             i.ord_to_str(0, ret_str);
-                    // //             ret_str
-                    // //         })
-                    // //     }, |i| format!("{}", i.first_or_default_col(0).get_val(doc)));
-                    // // TODO: get the value and turn into a string
-
-                    // // This function will be called on every document in the index that matches the
-                    // // query, before limit + offset are applied. It's important that it's efficient.
-                    // move |doc: tantivy::DocId, original_score: tantivy::Score| {
-                    //     // let value = doc
-                    //     //     .get_first(key_field_name)
-                    //     //     .unwrap();
-
-                    //     // let key = match value {
-                    //     //     tantivy::schema::OwnedValue::Str(string) => string.clone(),
-                    //     //     tantivy::schema::OwnedValue::U64(u64) => format!("{:?}", u64),
-                    //     //     tantivy::schema::OwnedValue::I64(i64) => format!("{:?}", i64),
-                    //     //     tantivy::schema::OwnedValue::F64(f64) => format!("{:?}", f64),
-                    //     //     tantivy::schema::OwnedValue::Bool(bool) => format!("{:?}", bool),
-                    //     //     tantivy::schema::OwnedValue::Date(datetime) => datetime.into_primitive().to_string(),
-                    //     //     tantivy::schema::OwnedValue::Bytes(bytes) => String::from_utf8(bytes.clone()).unwrap(),
-                    //     //     _ => panic!("NO")
-                    //     // };
-
-                    //     // let key = fast_fields
-                    //     // .i64(&key_field_name)
-                    //     // .map_or_else(|_| {
-                    //     //     fast_fields.str(&key_field_name)
-                    //     //     .map_or_else(|_| {
-                    //     //         fast_fields.f64(&key_field_name)
-                    //     //         .map_or_else(|_| {
-                    //     //             fast_fields.u64(&key_field_name)
-                    //     //             .map_or_else(|_| {
-                    //     //                 fast_fields.date(&key_field_name)
-                    //     //                 .map_or_else(|_| {
-                    //     //                     panic!("key field not a fast field")
-                    //     //                 }, |i| format!("{}", i.first_or_default_col(tantivy::DateTime::MIN).get_val(doc).into_primitive().to_string()))
-                    //     //             }, |i| format!("{}", i.first_or_default_col(0).get_val(doc)))
-                    //     //         }, |i| format!("{}", i.first_or_default_col(0.0).get_val(doc)))
-                    //     //     }, |i| {
-                    //     //         let mut ret_str: String;
-                    //     //         i.unwrap().ord_to_str(0, &mut ret_str);
-                    //     //         ret_str
-                    //     //     })
-                    //     // }, |i| format!("{}", i.first_or_default_col(0).get_val(doc)));
-
-                    //     SearchIndexScore {
-                    //         bm25: original_score,
-                    //         key: format!("{}", key_field_reader.get_val(doc)),
-                    //         // key: key
-                    //     }
-                    // }
                 },
             );
             self.searcher

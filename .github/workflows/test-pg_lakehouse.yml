@@ -9,7 +9,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      - dev
+      # - dev
       - staging
       - main
     paths:
@@ -19,6 +19,7 @@ on:
       - ".github/workflows/test-pg_lakehouse.yml"
   push:
     branches:
+      - phil/alter-ext
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
   workflow_dispatch:
     inputs:
@@ -147,7 +148,7 @@ jobs:
           mkdir -p ../target/coverage ../target/coverage-report
 
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
-          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
+          if [[ "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             echo ""
             echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then
@@ -173,6 +174,10 @@ jobs:
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "CREATE EXTENSION pg_lakehouse VERSION '$BASE_RELEASE';"
 
             echo ""
+            echo "Verifying current pg_lakehouse installed version..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_lakehouse';
+
+            echo ""
             echo "Building pg_lakehouse v$NEW_VERSION..."
             sudo chown -R "$(whoami)" "/usr/share/postgresql/${{ matrix.pg_version }}/extension/" "/usr/lib/postgresql/${{ matrix.pg_version }}/lib/"
             cargo pgrx install --pg-config="/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config" --release
@@ -182,7 +187,16 @@ jobs:
             psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "ALTER EXTENSION pg_lakehouse UPDATE TO '$NEW_VERSION';"
 
             echo ""
+            echo "Verifying current pg_lakehouse installed version..."
+            psql -h localhost -d postgres -p 288${{ matrix.pg_version }} -c "SELECT extname, extversion FROM pg_extension WHERE extname = 'pg_lakehouse';
+
+            echo ""
             echo "Extension successfully upgraded from v$BASE_RELEASE to v$NEW_VERSION!"
+
+            echo ""
+            echo "Restarting Postgres..."
+            cargo pgrx stop pg${{ matrix.pg_version }}
+            cargo pgrx start pg${{ matrix.pg_version }}
           else
             echo ""
             echo "Building pg_lakehouse..."

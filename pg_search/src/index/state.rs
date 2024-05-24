@@ -298,13 +298,31 @@ impl SearchState {
                         panic!("0!!!");
                     }
 
-                    // let key_field_reader = fast_fields
-                    //     .i64(&key_field_name)
-                    //     .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", "id"))
-                    //     .first_or_default_col(0);
-                    let key = fast_fields
+                    let key_field_reader = fast_fields
                         .i64(&key_field_name)
-                        .map()
+                        .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", "id"))
+                        .first_or_default_col(0);
+                    // let key = fast_fields
+                    //     .i64(&key_field_name)
+                    //     .map_or_else(|_| {
+                    //         fast_fields.str(&key_field_name)
+                    //         .map_or_else(|_| {
+                    //             fast_fields.f64(&key_field_name)
+                    //             .map_or_else(|_| {
+                    //                 fast_fields.u64(&key_field_name)
+                    //                 .map_or_else(|_| {
+                    //                     fast_fields.date(&key_field_name)
+                    //                     .map_or_else(|_| {
+                    //                         panic!("key field not a fast field")
+                    //                     }, |i| format!("{}", i.first_or_default_col(tantivy::DateTime::MIN).get_val(doc)))
+                    //                 }, |i| format!("{}", i.first_or_default_col(0).get_val(doc)))
+                    //             }, |i| format!("{}", i.first_or_default_col(0.0).get_val(doc)))
+                    //         }, |i| {
+                    //             let mut ret_str: String;
+                    //             i.ord_to_str(0, ret_str);
+                    //             ret_str
+                    //         })
+                    //     }, |i| format!("{}", i.first_or_default_col(0).get_val(doc)));
                     // TODO: get the value and turn into a string
 
                     // This function will be called on every document in the index that matches the
@@ -325,10 +343,32 @@ impl SearchState {
                         //     _ => panic!("NO")
                         // };
 
+                        // let key = fast_fields
+                        // .i64(&key_field_name)
+                        // .map_or_else(|_| {
+                        //     fast_fields.str(&key_field_name)
+                        //     .map_or_else(|_| {
+                        //         fast_fields.f64(&key_field_name)
+                        //         .map_or_else(|_| {
+                        //             fast_fields.u64(&key_field_name)
+                        //             .map_or_else(|_| {
+                        //                 fast_fields.date(&key_field_name)
+                        //                 .map_or_else(|_| {
+                        //                     panic!("key field not a fast field")
+                        //                 }, |i| format!("{}", i.first_or_default_col(tantivy::DateTime::MIN).get_val(doc).into_primitive().to_string()))
+                        //             }, |i| format!("{}", i.first_or_default_col(0).get_val(doc)))
+                        //         }, |i| format!("{}", i.first_or_default_col(0.0).get_val(doc)))
+                        //     }, |i| {
+                        //         let mut ret_str: String;
+                        //         i.unwrap().ord_to_str(0, &mut ret_str);
+                        //         ret_str
+                        //     })
+                        // }, |i| format!("{}", i.first_or_default_col(0).get_val(doc)));
+
                         SearchIndexScore {
                             bm25: original_score,
-                            // key: key_field_reader.get_val(doc),
-                            key: key
+                            key: format!("{}", key_field_reader.get_val(doc)),
+                            // key: key
                         }
                     }
                 },
@@ -349,7 +389,7 @@ impl SearchState {
                     // This iterator contains the results after limit + offset are applied.
                     let ctid = self.ctid_value(doc_address);
                     SearchStateManager::set_result(
-                        score.key,
+                        score.key.clone(),
                         score.bm25,
                         doc_address,
                         self.config.alias.clone(),
@@ -376,7 +416,7 @@ impl SearchState {
                     // This iterator contains the results after limit + offset are applied.
                     let (key, ctid) = self.key_and_ctid_value(doc_address);
                     SearchStateManager::set_result(
-                        key,
+                        key.clone(),
                         score,
                         doc_address,
                         self.config.alias.clone(),

@@ -378,7 +378,12 @@ impl SearchIndexSchema {
             }
             .into();
 
-            search_fields.push(SearchField { id, name, config, type_: field_type });
+            search_fields.push(SearchField {
+                id,
+                name,
+                config,
+                type_: field_type,
+            });
         }
 
         let schema = builder.build();

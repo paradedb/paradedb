@@ -318,7 +318,7 @@ impl SearchState {
                             let key_field_reader = fast_fields
                                 .u64(&key_field_name)
                                 .unwrap_or_else(|err| panic!("key field {} is not a u64: {err:?}", "id"))
-                                .first_or_default_col(0); 
+                                .first_or_default_col(0);
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 SearchIndexScore {
@@ -349,7 +349,7 @@ impl SearchState {
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 let mut tok_str: String = Default::default();
                                 // TODO: not really sure what the first argument should be here
-                                key_field_reader.ord_to_str(doc.into(), &mut tok_str);
+                                key_field_reader.ord_to_str(doc.into(), &mut tok_str).expect("no string!!");
                                 SearchIndexScore {
                                     bm25: original_score,
                                     key: tok_str,
@@ -378,7 +378,7 @@ impl SearchState {
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 SearchIndexScore {
                                     bm25: original_score,
-                                    key: format!("{}", key_field_reader.get_val(doc).into_primitive().to_string()),
+                                    key: key_field_reader.get_val(doc).into_primitive().to_string(),
                                 }
                             })
                         }
@@ -459,7 +459,7 @@ impl SearchState {
             tantivy::schema::OwnedValue::Bool(bool) => format!("{:?}", bool),
             tantivy::schema::OwnedValue::Date(datetime) => datetime.into_primitive().to_string(),
             tantivy::schema::OwnedValue::Bytes(bytes) => String::from_utf8(bytes.clone()).unwrap(),
-            _ => panic!("NO")
+            _ => panic!("NO"),
         }
     }
 
@@ -482,11 +482,6 @@ impl SearchState {
             .doc(doc_address)
             .expect("could not retrieve document by address");
 
-        // let key = retrieved_doc
-        //     .get_first(self.schema.key_field().id.0)
-        //     .unwrap()
-        //     .as_i64()
-        //     .expect("could not access key field on document");
         let value = retrieved_doc
             .get_first(self.schema.key_field().id.0)
             .unwrap();
@@ -499,7 +494,7 @@ impl SearchState {
             tantivy::schema::OwnedValue::Bool(bool) => format!("{:?}", bool),
             tantivy::schema::OwnedValue::Date(datetime) => datetime.into_primitive().to_string(),
             tantivy::schema::OwnedValue::Bytes(bytes) => String::from_utf8(bytes.clone()).unwrap(),
-            _ => panic!("NO")
+            _ => panic!("NO"),
         };
 
         let ctid = retrieved_doc

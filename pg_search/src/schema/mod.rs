@@ -317,6 +317,8 @@ pub struct SearchField {
     pub name: SearchFieldName,
     /// Configuration for the field passed at index build time.
     pub config: SearchFieldConfig,
+    /// Field type
+    pub type_: SearchFieldType,
 }
 
 impl From<&SearchField> for Field {
@@ -376,35 +378,7 @@ impl SearchIndexSchema {
             }
             .into();
 
-            // let id: SearchFieldId = match &config {
-            //     SearchFieldConfig::Text { .. } => {
-            //         builder.add_text_field(name.as_ref(), config.clone())
-            //     }
-            //     SearchFieldConfig::Numeric { .. } => match field_type {
-            //         SearchFieldType::I64 => builder.add_i64_field(name.as_ref(), config.clone()),
-            //         SearchFieldType::U64 => builder.add_u64_field(name.as_ref(), config.clone()),
-            //         SearchFieldType::F64 => builder.add_f64_field(name.as_ref(), config.clone()),
-            //         _ => return Err(SearchIndexSchemaError::InvalidNumericType(field_type)),
-            //     }
-            //     SearchFieldConfig::Boolean { .. } => {
-            //         builder.add_bool_field(name.as_ref(), config.clone())
-            //     }
-            //     SearchFieldConfig::Json { .. } => {
-            //         builder.add_json_field(name.as_ref(), config.clone())
-            //     }
-            //     SearchFieldConfig::Date { .. } => {
-            //         builder.add_date_field(name.as_ref(), config.clone())
-            //     }
-            //     SearchFieldConfig::Key { .. } => {
-            //         builder.add_i64_field(name.as_ref(), INDEXED | STORED | FAST)
-            //     }
-            //     SearchFieldConfig::Ctid { .. } => {
-            //         builder.add_u64_field(name.as_ref(), INDEXED | STORED | FAST)
-            //     }
-            // }
-            // .into();
-
-            search_fields.push(SearchField { id, name, config });
+            search_fields.push(SearchField { id, name, config, type_: field_type });
         }
 
         let schema = builder.build();

@@ -9,7 +9,7 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
     branches:
-      # - dev
+      - dev
       - staging
       - main
     paths:
@@ -19,7 +19,6 @@ on:
       - ".github/workflows/test-pg_lakehouse.yml"
   push:
     branches:
-      - phil/alter-ext
       - dev # Run CI on dev. This is important to fill the GitHub Actions cache in a way that pull requests can see it
   workflow_dispatch:
     inputs:
@@ -148,7 +147,7 @@ jobs:
           mkdir -p ../target/coverage ../target/coverage-report
 
           # If this is a promotion PR, we test upgrading the extension by pulling the earliest version of the extension compatible with our current default Postgres version
-          if [[ "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
+          if [[ "${{ github.base_ref }}" == "main" && "${{ matrix.pg_version }}" == "${{ env.default_pg_version }}" ]]; then
             echo ""
             echo "Promotion PR detected! Running extension upgrade test..."
             if [[ "${{ github.event.inputs.test_upgrade_version }}" == "" ]]; then

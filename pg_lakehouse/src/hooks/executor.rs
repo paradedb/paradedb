@@ -13,17 +13,11 @@ use super::query::*;
 
 macro_rules! fallback_warning {
     ($msg:expr) => {
-        warning!(
-            r#"
-                This query was not fully pushed down to DataFusion because DataFusion returned an error: {}. 
-                Query times may be impacted.
-                Please submit a request at https://github.com/paradedb/paradedb/issues if you would like to see this query pushed down.
-            "#
-        , $msg);
+        warning!("This query was not fully pushed down to DataFusion because DataFusion returned an error: {}. Query times may be impacted. Please submit a request at https://github.com/paradedb/paradedb/issues if you would like to see this query pushed down.", $msg);
     };
 }
 
-pub unsafe fn executor_run(
+pub fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
     direction: pg_sys::ScanDirection,
     count: u64,
@@ -36,7 +30,7 @@ pub unsafe fn executor_run(
     ) -> HookResult<()>,
 ) -> Result<(), ExecutorHookError> {
     let ps = query_desc.plannedstmt;
-    let rtable = (*ps).rtable;
+    let rtable = unsafe { (*ps).rtable };
     let pg_query = PgQuery::try_from(query_desc.clone())?;
 
     // Only use this hook for deltalake tables

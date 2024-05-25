@@ -1,4 +1,3 @@
-use async_std::task;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::catalog::CatalogProvider;
@@ -47,7 +46,7 @@ pub trait BaseFdw {
     async fn get_next_batch(&mut self) -> Result<Option<RecordBatch>, BaseFdwError>;
 
     // Default trait methods
-    fn begin_scan_impl(
+    async fn begin_scan_impl(
         &mut self,
         _quals: &[Qual],
         columns: &[Column],
@@ -79,7 +78,7 @@ pub trait BaseFdw {
             pg_relation.namespace(),
             pg_relation.name(),
         );
-        let mut dataframe = task::block_on(context.table(reference))?;
+        let mut dataframe = context.table(reference).await?;
         if let Some(limit) = limit {
             dataframe = dataframe.limit(limit.offset as usize, Some(limit.count as usize))?;
         }
@@ -89,8 +88,8 @@ pub trait BaseFdw {
         Ok(())
     }
 
-    fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        task::block_on(self.create_stream())?;
+    async fn iter_scan_impl(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
+        self.create_stream().await?;
 
         if self.get_current_batch().is_none()
             || self.get_current_batch_index()
@@ -101,7 +100,7 @@ pub trait BaseFdw {
                     .num_rows()
         {
             self.set_current_batch_index(0);
-            let next_batch = task::block_on(self.get_next_batch())?;
+            let next_batch = self.get_next_batch().await?;
 
             if next_batch.is_none() {
                 return Ok(None);

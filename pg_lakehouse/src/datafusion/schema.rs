@@ -39,7 +39,7 @@ impl LakehouseSchemaProvider {
     fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>, CatalogError> {
         let pg_relation = unsafe {
             PgRelation::open_with_name(table_name).unwrap_or_else(|err| {
-                panic!("{:?}", err);
+                panic!("{}", err);
             })
         };
 
@@ -124,7 +124,7 @@ impl SchemaProvider for LakehouseSchemaProvider {
         Box::pin(async move {
             let table = self
                 .table_impl(table_name)
-                .unwrap_or_else(|err| panic!("{:?}", err));
+                .unwrap_or_else(|err| panic!("{}", err));
 
             Ok(Some(table))
         })

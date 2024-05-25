@@ -124,7 +124,7 @@ impl Session {
         let session_timezone = unsafe {
             CStr::from_ptr(pg_sys::pg_get_timezone_name(pg_sys::session_timezone))
                 .to_str()
-                .unwrap_or_else(|err| panic!("{:?}", err))
+                .unwrap_or_else(|err| panic!("{}", err))
         };
         session_config.options_mut().execution.time_zone = Some(session_timezone.to_string());
 

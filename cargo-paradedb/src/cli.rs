@@ -2,6 +2,7 @@ use clap::Parser;
 
 const DEFAULT_BENCH_ESLOGS_TABLE: &str = "benchmark_eslogs";
 const DEFAULT_BENCH_ESLOGS_INDEX_NAME: &str = "benchmark_eslogs_pg_search";
+const DEFAULT_BENCH_GIN_INDEX_NAME: &str = "benchmark_eslogs_gin";
 
 /// A wrapper struct for subcommands.
 #[derive(Parser)]
@@ -131,6 +132,31 @@ pub enum EsLogsCommand {
         /// Should contain the index name as a path subcomponent.
         #[arg(short, long)]
         elastic_url: String,
+    },
+    BuildGinIndex {
+        /// Postgres table name to index.
+        #[arg(short, long, default_value = DEFAULT_BENCH_ESLOGS_TABLE)]
+        table: String,
+        /// Postgres table name to index.
+        #[arg(short, long, default_value = DEFAULT_BENCH_GIN_INDEX_NAME)]
+        index: String,
+        /// Postgres database url to connect to.
+        #[arg(short, long, env = "DATABASE_URL")]
+        url: String,
+    },
+    QueryGinIndex {
+        /// Postgres index name to query.
+        #[arg(short, long, default_value = DEFAULT_BENCH_ESLOGS_TABLE)]
+        table: String,
+        /// Query to run.
+        #[arg(short, long, default_value = "flame")]
+        query: String,
+        /// Limit results to return.
+        #[arg(short, long, default_value_t = 1)]
+        limit: u64,
+        /// Postgres database url to connect to.
+        #[arg(short, long, env = "DATABASE_URL")]
+        url: String,
     },
 }
 /// The command to run on the hits corpus.

@@ -350,3 +350,44 @@ pub async fn bench_eslogs_query_elastic_table(
 
     Ok(())
 }
+
+pub async fn bench_eslogs_build_gin_index(table: String, index: String, url: String) -> Result<()> {
+    let drop_query = format!("DROP INDEX IF EXISTS {index};");
+    let create_query = format!("ALTER TABLE {table} ADD COLUMN search_vector tsvector; UPDATE {table} SET search_vector = to_tsvector('english', message); CREATE INDEX {index} ON {table} USING gin(search_vector);");
+
+    Benchmark {
+        group_name: "Gin Index".into(),
+        function_name: "bench_eslogs_build_gin_index".into(),
+        setup_query: Some(drop_query.to_string()),
+        query: create_query,
+        database_url: url,
+    }
+    .run_pg_once()
+    .await
+}
+
+pub async fn bench_eslogs_query_gin_index(
+    table: String,
+    query: String,
+    limit: u64,
+    url: String,
+) -> Result<()> {
+    let query = format!(
+        "
+        SELECT *, ts_rank_cd(search_vector, query) as rank 
+        FROM {table}, to_tsquery('{query}') query 
+        WHERE query @@ search_vector 
+        LIMIT {limit};
+    "
+    );
+
+    Benchmark {
+        group_name: "Gin Index".into(),
+        function_name: "bench_eslogs_query_gin_index".into(),
+        setup_query: None,
+        query,
+        database_url: url,
+    }
+    .run_pg()
+    .await
+}

@@ -105,7 +105,7 @@ jobs:
 
       - name: Install Debian Dependencies
         if: ${{ matrix.runner.image }} == 'debian:11-slim'
-        run: apt-get install -y sudo wget curl
+        run: apt-get update && apt-get install -y sudo wget curl
 
       # Fix Rust nightly because 1.80.0 is causing compilation issues with some dependencies
       - name: Install Rust

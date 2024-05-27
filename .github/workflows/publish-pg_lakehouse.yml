@@ -105,7 +105,7 @@ jobs:
 
       - name: Install Debian Dependencies
         if: ${{ matrix.runner.image }} == 'debian:11-slim'
-        run: apt-get update && apt-get install -y sudo wget curl gnupg
+        run: apt-get update && apt-get install -y sudo wget curl gnupg lsb-release
 
       # Fix Rust nightly because 1.80.0 is causing compilation issues with some dependencies
       - name: Install Rust
@@ -113,7 +113,7 @@ jobs:
         with:
           toolchain: nightly-2024-04-21
 
-      - name: Retrieve Ubuntu & GitHub Tag Versions
+      - name: Retrieve OS & GitHub Tag Versions
         id: version
         run: |
           # If no workflow_dispatch version is provided, we use workflow tag trigger version
@@ -122,7 +122,11 @@ jobs:
           else
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
           fi
-          echo "ubuntu_version=$(lsb_release -rs | sed 's/\.//')" >> $GITHUB_OUTPUT
+          # Retrieve the OS Distributor ID (-is) and Release (-rs) Versions
+          distro=$(lsb_release -is)
+          release=$(lsb_release -rs)
+          echo "os_version=${distro,,}-${release}" >> $GITHUB_OUTPUT
+          echo "OS Version: ${distro,,}-${release}"
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |
@@ -149,7 +153,7 @@ jobs:
           # Create installable package
           mkdir archive
           cp `find target/release -type f -name "pg_lakehouse*"` archive
-          package_dir=pg_lakehouse-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}
+          package_dir=pg_lakehouse-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.os_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
@@ -196,5 +200,5 @@ jobs:
       #   with:
       #     github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
       #     upload_url: ${{ steps.upload_url.outputs.upload_url }}
-      #     asset_path: ./pg_lakehouse-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
-      #     asset_name: pg_lakehouse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-ubuntu${{ steps.version.outputs.ubuntu_version }}.deb
+      #     asset_path: ./pg_lakehouse-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.os_version }}.deb
+      #     asset_name: pg_lakehouse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.os_version }}.deb

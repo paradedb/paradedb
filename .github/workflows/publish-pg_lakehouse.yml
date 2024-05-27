@@ -103,15 +103,15 @@ jobs:
       - name: Checkout Git Repository
         uses: actions/checkout@v4
 
+      - name: Install Debian Dependencies
+        if: matrix.runner.image == 'debian:11-slim'
+        run: apt-get install -y sudo wget curl
+
       # Fix Rust nightly because 1.80.0 is causing compilation issues with some dependencies
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: nightly-2024-04-21
-
-      - name: Install Debian Dependencies
-        if: matrix.runner.image == 'debian:11-slim'
-        run: apt-get install -y sudo wget
 
       - name: Retrieve Ubuntu & GitHub Tag Versions
         id: version

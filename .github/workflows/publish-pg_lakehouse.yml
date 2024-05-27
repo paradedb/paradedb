@@ -123,17 +123,10 @@ jobs:
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
           fi
           # Retrieve the OS Distributor ID (-is) and Release (-rs) Versions
-          DISTRO=$(lsb_release -is)
+          DISTRO=$(echo "$(lsb_release -is)" | tr '[:upper:]' '[:lower:]')
           RELEASE=$(lsb_release -rs)
-
-          echo "$DISTRO"
-          echo "$RELEASE"
-
-          DISTRO_LOWERCASE="${DISTRO,,}"
-          echo "$DISTRO_LOWERCASE"
-
-          echo "OS Version: $DISTRO_LOWERCASE-$RELEASE"
-          echo "os_version=$DISTRO_LOWERCASE-$RELEASE" >> $GITHUB_OUTPUTxw
+          echo "OS Version: $DISTRO-$RELEASE"
+          echo "os_version=$DISTRO-$RELEASE" >> $GITHUB_OUTPUT
 
       - name: Install & Configure Supported PostgreSQL Version
         run: |

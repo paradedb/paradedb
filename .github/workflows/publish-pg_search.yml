@@ -112,8 +112,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Debian Dependencies
-        if: ${{ matrix.image }} == 'debian:11-slim'
+        if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
         run: apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev
+
+      - name: Install Rust
+        if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Retrieve OS & GitHub Tag Versions
         id: version

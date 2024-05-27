@@ -106,6 +106,8 @@ jobs:
             arch: arm64
           # TODO: Add Ubuntu 20.04, RedHat UBI 8, and RedHat UBI 9
           # TODO: Maybe consider removing debian-slim for regular debian, and removing manual apt downloads
+    env:
+      DEBIAN_FRONTEND: noninteractive
 
     steps:
       - name: Checkout Git Repository
@@ -208,5 +210,5 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_lakehouse-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.os_version }}.deb
-          asset_name: pg_lakehouse-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.os_version }}.deb
+          asset_path: ./pg_lakehouse-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: pg_lakehouse-v${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb

@@ -109,6 +109,10 @@ jobs:
         with:
           toolchain: nightly-2024-04-21
 
+      - name: Install Debian Dependencies
+        if: matrix.runner.image == 'debian:11-slim'
+        run: apt-get install -y sudo wget
+
       - name: Retrieve Ubuntu & GitHub Tag Versions
         id: version
         run: |

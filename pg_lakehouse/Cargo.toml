@@ -1,7 +1,7 @@
 [package]
 name = "pg_lakehouse"
 description = "An analytical query engine for Postgres"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2021"
 license = "AGPL-3.0"
 
@@ -27,7 +27,7 @@ deltalake = { version = "0.17.3", features = [
   "datafusion",
   "s3",
   "gcs",
-  "azure"
+  "azure",
 ] }
 object_store = { version = "0.9.1", features = ["aws", "http"] }
 object_store_opendal = { git = "https://github.com/apache/opendal.git", rev = "79ab57f" }

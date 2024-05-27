@@ -113,7 +113,7 @@ jobs:
 
       - name: Install Debian Dependencies
         if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
-        run: apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev
+        run: apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
       - name: Install Rust
         if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'

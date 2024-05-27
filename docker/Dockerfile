@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Note: DataFusion requires Rust nightly to enable packed_simd for SIMD optimizations. We
-# fix Rust nightly because current latest (1.80.0) is causing compilation issues with some dependencies    
+# fix Rust nightly because current latest (1.80.0) is causing compilation issues with some dependencies
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain "${RUST_VERSION}" -y
 
 ENV PATH="/root/.cargo/bin:$PATH" \

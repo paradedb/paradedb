@@ -13,7 +13,7 @@ ARG PG_VERSION_MAJOR=16
 FROM postgres:${PG_VERSION_MAJOR}-bookworm as builder
 
 ARG PG_VERSION_MAJOR=16
-ARG RUST_VERSION=1.78.0
+ARG RUST_VERSION=nightly-2024-04-21
 ARG PGRX_VERSION=0.11.3
 
 # Declare buildtime environment variables
@@ -38,8 +38,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-server-dev-all \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
-    && /root/.cargo/bin/rustup default "${RUST_VERSION}"
+# Note: DataFusion requires Rust nightly to enable packed_simd for SIMD optimizations. We
+# fix Rust nightly because current latest (1.80.0) is causing compilation issues with some dependencies
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain "${RUST_VERSION}" -y
 
 ENV PATH="/root/.cargo/bin:$PATH" \
     PGX_HOME=/usr/lib/postgresql/${PG_VERSION_MAJOR}

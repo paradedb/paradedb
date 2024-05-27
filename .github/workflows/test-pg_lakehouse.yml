@@ -66,7 +66,8 @@ jobs:
         if: steps.check_skip.outputs.skip_remaining_steps != 'true'
         uses: actions/checkout@v4
 
-      # Fix Rust nightly because 1.80.0 is causing compilation issues with some dependencies
+      # Note: DataFusion requires Rust nightly to enable packed_simd for SIMD optimizations. We
+      # fix Rust nightly because current latest (1.80.0) is causing compilation issues with some dependencies
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:

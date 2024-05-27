@@ -115,7 +115,8 @@ jobs:
         if: ${{ matrix.image }} == 'debian:11-slim'
         run: apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev
 
-      # Fix Rust nightly because 1.80.0 is causing compilation issues with some dependencies
+      # Note: DataFusion requires Rust nightly to enable packed_simd for SIMD optimizations. We
+      # fix Rust nightly because current latest (1.80.0) is causing compilation issues with some dependencies
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:

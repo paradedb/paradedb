@@ -55,7 +55,7 @@ jobs:
             pg_version: 16
             arch: arm64
           # Debian 11
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:11-slim
             pg_version: 14
             arch: amd64
@@ -63,7 +63,7 @@ jobs:
             image: debian:11-slim
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:11-slim
             pg_version: 15
             arch: amd64
@@ -71,7 +71,7 @@ jobs:
             image: debian:11-slim
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:11-slim
             pg_version: 16
             arch: amd64
@@ -80,7 +80,7 @@ jobs:
             pg_version: 16
             arch: arm64
           # Debian 12
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:12-slim
             pg_version: 14
             arch: amd64
@@ -88,7 +88,7 @@ jobs:
             image: debian:12-slim
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:12-slim
             pg_version: 15
             arch: amd64
@@ -96,7 +96,7 @@ jobs:
             image: debian:12-slim
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:12-slim
             pg_version: 16
             arch: amd64
@@ -160,7 +160,7 @@ jobs:
           # Create installable package
           mkdir archive
           cp `find target/release -type f -name "pg_search*"` archive
-          package_dir=pg_search-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.os_version }}
+          package_dir=pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
@@ -188,12 +188,12 @@ jobs:
           echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
           echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-          echo 'Description: Full text search for PostgreSQL using BM25' >> $CONTROL_FILE
+          echo 'Description: Full-text search for PostgreSQL using BM25' >> $CONTROL_FILE
 
           # Create .deb package
           # Note: We specify `xz` compression for compatibility with Debian 11
           sudo chown -R root:root ${package_dir}
-          sudo chmod -R 00755 ${package_dir}
+          sudo chmod -R 755 ${package_dir}
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       # We retrieve the GitHub release for the specific release version

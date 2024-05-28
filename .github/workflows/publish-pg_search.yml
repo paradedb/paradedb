@@ -113,7 +113,7 @@ jobs:
 
       - name: Install Debian Dependencies
         if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
-        run: apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
       - name: Install Rust
         if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
@@ -138,7 +138,7 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 

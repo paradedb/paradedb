@@ -22,6 +22,8 @@ use crate::writer::{WriterClient, WriterDirectory};
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
 
+use serde::{Deserialize, Deserializer, Serialize};
+
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
@@ -31,9 +33,51 @@ pub fn rank_bm25(key: String, alias: default!(Option<String>, "NULL")) -> f32 {
         .expect("could not lookup doc address for search query")
 }
 
-#[pg_extern]
-pub fn highlight(
-    key: String,
+#[derive(Debug, Serialize, Deserialize, PostgresType)]
+enum SearchKey {
+    I64(i64),
+    // U64(u64),
+    // F64(f64),
+    // Str(String),
+    // Date(NaiveDateTime)
+}
+
+impl From<i64> for SearchKey {
+    fn from(num: i64) -> Self {
+        SearchKey::I64(num)
+    }
+}
+
+impl Into<String> for SearchKey {
+    fn into(self) -> String {
+        match self {
+            SearchKey::I64(num) => format!("{}", num)
+        }
+    }
+}
+
+macro_rules! highlight_fn {
+    ($func_name:ident, $key_type:ty) => {
+        #[pg_extern(name = "highlight")]
+        pub fn $func_name(
+            key: $key_type,
+            field: &str,
+            prefix: default!(Option<String>, "NULL"),
+            postfix: default!(Option<String>, "NULL"),
+            max_num_chars: default!(Option<i32>, "NULL"),
+            alias: default!(Option<String>, "NULL"),
+        ) -> String {
+            highlight_impl(key.into(), field, prefix, postfix, max_num_chars, alias)
+        }
+    }
+}
+
+highlight_fn!(highlight_i64, i64);
+
+
+// #[pg_extern]
+pub fn highlight_impl(
+    key: SearchKey, // TODO: should be able to take in columns of other types and turn into string
     field: &str,
     prefix: default!(Option<String>, "NULL"),
     postfix: default!(Option<String>, "NULL"),
@@ -41,7 +85,7 @@ pub fn highlight(
     alias: default!(Option<String>, "NULL"),
 ) -> String {
     let mut snippet = SearchStateManager::get_snippet(
-        key,
+        key.into(),
         field,
         max_num_chars.map(|n| n as usize),
         alias.map(SearchAlias::from),

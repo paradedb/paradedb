@@ -295,16 +295,12 @@ impl SearchState {
                     let fast_fields = segment_reader
                         .fast_fields();
 
-                    if fast_fields.column_num_bytes(&key_field_name).unwrap() == 0 {
-                        panic!("0!!!");
-                    }
-
                     // Check the type of the field from the schema
                     match schema.get_search_field(&key_field_name.clone().into()).unwrap_or_else(|| panic!("key field {} not found", key_field_name)).type_ {
                         SearchFieldType::I64 => {
                             let key_field_reader = fast_fields
                                 .i64(&key_field_name)
-                                .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", "id"))
+                                .unwrap_or_else(|err| panic!("key field {} is not a i64: {err:?}", key_field_name))
                                 .first_or_default_col(0);
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
@@ -317,7 +313,7 @@ impl SearchState {
                         SearchFieldType::U64 => {
                             let key_field_reader = fast_fields
                                 .u64(&key_field_name)
-                                .unwrap_or_else(|err| panic!("key field {} is not a u64: {err:?}", "id"))
+                                .unwrap_or_else(|err| panic!("key field {} is not a u64: {err:?}", key_field_name))
                                 .first_or_default_col(0);
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
@@ -330,7 +326,7 @@ impl SearchState {
                         SearchFieldType::F64 => {
                             let key_field_reader = fast_fields
                                 .f64(&key_field_name)
-                                .unwrap_or_else(|err| panic!("key field {} is not a f64: {err:?}", "id"))
+                                .unwrap_or_else(|err| panic!("key field {} is not a f64: {err:?}", key_field_name))
                                 .first_or_default_col(0.0);
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
@@ -343,7 +339,7 @@ impl SearchState {
                         SearchFieldType::Text => {
                             let key_field_reader = fast_fields
                                 .str(&key_field_name)
-                                .unwrap_or_else(|err| panic!("key field {} is not a string: {err:?}", "id"))
+                                .unwrap_or_else(|err| panic!("key field {} is not a string: {err:?}", key_field_name))
                                 .unwrap();
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
@@ -359,7 +355,7 @@ impl SearchState {
                         SearchFieldType::Bool => {
                             let key_field_reader = fast_fields
                                 .bool(&key_field_name)
-                                .unwrap_or_else(|err| panic!("key field {} is not a bool: {err:?}", "id"))
+                                .unwrap_or_else(|err| panic!("key field {} is not a bool: {err:?}", key_field_name))
                                 .first_or_default_col(false);
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
@@ -372,7 +368,7 @@ impl SearchState {
                         SearchFieldType::Date => {
                             let key_field_reader = fast_fields
                                 .date(&key_field_name)
-                                .unwrap_or_else(|err| panic!("key field {} is not a date: {err:?}", "id"))
+                                .unwrap_or_else(|err| panic!("key field {} is not a date: {err:?}", key_field_name))
                                 .first_or_default_col(tantivy::DateTime::MIN);
 
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
@@ -382,7 +378,7 @@ impl SearchState {
                                 }
                             })
                         }
-                        _ => panic!("not a supported field type")
+                        _ => panic!("key field {} is not a supported field type", key_field_name)
                     }
                 },
             );

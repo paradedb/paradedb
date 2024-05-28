@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   publish-pg_lakehouse:
-    name: Publish pg_lakehouse for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+    name: Publish pg_lakehouse for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.image }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}

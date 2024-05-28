@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for ${{ matrix.image }} on ${{ matrix.arch }} and PostgreSQL ${{ matrix.pg_version }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.image }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}

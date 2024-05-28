@@ -101,8 +101,38 @@ pub extern "C" fn amgettuple(
     }
 }
 
-#[pg_guard]
 pub extern "C" fn amgetbitmap(
+    scan: pg_sys::IndexScanDesc,
+    tbm: *mut pg_sys::TIDBitmap,
+) -> ::std::os::raw::c_long {
+    let scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
+    let iter =
+        unsafe { (scan.opaque as *mut std::vec::IntoIter<(Score, DocAddress, i64, u64)>).as_mut() }
+            .expect("no scandesc state");
+
+    let mut n_tids = 0;
+
+    for (_, _, _, ctid) in iter {
+        let mut tid = pg_sys::ItemPointerData::default();
+        u64_to_item_pointer(ctid, &mut tid);
+
+        unsafe {
+            pg_sys::tbm_add_tuples(
+                tbm,
+                &tid as *const pg_sys::ItemPointerData as *mut pg_sys::ItemPointerData,
+                1,
+                false,
+            );
+        }
+
+        n_tids += 1;
+    }
+
+    n_tids
+}
+
+#[pg_guard]
+pub extern "C" fn amgetbitmap2(
     scan: pg_sys::IndexScanDesc,
     tbm: *mut pg_sys::TIDBitmap,
 ) -> ::std::os::raw::c_long {

@@ -106,8 +106,6 @@ jobs:
             arch: arm64
           # TODO: Add Ubuntu 20.04, RedHat UBI 8, and RedHat UBI 9
           # TODO: Maybe consider removing debian-slim for regular debian, and removing manual apt downloads
-    env:
-      DEBIAN_FRONTEND: noninteractive
 
     steps:
       - name: Checkout Git Repository

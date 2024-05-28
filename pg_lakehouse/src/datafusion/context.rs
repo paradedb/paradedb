@@ -43,7 +43,7 @@ impl ContextProvider for QueryContext {
 
     fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
         let context = Session::session_context().unwrap_or_else(|err| {
-            panic!("{:?}", err);
+            panic!("{}", err);
         });
 
         context.udf(name).ok()

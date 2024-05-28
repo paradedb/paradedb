@@ -19,7 +19,7 @@ pub fn arrow_schema(
     format: default!(Option<String>, "NULL"),
 ) -> iter::TableIterator<'static, (name!(field, String), name!(datatype, String))> {
     task::block_on(arrow_schema_impl(server, path, extension, format)).unwrap_or_else(|err| {
-        panic!("{:?}", err);
+        panic!("{}", err);
     })
 }
 

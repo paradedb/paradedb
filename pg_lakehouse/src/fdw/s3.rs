@@ -1,4 +1,5 @@
 use async_std::stream::StreamExt;
+use async_std::task;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;
@@ -288,11 +289,13 @@ impl ForeignDataWrapper<BaseFdwError> for S3Fdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
-        self.begin_scan_impl(_quals, columns, _sorts, limit, options)
+        task::block_on(self.begin_scan_impl(_quals, columns, _sorts, limit, options))
+            .expect("begin_scan failed");
+        Ok(())
     }
 
     fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        self.iter_scan_impl(row)
+        task::block_on(self.iter_scan_impl(row))
     }
 
     fn end_scan(&mut self) -> Result<(), BaseFdwError> {

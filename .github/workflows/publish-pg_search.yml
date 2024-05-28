@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   publish-pg_search:
-    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.arch }}
+    name: Publish pg_search for PostgreSQL ${{ matrix.pg_version }} on ${{ matrix.image }} ${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
@@ -55,7 +55,7 @@ jobs:
             pg_version: 16
             arch: arm64
           # Debian 11
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:11-slim
             pg_version: 14
             arch: amd64
@@ -63,7 +63,7 @@ jobs:
             image: debian:11-slim
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:11-slim
             pg_version: 15
             arch: amd64
@@ -71,7 +71,7 @@ jobs:
             image: debian:11-slim
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:11-slim
             pg_version: 16
             arch: amd64
@@ -80,7 +80,7 @@ jobs:
             pg_version: 16
             arch: arm64
           # Debian 12
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:12-slim
             pg_version: 14
             arch: amd64
@@ -88,7 +88,7 @@ jobs:
             image: debian:12-slim
             pg_version: 14
             arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:12-slim
             pg_version: 15
             arch: amd64
@@ -96,7 +96,7 @@ jobs:
             image: debian:12-slim
             pg_version: 15
             arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
+          - runner: depot-ubuntu-22.04-4
             image: debian:12-slim
             pg_version: 16
             arch: amd64
@@ -113,7 +113,7 @@ jobs:
 
       - name: Install Debian Dependencies
         if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
-        run: apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
+        run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
       - name: Install Rust
         if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
@@ -138,7 +138,7 @@ jobs:
         run: |
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
-          sudo apt-get update && sudo apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
+          sudo DEBIAN_FRONTEND=noninteractive apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql-${{ matrix.pg_version }} postgresql-server-dev-${{ matrix.pg_version }} debhelper devscripts dput gnupg
           sudo chown -R $(whoami) /usr/share/postgresql/${{ matrix.pg_version }}/ /usr/lib/postgresql/${{ matrix.pg_version }}/ /var/lib/postgresql/${{ matrix.pg_version }}/
           echo "/usr/lib/postgresql/${{ matrix.pg_version }}/bin" >> $GITHUB_PATH
 
@@ -158,7 +158,7 @@ jobs:
           # Create installable package
           mkdir archive
           cp `find target/release -type f -name "pg_search*"` archive
-          package_dir=pg_search-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.os_version }}
+          package_dir=pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}
 
           # Copy files into directory structure
           mkdir -p ${package_dir}/usr/lib/postgresql/lib
@@ -186,12 +186,12 @@ jobs:
           echo 'Architecture: ${{ matrix.arch }}' >> $CONTROL_FILE
           echo 'Depends: postgresql-${{ matrix.pg_version }}' >> $CONTROL_FILE
           echo 'Maintainer: ParadeDB <support@paradedb.com>' >> $CONTROL_FILE
-          echo 'Description: Full text search for PostgreSQL using BM25' >> $CONTROL_FILE
+          echo 'Description: Full-text search for PostgreSQL using BM25' >> $CONTROL_FILE
 
           # Create .deb package
           # Note: We specify `xz` compression for compatibility with Debian 11
           sudo chown -R root:root ${package_dir}
-          sudo chmod -R 00755 ${package_dir}
+          sudo chmod -R 755 ${package_dir}
           sudo dpkg-deb -Zxz --build --root-owner-group ${package_dir}
 
       # We retrieve the GitHub release for the specific release version
@@ -204,5 +204,5 @@ jobs:
         with:
           github_token: ${{ secrets.GHA_CREATE_RELEASE_PAT }}
           upload_url: ${{ steps.upload_url.outputs.upload_url }}
-          asset_path: ./pg_search-${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.os_version }}.deb
-          asset_name: pg_search-v${{ steps.version.outputs.version }}-pg${{ matrix.pg_version }}-${{ matrix.arch }}-${{ steps.version.outputs.os_version }}.deb
+          asset_path: ./pg_search-${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb
+          asset_name: pg_search-v${{ steps.version.outputs.version }}-${{ steps.version.outputs.os_version }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}.deb

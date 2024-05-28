@@ -56,56 +56,56 @@ jobs:
             image: ubuntu:22.04
             pg_version: 16
             arch: arm64
-          # Debian 11
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:11-slim
-            pg_version: 14
-            arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:11-slim
-            pg_version: 14
-            arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:11-slim
-            pg_version: 15
-            arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:11-slim
-            pg_version: 15
-            arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:11-slim
-            pg_version: 16
-            arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:11-slim
-            pg_version: 16
-            arch: arm64
-          # Debian 12
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:12-slim
-            pg_version: 14
-            arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:12-slim
-            pg_version: 14
-            arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:12-slim
-            pg_version: 15
-            arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:12-slim
-            pg_version: 15
-            arch: arm64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:12-slim
-            pg_version: 16
-            arch: amd64
-          - runner: depot-ubuntu-22.04-arm-4
-            image: debian:12-slim
-            pg_version: 16
-            arch: arm64
+          # # Debian 11
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:11-slim
+          #   pg_version: 14
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:11-slim
+          #   pg_version: 14
+          #   arch: arm64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:11-slim
+          #   pg_version: 15
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:11-slim
+          #   pg_version: 15
+          #   arch: arm64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:11-slim
+          #   pg_version: 16
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:11-slim
+          #   pg_version: 16
+          #   arch: arm64
+          # # Debian 12
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:12-slim
+          #   pg_version: 14
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:12-slim
+          #   pg_version: 14
+          #   arch: arm64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:12-slim
+          #   pg_version: 15
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:12-slim
+          #   pg_version: 15
+          #   arch: arm64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:12-slim
+          #   pg_version: 16
+          #   arch: amd64
+          # - runner: depot-ubuntu-22.04-arm-4
+          #   image: debian:12-slim
+          #   pg_version: 16
+          #   arch: arm64
           # TODO: Add Ubuntu 20.04, RedHat UBI 8, and RedHat UBI 9
           # TODO: Maybe consider removing debian-slim for regular debian, and removing manual apt downloads
 
@@ -142,8 +142,11 @@ jobs:
       - name: Install & Configure Supported PostgreSQL Version
         run: |
           # Configure tzdata for non-interactive installation
-          echo "tzdata tzdata/Areas select Etc" | sudo debconf-set-selections
-          echo "tzdata tzdata/Zones/Etc select UTC" | sudo debconf-set-selections
+          sudo ln -fs /usr/share/zoneinfo/Etc/UTC /etc/localtime
+          echo 'Etc/UTC' | sudo tee /etc/timezone
+          sudo dpkg-reconfigure -f noninteractive tzdata
+
+          export DEBIAN_FRONTEND=noninteractive
 
           # Install PostgreSQL
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -

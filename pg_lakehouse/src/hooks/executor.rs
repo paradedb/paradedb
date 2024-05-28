@@ -50,7 +50,10 @@ pub fn executor_run(
         Ok(logical_plan) => {
             // Don't intercept any DDL or DML statements
             match logical_plan {
-                LogicalPlan::Ddl(_) | LogicalPlan::Dml(_) => {
+                LogicalPlan::Ddl(_)
+                | LogicalPlan::Dml(_)
+                | LogicalPlan::Explain(_)
+                | LogicalPlan::Analyze(_) => {
                     prev_hook(query_desc, direction, count, execute_once);
                     return Ok(());
                 }
@@ -80,6 +83,7 @@ pub fn executor_run(
 async fn get_datafusion_batches(
     logical_plan: LogicalPlan,
 ) -> Result<Vec<RecordBatch>, ContextError> {
+    info!("Executing DataFusion query: {:?}", logical_plan);
     // Execute the logical plan and collect the resulting batches
     let context = Session::session_context()?;
     let dataframe = context.execute_logical_plan(logical_plan).await?;

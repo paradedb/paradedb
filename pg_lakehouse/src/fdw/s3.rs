@@ -1,5 +1,4 @@
 use async_std::stream::StreamExt;
-use async_std::task;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::physical_plan::SendableRecordBatchStream;
 use datafusion::prelude::DataFrame;

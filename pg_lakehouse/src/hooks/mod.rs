@@ -20,13 +20,11 @@ impl hooks::PgHooks for LakehouseHook {
             execute_once: bool,
         ) -> HookResult<()>,
     ) -> HookResult<()> {
-        unsafe {
-            executor::executor_run(query_desc, direction, count, execute_once, prev_hook)
-                .await
-                .unwrap_or_else(|err| {
-                    panic!("{}", err);
-                });
-        }
+        executor::executor_run(query_desc, direction, count, execute_once, prev_hook)
+            .await
+            .unwrap_or_else(|err| {
+                panic!("{}", err);
+            });
 
         HookResult::new(())
     }

@@ -5,6 +5,7 @@ use datafusion::datasource::TableProvider;
 use datafusion::error::Result;
 use deltalake::DeltaTable;
 use pgrx::*;
+use shared::block_on;
 use std::any::Any;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
@@ -35,8 +36,7 @@ impl LakehouseSchemaProvider {
         }
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>, CatalogError> {
+    fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>, CatalogError> {
         let pg_relation = unsafe {
             PgRelation::open_with_name(table_name).unwrap_or_else(|err| {
                 panic!("{}", err);
@@ -47,7 +47,7 @@ impl LakehouseSchemaProvider {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
         let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
         let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
-        let mut tables = self.tables.lock().await;
+        let mut tables = block_on!(self.tables.lock());
 
         let table: Arc<dyn TableProvider> = match tables.entry(pg_relation.oid()) {
             Occupied(entry) => entry.into_mut().to_owned(),
@@ -65,8 +65,8 @@ impl LakehouseSchemaProvider {
                     .collect();
 
                 let provider = match TableFormat::from(format) {
-                    TableFormat::None => create_listing_provider(path, extension).await?,
-                    TableFormat::Delta => create_delta_provider(path, extension).await?,
+                    TableFormat::None => block_on!(create_listing_provider(path, extension))?,
+                    TableFormat::Delta => block_on!(create_delta_provider(path, extension))?,
                 };
 
                 for (index, field) in provider.schema().fields().iter().enumerate() {
@@ -86,7 +86,7 @@ impl LakehouseSchemaProvider {
                     .downcast_ref::<DeltaTable>()
                     .ok_or(CatalogError::DowncastDeltaTable)?
                     .clone();
-                delta_table.load().await?;
+                block_on!(delta_table.load())?;
                 Arc::new(delta_table) as Arc<dyn TableProvider>
             }
             _ => table.clone(),

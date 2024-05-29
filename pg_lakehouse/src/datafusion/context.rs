@@ -8,6 +8,7 @@ use datafusion::logical_expr::{AggregateUDF, ScalarUDF, TableSource, WindowUDF};
 use datafusion::sql::planner::ContextProvider;
 use datafusion::sql::TableReference;
 use pgrx::*;
+use shared::block_on;
 use std::ffi::{c_char, CStr};
 use std::sync::Arc;
 use thiserror::Error;
@@ -32,19 +33,16 @@ impl QueryContext {
 }
 
 impl ContextProvider for QueryContext {
-    #[tokio::main(flavor = "current_thread")]
-    async fn get_table_source(
+    fn get_table_source(
         &self,
         reference: TableReference,
     ) -> Result<Arc<dyn TableSource>, DataFusionError> {
-        get_table_source(reference)
-            .await
+        block_on!(get_table_source(reference))
             .map_err(|err| DataFusionError::Execution(err.to_string()))
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
-        let context = Session::session_context().await.unwrap_or_else(|err| {
+    fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
+        let context = block_on!(Session::session_context()).unwrap_or_else(|err| {
             panic!("{}", err);
         });
 

@@ -1,3 +1,4 @@
+pub mod block;
 pub mod github;
 pub mod gucs;
 pub mod logs;

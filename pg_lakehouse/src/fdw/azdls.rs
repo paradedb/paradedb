@@ -6,6 +6,7 @@ use object_store_opendal::OpendalStore;
 use opendal::services::Azdls;
 use opendal::Operator;
 use pgrx::*;
+use shared::block_on;
 use std::collections::HashMap;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
@@ -102,14 +103,13 @@ impl TryFrom<ServerOptions> for Azdls {
 }
 
 impl BaseFdw for AzdlsFdw {
-    #[tokio::main(flavor = "current_thread")]
-    async fn register_object_store(
+    fn register_object_store(
         url: &Url,
         _format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
-        let context = Session::session_context().await?;
+        let context = block_on!(Session::session_context())?;
 
         let builder = Azdls::try_from(ServerOptions::new(
             url,
@@ -253,8 +253,7 @@ impl ForeignDataWrapper<BaseFdwError> for AzdlsFdw {
         Ok(())
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn begin_scan(
+    fn begin_scan(
         &mut self,
         _quals: &[Qual],
         columns: &[Column],
@@ -262,17 +261,14 @@ impl ForeignDataWrapper<BaseFdwError> for AzdlsFdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
-        self.begin_scan_impl(_quals, columns, _sorts, limit, options)
-            .await
+        block_on!(self.begin_scan_impl(_quals, columns, _sorts, limit, options))
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        self.iter_scan_impl(row).await
+    fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
+        block_on!(self.iter_scan_impl(row))
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn end_scan(&mut self) -> Result<(), BaseFdwError> {
-        self.end_scan_impl().await
+    fn end_scan(&mut self) -> Result<(), BaseFdwError> {
+        block_on!(self.end_scan_impl())
     }
 }

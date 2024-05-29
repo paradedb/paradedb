@@ -3,6 +3,7 @@ use datafusion::catalog::schema::SchemaProvider;
 use datafusion::catalog::{CatalogProvider, CatalogProviderList};
 use datafusion::common::DataFusionError;
 use pgrx::*;
+use shared::block_on;
 use std::{any::Any, collections::HashMap, sync::Arc};
 use supabase_wrappers::prelude::OptionsError;
 use thiserror::Error;
@@ -34,26 +35,23 @@ impl CatalogProvider for LakehouseCatalog {
         self
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn register_schema(
+    fn register_schema(
         &self,
         name: &str,
         schema: Arc<dyn SchemaProvider>,
     ) -> Result<Option<Arc<dyn SchemaProvider>>, DataFusionError> {
-        let mut schema_map = self.schemas.write().await;
+        let mut schema_map = block_on!(self.schemas.write());
         schema_map.insert(name.to_owned(), schema.clone());
         Ok(Some(schema))
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn schema_names(&self) -> Vec<String> {
-        let schemas = self.schemas.read().await;
+    fn schema_names(&self) -> Vec<String> {
+        let schemas = block_on!(self.schemas.read());
         schemas.keys().cloned().collect()
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
-        let schemas = self.schemas.read().await;
+    fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
+        let schemas = block_on!(self.schemas.read());
         match schemas.get(name) {
             Some(schema) => Some(schema.clone() as Arc<dyn SchemaProvider>),
             None => None,
@@ -74,26 +72,23 @@ impl CatalogProviderList for LakehouseCatalogList {
         self
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn register_catalog(
+    fn register_catalog(
         &self,
         name: String,
         catalog: Arc<dyn CatalogProvider>,
     ) -> Option<Arc<dyn CatalogProvider>> {
-        let mut catalog_map = self.catalogs.write().await;
+        let mut catalog_map = block_on!(self.catalogs.write());
         catalog_map.insert(name, catalog.clone());
         Some(catalog)
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn catalog_names(&self) -> Vec<String> {
-        let catalog_map = self.catalogs.read().await;
+    fn catalog_names(&self) -> Vec<String> {
+        let catalog_map = block_on!(self.catalogs.read());
         catalog_map.keys().cloned().collect()
     }
 
-    #[tokio::main(flavor = "current_thread")]
-    async fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
-        let catalog_map = self.catalogs.read().await;
+    fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
+        let catalog_map = block_on!(self.catalogs.read());
         catalog_map.get(name).cloned()
     }
 }

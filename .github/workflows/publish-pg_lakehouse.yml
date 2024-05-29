@@ -117,7 +117,7 @@ jobs:
 
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
-        run: dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq
+        run: dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq epel-release
 
       # Note: DataFusion requires Rust nightly to enable packed_simd for SIMD optimizations. We
       # fix Rust nightly because current latest (1.80.0) is causing compilation issues with some dependencies

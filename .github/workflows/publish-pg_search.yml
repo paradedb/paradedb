@@ -149,9 +149,12 @@ jobs:
         working-directory: pg_search/
         run: cargo pgrx init --pg${{ matrix.pg_version }}=/usr/lib/postgresql/${{ matrix.pg_version }}/bin/pg_config
 
+      # We set USE_GENERIC_CPU to build universal binaries for arm CPUs. This reduces performance, but is necessary as we don't know
+      # what CPU architecture the user will be running on. For the most optimized build, users should build the extension directly on
+      # their target machine, or use our Docker image.
       - name: Package pg_search Extension with pgrx
         working-directory: pg_search/
-        run: cargo pgrx package --features "icu telemetry"
+        run: USE_GENERIC_CPU=1 cargo pgrx package --features "icu telemetry"
 
       - name: Create .deb Package
         run: |

@@ -1,16 +1,19 @@
 # Global settings - optimize for the native CPU for all targets. This
 # is required by the 'datafusion` crate for maximum performance, and
-# applies in addition to the target-specific settings below
+# applies in addition to the target-specific settings below.
 [build]
 rustflags = ["-Ctarget-cpu=native"]
 
-# On ARM, we override the target CPU to be generic to avoid issues
-# of illegal instructions on machines with older CPUs. If you are
-# looking for maximum performance on ARM, you can compile locally
-# and override this setting.
+# On arm CPUs, we add the option to use generic CPU optimizations when
+# building for distribution. This is to avoid illegal instructions on
+# machines with older CPUs. If you are looking for maximum performance
+# and can compile on the target machine, don't set this option.
 [target.'cfg(target_arch = "arm")']
-rustflags = ["-Ctarget-cpu=generic"]
+rustflags = [
+  { env = "USE_GENERIC_CPU", value = "-Ctarget-cpu=generic" },
+  { env_not = "USE_GENERIC_CPU", value = "-Ctarget-cpu=native" },
+]
 
-# PostgreSQL symbols won't be available until runtime
+# on macOS, PostgreSQL symbols won't be available until runtime
 [target.'cfg(target_os="macos")']
 rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]

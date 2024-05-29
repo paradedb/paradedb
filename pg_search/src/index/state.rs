@@ -42,7 +42,7 @@ const TRANSACTION_CALLBACK_CACHE_ID: &str = "parade_current_search";
 
 pub struct SearchStateManager {
     state_map: HashMap<SearchAlias, SearchState>,
-    result_map: HashMap<SearchAlias, HashMap<String, (Score, DocAddress)>>,
+    result_map: HashMap<SearchAlias, HashMap<TantivyValue, (Score, DocAddress)>>,
 }
 
 impl SearchStateManager {
@@ -77,7 +77,7 @@ impl SearchStateManager {
             .ok_or(SearchStateError::AliasLookup(alias))
     }
 
-    pub fn get_score(key: String, alias: Option<SearchAlias>) -> Result<Score, SearchStateError> {
+    pub fn get_score(key: TantivyValue, alias: Option<SearchAlias>) -> Result<Score, SearchStateError> {
         let manager = SEARCH_STATE_MANAGER
             .lock()
             .map_err(SearchStateError::from)?;
@@ -91,7 +91,7 @@ impl SearchStateManager {
     }
 
     pub fn get_snippet(
-        key: String,
+        key: TantivyValue,
         field_name: &str,
         max_num_chars: Option<usize>,
         alias: Option<SearchAlias>,
@@ -164,7 +164,7 @@ impl SearchStateManager {
     }
 
     pub fn set_result(
-        key: String,
+        key: TantivyValue,
         score: Score,
         doc_address: DocAddress,
         alias: Option<SearchAlias>,
@@ -193,7 +193,7 @@ pub enum SearchStateError {
     #[error("a pg_search alias must be unique, found duplicate: '{0}'")]
     DuplicateAlias(SearchAlias),
     #[error("error looking up result data for document with id: '{0}'")]
-    DocLookup(String),
+    DocLookup(TantivyValue),
     #[error("no query found with alias: '{0}'")]
     AliasLookup(SearchAlias),
     #[error("could not lock the current search config lookup: {0}")]
@@ -268,7 +268,7 @@ impl SearchState {
     /// index access methods, this may return deleted rows until a VACUUM. If you need to scan
     /// the Tantivy index without a Postgres deduplication, you should use the `search_dedup`
     /// method instead.
-    pub fn search(&self, executor: &Executor) -> Vec<(Score, DocAddress, String, u64)> {
+    pub fn search(&self, executor: &Executor) -> Vec<(Score, DocAddress, TantivyValue, u64)> {
         // Extract limit and offset from the query config or set defaults.
         let limit = self.config.limit_rows.unwrap_or_else(|| {
             // We use unwrap_or_else here so this block doesn't run unless
@@ -307,7 +307,7 @@ impl SearchState {
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 SearchIndexScore {
                                     bm25: original_score,
-                                    key: format!("{}", key_field_reader.get_val(doc)),
+                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
                                 }
                             })
                         }
@@ -320,7 +320,7 @@ impl SearchState {
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 SearchIndexScore {
                                     bm25: original_score,
-                                    key: format!("{}", key_field_reader.get_val(doc)),
+                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
                                 }
                             })
                         }
@@ -333,7 +333,7 @@ impl SearchState {
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 SearchIndexScore {
                                     bm25: original_score,
-                                    key: format!("{}", key_field_reader.get_val(doc)),
+                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
                                 }
                             })
                         }
@@ -349,7 +349,7 @@ impl SearchState {
                                 key_field_reader.ord_to_str(doc.into(), &mut tok_str).expect("no string!!");
                                 SearchIndexScore {
                                     bm25: original_score,
-                                    key: tok_str,
+                                    key: TantivyValue(tok_str.into()),
                                 }
                             })
                         }
@@ -362,7 +362,7 @@ impl SearchState {
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 SearchIndexScore {
                                     bm25: original_score,
-                                    key: format!("{}", key_field_reader.get_val(doc)),
+                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
                                 }
                             })
                         }
@@ -375,7 +375,7 @@ impl SearchState {
                             Box::new(move |doc: tantivy::DocId, original_score: tantivy::Score| {
                                 SearchIndexScore {
                                     bm25: original_score,
-                                    key: key_field_reader.get_val(doc).into_primitive().to_string(),
+                                    key: TantivyValue(key_field_reader.get_val(doc).into()),
                                 }
                             })
                         }
@@ -399,7 +399,7 @@ impl SearchState {
                     // This iterator contains the results after limit + offset are applied.
                     let ctid = self.ctid_value(doc_address);
                     SearchStateManager::set_result(
-                        score.key.clone(),
+                        score.key,
                         score.bm25,
                         doc_address,
                         self.config.alias.clone(),
@@ -426,7 +426,7 @@ impl SearchState {
                     // This iterator contains the results after limit + offset are applied.
                     let (key, ctid) = self.key_and_ctid_value(doc_address);
                     SearchStateManager::set_result(
-                        key.clone(),
+                        key,
                         score,
                         doc_address,
                         self.config.alias.clone(),
@@ -464,7 +464,7 @@ impl SearchState {
             .expect("could not access ctid field on document")
     }
 
-    pub fn key_and_ctid_value(&self, doc_address: DocAddress) -> (String, u64) {
+    pub fn key_and_ctid_value(&self, doc_address: DocAddress) -> (TantivyValue, u64) {
         let retrieved_doc: TantivyDocument = self
             .searcher
             .doc(doc_address)
@@ -474,7 +474,7 @@ impl SearchState {
             .get_first(self.schema.key_field().id.0)
             .unwrap();
 
-        let key = TantivyValue(value.clone()).to_string();
+        let key = TantivyValue(value.clone());
 
         let ctid = retrieved_doc
             .get_first(self.schema.ctid_field().id.0)
@@ -493,8 +493,8 @@ impl SearchState {
         executor: &Executor,
     ) -> impl Iterator<Item = (Score, DocAddress)> {
         let search_results = self.search(executor);
-        let mut dedup_map: HashMap<String, (Score, DocAddress)> = HashMap::new();
-        let mut order_vec: Vec<String> = Vec::new();
+        let mut dedup_map: HashMap<TantivyValue, (Score, DocAddress)> = HashMap::new();
+        let mut order_vec: Vec<TantivyValue> = Vec::new();
 
         for (score, doc_addr, key, _) in search_results {
             let is_new_or_higher = match dedup_map.get(&key) {
@@ -503,7 +503,7 @@ impl SearchState {
             };
             if is_new_or_higher && dedup_map.insert(key.clone(), (score, doc_addr)).is_none() {
                 // Key was not already present, remember the order of this key
-                order_vec.push(key);
+                order_vec.push(key.clone());
             }
         }
 

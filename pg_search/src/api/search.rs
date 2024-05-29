@@ -29,34 +29,37 @@ use serde::{Deserialize, Deserializer, Serialize};
 const DEFAULT_SNIPPET_PREFIX: &str = "<b>";
 const DEFAULT_SNIPPET_POSTFIX: &str = "</b>";
 
-#[pg_extern]
-pub fn rank_bm25(key: String, alias: default!(Option<String>, "NULL")) -> f32 {
+macro_rules! rank_bm25_fn {
+    ($func_name:ident, $key_type:ty) => {
+        #[pg_extern(name = "rank_bm25")]
+        pub fn $func_name(
+            key: $key_type, alias: default!(Option<String>, "NULL")
+        ) -> f32 {
+            rank_bm25_impl(TantivyValue::try_from(key).unwrap(), alias)
+        }
+    }
+}
+
+// #[pg_extern]
+pub fn rank_bm25_impl(key: TantivyValue, alias: default!(Option<String>, "NULL")) -> f32 {
     SearchStateManager::get_score(key, alias.map(SearchAlias::from))
         .expect("could not lookup doc address for search query")
 }
 
-// #[derive(Debug, Serialize, Deserialize, PostgresType)]
-// enum SearchKey {
-//     I64(i64), // i8, i16, i32, i64
-//     // U64(u64), // u8, u16, u32, u64
-//     // F64(f64), // f32, f64, AnyNumeric
-//     // Str(String), // string, uuid
-//     // Date(NaiveDateTime) // date, timestamp, time
-// }
-
-// impl From<i64> for SearchKey {
-//     fn from(num: i64) -> Self {
-//         SearchKey::I64(num)
-//     }
-// }
-
-// impl Into<String> for SearchKey {
-//     fn into(self) -> String {
-//         match self {
-//             SearchKey::I64(num) => format!("{}", num)
-//         }
-//     }
-// }
+// TODO: set a list of key supported pgrx key types and auto-generate all the sub-fns for it (repeat for highlight)
+rank_bm25_fn!(rank_i8, i8);
+rank_bm25_fn!(rank_i16, i16);
+rank_bm25_fn!(rank_i32, i32);
+rank_bm25_fn!(rank_i64, i64);
+rank_bm25_fn!(rank_f32, f32);
+rank_bm25_fn!(rank_numeric, pgrx::AnyNumeric);
+rank_bm25_fn!(rank_string, String);
+rank_bm25_fn!(rank_uuid, pgrx::Uuid);
+rank_bm25_fn!(rank_date, pgrx::Date);
+rank_bm25_fn!(rank_time, pgrx::Time);
+rank_bm25_fn!(rank_timestamp, pgrx::Timestamp);
+rank_bm25_fn!(rank_timetz, pgrx::TimeWithTimeZone);
+rank_bm25_fn!(rank_timestamptz, pgrx::TimestampWithTimeZone);
 
 macro_rules! highlight_fn {
     ($func_name:ident, $key_type:ty) => {
@@ -69,7 +72,7 @@ macro_rules! highlight_fn {
             max_num_chars: default!(Option<i32>, "NULL"),
             alias: default!(Option<String>, "NULL"),
         ) -> String {
-            highlight_impl(TantivyValue::try_from(key).unwrap().to_string(), field, prefix, postfix, max_num_chars, alias)
+            highlight_impl(TantivyValue::try_from(key).unwrap(), field, prefix, postfix, max_num_chars, alias)
         }
     }
 }
@@ -88,9 +91,9 @@ highlight_fn!(highlight_timestamp, pgrx::Timestamp);
 highlight_fn!(highlight_timetz, pgrx::TimeWithTimeZone);
 highlight_fn!(highlight_timestamptz, pgrx::TimestampWithTimeZone);
 
-#[pg_extern]
+// #[pg_extern]
 pub fn highlight_impl(
-    key: String, // TODO: should be able to take in columns of other types and turn into string
+    key: TantivyValue, // TODO: should be able to take in columns of other types and turn into string
     // index_name: &str,
     field: &str,
     prefix: default!(Option<String>, "NULL"),
@@ -105,7 +108,7 @@ pub fn highlight_impl(
     // let key_field_name = schema.fields[schema.key];
 
     let mut snippet = SearchStateManager::get_snippet(
-        key.into(),
+        key,
         field,
         max_num_chars.map(|n| n as usize),
         alias.map(SearchAlias::from),

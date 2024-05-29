@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU Affero General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
+use crate::postgres::types::TantivyValue;
 use std::cmp::Ordering;
 
 use serde::{Deserialize, Serialize};
@@ -24,7 +25,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchIndexScore {
     pub bm25: f32,
-    pub key: String,
+    pub key: TantivyValue,
 }
 
 // We do these custom trait impls, because we want these to be sortable so:

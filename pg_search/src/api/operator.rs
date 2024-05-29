@@ -17,6 +17,7 @@
 
 use crate::env::needs_commit;
 use crate::index::state::SearchStateManager;
+use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
 use pgrx::*;

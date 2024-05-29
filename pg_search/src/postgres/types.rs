@@ -3,8 +3,13 @@ use crate::postgres::datetime::{
     pgrx_date_to_tantivy_value, pgrx_time_to_tantivy_value, pgrx_timestamp_to_tantivy_value,
     pgrx_timestamptz_to_tantivy_value, pgrx_timetz_to_tantivy_value,
 };
+use ordered_float::OrderedFloat;
 use thiserror::Error;
+use serde::ser::{Serialize, SerializeStruct, Serializer};
+use serde::{Deserialize, Deserializer};
+use std::hash::{Hash, Hasher};
 
+#[derive(Clone, Debug, Display, Eq, PartialEq)]
 pub struct TantivyValue(pub tantivy::schema::OwnedValue);
 
 impl TantivyValue {
@@ -34,6 +39,53 @@ impl ToString for TantivyValue {
             tantivy::schema::OwnedValue::Bytes(bytes) => String::from_utf8(bytes.clone()).unwrap(),
             _ => panic!("tantivy owned value not supported"),
         }
+    }
+}
+
+impl Hash for TantivyValue {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self.tantivy_schema_value() {
+            tantivy::schema::OwnedValue::Str(string) => string.hash(state),
+            tantivy::schema::OwnedValue::U64(u64) => u64.hash(state),
+            tantivy::schema::OwnedValue::I64(i64) => i64.hash(state),
+            tantivy::schema::OwnedValue::F64(f64) => OrderedFloat(f64).hash(state),
+            tantivy::schema::OwnedValue::Bool(bool) => bool.hash(state),
+            tantivy::schema::OwnedValue::Date(datetime) => datetime.hash(state),
+            tantivy::schema::OwnedValue::Bytes(bytes) => bytes.hash(state),
+            _ => panic!("tantivy owned value not supported"),
+        }
+    }
+}
+
+impl Serialize for TantivyValue {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        // match self.tantivy_schema_value() {
+        //     tantivy::schema::OwnedValue::Str(string) => serializer.serialize_str(&string),
+        //     tantivy::schema::OwnedValue::U64(u64) => serializer.serialize_u64(u64),
+        //     tantivy::schema::OwnedValue::I64(i64) => serializer.serialize_i64(i64),
+        //     tantivy::schema::OwnedValue::F64(f64) => serializer.serialize_f64(f64),
+        //     tantivy::schema::OwnedValue::Bool(bool) => serializer.serialize_bool(bool),
+        //     tantivy::schema::OwnedValue::Date(datetime) => serializer.serialize_str(&self.to_string()),
+        //     tantivy::schema::OwnedValue::Bytes(bytes) => serializer.serialize_str(&self.to_string()),
+        //     _ => panic!("tantivy owned value not supported"),
+        // }
+        let mut rgb = serializer.serialize_struct("TantivyValue", 1)?;
+        rgb.serialize_field("val", &self.0)?;
+        rgb.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for TantivyValue {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let inner_val = tantivy::schema::OwnedValue::deserialize(deserializer)?;
+
+        Ok(TantivyValue(inner_val))
     }
 }
 

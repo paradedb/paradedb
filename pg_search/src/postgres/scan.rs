@@ -17,6 +17,7 @@
 
 use crate::env::needs_commit;
 use crate::index::state::SearchStateManager;
+use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::{globals::WriterGlobal, postgres::utils::get_search_index};
 use pgrx::*;
@@ -95,7 +96,7 @@ pub extern "C" fn amgettuple(
 ) -> bool {
     let mut scan: PgBox<pg_sys::IndexScanDescData> = unsafe { PgBox::from_pg(scan) };
     let iter = unsafe {
-        (scan.opaque as *mut std::vec::IntoIter<(Score, DocAddress, String, u64)>).as_mut()
+        (scan.opaque as *mut std::vec::IntoIter<(Score, DocAddress, TantivyValue, u64)>).as_mut()
     }
     .expect("no scandesc state");
 

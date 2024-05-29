@@ -4,6 +4,13 @@
 [build]
 rustflags = ["-Ctarget-cpu=native"]
 
+# On ARM, we override the target CPU to be generic to avoid issues
+# of illegal instructions on machines with older CPUs. If you are
+# looking for maximum performance on ARM, you can compile locally
+# and override this setting.
+[target.'cfg(target_arch = "arm")']
+rustflags = ["-Ctarget-cpu=generic"]
+
 # PostgreSQL symbols won't be available until runtime
 [target.'cfg(target_os="macos")']
 rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]

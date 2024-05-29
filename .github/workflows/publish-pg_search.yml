@@ -129,7 +129,7 @@ jobs:
 
       - name: Install RHEL Dependencies
         if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
-        run: dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq epel-release
+        run: dnf install -y sudo wget pkgconf-pkg-config openssl-devel jq perl-IPC-Run
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable

@@ -160,7 +160,7 @@ jobs:
         run: |
           sudo dnf -y install https://download.postgresql.org/pub/repos/yum/reporpms/EL-$(rpm -E %{rhel})-x86_64/pgdg-redhat-repo-latest.noarch.rpm
           sudo rpm --import /etc/pki/rpm-gpg/PGDG-RPM-GPG-KEY-RHEL
-          sudo dnf -qy module disable postgresql
+          # sudo dnf -qy module disable postgresql
           sudo dnf clean all
           sudo dnf -y install postgresql${{ matrix.pg_version }} postgresql${{ matrix.pg_version }}-server postgresql${{ matrix.pg_version }}-devel --disablerepo='pgdg-common'
           sudo /usr/pgsql-${{ matrix.pg_version }}/bin/postgresql-${{ matrix.pg_version }}-setup initdb

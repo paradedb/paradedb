@@ -127,8 +127,12 @@ jobs:
         if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
 
+      - name: Install RHEL Dependencies
+        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
+        run: dnf install -y sudo wget curl gnupg2 redhat-lsb-core pkgconf-pkg-config openssl-devel jq
+
       - name: Install Rust
-        if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' }}
         uses: dtolnay/rust-toolchain@stable
 
       - name: Retrieve OS & GitHub Tag Versions

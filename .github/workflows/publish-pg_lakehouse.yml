@@ -112,8 +112,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Debian Dependencies
-        if: ${{ matrix.image }} == 'debian:11-slim' || ${{ matrix.image }} == 'debian:12-slim'
+        if: ${{ matrix.image == 'debian:11-slim' || matrix.image == 'debian:12-slim' }}
         run: DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y sudo wget curl gnupg lsb-release pkg-config libssl-dev jq
+
+      - name: Install RHEL Dependencies
+        if: ${{ matrix.image == 'redhat/ubi8:latest' || matrix.image == 'redhat/ubi9:latest' }}
+        run: dnf install -y sudo wget curl gnupg2 redhat-lsb-core pkgconf-pkg-config openssl-devel jq
 
       # Note: DataFusion requires Rust nightly to enable packed_simd for SIMD optimizations. We
       # fix Rust nightly because current latest (1.80.0) is causing compilation issues with some dependencies

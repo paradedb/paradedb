@@ -1,6 +1,7 @@
 use async_std::sync::Mutex;
-use async_std::task;
+use async_trait::async_trait;
 use datafusion::catalog::schema::SchemaProvider;
+use datafusion::common::exec_err;
 use datafusion::common::DataFusionError;
 use datafusion::datasource::TableProvider;
 use datafusion::error::Result;
@@ -9,8 +10,6 @@ use pgrx::*;
 use std::any::Any;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use supabase_wrappers::prelude::*;
 
@@ -25,7 +24,8 @@ use super::provider::*;
 #[derive(Clone)]
 pub struct LakehouseSchemaProvider {
     schema_name: String,
-    tables: Arc<Mutex<HashMap<pg_sys::Oid, Arc<dyn TableProvider>>>>,
+    #[allow(unused)]
+    tables: Arc<Mutex<HashMap<pg_sys::Oid, Arc<dyn TableProvider + Send + Sync>>>>,
 }
 
 impl LakehouseSchemaProvider {
@@ -36,7 +36,11 @@ impl LakehouseSchemaProvider {
         }
     }
 
-    fn table_impl(&self, table_name: &str) -> Result<Arc<dyn TableProvider>, CatalogError> {
+    #[allow(unused)]
+    async fn table_impl(
+        &self,
+        table_name: &str,
+    ) -> Result<Arc<dyn TableProvider + Send + Sync>, CatalogError> {
         let pg_relation = unsafe {
             PgRelation::open_with_name(table_name).unwrap_or_else(|err| {
                 panic!("{}", err);
@@ -47,10 +51,10 @@ impl LakehouseSchemaProvider {
         let path = require_option(TableOption::Path.as_str(), &table_options)?;
         let extension = require_option(TableOption::Extension.as_str(), &table_options)?;
         let format = require_option_or(TableOption::Format.as_str(), &table_options, "");
-        let mut tables = task::block_on(self.tables.lock());
+        let mut tables = self.tables.lock().await;
 
-        let table = match tables.entry(pg_relation.oid()) {
-            Occupied(entry) => entry.into_mut(),
+        let table: Arc<dyn TableProvider + Send + Sync> = match tables.entry(pg_relation.oid()) {
+            Occupied(entry) => entry.into_mut().to_owned(),
             Vacant(entry) => {
                 let mut attribute_map: HashMap<usize, PgAttribute> = pg_relation
                     .tuple_desc()
@@ -65,8 +69,8 @@ impl LakehouseSchemaProvider {
                     .collect();
 
                 let provider = match TableFormat::from(format) {
-                    TableFormat::None => task::block_on(create_listing_provider(path, extension))?,
-                    TableFormat::Delta => task::block_on(create_delta_provider(path, extension))?,
+                    TableFormat::None => create_listing_provider(path, extension).await?,
+                    TableFormat::Delta => create_delta_provider(path, extension).await?,
                 };
 
                 for (index, field) in provider.schema().fields().iter().enumerate() {
@@ -75,7 +79,7 @@ impl LakehouseSchemaProvider {
                     }
                 }
 
-                entry.insert(provider)
+                entry.insert(provider).to_owned()
             }
         };
 
@@ -86,8 +90,8 @@ impl LakehouseSchemaProvider {
                     .downcast_ref::<DeltaTable>()
                     .ok_or(CatalogError::DowncastDeltaTable)?
                     .clone();
-                task::block_on(delta_table.load())?;
-                Arc::new(delta_table) as Arc<dyn TableProvider>
+                delta_table.load().await?;
+                Arc::new(delta_table) as Arc<dyn TableProvider + Send + Sync>
             }
             _ => table.clone(),
         };
@@ -96,6 +100,7 @@ impl LakehouseSchemaProvider {
     }
 }
 
+#[async_trait]
 impl SchemaProvider for LakehouseSchemaProvider {
     fn as_any(&self) -> &dyn Any {
         self
@@ -126,8 +131,7 @@ impl SchemaProvider for LakehouseSchemaProvider {
                 .table_impl(table_name)
                 .unwrap_or_else(|err| panic!("{}", err));
 
-            Ok(Some(table))
-        })
+
     }
 
     fn table_exist(&self, table_name: &str) -> bool {
@@ -147,5 +151,34 @@ impl SchemaProvider for LakehouseSchemaProvider {
         let fdw_handler = FdwHandler::from(foreign_server);
 
         fdw_handler != FdwHandler::Other
+    }
+
+    #[doc = r" Returns the owner of the Schema, default is None. This value is reported"]
+    #[doc = r" as part of `information_tables.schemata"]
+    fn owner_name(&self) -> Option<&str> {
+        None
+    }
+
+    #[doc = r" If supported by the implementation, adds a new table named `name` to"]
+    #[doc = r" this schema."]
+    #[doc = r""]
+    #[doc = r#" If a table of the same name was already registered, returns "Table"#]
+    #[doc = r#" already exists" error."#]
+    #[allow(unused_variables)]
+    fn register_table(
+        &self,
+        name: String,
+        table: Arc<dyn TableProvider>,
+    ) -> Result<Option<Arc<dyn TableProvider>>> {
+        exec_err!("schema provider does not support registering tables")
+    }
+
+    #[doc = r" If supported by the implementation, removes the `name` table from this"]
+    #[doc = r" schema and returns the previously registered [`TableProvider`], if any."]
+    #[doc = r""]
+    #[doc = r" If no `name` table exists, returns Ok(None)."]
+    #[allow(unused_variables)]
+    fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
+        exec_err!("schema provider does not support deregistering tables")
     }
 }

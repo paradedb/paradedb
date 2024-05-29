@@ -1,5 +1,4 @@
 use async_std::sync::RwLock;
-use async_std::task;
 use datafusion::common::DataFusionError;
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use datafusion::prelude::{SessionConfig, SessionContext};
@@ -21,15 +20,15 @@ static SESSION_CACHE: SessionCache = Lazy::new(|| Arc::new(RwLock::new(HashMap::
 pub struct Session;
 
 impl Session {
-    pub fn session_context() -> Result<Arc<SessionContext>, SessionError> {
+    pub async fn session_context() -> Result<Arc<SessionContext>, SessionError> {
         {
-            let mut write_lock = task::block_on(SESSION_CACHE.write());
+            let mut write_lock = SESSION_CACHE.write().await;
             if let Vacant(entry) = write_lock.entry(SESSION_ID.to_string()) {
                 entry.insert(Self::init()?);
             }
         }
 
-        let read_lock = task::block_on(SESSION_CACHE.read());
+        let read_lock = SESSION_CACHE.read().await;
         let context = read_lock
             .get(SESSION_ID)
             .ok_or(SessionError::ContextNotFound)?;
@@ -37,15 +36,15 @@ impl Session {
         Ok(context.clone())
     }
 
-    pub fn catalog() -> Result<LakehouseCatalog, SessionError> {
+    pub async fn catalog() -> Result<LakehouseCatalog, SessionError> {
         {
-            let mut write_lock = task::block_on(SESSION_CACHE.write());
+            let mut write_lock = SESSION_CACHE.write().await;
             if let Vacant(entry) = write_lock.entry(SESSION_ID.to_string()) {
                 entry.insert(Self::init()?);
             }
         }
 
-        let read_lock = task::block_on(SESSION_CACHE.read());
+        let read_lock = SESSION_CACHE.read().await;
         let context = read_lock
             .get(SESSION_ID)
             .ok_or(SessionError::ContextNotFound)?;
@@ -64,15 +63,17 @@ impl Session {
         Ok(downcast_catalog.clone())
     }
 
-    pub fn schema_provider(schema_name: &str) -> Result<LakehouseSchemaProvider, SessionError> {
+    pub async fn schema_provider(
+        schema_name: &str,
+    ) -> Result<LakehouseSchemaProvider, SessionError> {
         {
-            let mut write_lock = task::block_on(SESSION_CACHE.write());
+            let mut write_lock = SESSION_CACHE.write().await;
             if let Vacant(entry) = write_lock.entry(SESSION_ID.to_string()) {
                 entry.insert(Self::init()?);
             }
         }
 
-        let read_lock = task::block_on(SESSION_CACHE.read());
+        let read_lock = SESSION_CACHE.read().await;
         let context = read_lock
             .get(SESSION_ID)
             .ok_or(SessionError::ContextNotFound)?;

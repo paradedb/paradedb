@@ -388,6 +388,6 @@ pub async fn bench_eslogs_query_gin_index(
         query,
         database_url: url,
     }
-    .run_pg()
+    .run_pg_once()
     .await
 }

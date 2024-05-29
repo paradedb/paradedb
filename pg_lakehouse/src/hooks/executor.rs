@@ -1,4 +1,3 @@
-use async_std::task;
 use datafusion::common::arrow::array::RecordBatch;
 use datafusion::logical_expr::LogicalPlan;
 use pgrx::*;
@@ -17,7 +16,7 @@ macro_rules! fallback_warning {
     };
 }
 
-pub fn executor_run(
+pub async fn executor_run(
     query_desc: PgBox<pg_sys::QueryDesc>,
     direction: pg_sys::ScanDirection,
     count: u64,
@@ -58,7 +57,7 @@ pub fn executor_run(
             };
 
             // Execute SELECT
-            match task::block_on(get_datafusion_batches(logical_plan)) {
+            match get_datafusion_batches(logical_plan).await {
                 Ok(batches) => write_batches_to_slots(query_desc, batches)?,
                 Err(err) => {
                     fallback_warning!(err.to_string());
@@ -81,7 +80,7 @@ async fn get_datafusion_batches(
     logical_plan: LogicalPlan,
 ) -> Result<Vec<RecordBatch>, ContextError> {
     // Execute the logical plan and collect the resulting batches
-    let context = Session::session_context()?;
+    let context = Session::session_context().await?;
     let dataframe = context.execute_logical_plan(logical_plan).await?;
     Ok(dataframe.collect().await?)
 }

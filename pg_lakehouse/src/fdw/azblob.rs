@@ -152,13 +152,14 @@ impl TryFrom<ServerOptions> for Azblob {
 }
 
 impl BaseFdw for AzblobFdw {
-    fn register_object_store(
+    #[tokio::main(flavor = "current_thread")]
+    async fn register_object_store(
         url: &Url,
         _format: TableFormat,
         server_options: HashMap<String, String>,
         user_mapping_options: HashMap<String, String>,
     ) -> Result<(), ContextError> {
-        let context = Session::session_context()?;
+        let context = Session::session_context().await?;
 
         let builder = Azblob::try_from(ServerOptions::new(
             url,
@@ -302,7 +303,8 @@ impl ForeignDataWrapper<BaseFdwError> for AzblobFdw {
         Ok(())
     }
 
-    fn begin_scan(
+    #[tokio::main(flavor = "current_thread")]
+    async fn begin_scan(
         &mut self,
         _quals: &[Qual],
         columns: &[Column],
@@ -310,14 +312,17 @@ impl ForeignDataWrapper<BaseFdwError> for AzblobFdw {
         limit: &Option<Limit>,
         options: HashMap<String, String>,
     ) -> Result<(), BaseFdwError> {
-        task::block_on(self.begin_scan_impl(_quals, columns, _sorts, limit, options))
+        self.begin_scan_impl(_quals, columns, _sorts, limit, options)
+            .await
     }
 
-    fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
-        task::block_on(self.iter_scan_impl(row))
+    #[tokio::main(flavor = "current_thread")]
+    async fn iter_scan(&mut self, row: &mut Row) -> Result<Option<()>, BaseFdwError> {
+        self.iter_scan_impl(row).await
     }
 
-    fn end_scan(&mut self) -> Result<(), BaseFdwError> {
-        self.end_scan_impl()
+    #[tokio::main(flavor = "current_thread")]
+    async fn end_scan(&mut self) -> Result<(), BaseFdwError> {
+        self.end_scan_impl().await
     }
 }

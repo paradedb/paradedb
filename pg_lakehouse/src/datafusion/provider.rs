@@ -26,10 +26,10 @@ impl AsRef<Url> for ObjectStoreUrl {
 pub async fn create_listing_provider(
     path: &str,
     extension: &str,
-) -> Result<Arc<dyn TableProvider>, TableProviderError> {
+) -> Result<Arc<dyn TableProvider + Send + Sync>, TableProviderError> {
     let listing_url = ListingTableUrl::parse(path)?;
     let listing_options = ListingOptions::try_from(FileExtension(extension.to_string()))?;
-    let context = Session::session_context()?;
+    let context = Session::session_context().await?;
     let schema = listing_options
         .infer_schema(&context.state(), &listing_url)
         .await?;
@@ -38,13 +38,13 @@ pub async fn create_listing_provider(
         .with_schema(schema);
     let listing_table = ListingTable::try_new(listing_config)?;
 
-    Ok(Arc::new(listing_table) as Arc<dyn TableProvider>)
+    Ok(Arc::new(listing_table) as Arc<dyn TableProvider + Send + Sync>)
 }
 
 pub async fn create_delta_provider(
     path: &str,
     extension: &str,
-) -> Result<Arc<dyn TableProvider>, TableProviderError> {
+) -> Result<Arc<dyn TableProvider + Send + Sync>, TableProviderError> {
     if extension != "parquet" {
         return Err(TableProviderError::FileNotParquet(
             extension.to_string(),
@@ -57,7 +57,7 @@ pub async fn create_delta_provider(
     deltalake::azure::register_handlers(None);
 
     let url = Url::parse(path)?;
-    let context = Session::session_context()?;
+    let context = Session::session_context().await?;
     let object_store = context.runtime_env().object_store(ObjectStoreUrl(url))?;
     let location = ensure_table_uri(path)?;
 
@@ -66,7 +66,7 @@ pub async fn create_delta_provider(
         .load()
         .await?;
 
-    Ok(Arc::new(table) as Arc<dyn TableProvider>)
+    Ok(Arc::new(table) as Arc<dyn TableProvider + Send + Sync>)
 }
 
 #[derive(Error, Debug)]

@@ -63,7 +63,7 @@ pub trait BaseFdw {
         let table_oid = pg_sys::Oid::from(oid_u32);
         let pg_relation = unsafe { PgRelation::open(table_oid) };
         let schema_name = pg_relation.namespace().to_string();
-        let catalog = Session::catalog()?;
+        let catalog = Session::catalog().await?;
 
         if catalog.schema(&schema_name).is_none() {
             let new_schema_provider = Arc::new(LakehouseSchemaProvider::new(&schema_name));
@@ -71,7 +71,7 @@ pub trait BaseFdw {
         }
 
         let limit = limit.clone();
-        let context = Session::session_context()?;
+        let context = Session::session_context().await?;
 
         let reference = TableReference::full(
             Session::catalog_name()?,
@@ -132,7 +132,7 @@ pub trait BaseFdw {
         Ok(Some(()))
     }
 
-    fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
+    async fn end_scan_impl(&mut self) -> Result<(), BaseFdwError> {
         self.clear_stream();
         Ok(())
     }

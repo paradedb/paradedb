@@ -1,5 +1,4 @@
 use async_std::sync::RwLock;
-use async_std::task;
 use datafusion::catalog::schema::SchemaProvider;
 use datafusion::catalog::{CatalogProvider, CatalogProviderList};
 use datafusion::common::DataFusionError;
@@ -35,23 +34,26 @@ impl CatalogProvider for LakehouseCatalog {
         self
     }
 
-    fn register_schema(
+    #[tokio::main(flavor = "current_thread")]
+    async fn register_schema(
         &self,
         name: &str,
         schema: Arc<dyn SchemaProvider>,
     ) -> Result<Option<Arc<dyn SchemaProvider>>, DataFusionError> {
-        let mut schema_map = task::block_on(self.schemas.write());
+        let mut schema_map = self.schemas.write().await;
         schema_map.insert(name.to_owned(), schema.clone());
         Ok(Some(schema))
     }
 
-    fn schema_names(&self) -> Vec<String> {
-        let schemas = task::block_on(self.schemas.read());
+    #[tokio::main(flavor = "current_thread")]
+    async fn schema_names(&self) -> Vec<String> {
+        let schemas = self.schemas.read().await;
         schemas.keys().cloned().collect()
     }
 
-    fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
-        let schemas = task::block_on(self.schemas.read());
+    #[tokio::main(flavor = "current_thread")]
+    async fn schema(&self, name: &str) -> Option<Arc<dyn SchemaProvider>> {
+        let schemas = self.schemas.read().await;
         match schemas.get(name) {
             Some(schema) => Some(schema.clone() as Arc<dyn SchemaProvider>),
             None => None,
@@ -72,23 +74,26 @@ impl CatalogProviderList for LakehouseCatalogList {
         self
     }
 
-    fn register_catalog(
+    #[tokio::main(flavor = "current_thread")]
+    async fn register_catalog(
         &self,
         name: String,
         catalog: Arc<dyn CatalogProvider>,
     ) -> Option<Arc<dyn CatalogProvider>> {
-        let mut catalog_map = task::block_on(self.catalogs.write());
+        let mut catalog_map = self.catalogs.write().await;
         catalog_map.insert(name, catalog.clone());
         Some(catalog)
     }
 
-    fn catalog_names(&self) -> Vec<String> {
-        let catalog_map = task::block_on(self.catalogs.read());
+    #[tokio::main(flavor = "current_thread")]
+    async fn catalog_names(&self) -> Vec<String> {
+        let catalog_map = self.catalogs.read().await;
         catalog_map.keys().cloned().collect()
     }
 
-    fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
-        let catalog_map = task::block_on(self.catalogs.read());
+    #[tokio::main(flavor = "current_thread")]
+    async fn catalog(&self, name: &str) -> Option<Arc<dyn CatalogProvider>> {
+        let catalog_map = self.catalogs.read().await;
         catalog_map.get(name).cloned()
     }
 }
@@ -125,6 +130,7 @@ pub enum CatalogError {
     #[error(transparent)]
     Utf8Error(#[from] std::str::Utf8Error),
 
+    #[allow(unused)]
     #[error("Unexpected error: Failed to downcast table provider to Delta table")]
     DowncastDeltaTable,
 }

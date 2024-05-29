@@ -1,4 +1,3 @@
-use async_std::task;
 use chrono::Datelike;
 use pgrx::pg_sys::AsPgCStr;
 use pgrx::*;
@@ -12,15 +11,18 @@ use crate::datafusion::provider::*;
 use crate::fdw::handler::*;
 
 #[pg_extern]
-pub fn arrow_schema(
+#[tokio::main(flavor = "current_thread")]
+pub async fn arrow_schema(
     server: String,
     path: String,
     extension: String,
     format: default!(Option<String>, "NULL"),
 ) -> iter::TableIterator<'static, (name!(field, String), name!(datatype, String))> {
-    task::block_on(arrow_schema_impl(server, path, extension, format)).unwrap_or_else(|err| {
-        panic!("{}", err);
-    })
+    arrow_schema_impl(server, path, extension, format)
+        .await
+        .unwrap_or_else(|err| {
+            panic!("{}", err);
+        })
 }
 
 #[pg_extern]

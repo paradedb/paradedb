@@ -1,4 +1,3 @@
-use async_std::task;
 use datafusion::catalog::schema::SchemaProvider;
 use datafusion::common::arrow::datatypes::DataType;
 use datafusion::common::config::ConfigOptions;
@@ -33,16 +32,19 @@ impl QueryContext {
 }
 
 impl ContextProvider for QueryContext {
-    fn get_table_source(
+    #[tokio::main(flavor = "current_thread")]
+    async fn get_table_source(
         &self,
         reference: TableReference,
     ) -> Result<Arc<dyn TableSource>, DataFusionError> {
-        task::block_on(get_table_source(reference))
+        get_table_source(reference)
+            .await
             .map_err(|err| DataFusionError::Execution(err.to_string()))
     }
 
-    fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
-        let context = Session::session_context().unwrap_or_else(|err| {
+    #[tokio::main(flavor = "current_thread")]
+    async fn get_function_meta(&self, name: &str) -> Option<Arc<ScalarUDF>> {
+        let context = Session::session_context().await.unwrap_or_else(|err| {
             panic!("{}", err);
         });
 
@@ -88,7 +90,7 @@ async fn get_table_source(
     match schema_name {
         Some(schema_name) => {
             // If a schema was provided in the query, i.e. SELECT * FROM <schema>.<table>
-            get_source(&catalog_name, schema_name, reference.table())
+            get_source(&catalog_name, schema_name, reference.table()).await
         }
         None => {
             // If no schema was provided in the query, i.e. SELECT * FROM <table>
@@ -106,13 +108,13 @@ async fn get_table_source(
                     let schema_name =
                         unsafe { CStr::from_ptr(datum.cast_mut_ptr::<c_char>()).to_str()? };
                     let table_name = reference.table().to_string();
-                    let schema_provider = Session::schema_provider(schema_name)?;
+                    let schema_provider = Session::schema_provider(schema_name).await?;
 
                     if !schema_provider.table_exist(&table_name.clone()) {
                         continue;
                     }
 
-                    return get_source(&catalog_name, schema_name, reference.table());
+                    return get_source(&catalog_name, schema_name, reference.table()).await;
                 }
             }
 
@@ -122,7 +124,7 @@ async fn get_table_source(
 }
 
 #[inline]
-fn get_source(
+async fn get_source(
     catalog_name: &str,
     schema_name: &str,
     table_name: &str,
@@ -130,9 +132,9 @@ fn get_source(
     let catalog_name = catalog_name.to_string();
     let schema_name = schema_name.to_string();
     let table_name = table_name.to_string();
-    let context = Session::session_context()?;
+    let context = Session::session_context().await?;
     let table_reference = TableReference::full(catalog_name, schema_name, table_name);
-    let provider = task::block_on(context.table_provider(table_reference))?;
+    let provider = context.table_provider(table_reference).await?;
 
     Ok(provider_as_source(provider))
 }

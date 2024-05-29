@@ -21,6 +21,7 @@ telemetry = ["shared/telemetry"]
 [dependencies]
 anyhow = "1.0.83"
 async-std = { version = "1.12.0", features = ["tokio1", "attributes"] }
+async-trait = "0.1.80"
 chrono = "0.4.34"
 datafusion = { version = "37.1.0", features = ["avro"] }
 deltalake = { version = "0.17.3", features = [
@@ -42,6 +43,7 @@ serde = "1.0.201"
 shared = { path = "../shared" }
 supabase-wrappers = { git = "https://github.com/paradedb/wrappers.git", default-features = false, rev = "e5dc405" }
 thiserror = "1.0.59"
+tokio = "1.37.0"
 url = "2.5.0"
 
 [dev-dependencies]

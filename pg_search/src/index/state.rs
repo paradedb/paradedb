@@ -17,6 +17,7 @@
 
 use super::score::SearchIndexScore;
 use super::SearchIndex;
+use crate::postgres::types::TantivyValue;
 use crate::schema::{SearchConfig, SearchFieldName, SearchFieldType, SearchIndexSchema};
 use derive_more::{AsRef, Display, From};
 use once_cell::sync::Lazy;
@@ -447,16 +448,7 @@ impl SearchState {
             .get_first(self.schema.key_field().id.0)
             .unwrap();
 
-        match value {
-            tantivy::schema::OwnedValue::Str(string) => string.clone(),
-            tantivy::schema::OwnedValue::U64(u64) => format!("{:?}", u64),
-            tantivy::schema::OwnedValue::I64(i64) => format!("{:?}", i64),
-            tantivy::schema::OwnedValue::F64(f64) => format!("{:?}", f64),
-            tantivy::schema::OwnedValue::Bool(bool) => format!("{:?}", bool),
-            tantivy::schema::OwnedValue::Date(datetime) => datetime.into_primitive().to_string(),
-            tantivy::schema::OwnedValue::Bytes(bytes) => String::from_utf8(bytes.clone()).unwrap(),
-            _ => panic!("NO"),
-        }
+        TantivyValue(value.clone()).to_string()
     }
 
     pub fn ctid_value(&self, doc_address: DocAddress) -> u64 {
@@ -482,16 +474,7 @@ impl SearchState {
             .get_first(self.schema.key_field().id.0)
             .unwrap();
 
-        let key = match value {
-            tantivy::schema::OwnedValue::Str(string) => string.clone(),
-            tantivy::schema::OwnedValue::U64(u64) => format!("{:?}", u64),
-            tantivy::schema::OwnedValue::I64(i64) => format!("{:?}", i64),
-            tantivy::schema::OwnedValue::F64(f64) => format!("{:?}", f64),
-            tantivy::schema::OwnedValue::Bool(bool) => format!("{:?}", bool),
-            tantivy::schema::OwnedValue::Date(datetime) => datetime.into_primitive().to_string(),
-            tantivy::schema::OwnedValue::Bytes(bytes) => String::from_utf8(bytes.clone()).unwrap(),
-            _ => panic!("NO"),
-        };
+        let key = TantivyValue(value.clone()).to_string();
 
         let ctid = retrieved_doc
             .get_first(self.schema.ctid_field().id.0)

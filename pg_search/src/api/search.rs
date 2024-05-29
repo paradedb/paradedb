@@ -17,10 +17,12 @@
 
 use crate::env::needs_commit;
 use crate::index::state::{SearchAlias, SearchStateManager};
+use crate::postgres::types::TantivyValue;
 use crate::schema::SearchConfig;
 use crate::writer::{WriterClient, WriterDirectory};
 use crate::{globals::WriterGlobal, index::SearchIndex, postgres::utils::get_search_index};
 use pgrx::{prelude::TableIterator, *};
+use thiserror::Error;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -33,28 +35,28 @@ pub fn rank_bm25(key: String, alias: default!(Option<String>, "NULL")) -> f32 {
         .expect("could not lookup doc address for search query")
 }
 
-#[derive(Debug, Serialize, Deserialize, PostgresType)]
-enum SearchKey {
-    I64(i64),
-    // U64(u64),
-    // F64(f64),
-    // Str(String),
-    // Date(NaiveDateTime)
-}
+// #[derive(Debug, Serialize, Deserialize, PostgresType)]
+// enum SearchKey {
+//     I64(i64), // i8, i16, i32, i64
+//     // U64(u64), // u8, u16, u32, u64
+//     // F64(f64), // f32, f64, AnyNumeric
+//     // Str(String), // string, uuid
+//     // Date(NaiveDateTime) // date, timestamp, time
+// }
 
-impl From<i64> for SearchKey {
-    fn from(num: i64) -> Self {
-        SearchKey::I64(num)
-    }
-}
+// impl From<i64> for SearchKey {
+//     fn from(num: i64) -> Self {
+//         SearchKey::I64(num)
+//     }
+// }
 
-impl Into<String> for SearchKey {
-    fn into(self) -> String {
-        match self {
-            SearchKey::I64(num) => format!("{}", num)
-        }
-    }
-}
+// impl Into<String> for SearchKey {
+//     fn into(self) -> String {
+//         match self {
+//             SearchKey::I64(num) => format!("{}", num)
+//         }
+//     }
+// }
 
 macro_rules! highlight_fn {
     ($func_name:ident, $key_type:ty) => {
@@ -67,23 +69,41 @@ macro_rules! highlight_fn {
             max_num_chars: default!(Option<i32>, "NULL"),
             alias: default!(Option<String>, "NULL"),
         ) -> String {
-            highlight_impl(key.into(), field, prefix, postfix, max_num_chars, alias)
+            highlight_impl(TantivyValue::try_from(key).unwrap().to_string(), field, prefix, postfix, max_num_chars, alias)
         }
     }
 }
 
+highlight_fn!(highlight_i8, i8);
+highlight_fn!(highlight_i16, i16);
+highlight_fn!(highlight_i32, i32);
 highlight_fn!(highlight_i64, i64);
+highlight_fn!(highlight_f32, f32);
+highlight_fn!(highlight_numeric, pgrx::AnyNumeric);
+highlight_fn!(highlight_string, String);
+highlight_fn!(highlight_uuid, pgrx::Uuid);
+highlight_fn!(highlight_date, pgrx::Date);
+highlight_fn!(highlight_time, pgrx::Time);
+highlight_fn!(highlight_timestamp, pgrx::Timestamp);
+highlight_fn!(highlight_timetz, pgrx::TimeWithTimeZone);
+highlight_fn!(highlight_timestamptz, pgrx::TimestampWithTimeZone);
 
-
-// #[pg_extern]
+#[pg_extern]
 pub fn highlight_impl(
-    key: SearchKey, // TODO: should be able to take in columns of other types and turn into string
+    key: String, // TODO: should be able to take in columns of other types and turn into string
+    // index_name: &str,
     field: &str,
     prefix: default!(Option<String>, "NULL"),
     postfix: default!(Option<String>, "NULL"),
     max_num_chars: default!(Option<i32>, "NULL"),
     alias: default!(Option<String>, "NULL"),
 ) -> String {
+    // let bm25_index_name = format!("{}_bm25_index", index_name);
+    // let search_index = get_search_index(&bm25_index_name);
+    // let schema = search_index.schema;
+
+    // let key_field_name = schema.fields[schema.key];
+
     let mut snippet = SearchStateManager::get_snippet(
         key.into(),
         field,

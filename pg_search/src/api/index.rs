@@ -24,6 +24,7 @@ use crate::postgres::datetime::{
 };
 use crate::postgres::utils::get_search_index;
 use crate::query::SearchQueryInput;
+use crate::postgres::types::TantivyValue;
 use crate::schema::ToString;
 use core::panic;
 use std::ops::Bound;
@@ -449,17 +450,16 @@ pub fn regex(field: String, pattern: String) -> SearchQueryInput {
 }
 
 macro_rules! term_fn {
-    ($func_name:ident, $value_type:ty, $conversion:expr) => {
+    ($func_name:ident, $value_type:ty) => {
         #[pg_extern(name = "term", immutable, parallel_safe)]
         pub fn $func_name(
             field: default!(Option<String>, "NULL"),
             value: default!(Option<$value_type>, "NULL"),
         ) -> SearchQueryInput {
-            let convert = $conversion;
             if let Some(value) = value {
                 SearchQueryInput::Term {
                     field,
-                    value: convert(value),
+                    value: TantivyValue::try_from(value).unwrap().tantivy_schema_value(),
                 }
             } else {
                 panic!("no value provided to term query")
@@ -469,83 +469,35 @@ macro_rules! term_fn {
 }
 
 // Generate functions for each type
-term_fn!(term_bytes, Vec<u8>, tantivy::schema::OwnedValue::Bytes);
-term_fn!(term_str, String, tantivy::schema::OwnedValue::Str);
-term_fn!(term_i8, i8, |v| tantivy::schema::OwnedValue::I64(v as i64));
-term_fn!(term_i16, i16, |v| tantivy::schema::OwnedValue::I64(
-    v as i64
-));
-term_fn!(term_i32, i32, |v| tantivy::schema::OwnedValue::I64(
-    v as i64
-));
-term_fn!(term_i64, i64, tantivy::schema::OwnedValue::I64);
-term_fn!(term_f32, f32, |v| tantivy::schema::OwnedValue::F64(
-    v as f64
-));
-term_fn!(term_f64, f64, tantivy::schema::OwnedValue::F64);
-term_fn!(term_bool, bool, tantivy::schema::OwnedValue::Bool);
-term_fn!(json, pgrx::Json, |_v| unimplemented!(
-    "json in term query not implemented"
-));
-term_fn!(jsonb, pgrx::JsonB, |_v| unimplemented!(
-    "jsonb in term query not implemented"
-));
-term_fn!(date, pgrx::Date, pgrx_date_to_tantivy_value);
-term_fn!(time, pgrx::Time, pgrx_time_to_tantivy_value);
-term_fn!(timestamp, pgrx::Timestamp, pgrx_timestamp_to_tantivy_value);
-term_fn!(
-    time_with_time_zone,
-    pgrx::TimeWithTimeZone,
-    pgrx_timetz_to_tantivy_value
-);
-term_fn!(
-    timestamp_with_time_zome,
-    pgrx::TimestampWithTimeZone,
-    pgrx_timestamptz_to_tantivy_value
-);
-term_fn!(anyarray, pgrx::AnyArray, |_v| unimplemented!(
-    "array in term query not implemented"
-));
-term_fn!(pg_box, pgrx::pg_sys::BOX, |_v| unimplemented!(
-    "box in term query not implemented"
-));
-term_fn!(point, pgrx::pg_sys::Point, |_v| unimplemented!(
-    "point in term query not implemented"
-));
-term_fn!(tid, pgrx::pg_sys::ItemPointerData, |_v| unimplemented!(
-    "tid in term query not implemented"
-));
-term_fn!(inet, pgrx::Inet, |_v| unimplemented!(
-    "inet in term query not implemented"
-));
-term_fn!(numeric, pgrx::AnyNumeric, |v: pgrx::AnyNumeric| {
-    tantivy::schema::OwnedValue::F64(v.try_into().unwrap())
-});
-term_fn!(int4range, pgrx::Range<i32>, |_v| unimplemented!(
-    "int4 range in term query not implemented"
-));
-term_fn!(int8range, pgrx::Range<i64>, |_v| unimplemented!(
-    "int8 range in term query not implemented"
-));
-term_fn!(
-    numrange,
-    pgrx::Range<pgrx::AnyNumeric>,
-    |_v| unimplemented!("numeric range in term query not implemented")
-);
-term_fn!(daterange, pgrx::Range<pgrx::Date>, |_v| unimplemented!(
-    "date range in term query not implemented"
-));
-term_fn!(tsrange, pgrx::Range<pgrx::Timestamp>, |_v| unimplemented!(
-    "timestamp ranges in term query not implemented"
-));
-term_fn!(
-    tstzrange,
-    pgrx::Range<pgrx::TimestampWithTimeZone>,
-    |_v| unimplemented!("timestamp ranges with time zone in term query not implemented")
-);
-term_fn!(uuid, pgrx::Uuid, |v: pgrx::Uuid| {
-    tantivy::schema::OwnedValue::Str(v.to_string())
-});
+term_fn!(term_bytes, Vec<u8>);
+term_fn!(term_str, String);
+term_fn!(term_i8, i8);
+term_fn!(term_i16, i16);
+term_fn!(term_i32, i32);
+term_fn!(term_i64, i64);
+term_fn!(term_f32, f32);
+term_fn!(term_f64, f64);
+term_fn!(term_bool, bool);
+term_fn!(json, pgrx::Json);
+term_fn!(jsonb, pgrx::JsonB);
+term_fn!(date, pgrx::Date);
+term_fn!(time, pgrx::Time);
+term_fn!(timestamp, pgrx::Timestamp);
+term_fn!(time_with_time_zone, pgrx::TimeWithTimeZone);
+term_fn!(timestamp_with_time_zome, pgrx::TimestampWithTimeZone);
+term_fn!(anyarray, pgrx::AnyArray);
+term_fn!(pg_box, pgrx::pg_sys::BOX);
+term_fn!(point, pgrx::pg_sys::Point);
+term_fn!(tid, pgrx::pg_sys::ItemPointerData);
+term_fn!(inet, pgrx::Inet);
+term_fn!(numeric, pgrx::AnyNumeric);
+term_fn!(int4range, pgrx::Range<i32>);
+term_fn!(int8range, pgrx::Range<i64>);
+term_fn!(numrange, pgrx::Range<pgrx::AnyNumeric>);
+term_fn!(daterange, pgrx::Range<pgrx::Date>);
+term_fn!(tsrange, pgrx::Range<pgrx::Timestamp>);
+term_fn!(tstzrange, pgrx::Range<pgrx::TimestampWithTimeZone>);
+term_fn!(uuid, pgrx::Uuid);
 
 #[pg_extern(immutable, parallel_safe)]
 pub fn term_set(

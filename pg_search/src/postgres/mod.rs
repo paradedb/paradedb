@@ -27,6 +27,7 @@ mod vacuum;
 mod validate;
 
 pub mod datetime;
+pub mod types;
 pub mod utils;
 
 #[pg_extern(sql = "

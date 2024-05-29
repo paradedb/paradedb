@@ -5505,7 +5505,6 @@ version = "0.7.3"
 dependencies = [
  "anyhow",
  "async-std",
- "async-trait",
  "aws-config",
  "aws-sdk-s3",
  "chrono",

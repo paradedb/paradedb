@@ -26,10 +26,6 @@ impl Benchmark {
 
         Ok(())
     }
-    pub async fn query(&self, conn: &mut PgConnection) -> Result<()> {
-        conn.execute(self.query.as_ref()).await?;
-        Ok(())
-    }
     pub async fn run_pg(&self) -> Result<()> {
         // One-time setup code goes here.
         debug!(DATABASE_URL = self.database_url);
@@ -79,7 +75,9 @@ impl Benchmark {
 
         // Run actual query to be benchmarked.
         let start_time = SystemTime::now();
-        self.query(conn.as_mut()).await.unwrap();
+        block_on(async {
+            sqlx::query(&self.query).execute(&mut conn).await.unwrap();
+        });
         let end_time = SystemTime::now();
 
         Self::print_results(start_time, end_time);

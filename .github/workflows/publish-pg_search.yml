@@ -26,6 +26,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     container:
       image: ${{ matrix.image }}
+      options: --platform linux/${{ matrix.arch }}
     strategy:
       matrix:
         include:

@@ -144,9 +144,14 @@ jobs:
           else
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
           fi
-          # Retrieve the OS Distributor ID (-is) and Release (-rs) Versions
-          DISTRO=$(echo "$(lsb_release -is)" | tr '[:upper:]' '[:lower:]')
-          RELEASE=$(lsb_release -rs)
+
+          if [ -x "$(command -v lsb_release)" ]; then
+            DISTRO=$(echo "$(lsb_release -is)" | tr '[:upper:]' '[:lower:]')
+            RELEASE=$(lsb_release -rs)
+          else
+            DISTRO=$(cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '"')
+            RELEASE=$(cat /etc/os-release | grep ^VERSION_ID= | cut -d= -f2 | tr -d '"')
+          fi
           echo "OS Version: $DISTRO-$RELEASE"
           echo "os_version=$DISTRO-$RELEASE" >> $GITHUB_OUTPUT
 

@@ -159,7 +159,9 @@ jobs:
       # their target machine, or use our Docker image.
       - name: Package pg_lakehouse Extension with pgrx
         working-directory: pg_lakehouse/
-        run: USE_GENERIC_CPU=1 cargo pgrx package --features telemetry
+        run: |
+          sed -i '/\[target\.\x27cfg(target_arch = "arm")\x27\]/a rustflags = ["-Ctarget-cpu=generic"]' ../.cargo/config.toml || echo -e '[target.\x27cfg(target_arch = "arm")\x27]\nrustflags = ["-Ctarget-cpu=generic"]' >> ../.cargo/config.toml
+          cargo pgrx package --features telemetry
 
       - name: Create .deb Package
         run: |

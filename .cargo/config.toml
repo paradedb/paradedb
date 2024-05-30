@@ -4,16 +4,6 @@
 [build]
 rustflags = ["-Ctarget-cpu=native"]
 
-# On arm CPUs, we add the option to use generic CPU optimizations when
-# building for distribution. This is to avoid illegal instructions on
-# machines with older CPUs. If you are looking for maximum performance
-# and can compile on the target machine, don't set this option.
-[target.'cfg(target_arch = "arm")']
-rustflags = [
-  { env = "USE_GENERIC_CPU", value = "-Ctarget-cpu=generic" },
-  { env_not = "USE_GENERIC_CPU", value = "-Ctarget-cpu=native" },
-]
-
 # on macOS, PostgreSQL symbols won't be available until runtime
 [target.'cfg(target_os="macos")']
 rustflags = ["-Clink-arg=-Wl,-undefined,dynamic_lookup"]
